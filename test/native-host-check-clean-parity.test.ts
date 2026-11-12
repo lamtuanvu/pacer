@@ -8,11 +8,13 @@
  * Every child, and the core each front door starts, gets PACER_PORT: its own server port or a closed one, never 4317.
  */
 import {afterAll, describe, expect, test} from "bun:test";
+import {Database} from "bun:sqlite";
 import {execFileSync} from "node:child_process";
 import {chmodSync, cpSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, renameSync, rmSync, utimesSync, writeFileSync} from "node:fs";
 import {createServer} from "node:net";
 import {join, relative} from "node:path";
 import {stringify} from "yaml";
+import {createSession} from "../src/serve/app-auth";
 import {createTask, updateTask} from "../src/tasks/store";
 import {fakeCtx} from "./helpers";
 import {closedPort, pinnedEnv} from "./isolated-port";
@@ -76,8 +78,8 @@ function session(home: string, at: number, used: number) {
 
 /**
  * A configured host `box` whose SSH runs locally against a fake host home through the real plugins, and four tasks
- * that ran on it: received and mapped (removable), received from an unmapped checkout, never received, and running.
- * The seeded home is saved once; `reset` restores it at the same path, so task ids and paths match between runs.
+ * that ran on it: received and mapped (removable), received from an unmapped checkout, never received, and running,
+ * plus an app session for cookie callers. The seeded home is saved once; `reset` restores it at the same path, so task ids and paths match between runs.
  */
 function world() {
   // host.sock must fit SUN_LEN (~104); bun test's TMPDIR is too deep for native serve.
@@ -129,9 +131,10 @@ function world() {
     unreceived: remoteTask(repo, "done", false),
     running: remoteTask(repo, "running", false),
   };
+  const cookie = createSession(fakeCtx({home, pacerHome, now: Date.now() / 1000}));
   cpSync(home, saved, {recursive: true, verbatimSymlinks: true});
   return {
-    home, pacerHome, repo, other, checkout, hostHome, bin, log, down, delay, tasks,
+    home, pacerHome, repo, other, checkout, hostHome, bin, log, down, delay, tasks, cookie,
     reset() {
       rmSync(home, {recursive: true, force: true});
       cpSync(saved, home, {recursive: true, verbatimSymlinks: true});
@@ -158,8 +161,37 @@ function tree(dir: string): string[] {
     .map(entry => relative(dir, join(entry.parentPath, entry.name))).sort();
 }
 
-/** Jobs, host checks, the remote usage cache, task records, the fake host's files, SSH calls and local branches. */
-function state(w: World) {
+/**
+ * The task store's schema and rows. File bytes are not compared: checkpoints and the last connection's close move WAL
+ * pages into `tasks.db` and reset or remove `-wal` and `-shm` without changing what the store holds. The first open in a
+ * process re-imports task files changed since the store last saw them, on either path; that renews their `json_mtime`
+ * import stamps (masked unless `exact`) and rewrites `record`, which Rust's importer serializes with JSON.parse doubles
+ * (`60.0`), so `record` is compared as parsed JSON, the way every reader takes it.
+ */
+function taskStore(pacerHome: string, exact: boolean) {
+  const path = join(pacerHome, "state", "tasks.db");
+  if (!existsSync(path)) return null;
+  // A copy, so reading opens no connection to the store under test.
+  const copy = mkdtempSync("/tmp/phcc-db-");
+  for (const suffix of ["", "-wal"]) if (existsSync(path + suffix)) cpSync(path + suffix, join(copy, `tasks.db${suffix}`));
+  const db = new Database(join(copy, "tasks.db"));
+  try {
+    const schema = db.query<{type: string; name: string; sql: string | null}, []>("SELECT type, name, sql FROM sqlite_master ORDER BY type, name").all();
+    const rows = schema.filter(entry => entry.type === "table").map(({name}) => [name, db.query<Record<string, unknown>, []>(`SELECT * FROM "${name}" ORDER BY rowid`).all()
+      .map(row => ({
+        ...row,
+        ...(typeof row.record === "string" ? {record: JSON.parse(row.record)} : {}),
+        ...("json_mtime" in row && !exact ? {json_mtime: "<mtime>"} : {}),
+      }))]);
+    return {schema, rows};
+  } finally { db.close(); rmSync(copy, {recursive: true, force: true}); }
+}
+
+/**
+ * Jobs, host checks, the remote usage cache, task records and the task store, the strategy file, the fake host's files,
+ * SSH calls and local branches. `exact` keeps the task store's import stamps.
+ */
+function state(w: World, exact = false) {
   const read = (path: string) => existsSync(path) ? JSON.parse(readFileSync(path, "utf8")) : null;
   const jsonDir = (dir: string) => tree(dir).filter(name => name.endsWith(".json")).map(name => [name, read(join(dir, name))]);
   return mask(JSON.stringify({
@@ -168,10 +200,24 @@ function state(w: World) {
     hostChecks: read(join(w.pacerHome, "state", "host-checks.json")),
     usage: jsonDir(join(w.pacerHome, "cache", "remote-usage")),
     tasks: jsonDir(join(w.pacerHome, "tasks")),
+    taskStore: taskStore(w.pacerHome, exact),
+    strategy: readFileSync(join(w.pacerHome, "strategy.yaml"), "utf8"),
     host: tree(w.hostHome),
     ssh: existsSync(w.log) ? readFileSync(w.log, "utf8").split("\n").filter(Boolean).length : 0,
     branches: [git(w.repo, "branch", "--list"), git(w.other, "branch", "--list")],
   }));
+}
+
+/** The state once Core's start-up work (store migrations, the first remote usage poll) has stopped changing it. */
+async function quiet(w: World) {
+  const end = Date.now() + 30_000;
+  for (let last = state(w); ; ) {
+    await Bun.sleep(1000);
+    const next = state(w);
+    if (next === last) return next;
+    if (Date.now() > end) throw new Error("timed out waiting for a quiet home");
+    last = next;
+  }
 }
 
 function sandboxEnv(w: World, forward: string | undefined, extra: Record<string, string>) {
@@ -207,9 +253,9 @@ function freePort(): Promise<number> {
   });
 }
 
-async function serve(w: World, forward?: string) {
+async function serve(w: World, forward?: string, extra: Record<string, string> = {}) {
   const port = await freePort();
-  const env = sandboxEnv(w, forward, {PACER_PORT: String(port)});
+  const env = sandboxEnv(w, forward, {PACER_PORT: String(port), ...extra});
   const child = Bun.spawn([frontDoor(), "serve", "--port", String(port)], {env, cwd: w.home, stdout: "ignore", stderr: "pipe"});
   children.push(child);
   const stderr = drain(child.stderr);
@@ -219,7 +265,9 @@ async function serve(w: World, forward?: string) {
     const response = await fetch(`http://127.0.0.1:${port}/v3/ops/${op}`, {method: "POST", headers: {"content-type": "application/json", ...headers}, body});
     return {status: response.status, type: response.headers.get("content-type"), body: await response.text()};
   };
-  return {stderr, raw, stop: async () => { child.kill(); await child.exited; await stderr.done; }};
+  /** An app (cookie session) caller. */
+  const app = {cookie: `pacer_session=${w.cookie}`, origin: `http://127.0.0.1:${port}`, "x-pacer-client": "app"};
+  return {stderr, raw, app, stop: async () => { child.kill(); await child.exited; await stderr.done; }};
 }
 
 function connect(w: World, forward?: string, extra: Record<string, string> = {}) {
@@ -279,8 +327,8 @@ describe("HTTP front door", () => {
     w.reset();
     const server = await serve(w, forward);
     const out: Record<string, unknown> = {};
-    const job = async (op: string, body: string) => {
-      const reply = await server.raw(op, body);
+    const job = async (op: string, body: string, headers?: Record<string, string>) => {
+      const reply = await server.raw(op, body, headers);
       const parsed = JSON.parse(reply.body);
       expect(parsed.result?.job?.state, reply.body).toBe("running");
       const id = parsed.result.job.id;
@@ -293,11 +341,15 @@ describe("HTTP front door", () => {
     };
     out.refusals = [];
     for (const [op, body] of REFUSALS) (out.refusals as unknown[]).push(await server.raw(op, body));
-    const before = state(w);
+    out.appRefusals = [await server.raw("host.check", '{"alias":"nope"}', server.app), await server.raw("host.clean", '{"alias":"box","dry_run":"yes"}', server.app)];
+    const before = await quiet(w), stamps = state(w, true);
     out.dryRuns = [];
     for (const body of DRY_RUNS) (out.dryRuns as unknown[]).push(await server.raw("host.clean", body));
+    out.appDryRun = await server.raw("host.clean", DRY_RUNS[0]!, server.app);
     out.dryRunWroteNothing = state(w) === before;
+    out.dryRunRestampedStore = state(w, true) !== stamps;
     out.check = await job("host.check", JSON.stringify({alias: "box", repo: w.repo}));
+    out.appCheck = await job("host.check", JSON.stringify({alias: "box", repo: w.repo}), server.app);
     out.unmapped = await server.raw("host.check", JSON.stringify({alias: "box", repo: w.other}));
     out.notRepo = await server.raw("host.check", JSON.stringify({alias: "box", repo: join(w.home, "missing")}));
 
@@ -319,8 +371,35 @@ describe("HTTP front door", () => {
     return {out, trace: server.stderr.text, calls: hostCalls(w)};
   }
 
+  /** A serve process whose environment carries the enforcement identity, called by the operator bearer and an app session. */
+  async function enforced(w: World, forward?: string) {
+    w.reset();
+    const server = await serve(w, forward, {PACER_ENFORCEMENT_TOKEN: "t"});
+    const replies = [];
+    for (const headers of [undefined, server.app]) {
+      for (const [op, body] of [["host.check", '{"alias":"box"}'], ["host.clean", DRY_RUNS[0]!], ["host.clean", '{"alias":"box"}']] as const) {
+        replies.push(await server.raw(op, body, headers));
+      }
+    }
+    const out = {replies, state: state(w), removableKept: existsSync(w.tasks.removable.worktree)};
+    await server.stop();
+    return {out, trace: server.stderr.text, calls: hostCalls(w)};
+  }
+
   test("replies and effects match the forwarded path; only admitted requests reach Core, through the bridge", async () => {
     const w = world();
+    const enforcement = {native: await enforced(w), forwarded: await enforced(w, FORWARD)};
+    expect(enforcement.native.out).toEqual(enforcement.forwarded.out);
+    for (const reply of enforcement.native.out.replies) {
+      expect(JSON.parse(reply.body).error).toEqual({code: "not_allowed", message: "Enforcement identity only reports a native child denial"});
+    }
+    expect(enforcement.native.out.removableKept).toBe(true);
+    expect(enforcement.native.trace).toContain("native host.check");
+    expect(enforcement.native.trace).toContain("native host.clean");
+    expect(enforcement.native.calls).toEqual([]);
+    expect(enforcement.forwarded.trace).not.toMatch(TRACED);
+    expect(enforcement.forwarded.calls).toEqual(Array(2).fill(["/v3/ops/host.check", "/v3/ops/host.clean", "/v3/ops/host.clean"]).flat());
+
     const native = await scenarios(w);
     const forwarded = await scenarios(w, FORWARD);
     expect(native.out).toEqual(forwarded.out);
@@ -329,11 +408,12 @@ describe("HTTP front door", () => {
     expect(native.trace).toContain("native host.clean");
     expect(forwarded.trace).not.toMatch(TRACED);
     const bridge = "/_internal/host-effects";
-    // check, unmapped, missing local repo, two deduplicated checks, unreachable, two broken host checkouts, clean;
-    // then the work grant, forwarded.
-    expect(native.calls).toEqual([...Array(9).fill(bridge), "/v3/ops/host.check"]);
+    // check, app check, unmapped, missing local repo, two deduplicated checks, unreachable, two broken host checkouts,
+    // clean; then the work grant, forwarded.
+    expect(native.calls).toEqual([...Array(10).fill(bridge), "/v3/ops/host.check"]);
     expect(forwarded.calls).not.toContain(bridge);
-    expect(forwarded.calls.filter(call => call === "/v3/ops/host.clean")).toHaveLength(REFUSALS.filter(([op]) => op === "host.clean").length + DRY_RUNS.length + 1);
+    // Bearer clean refusals, app refusal, bearer and app dry runs, clean.
+    expect(forwarded.calls.filter(call => call === "/v3/ops/host.clean")).toHaveLength(REFUSALS.filter(([op]) => op === "host.clean").length + 1 + DRY_RUNS.length + 1 + 1);
 
     const r = native.out as Record<string, any>;
     const errors = (r.refusals as Array<{status: number; body: string}>).map(reply => [reply.status, JSON.parse(reply.body).error]);
@@ -353,8 +433,12 @@ describe("HTTP front door", () => {
     const {tasks} = w;
     expect(fates(r.dryRuns[0].body)).toEqual(expectedFates(w));
     expect(r.dryRuns[1]).toEqual(r.dryRuns[0]);
+    expect(r.appDryRun).toEqual(r.dryRuns[0]);
+    expect((r.appRefusals as Array<{body: string}>).map(reply => JSON.parse(reply.body).error.message))
+      .toEqual(["unknown host nope", "dry_run: Invalid input: expected boolean, received string"]);
     expect(r.dryRunWroteNothing).toBe(true);
     expect(JSON.parse(r.check.settled).result).toMatchObject({kind: "host.check", target: "box", state: "passed"});
+    expect(JSON.parse(r.appCheck.settled).result).toMatchObject({kind: "host.check", target: "box", state: "passed"});
     expect(JSON.parse(r.unmapped.body).error).toEqual({code: "invalid_input", message: "repo not mapped on box"});
     expect(r.dedupe).toEqual({same: true, kind: "host.check", target: "box", state: "running"});
     expect(JSON.parse(r.unreachable.settled).result).toMatchObject({kind: "host.check", state: "failed"});
@@ -376,10 +460,11 @@ describe("stdio front door", () => {
     await rpc.call("hello", '{"protocol":3}');
     out.refusals = [];
     for (const [op, params] of REFUSALS) (out.refusals as unknown[]).push(await rpc.call(op, params));
-    const before = state(w);
+    const before = await quiet(w), stamps = state(w, true);
     out.dryRuns = [];
     for (const params of DRY_RUNS) (out.dryRuns as unknown[]).push(await rpc.call("host.clean", params));
     out.dryRunWroteNothing = state(w) === before;
+    out.dryRunRestampedStore = state(w, true) !== stamps;
     out.check = mask(await rpc.call("host.check", JSON.stringify({alias: "box", repo: w.repo})));
     out.unmapped = await rpc.call("host.check", JSON.stringify({alias: "box", repo: w.other}));
     writeFileSync(w.down, "");
