@@ -1,5 +1,7 @@
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
-import { healthy, pacerArgv, record, sandboxEnv, type Session } from "./core";
+import { installFixture } from "../../conformance/install";
+import { down, healthy, pacerArgv, record, sandboxEnv, type Session } from "./core";
 
 type Reply = { id?: number; result?: unknown; error?: unknown };
 
@@ -81,5 +83,211 @@ export async function exerciseNativeStdio(session: Session): Promise<void> {
   } catch (error) {
     record(session, { kind: "note", behavior: "Forced-forward stdio hello", surface: "stdio API", verdict: "FAIL", text: (error as Error).message });
     throw error;
+  }
+}
+
+const PLUGIN = "fx-ui";
+const RENDER = { plugin: PLUGIN, surface: "activity", id: "checklist", context: { route: "overview", theme: "light" } };
+/** The fixed plugin exchange: one request before hello, then the plugin lifecycle under protocol 3. */
+export const PLUGIN_STDIO_STEPS: ReadonlyArray<readonly [number, string, Record<string, unknown>]> = [
+  [1, "plugin.list", {}],
+  [2, "hello", { protocol: 3 }],
+  [3, "plugin.list", {}],
+  [4, "plugin.enable", { id: PLUGIN, grant: true }],
+  [5, "plugin.doctor", { id: PLUGIN }],
+  [6, "plugin.ui.render", RENDER],
+  [7, "plugin.settings.get", { plugin: PLUGIN }],
+  [8, "plugin.disable", { id: PLUGIN }],
+  [9, "plugin.enable", { id: PLUGIN, grant: true }],
+  [10, "plugin.doctor", { id: PLUGIN }],
+];
+export type PluginOwnership = "core" | "own" | "attach";
+
+type PluginReply = Reply & { error?: { code?: number; message?: string; data?: { code?: string; hint?: string } }; result?: any };
+
+/** Checks the replies and native traces of one run of the fixed plugin exchange. */
+export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: string, ownership: PluginOwnership): void {
+  const reply = (id: number) => {
+    const value = replies.get(id);
+    if (!value) throw Error(`plugin stdio returned no reply to ${id}`);
+    return value;
+  };
+  if (reply(1).error?.data?.code !== "unknown_op") throw Error("plugin.list before hello was not refused by TypeScript");
+  if (reply(2).result?.protocol !== "3.0.0") throw Error("plugin stdio did not negotiate protocol 3");
+  for (const [id] of PLUGIN_STDIO_STEPS.slice(2)) if (reply(id).error) throw Error(`plugin step ${id} failed: ${JSON.stringify(reply(id).error)}`);
+  if (!reply(3).result?.plugins?.some((p: { id?: string }) => p.id === PLUGIN)) throw Error("plugin.list did not list the fixture plugin");
+  for (const id of [5, 10]) if (reply(id).result?.reports?.[0]?.ok !== true) throw Error(`plugin.doctor ${id} did not report a healthy plugin`);
+  const lines = stderr.split("\n");
+  for (const [id, method] of PLUGIN_STDIO_STEPS) {
+    if (method === "hello") continue;
+    const count = lines.filter(line => line === `native ${method} ${id}`).length;
+    if (count !== (id === 1 ? 0 : 1)) throw Error(`native trace for ${method} ${id} appeared ${count} times`);
+  }
+  const owner = lines.filter(line => line.startsWith("native plugin owner "));
+  const expected = ownership === "own" ? /^native plugin owner own .*\/run\/s[0-9a-f]{12}\.sock$/ : /^native plugin owner attach .*\/run\/host\.sock$/;
+  if (ownership === "core" ? owner.length !== 0 : owner.length !== 1 || !expected.test(owner[0])) {
+    throw Error(`plugin ownership trace differed from ${ownership}: ${owner.join(" | ") || "none"}`);
+  }
+}
+
+function alive(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch { return false; }
+}
+async function gone(pid: number, ms = 5000): Promise<boolean> {
+  for (const deadline = Date.now() + ms; Date.now() < deadline; await Bun.sleep(50)) if (!alive(pid)) return true;
+  return !alive(pid);
+}
+/** Running fixture plugin processes. Native owners report no pid in `plugin.doctor`, so they are found by entry path. */
+function pluginProcesses(home: string): Array<{ pid: number; ppid: number }> {
+  const entry = join(home, "plugins", PLUGIN, "main.ts");
+  return Bun.spawnSync(["ps", "-Ao", "pid=,ppid=,command="]).stdout.toString().split("\n").flatMap(line => {
+    const match = /^\s*(\d+)\s+(\d+)\s+(.*)$/.exec(line);
+    return match && match[3].split(" ").includes(entry) ? [{ pid: Number(match[1]), ppid: Number(match[2]) }] : [];
+  });
+}
+const connectionSockets = (home: string) => existsSync(join(home, "run")) ? readdirSync(join(home, "run")).filter(name => /^s[0-9a-f]{12}\.sock$/.test(name)) : [];
+
+/** One stdio connection that sends fixed lines one at a time and waits for each reply. */
+function stdioConnection(session: Session, nativeHost: "0" | "1") {
+  const argv = [...pacerArgv(session), "api", "--stdio"];
+  const env = { ...sandboxEnv(session), HOME: join(session.root, "home"), PACER_NO_SELF_REPAIR: "1", PACER_DEBUG_NATIVE: "1", PACER_NATIVE_PLUGIN_HOST: nativeHost };
+  const child = Bun.spawn(argv, { cwd: join(session.root, "repo"), env, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
+  const stderr = new Response(child.stderr).text();
+  const replies = new Map<number, PluginReply>(), waiters = new Map<number, (reply: PluginReply) => void>();
+  const stdout: string[] = [];
+  const pump = (async () => {
+    const reader = child.stdout.getReader(), decoder = new TextDecoder();
+    let buffer = "";
+    for (let part = await reader.read(); !part.done; part = await reader.read()) {
+      buffer += decoder.decode(part.value, { stream: true });
+      for (let i = buffer.indexOf("\n"); i >= 0; i = buffer.indexOf("\n")) {
+        const line = buffer.slice(0, i); buffer = buffer.slice(i + 1);
+        stdout.push(line);
+        const message = JSON.parse(line) as PluginReply;
+        if (typeof message.id !== "number") continue;
+        replies.set(message.id, message);
+        waiters.get(message.id)?.(message);
+      }
+    }
+  })();
+  return {
+    argv, replies, pid: child.pid,
+    async call(id: number, method: string, params: unknown): Promise<PluginReply> {
+      const answered = new Promise<PluginReply>((resolve, reject) => {
+        const timer = setTimeout(() => reject(Error(`plugin stdio: no reply to ${id}`)), 30000);
+        waiters.set(id, value => { clearTimeout(timer); resolve(value); });
+      });
+      child.stdin.write(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
+      child.stdin.flush();
+      return await answered;
+    },
+    async close() {
+      child.stdin.end();
+      if (await Promise.race([child.exited.then(() => false), Bun.sleep(20000).then(() => true)])) child.kill("SIGKILL");
+      const code = await child.exited;
+      await pump;
+      const text = await stderr;
+      record(session, { kind: "command", argv: [...argv, `(PACER_NATIVE_PLUGIN_HOST=${nativeHost})`], code, stdout: stdout.join("\n"), stderr: text });
+      return { code, stderr: text };
+    },
+  };
+}
+
+async function httpOp(session: Session, op: string, params: unknown): Promise<PluginReply> {
+  const token = readFileSync(join(session.root, "home/token"), "utf8").trim();
+  const response = await fetch(`http://127.0.0.1:${session.port}/v3/ops/${op}`, { method: "POST", headers: { authorization: `Bearer ${token}`, "content-type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
+  return await response.json() as PluginReply;
+}
+
+/**
+ * Fixed stdio plugin exchange with the native host off and on, on the sandbox's Rust front door.
+ * A running sandbox service decides the flag-on owner (attach when it runs `--native-plugin-host`);
+ * a sandbox stopped with `down --keep` is a home without a service. Accepts no operation, path or
+ * environment override.
+ */
+export async function exerciseNativePluginStdio(session: Session, stopService = false): Promise<void> {
+  if (session.frontDoor !== "rust" || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
+    throw Error("native plugin stdio requires a Rust front-door sandbox without forwarding or real Keychain");
+  }
+  const serviceLive = !session.stopped && await healthy(session);
+  if (!session.stopped && !serviceLive) throw Error("native plugin stdio requires a healthy sandbox or one stopped with down --keep");
+  if (stopService && !(serviceLive && session.nativePluginHost)) throw Error("--stop-service requires a healthy --native-plugin-host sandbox");
+  const home = join(session.root, "home");
+  if (!existsSync(join(home, "plugins", PLUGIN))) installFixture("ui", join(home, "plugins"));
+  const where = serviceLive ? `beside the sandbox service (native host ${session.nativePluginHost ? "on" : "off"})` : "on the sandbox home with its service stopped";
+  const flagOn: PluginOwnership = serviceLive && session.nativePluginHost ? "attach" : "own";
+  const runs: Array<["0" | "1", PluginOwnership]> = stopService ? [["1", "attach"]] : [["0", "core"], ["1", flagOn]];
+  for (const [nativeHost, ownership] of runs) {
+    const behavior = `Stdio plugin ops, native host ${nativeHost === "1" ? "on" : "off"} (${ownership})`;
+    const baseline = new Set(pluginProcesses(home).map(p => p.pid));
+    const connection = stdioConnection(session, nativeHost);
+    // The one plugin process this connection's exchange started, checked against the expected parent.
+    const started = async () => {
+      let fresh: Array<{ pid: number; ppid: number }> = [];
+      // An attached connection may reuse the service's process from an earlier connection.
+      const ours = (p: { pid: number; ppid: number }) => !baseline.has(p.pid) || (ownership === "attach" && p.ppid === session.pid);
+      for (let i = 0; i < 100 && fresh.length !== 1; i++, await Bun.sleep(50)) fresh = pluginProcesses(home).filter(ours);
+      if (fresh.length !== 1) throw Error(`expected one new plugin process, found ${JSON.stringify(fresh)}`);
+      const [child] = fresh;
+      const parent = ownership === "own" ? child.ppid === connection.pid : ownership === "attach" ? child.ppid === session.pid : child.ppid !== connection.pid && child.ppid !== session.pid;
+      if (!parent) throw Error(`plugin process ${child.pid} has parent ${child.ppid}, not the ${ownership} owner (stdio ${connection.pid}, service ${session.pid})`);
+      return child.pid;
+    };
+    try {
+      let first = 0, second = 0;
+      for (const [id, method, params] of PLUGIN_STDIO_STEPS) {
+        await connection.call(id, method, params);
+        if (id === 5) first = await started();
+        if (id === 8 && !await gone(first)) throw Error(`plugin.disable left plugin process ${first} running`);
+        if (id === 10) second = await started();
+      }
+      let shared = "";
+      if (ownership === "attach") {
+        const served = await httpOp(session, "plugin.doctor", { id: PLUGIN });
+        if (served.error || served.result?.reports?.[0]?.ok !== true) throw Error(`service doctor failed: ${JSON.stringify(served)}`);
+        if (await started() !== second) throw Error("the service started a second plugin process");
+        shared = ` The service's own plugin.doctor reported it healthy without starting another process.`;
+      }
+      if (stopService) {
+        await down(session, true);
+        const after = await connection.call(11, "plugin.ui.render", RENDER);
+        record(session, { kind: "note", text: `plugin.ui.render after the attached service stopped: ${JSON.stringify(after)}` });
+        if (after.error?.data?.code !== "plugin_unavailable") throw Error(`render after the service stopped was not plugin_unavailable: ${JSON.stringify(after)}`);
+        if (!await gone(second)) throw Error(`plugin process ${second} outlived the stopped service`);
+        record(session, { kind: "note", behavior: "Attached stdio connection when the service stops", surface: "stdio API", verdict: "PASS",
+          steps: "Attached stdio session open across live down --keep, then plugin.ui.render",
+          text: `The render answered plugin_unavailable (${after.error.message}${after.error.data.hint ? `; hint: ${after.error.data.hint}` : ""}); the service's plugin process ${second} stopped with the service.` });
+      }
+      const { code, stderr } = await connection.close();
+      if (code !== 0) throw Error(`stdio exited ${code}: ${stderr}`);
+      verifyPluginStdio(connection.replies, stderr, ownership);
+      let teardown = "";
+      if (ownership === "attach" && !stopService) {
+        if (!alive(second)) throw Error(`the service's plugin process ${second} stopped with the attached connection`);
+        teardown = ` After EOF the service's plugin process ${second} was still running.`;
+      } else if (ownership !== "attach") {
+        if (!await gone(second)) throw Error(`plugin process ${second} outlived its stdio connection`);
+        if (connectionSockets(home).length) throw Error(`connection sockets remained: ${connectionSockets(home).join(", ")}`);
+        teardown = ` After EOF plugin process ${second} had exited${ownership === "own" ? " and the connection socket was removed" : ""}.`;
+      }
+      record(session, { kind: "note", behavior, surface: "stdio API", verdict: "PASS",
+        steps: `Fixed exchange ${where}: plugin.list before hello, hello(3), list, enable, doctor, ui.render, settings.get, disable, enable, doctor`,
+        text: `Pre-hello plugin.list went to TypeScript; the ${PLUGIN_STDIO_STEPS.length - 2} protocol-3 plugin requests answered natively once each, and the ownership trace was ${ownership === "core" ? "absent" : ownership}. Each doctor started one plugin process under the ${ownership === "own" ? "stdio front door" : ownership === "attach" ? "service" : "stdio Core child"}, and disable stopped the first (${first}).${shared}${teardown}` });
+    } catch (error) {
+      await connection.close().catch(() => undefined);
+      record(session, { kind: "note", behavior, surface: "stdio API", verdict: "FAIL", text: (error as Error).message });
+      throw error;
+    }
+  }
+  if (serviceLive && !stopService) {
+    const listed = await httpOp(session, "plugin.list", {});
+    const doctor = await httpOp(session, "plugin.doctor", { id: PLUGIN });
+    if (listed.error || !listed.result?.plugins?.some((p: { id?: string }) => p.id === PLUGIN) || doctor.error || doctor.result?.reports?.[0]?.ok !== true) {
+      record(session, { kind: "note", behavior: "HTTP plugin ops beside stdio sessions", surface: "HTTP API", verdict: "FAIL", text: JSON.stringify({ listed, doctor }) });
+      throw Error("HTTP plugin ops failed after the stdio sessions");
+    }
+    record(session, { kind: "note", behavior: "HTTP plugin ops beside stdio sessions", surface: "HTTP API", verdict: "PASS",
+      steps: "plugin.list and plugin.doctor through the guarded proxy after both stdio sessions",
+      text: `The service listed ${PLUGIN} and reported it healthy.` });
   }
 }

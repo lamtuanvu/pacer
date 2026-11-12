@@ -109,6 +109,27 @@ It accepts no operation, path or
 environment override. The normal guarded `live pacer -- api --stdio` remains
 refused. Report native stdio as PASS only when this fixture passes.
 
+Stdio plugin operations have their own fixed fixture, `bun run live native-plugin-stdio
+--id <id>`, for any Rust front-door sandbox without forwarding or the real Keychain; it
+does not need `--native-test-ops`. It installs the conformance `fx-ui` plugin in the
+sandbox home if missing, then opens two stdio connections, with
+`PACER_NATIVE_PLUGIN_HOST=0` and `=1`. Each sends `plugin.list` before `hello`, which
+must reach TypeScript, then `hello` (protocol 3), `plugin.list`, `plugin.enable`,
+`plugin.doctor`, `plugin.ui.render`, `plugin.settings.get`, `plugin.disable`,
+`plugin.enable` and `plugin.doctor`. Every protocol-3 plugin request needs exactly one
+native trace, and the flag-on connection must print its owner decision
+([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)). On a sandbox started
+with `--native-plugin-host` the flag-on connection must attach to the service's
+`run/host.sock`, and the service's `plugin.doctor` must report the same plugin process.
+Otherwise it must own its children on `run/s<12-hex>.sock`, and both the socket and the
+plugin process must be gone after the connection ends. On a running sandbox the fixture
+then checks `plugin.list` and `plugin.doctor` over HTTP. Run it again after
+`live down --keep` for a home without a service. `--stop-service` (only with
+`--native-plugin-host`) runs only the attached connection, keeps it open, stops the sandbox as
+`live down --keep` does, and requires `plugin_unavailable` from the next render. Socket
+paths must fit in 103 bytes, so run the fixture from a checkout with a short path: under
+a deep checkout, a flag-on connection that has to own its children refuses to start.
+
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
 Paired startup sends the listener and helper channel together in one descriptor-transfer frame. Root retains the helper channel’s sender duplicate until Core receives both descriptors, repeats the existing trust checks and acknowledges receipt. The bounded acknowledgement does not establish application readiness. Failure or generation retirement closes the pending channels; after acknowledgement, Root releases the duplicate so genuine Core EOF remains observable.
