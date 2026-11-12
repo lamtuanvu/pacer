@@ -1,6 +1,6 @@
 //! Fixed public-v3 routes for the bundled app. No caller-supplied URL crosses this boundary.
 use crate::{client::Session, logic, Shell};
-use futures_util::{SinkExt, StreamExt};
+use futures_util::{Sink, SinkExt, Stream, StreamExt};
 use reqwest::{
     header::{HeaderMap, HeaderValue},
     Method,
@@ -13,7 +13,7 @@ use std::{
 };
 use tauri::{ipc::Channel, AppHandle, Manager, WebviewWindow};
 use tokio::sync::mpsc;
-use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Message};
+use tokio_tungstenite::tungstenite::{client::IntoClientRequest, Error as WsError, Message};
 
 #[derive(Default)]
 pub struct Bridge {
@@ -220,18 +220,28 @@ fn reserve(pending: &mut usize, size: usize) -> bool {
     *pending += size;
     true
 }
+/// Release `size` bytes from the admission budget and wake one attachment
+/// waiting for room. Shared by the production ack (terminal_ack) and the fake
+/// page in the bridge tests, so both subtract and signal identically.
+fn release(pending: &Mutex<usize>, room: &tokio::sync::Notify, size: usize) {
+    let mut count = pending.lock().unwrap();
+    *count = count.saturating_sub(size);
+    room.notify_one();
+}
 /// Admission of a terminal frame into the renderer's queue. The page drains
 /// with terminal_ack; while its 1 MiB budget is full the attachment stops
 /// reading the socket so the server buffers (a replay of an ended session
 /// would otherwise overflow every attach and loop on resync). Returns false
 /// when the frame can never fit, the attachment is cancelled, or the page
-/// sends no ack for 30 seconds. A false return always ends the attachment, so
-/// the cancel receiver is never polled again after it resolves.
+/// sends no ack for `stall`. A false return always ends the attachment, so
+/// the cancel receiver is never polled again after it resolves. `stall` is
+/// injectable so tests can exercise the stall path in milliseconds.
 async fn admit(
     pending: &Arc<Mutex<usize>>,
     room: &Arc<tokio::sync::Notify>,
     cancelled: &mut tokio::sync::oneshot::Receiver<()>,
     size: usize,
+    stall: std::time::Duration,
 ) -> bool {
     if size > 1024 * 1024 {
         return false;
@@ -247,9 +257,74 @@ async fn admit(
         tokio::select! {
             _ = &mut notified => {}
             _ = &mut *cancelled => return false,
-            _ = tokio::time::sleep(std::time::Duration::from_secs(30)) => return false,
+            _ = tokio::time::sleep(stall) => return false,
         }
     }
+}
+/// A sink for terminal frames on the page side of the bridge. In production
+/// this is tauri's IPC channel; tests substitute an in-memory fake so the whole
+/// bridge runs end to end without Tauri. A `send_frame` error means the page is
+/// gone and the attachment ends. Named to avoid shadowing `Channel::send`.
+trait PageSink {
+    fn send_frame(&mut self, message: Value) -> Result<(), ()>;
+}
+impl PageSink for Channel<Value> {
+    fn send_frame(&mut self, message: Value) -> Result<(), ()> {
+        self.send(message).map_err(|_| ())
+    }
+}
+/// Forward the terminal websocket to the page with admission control, and the
+/// page's input back to the websocket. This is the body of the terminal_attach
+/// loop; it is generic over the websocket stream/sink and over a page sink so
+/// it runs identically in the app and in the integration tests. `stall` is the
+/// ack wait that triggers a resync.
+async fn drive_terminal<S, P>(
+    socket: S,
+    mut rx: mpsc::Receiver<Message>,
+    mut cancelled: tokio::sync::oneshot::Receiver<()>,
+    pending: Arc<Mutex<usize>>,
+    room: Arc<tokio::sync::Notify>,
+    mut page: P,
+    stall: std::time::Duration,
+) where
+    S: Stream<Item = Result<Message, WsError>> + Sink<Message, Error = WsError> + Unpin,
+    P: PageSink,
+{
+    let (mut sink, mut stream) = socket.split();
+    loop {
+        tokio::select! {
+            _ = &mut cancelled => break,
+            frame = rx.recv() => match frame {
+                Some(frame) => if sink.send(frame).await.is_err() { break; },
+                None => break,
+            },
+            frame = stream.next() => {
+                let Some(Ok(frame)) = frame else { break; };
+                let value = match frame {
+                    Message::Text(text) => json!({"type":"text","data":text.as_str()}),
+                    Message::Binary(bytes) => json!({"type":"binary","bytes":bytes.to_vec()}),
+                    Message::Close(_) => break,
+                    _ => continue,
+                };
+                let size = value.to_string().len();
+                // Backpressure, not dropping: wait for the page's acks so
+                // the server buffers a long replay instead of the bridge.
+                if !admit(&pending, &room, &mut cancelled, size, stall).await {
+                    // A single frame larger than the whole budget, or no ack
+                    // progress for the stall timeout. Resync clears the page's
+                    // offset so the shared session client requests a fresh
+                    // snapshot on reconnect.
+                    let _ = page.send_frame(json!({"type":"text","data":"{\"type\":\"resync\"}"}));
+                    break;
+                }
+                if page.send_frame(json!({"type":"terminal","frame":value,"size":size})).is_err() {
+                    break;
+                }
+            }
+        }
+    }
+    let _ = sink.close().await;
+    let _ = page.send_frame(json!({"type":"end"}));
 }
 fn cancel_stream(
     streams: &mut HashMap<String, (String, tokio::task::JoinHandle<()>)>,
@@ -812,13 +887,9 @@ pub async fn terminal_attach(
     .await
     .map_err(|_| "Terminal connection timed out")?
     .map_err(|_| "Terminal connection failed")?;
-    let frame = desktop_hello(&hello, from)?;
-    socket
-        .send(Message::Text(frame.to_string().into()))
-        .await
-        .map_err(|_| "Terminal hello failed")?;
-    let (tx, mut rx) = mpsc::channel(64);
-    let (cancel, mut cancelled) = tokio::sync::oneshot::channel();
+    send_terminal_hello(&mut socket, &hello, from).await?;
+    let (tx, rx) = mpsc::channel(64);
+    let (cancel, cancelled) = tokio::sync::oneshot::channel();
     let pending = Arc::new(Mutex::new(0usize));
     let room = Arc::new(tokio::sync::Notify::new());
     {
@@ -839,30 +910,19 @@ pub async fn terminal_attach(
         );
     }
     tauri::async_runtime::spawn(async move {
-        loop {
-            tokio::select! {
-                _=&mut cancelled=>break,
-                frame=rx.recv()=> match frame {Some(frame)=>if socket.send(frame).await.is_err(){break;},None=>break},
-                frame=socket.next()=> {
-                    let Some(Ok(frame))=frame else {break;};
-                    let value=match frame {Message::Text(text)=>json!({"type":"text","data":text.as_str()}),Message::Binary(bytes)=>json!({"type":"binary","bytes":bytes.to_vec()}),Message::Close(_)=>break,_=>continue};
-                    let size=value.to_string().len();
-                    // Backpressure, not dropping: wait for the page's acks so
-                    // the server buffers a long replay instead of the bridge.
-                    if !admit(&pending,&room,&mut cancelled,size).await {
-                        // A single frame larger than the whole budget, or no
-                        // ack progress for 30s. Resync clears the page's offset
-                        // so the shared session client requests a fresh snapshot
-                        // on reconnect.
-                        let _=channel.send(json!({"type":"text","data":"{\"type\":\"resync\"}"}));
-                        break;
-                    }
-                    if channel.send(json!({"type":"terminal","frame":value,"size":size})).is_err(){break;}
-                }
-            }
-        }
-        let _ = socket.close(None).await;
-        let _ = channel.send(json!({"type":"end"}));
+        // The socket type is opaque to the caller; drive_terminal is generic
+        // over it and over the page sink, so the bridge behaves identically
+        // in the app and in the integration tests.
+        drive_terminal(
+            socket,
+            rx,
+            cancelled,
+            pending,
+            room,
+            channel,
+            std::time::Duration::from_secs(30),
+        )
+        .await;
         app.state::<Bridge>()
             .terminals
             .lock()
@@ -899,6 +959,23 @@ fn desktop_hello(hello: &Value, from: Option<u64>) -> Result<Value, String> {
         frame["from"] = json!(from);
     }
     Ok(frame)
+}
+/// Send the renderer's hello to the websocket, surfacing the same errors the
+/// attach would. Generic over the sink so the wire format is testable without
+/// Tauri; the session-protocol range must be forwarded unchanged (guards #838).
+async fn send_terminal_hello<S>(
+    socket: &mut S,
+    hello: &Value,
+    from: Option<u64>,
+) -> Result<(), String>
+where
+    S: Sink<Message, Error = WsError> + Unpin,
+{
+    let frame = desktop_hello(hello, from)?;
+    socket
+        .send(Message::Text(frame.to_string().into()))
+        .await
+        .map_err(|_| "Terminal hello failed".to_string())
 }
 fn terminal(
     window: &WebviewWindow,
@@ -946,10 +1023,9 @@ pub fn terminal_ack(
         .get(&attachment)
         .filter(|terminal| terminal.owner == window.label())
         .ok_or("Unknown terminal attachment")?;
-    let mut count = terminal.pending.lock().unwrap();
-    *count = count.saturating_sub(size);
-    // Free room wakes an attachment waiting to admit its next frame.
-    terminal.room.notify_one();
+    // Free room wakes an attachment waiting to admit its next frame. release
+    // keeps the production ack and the test page's ack on the same path.
+    release(&terminal.pending, &terminal.room, size);
     Ok(())
 }
 #[tauri::command]
@@ -1328,7 +1404,14 @@ mod recovery_tests {
             let room = room.clone();
             tokio::spawn(async move {
                 let mut cancelled = cancelled;
-                admit(&pending, &room, &mut cancelled, 512).await
+                admit(
+                    &pending,
+                    &room,
+                    &mut cancelled,
+                    512,
+                    std::time::Duration::from_secs(30),
+                )
+                .await
             })
         };
         // The budget is full: the wait holds instead of dropping the frame.
@@ -1347,7 +1430,16 @@ mod recovery_tests {
         let pending = Arc::new(Mutex::new(0usize));
         let room = Arc::new(tokio::sync::Notify::new());
         let (_, mut cancelled) = tokio::sync::oneshot::channel();
-        assert!(!admit(&pending, &room, &mut cancelled, 1024 * 1024 + 1).await);
+        assert!(
+            !admit(
+                &pending,
+                &room,
+                &mut cancelled,
+                1024 * 1024 + 1,
+                std::time::Duration::from_secs(30)
+            )
+            .await
+        );
         assert_eq!(*pending.lock().unwrap(), 0);
     }
     #[tokio::test]
@@ -1361,7 +1453,14 @@ mod recovery_tests {
             let room = room.clone();
             tokio::spawn(async move {
                 let mut cancelled = cancelled;
-                admit(&pending, &room, &mut cancelled, 512).await
+                admit(
+                    &pending,
+                    &room,
+                    &mut cancelled,
+                    512,
+                    std::time::Duration::from_secs(30),
+                )
+                .await
             })
         };
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
@@ -1452,5 +1551,418 @@ mod build_diagnostic_tests {
         assert_eq!(build_diagnostic(&hello, None)["status"], "unknown");
         pair["schemaVersion"] = json!(2);
         assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unknown");
+    }
+}
+
+#[cfg(test)]
+mod bridge_e2e_tests {
+    use super::*;
+    use futures_util::{SinkExt, StreamExt};
+    use serde_json::json;
+    use tokio::net::TcpListener;
+    use tokio::task::JoinHandle;
+    use tokio::time::{timeout, Duration};
+    use tokio_tungstenite::tungstenite::Message;
+    use tokio_tungstenite::{accept_async, connect_async};
+
+    /// A page sink backed by an unbounded channel. It records each frame's
+    /// arrival time synchronously (so "when frame N reached the page" is taken
+    /// at the moment of delivery, before the driver can move on) and hands the
+    /// frame to a recorder task that acks it after an optional delay, standing
+    /// in for the renderer's terminal_ack.
+    struct TestPage {
+        tx: tokio::sync::mpsc::UnboundedSender<Value>,
+        received: std::sync::Arc<std::sync::Mutex<Vec<(std::time::Instant, Value)>>>,
+    }
+    impl PageSink for TestPage {
+        fn send_frame(&mut self, message: Value) -> Result<(), ()> {
+            self.received
+                .lock()
+                .unwrap()
+                .push((std::time::Instant::now(), message.clone()));
+            self.tx.send(message).map_err(|_| ())
+        }
+    }
+
+    /// Handle into a running bridge: drive_terminal with a fake page. The
+    /// cancel sender lives outside the handle so a test can drop it to detach.
+    /// `received` pairs each frame with the instant it reached the page.
+    struct Bridge {
+        task: JoinHandle<()>,
+        received: Arc<Mutex<Vec<(std::time::Instant, Value)>>>,
+        pending: Arc<Mutex<usize>>,
+        recorder: JoinHandle<()>,
+        _input: tokio::sync::mpsc::Sender<Message>,
+    }
+    impl Bridge {
+        async fn finish(self, deadline: Duration) -> (Vec<(std::time::Instant, Value)>, usize) {
+            timeout(deadline, self.task)
+                .await
+                .expect("bridge task finished before deadline")
+                .expect("bridge task must not panic");
+            let _ = self.recorder.await;
+            let received = self.received.lock().unwrap().clone();
+            let pending = *self.pending.lock().unwrap();
+            (received, pending)
+        }
+    }
+
+    /// Connect a client to `addr`, optionally send the hello frame before
+    /// driving, and run the extracted loop against a fake page. `ack_delay`
+    /// is the delay before the page acks each terminal frame (None disables
+    /// acks entirely, which the stall and cancel tests need).
+    async fn connect_bridge(
+        addr: std::net::SocketAddr,
+        stall: Duration,
+        ack_delay: Option<Duration>,
+        hello: Option<(Value, Option<u64>)>,
+    ) -> (Bridge, tokio::sync::oneshot::Sender<()>) {
+        let (mut socket, _) = connect_async(format!("ws://{addr}")).await.unwrap();
+        if let Some((hello, from)) = hello {
+            send_terminal_hello(&mut socket, &hello, from)
+                .await
+                .unwrap();
+        }
+        let (page_tx, mut page_rx) = tokio::sync::mpsc::unbounded_channel::<Value>();
+        let received = Arc::new(Mutex::new(Vec::new()));
+        let pending = Arc::new(Mutex::new(0usize));
+        let room = Arc::new(tokio::sync::Notify::new());
+        // The page acks through the same release() as production terminal_ack,
+        // after an optional delay.
+        let ack = pending.clone();
+        let notify = room.clone();
+        let recorder = tokio::spawn(async move {
+            while let Some(msg) = page_rx.recv().await {
+                if msg["type"] == "terminal" {
+                    if let Some(delay) = ack_delay {
+                        tokio::time::sleep(delay).await;
+                        if let Some(size) = msg["size"].as_u64() {
+                            release(&ack, &notify, size as usize);
+                        }
+                    }
+                }
+            }
+        });
+        let (cancel, cancelled) = tokio::sync::oneshot::channel();
+        let (_input, input_rx) = tokio::sync::mpsc::channel::<Message>(64);
+        let pending2 = pending.clone();
+        let room2 = room.clone();
+        let sink = TestPage {
+            tx: page_tx,
+            received: received.clone(),
+        };
+        let task = tokio::spawn(async move {
+            drive_terminal(socket, input_rx, cancelled, pending2, room2, sink, stall).await;
+        });
+        (
+            Bridge {
+                task,
+                received,
+                pending,
+                recorder,
+                _input,
+            },
+            cancel,
+        )
+    }
+
+    fn resync_count(received: &[(std::time::Instant, Value)]) -> usize {
+        received
+            .iter()
+            .filter(|(_, m)| {
+                m.get("data").and_then(|d| d.as_str()) == Some("{\"type\":\"resync\"}")
+            })
+            .count()
+    }
+
+    /// A deterministic set of output frames larger than 1 MiB, of realistic
+    /// sizes (2–4 KB scrolling lines plus occasional small control frames),
+    /// ending with an exit frame followed by the host closing the socket.
+    fn recording_frames(target: usize, mut seed: u64) -> Vec<String> {
+        let mut out = Vec::new();
+        let mut total = 0usize;
+        let mut step = 0u64;
+        while total < target {
+            step += 1;
+            seed = seed
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
+            let size = 2100 + (seed >> 8) as usize % 1999; // 2100..=4098
+            let body = format!("\x1b[2Kline-{step} {}\x1b[0m\n", "x".repeat(size));
+            total += body.len();
+            out.push(body);
+            if step.is_multiple_of(19) {
+                let control = format!(r#"{{"kind":"ping","seq":{step}}}"#);
+                total += control.len();
+                out.push(control);
+            }
+        }
+        out.push(r#"{"type":"exit"}"#.to_string());
+        out
+    }
+
+    #[tokio::test]
+    async fn replay_of_a_large_recording_arrives_in_order_without_resync() {
+        let payloads = recording_frames(3 * 1024 * 1024, 42);
+        let expected = payloads.clone();
+        let expected_len = expected.len();
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = accept_async(stream).await.unwrap();
+            let (mut sink, _) = ws.split();
+            for frame in expected {
+                // The host paces against the bridge's admit backpressure, only
+                // sending as fast as the page acks.
+                if sink.send(Message::Text(frame.into())).await.is_err() {
+                    break;
+                }
+            }
+            let _ = sink.close().await;
+        });
+
+        // Page acks slowly (1 ms per frame) — exactly the case that used to
+        // overflow the budget and loop on resync forever.
+        let (bridge, _cancel) = connect_bridge(
+            addr,
+            Duration::from_secs(30),
+            Some(Duration::from_millis(1)),
+            None,
+        )
+        .await;
+        let (received, pending) = bridge.finish(Duration::from_secs(20)).await;
+        let _ = server.await;
+
+        assert_eq!(
+            resync_count(&received),
+            0,
+            "no resync when the page keeps up"
+        );
+        let mut got: Vec<String> = Vec::new();
+        for (_, m) in &received {
+            if m["type"] == "terminal" {
+                got.push(m["frame"]["data"].as_str().unwrap().to_string());
+            }
+        }
+        assert_eq!(got.len(), expected_len, "every sent frame was forwarded");
+        assert_eq!(got, payloads, "frames arrived in order");
+        assert_eq!(
+            got.last().map(String::as_str),
+            Some("{\"type\":\"exit\"}"),
+            "exit frame arrived"
+        );
+        assert_eq!(
+            received.last().and_then(|(_, m)| m["type"].as_str()),
+            Some("end"),
+            "the attachment ended"
+        );
+        assert_eq!(pending, 0, "the page drained the whole budget");
+    }
+
+    #[tokio::test]
+    async fn a_frame_over_1_mib_resyncs_once_and_ends() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = accept_async(stream).await.unwrap();
+            let (mut sink, _) = ws.split();
+            // A single frame larger than the whole 1 MiB budget.
+            let big = "z".repeat(1100 * 1024);
+            let _ = sink.send(Message::Text(big.into())).await;
+            let _ = sink.close().await;
+        });
+        let (bridge, _cancel) = connect_bridge(addr, Duration::from_secs(30), None, None).await;
+        let (received, pending) = bridge.finish(Duration::from_secs(10)).await;
+        let _ = server.await;
+        assert_eq!(
+            resync_count(&received),
+            1,
+            "exactly one resync for an over-budget frame"
+        );
+        assert_eq!(
+            received.last().and_then(|(_, m)| m["type"].as_str()),
+            Some("end")
+        );
+        assert_eq!(pending, 0, "an over-budget frame is never admitted");
+        assert!(
+            !received.iter().any(|(_, m)| m["type"] == "terminal"),
+            "nothing forwarded"
+        );
+    }
+
+    #[tokio::test]
+    async fn an_unresponsive_page_resyncs_after_the_stall_timeout() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let _server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = accept_async(stream).await.unwrap();
+            let (mut sink, _) = ws.split();
+            // Two frames whose combined size exceeds the budget fill it, while
+            // the page (below) never acks.
+            let _ = sink
+                .send(Message::Text("y".repeat(700 * 1024).into()))
+                .await;
+            let _ = sink
+                .send(Message::Text("z".repeat(700 * 1024).into()))
+                .await;
+            std::future::pending::<()>().await;
+        });
+        let stall = Duration::from_millis(100);
+        let (bridge, _cancel) = connect_bridge(addr, stall, None, None).await;
+        let (received, _) = bridge.finish(Duration::from_secs(10)).await;
+
+        // Frame 1 must arrive immediately, filling the budget. Its arrival
+        // time is recorded by TestPage::send_frame before the driver can wait
+        // for frame 2's ack, so it is a valid lower bound for when the stall
+        // begins. The resync must then land no earlier than a full stall
+        // later, which is exactly the wait the pre-#915 drop-on-overflow code
+        // lacked (it resynced on overflow without waiting).
+        let frame1 = received
+            .iter()
+            .position(|(_, m)| m["type"] == "terminal")
+            .expect("frame 1 must reach the page");
+        let resync = received
+            .iter()
+            .position(|(_, m)| {
+                m.get("data").and_then(|d| d.as_str()) == Some("{\"type\":\"resync\"}")
+            })
+            .expect("an unacknowledged, unordable frame must eventually resync");
+        let due = received[frame1].0 + stall;
+        assert!(
+            received[resync].0 >= due,
+            "the resync must wait out the stall after the budget filled, not overflow immediately"
+        );
+        // Nothing but frame 1 reached the page before the stall elapsed.
+        for (i, (at, _)) in received.iter().enumerate() {
+            if i == frame1 {
+                continue;
+            }
+            assert!(
+                *at >= due,
+                "nothing but frame 1 reached the page before the stall elapsed"
+            );
+        }
+        assert_eq!(
+            resync_count(&received),
+            1,
+            "an unacknowledged, unordable frame resyncs exactly once"
+        );
+        assert_eq!(
+            received.last().and_then(|(_, m)| m["type"].as_str()),
+            Some("end")
+        );
+    }
+
+    #[tokio::test]
+    async fn detach_during_a_wait_ends_cleanly() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let sent_frame2 = Arc::new(std::sync::atomic::AtomicBool::new(false));
+        let server_sent = sent_frame2.clone();
+        let _server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = accept_async(stream).await.unwrap();
+            let (mut sink, _) = ws.split();
+            // The two frames fill the budget when forwarded. No ack ever
+            // comes back, so the driver must wait in admit.
+            let _ = sink
+                .send(Message::Text("y".repeat(700 * 1024).into()))
+                .await;
+            let _ = sink
+                .send(Message::Text("z".repeat(700 * 1024).into()))
+                .await;
+            server_sent.store(true, std::sync::atomic::Ordering::Release);
+            std::future::pending::<()>().await;
+        });
+        let (bridge, cancel) = connect_bridge(addr, Duration::from_secs(30), None, None).await;
+        // Wait (with a deadline) until the bridge is provably blocked in admit:
+        // the page has received exactly frame 1 (filling the budget) and the
+        // server has sent frame 2, which the driver is now waiting to admit.
+        let deadline = std::time::Instant::now() + Duration::from_secs(5);
+        loop {
+            if bridge.received.lock().unwrap().len() == 1
+                && sent_frame2.load(std::sync::atomic::Ordering::Acquire)
+            {
+                break;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "bridge never blocked in admit"
+            );
+            tokio::task::yield_now().await;
+        }
+        // The page has received nothing but frame 1 while the driver waits.
+        {
+            let received = bridge.received.lock().unwrap();
+            assert_eq!(
+                received.len(),
+                1,
+                "the page received exactly frame 1 and nothing else"
+            );
+            assert_eq!(received[0].1["type"].as_str(), Some("terminal"));
+            assert_eq!(resync_count(&received), 0, "no resync before the cancel");
+        }
+        // Confirm the driver really entered the admit wait: after a short
+        // grace it must still be blocked (a drop-on-overflow driver would
+        // already have resynced within that window).
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        assert_eq!(
+            bridge.received.lock().unwrap().len(),
+            1,
+            "the driver must block in admit, not overflow"
+        );
+        // Detaching the terminal drops the cancel sender and ends the wait far
+        // before the 30 s stall would fire.
+        drop(cancel);
+        let (received, _) = bridge.finish(Duration::from_secs(5)).await;
+        assert_eq!(
+            resync_count(&received),
+            1,
+            "the cancelled wait resyncs once, matching production"
+        );
+        assert_eq!(
+            received.last().and_then(|(_, m)| m["type"].as_str()),
+            Some("end"),
+            "detach still ends cleanly"
+        );
+    }
+
+    #[tokio::test]
+    async fn hello_carries_the_pages_versions_range_unchanged() {
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let seen = Arc::new(Mutex::new(None));
+        let record = seen.clone();
+        let server = tokio::spawn(async move {
+            let (stream, _) = listener.accept().await.unwrap();
+            let ws = accept_async(stream).await.unwrap();
+            let (mut sink, mut source) = ws.split();
+            if let Some(Ok(Message::Text(text))) = source.next().await {
+                *record.lock().unwrap() =
+                    Some(serde_json::from_str::<Value>(text.as_str()).unwrap());
+            }
+            let _ = sink.close().await;
+        });
+        let hello = json!({"cols":80,"rows":24,"versions":[1,2]});
+        let (bridge, _cancel) =
+            connect_bridge(addr, Duration::from_secs(5), None, Some((hello, Some(7)))).await;
+        let _ = bridge.finish(Duration::from_secs(5)).await;
+        let _ = server.await;
+        let frame = seen
+            .lock()
+            .unwrap()
+            .take()
+            .expect("the server received the hello");
+        assert_eq!(frame["type"], "hello");
+        assert_eq!(
+            frame["versions"],
+            json!([1, 2]),
+            "#838: the 1.2 range reaches the host unchanged"
+        );
+        assert_eq!(frame["from"], json!(7));
+        assert_eq!(frame["client"], "app");
     }
 }
