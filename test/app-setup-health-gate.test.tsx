@@ -103,6 +103,20 @@ test("SetupHealthGate commit path: hard_fail report stays on stage without auto-
   expect(commit.autoEnterMs).toBeUndefined();
 });
 
+test("SetupHealthGate commit path: warnings report stays on stage without auto-enter", async () => {
+  const call = (async () => ({
+    ...okReport(),
+    outcome: "warnings" as const,
+    attentionCount: 1,
+    steps: okReport().steps.map(s => s.id === "integrations" ? { ...s, state: "needs_attention" as const } : s),
+  })) as BrowserApi["call"];
+  const commit = commitSetupHealthLoad(await loadSetupHealthGate(call));
+  expect(commit.action).toBe("stage");
+  if (commit.action !== "stage") return;
+  expect(commit.report.outcome).toBe("warnings");
+  expect(commit.autoEnterMs).toBeUndefined();
+});
+
 test("SetupHealthGate commit path: skipFullWindow is the only silent ready entry", async () => {
   const skip = commitSetupHealthLoad(await loadSetupHealthGate(
     (async () => ({ ...okReport(), skipFullWindow: true })) as BrowserApi["call"],
