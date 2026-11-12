@@ -78,7 +78,7 @@ use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
-pub(crate) use config_writes::config_set_stays_forwarded;
+pub use config_writes::config_set_stays_forwarded;
 pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;

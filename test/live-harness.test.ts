@@ -21,7 +21,7 @@ import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { exerciseNativeStdio, verifyForwardedHello, verifyNativeStdio } from "../scripts/live/native-stdio";
-import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
+import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, inexactOpPath, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
   const root = join(tmpDir(), "sandbox");
@@ -305,6 +305,15 @@ describe("live service guard (D8)", () => {
       test(`allows v${version} ${op}`, () => expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBeUndefined());
     }
   }
+  test("only exact registered operation paths pass", () => {
+    for (const path of ["/v3/ops/config.set", "/v2/ops/routing.status", "/v3/ops/task.get", "/v3/ops/test.echo", "/v3/ops/_debug.native", "/app/v3/ops/x", "/v1/ops/agent.connect", "/v3/events"]) {
+      expect(inexactOpPath(path), path).toBe(false);
+    }
+    for (const path of ["/v3/ops/config.set/", "/v3/ops/%63onfig.set", "/v3/ops/config%2Eset", "//v3/ops/config.set", "/v3//ops/config.set", "/V3/ops/config.set", "/v3/OPS/config.set",
+      "/%2Fv3/ops/config.set", "/v3/ops/", "/v3/ops", "/v2/ops/nope", "/v3/ops/service.future", "/v3/ops/__proto__", "/v3/ops/config.set%00", "/v3/ops/%E0%A4%A"]) {
+      expect(inexactOpPath(path), path).toBe(true);
+    }
+  });
   test("only op POSTs are filtered", () => {
     expect(refusedOp("GET", "/v3/ops/agent.connect")).toBeUndefined();
     expect(refusedOp("POST", "/app/agent.connect")).toBeUndefined();
@@ -315,6 +324,50 @@ describe("live service guard (D8)", () => {
     const table = doc.split("<!-- D8 policy -->")[1].split("<!-- /D8 policy -->")[0];
     const rows = table.split("\n").filter(row => row.startsWith("| `"));
     expect(rows).toEqual(Object.entries(BLOCKED_OPS).map(([op, reason]) => `| \`${op}\` | ${reason} |`));
+  });
+  test("config.set passes only known non-planner keys and planner with integrations skip", () => {
+    expect(Object.keys(CONDITIONAL_OPS).every(op => Object.hasOwn(BLOCKED_OPS, op))).toBe(true);
+    for (const body of [
+      '{"key":"pacing.policy","value":"even"}',
+      '{"key":"execution.backend","value":"direct"}',
+      '{"key":"execution.backend","value":"orca"}',
+      '{"key":"pacing.balance","value":"on","integrations":"install"}',
+      '{"key":"planner","value":"codex","integrations":"skip"}',
+      '{"key":"planner","value":"codex","integrations":"install","integrations":"skip"}',
+      ' {"key":"planner","value":"codex","integrations":"skip"}\n',
+    ]) expect(configSetAllowed(body), body).toBe(true);
+    for (const body of [
+      '{"key":"planner","value":"codex","integrations":"install"}',
+      '{"key":"planner","value":"codex"}',
+      '{"key":"planner","value":"codex","integrations":"Skip"}',
+      '{"key":"planner","value":"codex","integrations":" skip"}',
+      '{"key":"planner","value":"codex","integrations":["skip"]}',
+      '{"key":"Planner","value":"codex","integrations":"install"}',
+      '{"key":" planner","value":"codex","integrations":"install"}',
+      '{"key":"planner ","value":"codex","integrations":"install"}',
+      '{"key":"PACING.POLICY","value":"even"}',
+      '{"key":"nope","value":1}',
+      '{"key":["pacing.policy"],"value":"even"}',
+      '{"key":"pacing.policy","key":"planner","value":"codex","integrations":"install"}',
+      '{"key":"planner","value":"codex","integrations":"skip","integrations":"install"}',
+      '{"value":"even"}', "[]", "null", '"pacing.policy"', "", "not json", '{"key":"pacing.policy"',
+    ]) expect(configSetAllowed(body), body).toBe(false);
+  });
+  test("conditional bodies are bounded UTF-8 and only apply to conditional ops", async () => {
+    const post = (op: string, body: BodyInit) => new Request(`http://127.0.0.1/v3/ops/${op}`, { method: "POST", body });
+    const ok = '{"key":"pacing.policy","value":"even"}';
+    expect(await conditionallyAllowed("config.set", post("config.set", ok))).toBe(true);
+    expect(await conditionallyAllowed("agent.connect", post("agent.connect", ok))).toBe(false);
+    expect(await conditionallyAllowed("config.set", new Request("http://127.0.0.1/v3/ops/config.set", { method: "POST" }))).toBe(false);
+    const padded = (size: number) => `{"key":"pacing.policy","value":"even","pad":"${"x".repeat(size)}"}`;
+    const limit = 256 * 1024, overhead = padded(0).length;
+    expect(await conditionallyAllowed("config.set", post("config.set", padded(limit - overhead)))).toBe(true);
+    expect(await conditionallyAllowed("config.set", post("config.set", padded(limit - overhead + 1)))).toBe(false);
+    const invalid = new Uint8Array([...new TextEncoder().encode('{"key":"pacing.policy","value":"'), 0xff, ...new TextEncoder().encode('"}')]);
+    expect(await conditionallyAllowed("config.set", post("config.set", invalid))).toBe(false);
+    const request = post("config.set", ok);
+    await conditionallyAllowed("config.set", request);
+    expect(await request.text()).toBe(ok);
   });
   test("Host and only matching public Origins are rewritten; authentication survives", () => {
     for (const host of ["127.0.0.1", "localhost"]) {
@@ -416,6 +469,49 @@ test.skipIf(!canBind)("real proxy forwards assets, ops, cookies, streaming SSE a
     expect(notes).toHaveLength(2);
     expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
     expect(renderReport(session)).toContain("D8 blocked agent.connect");
+  } finally { proxy.stop(true); upstream.stop(true); }
+}, 10000);
+
+test.skipIf(!canBind)("real proxy forwards sandbox config.set bodies and refuses planner installs", async () => {
+  const session = fixture();
+  session.port = await freePort();
+  session.innerPort = await freePort();
+  while (session.innerPort === session.port) session.innerPort = await freePort();
+  const seen: string[] = [];
+  const upstream = Bun.serve({
+    hostname: "127.0.0.1", port: session.innerPort,
+    async fetch(req) { const body = await req.text(); seen.push(body); return Response.json({ body }); },
+  });
+  const proxy = startProxy(session);
+  const origin = `http://127.0.0.1:${session.port}`;
+  try {
+    for (const version of [2, 3]) {
+      for (const body of ['{"key":"execution.backend","value":"direct"}', '{"key":"planner","value":"codex","integrations":"skip"}']) {
+        const response = await fetch(`${origin}/v${version}/ops/config.set`, { method: "POST", body });
+        expect(await response.json()).toEqual({ body });
+      }
+      for (const body of ['{"key":"planner","value":"codex","integrations":"install"}', '{"key":"planner","value":"codex"}', "not json"]) {
+        const refused = await fetch(`${origin}/v${version}/ops/config.set`, { method: "POST", body });
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
+      }
+    }
+    const install = '{"key":"planner","value":"codex","integrations":"install"}';
+    for (const path of ["/v3/ops/%63onfig.set", "/v3/ops/config.set/", "/v3/ops/nope"]) {
+      const refused = await fetch(origin + path, { method: "POST", body: install });
+      expect(refused.status, path).toBe(403);
+      expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: only exact registered operation paths are forwarded" } });
+    }
+    // Bun's server collapses the leading slashes, so the normalized path meets the config.set body rule.
+    const collapsed = await fetch(`${origin}//v3/ops/config.set`, { method: "POST", body: install });
+    expect(await collapsed.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
+    expect(seen).toHaveLength(4);
+    const notes = readEvidence(session);
+    expect(notes).toHaveLength(10);
+    expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
+    expect(notes.filter(note => note.behavior === "D8 blocked config.set")).toHaveLength(7);
+    expect(notes.filter(note => note.behavior === "D8 blocked inexact operation path")).toHaveLength(3);
+    expect(JSON.stringify(notes)).not.toContain("codex");
   } finally { proxy.stop(true); upstream.stop(true); }
 }, 10000);
 

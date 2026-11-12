@@ -6399,6 +6399,484 @@
         "value": "",
         "source": "default"
       }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "direct",
+        "source": "default"
+      },
+      "planner": {
+        "value": "codex",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [
+          "codex"
+        ],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "strategy.yaml"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "direct",
+        "source": "strategy.yaml"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [
+          "codex"
+        ],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "strategy.yaml"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "orca",
+        "source": "strategy.yaml"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [
+          "codex"
+        ],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "strategy.yaml"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "orca",
+        "source": "env PACER_BACKEND"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [
+          "codex"
+        ],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "strategy.yaml"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "direct",
+        "source": "env PACER_BACKEND"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [
+          "codex"
+        ],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "strategy.yaml"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
+    },
+    {
+      "execution.auto_clean": {
+        "value": true,
+        "source": "default"
+      },
+      "task_retention_days": {
+        "value": 14,
+        "source": "default"
+      },
+      "execution.local_max_tasks": {
+        "value": "unlimited",
+        "source": "default"
+      },
+      "execution.local_memory_pressure_limit": {
+        "value": "critical",
+        "source": "default"
+      },
+      "execution.local_load_limit": {
+        "value": "off",
+        "source": "default"
+      },
+      "execution.launch_mode": {
+        "value": "interactive",
+        "source": "default"
+      },
+      "execution.backend": {
+        "value": "direct",
+        "source": "default"
+      },
+      "planner": {
+        "value": "claude-code",
+        "source": "strategy.yaml"
+      },
+      "pacing.order": {
+        "value": [],
+        "source": "default"
+      },
+      "pacing.policy": {
+        "value": "priority",
+        "source": "default"
+      },
+      "pacing.planner_reserve": {
+        "value": 15,
+        "source": "default"
+      },
+      "pacing.planner_reserve_headroom": {
+        "value": 25,
+        "source": "default"
+      },
+      "pacing.planner_probe": {
+        "value": "ask",
+        "source": "default"
+      },
+      "pacing.accounts": {
+        "value": "spread",
+        "source": "default"
+      },
+      "pacing.fill_threshold": {
+        "value": 90,
+        "source": "default"
+      },
+      "pacing.balance": {
+        "value": "off",
+        "source": "default"
+      },
+      "update_check": {
+        "value": true,
+        "source": "default"
+      },
+      "terminal.app": {
+        "value": "Terminal",
+        "source": "default"
+      },
+      "terminal.open": {
+        "value": "",
+        "source": "default"
+      }
     }
   ],
   "cases": [
@@ -10996,8 +11474,7 @@
         },
         "keys": 2
       }
-    }
-,
+    },
     {
       "name": "dispatch tier targets empty",
       "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\ndispatch: {\"tierTargets\":{}}\n",
@@ -11114,6 +11591,489 @@
           "code": "invalid_input",
           "message": "invalid strategy strategy.yaml:\n  - Invalid dispatch configuration"
         }
+      }
+    },
+    {
+      "name": "planner-0",
+      "key": "planner",
+      "input": "codex",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires an integration choice",
+          "hint": "integrations: \"install\" or \"skip\""
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-1",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "maybe",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires an integration choice",
+          "hint": "integrations: \"install\" or \"skip\""
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-2",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "skip",
+      "env": {
+        "PACER_ROLE": "executor"
+      },
+      "expected": {
+        "error": {
+          "code": "not_allowed",
+          "message": "PACER_ROLE=executor: changing the planner with config.set connects real agent folders; run it outside a delegated task."
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-3",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "install",
+      "env": {
+        "PACER_ROLE": "executor"
+      },
+      "expected": {
+        "error": {
+          "code": "not_allowed",
+          "message": "PACER_ROLE=executor: changing the planner with config.set connects real agent folders; run it outside a delegated task."
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-4",
+      "key": "planner",
+      "input": "codex",
+      "env": {
+        "PACER_ROLE": "executor"
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires an integration choice",
+          "hint": "integrations: \"install\" or \"skip\""
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-5",
+      "key": "planner",
+      "input": "Not A Runner",
+      "integrations": "install",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-6",
+      "key": "planner",
+      "input": "Bad Runner!",
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-7",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "skip",
+      "expected": {
+        "result": {
+          "key": "planner",
+          "value": "codex",
+          "previous": "claude-code",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -1,1 +1,1 @@\n-planner: claude-code\n+planner: codex",
+          "undo": "pacer config set planner claude-code",
+          "notes": []
+        },
+        "after": "planner: codex\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n",
+        "keys": 80
+      }
+    },
+    {
+      "name": "planner-8",
+      "key": "planner",
+      "input": "claude-code",
+      "integrations": "install",
+      "expected": {
+        "result": {
+          "key": "planner",
+          "value": "claude-code",
+          "previous": "claude-code",
+          "diff": "",
+          "undo": "pacer config set planner claude-code",
+          "notes": []
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-9",
+      "key": "planner",
+      "input": "claude-code",
+      "integrations": "skip",
+      "expected": {
+        "result": {
+          "key": "planner",
+          "value": "claude-code",
+          "previous": "claude-code",
+          "diff": "",
+          "undo": "pacer config set planner claude-code",
+          "notes": []
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-10",
+      "key": "planner",
+      "input": "nobody",
+      "integrations": "install",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-11",
+      "key": "planner",
+      "input": "nobody",
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-12",
+      "key": "planner",
+      "input": "claude-code#missing",
+      "integrations": "install",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - planner must be one of claude-code, codex, cursor, opencode (got \"claude-code#missing\")"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-13",
+      "key": "planner",
+      "input": "claude-code#missing",
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - planner must be one of claude-code, codex, cursor, opencode (got \"claude-code#missing\")"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-14",
+      "key": "planner",
+      "input": [
+        "codex"
+      ],
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a scalar value",
+          "hint": "Use a list only for pacing.order"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-15",
+      "key": "planner",
+      "input": 5,
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-16",
+      "key": "planner",
+      "input": true,
+      "integrations": "install",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner requires a runner id"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-17",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "install",
+      "before": "planner: codex\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\n",
+      "expected": {
+        "result": {
+          "key": "planner",
+          "value": "codex",
+          "previous": "codex",
+          "diff": "",
+          "undo": "pacer config set planner codex",
+          "notes": []
+        },
+        "keys": 80
+      }
+    },
+    {
+      "name": "execution.backend-0",
+      "key": "execution.backend",
+      "input": "direct",
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "direct",
+          "previous": "direct",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,0 +5,1 @@\n+execution: { backend: direct }",
+          "undo": "pacer config set execution.backend direct",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: { backend: direct }\n",
+        "keys": 81
+      }
+    },
+    {
+      "name": "execution.backend-1",
+      "key": "execution.backend",
+      "input": "orca",
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "orca",
+          "previous": "direct",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,0 +5,1 @@\n+execution: { backend: orca }",
+          "undo": "pacer config set execution.backend direct",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: { backend: orca }\n",
+        "keys": 82
+      }
+    },
+    {
+      "name": "execution.backend-2",
+      "key": "execution.backend",
+      "input": "elsewhere",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "execution.backend must be orca or direct"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "execution.backend-3",
+      "key": "execution.backend",
+      "input": "direct",
+      "env": {
+        "PACER_BACKEND": "orca"
+      },
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "direct",
+          "previous": "direct",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,0 +5,1 @@\n+execution: { backend: direct }",
+          "undo": "pacer config set execution.backend direct",
+          "notes": [
+            "PACER_BACKEND overrides the saved task backend setting."
+          ],
+          "hint": "PACER_BACKEND overrides the saved task backend setting."
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: { backend: direct }\n",
+        "keys": 83
+      }
+    },
+    {
+      "name": "execution.backend-4",
+      "key": "execution.backend",
+      "input": "orca",
+      "env": {
+        "PACER_BACKEND": "direct"
+      },
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "orca",
+          "previous": "direct",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,0 +5,1 @@\n+execution: { backend: orca }",
+          "undo": "pacer config set execution.backend direct",
+          "notes": [
+            "PACER_BACKEND overrides the saved task backend setting."
+          ],
+          "hint": "PACER_BACKEND overrides the saved task backend setting."
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: { backend: orca }\n",
+        "keys": 84
+      }
+    },
+    {
+      "name": "execution.backend-5",
+      "key": "execution.backend",
+      "input": "bogus",
+      "env": {
+        "PACER_BACKEND": "orca"
+      },
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "execution.backend must be orca or direct"
+        },
+        "keys": 83
+      }
+    },
+    {
+      "name": "execution.backend-6",
+      "key": "execution.backend",
+      "input": [
+        "orca"
+      ],
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "execution.backend requires a scalar value",
+          "hint": "Use a list only for pacing.order"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "execution.backend-7",
+      "key": "execution.backend",
+      "input": "orca",
+      "env": {
+        "PACER_BACKEND": ""
+      },
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "orca",
+          "previous": "direct",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,0 +5,1 @@\n+execution: { backend: orca }",
+          "undo": "pacer config set execution.backend direct",
+          "notes": []
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: { backend: orca }\n",
+        "keys": 82
+      }
+    },
+    {
+      "name": "execution.backend-8",
+      "key": "execution.backend",
+      "input": true,
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "execution.backend must be orca or direct"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "execution.backend-9",
+      "key": "execution.backend",
+      "input": "direct",
+      "before": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: {backend: orca}\n",
+      "env": {
+        "PACER_BACKEND": "direct"
+      },
+      "expected": {
+        "result": {
+          "key": "execution.backend",
+          "value": "direct",
+          "previous": "orca",
+          "diff": "--- strategy.yaml\n+++ strategy.yaml\n@@ -5,1 +5,1 @@\n-execution: {backend: orca}\n+execution: {backend: direct}",
+          "undo": "pacer config set execution.backend orca",
+          "notes": [
+            "PACER_BACKEND overrides the saved task backend setting."
+          ],
+          "hint": "PACER_BACKEND overrides the saved task backend setting."
+        },
+        "after": "planner: claude-code\nproviders: {claude-code: {}, codex: {}}\npacing: {policy: priority}\nrouting: [{default: [codex]}]\nexecution: {backend: direct}\n",
+        "keys": 84
+      }
+    },
+    {
+      "name": "planner-18",
+      "key": "planner",
+      "input": "codex@nohost",
+      "integrations": "skip",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - planner must be one of claude-code, codex, cursor, opencode (got \"codex@nohost\")"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-19",
+      "key": "planner",
+      "input": "codex#codex",
+      "integrations": "install",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "invalid strategy strategy.yaml:\n  - planner must be one of claude-code, codex, cursor, opencode (got \"codex#codex\")"
+        },
+        "keys": 2
+      }
+    },
+    {
+      "name": "planner-20",
+      "key": "planner",
+      "input": "codex",
+      "integrations": "install",
+      "before": "planner: claude-code\nproviders: {claude-code: {}}\n",
+      "expected": {
+        "error": {
+          "code": "invalid_input",
+          "message": "planner account not found"
+        },
+        "keys": 85
       }
     }
   ]

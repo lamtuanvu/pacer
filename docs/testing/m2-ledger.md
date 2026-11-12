@@ -7,7 +7,7 @@ Native means Rust registers an operation and produces its reply for at least som
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
 | `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
-| `config.set` | Native (P2-E, selective) | Pure keys use `pacer_config::settings::set_setting` plus the P3-B publisher. `planner` and `execution.backend` selectively forward to TypeScript for install/uninstall and backend readiness. `PACER_FORWARD_OPS` remains the escape hatch. |
+| `config.set` | Native (P2-E, selective) | All keys use `pacer_config::settings::set_setting` plus the P3-B publisher, with the per-process in-flight key guard. Planner refusals, planner with `integrations: "skip"`, an unchanged planner with `install`, backend refusals, backend `direct` and any backend value with `PACER_BACKEND` set are native. Residual forwarding: a changed planner with `integrations: "install"` (integration install and rollback, wave 10) and backend `orca` without `PACER_BACKEND` (Orca readiness probe, wave 3). The in-flight guard is per front-door process and does not span native and forwarded edits (the TypeScript core keeps its own `pendingEdits`); each side's file-changed check still prevents silent overwrites. If the planner changes between the forward decision and the native write, the native reply is TypeScript's `conflict` "Strategy changed during edit". HTTP bodies serde_json rejects (a BOM, unpaired surrogate escapes, invalid UTF-8, numbers past the f64 range) are forwarded unchanged through `forwards_undecodable_body`, as stdio already forwards such lines. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.account.add` | Native (P2-D) | `pacer-config::host` maps `hosts.<alias>.accounts.<account>.home` and returns the login command (`account_login_command`); native callers retain endpoint sync and `hosts` publication. No SSH or host-adapter I/O. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.add`, `host.set`, `host.remove`, `host.repo.map` | Native (P2-D) | `pacer-config::host` owns YAML identity/edits and refusal parity. Native callers retain the private TypeScript endpoint-plugin synchronization bridge (`finishNativeConfigEdit`), publish the `hosts` area, and record `host.set` pause activity in Rust. `host.set` composes its summary via the host-read bridge after sync. Plugin-owned SSH execution stays forwarded. `PACER_FORWARD_OPS` remains the escape hatch. |
 | `host.suggest` | Native (P2-D) | `pacer-config::ssh_config` reads `~/.ssh` aliases (Includes, HostName, no shell execution) and filters configured host `ssh` targets from `load_strategy`. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -630,8 +630,12 @@ remain later. See inventories under `.work/reviews/`.
 
 ## Config library boundary
 
-`config.set` is registered native for the 16 pure keys. The TypeScript handler
-remains the reference and `PACER_FORWARD_OPS` / selective-forward fallback.
+`config.set` is registered native for all 19 keys: the 17 pure keys plus
+`planner` and `execution.backend` where no integration install or Orca probe is
+needed. The TypeScript handler remains the reference and the
+`PACER_FORWARD_OPS` / selective-forward fallback. Like TypeScript
+`pendingEdits`, a second edit of the same `<strategy path>:<key>` while one is in
+flight is refused with `conflict` "This setting is already being changed".
 `config.get` is native: `get_settings` owns the pure key/source map; host fields
 arrive through the config-host private bridge (same sealing model as session-probe).
 Library helpers (`compose_host_fields` / `host_fields_from_parts`) remain for
@@ -644,13 +648,14 @@ The complete pure setter allow-list is `execution.auto_clean`,
 `execution.local_memory_pressure_limit`, `execution.local_load_limit`,
 `execution.launch_mode`, `pacing.order`, `pacing.policy`,
 `pacing.planner_reserve`, `pacing.planner_reserve_headroom`,
-`pacing.planner_probe`, `pacing.accounts`, `pacing.fill_threshold`, `update_check`,
-`terminal.app` and `terminal.open`. The read model includes all 18 keys.
+`pacing.planner_probe`, `pacing.accounts`, `pacing.fill_threshold`,
+`pacing.balance`, `update_check`, `terminal.app` and `terminal.open`. The read
+model includes all 19 keys.
 
 | Retained dependency | Forwarding boundary |
 | --- | --- |
-| Planner install/uninstall and rollback | All `planner` writes, including skip, selectively forward from the native registry to TypeScript `config.set`. The Rust file-effect helper refuses this key if reached directly. |
-| Backend readiness and override hints | All `execution.backend` writes selectively forward to TypeScript. Rust reads reproduce `PACER_BACKEND` precedence; the setter refuses the key if reached directly. |
+| Planner install/uninstall and rollback | Only a changed planner with `integrations: "install"` forwards to TypeScript `config.set` (wave 10). Refusals, `skip` writes (`set_planner_without_integrations`) and an unchanged planner with `install` (no write, `config` event) are native; the Rust setter refuses a changed install if reached directly. |
+| Backend readiness and override hints | Only `orca` without `PACER_BACKEND` forwards, for the Orca readiness warning (wave 3). Refusals, `direct`, and any value with `PACER_BACKEND` set (with its override hint) are native. Rust reads reproduce `PACER_BACKEND` precedence. |
 | Terminal availability | TypeScript filters detected terminal choices; native `config.get` reads the filtered list from the config-host bridge. Rust `filter_terminal_choices` / catalogue helpers accept the detected set without probing for library/tests. |
 | Machine guard and current task slots | TypeScript samples pressure/load and slot use; native `config.get` reads the composed `machine` row from the bridge. Rust `machine_host_fields` accepts injected signals + `used` (no sysctl) for library/tests. |
 | Planner candidates | TypeScript discovers compatible planner accounts; native `config.get` reads the list from the bridge. Rust accepts the candidate list as a host field for library/tests. |

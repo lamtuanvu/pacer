@@ -1,5 +1,7 @@
 #![allow(clippy::unwrap_used)]
-use pacer_config::settings::{CONFIG_KEYS, get_settings, set_setting};
+use pacer_config::settings::{
+    CONFIG_KEYS, PLANNER_INSTALL_FORWARDED, SetOptions, get_settings, set_setting,
+};
 use serde_json::{Value, json};
 use std::fs;
 
@@ -34,22 +36,27 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
         fs::write(&path, before).unwrap();
         let key = c["key"].as_str().unwrap();
         exercised.insert(key.to_owned());
-        let mut actual =
-            match set_setting(&path, "default", key, &c["input"], c["presetsOnly"] == true) {
-                Ok(result) => json!({"result":result}),
-                Err(e) => {
-                    let mut err = json!({"code":e.code,"message":e.message});
-                    if let Some(hint) = e.hint {
-                        err["hint"] = json!(hint);
-                    }
-                    json!({"error":err})
+        let options = SetOptions {
+            terminal_presets_only: c["presetsOnly"] == true,
+            integrations: c["integrations"].as_str(),
+            executor_session: c["env"]["PACER_ROLE"] == "executor",
+            backend_env: c["env"]["PACER_BACKEND"].as_str(),
+        };
+        let mut actual = match set_setting(&path, "default", key, &c["input"], options) {
+            Ok(result) => json!({"result":result}),
+            Err(e) => {
+                let mut err = json!({"code":e.code,"message":e.message});
+                if let Some(hint) = e.hint {
+                    err["hint"] = json!(hint);
                 }
-            };
+                json!({"error":err})
+            }
+        };
         let after = fs::read_to_string(&path).unwrap();
         if after != before {
             actual["after"] = json!(after);
         }
-        match get_settings(&path, "default", None, &json!({})) {
+        match get_settings(&path, "default", options.backend_env, &json!({})) {
             Ok(result) => actual["keys"] = result["keys"].clone(),
             Err(e) => actual["getError"] = json!({"code":e.code,"message":e.message}),
         }
@@ -74,10 +81,7 @@ fn all_pure_settings_match_typescript_results_errors_and_edits() {
             ));
         }
     }
-    for key in CONFIG_KEYS
-        .iter()
-        .filter(|k| !["planner", "execution.backend"].contains(k))
-    {
+    for key in CONFIG_KEYS {
         assert!(exercised.contains(*key), "missing {key}");
     }
     assert!(
@@ -134,16 +138,17 @@ fn read_dependencies_and_backend_override_are_explicit() {
         );
         assert_eq!(result["keys"].as_object().unwrap().len(), CONFIG_KEYS.len());
     }
-    for key in ["planner", "execution.backend"] {
-        let before = fs::read_to_string(&path).unwrap();
-        assert_eq!(
-            set_setting(&path, "default", key, &json!("codex"), false)
-                .unwrap_err()
-                .code,
-            "unavailable"
-        );
-        assert_eq!(fs::read_to_string(&path).unwrap(), before);
-    }
+    let before = fs::read_to_string(&path).unwrap();
+    let install = SetOptions {
+        integrations: Some("install"),
+        ..SetOptions::default()
+    };
+    let error = set_setting(&path, "default", "planner", &json!("codex"), install).unwrap_err();
+    assert_eq!(
+        (error.code, error.message.as_str()),
+        ("unavailable", PLANNER_INSTALL_FORWARDED)
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
 }
 
 #[cfg(unix)]
@@ -159,7 +164,14 @@ fn settings_writes_are_private_atomic_and_leave_no_temp_files() {
     fs::write(&path, fixture["base"].as_str().unwrap()).unwrap();
     fs::set_permissions(dir.path(), fs::Permissions::from_mode(0o755)).unwrap();
     fs::set_permissions(&path, fs::Permissions::from_mode(0o644)).unwrap();
-    set_setting(&path, "default", "update_check", &json!(false), false).unwrap();
+    set_setting(
+        &path,
+        "default",
+        "update_check",
+        &json!(false),
+        SetOptions::default(),
+    )
+    .unwrap();
     assert_eq!(
         fs::metadata(&path).unwrap().permissions().mode() & 0o777,
         0o600
@@ -170,7 +182,14 @@ fn settings_writes_are_private_atomic_and_leave_no_temp_files() {
     );
     assert_eq!(fs::read_dir(dir.path()).unwrap().count(), 1);
     let bytes = fs::read(&path).unwrap();
-    let result = set_setting(&path, "default", "update_check", &json!(false), false).unwrap();
+    let result = set_setting(
+        &path,
+        "default",
+        "update_check",
+        &json!(false),
+        SetOptions::default(),
+    )
+    .unwrap();
     assert_eq!(result["diff"], "");
     assert_eq!(fs::read(&path).unwrap(), bytes);
 }
@@ -187,9 +206,15 @@ fn missing_strategy_matches_typescript_error() {
         expected
     );
     assert_eq!(
-        set_setting(&path, "default", "update_check", &json!(false), false)
-            .unwrap_err()
-            .message,
+        set_setting(
+            &path,
+            "default",
+            "update_check",
+            &json!(false),
+            SetOptions::default()
+        )
+        .unwrap_err()
+        .message,
         expected
     );
     assert!(!path.exists());
