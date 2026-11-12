@@ -84,7 +84,7 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   const opencode = grouping.follow[0]!;
   expect(opencode.cells.map(c => c.skipped)).toEqual([false, false, false]);
   expect(opencode.cells[0]!.note).toBe("Matches the target");
-  expect(opencode.cells[1]!.note).toBe("no rated model at the target");
+  expect(opencode.cells[1]!.note).toBe("No rated model at the target");
   expect(opencode.cells[1]!.chosen).toBe("Uses its provider's default");
   // cursor (medium): upward fallback for simple, match for standard, and below
   // complex (frontier) it also falls back to its provider's default.
@@ -94,8 +94,10 @@ test("groupPreview buckets executors by behavior and reports eligible counts per
   expect(cursor.cells[1]!.note).toBe("Matches the target");
   expect(cursor.cells[2]!.chosen).toBe("Uses its provider's default");
   expect(cursor.cells[2]!.skipped).toBe(false);
-  // eligible: everyone can take simple, unrated and fixed can take anything
-  expect(grouping.cols.map(col => col.eligible)).toEqual([4, 3, 2]);
+  // eligible: everyone can take any difficulty — a follow runner always runs a
+  // rated model, its configured default, or its provider's default for the
+  // difficulty, and unrated/fixed executors take anything (G4).
+  expect(grouping.cols.map(col => col.eligible)).toEqual([4, 4, 4]);
   expect(grouping.cols.map(col => col.target)).toEqual(["small", "medium", "frontier"]);
 });
 
@@ -154,7 +156,7 @@ test("a follow runner with no default and no rated model at/above the target run
   expect(row.cells.map(c => c.skipped)).toEqual([false, false, false]);
   expect(row.cells[1]!.chosen).toBe("Uses its provider's default");
   expect(row.cells[2]!.chosen).toBe("Uses its provider's default");
-  expect(row.cells[2]!.note).toBe("no rated model at the target");
+  expect(row.cells[2]!.note).toBe("No rated model at the target");
 });
 
 test("unrated group previews its single model for every difficulty", () => {

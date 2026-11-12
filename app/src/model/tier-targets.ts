@@ -105,7 +105,7 @@ function followCell(list: Records, difficulty: Difficulty, targets: TierTargets,
   // chosen, so show that instead of "Not used"; "Not used" remains only for an
   // executor that truly has nothing in the inventory it can run.
   if (list.length > 0) {
-    return { difficulty, target, chosen: "Uses its provider's default", note: "no rated model at the target", skipped: false };
+    return { difficulty, target, chosen: "Uses its provider's default", note: "No rated model at the target", skipped: false };
   }
   return { difficulty, target, chosen: null, note: "Model is smaller than the target", skipped: true };
 }
@@ -144,10 +144,13 @@ export function groupPreview(records: readonly ModelRecord[], targets: TierTarge
     cols: DIFFICULTIES.map(difficulty => {
       const target = targets[difficulty];
       let eligible = 0;
-      for (const [runner, list] of byRunner) {
+      for (const [runner] of byRunner) {
         const kind = behavior.get(runner)!;
-        if (kind === "fixed" || kind === "unrated") { eligible++; continue; }
-        if (selectModel(list, { difficulty, targets }).record !== null) eligible++;
+        // fixed and unrated executors take any difficulty; a follow executor
+        // always runs a rated model, its configured default, or its provider's
+        // default for the difficulty (see followCell), so it can take it too.
+        // Only an executor with nothing in the inventory it can run is excluded.
+        if (kind === "fixed" || kind === "unrated" || kind === "follow") eligible++;
       }
       return { difficulty, target, eligible };
     }),

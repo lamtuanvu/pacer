@@ -93,6 +93,8 @@ const until = async (predicate: () => boolean) => {
 interface MatrixApi {
   calls: Array<{ op: string; params: Record<string, unknown> }>;
   api: BrowserApi;
+  /** The server's current global strategy revision, matching `runner.models.get`. */
+  getRevision: () => string;
 }
 
 function makeApi(opts: {
@@ -100,14 +102,22 @@ function makeApi(opts: {
   available?: Record<string, AvailableModels>;
   config: ReturnType<typeof configView>;
   inventory: ReturnType<typeof inventory>;
-  setMany?: { throw?: ApiError; warnings?: string[] };
+  setMany?: { throw?: ApiError; warnings?: string[]; gate?: Promise<void> };
   runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
 }): MatrixApi {
   const calls: Array<{ op: string; params: Record<string, unknown> }> = [];
   const savedModels: Record<string, RunnerModels> = {};
   let saved = 0;
+  // The one global strategy revision (as strategyRevision() hashes the whole
+  // strategy file). It is seeded from the first runner.models.get and only
+  // moved by an external change (a get returning a new revision for a runner
+  // we had already seen) or by a successful set_many. set_many enforces the
+  // expectedRevision against it like the real core.
+  let currentRevision = "";
+  const lastSeen: Record<string, string> = {};
   return {
     calls,
+    getRevision: () => currentRevision,
     api: {
       hello: async () => ({} as never),
       snapshot: async () => ({} as never),
@@ -121,19 +131,38 @@ function makeApi(opts: {
             return { models: opts.inventory.models, advertised: opts.inventory.advertised, observedAt: opts.inventory.observedAt } as T;
           case "executor.models.available":
             return (opts.available?.[String(params.runner)] ?? { ...unknown, runner: String(params.runner) }) as T;
-          case "runner.models.get":
-            if (opts.runnerModelsGet) return opts.runnerModelsGet(String(params.id), saved) as T;
-            return (savedModels[String(params.id)] ?? opts.models?.[String(params.id)] ?? { runner: String(params.id), revision: "r-default", default: null, models: [] }) as T;
-          case "runner.models.set_many":
+          case "runner.models.get": {
+            const row = opts.runnerModelsGet
+              ? await opts.runnerModelsGet(String(params.id), saved)
+              : (savedModels[String(params.id)] ?? opts.models?.[String(params.id)] ?? { runner: String(params.id), revision: "r-default", default: null, models: [] });
+            const rev = (row as RunnerModels).revision;
+            // Seed the global revision on the first fetch of a runner; a later
+            // fetch with a different revision means an external change moved it.
+            if (lastSeen[String(params.id)] === undefined) {
+              if (currentRevision === "") currentRevision = rev;
+            } else if (rev !== lastSeen[String(params.id)]) {
+              currentRevision = rev;
+            }
+            lastSeen[String(params.id)] = rev;
+            return row as T;
+          }
+          case "runner.models.set_many": {
+            if (opts.setMany?.gate) await opts.setMany.gate;
             if (opts.setMany?.throw) throw opts.setMany.throw;
+            if ((params.expectedRevision as string) !== currentRevision) {
+              throw new ApiError("conflict", "Executor settings changed elsewhere.");
+            }
             saved += 1;
             const revision = `r-saved-${saved}`;
+            currentRevision = revision;
             const returned = (params.runners as Array<{ id: string; default: string; models: RunnerModels["models"] }>).map(r => {
               const next: RunnerModels = { runner: r.id, revision, default: r.default, models: r.models };
               savedModels[r.id] = next;
+              lastSeen[r.id] = revision;
               return next;
             });
             return { revision, runners: returned, warnings: opts.setMany?.warnings ?? [] } as T;
+          }
           default: return {} as T;
         }
       },
@@ -146,7 +175,7 @@ async function withMatrix(run: (container: FakeElement, api: MatrixApi, rerender
   inventory: ReturnType<typeof inventory>;
   models?: Record<string, RunnerModels>;
   available?: Record<string, AvailableModels>;
-  setMany?: { throw?: ApiError; warnings?: string[] };
+  setMany?: { throw?: ApiError; warnings?: string[]; gate?: Promise<void> };
   runnerModelsGet?: (id: string, saved: number) => RunnerModels | Promise<RunnerModels>;
 }) {
   const previous = { document: globalThis.document, CSSStyleSheet: globalThis.CSSStyleSheet, window: globalThis.window, getComputedStyle: globalThis.getComputedStyle, requestAnimationFrame: globalThis.requestAnimationFrame };
@@ -578,5 +607,106 @@ test("Suggest, Accept all and Save keep the read-only planner out of set_many", 
     ]),
     models: { go: declarationsGo, "claude-code": plannerModels },
     available: { go: servedGo, "claude-code": plannerListing },
+  });
+});
+
+test("a revision-only change while dirty is adopted silently and the next Save succeeds (G2)", async () => {
+  const options = {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  };
+  await withMatrix(async (container, api, rerender) => {
+    // Make the page dirty by turning the only model off.
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("1 model changed");
+    // An external client bumps only the revision; the models (default + tier)
+    // the drafts build on are unchanged, so the refresh is adopted silently.
+    options.models.go = { runner: "go", revision: "r-go-new", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "unknown" }] };
+    await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+    expect(textOf(container)).not.toContain("Model settings changed elsewhere. Discard to load them.");
+    // Save runs against the adopted revision, so it succeeds.
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    const setMany = api.calls.filter(c => c.op === "runner.models.set_many");
+    expect(setMany).toHaveLength(1);
+    expect(setMany[0]!.params.expectedRevision).toBe("r-go-new");
+    expect(textOf(container)).toContain("Saved.");
+  }, options);
+});
+
+test("an external model change while dirty keeps the old revision so Save is rejected as a conflict (G1)", async () => {
+  const options = {
+    config: configView(),
+    inventory: inventory([record("go", "zhipu", "opencode", "zhipu/glm")]),
+    models: { go: declarationsGo },
+    available: { go: servedGo },
+  };
+  await withMatrix(async (container, api, rerender) => {
+    // Locally rate the model medium, so the page is dirty.
+    await clickRadioText(container, "Medium");
+    expect(textOf(container)).toContain("1 model changed");
+    // Another client changes go's declared model (tier + strengths) and bumps
+    // the revision; the loaded models genuinely differ from the drafts' base.
+    options.models.go = { runner: "go", revision: "r-ext", default: "zhipu/glm", models: [{ id: "zhipu/glm", tier: "frontier", strengths: ["coding"] }] };
+    await rerender({ ...initialState(), connected: true, invalidations: { config: 1 } });
+    await until(() => api.calls.filter(c => c.op === "runner.models.get").length >= 2);
+    await until(() => textOf(container).includes("Model settings changed elsewhere. Discard to load them."));
+    // Save keeps the old revision (the load was not folded in), so the mock's
+    // CAS check rejects it: the draft and the external change both survive.
+    await clickText(container, "Save matrix");
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    const setMany = api.calls.filter(c => c.op === "runner.models.set_many");
+    expect(setMany).toHaveLength(1);
+    expect(setMany[0]!.params.expectedRevision).toBe("r-go");
+    expect(api.getRevision()).toBe("r-ext");
+    expect(textOf(container)).toContain("Model settings changed elsewhere. Discard to load them.");
+    expect(textOf(container)).toContain("1 model changed");
+    expect(textOf(container)).toContain("Save matrix");
+  }, options);
+});
+
+test("every editing control is disabled while a save is in flight (G3)", async () => {
+  let release!: () => void;
+  const gate = new Promise<void>(resolve => { release = resolve; });
+  // go holds a model we toggle to dirty the page; codex has an unknown listing
+  // and no models, so it renders the Add model form during the save.
+  await withMatrix(async (container, api) => {
+    const sw = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(sw).toBeTruthy();
+    await act(async () => { fire(sw!, "change", { currentTarget: { checked: false } }); await new Promise(resolve => setTimeout(resolve, 0)); });
+    expect(textOf(container)).toContain("Save matrix");
+    await clickText(container, "Save matrix");
+    // set_many is now held by the gate, so the save is in flight: the Add
+    // model control, the go switch and the Suggest button are all disabled.
+    await until(() => api.calls.some(c => c.op === "runner.models.set_many"));
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 5)); });
+    const addButton = findNode(container, n => n.tagName === "button" && textOf(n) === "Add");
+    expect(addButton).toBeTruthy();
+    expect(addButton!.attrs.disabled).toBeDefined();
+    const goSwitch = findNode(container, n => n.tagName === "input" && (n.attrs["aria-label"] ?? "") === "Use zhipu/glm");
+    expect(goSwitch).toBeTruthy();
+    expect(goSwitch!.attrs.disabled).toBeDefined();
+    const suggest = findNode(container, n => n.tagName === "button" && textOf(n) === "Suggest");
+    expect(suggest).toBeTruthy();
+    expect(suggest!.attrs.disabled).toBeDefined();
+    // Release the save; the page returns to a clean saved state.
+    release();
+    await act(async () => { await new Promise(resolve => setTimeout(resolve, 20)); });
+    expect(textOf(container)).toContain("Saved.");
+  }, {
+    config: configView(),
+    inventory: inventory([
+      record("go", "zhipu", "opencode", "zhipu/glm"),
+      record("codex", "work", "codex", "codex-default", { kind: "executor-default" }),
+    ]),
+    models: { go: declarationsGo, codex: declarationsCodex },
+    available: { go: servedGo, codex: { ...unknown, runner: "codex" } },
+    setMany: { gate },
   });
 });

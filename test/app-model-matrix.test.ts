@@ -1,5 +1,6 @@
 import { expect, test } from "bun:test";
-import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty, formatPrice, formatContext, formatTools, defaultForRows, suggestRow, acceptAllSuggestions, setTier } from "../app/src/model/model-matrix";
+import { mergeRows, takesFor, toggleModel, buildSavePlan, isDirty, formatPrice, formatContext, formatTools, defaultForRows, suggestRow, acceptAllSuggestions, setTier, rebaseSavedDrafts } from "../app/src/model/model-matrix";
+import type { RunnerModels } from "../src/core/runner-models";
 
 test("mergeRows unions listing and declared models", () => {
   const rows = mergeRows([{ id: "a", context: 10, tools: true, costOut: 1 }], [{ id: "a", tier: "small" }, { id: "b", tier: "medium" }]);
@@ -158,4 +159,52 @@ test("setTier can return a model to unrated", () => {
   const rows = [{ id: "a", on: true, tier: "medium", isDefault: true, takes: [], pending: false } as any];
   const next = setTier(rows, "a", "unknown");
   expect(next[0]!.tier).toBe("unknown");
+});
+
+const draftOf = (runner: string, tier = "small", revision = "v1") => ({
+  runner,
+  revision,
+  default: "a",
+  rows: [{ id: "a", on: true, tier, isDefault: true, takes: [], declared: { id: "a", tier } } as any],
+  baseRows: [{ id: "a", on: true, tier: "small", isDefault: true, takes: [] } as any],
+  addedIds: [],
+});
+
+test("rebaseSavedDrafts folds the save result only into unchanged planned runners (G3)", () => {
+  const returned = new Map<string, RunnerModels>([
+    ["changed", { runner: "changed", revision: "r9", default: "b", models: [{ id: "a", tier: "medium", strengths: ["docs"], tools: true, context: 128 }] }],
+    ["edited", { runner: "edited", revision: "r9", default: "b", models: [] }],
+  ]);
+  const out = rebaseSavedDrafts(
+    [draftOf("changed"), draftOf("edited"), draftOf("untouched")],
+    ["changed", "edited"],
+    runner => runner === "edited" ? 2 : 0, // edited again while the save ran
+    runner => runner === "edited" ? 1 : 0, // version when the save began
+    returned,
+    "r9",
+  );
+  // changed was untouched during the save: rebased onto the returned server
+  // state (new revision, default and declared metadata) and clean.
+  const changed = out.find(d => d.runner === "changed")!;
+  expect(changed.revision).toBe("r9");
+  expect(changed.default).toBe("b");
+  expect(changed.rows[0]!.declared).toMatchObject({ id: "a", tier: "medium", strengths: ["docs"], tools: true, context: 128 });
+  expect(JSON.stringify(changed.baseRows)).toBe(JSON.stringify(changed.rows));
+  // edited bumped its version during the save: kept as-is, still dirty.
+  const edited = out.find(d => d.runner === "edited")!;
+  expect(edited.revision).toBe("v1");
+  expect(edited.default).toBe("a");
+  // untouched and any runner without a server return stay put.
+  const untouched = out.find(d => d.runner === "untouched")!;
+  expect(untouched.revision).toBe("v1");
+  expect(untouched.rows[0]!.tier).toBe("small");
+});
+
+test("rebaseSavedDrafts leaves dirty edits that happened during the save untouched", () => {
+  const base = draftOf("r", "small");
+  const returned = new Map<string, RunnerModels>([["r", { runner: "r", revision: "r9", default: "b", models: [] }]]);
+  // The runner was part of the plan but its version moved (edited) mid-flight.
+  const out = rebaseSavedDrafts([base], ["r"], () => 5, () => 4, returned, "r9");
+  expect(out[0]).toBe(base);
+  expect(out[0]!.revision).toBe("v1");
 });

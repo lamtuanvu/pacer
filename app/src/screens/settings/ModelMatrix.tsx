@@ -14,7 +14,7 @@ import { executorLabel } from "../../../../src/view-model/words";
 import {
   createDraft, suggestRows, acceptSuggestion, acceptAllSuggestions,
   dismissSuggestions, toggleModel, setTier, addModel, isDirty, buildSavePlan,
-  takesFor, formatPrice, formatContext, formatTools,
+  rebaseSavedDrafts, takesFor, formatPrice, formatContext, formatTools,
   type MatrixRow, type MatrixDraft, type MatrixTier,
 } from "../../model/model-matrix";
 import { plannerRunner } from "../../model/planner";
@@ -54,8 +54,9 @@ function isConflict(error: unknown): boolean {
 }
 
 /** Stable signature of the runner-model decisions a load would apply: each runner's
- * default and each model's on/tier. Used to tell a genuinely different load
- * ("settings changed elsewhere") from an unrelated refresh with identical models. */
+ * default and each model's on state, tier and declared strengths/tools/context.
+ * Used to tell a genuinely different load ("settings changed elsewhere") from an
+ * unrelated refresh with identical models. */
 function modelSignature(drafts: MatrixDraft[]): string {
   return JSON.stringify(
     [...drafts]
@@ -65,7 +66,14 @@ function modelSignature(drafts: MatrixDraft[]): string {
         default: d.default,
         rows: [...d.rows]
           .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0))
-          .map(r => ({ id: r.id, on: r.on, tier: r.tier })),
+          .map(r => ({
+            id: r.id,
+            on: r.on,
+            tier: r.tier,
+            declared: r.declared
+              ? { id: r.declared.id, tier: r.declared.tier, strengths: r.declared.strengths, tools: r.declared.tools, context: r.declared.context }
+              : null,
+          })),
       })),
   );
 }
@@ -94,6 +102,17 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   targetsRef.current = targets;
   const runnerIdsRef = useRef(runnerIds);
   runnerIdsRef.current = runnerIds;
+  // Per-runner generation counter for the drafts. Every edit bumps the runner's
+  // version; a save snapshot's the versions of the runners it sends and later
+  // rebases only the ones that were not edited while the save was in flight
+  // (see rebaseSavedDrafts), so an edit made during a save stays dirty.
+  const draftVersions = useRef<Record<string, number>>({});
+  const bumpVersions = (runners: string[]) => {
+    const next = { ...draftVersions.current };
+    for (const r of runners) next[r] = (draftVersions.current[r] ?? 0) + 1;
+    draftVersions.current = next;
+  };
+  const resetVersions = () => { draftVersions.current = {}; };
   const dirty = drafts.some((d, i) => isDirty(d.rows, baseDrafts[i]?.rows ?? d.rows) || d.default !== (baseDrafts[i]?.default ?? null));
   const dirtyRef = useRef(dirty);
   dirtyRef.current = dirty;
@@ -145,6 +164,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     setDrafts(loaded.drafts);
     setBaseDrafts(loaded.drafts.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
     setLoadedRevision(loaded.drafts[0]?.revision ?? "");
+    resetVersions();
   };
 
   useEffect(() => {
@@ -153,16 +173,21 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
     // Never silently discard unsaved edits: a load that finishes after the user
     // edited keeps their drafts. It surfaces the "settings changed elsewhere"
     // prompt only when the freshly loaded runner models (default + per-model
-    // on/tier) genuinely differ from what the drafts build on; an unrelated
-    // refresh with identical models stays silent.
+    // on/tier and declared strengths/tools/context) genuinely differ from what
+    // the drafts build on; an unrelated refresh with identical models stays
+    // silent and quietly adopts the newer revision baseline (G1 + G2).
     void fetchAll(runnerIds).then(loaded => {
       if (!active) return;
       if (dirtyRef.current) {
-        if (modelSignature(loaded.drafts) !== modelSignature(baseDraftsRef.current)) {
-          // Real external change: keep the drafts, fold in the loaded revision
-          // baseline so a later save runs against the newest revision, and ask
-          // the user to Discard if they want the loaded models.
+        if (modelSignature(loaded.drafts) === modelSignature(baseDraftsRef.current)) {
+          // Unrelated refresh with identical models: the drafts still build on
+          // the same base, so quietly adopt the newer revision baseline. The
+          // next Save runs against the current revision instead of a stale one.
           setLoadedRevision(loaded.drafts[0]?.revision ?? "");
+        } else {
+          // A real external change: keep the OLD revision baseline so a Save
+          // hits the server's conflict check rather than overwriting the other
+          // client's change, and ask the user to Discard to load it.
           setConflict(true);
           setNotice("Model settings changed elsewhere. Discard to load them.");
         }
@@ -194,6 +219,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   };
 
   const updateDraft = (runner: string, updater: (draft: MatrixDraft) => MatrixDraft) => {
+    bumpVersions([runner]);
     setDrafts(prev => prev.map(d => d.runner === runner ? updater(d) : d));
   };
 
@@ -214,6 +240,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
 
   const handleSuggest = () => {
     setSuggestPhase(true);
+    const editableRunners = drafts.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+    bumpVersions(editableRunners);
     setDrafts(prev => prev.map(d => {
       if (isReadOnly(d.runner)) return d;
       const available = availableById[d.runner];
@@ -224,12 +252,20 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
   };
 
   const handleAcceptAll = () => {
-    setDrafts(prev => prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: acceptAllSuggestions(d.rows) })));
+    setDrafts(prev => {
+      const editable = prev.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+      bumpVersions(editable);
+      return prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: acceptAllSuggestions(d.rows) }));
+    });
     setSuggestPhase(false);
   };
 
   const handleDismissAll = () => {
-    setDrafts(prev => prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: dismissSuggestions(d.rows) })));
+    setDrafts(prev => {
+      const editable = prev.filter(d => !isReadOnly(d.runner)).map(d => d.runner);
+      bumpVersions(editable);
+      return prev.map(d => isReadOnly(d.runner) ? d : ({ ...d, rows: dismissSuggestions(d.rows) }));
+    });
     setSuggestPhase(false);
   };
 
@@ -307,34 +343,28 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
         setNotice("No changes.");
         return;
       }
+      // Snapshot each planned runner's draft version so the save result can be
+      // folded back only into runners that were not edited while the save ran.
+      const planStartVersions = draftVersions.current;
       const result = await api.call<{ revision: string; runners: RunnerModels[]; warnings?: string[] }>("runner.models.set_many", {
         expectedRevision: loadedRevision || drafts[0]?.revision || "",
         runners: plan.runners,
       });
       const newRevision = result.revision;
       const returned = new Map<string, RunnerModels>(result.runners.map(r => [r.runner, r]));
-      // Fold the service's returned revision, defaults and declared models into
-      // each draft so the page is clean, a second save sends the new revision,
-      // and saved strengths/tools/context stay in the draft.
-      const saved = drafts.map(d => {
-        const r = returned.get(d.runner);
-        const declaredById = new Map((r?.models ?? []).map(m => [m.id, m]));
-        const rows = d.rows.map(row => {
-          const declaration = declaredById.get(row.id);
-          return declaration ? { ...row, declared: declaration } : row;
-        });
-        return {
-          runner: d.runner,
-          revision: newRevision,
-          default: r?.default ?? d.default,
-          rows: rows.map(row => ({ ...row })),
-          baseRows: rows.map(row => ({ ...row })),
-          addedIds: [],
-        };
-      });
+      // Rebase the drafts on the returned server state only for the runners
+      // that were in the save plan and unchanged since the save started; a
+      // runner edited meanwhile keeps its draft and stays dirty.
+      const saved = rebaseSavedDrafts(
+        drafts, plan.changedRunners,
+        runner => draftVersions.current[runner] ?? 0,
+        runner => planStartVersions[runner] ?? 0,
+        returned, newRevision,
+      );
       setDrafts(saved);
-      setBaseDrafts(saved);
+      setBaseDrafts(saved.map(d => ({ ...d, rows: d.rows.map(r => ({ ...r })), baseRows: d.baseRows.map(r => ({ ...r })) })));
       setLoadedRevision(newRevision);
+      resetVersions();
       inventory.reload();
       const warnings = (result.warnings ?? []).filter(w => !ROUTINE_WARNINGS.test(w));
       setNotice(warnings.length ? `Saved. ${warnings.join(" ")}` : "Saved.");
@@ -375,7 +405,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <strong>Suggest from listings</strong>
                       <span className="u3-muted">Proposes which models to turn on and what size each is, from each provider's price and tool support. Nothing changes until you save.</span>
                       <div className="u3-actions">
-                        <Button size="sm" variant="secondary" onClick={handleSuggest}>Suggest</Button>
+                        <Button size="sm" variant="secondary" disabled={busy} onClick={handleSuggest}>Suggest</Button>
                       </div>
                     </>
                   ) : (
@@ -383,8 +413,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       <strong>Suggestions applied</strong>
                       <span className="u3-muted">Highlighted rows. Accept them one by one, or all at once.</span>
                       <div className="u3-actions">
-                        <Button size="sm" variant="ghost" onClick={handleDismissAll}>Dismiss</Button>
-                        <Button size="sm" variant={dirty ? "secondary" : "primary"} onClick={handleAcceptAll}>Accept all</Button>
+                        <Button size="sm" variant="ghost" disabled={busy} onClick={handleDismissAll}>Dismiss</Button>
+                        <Button size="sm" variant={dirty ? "secondary" : "primary"} disabled={busy} onClick={handleAcceptAll}>Accept all</Button>
                       </div>
                     </>
                   )}
@@ -416,8 +446,8 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                       {!readOnly && noModels && <p className="u3-muted">Uses its default and can take any difficulty</p>}
                       {!readOnly && unknownListing && (
                         <form className="pc-model-matrix__add" onSubmit={event => { event.preventDefault(); handleAdd(id); }}>
-                          <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
-                          <Button size="sm" type="submit">Add</Button>
+                          <Field label="Add model"><TextInput value={addingByRunner[id] ?? ""} disabled={busy} onInput={e => setAddingByRunner(prev => ({ ...prev, [id]: e.currentTarget.value }))} /></Field>
+                          <Button size="sm" type="submit" disabled={busy}>Add</Button>
                         </form>
                       )}
                       {draft && !noModels && (
@@ -464,7 +494,7 @@ export function ModelMatrix({ initialConfig, initialInventory }: { initialConfig
                                   </RadioGroup></span>
                                   <div role="cell">
                                     <span className="u3-muted">{row.on ? (row.tier === "unknown" ? "Any, unrated" : takes.map(t => t.charAt(0).toUpperCase() + t.slice(1)).join(", ") || "—") : "Off"}</span>
-                                    {pendingRow && !readOnly && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
+                                    {pendingRow && !readOnly && <Button size="sm" variant="ghost" aria-label={`Accept suggestion for ${row.id}`} disabled={busy} onClick={() => handleAccept(id, row.id)}>Accept</Button>}
                                   </div>
                                 </div>
                               );

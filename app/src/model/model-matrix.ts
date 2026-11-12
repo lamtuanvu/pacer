@@ -208,6 +208,48 @@ export function buildSavePlan(runners: MatrixSavePlanRunner[], targets: TierTarg
   return { changed: changedRunners.length > 0, changedRunners, runners: out };
 }
 
+/**
+ * Fold a successful `runner.models.set_many` result into the drafts, but only
+ * for runners that were part of this save plan AND whose draft has not been
+ * edited since the save began (same generation version). A runner edited while
+ * the save was in flight keeps its draft and stays dirty, so the rebase never
+ * silently discards an edit made meanwhile.
+ *
+ * `versionOf` reads a runner's current generation version and `startVersion`
+ * the version it had when the save started; only a runner whose two versions
+ * agree is reset to the returned server state (revision, default and the
+ * rebuilt declaration metadata on its current rows).
+ */
+export function rebaseSavedDrafts(
+  drafts: MatrixDraft[],
+  changedRunners: readonly string[],
+  versionOf: (runner: string) => number,
+  startVersion: (runner: string) => number,
+  returned: ReadonlyMap<string, RunnerModels>,
+  newRevision: string,
+): MatrixDraft[] {
+  const changed = new Set(changedRunners);
+  return drafts.map(draft => {
+    if (!changed.has(draft.runner)) return draft;
+    const saved = returned.get(draft.runner);
+    if (!saved) return draft;
+    if (versionOf(draft.runner) !== startVersion(draft.runner)) return draft;
+    const declaredById = new Map((saved.models ?? []).map(m => [m.id, m]));
+    const rows = draft.rows.map(row => {
+      const declaration = declaredById.get(row.id);
+      return declaration ? { ...row, declared: declaration } : row;
+    });
+    return {
+      runner: draft.runner,
+      revision: newRevision,
+      default: saved.default ?? draft.default,
+      rows: rows.map(row => ({ ...row })),
+      baseRows: rows.map(row => ({ ...row })),
+      addedIds: [],
+    };
+  });
+}
+
 export function defaultForRows(rows: MatrixRow[], currentDefault: string | null): string | null {
   const enabled = rows.filter(row => row.on);
   if (enabled.length === 0) return currentDefault;
