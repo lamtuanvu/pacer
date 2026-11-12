@@ -472,3 +472,28 @@ fn report_search_timings_over_50k_tasks() {
         eprintln!("{label}: {:?} -> {} rows", start.elapsed(), rows.len());
     }
 }
+
+#[test]
+fn a_match_is_still_found_when_the_record_is_large_and_the_word_is_only_in_the_goal() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let db = store.connection().unwrap();
+    let id = "t-20261101-000000-aa99";
+    let goal = format!("über {}", "y".repeat(8000));
+    let record = json!({"id":id,"rev":1,"state":"done","createdAt":1.0,
+        "title":"","brief":{"repo":"/fixture","goal":goal},"attempts":[]});
+    db.execute(
+        "INSERT INTO tasks(id,rev,state,created_at,updated_at,settled_at,archived,record) VALUES(?,1,'done',1,1,1,0,?)",
+        params![id, record.to_string()],
+    )
+    .unwrap();
+    let rows = store
+        .list(&TaskFilter {
+            query: Some("Über"),
+            limit: Some(21),
+            ..Default::default()
+        })
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0]["id"].as_str().unwrap(), id);
+}
