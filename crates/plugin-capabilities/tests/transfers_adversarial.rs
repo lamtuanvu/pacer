@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{TransferError as E, TransferKind as K, Transfers};
+use pacer_plugin_capabilities::{TransferError as E, TransferKind as K, Transfers};
 #[test]
 fn limits_canonical_base64_and_slot_independence() {
     let mut t = Transfers::default();

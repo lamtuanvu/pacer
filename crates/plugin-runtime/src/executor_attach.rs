@@ -1,6 +1,7 @@
 //! Executor run claim attach for flag-on [`crate::ProcessOwner`] (P4d-12).
 
-use pacer_plugin_host::{ExecutorClaimResource, NativeRun, RunLaunch, RunLaunchFile};
+use pacer_plugin_capabilities::{NativeRun, RunLaunch, RunLaunchFile};
+use pacer_plugin_host::ExecutorClaimResource;
 use std::{path::Path, time::Instant};
 
 /// Core-sealed home for ProcessOwner executor run attach.

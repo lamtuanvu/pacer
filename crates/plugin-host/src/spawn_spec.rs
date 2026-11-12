@@ -21,7 +21,7 @@ pub struct SpawnCapture {
     pub stderr: String,
 }
 pub(crate) const CODEX_ARGV: &[&str] = &["codex", "-s", "read-only", "-a", "never", "app-server"];
-pub(crate) const CODEX_REQUEST: &str = concat!(
+pub const CODEX_REQUEST: &str = concat!(
     "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"clientInfo\":{\"name\":\"pacer\",\"version\":\"1\"},\"capabilities\":{}}}\n",
     "{\"jsonrpc\":\"2.0\",\"method\":\"initialized\",\"params\":{}}\n",
     "{\"jsonrpc\":\"2.0\",\"id\":2,\"method\":\"account/rateLimits/read\",\"params\":{}}\n"
@@ -36,10 +36,10 @@ fn env_key(key: &str) -> bool {
         && b.all(|c| c.is_ascii_alphanumeric() || c == b'_')
 }
 impl CommandResource {
-    pub(crate) fn has_context(&self) -> bool {
+    pub fn has_context(&self) -> bool {
         self.cwd.is_some() || self.env.is_some() || self.secret_env.is_some()
     }
-    pub(crate) fn matches(&self, params: &Value, ms: u64) -> bool {
+    pub fn matches(&self, params: &Value, ms: u64) -> bool {
         if params["argv"] != json!(self.argv)
             || ms > self.timeout_ms
             || self.mode == Some(SpawnMode::SessionDuplex)
@@ -67,7 +67,7 @@ impl CommandResource {
         }
         params.get("env") == Some(&Value::Object(expected))
     }
-    pub(crate) fn validate(&self, account_home: Option<&str>) -> Result<(), BrokerError> {
+    pub fn validate(&self, account_home: Option<&str>) -> Result<(), BrokerError> {
         if self.argv.is_empty()
             || self.argv.len() > 32
             || self.argv[0] == "*"

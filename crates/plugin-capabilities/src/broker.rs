@@ -1,9 +1,9 @@
 //! Admission and transport for plugin-to-host capability calls in the shadow host.
 //! Effects are supplied by the future native owner; this layer never calls the TS host.
-use crate::authority::AuthorityError;
+use crate::AuthorityError;
 use crate::{
-    CallAuthority, HostLeaseBroker, NativeRead, ParsedManifest, ProviderSnapshot, ScopeRoots,
-    TransferKind, Transfers,
+    BrokerError, CallAuthority, HostLeaseBroker, NativeRead, ParsedManifest, ProviderSnapshot,
+    ScopeRoots, TransferKind, Transfers,
 };
 use base64::{Engine, engine::general_purpose::STANDARD};
 use serde_json::{Value, json};
@@ -11,26 +11,7 @@ use std::{
     future::Future,
     time::{Duration, Instant},
 };
-use thiserror::Error;
 use tokio::time::timeout_at;
-
-#[derive(Debug, Error)]
-pub enum BrokerError {
-    #[error("Policy hash key cannot be accessed safely")]
-    PolicyKey,
-    #[error("{0}")]
-    PolicyVeto(String),
-    #[error(transparent)]
-    Authority(#[from] AuthorityError),
-    #[error("invalid capability parameters: {0}")]
-    Invalid(&'static str),
-    #[error("capability deadline passed")]
-    Timeout,
-    #[error("effect failed: {0}")]
-    Effect(String),
-    #[error("host lease failed: {0}")]
-    HostLease(String),
-}
 
 /// Effects receive already admitted arguments. Implementations must retain their
 /// own filesystem descriptor, executable identity and network redirect checks.
@@ -263,7 +244,7 @@ impl CapabilityBroker {
             "capability.fs.list" => {
                 let dir = field("dir")?;
                 self.authority.read_directory(dir)?;
-                let dir = crate::authority::normalize_path(dir);
+                let dir = crate::normalize_path(dir);
                 if !self.scope_roots.declares_directory(&scopes, &dir)? {
                     return Err(AuthorityError::Denied("undeclared read directory".into()).into());
                 }

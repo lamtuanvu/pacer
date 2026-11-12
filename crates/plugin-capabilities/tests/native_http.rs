@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{CredentialBindings, NativeHttp};
+use pacer_plugin_capabilities::NativeHttp;
+use pacer_plugin_host::CredentialBindings;
 use serde_json::json;
 use tokio::{
     io::{AsyncReadExt, AsyncWriteExt},

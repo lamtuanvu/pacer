@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{BrokerError, NativeRemote, RemoteHost, RemoteIntent, RemoteOperation};
+use pacer_plugin_capabilities::{NativeRemote, RemoteHost, RemoteIntent, RemoteOperation};
+use pacer_plugin_host::BrokerError;
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 use std::{

@@ -269,7 +269,7 @@ impl NativeProcess {
         }
         let codex = mode == Some(crate::SpawnMode::CodexLive);
         let input_bytes = if codex {
-            Some(crate::spawn_spec::CODEX_REQUEST.as_bytes().to_vec())
+            Some(crate::CODEX_REQUEST.as_bytes().to_vec())
         } else {
             pin.command
                 .input

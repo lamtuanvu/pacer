@@ -11,7 +11,7 @@
 //! future default-on cutover. Flag-on serve routes native plugin RPC through
 //! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7
 //! installs a [`PluginCapabilitySession`] so the owner answers `capability.*`
-//! via `pacer-plugin-host` (log/config.get always; native fs/process/http when
+//! via `pacer-plugin-capabilities` (log/config.get always; native fs/process/http when
 //! Core issues call-scoped resources). Default-on stays off until TypeScript
 //! plugin consumers reach the owner over the bridge.
 
@@ -48,10 +48,10 @@ pub use host_bridge::{
 };
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use owner::{OwnerError, Ownership, PluginLane, ProcessOwner};
+pub use pacer_plugin_capabilities::{CapabilityBroker, NativeHttp, NativeProcess, NativeRead};
 pub use pacer_plugin_host::{
-    CallAuthority, CallResources, CapabilityBroker, NativeHttp, NativeProcess, NativeRead,
-    NativeWrite, PluginState, ProcessError, ProviderSnapshot, ReadResource, Registry, SpawnSpec,
-    WriteResource, parse_manifest,
+    CallAuthority, CallResources, NativeWrite, PluginState, ProcessError, ProviderSnapshot,
+    ReadResource, Registry, SpawnSpec, WriteResource, parse_manifest,
 };
 pub use process::PluginProcess;
 pub use serve_host::{

@@ -1,6 +1,7 @@
 //! Worktree capability attach for flag-on [`crate::ProcessOwner`] (P4d-11).
 
-use pacer_plugin_host::{NativeWorktree, WorktreeResource};
+use pacer_plugin_capabilities::NativeWorktree;
+use pacer_plugin_host::WorktreeResource;
 use std::{collections::HashMap, path::Path};
 
 /// Core-sealed home + git pin for ProcessOwner worktree attach.

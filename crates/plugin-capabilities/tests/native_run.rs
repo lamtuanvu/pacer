@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{NativeRun, RunLaunch};
+use pacer_plugin_capabilities::{NativeRun, RunLaunch};
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 use std::{
@@ -184,7 +184,8 @@ async fn foreign_identity_parameters_and_directory_swap_are_refused() {
 }
 #[tokio::test]
 async fn broker_admits_only_issued_provider_and_declared_command() {
-    use pacer_plugin_host::{CallAuthority, CallResources, CapabilityBroker, parse_manifest};
+    use pacer_plugin_capabilities::CapabilityBroker;
+    use pacer_plugin_host::{CallAuthority, CallResources, parse_manifest};
     let f = Fixture::new();
     let mut run = f.owner();
     let manifest=parse_manifest(json!({"id":"fx-executor","version":"1.0.0","publisher":"fixture","host":">=1.10.0","contributes":{"executor":{"backends":["direct"]}},"capabilities":[{"name":"process.spawn","scopes":["printf"]}]})).unwrap();

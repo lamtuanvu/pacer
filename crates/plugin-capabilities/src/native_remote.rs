@@ -440,7 +440,7 @@ impl<H: RemoteHost> NativeRemote<H> {
             .ok_or_else(denied)?;
 
         if !Path::new(worktree).is_absolute()
-            || crate::authority::normalize_path(worktree) != worktree
+            || crate::normalize_path(worktree) != worktree
             || prefix.split('/').any(|p| p == "..")
             || ![
                 format!("pacer/{}", self.id),

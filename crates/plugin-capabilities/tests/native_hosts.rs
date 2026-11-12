@@ -1,7 +1,6 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_host::{
-    BrokerError, CapabilityEffect, HostProvider, NativeHosts, ProviderSnapshot,
-};
+use pacer_plugin_capabilities::{CapabilityEffect, HostProvider, NativeHosts};
+use pacer_plugin_host::{BrokerError, ProviderSnapshot};
 use serde_json::{Value, json};
 struct Provider {
     snapshot: ProviderSnapshot,
@@ -73,7 +72,7 @@ async fn native_host_sessions_hide_provider_handles_and_pin_generations() {
 }
 #[tokio::test]
 async fn fetched_bundle_crosses_provider_boundary_only_as_private_one_use_ticket() {
-    use pacer_plugin_host::{BundleSpec, BundleTicket, NativeBundle};
+    use pacer_plugin_capabilities::{BundleSpec, BundleTicket, NativeBundle};
     use std::{
         collections::HashMap,
         fs,

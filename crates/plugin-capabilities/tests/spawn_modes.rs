@@ -1,8 +1,8 @@
 #![allow(clippy::unwrap_used)]
 use base64::Engine;
+use pacer_plugin_capabilities::NativeProcess;
 use pacer_plugin_host::{
-    CommandResource, CredentialBindings, NativeProcess, NativeWrite, SpawnCapture, SpawnMode,
-    WriteResource,
+    CommandResource, CredentialBindings, NativeWrite, SpawnCapture, SpawnMode, WriteResource,
 };
 use serde_json::json;
 use sha2::{Digest, Sha256};

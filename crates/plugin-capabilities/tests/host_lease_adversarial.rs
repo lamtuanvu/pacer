@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
+use pacer_plugin_capabilities::{CapabilityBroker, CapabilityEffect, HostProvider, NativeHosts};
 use pacer_plugin_host::{
-    AuthorityError, BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-    HostProvider, NativeHosts, ProviderSnapshot, parse_manifest,
+    AuthorityError, BrokerError, CallAuthority, CallResources, ProviderSnapshot, parse_manifest,
 };
 use serde_json::{Value, json};
 use std::sync::{
@@ -199,7 +199,10 @@ impl HostProvider for Scripted {
                 .unwrap_or_else(snapshot),
         )
     }
-    async fn fetch(&mut self, _: Value) -> Result<pacer_plugin_host::BundleTicket, BrokerError> {
+    async fn fetch(
+        &mut self,
+        _: Value,
+    ) -> Result<pacer_plugin_capabilities::BundleTicket, BrokerError> {
         Err(effect(self.0.lock().unwrap().fetch_fail.unwrap()))
     }
     async fn invoke(&mut self, m: &str, p: Value) -> Result<Value, BrokerError> {

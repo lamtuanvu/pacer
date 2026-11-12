@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use pacer_plugin_host::bun_glob::matches_bun_scope;
 use std::os::unix::fs::PermissionsExt;
 use std::os::unix::fs::symlink;
 use std::process::Command;

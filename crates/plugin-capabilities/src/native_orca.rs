@@ -1,31 +1,11 @@
 //! Task-owned Orca capability dispatch. Sessions are host objects, never plugin-provided handles.
-use crate::{AuthorityError, BrokerError, CapabilityEffect};
+use crate::{
+    AuthorityError, BrokerError, CapabilityEffect, ORCA_PROVIDER, OrcaAttemptResource,
+    OrcaLiveResource,
+};
 use pacer_store::TaskStore;
-use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::{future::Future, path::Path};
-pub const ORCA_PROVIDER: &str = "pacer-exec-orca";
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrcaAttemptResource {
-    pub task_id: String,
-    pub attempt: u64,
-    pub provider_id: String,
-    pub executor: String,
-    pub session: String,
-}
-#[derive(Clone, Debug, Deserialize, Serialize)]
-#[serde(rename_all = "camelCase")]
-pub struct OrcaLiveResource {
-    pub task_id: String,
-    pub attempt: u64,
-    pub provider_id: String,
-    pub worker: String,
-    pub terminal: String,
-    pub incarnation: Option<String>,
-    pub action: String,
-    pub why: Option<String>,
-}
 fn denied() -> BrokerError {
     AuthorityError::Denied("Orca attempt or live worker changed".into()).into()
 }
