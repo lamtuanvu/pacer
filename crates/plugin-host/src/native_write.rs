@@ -276,6 +276,7 @@ impl NativeWrite {
         )
         .map_err(|_| denied())?;
         let mut file = File::from(staged);
+        let mut committed = false;
         let result = (|| {
             file.set_permissions(Permissions::from_mode(0o600))
                 .map_err(|_| denied())?;
@@ -286,24 +287,26 @@ impl NativeWrite {
             self.current(index, &parent)?;
             guard()?;
             renameat(&parent, temp.as_str(), &parent, name).map_err(|_| denied())?;
+            committed = true;
             self.resources[index].expected = Some(id);
             self.parent(&relative)?;
             self.current(index, &parent)?;
             Ok(json!({"ok":true}))
         })();
-        // Only remove our staged inode; never an attacker's substituted entry.
-        let cleaned = match target(&parent, Path::new(&temp)) {
-            Ok(None) => true,
-            Ok(Some(named)) => {
-                named
-                    .metadata()
-                    .ok()
-                    .zip(file.metadata().ok())
-                    .is_some_and(|(a, b)| identity(&a) == identity(&b))
-                    && unlinkat(&parent, temp.as_str(), UnlinkatFlags::NoRemoveDir).is_ok()
-            }
-            Err(_) => false,
-        };
+        // Only remove our staged inode; never an attacker's substituted entry. Before the
+        // commit a missing stage is unverified, as in TypeScript; after it there is no stage.
+        let cleaned = committed
+            || match target(&parent, Path::new(&temp)) {
+                Ok(None) | Err(_) => false,
+                Ok(Some(named)) => {
+                    named
+                        .metadata()
+                        .ok()
+                        .zip(file.metadata().ok())
+                        .is_some_and(|(a, b)| identity(&a) == identity(&b))
+                        && unlinkat(&parent, temp.as_str(), UnlinkatFlags::NoRemoveDir).is_ok()
+                }
+            };
         if !cleaned {
             self.cleanup_failed = true;
             self.retirement()?;

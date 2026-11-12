@@ -265,3 +265,21 @@ fn unverified_stage_cleanup_is_sticky_and_leaves_the_foreign_entry() {
     assert!(native.check(&f.path("file"), "write").is_err());
     assert_eq!(fs::read_dir(&f.0).unwrap().count(), 1);
 }
+
+#[test]
+fn stage_missing_before_commit_is_unverified_and_sticky() {
+    let f = Fixture::new();
+    let mut native = NativeWrite::prepare(&f.0, &[f.resource("file", "file")]).unwrap();
+    let root = f.0.clone();
+    let remove_stage = move || {
+        let stage = fs::read_dir(&root).unwrap().next().unwrap().unwrap().path();
+        fs::remove_file(stage).unwrap();
+    };
+    let params = json!({"path":f.path("file"),"text":"safe"});
+    let unverified = |r: Result<serde_json::Value, BrokerError>| matches!(r, Err(BrokerError::Effect(m)) if m == "private write cleanup unverified");
+    let refused = native.answer_owned("capability.fs.write", &params, guard(4, remove_stage));
+    assert!(unverified(refused));
+    assert_eq!(fs::read_dir(&f.0).unwrap().count(), 0);
+    assert!(unverified(native.answer("capability.fs.write", &params)));
+    assert!(!f.0.join("file").exists());
+}
