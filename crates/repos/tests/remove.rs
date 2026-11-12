@@ -72,6 +72,31 @@ fn removes_all_matching_entries_and_aliases_with_typescript_bytes() {
 }
 
 #[test]
+fn removal_waits_for_the_shared_repos_lock() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(&dir);
+    let state = seed(&ctx, Some(FIXTURE.as_bytes()), Some(ALIASES.as_bytes()));
+    let lock = ctx.pacer_home.join("orca/repos.lock");
+    fs::create_dir_all(lock.parent().unwrap()).unwrap();
+    fs::write(&lock, "").unwrap();
+    std::thread::scope(|scope| {
+        let removal = scope.spawn(|| remove_repo(&ctx, "one").map_err(|error| error.message));
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        assert_eq!(read(&state, "repos.json"), FIXTURE);
+        assert_eq!(read(&state, "repo-paths.json"), ALIASES);
+        assert!(!removal.is_finished());
+        fs::remove_file(&lock).unwrap();
+        assert_eq!(removal.join().unwrap().unwrap(), json!({"removed": true}));
+    });
+    assert_eq!(
+        read(&state, "repos.json"),
+        r#"{"/b":{"key":"two","path":"/b","lastUsed":2}}"#
+    );
+    assert_eq!(read(&state, "repo-paths.json"), r#"{"/alias-b":"/b"}"#);
+    assert!(!lock.exists());
+}
+
+#[test]
 fn typescript_written_numbers_and_extra_fields_round_trip() {
     let registry = r#"{"/a":{"key":"k","path":"/a","lastUsed":1e400,"n":-0,"m":9007199254740993,"f":1731380000.123456789,"e":1e21,"s":1e-7,"x":[1.0,-1e-400]},"/b":{"key":"one","path":"/b","lastUsed":1731380000.5}}"#;
     assert_eq!(
