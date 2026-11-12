@@ -2331,7 +2331,8 @@ export class PluginRegistry {
     const duration = ownerBoundStream ? 0 : capped ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    // An Orca attempt reports through its capability calls; any progress it sends is refused.
+    // An Orca attempt reports through its capability calls and has no progress owner: progress it sends fails the
+    // attempt with the owner off, and the native owner drops it (child notifications are not relayed).
     if (method === "executor.run" && !options.onProgress && !options.resources?.orcaAttempt) throw new CoreError("invalid_input", "executor run requires a progress owner");
     const parsed = method === "usage.read" || hostRunner || executorAvailable || executorAttempt || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable || executorAttempt ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
@@ -2348,8 +2349,9 @@ export class PluginRegistry {
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
     if (ctx.env.PACER_HOST_SOCKET) {
-      // An empty list binds nothing; a credential reference would need its secret to cross the socket.
-      if (credentialBindings?.length) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
+      // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
+      if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
       return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
