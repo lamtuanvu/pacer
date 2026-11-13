@@ -68,6 +68,8 @@ export function get(ctx: Ctx, id: string): TaskRecord {
 
 export interface ListOptions {
   all?: boolean; limit?: number; before?: string; repo?: string; states?: TaskState[]; executor?: string; since?: number;
+  /** Free-text search over id (with short suffix), title and goal; every word must appear. */
+  query?: string;
 }
 
 /** Newest first; exact filters run before SQL paging. Legacy repository paths
@@ -79,7 +81,7 @@ export function list(ctx: Ctx, o: ListOptions = {}): TaskRecord[] {
     : legacyTaskRepoPaths(ctx).filter(path => repoFor(ctx, path).key === o.repo);
   return listTasksWhere(ctx, {
     createdSince: o.since, all: o.all, before: o.before, limit,
-    visibleStates: o.states, executor: o.executor, repoKey: o.repo, legacyRepoPaths,
+    visibleStates: o.states, executor: o.executor, repoKey: o.repo, legacyRepoPaths, query: o.query,
   });
 }
 

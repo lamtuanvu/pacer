@@ -52,6 +52,39 @@ fn task(id: &str, state: &str, created: f64, repo_key: &str, path: &str) -> Valu
 }
 
 #[test]
+fn select_task_list_applies_the_query_filter() {
+    let (_dir, ctx) = home();
+    let older = task("t-20261101-000000-d90f", "done", 10.0, "repo-a", "/repo-a");
+    let newer = task("t-20261101-000001-e11f", "done", 20.0, "repo-a", "/repo-a");
+    write_task(&ctx, &older);
+    write_task(&ctx, &newer);
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let mut hits = |query: &str| -> Vec<String> {
+        select_task_list(
+            &ctx,
+            &mut store,
+            &TaskListOptions {
+                query: Some(query),
+                limit: Some(10),
+                ..TaskListOptions::default()
+            },
+        )
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap().to_owned())
+        .collect()
+    };
+    // The short suffix and full ids match, and newest first across a shared goal word.
+    assert_eq!(hits("D90F"), vec!["t-20261101-000000-d90f"]);
+    assert_eq!(
+        hits("goal for"),
+        vec!["t-20261101-000001-e11f", "t-20261101-000000-d90f"]
+    );
+    // Every word must appear, so no row satisfies both suffixes.
+    assert_eq!(hits("d90f e11f"), Vec::<String>::new());
+}
+
+#[test]
 fn visible_state_promotes_unanswered_running_question() {
     let running = json!({"state":"running","question":{"text":"q","at":1}});
     assert_eq!(visible_task_state(&running), "needs_input");

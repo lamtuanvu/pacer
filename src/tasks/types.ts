@@ -351,3 +351,18 @@ export type ManagedSkipReason = "interactive" | "unsupported" | "unverified" | "
 export function visibleTaskState(task: Pick<TaskRecord, "state" | "question">): TaskState {
   return task.state === "running" && task.question && task.question.answer === undefined ? "needs_input" : task.state;
 }
+
+/** A stored needs_input task still needs the user only while its question is unanswered
+ *  (no answer yet), it was not superseded by a retry, and it is not dismissed.
+ *  This is the attention rule's predicate, factored so every selection (active set,
+ *  snapshot window, live events) shares it: a task answered via the retry path or
+ *  dismissed no longer holds a place as a live question. Mirrors the SQL
+ *  `awaitsAnswerSql` (store.ts) and the Rust `awaits_answer` (pacer-store). */
+export function awaitsAnswer(task: {
+  state: string;
+  question?: { answer?: string | null } | null;
+  retriedBy?: string | null;
+  dismissed?: boolean;
+}): boolean {
+  return task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
+}

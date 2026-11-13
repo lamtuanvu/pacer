@@ -57,6 +57,15 @@ const TERMINAL: &[&str] = &[
     "needs_input",
 ];
 
+/// A stored needs_input still needs the user only while its question is unanswered
+/// (answer null), it was not superseded by a retry, and it is not dismissed.
+/// Matches `awaits_answer` and the TypeScript `awaitsAnswer`. The leading
+/// `state = 'needs_input'` lets callers keep this indexed via `tasks_state`.
+pub(super) const AWAITS_ANSWER_SQL: &str = "state='needs_input' \
+AND json_type(record, '$.question.answer') IS NULL \
+AND json_extract(record, '$.retriedBy') IS NULL \
+AND NOT COALESCE(json_extract(record, '$.dismissed'),0)";
+
 pub fn is_task_id(id: &str) -> bool {
     let b = id.as_bytes();
     b.len() == 22
@@ -104,6 +113,18 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(Value::String(value)) => !value.is_empty(),
         Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
     }
+}
+/// A stored needs_input task still needs the user only while its question is
+/// unanswered (no answer yet), it was not superseded by a retry, and it is not
+/// dismissed. This is the attention rule's predicate, factored so every
+/// selection (active set, snapshot window, live events) shares it; it mirrors the
+/// TypeScript `awaitsAnswer` and the SQL `AWAITS_ANSWER_SQL`.
+pub fn awaits_answer(task: &Value) -> bool {
+    task["state"] == "needs_input"
+        && task["question"].is_object()
+        && task["question"].get("answer").is_none()
+        && !truthy(task.get("retriedBy"))
+        && !truthy(task.get("dismissed"))
 }
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
@@ -194,6 +215,29 @@ fn parse_record(text: &str) -> Result<Value> {
         value["rev"] = json!(1);
     }
     Ok(value)
+}
+
+/// Whether every word SQLite cannot fold appears in the id, title or goal of a
+/// decoded record. Only string fields are searched, like the SQL `json_extract`
+/// text check, and the folding is per-character Unicode lowercase in both
+/// runtimes (see `task_selection::fold` and TypeScript `fold`).
+fn matches_unicode_words(record: &Value, words: &[String]) -> bool {
+    let id = field_text(record, "id");
+    let title = field_text(record, "title");
+    let goal = record
+        .get("brief")
+        .and_then(|brief| brief.get("goal"))
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    words.iter().all(|w| {
+        selection::fold(id).contains(w)
+            || selection::fold(title).contains(w)
+            || selection::fold(goal).contains(w)
+    })
+}
+
+fn field_text<'a>(record: &'a Value, name: &str) -> &'a str {
+    record.get(name).and_then(Value::as_str).unwrap_or_default()
 }
 /// A time as the store's mtime in milliseconds, matching stat().mtimeMs.
 fn system_time_ms(time: SystemTime) -> f64 {
@@ -387,6 +431,9 @@ pub struct TaskStore {
 #[derive(Default)]
 pub struct TaskFilter<'a> {
     pub states: Option<&'a [&'a str]>,
+    /// Also select stored needs_input tasks the user still must answer (never aged
+    /// out), via `AWAITS_ANSWER_SQL`. Keeps `tasks_state` as the driver index.
+    pub awaiting_answer: bool,
     pub updated_since: Option<f64>,
     pub created_since: Option<f64>,
     /// Repository identity; legacy records may match a resolved brief path.
@@ -398,6 +445,13 @@ pub struct TaskFilter<'a> {
     pub all: bool,
     pub before: Option<&'a str>,
     pub limit: Option<usize>,
+    /// Free-text search: every space-separated word must appear, case-insensitively,
+    /// in the task id (including its short suffix), title or goal. Folding is
+    /// ASCII-only in SQL (SQLite's lower()) and per-character Unicode lowercase on
+    /// decoded records; a word shaped like a task-id prefix (for example the full id
+    /// or a date prefix `t-2026`) is matched by the id prefix range instead, and is
+    /// not searched in titles or goals.
+    pub query: Option<&'a str>,
 }
 impl TaskStore {
     pub fn open(home: impl AsRef<Path>) -> Result<Self> {
@@ -693,12 +747,51 @@ impl TaskStore {
             return Ok(Vec::new());
         }
         self.refresh()?;
-        let (sql, bind) = selection::query(filter);
-        let mut stmt = self.db.prepare(&sql)?;
-        let records = stmt
-            .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        records.into_iter().map(|s| parse_record(&s)).collect()
+        // Words SQLite cannot fold are matched on the decoded records; walk
+        // newest-first with an id cursor until `limit` records match.
+        let unicode = selection::unicode_words(filter);
+        if unicode.is_empty() {
+            let (sql, bind) = selection::query(filter);
+            let mut stmt = self.db.prepare(&sql)?;
+            let records = stmt
+                .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            records.into_iter().map(|s| parse_record(&s)).collect()
+        } else {
+            let mut out = Vec::new();
+            let mut cursor = filter.before.map(str::to_owned);
+            let batch = filter.limit.map_or(500, |n| n.min(500));
+            loop {
+                let (sql, bind) = selection::page_query(filter, cursor.as_deref(), batch);
+                let mut stmt = self.db.prepare(&sql)?;
+                let page = stmt
+                    .query_map(params_from_iter(bind), |r| {
+                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                if page.is_empty() {
+                    break;
+                }
+                let exhausted = page.len() < batch;
+                for (id, text) in page {
+                    cursor = Some(id);
+                    // A record that fails to decode cannot match a text query
+                    // (the TypeScript paging loop skips it the same way).
+                    if let Ok(record) = parse_record(&text)
+                        && matches_unicode_words(&record, &unicode)
+                    {
+                        out.push(record);
+                        if filter.limit.is_some_and(|n| out.len() >= n) {
+                            return Ok(out);
+                        }
+                    }
+                }
+                if exhausted {
+                    break;
+                }
+            }
+            Ok(out)
+        }
     }
     /// Resolve legacy identities per distinct checkout, without decoding task history.
     pub fn legacy_repo_paths(&mut self) -> Result<Vec<String>> {
@@ -718,7 +811,9 @@ impl TaskStore {
     }
     pub fn list_active_and_recent(&mut self, updated_since: f64) -> Result<Vec<Value>> {
         self.refresh()?;
-        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running')) ORDER BY id DESC")?;
+        // A stored `needs_input` never ages out while it still awaits an answer; one
+        // that was answered, retried or dismissed is not retained by its state.
+        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running') OR (state='needs_input' AND json_type(record, '$.question.answer') IS NULL AND json_extract(record, '$.retriedBy') IS NULL AND NOT COALESCE(json_extract(record, '$.dismissed'),0))) ORDER BY id DESC")?;
         let records = stmt
             .query_map([updated_since], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;
