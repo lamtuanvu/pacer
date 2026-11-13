@@ -86,16 +86,16 @@ function processes(match: (command: string) => boolean) {
 }
 
 /**
- * A flag-off serve launches a direct codex attempt; its runner is killed and the serve stopped, leaving the
- * executor running. With no service up the user's stop is recorded, then a serve in the mode under test
- * reconciles the orphan. (Flag-on serve launches it the same way once runners stop inheriting the owner socket.)
+ * A serve in the mode under test launches a direct codex attempt; its runner is killed and the serve stopped,
+ * leaving the executor running. With no service up the user's stop is recorded, then a serve in the same mode
+ * reconciles the orphan.
  */
 async function orphanStop(nativeHost: "0" | "1") {
   const h = stopHome(), repo = gitRepo(), ctx = fakeCtx({ home: h.home, pacerHome: h.state });
   const pidFile = join(h.home, "codex.pid");
   let id = "", serve: Awaited<ReturnType<typeof door>> | undefined, logs = "";
   try {
-    serve = await door(h, "0");
+    serve = await door(h, nativeHost);
     const reply = await serve.call("task.delegate", { goal: "Write a note", repo, executor: "codex", difficulty: "simple" });
     expect(reply.json.error, reply.line).toBeUndefined();
     id = reply.json.result.task_id;
