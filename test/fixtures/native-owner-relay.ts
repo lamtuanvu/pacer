@@ -1,6 +1,7 @@
 import { type ChildProcess, spawn } from "node:child_process";
 import { createServer, type Socket } from "node:net";
 import type { Readable } from "node:stream";
+import { authed, ownerKey } from "./owner-auth";
 
 type Frame = { id?: string | number; method?: string; params?: any; result?: any; error?: any };
 
@@ -27,7 +28,7 @@ function lines(stream: Readable | Socket, onFrame: (frame: Frame) => void) {
 }
 
 /**
- * A stand-in for the Rust process owner on `host.sock`: it runs the Core-sealed spawn spec as a real
+ * A stand-in for the Rust process owner on `host.sock`: it checks Core's credential, runs the Core-sealed spawn spec as a real
  * plugin child, hellos it, sends the call, forwards the child's `coreMethods` requests back to Core on
  * the same connection, refuses every other capability request, and drops child notifications.
  * Like the owner's hello gate, a `coreMethods` request sent before the hello reply is refused, not forwarded.
@@ -40,7 +41,8 @@ function lines(stream: Readable | Socket, onFrame: (frame: Frame) => void) {
 export async function relayOwner(path: string): Promise<Relay> {
   const relay = { calls: [] as any[], replies: [] as unknown[], forwarded: [] as string[], refused: [] as string[], dropped: [] as string[] };
   const children = new Set<ChildProcess>();
-  const server = createServer(socket => {
+  ownerKey();
+  const server = createServer(authed(socket => {
     socket.on("error", () => {});
     const send = (frame: Frame) => { if (!socket.destroyed) socket.write(JSON.stringify({ jsonrpc: "2.0", ...frame }) + "\n"); };
     const core = new Map<string, (reply: Frame) => void>();
@@ -95,7 +97,7 @@ export async function relayOwner(path: string): Promise<Relay> {
       });
       toChild({ id: 1, method: "plugin.hello", params: call.spawn.hello });
     });
-  });
+  }));
   await new Promise<void>(done => server.listen(path, done));
   return { ...relay, close: async () => {
     for (const child of children) child.kill();

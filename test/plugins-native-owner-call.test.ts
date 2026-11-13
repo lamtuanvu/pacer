@@ -8,6 +8,7 @@ import type { HostClient } from "../packages/plugin-sdk/src";
 import { BUNDLED } from "../plugins/bundled";
 import { discoverEndpointModels, endpointLaunchSettings } from "../src/plugins/endpoint-adapter";
 import { relayOwner, type Relay } from "./fixtures/native-owner-relay";
+import { authed, ownerKey } from "./fixtures/owner-auth";
 import { preparePlannerInstall } from "../packages/plugin-sdk/src/install/prepared";
 import { createPlannerIO, readPlannerPrior } from "../packages/plugin-sdk/src/install/transport";
 import { preparePlannerUninstallFiles } from "../packages/plugin-sdk/src/install/uninstall";
@@ -30,6 +31,9 @@ const manifest = manifestSchema.parse({
 
 // Answers hello and diagnostic.ping like a minimal plugin child.
 const childScript = `const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:'fx-native',version:'1.0.0',contributes:['diagnostic']}});else if(m.method==='diagnostic.ping')send({id:m.id,result:{ok:true,uptimeS:0}});}}`;
+
+// Core in this process holds the owner credential the stand-in owners check.
+ownerKey();
 
 const servers: Server[] = [];
 const registries: PluginRegistry[] = [];
@@ -62,7 +66,7 @@ function setup(socket: "fake" | "missing" | null) {
 type Reply = (request: any, socket: Socket) => unknown;
 async function fakeOwner(path: string, reply: Reply): Promise<{ requests: any[] }> {
   const requests: any[] = [];
-  const server = createServer(socket => {
+  const server = createServer(authed(socket => {
     let text = "";
     socket.on("data", data => {
       text += data.toString("utf8");
@@ -73,7 +77,7 @@ async function fakeOwner(path: string, reply: Reply): Promise<{ requests: any[] 
       const body = reply(request, socket);
       if (body !== undefined) socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, ...body as object }) + "\n");
     });
-  });
+  }));
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
   return { requests };
@@ -92,7 +96,7 @@ async function waitUntil(condition: () => boolean): Promise<void> {
 async function forwardingOwner(path: string, next: (answers: any[]) => Ask, value: unknown, stopOnChunkError = false): Promise<{ answers: any[]; requests: any[]; closed: () => boolean }> {
   const answers: any[] = [], requests: any[] = [];
   let closed = false;
-  const server = createServer(socket => {
+  const server = createServer(authed(socket => {
     socket.once("close", () => { closed = true; });
     // Core closes on a failed chunk; a fallback write may race that close.
     socket.on("error", () => {});
@@ -115,7 +119,7 @@ async function forwardingOwner(path: string, next: (answers: any[]) => Ask, valu
         if (!stopOnChunkError || !frame.error || !chunkPending) step();
       }
     });
-  });
+  }));
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
   return { answers, requests, closed: () => closed };
@@ -364,7 +368,7 @@ type PlannerHandler = (params: any, host: HostClient) => Promise<unknown>;
 async function plannerOwner(path: string, handlers: Record<string, PlannerHandler>,
   negotiated: string[] = ["plannerInstallTransactions"]): Promise<{ requests: any[]; forwarded: any[] }> {
   const requests: any[] = [], forwarded: any[] = [];
-  const server = createServer(socket => {
+  const server = createServer(authed(socket => {
     let text = "", next = 1;
     const waiting = new Map<string, (frame: any) => void>();
     const host = { call: (method: string, params?: unknown) => new Promise((resolve, reject) => {
@@ -408,7 +412,7 @@ async function plannerOwner(path: string, handlers: Record<string, PlannerHandle
           (error: Error) => reply(frame.id, { error: { code: -32002, message: error.message, data: { code: "plugin_unavailable" } } }));
       }
     });
-  });
+  }));
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
   return { requests, forwarded };
@@ -541,7 +545,7 @@ test("flag-on install over the bridge is cancelled when the planner configuratio
 
 test("flag-on install over the bridge compensates when the owner drops the socket after a forwarded command", async () => {
   const { ctx, folder, path, spawned, options, log } = plannerSetup();
-  const server = createServer(socket => {
+  const server = createServer(authed(socket => {
     socket.once("data", data => {
       const frame = JSON.parse(data.toString("utf8").split("\n")[0]!);
       const params = frame.params.params;
@@ -553,7 +557,7 @@ test("flag-on install over the bridge compensates when the owner drops the socke
       // or the final reply: Core must compensate the command it already admitted.
       socket.once("data", () => socket.destroy());
     });
-  });
+  }));
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
   await expect(withPlannerInstall({ ctx, pacerArgv: ["pacer"], folder }, "synthetic", options))
@@ -1066,7 +1070,7 @@ const stagingDirs = () => readdirSync(tmpdir()).filter(name => name.startsWith("
 
 test("flag-on fails the call and cleans up staged chunks when the owner drops the socket mid-chunk", async () => {
   const { ctx, folder, path, spawned, options } = plannerSetup();
-  const server = createServer(socket => {
+  const server = createServer(authed(socket => {
     // Read the call, forward one accepted chunk, then drop the socket before the
     // final completion so the call ends mid-transfer.
     socket.once("data", () => {
@@ -1076,7 +1080,7 @@ test("flag-on fails the call and cleans up staged chunks when the owner drops th
       }) + "\n");
       socket.once("data", () => socket.destroy());
     });
-  });
+  }));
   servers.push(server);
   await new Promise<void>(done => server.listen(path, done));
   const lease = new PlannerResources(ctx, { purpose: "install", cwd: ctx.home, binaries: ["fx-planner"], roots: [folder] });

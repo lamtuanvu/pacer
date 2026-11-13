@@ -19,6 +19,7 @@ import { startHealthListener } from "./health-listener";
 import { createReadCache } from "./read-cache";
 import { liveSnapshot } from "../api/events";
 import { shutdownPlugins } from "../plugins";
+import { heldOwnerKey } from "../plugins/host-bridge";
 import { triggerHandover } from "../tasks/handover-service";
 import { recoverFixtureHandover } from "../service/upgrade";
 import { compiledNativeFixture } from "../update/desktop/native-fixture";
@@ -805,6 +806,7 @@ export function startServer(
         pumpMs,
         ...(typeof bgHeartbeatMs === "number" ? { heartbeatMs: bgHeartbeatMs } : {}),
         ...(typeof bgUsageMs === "number" ? { usageMs: bgUsageMs } : {}),
+        ...(heldOwnerKey() ? { ownerKey: heldOwnerKey() } : {}),
       });
       bgWorker.onmessage = (event: MessageEvent<Record<string, unknown>>) => {
         if (stopped) return;

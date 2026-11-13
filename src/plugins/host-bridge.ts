@@ -7,16 +7,54 @@
  * forwards the capability requests Core sealed in `coreMethods` on the same
  * connection; Core replies to each before the owner sends the final reply, and
  * never pipelines.
+ *
+ * The owner accepts only callers that prove its per-start credential (#918, ADR
+ * 0027). The owner hands it to its own Core child as `PACER_HOST_SOCKET_KEY`;
+ * `takeOwnerKey` removes it from the environment before Core starts anything, so
+ * no runner, executor or plugin child inherits it. Each connection opens with a
+ * mutual HMAC-SHA256 challenge: Core checks the owner's proof before it sends
+ * the call, so it never answers a forwarded capability request from an impostor.
  */
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
 import { z } from "zod";
 import { CoreError, type CoreErrorCode } from "../core/errors";
 import { pluginReplyError } from "./errors";
 
 export const HOST_PLUGIN_CALL = "_host.plugin.call";
+export const HOST_SOCKET_KEY_ENV = "PACER_HOST_SOCKET_KEY";
+const HOST_AUTH = "_host.auth";
+const OWNER_PROOF = "pacer-host-owner/v1";
+const CORE_PROOF = "pacer-host-core/v1";
+const HEX_KEY = /^[0-9a-f]{64}$/;
 
 /** Matches `BRIDGE_MAX_LINE_BYTES` in `crates/plugin-runtime`. */
 const MAX_FRAME_BYTES = 1024 * 1024;
+
+let ownerKey: Buffer | undefined;
+
+/** Take the owner's credential out of `env` (and the process environment) for this
+ * process's bridge calls. Call once at startup, before anything spawns a child. */
+export function takeOwnerKey(env: Record<string, string | undefined>): void {
+  const text = env[HOST_SOCKET_KEY_ENV];
+  delete env[HOST_SOCKET_KEY_ENV];
+  delete process.env[HOST_SOCKET_KEY_ENV];
+  if (text !== undefined) ownerKey = HEX_KEY.test(text) ? Buffer.from(text, "hex") : undefined;
+}
+
+/** The credential this Core holds, for its own in-process worker threads only. */
+export function heldOwnerKey(): string | undefined {
+  return ownerKey?.toString("hex");
+}
+
+function proof(key: Buffer, label: string, caller: string, owner: string): Buffer {
+  return createHmac("sha256", key).update(`${label}\0${caller}\0${owner}`).digest();
+}
+
+function proves(key: Buffer, caller: string, owner: unknown, sent: unknown): boolean {
+  if (typeof owner !== "string" || !HEX_KEY.test(owner) || typeof sent !== "string" || !HEX_KEY.test(sent)) return false;
+  return timingSafeEqual(proof(key, OWNER_PROOF, caller, owner), Buffer.from(sent, "hex"));
+}
 
 /** The plugin error codes the local stdio transport keeps (`process.ts`). */
 const CORE_CODES: ReadonlySet<string> = new Set<CoreErrorCode>([
@@ -104,7 +142,8 @@ function bridgeError(socketPath: string, error: NonNullable<z.infer<typeof rpcRe
   if (sealed && CORE_CODES.has(sealed)) return new CoreError(sealed as CoreErrorCode, error.message, error.data?.hint);
   if (error.code === -32600 || error.code === -32602) return new CoreError("invalid_input", error.message);
   if (error.code === -32601) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} does not serve ${HOST_PLUGIN_CALL}`);
-  if (error.code === -32001) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} refused this caller`);
+  if (error.code === -32001) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} refused this caller`,
+    "Reconnect after the pacer service restarts; each owner start issues a new credential.");
   return new CoreError("plugin_unavailable", error.message);
 }
 
@@ -116,16 +155,20 @@ function callbackError(error: unknown): { code: number; message: string; data: {
   return { code: -32000, message: "capability request failed", data: { code: "capability_denied" } };
 }
 
-/** One call per connection; the connection closes after the final reply line. */
+/** One call per connection; the connection closes after the final reply line.
+ * The first line answers Core's challenge; the call is sent only after the owner proves the key. */
 function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<unknown> {
   const id = nextId++;
   const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   if (frame.length > MAX_FRAME_BYTES) return Promise.reject(new CoreError("too_large", "plugin call exceeds the 1 MiB native owner bridge frame"));
   if (signal?.aborted || revoked?.aborted) return Promise.reject(cancellation(signal, revoked));
+  const key = ownerKey;
+  if (!key) return Promise.reject(new CoreError("plugin_unavailable", "native process owner credential is missing", "Restart the pacer service."));
+  const nonce = randomBytes(32).toString("hex");
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let chunks: Buffer[] = [];
-    let size = 0, settled = false;
+    let size = 0, settled = false, authenticated = false;
     const settle = (failure: CoreError | undefined, value?: unknown, flush = false) => {
       if (settled) return;
       settled = true;
@@ -174,11 +217,22 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
       } catch {
         return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`));
       }
+      if (!authenticated) {
+        if (reply.error) return settle(bridgeError(socketPath, reply.error));
+        const challenge = reply.result as { nonce?: unknown; proof?: unknown } | undefined;
+        if (reply.id !== "auth" || !proves(key, nonce, challenge?.nonce, challenge?.proof))
+          return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} failed authentication`, "Restart the pacer service."));
+        authenticated = true;
+        const coreProof = proof(key, CORE_PROOF, nonce, challenge!.nonce as string).toString("hex");
+        socket.write(JSON.stringify({ jsonrpc: "2.0", method: HOST_AUTH, params: { proof: coreProof } }) + "\n");
+        socket.write(frame);
+        return;
+      }
       if (reply.method !== undefined && reply.id !== undefined && reply.id !== id) return answer(reply);
       if (reply.error) return settle(bridgeError(socketPath, reply.error));
       settle(undefined, reply.result);
     };
-    socket.on("connect", () => socket.write(frame));
+    socket.on("connect", () => socket.write(JSON.stringify({ jsonrpc: "2.0", id: "auth", method: HOST_AUTH, params: { nonce } }) + "\n"));
     socket.on("error", (error: NodeJS.ErrnoException) => settle(unreachable(socketPath, error.code ?? error.message)));
     socket.on("close", () => settle(new CoreError("plugin_unavailable", `native process owner socket ${socketPath} closed without a reply`, "Restart the pacer service.")));
     socket.on("data", (data: Buffer) => {

@@ -58,6 +58,7 @@ import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { shutdownPlugins } from "./plugins";
+import { takeOwnerKey } from "./plugins/host-bridge";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -444,6 +445,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
  }
 
  export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+  // Only this Core may hold the plugin owner's credential: nothing it spawns inherits it.
+  takeOwnerKey(ctx.env);
   let nativeBootstrap;
   try {
     nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
