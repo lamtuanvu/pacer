@@ -54,17 +54,21 @@ fn has_host_runner(strategy: &Value) -> bool {
         .is_some_and(|runners| runners.values().any(|r| r["host"].is_string()))
 }
 
+/// The active strategy when Rust and Bun load the same file alike. Rust resolves an absolute
+/// or dotted active name to another file than Node's `path.join`, so `load_strategy` alone
+/// may read a strategy without TypeScript's host runners.
+fn native_strategy(ctx: &Ctx) -> Option<Value> {
+    native_load(&ctx.pacer_home).and_then(Result::ok)
+}
+
 /// A `project-strategies.json` only TypeScript reads: present, but not a regular file Rust
-/// reads and validates, or beside a repository registry only TypeScript reads. A strategy
-/// Bun may read differently from Rust also keeps the policy in TypeScript.
+/// reads and validates, or beside a repository registry only TypeScript reads.
 fn policy_needs_core(ctx: &Ctx) -> bool {
     let home = &ctx.pacer_home;
     match std::fs::metadata(home.join(POLICY_FILE)) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Ok(meta) if meta.is_file() => {
-            read_project_strategies(home).is_err()
-                || pacer_repos::registry_needs_core(home, false)
-                || !matches!(native_load(home), Some(Ok(_)))
+            read_project_strategies(home).is_err() || pacer_repos::registry_needs_core(home, false)
         }
         _ => true,
     }
@@ -93,19 +97,16 @@ fn agent_sessions_may_hold_slots(ctx: &Ctx) -> bool {
     }
 }
 
-/// `task.retry_options` forwards for an unloadable strategy, any runner on a host (remote
-/// eligibility) and a project policy only TypeScript reads.
+/// `task.retry_options` forwards for a strategy Rust does not load as Bun does, any runner on a
+/// host (remote eligibility) and a project policy only TypeScript reads.
 pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
-    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
-        return true;
-    };
-    has_host_runner(&strategy) || policy_needs_core(ctx)
+    native_strategy(ctx).is_none_or(|strategy| has_host_runner(&strategy)) || policy_needs_core(ctx)
 }
 
-/// `routing.route` forwards for a `goal` (the classifier), any runner on a host (remote
-/// eligibility), a relative `repo` that names no registered repository (Core's working
-/// directory), a policy or registry only TypeScript reads, and a least-loaded balance that
-/// live agent sessions may affect or that runs on a strategy Bun may read differently.
+/// `routing.route` forwards for a `goal` (the classifier), a strategy Rust does not load as Bun
+/// does, any runner on a host (remote eligibility), a relative `repo` that names no registered
+/// repository (Core's working directory), a policy or registry only TypeScript reads, and a
+/// least-loaded balance that live agent sessions may affect.
 pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let text = |key: &str| {
         params
@@ -116,8 +117,8 @@ pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     if text("goal").is_some() {
         return true;
     }
-    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
-        return false;
+    let Some(strategy) = native_strategy(ctx) else {
+        return true;
     };
     if has_host_runner(&strategy) {
         return true;
@@ -127,7 +128,6 @@ pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
         let absolute = Path::new(repo).is_absolute();
         if policy_needs_core(ctx)
             || pacer_repos::registry_needs_core(home, absolute)
-            || !matches!(native_load(home), Some(Ok(_)))
             || !absolute
                 && !pacer_repos::list_repos_read_only(home)
                     .iter()
@@ -136,8 +136,7 @@ pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
             return true;
         }
     }
-    strategy["pacing"]["balance"] == "least-loaded"
-        && (agent_sessions_may_hold_slots(ctx) || !matches!(native_load(home), Some(Ok(_))))
+    strategy["pacing"]["balance"] == "least-loaded" && agent_sessions_may_hold_slots(ctx)
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -274,8 +273,9 @@ fn require_policy_identity(repo: &Value, projects: &Value) -> Result<(), CoreErr
     Ok(())
 }
 
-/// `resolvePolicyRepoInput`: an absolute checkout registers under the `repos` lock (strictly
-/// when the policy names executors); any other value names a registered repository.
+/// `resolvePolicyRepoInput`: an absolute checkout registers (strictly when the policy names
+/// executors); any other value names a registered repository. Unlike TypeScript, registration
+/// takes the `repos` lock, so a lock timeout answers `internal`.
 fn policy_repo(ctx: &Ctx, value: &str, projects: &Value) -> Result<Value, CoreError> {
     if !Path::new(value).is_absolute() {
         return pacer_repos::list_repos(ctx, false)
@@ -633,6 +633,30 @@ mod tests {
         std::fs::write(ctx.pacer_home.join("strategy.yaml"), remote).unwrap();
         assert!(load_strategy(&ctx.pacer_home).is_ok());
         assert!(routing_route_stays_forwarded(&ctx, &json!({})));
+    }
+
+    #[test]
+    fn routes_and_retry_options_forward_unless_rust_loads_the_strategy_bun_loads() {
+        let (dir, ctx) = route_ctx(LOCAL);
+        let home = &ctx.pacer_home;
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("local.yaml"), LOCAL).unwrap();
+        std::fs::create_dir_all(home.join("strategies")).unwrap();
+        std::fs::write(home.join("strategies/local.yaml"), LOCAL).unwrap();
+        let absolute = elsewhere.join("local").to_str().unwrap().to_owned();
+        for (name, rust_loads) in [(absolute.as_str(), true), ("none/../local", false)] {
+            std::fs::write(home.join("active"), format!("{name}\n")).unwrap();
+            assert_eq!(load_strategy(home).is_ok(), rust_loads, "{name}");
+            assert!(routing_route_stays_forwarded(&ctx, &json!({})), "{name}");
+            assert!(task_retry_options_stays_forwarded(&ctx), "{name}");
+        }
+        std::fs::write(home.join("active"), "local\n").unwrap();
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(!task_retry_options_stays_forwarded(&ctx));
+        std::fs::remove_file(home.join("strategies/local.yaml")).unwrap();
+        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(task_retry_options_stays_forwarded(&ctx));
     }
 
     #[test]
