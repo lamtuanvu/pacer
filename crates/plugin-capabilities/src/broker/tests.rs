@@ -1010,11 +1010,12 @@ async fn deadline_revokes_in_flight_effect() {
     struct Slow;
     impl CapabilityEffect for Slow {
         async fn call(&mut self, _method: &str, _params: Value) -> Result<Value, BrokerError> {
-            tokio::time::sleep(Duration::from_millis(50)).await;
+            tokio::time::sleep(Duration::from_secs(30)).await;
             Ok(json!({"ok":true}))
         }
     }
-    let mut b = broker(5);
+    // Long enough that a loaded runner still starts the effect before the deadline.
+    let mut b = broker(200);
     assert!(matches!(
         b.handle(
             "capability.fs.read",
