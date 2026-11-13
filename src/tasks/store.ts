@@ -561,6 +561,21 @@ function idPrefixRange(word: string): [string, string] | null {
  *  non-ASCII query word and to the decoded fields (see the Rust counterpart in
  *  crates/store/src/task_selection.rs). */
 const fold = (text: string): string => [...text].map(ch => ch.toLowerCase()).join("");
+/** Longest run of ASCII characters (length >= 2) in a word, ASCII-lowered for SQL. */
+function longestAsciiRun(word: string): string | null {
+  let best = "";
+  let cur = "";
+  for (const ch of word) {
+    if (ch.charCodeAt(0) <= 0x7f) cur += ch;
+    else {
+      if (cur.length > best.length) best = cur;
+      cur = "";
+    }
+  }
+  if (cur.length > best.length) best = cur;
+  if (best.length < 2) return null;
+  return asciiFold(best);
+}
 
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
   if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
@@ -625,15 +640,19 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
         }
       } else {
         unicodeWords.push(fold(word));
+        const run = longestAsciiRun(word);
+        if (run) {
+          clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
+          bindings.push(run, run, run);
+        }
       }
     }
   }
-  /** A decoded record matches the words SQLite cannot fold. Titles and goals
-   *  must be strings, like SQLite's json_extract-based check for text. */
-  const matchesUnicodeWords = (task: TaskRecord): boolean => unicodeWords.every(w =>
-    fold(task.id).includes(w)
-    || (typeof task.title === "string" && fold(task.title).includes(w))
-    || (typeof task.brief?.goal === "string" && fold(task.brief.goal).includes(w)));
+  /** Match the words SQLite cannot fold against id/title/goal strings. */
+  const matchesUnicodeStrings = (id: string, title: unknown, goal: unknown): boolean => unicodeWords.every(w =>
+    fold(id).includes(w)
+    || (typeof title === "string" && fold(title).includes(w))
+    || (typeof goal === "string" && fold(goal).includes(w)));
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
   /** Decode one stored record, defaulting its revision like every list path. */
   const decode = (record: string): TaskRecord => { const task = JSON.parse(record) as TaskRecord; task.rev ??= 1; return task; };
@@ -661,44 +680,46 @@ export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] 
     const rows = db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
     return rows.map(row => decode(row.record));
   }
-  // Words SQLite cannot fold are checked after decoding, so pages are walked
-  // newest-first with an id cursor until `limit` records match. A record that
-  // fails to decode cannot match a text query and is skipped here (both
-  // runtimes skip; the non-paging paths above still fail loudly).
-  const walk = (rows: { id: string; record: string }[], out: TaskRecord[]): void => {
-    for (const row of rows) {
-      let task: TaskRecord;
-      try { task = decode(row.record); } catch { continue; }
-      if (matchesUnicodeWords(task)) {
-        out.push(task);
-        if (limit >= 0 && out.length >= limit) return;
-      }
-    }
-  };
-  const out: TaskRecord[] = [];
+  // Words SQLite cannot fold are checked on id/title/goal extracted in SQL, so
+  // pages are walked newest-first with an id cursor until `limit` records match.
+  // Full records are fetched only for rows that pass the Unicode fold check.
   if (filter.states || filter.awaitingAnswer || recentOnly) {
-    // Candidate IDs are already ordered newest-first; fetch and filter in pages.
     return db.transaction(() => {
       const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
         .map(row => row.id).sort(newestFirst);
+      const out: TaskRecord[] = [];
       for (let i = 0; i < ids.length && (limit < 0 || out.length < limit); i += 500) {
         const part = ids.slice(i, i + 500);
-        walk(db.query<{ id: string; record: string }, string[]>(`SELECT id, record FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`).all(...part), out);
+        const rows = db.query<{ id: string; title: string | null; goal: string | null }, string[]>(
+          `SELECT id, json_extract(record, '$.title') AS title, json_extract(record, '$.brief.goal') AS goal FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`
+        ).all(...part).sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+        for (const row of rows) {
+          if (limit >= 0 && out.length >= limit) break;
+          if (!matchesUnicodeStrings(row.id, row.title, row.goal)) continue;
+          const r = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(row.id);
+          if (!r) continue;
+          try { out.push(decode(r.record)); } catch { continue; }
+        }
       }
       return out;
     })();
   }
+  const out: TaskRecord[] = [];
   let cursor: string | undefined = filter.before;
-  while (limit < 0 || out.length < limit) {
+  pageLoop: while (limit < 0 || out.length < limit) {
     const condition = cursor !== undefined ? (where ? `${where} AND id < ?` : "WHERE id < ?") : where;
-    // The walk always rides the primary key: it delivers id order without a
-    // temp b-tree, and each page continues from the previous one's cursor.
-    const rows = db.query<{ id: string; record: string }, SQLQueryBindings[]>(
-      `SELECT id, record FROM tasks INDEXED BY sqlite_autoindex_tasks_1 ${condition} ORDER BY id DESC LIMIT 500`)
-      .all(...bindings, ...(cursor !== undefined ? [cursor] : []));
+    const rows = db.query<{ id: string; title: string | null; goal: string | null }, SQLQueryBindings[]>(
+      `SELECT id, json_extract(record, '$.title') AS title, json_extract(record, '$.brief.goal') AS goal FROM tasks INDEXED BY sqlite_autoindex_tasks_1 ${condition} ORDER BY id DESC LIMIT 500`
+    ).all(...bindings, ...(cursor !== undefined ? [cursor] : []));
     if (!rows.length) break;
     cursor = rows.at(-1)!.id;
-    walk(rows, out);
+    for (const row of rows) {
+      if (limit >= 0 && out.length >= limit) break pageLoop;
+      if (!matchesUnicodeStrings(row.id, row.title, row.goal)) continue;
+      const r = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(row.id);
+      if (!r) continue;
+      try { out.push(decode(r.record)); } catch { continue; }
+    }
   }
   return out;
 }

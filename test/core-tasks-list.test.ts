@@ -476,3 +476,11 @@ test("legacy repo pages remain bounded and null answers and empty executors reta
   }
   expect(taskList(ctx, { states: ["running"] }).map(t => t.id)).toEqual([selected.id]);
 });
+
+test("a match is still found when the record is large and the word is only in the goal", () => {
+  const ctx = fakeCtx();
+  const task = createTask(ctx, { brief: { goal: "needle " + "x".repeat(8000), repo: "/tmp" }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  expect(listTasksWhere(ctx, { query: "needle" }).map(t => t.id)).toEqual([task.id]);
+  const unicodeTask = createTask(ctx, { brief: { goal: "über " + "y".repeat(8000), repo: "/tmp" }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  expect(listTasksWhere(ctx, { query: "Über" }).map(t => t.id)).toContain(unicodeTask.id);
+});

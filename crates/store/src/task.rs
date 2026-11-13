@@ -217,28 +217,6 @@ fn parse_record(text: &str) -> Result<Value> {
     Ok(value)
 }
 
-/// Whether every word SQLite cannot fold appears in the id, title or goal of a
-/// decoded record. Only string fields are searched, like the SQL `json_extract`
-/// text check, and the folding is per-character Unicode lowercase in both
-/// runtimes (see `task_selection::fold` and TypeScript `fold`).
-fn matches_unicode_words(record: &Value, words: &[String]) -> bool {
-    let id = field_text(record, "id");
-    let title = field_text(record, "title");
-    let goal = record
-        .get("brief")
-        .and_then(|brief| brief.get("goal"))
-        .and_then(Value::as_str)
-        .unwrap_or_default();
-    words.iter().all(|w| {
-        selection::fold(id).contains(w)
-            || selection::fold(title).contains(w)
-            || selection::fold(goal).contains(w)
-    })
-}
-
-fn field_text<'a>(record: &'a Value, name: &str) -> &'a str {
-    record.get(name).and_then(Value::as_str).unwrap_or_default()
-}
 /// A time as the store's mtime in milliseconds, matching stat().mtimeMs.
 fn system_time_ms(time: SystemTime) -> f64 {
     let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
@@ -761,29 +739,42 @@ impl TaskStore {
             let mut out = Vec::new();
             let mut cursor = filter.before.map(str::to_owned);
             let batch = filter.limit.map_or(500, |n| n.min(500));
-            loop {
+            'pages: loop {
+                if filter.limit.is_some_and(|n| out.len() >= n) {
+                    break;
+                }
                 let (sql, bind) = selection::page_query(filter, cursor.as_deref(), batch);
-                let mut stmt = self.db.prepare(&sql)?;
-                let page = stmt
-                    .query_map(params_from_iter(bind), |r| {
-                        Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?))
+                let page = {
+                    let mut stmt = self.db.prepare(&sql)?;
+                    stmt.query_map(params_from_iter(bind), |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, Option<String>>(1).ok().flatten(),
+                            r.get::<_, Option<String>>(2).ok().flatten(),
+                        ))
                     })?
-                    .collect::<rusqlite::Result<Vec<_>>>()?;
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+                };
                 if page.is_empty() {
                     break;
                 }
                 let exhausted = page.len() < batch;
-                for (id, text) in page {
-                    cursor = Some(id);
-                    // A record that fails to decode cannot match a text query
-                    // (the TypeScript paging loop skips it the same way).
-                    if let Ok(record) = parse_record(&text)
-                        && matches_unicode_words(&record, &unicode)
-                    {
+                for (id, title, goal) in page {
+                    cursor = Some(id.clone());
+                    if filter.limit.is_some_and(|n| out.len() >= n) {
+                        break 'pages;
+                    }
+                    let id_folded = selection::fold(&id);
+                    let title_folded = selection::fold(title.as_deref().unwrap_or(""));
+                    let goal_folded = selection::fold(goal.as_deref().unwrap_or(""));
+                    if !unicode.iter().all(|w| {
+                        id_folded.contains(w) || title_folded.contains(w) || goal_folded.contains(w)
+                    }) {
+                        continue;
+                    }
+                    // Fetch the full record only for rows that pass the Unicode fold.
+                    if let Ok(Some(record)) = self.read(&id) {
                         out.push(record);
-                        if filter.limit.is_some_and(|n| out.len() >= n) {
-                            return Ok(out);
-                        }
                     }
                 }
                 if exhausted {
