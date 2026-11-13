@@ -560,7 +560,7 @@ import {readFileSync} from 'node:fs';
 const manifest=JSON.parse(readFileSync('pacer-plugin.json','utf8'));
 await serve({manifest,input:stdinLines(),handlers:{
   'diagnostic.ping':async()=>{throw new PluginError('conflict','fixture ping refused','retry the fixture');},
-  'ui.render':async()=>{throw new PluginError('not_found','fixture panel is gone');},
+  'ui.render':async()=>{throw new PluginError('not_found','fixture panel is gone','reinstall the fixture');},
   'ui.action':async()=>{throw new PluginError('fixture_code','fixture action failed');},
 }});`);
       await s.post("plugin.enable", { id: "fx-ui", grant: true });
@@ -570,7 +570,7 @@ await serve({manifest,input:stdinLines(),handlers:{
       seen.push({ doctor: { ok: doctor.result.reports[0].ok, error: doctor.result.reports[0].error }, render: render.error, action: action.error });
     } finally { await s.stop(); }
   }
-  expect(seen[0]).toMatchObject({ doctor: { ok: false, error: "conflict: fixture ping refused" } });
+  expect(seen[0]).toMatchObject({ doctor: { ok: false, error: "conflict: fixture ping refused" }, render: { code: "not_found", hint: "reinstall the fixture" } });
   expect(seen[1]).toEqual(seen[0]);
 }, 90000);
 
