@@ -99,6 +99,21 @@ fn redaction_is_plugin_keyed_uses_js_length_and_old_peers_omit_metadata() {
     let redacted = privacy.redact("plugin-a", &review, false, true).unwrap();
     assert!(redacted["input"].get("note").is_none());
     assert_eq!(redacted["input"]["noteLength"], 3);
+    assert_eq!(
+        redacted["input"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        [
+            "taskId",
+            "verdict",
+            "revision",
+            "state",
+            "noteLength",
+            "noteHash"
+        ]
+    );
 }
 
 #[test]
@@ -174,11 +189,19 @@ async fn credential_failure_is_sanitized_and_resolver_runs_once_even_after_rejec
 #[test]
 fn legacy_policy_strips_redaction_fields_even_when_present_in_original_input() {
     let privacy = pacer_plugin_host::PolicyPrivacy::from_master([1; 32]);
-    let input = json!({"decision":"delegate","input":{"goal":"private","repo":"repo","goalLength":123,"goalHash":"x".repeat(64),"repoKey":"y".repeat(64)}});
+    let input = json!({"decision":"delegate","input":{"goal":"private","goalLength":123,"kind":null,"repo":"repo","goalHash":"x".repeat(64),"repoKey":"y".repeat(64),"placement":"new"}});
     let wire = privacy.redact("legacy", &input, false, false).unwrap();
     for key in ["goalLength", "goalHash", "repoKey"] {
         assert!(wire["input"].get(key).is_none());
     }
+    assert_eq!(
+        wire["input"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["goal", "kind", "repo", "placement"]
+    );
 }
 
 #[tokio::test]
