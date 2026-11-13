@@ -41,7 +41,8 @@ A pacer home has at most one native plugin owner that other front doors attach t
    bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. Its
    plugin calls go through the same `relay` kind, to that socket. Only same-user peers that
    prove the connection's credential (item 9) are served. When the connection ends, or the
-   door receives SIGTERM, the door closes the listener, removes the socket and stops the children it started.
+   door receives SIGTERM, the door closes the listener, removes the socket and stops the
+   children it started.
 5. **A deep home's connection socket goes to a private per-user directory.** When
    `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
    allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
