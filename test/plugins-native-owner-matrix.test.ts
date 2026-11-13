@@ -121,14 +121,31 @@ async function httpDoor(h: Home, mode: Mode, extra: Record<string, string> = {},
   };
 }
 
-/** Serve's first background usage refresh runs 3 s after start; waiting for it keeps provider calls countable. */
+/** Accounts the fixture gives a usage reading (ARK_PLAN and CODEX_EVENT). */
+const READ_ACCOUNTS = ["codex", "plan"];
+const USAGE_SETTLE_MS = 45000;
+
+function refreshedAccounts(h: Home): string[] {
+  try { return Object.keys(JSON.parse(readFileSync(join(h.state, "state", "activity-status.json"), "utf8")).refreshed ?? {}); }
+  catch { return []; }
+}
+
+/**
+ * Serve's link pump logs the fixture's usage readings as one `budget_refreshed` activity line, then records them
+ * in activity-status.json. Until it has, that line can land after a scenario's own activity, or after the door stops.
+ */
 async function usageRefreshSettled<T extends Running>(h: Home, door: T): Promise<T> {
-  const deadline = Date.now() + 20000;
-  while (!existsSync(join(h.home, "arkcli.log")) || !existsSync(join(h.state, "state", "codex-cursors.json"))) {
-    if (Date.now() > deadline) break;
+  const deadline = Date.now() + USAGE_SETTLE_MS;
+  const settled = () => existsSync(join(h.home, "arkcli.log")) && existsSync(join(h.state, "state", "codex-cursors.json"))
+    && activityLines(h).includes('"kind":"budget_refreshed"') && READ_ACCOUNTS.every(name => refreshedAccounts(h).includes(name));
+  while (!settled()) {
+    if (Date.now() > deadline) {
+      const stderr = await door.stop();
+      throw Error(`serve's usage refresh did not log ${READ_ACCOUNTS.join(" and ")} within ${USAGE_SETTLE_MS} ms`
+        + `\nrefreshed: ${JSON.stringify(refreshedAccounts(h))}\nactivity:\n${activityLines(h)}\nstderr:\n${stderr}`);
+    }
     await Bun.sleep(100);
   }
-  await Bun.sleep(500);
   return door;
 }
 
@@ -329,13 +346,19 @@ const doctorSetup: Scenario = async (door, h, observe) => {
   observe("setup.health", doctorText(h, await door.call("setup.health", { trigger: "manual" }), observe, "setup.health"));
 };
 
-/** The Link check reports measured loopback latency; its name, level and remedy follow the measurement. */
+const LINK_CHECKS = ["Link", "Link latency"];
+const linkRepair = (value: unknown) => !!value && typeof value === "object"
+  && (value as Record<string, unknown>).kind === "remedy" && LINK_CHECKS.includes((value as Record<string, unknown>).check as string);
+/**
+ * The Link check reports measured loopback latency; its name, level and remedy follow the measurement,
+ * and setup.health lists its remedy as a Fix action only while the measurement warns.
+ */
 function linkLatencyMasked(text: string) {
   const measured = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(measured);
+    if (Array.isArray(value)) return value.filter(item => !linkRepair(item)).map(measured);
     if (!value || typeof value !== "object") return value;
     const record = value as Record<string, unknown>;
-    if ((record.name === "Link" || record.name === "Link latency") && "level" in record) return { name: "Link", level: "<measured>" };
+    if (LINK_CHECKS.includes(record.name as string) && "level" in record) return { name: "Link", level: "<measured>" };
     return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, measured(child)]));
   };
   return JSON.stringify(measured(JSON.parse(`{${text}}`))).slice(1, -1);
@@ -400,8 +423,12 @@ const startupReconcile: Scenario = async (door, h, observe, restart) => {
   observe("manifest after connect", storeBytes(h, "install-manifest.json"));
   observe("agent.connect again", replyText(h, await connectClaude(door)));
   observe("manifest after reconnect", storeBytes(h, "install-manifest.json"));
+  const reconnected = readFileSync(join(h.state, "install-manifest.json"), "utf8");
   await restart(() => unlinkSync(join(h.home, ".claude", "rules", "pacer.md")));
   observe("restored rules file", await poll(async () => fileText(h, ".claude/rules/pacer.md"), text => text !== "<absent>", 20000));
+  // The reconcile's journaled commit writes the restored files before it records them in the manifest.
+  const refreshed = await poll(async () => readFileSync(join(h.state, "install-manifest.json"), "utf8"), text => text !== reconnected, 20000);
+  expect(refreshed, "startup reconcile restored the rules file but did not record it in install-manifest.json").not.toBe(reconnected);
   observe("integration files after refresh", fileTree(h, ".claude"));
   observe("manifest after refresh", storeBytes(h, "install-manifest.json"));
   await restart(() => writeFileSync(join(h.home, ".claude", "skills", "pacer", "SKILL.md"), "edited by hand\n"));
