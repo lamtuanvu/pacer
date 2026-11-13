@@ -46,6 +46,12 @@ class ServeSession implements HostClient {
   }
 
   async call<T = unknown>(method: string, params: unknown = {}): Promise<T> {
+    // Serve's handshake is `GET /v3/hello`, not an operation.
+    if (method === "hello") {
+      const response = await fetch(`${this.base}/v3/hello`, { headers: { Authorization: `Bearer ${this.token}` }, signal: AbortSignal.timeout(30000) });
+      if (!response.ok) throw new HostError("internal", `hello answered ${response.status}`);
+      return await response.json() as T;
+    }
     const response = await fetch(`${this.base}/v3/ops/${method}`, { method: "POST", headers: { Authorization: `Bearer ${this.token}`, "Content-Type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
     const body = await response.json() as { result?: T; error?: { code?: string; message: string } };
     if (body.error) throw new HostError(body.error.code ?? "internal", body.error.message);
@@ -76,7 +82,6 @@ afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, fo
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
 const ROUTED_HTTP = "routed: for any owner call without host resources, such as a diagnostic ping, Core auto-issues a granted manifest's exact net.http hosts and exact fs.read paths (autoIssueFromManifest), so the owner serves them; TypeScript refuses every scoped capability outside an owning call";
 const ROUTED_OBSERVATIONS = "routed: the owner admits the observation bootstrap call, but no task or activity event reaches the plugin's callback until the owner runs observation generations";
-const STDERR_DROPPED = "reported: the owner starts plugin children with stderr discarded, so no stderr line reaches the plugin log (a parity fix exceeds this PR's fix budget)";
 const ROUTED_MESSAGE = "routed: the owner refuses with the Rust broker's message (`capability is not granted to the owning call: … was not issued`), TypeScript with `scoped capability requires an active owning call`";
 
 /** Subset of CASES, by name, with the reason a case is expected to fail on the owner doors. */
@@ -84,7 +89,7 @@ const SUBSET: Record<string, string | null> = {
   "lazy start: list starts nothing, doctor starts the process": PID_NULL,
   "capability denial: undeclared calls are refused, declared ones answer": ROUTED_HTTP,
   "serialisation: one call at a time unless reentrant": PID_NULL,
-  "logs: stderr lands in the plugin log file, never on stdout": STDERR_DROPPED,
+  "logs: stderr lands in the plugin log file, never on stdout": null,
   "shutdown: closing the host terminates its plugins": null,
   "observations: task callback task reads work without public subscribe": ROUTED_OBSERVATIONS,
   "observations: activity callback task reads work without public subscribe": ROUTED_OBSERVATIONS,
@@ -121,7 +126,7 @@ const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
         assert(peak === 2, `${id} overlaps the two calls (receipts peak at ${peak} active; errors: ${reports.map(report => report.error).join()})`);
       }
       assert(reports.every(report => report.ok), `${id} both measured calls finish (got ${reports.map(report => report.error).join()})`);
-      // The receipts are the measured event order; the plugin log lines are the logs case's (STDERR_DROPPED).
+      // The receipts are the measured event order; the plugin log lines are covered by the logs case.
       assertPingReceipts(readFileSync(join(t.pluginsDir, id, "ping-receipts.jsonl"), "utf8"), probe === "barrier");
     },
   })),
@@ -196,3 +201,30 @@ for (const [c, reason] of RELAY) {
       .toEqual(Object.fromEntries(doors.map(({ label }) => [label, { outcome: seen.typescript, hits: 0 }])));
   }, 90000);
 }
+
+// A diagnostic ping writes stderr covering the TypeScript log rules: `\r` stripped, empty lines kept,
+// the 4096 UTF-16 unit cut (a surrogate pair cut in half becomes U+FFFD) and a dropped line over 1 MiB.
+const STDERR_TEXT = ["crlf\r", "", "é😀 text", `${"x".repeat(4095)}😀tail`, "y".repeat(5000), "z".repeat(1024 * 1024 + 1), "end"].map(line => `${line}\n`).join("");
+let logLines: string[] = [];
+const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in the TypeScript format", async run(t) {
+  t.install("good", { fixture: { pingStderr: STDERR_TEXT } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-good", grant: true });
+  assert((await doctor(h, "fx-good")).ok, "ping ok");
+  const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
+  const read = () => existsSync(log) ? readFileSync(log, "utf8") : "";
+  for (const end = Date.now() + 5000; Date.now() < end && !read().includes("] end\n");) await t.sleep(20);
+  logLines = read().split("\n").map(line => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z /, "<time> "));
+} };
+
+(front ? test : test.skip)("native owner conformance: stderr log lines match the TypeScript host", async () => {
+  const seen: Record<string, string[]> = {};
+  for (const { label, argv, door } of [tsDoor, ...doors]) {
+    logLines = [];
+    await runCase(stderrLogCase, argv, root, door);
+    seen[label] = logLines;
+  }
+  expect(seen.typescript).toContain("<time> [stderr] end");
+  expect(seen.typescript).toContain("<time> [stderr] dropped a line over 1 MiB");
+  for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
+}, 90000);

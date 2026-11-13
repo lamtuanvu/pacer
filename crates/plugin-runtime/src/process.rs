@@ -4,6 +4,7 @@
 //! it alone reaps it, so a signal can never reach a reused pid, and it
 //! publishes the exit reason the TypeScript registry would record.
 
+use crate::plugin_log::{PluginLog, copy_stderr};
 use pacer_plugin_host::{
     MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame,
 };
@@ -350,7 +351,16 @@ async fn read_frames(stdout: ChildStdout, shared: Arc<Shared>, writes: mpsc::Sen
 }
 
 impl PluginProcess {
+    /// A child whose stderr is discarded.
     pub fn spawn(spec: &SpawnSpec) -> Result<Self, ProcessError> {
+        Self::spawn_logged(spec, None)
+    }
+
+    /// A child whose stderr lines go to `log`, or are discarded without one.
+    pub(crate) fn spawn_logged(
+        spec: &SpawnSpec,
+        log: Option<PluginLog>,
+    ) -> Result<Self, ProcessError> {
         let (program, args) = spec
             .argv
             .split_first()
@@ -363,7 +373,11 @@ impl PluginProcess {
             .envs(&spec.env)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
-            .stderr(Stdio::null())
+            .stderr(if log.is_some() {
+                Stdio::piped()
+            } else {
+                Stdio::null()
+            })
             .kill_on_drop(true);
         let mut child = child
             .spawn()
@@ -381,6 +395,11 @@ impl PluginProcess {
         let (stops, stop_rx) = mpsc::unbounded_channel();
         let (exit_tx, exit) = watch::channel(None);
         let pid = child.id();
+        if let Some((stderr, log)) = child.stderr.take().zip(log) {
+            // Not aborted with the process: a descendant that inherited stderr
+            // can outlive the child, and the reader ends on its own.
+            tokio::spawn(copy_stderr(stderr, log, exit.clone()));
+        }
         let tasks = [
             tokio::spawn(write_frames(stdin, queued, shared.clone())),
             tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),
