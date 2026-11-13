@@ -11,7 +11,10 @@ import { tmpDir } from "./helpers";
 // startup, proven on every connection, never sent to an owner that cannot prove it.
 
 const servers: Server[] = [];
+/** Server-side sockets that never end on their own; `server.close()` waits for them. */
+const peers: Socket[] = [];
 afterEach(async () => {
+  for (const peer of peers.splice(0)) peer.destroy();
   for (const server of servers.splice(0)) await new Promise(done => server.close(done));
 });
 
@@ -92,7 +95,7 @@ test("a call aborted before the owner proves the credential fails at once and is
   mkdirSync(run, { recursive: true, mode: 0o700 });
   const path = join(run, "host.sock");
   // Keeps the connection open after Core shuts its write side, and never answers the challenge.
-  const silent = createServer({ allowHalfOpen: true }, socket => record(socket, seen));
+  const silent = createServer({ allowHalfOpen: true }, socket => { peers.push(socket); record(socket, seen); });
   servers.push(silent);
   await new Promise<void>(done => silent.listen(path, done));
   const cancel = new AbortController();
