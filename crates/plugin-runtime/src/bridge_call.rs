@@ -330,10 +330,11 @@ pub(crate) fn log_line(mut message: String) -> String {
 /// Returns `{value, hello, logs}`: `hello` carries the `{protocol, served}`
 /// recorded when this child answered `plugin.hello`, so Core can restore
 /// readiness even when it gave up on the call that ran the hello; each log is
-/// `{level, message}`. `until` is the caller's absolute deadline and covers the
-/// owner and lane waits and the hello. The owner lock is held only to start the
-/// child and find its lane. `core` carries the Core-sealed `coreMethods` back to
-/// the calling Core.
+/// `{level, message}`. A failed call returns its logs with the failure, since
+/// flag-off writes each line as it arrives. `until` is the caller's absolute
+/// deadline and covers the owner and lane waits and the hello. The owner lock is
+/// held only to start the child and find its lane. `core` carries the
+/// Core-sealed `coreMethods` back to the calling Core.
 #[allow(clippy::too_many_arguments)]
 pub(crate) async fn call_sealed(
     owner: &SharedOwner,
@@ -344,18 +345,21 @@ pub(crate) async fn call_sealed(
     cancel: &watch::Receiver<bool>,
     sealed: SealedCall,
     core: Option<CoreForward>,
-) -> Result<Value, CallFailure> {
+) -> Result<Value, (CallFailure, Vec<Value>)> {
     let outcome = run_sealed(
         owner, id, method, params, until, cancel, sealed, core, false,
     )
     .await;
-    let value = outcome.value?;
-    let hello = outcome.hello.map_or(Value::Null, |(hello, _)| hello);
     let logs = outcome
         .logs
         .into_iter()
         .map(|(level, message)| json!({"level": level, "message": log_line(message)}))
         .collect::<Vec<_>>();
+    let value = match outcome.value {
+        Ok(value) => value,
+        Err(failure) => return Err((failure, logs)),
+    };
+    let hello = outcome.hello.map_or(Value::Null, |(hello, _)| hello);
     Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
 

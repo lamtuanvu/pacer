@@ -178,6 +178,27 @@ test("a plugin's own error relayed by the owner is the plugin's failure, while o
   expect(raisedByPacer(owned)).toBe(true);
 });
 
+test("a failed owner call keeps the capability.log lines the owner sent with its error", async () => {
+  const { ctx, registry, path } = setup("fake");
+  await fakeOwner(path, () => ({ error: { code: -32002, message: "ping refused", data: { code: "plugin_refused", logs: [{ level: "warn", message: "before the failure" }] } } }));
+  await expect(registry.call(ctx, "fx-native", "diagnostic.ping", {})).rejects.toThrow("ping refused");
+  expect(readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-native.log"), "utf8")).toContain("[warn] before the failure");
+});
+
+test("a call Core's deadline ends shuts its write side and keeps the logs of the owner's final reply", async () => {
+  const { ctx, registry, path } = setup("fake");
+  // Like the owner, answer only once Core shuts its write side, which cancels the call.
+  await fakeOwner(path, (request, socket) => {
+    socket.on("error", () => {});
+    socket.once("end", () => socket.end(JSON.stringify({ jsonrpc: "2.0", id: request.id,
+      error: { code: -32002, message: "plugin call was cancelled", data: { code: "plugin_timeout", logs: [{ level: "info", message: "before the deadline" }] } } }) + "\n"));
+  });
+  const started = Date.now();
+  await expect(registry.call(ctx, "fx-native", "diagnostic.ping", {}, { deadlineMs: 300 })).rejects.toThrow("plugin call passed its absolute deadline");
+  expect(Date.now() - started).toBeLessThan(1000);
+  expect(readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-native.log"), "utf8")).toContain("[info] before the deadline");
+});
+
 test("flag-on pins bare command names to the resolved absolute executable and drops unresolved ones", async () => {
   const { ctx, registry, path } = setup("fake");
   ctx.which = name => ({ "fx-tool": "/opt/fx/bin/fx-tool", "fx-elsewhere": "/opt/fx/bin/other" } as Record<string, string>)[name] ?? null;

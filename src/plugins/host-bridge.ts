@@ -158,9 +158,16 @@ function callbackError(error: unknown): { code: number; message: string; data: {
   return { code: -32000, message: "capability request failed", data: { code: "capability_denied" } };
 }
 
-/** One call per connection; the connection closes after the final reply line.
- * The first line answers Core's challenge; the call is sent only after the owner proves the key. */
-function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<unknown> {
+/** How long an aborted call waits for the owner's final reply, which carries the call's logs. */
+const DRAIN_MS = 1000;
+
+/**
+ * One call per connection; the connection closes after the final reply line.
+ * The first line answers Core's challenge; the call is sent only after the owner proves the key.
+ * `onFailed` sees the final reply of a call that fails, an aborted one's included.
+ */
+function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
+  onFailed?: (reply: z.infer<typeof rpcReply>) => void): Promise<unknown> {
   const id = nextId++;
   const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   if (frame.length > MAX_FRAME_BYTES) return Promise.reject(new CoreError("too_large", "plugin call exceeds the 1 MiB native owner bridge frame"));
@@ -172,9 +179,14 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
     const socket = createConnection(socketPath);
     let chunks: Buffer[] = [];
     let size = 0, settled = false, authenticated = false;
+    // Set once the call is aborted: it fails with this whatever the owner answers.
+    let aborted: CoreError | undefined;
+    let drain: ReturnType<typeof setTimeout> | undefined;
     const settle = (failure: CoreError | undefined, value?: unknown, flush = false) => {
       if (settled) return;
       settled = true;
+      if (aborted) failure = aborted;
+      clearTimeout(drain);
       signal?.removeEventListener("abort", abort);
       // Flush the chunk error answer, then close even if the peer keeps reading.
       if (flush) {
@@ -185,11 +197,19 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
       } else socket.destroy();
       if (failure) reject(failure); else resolve(value);
     };
-    const abort = () => settle(cancellation(signal, revoked));
+    // Shutting down the write side cancels the call on the owner, which still sends its final reply.
+    // Before the handshake ends no call was sent, so there is no reply to wait for.
+    const abort = () => {
+      if (settled || aborted) return;
+      aborted = cancellation(signal, revoked);
+      if (!authenticated || !onFailed) return settle(aborted);
+      drain = setTimeout(() => settle(aborted), DRAIN_MS);
+      socket.end();
+    };
     signal?.addEventListener("abort", abort, { once: true });
     const answer = (request: z.infer<typeof rpcReply>) => {
       const respond = (body: object) => {
-        if (settled) return;
+        if (settled || aborted) return;
         const line = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: request.id, ...body }) + "\n");
         if (line.length > MAX_FRAME_BYTES) socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: callbackError(new CoreError("too_large", "capability reply exceeds the 1 MiB bridge frame")) }) + "\n");
         else socket.write(line);
@@ -231,7 +251,8 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
         socket.write(frame);
         return;
       }
-      if (reply.method !== undefined && reply.id !== undefined && reply.id !== id) return answer(reply);
+      if (reply.method !== undefined && reply.id !== undefined && reply.id !== id) return aborted ? undefined : answer(reply);
+      if (reply.error || aborted) onFailed?.(reply);
       if (reply.error) return settle(bridgeError(socketPath, reply.error));
       settle(undefined, reply.result);
     };
@@ -253,9 +274,16 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
   });
 }
 
-/** Call a plugin through the native owner; it starts, hellos and authorizes the child. */
-export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<NativeOwnerReply> {
-  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked);
+/**
+ * Call a plugin through the native owner; it starts, hellos and authorizes the child.
+ * `onFailedLogs` gets the `capability.log` lines of a call that fails after the owner answered.
+ */
+export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
+  onFailedLogs?: (logs: NativeOwnerReply["logs"]) => void): Promise<NativeOwnerReply> {
+  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked, onFailedLogs && (reply => {
+    const logs = nativeOwnerReply.shape.logs.safeParse(reply.error ? reply.error.data?.logs : (reply.result as { logs?: unknown } | null)?.logs);
+    if (logs.success && logs.data.length) onFailedLogs(logs.data);
+  }));
   if ((result as { activated?: unknown } | null)?.activated === false)
     throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
   const reply = nativeOwnerReply.safeParse(result);

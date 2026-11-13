@@ -85,6 +85,25 @@ test("Core sends no proof and no call to an owner that cannot prove the credenti
   expect(JSON.parse(seen[0]!)).toMatchObject({ id: "auth", method: "_host.auth", params: { nonce: expect.stringMatching(/^[0-9a-f]{64}$/) } });
 });
 
+test("a call aborted before the owner proves the credential fails at once and is never sent", async () => {
+  useOwnerKey();
+  const seen: string[] = [];
+  const run = join(tmpDir(), "run");
+  mkdirSync(run, { recursive: true, mode: 0o700 });
+  const path = join(run, "host.sock");
+  // Keeps the connection open after Core shuts its write side, and never answers the challenge.
+  const silent = createServer({ allowHalfOpen: true }, socket => record(socket, seen));
+  servers.push(silent);
+  await new Promise<void>(done => silent.listen(path, done));
+  const cancel = new AbortController();
+  setTimeout(() => cancel.abort(), 200);
+  const started = Date.now();
+  await expect(callNativeOwner(path, call, cancel.signal, undefined, undefined, () => {})).rejects.toMatchObject({ code: "plugin_timeout" });
+  // No call was sent, so there is no final reply to drain for its logs.
+  expect(Date.now() - started).toBeLessThan(700);
+  expect(seen.map(line => JSON.parse(line).method)).toEqual(["_host.auth"]);
+});
+
 test("a call proven to the owner reaches it; an owner that restarted with a new key is told apart", async () => {
   useOwnerKey();
   const seen: string[] = [];
