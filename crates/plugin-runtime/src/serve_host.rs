@@ -17,11 +17,14 @@
 //! sidecar and unlink the socket, so the lease outlives the children it
 //! supervised. Shutdown reaches the children through the owner's lane roster,
 //! not the owner lock, so a call in flight never delays it; that call fails
-//! once its child exits. Crashes go to [`NativeHostSession::crash_reports`].
+//! once its child exits, and every observation generation retires. Crashes go
+//! to [`NativeHostSession::crash_reports`], observation requests to
+//! [`NativeHostSession::door_requests`].
 
 use crate::{
-    BridgeError, BridgeHandle, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME,
-    OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner, connection_socket_name,
+    BridgeError, BridgeHandle, DoorRequest, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV,
+    HOST_SOCKET_NAME, OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
+    connection_socket_name,
     crash::{CrashBook, CrashReport},
     dark_bridge_disabled, dark_bridge_enabled,
     owner::LaneRoster,
@@ -196,6 +199,15 @@ impl NativeHostSession {
         let (sink, reports) = mpsc::unbounded_channel();
         self.crashes.set_sink(Some(sink));
         reports
+    }
+
+    /// Requests this owner's lanes make of the owning door's Core from now on
+    /// (observation events and reads, idle `capability.log` lines); the door
+    /// answers each from its Core. Closing the owner ends them.
+    pub fn door_requests(&self) -> mpsc::UnboundedReceiver<DoorRequest> {
+        let (sink, requests) = mpsc::unbounded_channel();
+        self.roster.set_door(Some(sink));
+        requests
     }
 
     /// Serve shutdown: refuse new children, terminate every child at once

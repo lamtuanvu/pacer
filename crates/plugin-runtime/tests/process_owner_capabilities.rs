@@ -425,7 +425,7 @@ for (;;) {{
 }
 
 #[tokio::test]
-async fn process_owner_answers_observation_tasks_list_when_core_seals_bootstrap() {
+async fn process_owner_refuses_observation_reads_outside_a_lane_generation() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().to_str().unwrap().to_owned();
     let pacer_home = dir.path().join("state");
@@ -453,7 +453,7 @@ for (;;) {{
       pending = m.id;
       send({{ id: 7, method: "capability.tasks.list", params: {{}}, _meta: {{ capabilityCall: token }} }});
     }} else if (m.id === 7) {{
-      send({{ id: pending, result: {{ ok: true, tasks: m.result?.tasks ?? null }} }});
+      send({{ id: pending, result: {{ ok: true, tasks: m.result?.tasks ?? null, error: m.error?.message }} }});
     }}
   }}
 }}
@@ -514,10 +514,12 @@ for (;;) {{
         )
         .await
         .unwrap();
+    // Task reads come from the owning door's Core under the lane's generation; a session
+    // installed outside a sealed door call has neither, so it must not answer from anywhere else.
     assert_eq!(
         ping,
-        json!({"ok": true, "tasks": []}),
-        "Core-sealed observation bootstrap must answer capability.tasks.list"
+        json!({"ok": true, "tasks": null, "error": "observation owner or transport was not issued"}),
+        "a sealed observation token without a lane generation must not read tasks"
     );
     owner.terminate("fx-obs").await.unwrap();
 }
