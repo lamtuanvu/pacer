@@ -14,15 +14,10 @@ use serde_json::{Value, json};
 const MODES: [&str; 4] = ["strict", "normal", "relaxed", "emergency"];
 
 /// `mode.hold` without `until` loads the strategy; one Rust does not load the way
-/// TypeScript does keeps `loadStrategy`'s error text. An `until` Rust cannot write as
-/// `JSON.stringify` does also forwards.
+/// TypeScript does keeps `loadStrategy`'s error text.
 pub fn mode_hold_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    match params.get("until") {
-        None => !matches!(strategy_load::native_load(&ctx.pacer_home), Some(Ok(_))),
-        Some(until) => until
-            .as_f64()
-            .is_some_and(|until| until >= mode_hold::UNTIL_WRITTEN_IN_FULL),
-    }
+    params.get("until").is_none()
+        && !matches!(strategy_load::native_load(&ctx.pacer_home), Some(Ok(_)))
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -330,10 +325,6 @@ mod tests {
     async fn mode_hold_with_until_and_release_clears() {
         let (_dir, ctx) = ctx(100.0);
         assert!(!mode_hold_stays_forwarded(&ctx, &json!({"mode":"normal"})));
-        for (until, forwarded) in [(18_446_744_073_709_549_568.0, false), (2f64.powi(64), true)] {
-            let params = json!({"mode":"normal","until":until});
-            assert_eq!(mode_hold_stays_forwarded(&ctx, &params), forwarded);
-        }
         let held = mode_hold_op(&ctx, json!({"mode":"emergency","until":160.0}))
             .await
             .unwrap();
