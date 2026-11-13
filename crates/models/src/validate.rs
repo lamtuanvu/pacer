@@ -1,8 +1,6 @@
 //! The model checks `runnersConfig.set` and `runner.models.set*` run before
 //! editing a runner.
-use crate::{
-    AvailableModels, Listing, ModelSource, closest_models, is_offered, listing, listing_needs_core,
-};
+use crate::{AvailableModels, Listing, ModelSource, available_models, closest_models, is_offered};
 use pacer_config::config_writes::{planner, resolve};
 use serde_json::{Map, Value};
 use std::{collections::HashSet, path::Path};
@@ -59,18 +57,6 @@ pub fn check_offered(
         ))),
         _ => Ok(None),
     }
-}
-
-/// The runner id `set_runner` lists models for: a known runner that is not the planner.
-fn listed_runner<'a>(strategy: &'a Value, reference: &'a str) -> Option<(&'a Value, &'a str)> {
-    let runner = resolve(strategy, reference).filter(|r| !planner(strategy, r))?;
-    Some((runner, runner["id"].as_str().unwrap_or(reference)))
-}
-
-/// Whether [`validate_runner_model`] could answer `NeedsCore`.
-pub fn model_check_needs_core(home: &Path, now: f64, strategy: &Value, reference: &str) -> bool {
-    listed_runner(strategy, reference)
-        .is_some_and(|(_, id)| listing_needs_core(home, now, strategy, id))
 }
 
 /// Check `model` for the runner `reference` names, against the strategy

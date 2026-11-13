@@ -396,7 +396,11 @@ fn runner_models_validation_matches_validate_runner_models() {
     let listing = |ids: &[&str]| AvailableModels {
         runner: "r".into(),
         source: ModelSource::Connection,
-        models: Some(ids.iter().map(|id| AvailableModel::new(*id)).collect()),
+        models: Some(
+            ids.iter()
+                .map(|id| AvailableModel { id: (*id).into() })
+                .collect(),
+        ),
         fetched_at: NOW,
         note: None,
         provider: None,
@@ -458,5 +462,3 @@ fn runner_models_validation_matches_validate_runner_models() {
         ]
     );
 }
-
-mod discovery;
