@@ -147,16 +147,19 @@ function openRunnerLog(ctx: Ctx): number | "ignore" {
 }
 
 /** Spawn detached `_run` processes with an explicit self command. A worker must use
- * its parent's command: its own argv[1] is the worker module, not pacer's entry. */
+ * its parent's command: its own argv[1] is the worker module, not pacer's entry.
+ * A runner owns its plugin children: the door's native owner socket ends with the
+ * connection or service, before the attempt does (ADR 0027). */
 export const runnerProcess = (command: readonly string[]): SpawnRunner => (ctx, taskId) => {
   const [cmd, ...pre] = command;
   if (!cmd) throw new Error("runner self command is empty");
+  const { PACER_HOST_SOCKET: _owner, ...env } = ctx.env;
   const log = openRunnerLog(ctx);
   try {
     const child = spawn(cmd, [...pre, "_run", taskId], {
       detached: true,
       stdio: ["ignore", log, log],
-      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+      env: { ...env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
     });
     child.unref();
     return child.pid;
