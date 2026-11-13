@@ -227,9 +227,8 @@ const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in
 }, 90000);
 
 // An undeclared identity.sign during a ping: the TypeScript host refuses it and audits the refusal.
-// A flag-on serve that keeps plugin.doctor in Core makes the ping a Core call on the owner, so Core
-// refuses and audits it the same way. The owner doors' own calls carry no Core yet (DOOR_SECRET_TEXT),
-// so they refuse with no audit line and no signature.
+// The owner doors relay their doctor ping through Core's sealed owner call, as a flag-on serve that
+// keeps plugin.doctor in Core does, so Core refuses and audits it the same way.
 type Signing = { ok: boolean; error: string | null; audit: unknown[] };
 let signing: Signing | undefined;
 const undeclaredSign: ConformanceCase = { name: "identity.sign undeclared", async run(t) {
@@ -258,5 +257,69 @@ cases(null)("native owner conformance: an undeclared identity.sign is refused an
   expect(seen.typescript).toEqual({ ok: false, error: "capability_denied: plugin fx-unsigned did not declare identity.sign",
     audit: [{ pluginId: "fx-unsigned", purpose: "greeting", outcome: "refused", reason: "capability not declared" }] });
   expect(seen["serve owner, Core doctor"]).toEqual(seen.typescript);
-  for (const { label } of doors) expect(seen[label]).toMatchObject({ ok: false, audit: [] });
+  for (const { label } of doors) expect({ label, seen: seen[label] }).toEqual({ label, seen: seen.typescript });
 }, 120000);
+
+// The doors' doctor and UI calls keep each method's flag-off deadline: a ping gets 5 s, which also bounds the
+// hello, and a render 2 s. Each case runs once per host; `call` is the reply and `book` Core's bookkeeping after it.
+type Deadline = { afterMs: number; call: unknown; book?: unknown };
+let deadline: Deadline | undefined;
+const timed = async (call: () => Promise<unknown>) => {
+  const started = Date.now();
+  const seen = await call().catch(error => error instanceof HostError ? { code: error.code, message: error.message } : Promise.reject(error));
+  return { afterMs: Date.now() - started, seen };
+};
+const HELLO_CRASH = "routed: PR 7 gate row 'owner hello-timeout crash accounting': flag-off stops a child whose hello missed the call's deadline and records a crash; the owner keeps the child";
+const FAILED_READY = "routed: PR 7 gate row 'readiness after a failed first sealed call': Core loses the hello summary when its deadline ends the sealed call, so plugin.list shows idle where flag-off shows ready";
+const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string } })[] = [
+  { name: "a 6 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: HELLO_CRASH }, async run(t) {
+    t.install("good", { fixture: { helloDelayMs: 6000 } });
+    const h = await t.host();
+    await h.call("plugin.enable", { id: "fx-good", grant: true });
+    const { afterMs, seen } = await timed(() => doctor(h, "fx-good"));
+    const report = seen as { ok: boolean; error: string | null; restarts: number };
+    const entry = (await listed(h)).find(p => p.id === "fx-good") as { error?: string | null };
+    deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { restarts: report.restarts, error: entry.error } };
+  } },
+  { name: "a 6 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: FAILED_READY }, async run(t) {
+    t.install("good", { fixture: { pingDelayMs: 6000 } });
+    const h = await t.host();
+    await h.call("plugin.enable", { id: "fx-good", grant: true });
+    const { afterMs, seen } = await timed(() => doctor(h, "fx-good"));
+    const report = seen as { ok: boolean; error: string | null; state: string };
+    deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { state: report.state } };
+  } },
+  { name: "a 3 s render fails the 2 s ui.render", deadlineMs: 2000, async run(t) {
+    t.install("ui", { fixture: { renderDelayMs: 3000 } });
+    const h = await t.host();
+    await h.call("plugin.enable", { id: "fx-ui", grant: true });
+    assert((await doctor(h, "fx-ui")).ok, "the plugin starts");
+    const { afterMs, seen } = await timed(() => h.call("plugin.ui.render", { plugin: "fx-ui", surface: "status", id: "open-items", context: { route: "overview", theme: "light" } }));
+    deadline = { afterMs, call: seen };
+  } },
+];
+const deadlineRuns = new Map<string, Promise<Record<string, Deadline>>>();
+const deadlineRun = (c: (typeof DEADLINES)[number]) => deadlineRuns.get(c.name) ?? deadlineRuns.set(c.name, (async () => {
+  const seen: Record<string, Deadline> = {};
+  for (const { label, argv, door } of [tsDoor, ...doors]) {
+    deadline = undefined;
+    await runCase(c, argv, root, door);
+    seen[label] = deadline!;
+  }
+  console.log(`${c.name}: ${JSON.stringify(seen)}`);
+  return seen;
+})()).get(c.name)!;
+for (const c of DEADLINES) {
+  cases(null)(`native owner conformance: ${c.name} at its deadline with the TypeScript host's text`, async () => {
+    const seen = await deadlineRun(c);
+    for (const { label } of [tsDoor, ...doors]) {
+      expect({ label, call: seen[label]!.call }).toEqual({ label, call: seen.typescript!.call });
+      expect(seen[label]!.afterMs, label).toBeGreaterThanOrEqual(c.deadlineMs);
+      expect(seen[label]!.afterMs, label).toBeLessThan(c.deadlineMs + 1000);
+    }
+  }, 120000);
+  if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host [${c.book.reason.split(":")[0]}]`, async () => {
+    const seen = await deadlineRun(c);
+    for (const { label } of doors) expect({ label, book: seen[label]!.book }).toEqual({ label, book: seen.typescript!.book });
+  }, 120000);
+}

@@ -2,7 +2,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { PluginError, pairingStart, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string; pingStderr?: string }
+interface Fixture { helloDelayMs?: number; pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string; pingStderr?: string }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
@@ -17,8 +17,18 @@ function receipt(ping: number, phase: "enter" | "exit" | "abort"): void {
   appendFileSync("ping-receipts.jsonl", JSON.stringify({ seq: ++sequence, ping, phase, active }) + "\n", { mode: 0o600 });
 }
 
+/** The host's first line is `plugin.hello`; `helloDelayMs` holds it before the plugin reads it. */
+async function* input(): AsyncGenerator<string> {
+  let first = true;
+  for await (const line of stdinLines()) {
+    if (first && fixture.helloDelayMs) await new Promise<void>(resolve => setTimeout(resolve, fixture.helloDelayMs));
+    first = false;
+    yield line;
+  }
+}
+
 await serve({
-  manifest, contributes: fixture.claimContributes, input: stdinLines(),
+  manifest, contributes: fixture.claimContributes, input: input(),
   handlers: {
     ...pairingStart(params => {
       if (fixture.pairingFile) writeFileSync(fixture.pairingFile, JSON.stringify(params), { mode: 0o600 });

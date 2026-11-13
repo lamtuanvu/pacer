@@ -38,9 +38,10 @@ A pacer home has at most one native plugin owner that other front doors attach t
    running child with one `_host.plugin.stop` frame on the owner socket, after checking the
    peer's user again and proving serve's credential (item 9).
 4. **No live owner: the connection owns its children.** It starts a `ProcessOwner` and a
-   bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. Only
-   same-user peers that prove the connection's credential (item 9) are served. When the connection ends, or the door receives SIGTERM, the door
-   closes the listener, removes the socket and stops the children it started.
+   bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. Its
+   plugin calls go through the same `relay` kind, to that socket. Only same-user peers that
+   prove the connection's credential (item 9) are served. When the connection ends, or the
+   door receives SIGTERM, the door closes the listener, removes the socket and stops the children it started.
 5. **A deep home's connection socket goes to a private per-user directory.** When
    `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
    allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
@@ -108,10 +109,13 @@ A pacer home has at most one native plugin owner that other front doors attach t
 The private stdio channel is `_internal.plugins`. Core answers it only when the request
 carries the connection's sync key (`PACER_NATIVE_CONFIG_SYNC_KEY`, which Core removes from
 its environment before plugin children start), the session negotiated protocol 3, and no
-work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`, plus
-`relay`. Core refuses `relay` on HTTP and on a stdio connection that is not attached. It
-refuses `crashed` without an owner socket and on an attached connection, because serve's
-owner reports its children's crashes to serve's Core.
+work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`.
+`relay` is every door's own plugin call with the native host on: serve's door sends it over
+`/_internal/plugins`, and an attached or owning stdio connection over `_internal.plugins`.
+Core runs its sealed owner call on its own `PACER_HOST_SOCKET`, which is that door's owner,
+and refuses `relay` when it has no owner socket. Core refuses `crashed` without an owner
+socket and on an attached connection, because serve's owner reports its children's crashes
+to serve's Core.
 
 ## Consequences
 
@@ -194,9 +198,7 @@ owner reports its children's crashes to serve's Core.
   chosen endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key
   and the audit in Core). The resolved key crosses only that connection (0600 socket, same user)
   and the child's stdin, as the reply to the child's own request. The owner keeps nothing and
-  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused. The
-  Rust door's own owner calls (`plugin.doctor`, `plugin.ui.*`) forward no Core method, so there
-  the owner refuses both with its own text and audits no refused signing request.
+  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused.
   Item 9 closes the residual risk of this decision (#918). Before it, a same-user process could
   reach the resolved key or a signature: it could put its own process in the assistant's or a
   signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
@@ -209,11 +211,27 @@ owner reports its children's crashes to serve's Core.
   passes the handshake lines through, so both sides verify, and it then sees and can alter the
   session. Any such process could already read the same secrets: the Keychain items have no
   access list, and file and environment keys are readable by the same user. Follow-ups:
-  - hand Core the key on an inherited file descriptor or stdin instead of its environment;
-  - executor sandbox profiles deny reads of `$PACER_HOME/run/` and the per-user directory, and
-    `connect()` to their sockets (#918 item 3, which gates default-on);
+  - hand Core the key on stdin instead of its environment (in progress before default-on);
+  - #918 item 3 closed by maintainer decision: executors run unsandboxed by design, so there is
+    no executor sandbox profile to deny `run/`. The deferred hardening (binding a sealed call to
+    its spawn spec, owner-side spawn-spec validation, a `pacer doctor` warning for agent
+    configurations that allow Unix sockets, and a pacer-applied profile if pacer offers confined
+    executors) is #973;
   - a peer check: the door hands Core the owner's pid and Core verifies it on each connection,
     since the relay outlasts the other two.
+- **The doors' own plugin calls go through Core.** A door's `plugin.doctor` ping and its
+  `plugin.ui.render`, `plugin.ui.action` and settings-check calls are the private `relay`, so
+  Core seals them as it seals its own calls: it answers `secrets.resolve` and `identity.sign`
+  on them as above, writes their log lines, records the hello, and gives each method its
+  flag-off deadline (`diagnostic.ping` 5 s, which also bounds the hello, `ui.render` 2 s,
+  `ui.action` 10 s, `ui.settings.validate` 2 s). The door no longer builds a sealed call of
+  its own. A door whose Core is restarting refuses the operation as it does flag-off.
+  Core makes each relayed call on its own owner connection and proves the owner's key there
+  (item 9), as for its other calls: it refuses `relay` without an owner socket, and fails the
+  call with `plugin_unavailable` before it connects when it holds no key. A door proves the
+  key itself only for an attached connection's `_host.plugin.stop` frames; serve's door and an
+  owning stdio connection run the owner and stop their lanes in process. No door call reaches a plugin any other way:
+  the owner refuses a connection without the key and an unsealed `_host.plugin.call`.
 - **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
   orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
   `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants

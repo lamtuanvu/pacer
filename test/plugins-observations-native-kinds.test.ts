@@ -30,7 +30,7 @@ async function setup() {
   const attached = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
   for (const id of ["fx-observations", "fx-unobserved"]) await callOp(off, "plugin.enable", { id, grant: true });
   const generation = async (id: string) => ((await pluginNativeRequest(on, { kind: "call_authority", id, method: "diagnostic.ping" })) as any).value.observation.generation as string;
-  const ask = (ctx: typeof on, body: Record<string, unknown>, relay = false) => pluginNativeRequest(ctx, body, { relay }) as Promise<any>;
+  const ask = (ctx: typeof on, body: Record<string, unknown>, relay = false) => pluginNativeRequest(ctx, body, { stdio: relay }) as Promise<any>;
   return { h, off, on, attached, generation, ask };
 }
 
