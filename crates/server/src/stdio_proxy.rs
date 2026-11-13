@@ -368,7 +368,6 @@ async fn forward_input<
                     op.name,
                     &params,
                 )
-                && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {

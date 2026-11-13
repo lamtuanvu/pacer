@@ -22,9 +22,6 @@ use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
-pub(crate) use pacer_dispatch_ops::preview_ops;
-pub(crate) mod dispatch_preview_sync;
-pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
 use pacer_dispatch_ops::tier_targets_ops;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
@@ -146,9 +143,8 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
-/// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
-/// requests whose strategy only TypeScript loads, or whose runners only
-/// TypeScript can list.
+/// `runner.models.*` and `dispatch.tierTargets.*` requests whose strategy only
+/// TypeScript loads, or whose runners only TypeScript can list.
 pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     matches!(
         op,
@@ -157,10 +153,8 @@ pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) ->
             | "runner.models.set_many"
             | "dispatch.tierTargets.get"
             | "dispatch.tierTargets.set"
-            | "executor.models.available"
     ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
-        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params)
-        || available_ops::executor_models_available_stays_forwarded(ctx, op, params))
+        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params))
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -336,10 +330,6 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "runner.models.set_many",
         call: runner_models_ops::runner_models_set_many,
-    },
-    NativeOp {
-        name: "executor.models.available",
-        call: available_ops::executor_models_available,
     },
     NativeOp {
         name: "notifications.get",
