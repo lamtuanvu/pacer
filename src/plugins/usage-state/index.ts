@@ -4,10 +4,11 @@ import { join } from "node:path";
 import { CoreError } from "../../core/errors";
 import type { CallAuthority } from "../authority";
 import { readCursorFile } from "./json";
-import { CHUNK, USAGE_STATE_MAX_BYTES, readStateFile, guardStorePath, allowedCursorPath, cursorParts, privateDirectory, replaceCursor, reserve, within, writeParts } from "./storage";
+import { CHUNK, USAGE_STATE_MAX_BYTES, readStateFile, guardStorePath, allowedCursorPath, cursorParts, privateDirectory, replaceCursor, reserve, within, writeParts, sweepUsageStateIfDue } from "./storage";
 
 import { issuedStatePath, validateStateAuthority, validateStateCleanup } from "./issuance";
 export { prepareStateAuthority } from "./issuance";
+export { sweepUsageState } from "./storage";
 
 type Operation = "begin" | "readChunk" | "stageChunk" | "commit" | "release";
 type Store = CallAuthority["resources"]["stores"][number];
@@ -99,9 +100,10 @@ async function begin(authority: CallAuthority, params: Record<string, unknown>) 
       authority.assertActive();
       await validateStateAuthority(authority);
       await guardStorePath(lease.home, store.path);
-      lease.directory = await privateDirectory(store.path, lease.disposable);
-      const directory = await lstat(lease.directory);
-      lease.directoryIdentity = { device: directory.dev, inode: directory.ino };
+      if (!lease.disposable) void sweepUsageStateIfDue(lease.home);
+      const created = await privateDirectory(store.path, lease.disposable);
+      lease.directory = created.directory;
+      lease.directoryIdentity = created.identity;
       await validateStateAuthority(authority);
       authority.assertActive();
       const snapshot = join(lease.directory, "snapshot");
