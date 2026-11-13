@@ -32,6 +32,8 @@ use tokio::sync::{Mutex, watch};
 
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 const DEFAULT_TTL_MS: u64 = 30_000;
+/// How long a restart waits for the stopped child's lane to settle.
+const RESTART_SETTLE: Duration = Duration::from_secs(5);
 /// TypeScript `appendPluginLog` keeps this many UTF-16 code units of a line.
 const LOG_MAX_UNITS: usize = 4096;
 /// Orca and hosts capability handlers lock the owner, which waits for this call's lane.
@@ -311,7 +313,7 @@ impl Sealed {
 }
 
 /// A `capability.log` message cut to the plugin log's line limit on a character boundary.
-fn log_line(mut message: String) -> String {
+pub(crate) fn log_line(mut message: String) -> String {
     let mut units = 0;
     let cut = message.char_indices().find_map(|(at, ch)| {
         units += ch.len_utf16();
@@ -509,30 +511,45 @@ async fn prepare_sealed(
         return Err(unavailable(REENTRANT_RESOURCES));
     }
 
-    let lane = start_lane(
-        owner,
-        id,
-        &sealed.spec,
-        sealed.next_start_at,
-        until,
-        Some(cancel),
-    )
-    .await
-    .map_err(|error| match error {
-        StartFailure::Owner(OwnerError::Closing) => CallFailure {
-            hint: Some("Restart the pacer service.".into()),
-            ..unavailable(OwnerError::Closing)
-        },
-        StartFailure::Owner(error @ OwnerError::Failing(_)) => CallFailure {
-            hint: Some("Enable the plugin through the pacer service.".into()),
-            ..unavailable(error)
-        },
-        StartFailure::Owner(error) => unavailable(error),
-        StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
-        StartFailure::Deadline => expired(),
-        StartFailure::BeforeStartup => failure("plugin_timeout", error),
-        StartFailure::Cancelled => cancelled(),
-    })?;
+    let start = || async {
+        start_lane(
+            owner,
+            id,
+            &sealed.spec,
+            sealed.next_start_at,
+            until,
+            Some(cancel),
+        )
+        .await
+        .map_err(|error| match error {
+            StartFailure::Owner(OwnerError::Closing) => CallFailure {
+                hint: Some("Restart the pacer service.".into()),
+                ..unavailable(OwnerError::Closing)
+            },
+            StartFailure::Owner(error @ OwnerError::Failing(_)) => CallFailure {
+                hint: Some("Enable the plugin through the pacer service.".into()),
+                ..unavailable(error)
+            },
+            StartFailure::Owner(error) => unavailable(error),
+            StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
+            StartFailure::Deadline => expired(),
+            StartFailure::BeforeStartup => failure("plugin_timeout", error),
+            StartFailure::Cancelled => cancelled(),
+        })
+    };
+    let mut lane = start().await?;
+    // A child whose generation was sealed under another observation fingerprint
+    // runs the old manifest, config or grant: the registry stops it and starts
+    // a fresh one before admitting the call.
+    let sealed_generation = observation.as_ref().and_then(|o| o.generation.clone());
+    if let (Some(sealed), Some(live)) = (sealed_generation, lane.observation().generation())
+        && sealed != live
+    {
+        lane.observation().retire();
+        let _ = lane.process().terminate().await;
+        lane.wait_settled(RESTART_SETTLE).await;
+        lane = start().await?;
+    }
     let process = ProcessContext {
         account_home: sealed.roots.account_home.clone(),
         environment: sealed.environment,
@@ -557,6 +574,7 @@ async fn prepare_sealed(
     .map_err(refused)?;
     session.seal_call_authority(authority);
     session.broker_mut().set_scope_roots(sealed.roots);
+    session.bind_observation_lane(lane.observation().clone());
     // Give the session the Core-sealed method set before the hello so a child
     // that asks for one while answering `plugin.hello` is refused locally
     // (`capability_denied`) instead of reaching the native broker (R1), and
@@ -699,6 +717,8 @@ impl Prepared {
                 }
             }
         };
+        // Requests the child sends between calls go to its own idle session from now on.
+        lane.observation().install(id, &self.hello, lane.process());
         // A child readied without a recorded summary has no known features.
         if let Some(feature) = self.required.iter().find(|feature| {
             !hello["features"]

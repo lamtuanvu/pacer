@@ -1,12 +1,14 @@
 //! Owned plugin child transport. Calls may overlap: a reader task routes
 //! responses by request id and plugin-to-host requests by `_meta.capabilityCall`,
-//! and a writer task keeps every frame whole. A watcher task owns the child:
+//! and a writer task keeps every frame whole. Requests sent between calls, and
+//! read-owner requests, go to the idle handler ([`PluginProcess::serve_idle`]),
+//! never to a later call. A watcher task owns the child:
 //! it alone reaps it, so a signal can never reach a reused pid, and it
 //! publishes the exit reason the TypeScript registry would record.
 
 use crate::plugin_log::{PluginLog, copy_stderr};
 use pacer_plugin_host::{
-    MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, parse_frame,
+    MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, notification_frame, parse_frame,
 };
 use serde_json::{Value, json};
 use std::{
@@ -95,10 +97,36 @@ struct Route {
 #[derive(Default)]
 struct Routes {
     calls: HashMap<u64, Route>,
-    /// Requests that arrived while no call was pending. The next call, or
-    /// [`PluginProcess::handle_idle_request`], answers them in order.
+    /// Requests that arrived while no call was pending, or that name a read
+    /// owner, before [`PluginProcess::serve_idle`] installed a handler. Only
+    /// that handler or [`PluginProcess::handle_idle_request`] answers them,
+    /// never a later call.
     idle: VecDeque<Incoming>,
+    idle_handler: Option<mpsc::Sender<Incoming>>,
     closed: Option<String>,
+}
+
+impl Routes {
+    fn idle(&mut self, request: Incoming) -> Result<bool, (Value, &'static str)> {
+        let full = (
+            request.id.clone(),
+            "too many capability requests without a call",
+        );
+        let Some(handler) = &self.idle_handler else {
+            if self.idle.len() >= QUEUED_IDLE {
+                return Err(full);
+            }
+            self.idle.push_back(request);
+            return Ok(true);
+        };
+        handler
+            .try_send(request)
+            .map(|()| false)
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => full,
+                mpsc::error::TrySendError::Closed(request) => (request.id, "plugin process closed"),
+            })
+    }
 }
 
 struct Shared {
@@ -130,6 +158,7 @@ impl Shared {
         routes.closed.get_or_insert_with(|| reason.to_owned());
         routes.calls.clear();
         routes.idle.clear();
+        routes.idle_handler = None;
         drop(routes);
         self.idle.notify_one();
         self.closed.send_replace(true);
@@ -154,15 +183,16 @@ impl Shared {
     /// A request echoing a call's `_meta.capabilityCall` goes to that call. A
     /// call sent without a token owns every request while it is the only call;
     /// its handler judges the request's metadata. An untokened request goes to
-    /// the only pending call, or to the only untokened one when calls overlap;
-    /// with no call pending it waits for the next one.
+    /// the only pending call, or to the only untokened one when calls overlap.
+    /// A request naming only a read owner, or one with no call pending, goes
+    /// to the idle handler, whose generation alone can authorize it.
     fn route(&self, request: Incoming) -> Result<(), (Value, &'static str)> {
-        let token = request
-            .metadata
-            .as_ref()
+        let meta = request.metadata.as_ref();
+        let token = meta
             .and_then(|meta| meta.get("capabilityCall"))
             .and_then(Value::as_str)
             .map(str::to_owned);
+        let read_owner = meta.is_some_and(|meta| meta.get("readOwner").is_some());
         let mut routes = self.routes();
         let alone = (routes.calls.len() == 1)
             .then(|| routes.calls.values().next())
@@ -173,13 +203,12 @@ impl Shared {
                 .values()
                 .find(|route| route.token.as_deref() == Some(token.as_str()))
                 .or(alone.filter(|route| route.token.is_none())),
-            None if routes.calls.is_empty() => {
-                if routes.idle.len() >= QUEUED_IDLE {
-                    return Err((request.id, "too many capability requests without a call"));
-                }
-                routes.idle.push_back(request);
+            None if read_owner || routes.calls.is_empty() => {
+                let queued = routes.idle(request)?;
                 drop(routes);
-                self.idle.notify_one();
+                if queued {
+                    self.idle.notify_one();
+                }
                 return Ok(());
             }
             None if routes.calls.len() == 1 => routes.calls.values().next(),
@@ -233,11 +262,20 @@ pub struct PluginProcess {
     exit: watch::Receiver<Option<String>>,
     stopping: AtomicBool,
     tasks: [JoinHandle<()>; 3],
+    idle_task: StdMutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for PluginProcess {
     fn drop(&mut self) {
         for task in &self.tasks {
+            task.abort();
+        }
+        if let Some(task) = self
+            .idle_task
+            .get_mut()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .take()
+        {
             task.abort();
         }
     }
@@ -414,6 +452,7 @@ impl PluginProcess {
             exit,
             stopping: AtomicBool::new(false),
             tasks,
+            idle_task: StdMutex::new(None),
         })
     }
 
@@ -547,11 +586,6 @@ impl PluginProcess {
             if let Some(reason) = &routes.closed {
                 return Err(ProcessError::Unavailable(reason.clone()));
             }
-            if routes.calls.is_empty() {
-                for waiting in routes.idle.drain(..) {
-                    let _ = requests.try_send(waiting);
-                }
-            }
             let route = Route {
                 token: token.clone(),
                 reply: Some(reply),
@@ -679,7 +713,51 @@ impl PluginProcess {
         .unwrap_or(Err(ProcessError::Timeout))
     }
 
+    /// Answer, in order, every request [`Shared::route`] gives the idle
+    /// handler from now on, and those already waiting. The first handler
+    /// stays; a later install is ignored.
+    pub fn serve_idle<F, Fut>(&self, mut handler: F)
+    where
+        F: FnMut(String, Value, Option<Value>) -> Fut + Send + 'static,
+        Fut: Future<Output = Result<Value, Value>> + Send + 'static,
+    {
+        let (requests, mut received) = mpsc::channel(QUEUED_IDLE);
+        {
+            let mut routes = self.shared.routes();
+            if routes.closed.is_some() || routes.idle_handler.is_some() {
+                return;
+            }
+            for waiting in routes.idle.drain(..) {
+                let _ = requests.try_send(waiting);
+            }
+            routes.idle_handler = Some(requests);
+        }
+        let writes = self.writes.clone();
+        let task = tokio::spawn(async move {
+            while let Some(request) = received.recv().await {
+                let reply = match handler(request.method, request.params, request.metadata).await {
+                    Ok(result) => json!({"jsonrpc":"2.0","id":request.id,"result":result}),
+                    Err(error) => json!({"jsonrpc":"2.0","id":request.id,"error":error}),
+                };
+                let bytes = frame(reply).or_else(|_| {
+                    frame(json!({"jsonrpc":"2.0","id":request.id,
+                        "error":rpc_error("too_large", "capability result exceeds transport frame".into())}))
+                });
+                if let Ok(bytes) = bytes
+                    && writes.send((bytes, None)).await.is_err()
+                {
+                    return;
+                }
+            }
+        });
+        *self
+            .idle_task
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner) = Some(task);
+    }
+
     /// Bounded event delivery retains the caller's guard through pipe backpressure.
+    /// The line is the TypeScript transport's: `JSON.stringify` in insertion order.
     pub async fn notify_bounded(
         &self,
         method: &str,
@@ -688,7 +766,7 @@ impl PluginProcess {
         guard: impl Fn() -> Result<(), ProcessError>,
     ) -> Result<(), ProcessError> {
         guard()?;
-        let bytes = frame(json!({"jsonrpc":"2.0","method":method,"params":params}))?;
+        let bytes = notification_frame(method, &params)?;
         let (ack, written) = oneshot::channel();
         timeout(deadline, async {
             self.writes

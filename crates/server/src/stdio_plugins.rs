@@ -26,7 +26,7 @@ use pacer_plugin_ops::{
     settings::js_json,
 };
 use pacer_plugin_runtime::{
-    CrashReport, HOST_SOCKET_ENV, HomeOwner, NativeHostSession,
+    CrashReport, DoorRequest, HOST_SOCKET_ENV, HomeOwner, NativeHostSession,
     native_plugin_host_enabled_from_env, probe_home_owner,
 };
 use serde_json::{Value, json};
@@ -254,6 +254,12 @@ impl Ownership {
     /// gets none: the serve owner reports to serve's Core (ADR 0027).
     pub(crate) fn crash_reports(&self) -> Option<mpsc::UnboundedReceiver<CrashReport>> {
         self.session.as_ref().map(NativeHostSession::crash_reports)
+    }
+
+    /// Observation requests of the children this connection owns; an attached
+    /// connection's go to serve's Core.
+    pub(crate) fn door_requests(&self) -> Option<mpsc::UnboundedReceiver<DoorRequest>> {
+        self.session.as_ref().map(NativeHostSession::door_requests)
     }
 
     /// Unlink this connection's socket and terminate the children it owns.

@@ -156,6 +156,32 @@ impl ObservationGeneration {
     pub fn subscription(&mut self) -> Option<&mut EventSubscription> {
         self.subscription.as_mut()
     }
+    /// The read context the generation was bootstrapped with.
+    pub fn context(&self) -> &ReadContext {
+        &self.context
+    }
+    /// The owner a task read runs under: the retained read owner, or one
+    /// scoped to the call's grants. A holder that shares the generation can
+    /// await the projection without holding it, then [`Self::authorize`] again.
+    pub fn read_owner(
+        &self,
+        method: &str,
+        request: &Value,
+        call: Option<&ObservationCall>,
+    ) -> Result<ReadOwner, BrokerError> {
+        self.authorize(method, request, call)?;
+        if request.pointer("/_meta/readOwner").is_some() {
+            return self.owner.clone().ok_or_else(denied);
+        }
+        let call = call.ok_or_else(denied)?;
+        let grants: Vec<_> = call.grants.iter().cloned().collect();
+        ReadOwner::new(
+            self.context.clone(),
+            &self.manifest,
+            &grants,
+            self.current.clone(),
+        )
+    }
     pub async fn read<P: TaskProjection>(
         &mut self,
         method: &str,
@@ -164,15 +190,7 @@ impl ObservationGeneration {
         call: Option<&ObservationCall>,
         projection: &mut P,
     ) -> Result<Value, BrokerError> {
-        self.authorize(method, request, call)?;
-        let owner = if request.pointer("/_meta/readOwner").is_some() {
-            self.owner.clone().ok_or_else(denied)?
-        } else {
-            let call = call.ok_or_else(denied)?;
-            let grants: Vec<_> = call.grants.iter().cloned().collect();
-            let current = self.current.clone();
-            ReadOwner::new(self.context.clone(), &self.manifest, &grants, current)?
-        };
+        let owner = self.read_owner(method, request, call)?;
         let result = read_task(
             &owner,
             &self.context.home,

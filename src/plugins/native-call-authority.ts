@@ -1,5 +1,5 @@
 /** Core-sealed call-scoped CallResources for flag-on ProcessOwner (P4d-7/8). */
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { basename, isAbsolute, resolve } from "node:path";
 import { CoreError } from "../core/errors";
 import type { CallResources, HostOperationResource } from "./authority";
@@ -250,7 +250,14 @@ export type ObservationSeal = {
   callToken: string;
   bootstrap: boolean;
   readContext: { home: string; pacerHome: string; now: number };
+  /** The owner's lane generation answers Core's events and reads only while this matches. */
+  generation?: string;
 };
+
+/** A plugin's observation generation as the owner names it to Core: a digest of its fingerprint. */
+export function observationGeneration(fingerprint: string): string {
+  return createHash("sha256").update(fingerprint).digest("hex");
+}
 
 export type HostSnapshotSeal = {
   alias: string;
@@ -318,6 +325,8 @@ export type CallAuthorityOptions = {
   plannerResources?: boolean;
   /** The call carries credential bindings, even an empty list. */
   credentialBindings?: boolean;
+  /** The plugin's current observation fingerprint; its digest names the owner's lane generation. */
+  observationFingerprint?: string;
 };
 
 /** Whether flag-off would give this call a `CallAuthority` (`needsAuthority` in the registry's `call`). */
@@ -346,6 +355,7 @@ export function sealCallAuthority(
       callToken: randomUUID(),
       bootstrap: true,
       readContext: { home: ctx.home, pacerHome: ctx.pacerHome, now: ctx.now },
+      ...(options.observationFingerprint === undefined ? {} : { generation: observationGeneration(options.observationFingerprint) }),
     }
     : undefined;
   return {

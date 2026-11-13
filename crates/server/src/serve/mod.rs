@@ -789,12 +789,17 @@ pub async fn run_serve(
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
     if let Some(host) = &native_host {
         let core = core.clone();
+        let link = move || {
+            let core = core.clone();
+            async move { crate::native::plugins::http_link(&core).await }
+        };
         tokio::spawn(crate::native::plugins::deliver_crashes(
             host.crash_reports(),
-            move || {
-                let core = core.clone();
-                async move { crate::native::plugins::http_link(&core).await }
-            },
+            link.clone(),
+        ));
+        tokio::spawn(crate::native::plugins::deliver_door_requests(
+            host.door_requests(),
+            link,
         ));
     }
     let beats = Arc::new(heartbeat::Heartbeat::new());

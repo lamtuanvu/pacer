@@ -80,7 +80,6 @@ const root = mkdtempSync("/tmp/pcn-");
 afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, force: true }); });
 
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
-const ROUTED_OBSERVATIONS = "routed: the owner admits the observation bootstrap call, but no task or activity event reaches the plugin's callback until the owner runs observation generations";
 
 /** Subset of CASES, by name, with the reason a case is expected to fail on the owner doors. */
 const SUBSET: Record<string, string | null> = {
@@ -89,8 +88,8 @@ const SUBSET: Record<string, string | null> = {
   "serialisation: one call at a time unless reentrant": PID_NULL,
   "logs: stderr lands in the plugin log file, never on stdout": null,
   "shutdown: closing the host terminates its plugins": null,
-  "observations: task callback task reads work without public subscribe": ROUTED_OBSERVATIONS,
-  "observations: activity callback task reads work without public subscribe": ROUTED_OBSERVATIONS,
+  "observations: task callback task reads work without public subscribe": null,
+  "observations: activity callback task reads work without public subscribe": null,
 };
 const subset = CASES.filter(c => Object.hasOwn(SUBSET, c.name));
 test("the native owner subset names existing conformance cases", () => expect(subset.map(c => c.name).sort()).toEqual(Object.keys(SUBSET).sort()));
@@ -100,7 +99,7 @@ const doctor = async (h: HostClient, id: string) => (await h.call<{ reports: { o
 
 /**
  * The two PID_NULL cases with every pid check replaced by what the owner reports instead, and the
- * observations cases' bootstrap call without their event assertions (ROUTED_OBSERVATIONS).
+ * observations cases' bootstrap call on its own.
  */
 const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
   { name: "lazy start without pids: list starts nothing, doctor makes the plugin ready", async run(t) {

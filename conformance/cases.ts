@@ -274,7 +274,9 @@ export const CASES: ConformanceCase[] = [
     assert(await eventually(()=>{try{return readFileSync(log,"utf8").includes(`"id":"${taskId}"`);}catch{return false;}}),"callback receives task event and reads task after bootstrap call settled");
     const text=readFileSync(log,"utf8");assert(text.includes(`"type":"${eventType}"`)&&text.includes('"hasEffects":false'),"callback uses isolated read-only client");
     assert(h.events.length===0,"host client did not subscribe to public events");
-    await h.close();assert(await eventually(()=>!alive(report.pid!)),"closing host retires observation process and timer");
+    // An owner door reports no pid (ADR 0027); the child records its own.
+    const pid=report.pid??Number(readFileSync(join(t.pluginsDir,"fx-observations","pid"),"utf8"));assert(alive(pid),"the observation process outlives the bootstrap call");
+    await h.close();assert(await eventually(()=>!alive(pid)),"closing host retires observation process and timer");
   }})),
 ];
 
