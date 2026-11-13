@@ -3191,6 +3191,11 @@ impl<'de> ::serde::Deserialize<'de> for TaskHandBackParamsId {
 ///      "maximum": 200.0,
 ///      "minimum": 1.0
 ///    },
+///    "q": {
+///      "type": "string",
+///      "maxLength": 200,
+///      "minLength": 1
+///    },
 ///    "repo": {
 ///      "type": "string",
 ///      "minLength": 1
@@ -3232,6 +3237,8 @@ pub struct TaskListParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub limit: ::std::option::Option<::std::num::NonZeroU64>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub q: ::std::option::Option<TaskListParamsQ>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub repo: ::std::option::Option<TaskListParamsRepo>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub since: ::std::option::Option<f64>,
@@ -3245,6 +3252,7 @@ impl ::std::default::Default for TaskListParams {
             before: Default::default(),
             executor: Default::default(),
             limit: Default::default(),
+            q: Default::default(),
             repo: Default::default(),
             since: Default::default(),
             states: Default::default(),
@@ -3352,6 +3360,62 @@ impl ::std::convert::TryFrom<&str> for TaskListParamsExecutor {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for TaskListParamsExecutor {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`TaskListParamsQ`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 200,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct TaskListParamsQ(::std::string::String);
+impl ::std::ops::Deref for TaskListParamsQ {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<TaskListParamsQ> for ::std::string::String {
+    fn from(value: TaskListParamsQ) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for TaskListParamsQ {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 200usize {
+            return Err("longer than 200 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for TaskListParamsQ {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for TaskListParamsQ {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,

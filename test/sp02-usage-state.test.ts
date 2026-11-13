@@ -1,5 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdir, readFile, writeFile, stat, readdir } from "node:fs/promises";
+import { mkdir, readFile, writeFile, stat, readdir, utimes } from "node:fs/promises";
 import { join, dirname, basename } from "node:path";
 import { createCallAuthority, type CallAuthority } from "../src/plugins/authority";
 import { answerUsageState, prepareStateAuthority } from "../src/plugins/usage-state";
@@ -382,4 +382,33 @@ test("suppressed normal release cleanup errors remain visible to authority revoc
   const error = await s.authority.revoke().then(() => undefined, error => error);
   authorities.splice(authorities.indexOf(s.authority), 1);
   expect(error?.message).toBe("synthetic owned staging cleanup failure");
+});
+
+test("begin failure after staging creation removes the staging directory", async () => {
+  const { spyOn } = await import("bun:test");
+  const fs = await import("node:fs/promises");
+  const s = setup(); await mkdir(join(s.ctx.pacerHome, "cache"), { recursive: true });
+  await prepareStateAuthority(s.authority);
+  const actual = fs.statfs;
+  const spy = spyOn(fs, "statfs").mockImplementation(async (...args: Parameters<typeof fs.statfs>) => ({ ...await actual(...args), bavail: 0 }) as any);
+  try {
+    await expect(snapshot(s.authority)).rejects.toBeDefined();
+  } finally { spy.mockRestore(); }
+  const remaining = (await readdir(join(s.ctx.pacerHome, "cache"))).filter(name => name.startsWith(".pacer-usage-state-"));
+  expect(remaining).toEqual([]);
+});
+test("writable begin sweeps orphaned staging directories and a read-only begin leaves them", async () => {
+  const orphan = async (s: ReturnType<typeof setup>) => {
+    const dir = join(s.ctx.pacerHome, "cache", ".pacer-usage-state-orphan"); await mkdir(dir, { recursive: true });
+    const at = (Date.now() - 2 * 3600 * 1000) / 1000; await utimes(dir, at, at); return dir;
+  };
+  const reader = setup(); reader.ctx.readOnly = true;
+  const kept = await orphan(reader);
+  await call(reader.authority, "release", { lease: (await snapshot(reader.authority)).lease });
+  expect((await readdir(dirname(kept))).includes(basename(kept))).toBe(true);
+  const writer = setup();
+  const swept = await orphan(writer);
+  await call(writer.authority, "release", { lease: (await snapshot(writer.authority)).lease });
+  for (let i = 0; i < 50 && (await readdir(dirname(swept))).includes(basename(swept)); i++) await Bun.sleep(20);
+  expect((await readdir(dirname(swept))).includes(basename(swept))).toBe(false);
 });

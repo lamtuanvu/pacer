@@ -3966,6 +3966,83 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.tierTargets.get`
+
+Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `dispatch.tierTargets.set`
+
+Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targets": {
+      "type": "object",
+      "properties": {
+        "simple": {
+          "default": "small",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "standard": {
+          "default": "medium",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "complex": {
+          "default": "frontier",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        }
+      },
+      "required": [
+        "simple",
+        "standard",
+        "complex"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "expectedRevision",
+    "targets"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `dispatch.tree`
 
 Scoped nested work tree, selected decisions, dependencies and aggregate execution time.
@@ -6486,6 +6563,103 @@ Params JSON Schema:
     "expectedRevision",
     "default",
     "models"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.models.set_many`
+
+Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runners": {
+      "minItems": 1,
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "default": {
+            "type": "string",
+            "minLength": 1
+          },
+          "models": {
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "tier": {
+                  "default": "unknown",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier",
+                    "unknown"
+                  ]
+                },
+                "strengths": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "tools": {
+                  "type": "boolean"
+                },
+                "context": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "tier",
+                "strengths"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "default",
+          "models"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "expectedRevision",
+    "runners"
   ],
   "additionalProperties": false
 }
