@@ -3,7 +3,7 @@ import { chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, writ
 import { join } from "node:path";
 import { strategyPath } from "../config/strategy";
 import { CoreError } from "../core/errors";
-import { detectTerminal, splitArgv } from "../session/targets";
+import { detectTerminal, splitArgv, viewerEnv } from "../session/targets";
 import { OrcaClient, isReady } from "../exec/orca/client";
 import { shellCommand } from "../install/fsx";
 import { createTerminal } from "./workspace";
@@ -146,7 +146,7 @@ async function openAdmitted(ctx: Ctx, o: TerminalOptions, deps: Partial<Terminal
             ? splitArgv(selected).map(arg => arg.replaceAll("{cmd}", script))
             : linux[selected ?? "x-terminal-emulator"] ?? ["x-terminal-emulator", "-e", script];
         } else continue;
-        const result = await d.run(argv, 5000, { env: d.env });
+        const result = await d.run(argv, 5000, { env: viewerEnv(d.env) });
         if (result.code === 0) return { opened: true, target, command };
       }
     } catch { /* Try the next available terminal. */ }

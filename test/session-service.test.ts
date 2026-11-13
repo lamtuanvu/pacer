@@ -96,6 +96,18 @@ test('macOS viewer launch waits for the launcher to report success',async()=>{
  expect(await launchViewer(ctx,argv,true)).toBe(false);
  expect(calls).toEqual([argv]);
 });
+test('session viewers never inherit the native owner socket',async()=>{
+ const {launchViewer}=await import('../src/session/targets');
+ const envs:Record<string,string|undefined>[]=[];
+ const ctx=fakeCtx({env:{PATH:process.env.PATH,PACER_HOST_SOCKET:'/tmp/owner/host.sock'},run:async(_argv,_timeout,options)=>{envs.push(options?.env??{});return {code:0,stdout:'',stderr:''};}});
+ expect(await launchViewer(ctx,['open','-a','Terminal'],true)).toBe(true);
+ expect(envs).toEqual([{PATH:process.env.PATH}]);
+ const marker=join(ctx.home,'viewer-env');
+ expect(await launchViewer(ctx,[process.execPath,'-e',"Bun.write(process.argv.at(-1),JSON.stringify(process.env))",marker])).toBe(true);
+ for(let i=0;i<40&&!(await Bun.file(marker).exists());i++)await Bun.sleep(25);
+ expect(JSON.parse(await Bun.file(marker).text()).PACER_HOST_SOCKET).toBeUndefined();
+ expect(ctx.env.PACER_HOST_SOCKET).toBe('/tmp/owner/host.sock');
+});
 test('desktop viewer availability rejects SSH and Linux without a display',async()=>{
  const { hasDesktop }=await import('../src/session/targets');
  expect(hasDesktop(fakeCtx({env:{TERM_PROGRAM:'ghostty'}}),'linux')).toBe(false);

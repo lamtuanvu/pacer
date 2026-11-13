@@ -36,6 +36,14 @@ test("macOS uses Terminal with a private quoted script", async () => {
   expect(readFileSync(script, "utf8")).toContain("CODEX_HOME='/tmp/a b' codex login");
   expect(statSync(script).mode & 0o777).toBe(0o700);
 });
+test("an external terminal never inherits the native owner socket", async () => {
+  const ctx = fakeCtx({env:{TERM_PROGRAM:"Apple_Terminal"}}), envs: Record<string, string | undefined>[] = [];
+  const env = { PATH: "/usr/bin", PACER_HOST_SOCKET: "/tmp/owner/host.sock" };
+  const d = deps({ env, run: async (_argv, _timeout, options) => { envs.push(options?.env ?? {}); return { code: 0, stdout: "", stderr: "" }; } });
+  expect((await openInTerminal(ctx, { argv: ["codex", "login"], title: "Sign in" }, d.deps)).opened).toBe(true);
+  expect(envs).toEqual([{ PATH: "/usr/bin" }]);
+  expect(env.PACER_HOST_SOCKET).toBe("/tmp/owner/host.sock");
+});
 test("an unset preference detects the same macOS terminal as session viewers", async () => {
   const ctx=fakeCtx({env:{TERM_PROGRAM:"iTerm.app",DISPLAY:":0"}}), d=deps();
   expect(detectTerminal(ctx,"linux")).toBe("iterm");
