@@ -65,7 +65,14 @@ const request = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("stop"), id: z.string() }).strict(),
   z.object({ kind: z.literal("changed"), id: z.string(), reset: z.boolean(), invalidate: z.boolean() }).strict(),
   z.object({ kind: z.literal("publish"), op: operation }).strict(),
-  z.object({ kind: z.literal("log"), id: z.string(), message: z.string().max(1000) }).strict(),
+  z.object({
+    kind: z.literal("log"),
+    id: z.string(),
+    // A call-scoped `capability.log` line keeps its level; without one it is child stderr.
+    level: z.enum(["debug", "info", "warn", "error"]).optional(),
+    // `appendPluginLog` keeps 4,096 UTF-16 code units of a line.
+    message: z.string().max(4096),
+  }).strict(),
   z.object({ kind: z.literal("crashed"), id: z.string(), reason: z.string().regex(CRASH_REASON) }).strict(),
   z.object({
     kind: z.literal("orca_bridge"),
@@ -143,7 +150,7 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
       case "publish":
         if (["plugin.enable", "plugin.disable", "plugin.remove", "plugin.ui.visibility", "plugin.settings.set"].includes(p.op)) await publishConfigChange(ctx, "plugins");
         break;
-      case "log": appendPluginLog(ctx, p.id, "stderr", p.message); break;
+      case "log": appendPluginLog(ctx, p.id, p.level ?? "stderr", p.message); break;
       case "crashed":
         // Only the owner this Core's door runs supervises children it could see die.
         if (!nativeOwnsChildren) throw new CoreError("plugin_unavailable", "crash reports require the native process owner");

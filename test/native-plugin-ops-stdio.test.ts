@@ -392,10 +392,10 @@ test.skipIf(!front)("serve's Core reports a child it rendered through as ready",
 }, 60000);
 
 /**
- * Routed (sealed owner bridge): the owner reuses a lane an attached connection's Core sealed, so
- * serve's Core never sees that child's hello and keeps reporting it idle after its own render.
+ * The owner reuses a lane an attached connection's Core sealed, so serve's Core never sees that
+ * child's hello: serve's door reports it ready when its own call finds Core listing it idle.
  */
-(front ? test.failing : test.skip)("routed: serve's Core reports a child started for an attached connection as ready after its own render", async () => {
+test.skipIf(!front)("serve's Core reports a child started for an attached connection as ready after its own render", async () => {
   const h = makeHome();
   const service = await serve(h, "", ownerOn);
   const s = await stdio(h, "", ownerOn);

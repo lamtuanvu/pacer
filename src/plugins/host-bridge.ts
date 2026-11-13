@@ -69,7 +69,11 @@ export function nativeOwnerCallFits(call: NativeOwnerCall): boolean {
 const nativeOwnerReply = z.object({
   value: z.unknown(),
   hello: z.object({ protocol: z.string(), served: z.array(z.string()) }).nullable(),
-  logs: z.array(z.string()).default([]),
+  // Call-scoped `capability.log` lines; a bare string is an older owner's line.
+  logs: z.array(z.union([
+    z.string(),
+    z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string() }),
+  ])).default([]),
 });
 export type NativeOwnerReply = z.infer<typeof nativeOwnerReply>;
 

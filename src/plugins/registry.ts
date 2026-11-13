@@ -1768,6 +1768,8 @@ export class PluginRegistry {
       argv: spec.argv,
       cwd: spec.cwd,
       env,
+      // The door reports `ready` for a child it finds ready only while Core still lists it otherwise.
+      state: e.state,
       // The crash backoff `start()` would sleep through; the owner waits for it instead.
       nextStartAt: e.nextStartAt,
       hello: {
@@ -2634,7 +2636,10 @@ export class PluginRegistry {
         // Re-check after the reply: a revocation racing the final reply line must still fail
         // the call before the planner install/uninstall transaction commits any write.
         if (effects) await checkPlannerGeneration();
-        for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
+        for (const line of reply.logs) {
+          if (typeof line === "string") appendPluginLog(ctx, e.id, "stderr", line);
+          else appendPluginLog(ctx, e.id, line.level, line.message);
+        }
         if (reply.hello && e.state !== "ready") {
           this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
             reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
