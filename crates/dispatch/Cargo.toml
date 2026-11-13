@@ -1,0 +1,20 @@
+[package]
+name = "pacer-dispatch"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+serde_json.workspace = true
+pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
+rusqlite = { version = "0.41", features = ["bundled"] }
+sha2 = "0.10"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true

@@ -1409,12 +1409,25 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-dispatch"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "pacer-js-json",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pacer-dispatch-ops"
 version = "0.0.0"
 dependencies = [
  "icu_collator",
  "nix",
  "pacer-config",
+ "pacer-dispatch",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-store",

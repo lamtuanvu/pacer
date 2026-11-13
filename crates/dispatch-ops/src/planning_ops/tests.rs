@@ -32,28 +32,6 @@ fn observation(method: &str, value: Value) -> Value {
         "method": method, "state": "known", "observedAt": 1.0, "expiresAt": 4e9})
 }
 
-#[test]
-fn observations_parse_in_schema_order_with_defaults() {
-    let parsed = parse_observation(&observation(
-        "models",
-        json!({"models": [{"strengths": ["a"], "id": "m"}]}),
-    ))
-    .unwrap();
-    assert_eq!(
-        Value::Object(parsed).to_string(),
-        r#"{"source":"s","scope":{"runner":"codex","account":"codex"},"method":"models","state":"known","observedAt":1,"expiresAt":4000000000,"value":{"models":[{"id":"m","tier":"unknown","strengths":["a"]}]}}"#
-    );
-    for bad in [
-        json!({"extra": 1}),
-        json!({"context": 1.5}),
-        json!({"windows": [{"pool": "p", "usedPct": 101}]}),
-        json!({"model": ""}),
-        json!({"models": [{"id": "m", "tier": "huge"}]}),
-    ] {
-        assert!(parse_observation(&observation("models", bad)).is_none());
-    }
-}
-
 #[tokio::test]
 async fn models_lists_declared_and_advertised_records() {
     let dir = tempfile::tempdir().unwrap();
