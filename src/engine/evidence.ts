@@ -51,7 +51,7 @@ function measuredQuota(f: Evidence<UsageWindow>): boolean {
  * (a narrower witness cannot clear a broader artifact), and carries the same
  * budget policy. Genuine positive-duration windows (expired, unknown or
  * exhausted) and configuration/execution/manual or metered boundaries are never
- * touched here; omission of a window alone never proves recovery.
+ * touched here. Retiring omitted windows is handled separately in reconcileEvidence.
  */
 function retireInvalidZero(budget: Evidence<UsageWindow>[], now: number): Set<string> {
   const witnesses = budget.filter(f => measuredQuota(f) && windowUsable(f.value) && !f.value.stale
