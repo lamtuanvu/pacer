@@ -72,8 +72,13 @@ omitted. Targets may be `small`, `medium` or `frontier`, never `unknown`.
 They must be nondecreasing from simple to complex: `simple ≤ standard ≤ complex`
 in the order `small < medium < frontier`. Equal targets are allowed.
 
-In **Settings → Dispatcher → Model choice**, preview the model for each difficulty
-and executor, then save and activate a new named setup. Availability can change
+In **Settings → Dispatcher → Model choice**, preview the model each difficulty and
+executor would use, then save the tier choices in place (updating the active
+setup) or save as a new named setup. In **Settings → Dispatcher → Model matrix**,
+see every model each executor can run (from the provider listing and the declared
+models), turn models on and rate their size (or return them to unrated), and
+suggest on/off and sizes from the listing; **Save matrix** writes only the
+executors that changed in one revision-checked edit. Availability can change
 before dispatch. See [executor models](executors.md#default-and-allowed-models)
 for validation and [dispatch](dispatch.md#model-choice-by-difficulty) for fallback.
 

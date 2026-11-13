@@ -353,3 +353,96 @@
 .dispatcher-preview-row{align-items:center}
 .dispatcher-preview-submit{padding-top:0}
 .pc-executor-pool__setup.pc-btn{font-weight:var(--type-body-weight)}
+
+/* Settings › Dispatcher › Model choice: answer, tier grid, behavior preview and save bar. Only layout and placement live here; components keep their DS geometry. */
+/* The tier grid must never scroll sideways at any content width, so the stacking
+   breakpoint below keys on the section's own width (a container), not the
+   viewport (review F1): the settings nav narrows the section well above 560 px. */
+#model-choice{container-type:inline-size;container-name:model-choice}
+.pc-model-choice__answer{flex-direction:row;flex-wrap:wrap;align-items:center;gap:var(--space-5)}
+.pc-model-choice__count{display:flex;flex-direction:column;align-items:flex-start;min-width:var(--size-120)}
+.pc-model-choice__count strong{font-size:var(--type-headline-size);line-height:var(--type-headline-line);font-weight:var(--type-headline-weight)}
+.pc-model-choice__count strong span{font-size:var(--type-body-size);font-weight:var(--type-body-weight);color:var(--ink-secondary)}
+.pc-model-choice__copy{flex:1 1 var(--size-400);min-width:0;display:flex;flex-direction:column;gap:var(--space-1)}
+.pc-model-choice__copy strong{font-size:var(--type-body-size);line-height:var(--type-body-line)}
+.pc-model-choice__presets{display:flex;flex-wrap:wrap;align-items:center;gap:var(--space-2)}
+.pc-model-choice__savecopy{display:flex;flex-direction:column;gap:var(--space-1)}
+.pc-model-choice__savedock{display:flex;flex-direction:column;gap:var(--space-2);position:sticky;bottom:0;z-index:var(--layer-sticky);margin-top:var(--space-3)}
+.pc-model-choice__notice{padding:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md)}
+.pc-tier-grid{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-lg)}
+.pc-tier-grid__head,.pc-tier-grid__row{display:grid;grid-template-columns:minmax(var(--size-180),1.2fr) repeat(3,minmax(var(--size-150),1fr));column-gap:var(--space-4);align-items:center;padding:var(--space-3) var(--space-4)}
+.pc-tier-grid__head{background:var(--surface-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+.pc-tier-grid__row{border-top:1px solid var(--surface-lane)}
+.pc-tier-grid__colhead{display:flex;flex-direction:column;font-weight:var(--type-body-strong-weight)}
+.pc-tier-grid__label{display:flex;flex-direction:column;font-weight:var(--type-body-strong-weight)}
+.pc-tier-grid__row>.pc-tier-grid__label{grid-column:1}
+.pc-tier-grid__row .pc-tier-grid__radios{grid-column:2 / -1;display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--space-2)}
+/* Narrow: stack each tier row under its difficulty label, hiding the column
+   header, so the grid never scrolls sideways (UI-16, review N1). Applied from
+   the section's own width (a container), not the viewport, so a half-screen
+   or settings-narrowing window never scrolls (review F1). */
+@container model-choice (max-width:700px){
+  .pc-tier-grid{overflow:hidden}
+  .pc-tier-grid__head{display:none}
+  .pc-tier-grid__row{grid-template-columns:minmax(0,1fr);row-gap:var(--space-2)}
+  .pc-tier-grid__row>.pc-tier-grid__label{grid-column:1}
+  .pc-tier-grid__row .pc-tier-grid__radios{grid-column:1}
+}
+.pc-model-choice__preview{display:flex;flex-direction:column;gap:var(--space-2)}
+.pc-model-preview{border:1px solid var(--line);border-radius:var(--radius-lg);overflow-x:auto}
+.pc-model-preview__head{display:grid;grid-template-columns:minmax(var(--size-180),1.2fr) repeat(3,minmax(var(--size-150),1fr));column-gap:var(--space-4);padding:var(--space-3) var(--space-4);background:var(--surface-card)}
+.pc-model-preview__colhead{display:flex;flex-direction:column;font-weight:var(--type-body-strong-weight)}
+.pc-model-preview__group{grid-column:1 / -1;display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline;padding:var(--space-3) var(--space-4) var(--space-1);border-top:1px solid var(--surface-lane)}
+.pc-model-preview__group strong{font-weight:var(--type-body-strong-weight)}
+.pc-model-preview__row{display:grid;grid-template-columns:minmax(var(--size-180),1.2fr) repeat(3,minmax(var(--size-150),1fr));column-gap:var(--space-4);align-items:center;padding:var(--space-2) var(--space-4)}
+.pc-model-preview__row+.pc-model-preview__row,.pc-model-preview__row+.pc-model-preview__group,.pc-model-preview__group+.pc-model-preview__row{border-top:1px solid var(--surface-lane)}
+.pc-model-preview__label{display:flex;flex-direction:column;min-width:0;font-weight:var(--type-body-strong-weight)}
+.pc-model-preview__cell{min-width:0;overflow-wrap:anywhere}
+.pc-model-preview__cell--span{grid-column:2 / -1;padding-block:var(--space-1)}
+.pc-model-preview__chosen{font-family:var(--font-mono);font-size:var(--type-code-size)}
+.pc-model-preview__note{font-family:var(--font-sans)}
+.pc-model-preview__chips{display:flex;flex-wrap:wrap;gap:var(--space-2);padding:var(--space-2) var(--space-4) var(--space-4);border-top:1px solid var(--surface-lane)}
+.pc-model-preview__empty{padding:var(--space-4)}
+
+/* Settings › Dispatcher › Model matrix */
+.pc-model-matrix__back{margin-left:auto}
+.pc-model-matrix__filters{display:flex;flex-wrap:wrap;gap:var(--space-2)}
+.pc-model-matrix__group{display:flex;flex-direction:column;gap:var(--space-3);min-width:0;border:1px solid var(--line);border-radius:var(--radius-lg);padding:var(--space-4)}
+.pc-model-matrix__group+.pc-model-matrix__group{margin-top:var(--space-4)}
+.pc-model-matrix__group-head{display:flex;flex-wrap:wrap;gap:var(--space-2);align-items:baseline}
+.pc-model-matrix__add{display:flex;flex-direction:row;align-items:flex-end;gap:var(--space-2);flex-wrap:wrap}
+.pc-model-matrix__add .pc-field{flex:1 1 var(--size-400);max-width:var(--size-400)}
+.pc-model-matrix__mono{font-family:var(--font-mono);font-size:var(--type-code-size)}
+.pc-model-matrix__tag{display:inline-flex;height:var(--size-18);padding:0 var(--space-1\.5);border-radius:var(--radius-sm);background:var(--surface-lane);color:var(--ink-secondary);font-size:var(--type-caption-size);font-weight:var(--type-label-weight)}
+.pc-model-matrix__table-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:var(--radius-lg)}
+.pc-model-matrix__table{min-width:var(--size-960)}
+.pc-model-matrix__head,.pc-model-matrix__row{display:grid;grid-template-columns:minmax(var(--control-touch),var(--size-56)) minmax(var(--size-220),2fr) var(--size-72) var(--size-56) var(--size-64) minmax(var(--size-300),1fr) minmax(var(--size-150),1fr);column-gap:var(--space-3);align-items:center;padding:var(--space-2) var(--space-4)}
+/* The On track (first) stays wide enough for the touch-size switch at narrow
+   widths (review F7); the Size track was trimmed so the column widths sum fits
+   the box at 1440 without a 2 px horizontal overflow (review F5). */
+.pc-model-matrix__head{background:var(--surface-card);border-radius:var(--radius-lg) var(--radius-lg) 0 0}
+.pc-model-matrix__row{border-top:1px solid var(--surface-lane)}
+.pc-model-matrix__row--pending{background:var(--info-bg)}
+/* The Size chips stay on one line next to a gap between the model id and its
+   Default tag (review N4). */
+.pc-model-matrix__name{display:flex;align-items:center;gap:var(--space-2);min-width:0}
+.pc-model-matrix__size{display:flex;flex-wrap:nowrap;align-items:center;gap:var(--space-1)}
+.pc-model-matrix__coverage{display:grid;grid-template-columns:repeat(auto-fit,minmax(var(--size-220),1fr));gap:var(--space-3)}
+.pc-model-matrix__suggest{display:flex;flex-direction:column;gap:var(--space-2)}
+.pc-model-matrix__savebar{position:sticky;bottom:0;display:flex;justify-content:space-between;align-items:center;gap:var(--space-3);padding:var(--space-3);margin-block:var(--space-3);background:var(--surface-card);border:1px solid var(--line);border-radius:var(--radius-md);z-index:var(--layer-sticky)}
+
+/* Keep focused controls above the sticky save bars on both dispatcher pages.
+   The Matrix save bar is shorter than the Model choice dock (which also carries
+   the save copy and notices), so each gets its own scroll padding sized to the
+   bar it must clear (review N2). The Model choice selector is scoped inside
+   #model-choice and raised past the shared .pc-save-bar rule (0,3,0) so its
+   padding actually wins (review F3). */
+.pc-main-scroll:has(.pc-model-matrix__savebar){scroll-padding-bottom:calc(var(--size-120) + var(--space-4))}
+.pc-main-scroll:has(#model-choice .pc-model-choice__savedock){scroll-padding-bottom:calc(var(--size-176) + var(--space-6))}
+
+/* The preview scroller is keyboard-reachable (role=region, tabindex), so it
+   gets the DS focus ring instead of the UA default (review F6). */
+.pc-model-preview:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);border-radius:var(--radius-lg)}
+
+/* The "Custom" marker when no preset matches is an informational chip, not a control. */
+.pc-model-choice__preset-note{display:inline-flex;align-items:center;min-height:var(--control-compact);padding:var(--space-1) var(--space-3);border:1px solid var(--line);border-radius:var(--radius-full);color:var(--ink-secondary);font-weight:var(--type-body-weight)}
