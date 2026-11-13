@@ -36,10 +36,10 @@ A pacer home has at most one native plugin owner that other front doors attach t
    calls go through a sealed `relay` kind on the private stdio channel: Core runs its existing
    sealed owner call against the serve owner. `plugin.disable` and `plugin.remove` stop a
    running child with one `_host.plugin.stop` frame on the owner socket, after checking the
-   peer's user again.
+   peer's user again and proving serve's credential (item 9).
 4. **No live owner: the connection owns its children.** It starts a `ProcessOwner` and a
    bridge listener on its own `run/s<12-hex>.sock`, and its Core child gets that socket. Only
-   same-user peers are served. When the connection ends, or the door receives SIGTERM, the door
+   same-user peers that prove the connection's credential (item 9) are served. When the connection ends, or the door receives SIGTERM, the door
    closes the listener, removes the socket and stops the children it started.
 5. **A deep home's connection socket goes to a private per-user directory.** When
    `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
@@ -67,6 +67,37 @@ A pacer home has at most one native plugin owner that other front doors attach t
    flag-on serve that sets `PACER_NATIVE_PLUGIN_HOST=0` gets TypeScript ownership rather than a
    socket the door never checked. Scoped work connections (`PACER_WORK_GRANT`) forward every
    operation and keep their environment.
+9. **Only Core may call an owner (#918).** Same-user peer credentials are not enough: any
+   process the user runs could otherwise start, stop or replace a lane, or call a plugin.
+   - *Issue.* Every owner start draws a fresh 32-byte random key. Serve's owner writes it to
+     `run/host.key` (0600, through a 0600 temporary file and a rename inside the 0700 run
+     directory) once `host.sock` is bound, and removes the file at shutdown if it still holds
+     this start's key. An owning stdio connection keeps its key in memory only.
+   - *Transport.* The owner hands the key to its own Core child as `PACER_HOST_SOCKET_KEY`,
+     beside `PACER_HOST_SOCKET`. An attaching stdio connection reads `run/host.key` after the
+     peer check in item 2: the file must be a regular file opened without following symlinks,
+     owned by the current user with no group or other access, and written no earlier than the
+     socket. It waits up to 2 seconds for a restarting serve to publish it; otherwise it treats
+     the owner as untrusted (item 7). It hands the key to its Core child and uses it for its own
+     `_host.plugin.stop` frames. A door strips an inherited key from every Core child it does
+     not hand one, and serve strips it before deciding whether to start an owner.
+   - *Who holds it.* Core takes the key out of its environment as its first step, before it
+     starts anything, and keeps it in memory. It passes it to its background worker thread and
+     to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
+     executor environments also drop it explicitly.
+   - *Verification.* Before its first request, each connection runs a mutual HMAC-SHA256
+     challenge. The caller sends a nonce, and the owner answers with its own nonce and a proof
+     over both. The caller checks that proof in constant time and only then answers with its
+     own proof, under a different label. The key never crosses the socket. A caller sends no
+     request, and answers no forwarded capability request, to an owner that cannot prove the key.
+     The owner refuses any other first frame, a wrong proof, a line over 4 KiB or a handshake
+     slower than 10 seconds with `-32001 unauthorized`, and closes the connection.
+   - *Rotation.* A new owner start means a new key. An attached connection whose serve
+     restarted is refused with `-32001` and the hint to reconnect.
+   - *Narrower bridge.* A live owner refuses an unsealed `_host.plugin.call` (one without
+     Core's spawn spec and call authority) with `-32602`, and no longer serves
+     `_host.plugin.spawn`. `_host.plugin.find` and `_host.plugin.stop` remain for authenticated
+     callers.
 
 The private stdio channel is `_internal.plugins`. Core answers it only when the request
 carries the connection's sync key (`PACER_NATIVE_CONFIG_SYNC_KEY`, which Core removes from
@@ -129,6 +160,22 @@ owner reports its children's crashes to serve's Core.
   when the connection that dispatched it ends or the service restarts. While a runner is alive,
   a plugin can run under two owners on the home: the runner's and the door's. This extends the
   plain CLI known limit to runners.
+- **Caller authentication closes the Q1 residual risk.** Maintainer decision Q1 lets the
+  assistant's resolved endpoint key and Core's signatures cross Core's own bridge connection.
+  Until the bridge authenticated its callers (#918), a same-user process could reach that key
+  or a signature. It could put its own process in the assistant's or a signing plugin's lane,
+  through the unsealed `_host.plugin.spawn` and `_host.plugin.stop` or a lane it started first.
+  It could also stand in for the socket, and Core would then answer it. Item 9 closes this: a
+  peer without the key cannot start, stop or call into a lane, and Core sends nothing to an
+  owner that cannot prove the key. The accepted residual is a same-user process that reads
+  `run/host.key`, reads Core's initial environment through the operating system's process
+  inspection, or replaces files in `run/`. That process could already read the same secrets:
+  the Keychain items have no access list, and file and environment keys are readable by the
+  same user.
+- A `_run` runner inherits no credential. Until runners stop inheriting `PACER_HOST_SOCKET`
+  and own their plugin children (maintainer decision Q3), a runner's plugin call fails with
+  `plugin_unavailable` "native process owner credential is missing" instead of reaching the
+  owner.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
   live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve on
   another port that finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`),
