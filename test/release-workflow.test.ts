@@ -183,6 +183,9 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect((shard as any)["continue-on-error"]).toBeUndefined();
   expect(shard.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite shard');
   expect(shard.env).toMatchObject({ SHARD_INDEX: "${{ matrix.shard }}", SHARD_COUNT: 4 });
+  const warm = suite.steps.findIndex(s => s.run?.startsWith("bun run release:host --out \"$RUNNER_TEMP/"));
+  expect(warm).toBeGreaterThan(suite.steps.findIndex(s => s.name === "Install Linux cross-build tools"));
+  expect(warm).toBeLessThan(suite.steps.indexOf(shard));
   const downloads = suite.steps.filter(s => s.uses?.startsWith("actions/download-artifact@")).map(s => s.with);
   expect(downloads).toEqual([
     { name: "binaries-${{ matrix.runner }}", path: "dist/release" },
