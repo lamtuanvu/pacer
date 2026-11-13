@@ -31,7 +31,7 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
-import { sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
+import { observationGeneration, sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
 import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
@@ -1788,12 +1788,16 @@ export class PluginRegistry {
    * resources the host issued for this call, validated then echoed sealed, and
    * whether flag-off would make it an owning call at all.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: Omit<CallAuthorityOptions, "bundled"> = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: Omit<CallAuthorityOptions, "bundled" | "observationFingerprint"> = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
-    const sealed = sealCallAuthority(ctx, manifest, grants, { ...options, bundled: e.bundled });
+    const sealed = sealCallAuthority(ctx, manifest, grants, {
+      ...options,
+      bundled: e.bundled,
+      observationFingerprint: e.observationFingerprint,
+    });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
       out = { ...out, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
@@ -1914,6 +1918,48 @@ export class PluginRegistry {
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";
     this.refresh(ctx);
+  }
+
+  /**
+   * Core's half of an owner lane's observation generation (ADR 0027): a read owner that stays
+   * current while the plugin is enabled and keeps the fingerprint `generation` names, as the
+   * generation a local child's subscription holds.
+   */
+  private nativeObservationOwner(ctx: Ctx, id: string, generation: string): ReadOwner {
+    const current = () => {
+      this.refresh(ctx);
+      const e = this.entries.get(id);
+      return !!e?.manifest && ENABLED.has(e.state) && e.observationFingerprint !== undefined
+        && observationGeneration(e.observationFingerprint) === generation;
+    };
+    if (!current()) throw new CoreError("capability_denied", "read owner generation changed");
+    const e = this.entries.get(id)!;
+    const grants = e.bundled ? e.manifest!.capabilities.map(c => c.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
+    return new ReadOwner(ctx, e.manifest!, grants, current);
+  }
+
+  /** The events after `since` of the subscribed types (and resets); `since: null` asks only for the cursor a subscription starts at. */
+  async nativeObservationEvents(ctx: Ctx, id: string, generation: string, since: number | null, types: readonly string[]) {
+    const owner = this.nativeObservationOwner(ctx, id, generation);
+    owner.assertGranted("events.subscribe");
+    const { eventsSince } = await import("../api/events");
+    const batch = eventsSince(owner.readContext(), since ?? 0, 3);
+    if (since === null) return { last: batch.last };
+    const wanted = new Set(types);
+    return { events: batch.events.filter(event => event.type === "reset" || wanted.has(event.type)), last: batch.last, reset: batch.reset };
+  }
+
+  /** The owner frames the reply to the child and re-checks its size against the request it answers. */
+  nativeObservationRead(ctx: Ctx, id: string, generation: string, method: string, params: unknown): Promise<unknown> {
+    const transport = { resultFits: (result: unknown) => Buffer.byteLength(`${JSON.stringify({ jsonrpc: "2.0", id: 0, result })}\n`) <= MAX_LINE_BYTES };
+    return answerTaskCapability(ctx, method, params, this.nativeObservationOwner(ctx, id, generation), transport);
+  }
+
+  /** The owner retired a current generation on a pump or delivery failure, as a subscription's `onRetire` does. */
+  nativeObservationRetired(ctx: Ctx, id: string, generation: string, reason: string): void {
+    try { this.nativeObservationOwner(ctx, id, generation); } catch { return; }
+    appendPluginLog(ctx, id, "observation", reason);
+    this.setState(ctx, this.findEntry(ctx, id), "failing", reason);
   }
 
   /** Bump the surface epoch and drop TS-side cache rows; returns a thunk for deferred bump after a successful ui.action refresh. */

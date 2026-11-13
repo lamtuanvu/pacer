@@ -6,6 +6,7 @@ import { CoreError } from "../core/errors";
 import { publishConfigChange } from "../core/events";
 import { pluginRegistry } from "../plugins";
 import { appendPluginLog } from "../plugins/host";
+import { POLICY_EVENT_TYPES } from "../plugins/policy-protocol";
 import type { Ctx } from "../types";
 
 const operation = z.enum([
@@ -24,6 +25,12 @@ const operation = z.enum([
  * the same surface plus `call` for diagnostic/UI plugin methods; `crashed` is
  * refused.
  *
+ * `observation_events`, `observation_read` and `observation_retired` feed an
+ * owner lane's observation generation (flag-on only): the events after its
+ * cursor, a task read, and a retirement the registry records as a local
+ * subscription's would. Each re-checks that the plugin is enabled, granted and
+ * keeps the fingerprint the generation was sealed with.
+ *
  * `relay` is the stdio door's `call` while it is attached to the serve owner
  * (ADR 0027): the registry seals the call to that owner over
  * `PACER_HOST_SOCKET` and answers the plugin's capability requests itself.
@@ -32,6 +39,7 @@ const operation = z.enum([
 const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
 /** The exit reasons the native owner reports, as the registry's own `onExit` words them. */
 const CRASH_REASON = /^exited(?: with code -?\d{1,10}| on SIG[A-Z0-9]{1,12}| on signal \d{1,3})?$/;
+const observationGeneration = z.string().regex(/^[0-9a-f]{64}$/);
 const callResources = z.object({
   reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),
   commands: z.array(z.object({
@@ -74,6 +82,27 @@ const request = z.discriminatedUnion("kind", [
     message: z.string().max(4096),
   }).strict(),
   z.object({ kind: z.literal("crashed"), id: z.string(), reason: z.string().regex(CRASH_REASON) }).strict(),
+  z.object({
+    kind: z.literal("observation_events"),
+    id: z.string(),
+    generation: observationGeneration,
+    // `null` asks for the cursor a new subscription starts at: it sees only later events.
+    since: z.number().int().nonnegative().nullable(),
+    types: z.array(z.enum(POLICY_EVENT_TYPES)).min(1).max(32),
+  }).strict(),
+  z.object({
+    kind: z.literal("observation_read"),
+    id: z.string(),
+    generation: observationGeneration,
+    method: z.enum(["capability.tasks.read", "capability.tasks.list"]),
+    params: z.unknown(),
+  }).strict(),
+  z.object({
+    kind: z.literal("observation_retired"),
+    id: z.string(),
+    generation: observationGeneration,
+    reason: z.enum(["event generation or projection unavailable", "event notification delivery failed"]),
+  }).strict(),
   z.object({
     kind: z.literal("orca_bridge"),
     token: z.string().min(1).max(128),
@@ -160,6 +189,18 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
         }
         reg.nativeCrash(ctx, p.id, p.reason);
         break;
+      case "observation_events":
+      case "observation_read":
+      case "observation_retired":
+        // An owner lane's generation is the owning door's Core's to feed, as with crashes.
+        if (!nativeOwnsChildren || (o.relay && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock")) {
+          throw new CoreError("plugin_unavailable", "observations are served to the native owner of the door that owns the plugin");
+        }
+        if (p.kind === "observation_events") value = await reg.nativeObservationEvents(ctx, p.id, p.generation, p.since, p.types);
+        else if (p.kind === "observation_read") value = await reg.nativeObservationRead(ctx, p.id, p.generation, p.method, p.params);
+        else reg.nativeObservationRetired(ctx, p.id, p.generation, p.reason);
+        // The owner's pump asks every 100 ms and never reads the process snapshot.
+        return { value, entries: [] };
       case "orca_bridge":
         value = await reg.nativeAnswerOrcaBridge(p.token, p.pluginId, p.method, p.params);
         break;
