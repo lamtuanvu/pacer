@@ -726,6 +726,7 @@ async fn forward_input<
                     }
                 }
                 let result = if crate::native::needs_usage_broker(op.name) {
+                    let broker_params = crate::native::usage_broker_params(op.name, &params);
                     call_native(
                         &request_ctx,
                         op,
@@ -733,7 +734,11 @@ async fn forward_input<
                         request.get("id"),
                         None,
                         Some(Box::pin(crate::native::status_sync::stdio(
-                            &mut core, sync.0, sync.1, sync.2,
+                            &mut core,
+                            sync.0,
+                            sync.1,
+                            broker_params,
+                            sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
                         None,

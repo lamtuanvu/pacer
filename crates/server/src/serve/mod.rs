@@ -395,9 +395,12 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     as pacer_foundation::api::OpFuture<'_>
             });
             let broker_sync = if crate::native::needs_usage_broker(op.name) {
+                let broker_params = crate::native::usage_broker_params(op.name, &params);
                 state.core.target().await.map(|target| {
-                    Box::pin(crate::native::status_sync::http(Some(target)))
-                        as pacer_foundation::api::OpFuture<'_>
+                    Box::pin(crate::native::status_sync::http(
+                        Some(target),
+                        broker_params,
+                    )) as pacer_foundation::api::OpFuture<'_>
                 })
             } else {
                 None
