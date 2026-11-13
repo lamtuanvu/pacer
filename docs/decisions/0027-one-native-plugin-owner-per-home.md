@@ -84,7 +84,9 @@ A pacer home has at most one native plugin owner that other front doors attach t
    - *Who holds it.* Core takes the key out of its environment as its first step, before it
      starts anything, and keeps it in memory. It passes it to its background worker thread and
      to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
-     executor environments also drop it explicitly.
+     executor environments also drop it explicitly. Another same-user process can still read
+     `run/host.key` and Core's initial environment; the consequence on the assistant's endpoint
+     key below states that accepted residual and its follow-ups.
    - *Verification.* Before its first request, each connection runs a mutual HMAC-SHA256
      challenge. The caller sends a nonce, and the owner answers with its own nonce and a proof
      over both. The caller checks that proof in constant time and only then answers with its
@@ -92,8 +94,11 @@ A pacer home has at most one native plugin owner that other front doors attach t
      request, and answers no forwarded capability request, to an owner that cannot prove the key.
      The owner refuses any other first frame, a wrong proof, a line over 4 KiB or a handshake
      slower than 10 seconds with `-32001 unauthorized`, and closes the connection.
-   - *Rotation.* A new owner start means a new key. An attached connection whose serve
-     restarted is refused with `-32001` and the hint to reconnect.
+   - *Rotation.* A new owner start means a new key. An attached connection keeps the key it
+     started with. After its serve restarts, the new owner proves its new key first, so the
+     connection's Core and door reject that owner before they send anything else: plugin calls
+     and stops fail with `plugin_unavailable` and a hint naming both causes. Either the service
+     restarted, so reconnect, or the socket is not this connection's plugin owner.
    - *Narrower bridge.* A live owner refuses an unsealed `_host.plugin.call` (one without
      Core's spawn spec and call authority) with `-32602`, and no longer serves
      `_host.plugin.spawn`. `_host.plugin.find` and `_host.plugin.stop` remain for authenticated
@@ -118,7 +123,8 @@ owner reports its children's crashes to serve's Core.
   to own, both owners run until that connection ends; serve is never blocked by it, and the
   next connection attaches.
 - An attached connection whose serve exits gets `plugin_unavailable` with the hint "Restart the
-  pacer service." until it reconnects.
+  pacer service." until it reconnects. One whose serve restarted gets the reconnect hint of
+  item 9.
 - Crash counts, restart counts and a child's lifecycle state stay in each Core's memory. The
   owner reports each crash of a child it did not stop to the Core of the door that owns it, with
   the private `crashed` request kind, and Core records it as the TypeScript owner records an
@@ -154,28 +160,13 @@ owner reports its children's crashes to serve's Core.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
 - Detached task runners (`_run`) are the same kind of Core. Core removes `PACER_HOST_SOCKET`
-  from every runner it starts, on serve and on attached and self-owned stdio connections, so a
-  runner owns its plugin children as it does with the flag off. An attempt therefore keeps its
+  from every runner it starts, on serve and on attached and self-owned stdio connections, and
+  no runner inherits the credential (item 9), so a runner owns its plugin children as it does
+  with the flag off. An attempt therefore keeps its
   executor plugin, and the host-side `executor.run` options the owner bridge does not carry,
   when the connection that dispatched it ends or the service restarts. While a runner is alive,
   a plugin can run under two owners on the home: the runner's and the door's. This extends the
   plain CLI known limit to runners.
-- **Caller authentication closes the Q1 residual risk.** Maintainer decision Q1 lets the
-  assistant's resolved endpoint key and Core's signatures cross Core's own bridge connection.
-  Until the bridge authenticated its callers (#918), a same-user process could reach that key
-  or a signature. It could put its own process in the assistant's or a signing plugin's lane,
-  through the unsealed `_host.plugin.spawn` and `_host.plugin.stop` or a lane it started first.
-  It could also stand in for the socket, and Core would then answer it. Item 9 closes this: a
-  peer without the key cannot start, stop or call into a lane, and Core sends nothing to an
-  owner that cannot prove the key. The accepted residual is a same-user process that reads
-  `run/host.key`, reads Core's initial environment through the operating system's process
-  inspection, or replaces files in `run/`. That process could already read the same secrets:
-  the Keychain items have no access list, and file and environment keys are readable by the
-  same user.
-- A `_run` runner inherits no credential. Until runners stop inheriting `PACER_HOST_SOCKET`
-  and own their plugin children (maintainer decision Q3), a runner's plugin call fails with
-  `plugin_unavailable` "native process owner credential is missing" instead of reaching the
-  owner.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
   live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve on
   another port that finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`),
@@ -205,12 +196,23 @@ owner reports its children's crashes to serve's Core.
   logs no frame. Endpoint and classifier calls that carry credential bindings stay refused. The
   Rust door's own owner calls (`plugin.doctor`, `plugin.ui.*`) forward no Core method, so there
   the owner refuses both with its own text and audits no refused signing request.
-  Until the bridge authenticates its callers (#918), a same-user process can reach the resolved
-  key or a signature: it can put its own process in the assistant's or a signing plugin's lane
-  (the bridge's unsealed spawn and stop, or a lane it started first), or stand in for the socket,
-  and Core then answers that process. This gives it nothing a same-user process cannot already
-  read: the Keychain items have no access list, and file and environment keys are same-user
-  readable.
+  Item 9 closes the residual risk of this decision (#918). Before it, a same-user process could
+  reach the resolved key or a signature: it could put its own process in the assistant's or a
+  signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
+  stand in for the socket, and Core then answered that process. Now a peer without the key
+  cannot start, stop or call into a lane, and Core sends nothing to an owner that cannot prove
+  the key. The accepted residual is a same-user process that reads `run/host.key`, reads Core's
+  initial environment through the operating system's process inspection, or replaces a socket
+  in `run/` or in the per-user directory of item 5. Such a process can also relay without
+  learning the key: it accepts Core's connection on the replaced path, dials the real owner and
+  passes the handshake lines through, so both sides verify, and it then sees and can alter the
+  session. Any such process could already read the same secrets: the Keychain items have no
+  access list, and file and environment keys are readable by the same user. Follow-ups:
+  - hand Core the key on an inherited file descriptor or stdin instead of its environment;
+  - executor sandbox profiles deny reads of `$PACER_HOME/run/` and the per-user directory, and
+    `connect()` to their sockets (#918 item 3, which gates default-on);
+  - a peer check: the door hands Core the owner's pid and Core verifies it on each connection,
+    since the relay outlasts the other two.
 - **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
   orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
   `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants
