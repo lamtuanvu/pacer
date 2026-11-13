@@ -144,6 +144,7 @@ pub struct ReverseBridge {
     listener: StdUnixListener,
     path: PathBuf,
     auth: PeerAuth,
+    auth_deadline: Duration,
     dispatch: BridgeDispatch,
 }
 
@@ -216,8 +217,16 @@ impl ReverseBridge {
             listener,
             path,
             auth,
+            auth_deadline: AUTH_DEADLINE,
             dispatch: BridgeDispatch::Stub,
         })
+    }
+
+    /// How long a connection may take to prove the key; [`AUTH_DEADLINE`]
+    /// unless a test shortens it.
+    pub fn with_auth_deadline(mut self, deadline: Duration) -> Self {
+        self.auth_deadline = deadline;
+        self
     }
 
     /// Attach a serve-owned [`ProcessOwner`] so call/find hit live children.
@@ -297,9 +306,10 @@ impl ReverseBridge {
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
                     let auth = self.auth.clone();
+                    let deadline = self.auth_deadline;
                     let dispatch = self.dispatch.clone();
                     tokio::spawn(async move {
-                        let _ = handle_connection(stream, auth, dispatch).await;
+                        let _ = handle_connection(stream, auth, deadline, dispatch).await;
                     });
                 }
             }
@@ -403,6 +413,7 @@ fn authorize(stream: &UnixStream, auth: &PeerAuth) -> Result<(), BridgeError> {
 async fn handle_connection(
     stream: UnixStream,
     auth: PeerAuth,
+    deadline: Duration,
     dispatch: BridgeDispatch,
 ) -> Result<(), BridgeError> {
     if let Err(error) = authorize(&stream, &auth) {
@@ -411,7 +422,7 @@ async fn handle_connection(
         return Err(error);
     }
     let mut reader = BufReader::new(stream);
-    match tokio::time::timeout(AUTH_DEADLINE, accept(&mut reader, &auth.key)).await {
+    match tokio::time::timeout(deadline, accept(&mut reader, &auth.key)).await {
         Ok(Ok(true)) => {}
         Ok(Ok(false)) => return Ok(()),
         Ok(Err(error)) => return Err(error),

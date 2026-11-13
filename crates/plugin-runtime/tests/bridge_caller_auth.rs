@@ -5,12 +5,17 @@
 //! request from Core when it poses as the owner.
 
 use pacer_plugin_runtime::{
-    AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH, METHOD_PLUGIN_CALL,
-    METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, NativeHostSession, OwnerKey,
-    authenticate,
+    AUTH_DEADLINE, AttachError, AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH,
+    METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP,
+    NativeHostSession, OwnerKey, PeerAuth, ReverseBridge, authenticate, stop_on_owner,
 };
 use serde_json::{Value, json};
-use std::{env, fs, os::unix::fs::MetadataExt, path::Path, time::Duration};
+use std::{
+    env, fs,
+    os::unix::fs::MetadataExt,
+    path::Path,
+    time::{Duration, Instant},
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::{UnixListener, UnixStream},
@@ -279,6 +284,117 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
     session.shutdown().await;
 }
 
+/// Every line the owner sends on `stream` until it closes the connection.
+async fn lines_until_close(stream: &mut BufReader<UnixStream>) -> Vec<Value> {
+    let mut lines = Vec::new();
+    loop {
+        let mut line = Vec::new();
+        // The owner closes a refused connection well before this timeout.
+        let read =
+            tokio::time::timeout(Duration::from_secs(5), stream.read_until(b'\n', &mut line))
+                .await
+                .unwrap()
+                .unwrap();
+        if read == 0 {
+            return lines;
+        }
+        lines.push(serde_json::from_slice(&line).unwrap());
+    }
+}
+
+async fn send(stream: &mut BufReader<UnixStream>, frame: &Value) {
+    let mut bytes = serde_json::to_vec(frame).unwrap();
+    bytes.push(b'\n');
+    let _ = stream.get_mut().write_all(&bytes).await;
+}
+
+fn assert_refused(replies: &[Value], what: &str) {
+    assert_eq!(replies.len(), 1, "{what}: {replies:?}");
+    assert_eq!(replies[0]["error"]["code"], -32001, "{what}: {replies:?}");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_silent_or_stalled_peer_is_refused_at_the_handshake_deadline() {
+    assert_eq!(AUTH_DEADLINE, Duration::from_secs(10));
+    let home = temp_home();
+    let deadline = Duration::from_millis(400);
+    let bridge = ReverseBridge::bind_at(
+        home.path(),
+        "host.sock",
+        PeerAuth::same_uid(OwnerKey::generate().unwrap()),
+    )
+    .unwrap()
+    .with_auth_deadline(deadline)
+    .spawn();
+    for partial in [&b""[..], &br#"{"jsonrpc":"2.0","id":"auth""#[..]] {
+        let started = Instant::now();
+        let mut stream = BufReader::new(UnixStream::connect(bridge.path()).await.unwrap());
+        stream.get_mut().write_all(partial).await.unwrap();
+        let replies = lines_until_close(&mut stream).await;
+        let waited = started.elapsed();
+        assert_refused(&replies, &String::from_utf8_lossy(partial));
+        assert!(
+            waited >= deadline,
+            "refused before the deadline: {waited:?}"
+        );
+    }
+    bridge.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn an_auth_line_over_4_kib_is_refused() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let mut stream = BufReader::new(UnixStream::connect(session.socket_path()).await.unwrap());
+    let challenge = json!({"jsonrpc":"2.0","id":"auth","method":METHOD_AUTH,
+        "params":{"nonce":"ab".repeat(32),"pad":"x".repeat(5000)}});
+    send(&mut stream, &challenge).await;
+    assert_refused(&lines_until_close(&mut stream).await, "5 KB challenge");
+    session.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_reflected_owner_proof_or_a_malformed_nonce_is_refused() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let socket = session.socket_path();
+    // The owner proves itself for any nonce; its proof sent back as Core's is not Core's.
+    let mut stream = BufReader::new(UnixStream::connect(socket).await.unwrap());
+    let challenge = json!({"jsonrpc":"2.0","id":"auth","method":METHOD_AUTH,"params":{"nonce":"cd".repeat(32)}});
+    send(&mut stream, &challenge).await;
+    let mut line = String::new();
+    stream.read_line(&mut line).await.unwrap();
+    let owner_proof = serde_json::from_str::<Value>(&line).unwrap()["result"]["proof"].clone();
+    assert!(owner_proof.is_string(), "{line}");
+    send(
+        &mut stream,
+        &json!({"jsonrpc":"2.0","method":METHOD_AUTH,"params":{"proof":owner_proof}}),
+    )
+    .await;
+    assert_refused(&lines_until_close(&mut stream).await, "reflected proof");
+
+    // A nonce that is not 64 lowercase hex gets no owner proof.
+    for nonce in [String::new(), "CD".into(), "CD".repeat(32), "zz".repeat(32)] {
+        let mut stream = BufReader::new(UnixStream::connect(socket).await.unwrap());
+        send(
+            &mut stream,
+            &json!({"jsonrpc":"2.0","id":"auth","method":METHOD_AUTH,"params":{"nonce":nonce}}),
+        )
+        .await;
+        assert_refused(&lines_until_close(&mut stream).await, &nonce);
+    }
+
+    // Once authenticated, `_host.auth` is an unknown method, never a second handshake.
+    let mut stream = BufReader::new(UnixStream::connect(socket).await.unwrap());
+    authenticate(&mut stream, session.key()).await.unwrap();
+    send(&mut stream, &challenge).await;
+    line.clear();
+    stream.read_line(&mut line).await.unwrap();
+    let again: Value = serde_json::from_str(&line).unwrap();
+    assert_eq!(again["error"]["code"], -32601, "{again}");
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn serve_publishes_a_private_key_per_start_and_a_connection_none() {
     let home = temp_home();
@@ -309,6 +425,17 @@ async fn serve_publishes_a_private_key_per_start_and_a_connection_none() {
         authenticate(&mut stream, &first_key).await,
         Err(AuthError::Unproven)
     ));
+    // A door attached before the restart rejects the new owner and says why.
+    let stale = stop_on_owner(second.socket_path(), &first_key, "fx")
+        .await
+        .unwrap_err();
+    assert!(matches!(stale, AttachError::Unproven), "{stale:?}");
+    assert!(
+        stale.hint().contains("restarted, reconnect")
+            && stale.hint().contains("not this connection's plugin owner"),
+        "{}",
+        stale.hint()
+    );
     second.shutdown().await;
 
     let (connection, _) = NativeHostSession::start_connection(home.path(), [3; 6]).unwrap();

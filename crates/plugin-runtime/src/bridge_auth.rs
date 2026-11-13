@@ -40,7 +40,7 @@ const CORE_PROOF: &str = "pacer-host-core/v1";
 const KEY_BYTES: usize = 32;
 const AUTH_LINE_BYTES: u64 = 4096;
 /// How long an accepted connection may take to prove the key.
-pub(crate) const AUTH_DEADLINE: Duration = Duration::from_secs(10);
+pub const AUTH_DEADLINE: Duration = Duration::from_secs(10);
 const UNAUTHORIZED: i64 = -32001;
 
 /// One owner start's credential. `Debug` never prints it.

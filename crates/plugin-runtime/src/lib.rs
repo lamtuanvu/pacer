@@ -42,7 +42,8 @@ mod serve_host;
 mod worktree_attach;
 
 pub use bridge_auth::{
-    AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH, OwnerKey, authenticate,
+    AUTH_DEADLINE, AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH, OwnerKey,
+    authenticate,
 };
 pub use bridge_call::{CallFailure, DoorCall, DoorReady, call_door, ready_info};
 pub use bridge_listener::{
