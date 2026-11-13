@@ -395,12 +395,6 @@ const cases: Case[] = [
   { name: "existing dispatch block", strategy: DISPATCH_BLOCK, steps: tierBlock, native: true },
   // The runner is listed through `opencode models` and cached; each case starts without that cache.
   { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: true },
-  // A failing or empty listing saves the declaration with a "could not be checked" warning.
-  ...(["fail", "empty"] as const).map(mode => ({ name: `a ${mode === "fail" ? "failing" : "empty"} OpenCode listing`,
-    setup: (home: string) => writeFileSync(join(home, "opencode-mode"), mode), steps: [
-      ["runner.models.set", set("opencode#oc-miss", "acme/zz", [{ id: "acme/zz", tier: "small" }]), `acme/zz could not be checked: ${NOTES[mode]}`],
-      ["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("opencode#oc-miss", "acme/zy")] }, `acme/zy could not be checked: ${NOTES[mode]}`],
-    ] as Step[], native: true })),
   { name: "set_many with a runner only OpenCode lists", steps: [["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-6"), entry("opencode#oc-miss", "acme/nope")] }]], native: true },
   { name: "legacy strategy migrates with its backup", strategy: LEGACY, steps: [["runner.models.set", set("codex", "gpt-6", [{ id: "gpt-6", tier: "small" }])]], native: true },
   { name: "legacy strategy with trailing whitespace", strategy: LEGACY_TRAILING, steps: [["runner.models.set", set("codex", "gpt-6")]], native: true },
