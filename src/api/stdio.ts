@@ -58,11 +58,10 @@ export async function runStdio(
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
             throw new CoreError("unknown_op", "unknown operation");
           }
-          const { computeStatus } = await import("../engine/status");
+          const { computeStatus, statusBrokerParts } = await import("../engine/status");
           const { loadStrategy } = await import("../config/strategy");
           const ctx = getCtx();
-          const status = await computeStatus(ctx, loadStrategy(ctx));
-          result = { accounts: status.accounts, providers: status.providers };
+          result = statusBrokerParts(await computeStatus(ctx, loadStrategy(ctx)));
           break;
         }
         case "_internal.session-probe.parts": {
