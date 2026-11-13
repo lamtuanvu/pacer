@@ -31,6 +31,7 @@ const error = (e: any) => {
 const hostsCfg = load("src/config/hosts.ts", ["canonical", "repoKey"], {});
 const { AGENTS } = load("src/config/agent-id.ts", ["AGENTS"], {});
 const runnerId = load("src/config/runner-id.ts", ["parseRunnerId"], { AGENTS });
+const { AGENT_BINS } = load("src/install/detection.ts", ["AGENT_BINS"], {});
 const taskFns = load(
   "src/api/read-model/tasks.ts",
   ["taskAttentionReason", "supersededTaskIds"],
@@ -437,6 +438,7 @@ export async function reference(c: any): Promise<any> {
       let reads = 0;
       const api = load("src/core/runner-check.ts", ["checkRunner"], {
         ...memory,
+        AGENT_BINS,
         loadStrategy: () => ({
           accounts: { [c.account.name]: c.account },
           hosts: {},
