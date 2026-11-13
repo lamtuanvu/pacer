@@ -1,6 +1,6 @@
 //! `task.retry_options` (TS `optionsFor` in `src/core/task-detail.ts`) from
-//! usage-broker provider readings. It covers tasks without a project policy file
-//! or remote runners; callers forward those inputs to TypeScript.
+//! usage-broker provider readings and the caller's project selection. Remote runners stay
+//! with TypeScript; callers forward those inputs.
 use crate::{Error, capacity, js::*, tasks::task_data};
 use pacer_config::strategy::load_strategy;
 use pacer_engine::{executors_for, status};
@@ -15,13 +15,14 @@ pub fn retry_task(store: &mut TaskStore, id: &str) -> Result<Value, Error> {
         .ok_or_else(|| StoreError::UnknownTask(id.to_owned()))?)
 }
 
-/// Options for `task` once `parts` carries the broker `providers`. A strategy
-/// that cannot be loaded yields no options.
+/// Options for `task` once `parts` carries the broker `providers`, within the project
+/// `selection` when one applies. A strategy that cannot be loaded yields no options.
 pub fn retry_options(
     ctx: &Ctx,
     store: &mut TaskStore,
     task: &Value,
     parts: &Value,
+    selection: Option<&Value>,
 ) -> Result<Value, Error> {
     let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
         return Ok(json!([]));
@@ -37,6 +38,7 @@ pub fn retry_options(
         &parts["providers"],
         &tasks,
         ctx.now,
+        selection,
     ))
 }
 
@@ -47,14 +49,16 @@ fn slot_row(task: &Value) -> Value {
     row
 }
 
-/// Candidates of the task's routing rule other than the executor that ran it,
-/// with executor-row state and the row, ranking or fallback reason.
+/// Candidates of the project selection, else of the task's routing rule, other than the
+/// executor that ran it, with executor-row state and the row, ranking or fallback reason. A
+/// selected executor the ranking excludes is down for the policy's reason.
 pub fn options(
     strategy: &Value,
     task: &Value,
     providers: &Value,
     tasks: &[Value],
     now: f64,
+    selection: Option<&Value>,
 ) -> Value {
     let providers = if providers.is_array() {
         providers.clone()
@@ -64,12 +68,16 @@ pub fn options(
     let st = json!({"planner": status::planner_runner_id(strategy), "providers": providers});
     let rows = capacity::executors_without_ctx(&st, strategy, tasks, now);
     let kind = task.get("kind").cloned().unwrap_or(Value::Null);
-    let routing = status::rank_route(&json!({
+    let mut input = json!({
         "strategy": strategy,
         "providers": st["providers"],
         "kind": kind,
         "includePlanner": false,
-    }));
+    });
+    if let Some(selection) = selection {
+        input["selection"] = json!({"executors": selection["executors"], "order": "configured"});
+    }
+    let routing = status::rank_route(&input);
     let last = array(&task["attempts"]).last().unwrap_or(&Value::Null);
     let ran = [
         &task["result"]["executor"],
@@ -78,8 +86,15 @@ pub fn options(
     ]
     .into_iter()
     .find(|v| !v.is_null());
+    let candidates = match selection {
+        Some(selection) => array(&selection["executors"])
+            .iter()
+            .filter_map(|id| id.as_str().map(str::to_owned))
+            .collect(),
+        None => executors_for(strategy, &kind),
+    };
     let mut ids: Vec<String> = Vec::new();
-    for id in executors_for(strategy, &kind) {
+    for id in candidates {
         if !ids.contains(&id) {
             ids.push(id);
         }
@@ -91,18 +106,25 @@ pub fn options(
             let excluded = array(&routing["excluded"])
                 .iter()
                 .find(|r| r["id"] == id.as_str());
-            let state = row.map_or("down", |r| text(&r["state"]));
-            let reason = if matches!(state, "busy" | "full") {
+            let row_state = row.map_or("down", |r| text(&r["state"]));
+            let state = if selection.is_some() && excluded.is_some() {
+                "down"
+            } else {
+                row_state
+            };
+            let reason = if matches!(row_state, "busy" | "full") {
                 json!("busy")
             } else {
-                given_reason(row)
-                    .or_else(|| given_reason(excluded))
-                    .cloned()
-                    .unwrap_or_else(|| match row {
-                        Some(r) if r["state"] == "ready" => json!("available"),
-                        Some(r) => r["state"].clone(),
-                        None => json!("not configured"),
-                    })
+                let given = if selection.is_some() {
+                    given_reason(excluded).or_else(|| given_reason(row))
+                } else {
+                    given_reason(row).or_else(|| given_reason(excluded))
+                };
+                given.cloned().unwrap_or_else(|| match row {
+                    Some(r) if r["state"] == "ready" => json!("available"),
+                    Some(r) => r["state"].clone(),
+                    None => json!("not configured"),
+                })
             };
             json!({"id": id, "state": state, "reason": reason})
         })
@@ -167,7 +189,7 @@ mod tests {
         let task =
             json!({"id": "t-1", "state": "failed", "executor": "claude-code", "attempts": []});
         assert_eq!(
-            reasons(&options(&strategy(), &task, &providers, &[], 100.0)),
+            reasons(&options(&strategy(), &task, &providers, &[], 100.0, None)),
             [
                 ("codex".into(), "ready".into(), "available".into()),
                 ("cursor".into(), "disabled".into(), "disabled".into()),
@@ -185,7 +207,14 @@ mod tests {
         let running = json!({"id": "t-2", "state": "running", "executor": "claude-code", "updatedAt": 90.0, "host": null});
         let task = json!({"id": "t-1", "state": "failed", "result": {"executor": "cursor"}, "attempts": []});
         assert_eq!(
-            reasons(&options(&strategy(), &task, &providers, &[running], 100.0)),
+            reasons(&options(
+                &strategy(),
+                &task,
+                &providers,
+                &[running],
+                100.0,
+                None
+            )),
             [
                 ("codex".into(), "down".into(), "not installed".into()),
                 ("claude-code".into(), "full".into(), "busy".into()),

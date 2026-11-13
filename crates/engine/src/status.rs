@@ -235,6 +235,8 @@ pub fn compose_status(input: &Value) -> Value {
 ///
 /// Optional `selection` / `kind` / `includePlanner` mirror the TypeScript
 /// `rankExecutors` call site. Does not run the classifier or remote eligibility.
+/// The reply has `route`'s key order: `policy` (when given), `kind`, `ranked`,
+/// `uncertain`, `excluded`, then `reason` when nothing is configured.
 pub fn rank_route(input: &Value) -> Value {
     let by_id = providers_by_id(&input["providers"]);
     let ranking = rank_executors(&json!({
@@ -244,22 +246,16 @@ pub fn rank_route(input: &Value) -> Value {
         "kind": input.get("kind").cloned().unwrap_or(Value::Null),
         "includePlanner": truth(field(input, "includePlanner")),
     }));
-    let mut result = json!({
-        "kind": input.get("kind").cloned().unwrap_or(Value::Null),
-        "ranked": ranking.get("ranked").cloned().unwrap_or(json!([])),
-        "excluded": ranking.get("excluded").cloned().unwrap_or(json!([])),
-    });
-    if let Some(uncertain) = ranking.get("uncertain")
-        && !uncertain.is_null()
-        && uncertain.as_array().is_some_and(|a| !a.is_empty())
-    {
-        result["uncertain"] = uncertain.clone();
-    }
-    if let Some(reason) = ranking.get("reason") {
-        result["reason"] = reason.clone();
-    }
+    let mut result = json!({});
     if let Some(policy) = input.get("policy") {
         result["policy"] = policy.clone();
+    }
+    result["kind"] = input.get("kind").cloned().unwrap_or(Value::Null);
+    result["ranked"] = ranking.get("ranked").cloned().unwrap_or(json!([]));
+    result["uncertain"] = ranking.get("uncertain").cloned().unwrap_or(json!([]));
+    result["excluded"] = ranking.get("excluded").cloned().unwrap_or(json!([]));
+    if let Some(reason) = ranking.get("reason") {
+        result["reason"] = reason.clone();
     }
     result
 }

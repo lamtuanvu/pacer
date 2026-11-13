@@ -1,13 +1,21 @@
-//! P5c/P5d status ops that compose from usage-broker injections.
+//! P5c/P5d status ops that compose from usage-broker injections. Project policy reads
+//! `project-strategies.json` and the repository registry; the classifier (`goal`), remote
+//! eligibility (any runner on a host, until #889) and inputs only TypeScript reads stay
+//! forwarded.
 #![allow(clippy::result_large_err)]
 use pacer_config::strategy::load_strategy;
-use pacer_engine::usage_broker;
+use pacer_config_ops::strategy_load::native_load;
+use pacer_engine::{balance::balance_by_load, usage_broker};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
+    lock::{LockOptions, with_lock},
 };
+use pacer_lifecycle::{AdmissionError, project_selection, read_project_strategies};
 use pacer_read_model::retry;
-use serde_json::Value;
+use pacer_store::{TaskFilter, TaskStore};
+use serde_json::{Map, Value, json};
+use std::path::Path;
 
 const TASK_KINDS: &[&str] = &[
     "boilerplate",
@@ -23,6 +31,9 @@ const TASK_KINDS: &[&str] = &[
     "research",
 ];
 
+const SLOT_STATES: &[&str] = &["running", "needs_input"];
+const POLICY_FILE: &str = "project-strategies.json";
+
 pub fn needs_usage_broker(op: &str) -> bool {
     matches!(
         op,
@@ -32,39 +43,100 @@ pub fn needs_usage_broker(op: &str) -> bool {
             | "task.retry_options"
             | "strategy.preview"
             | "runner.list"
+            | "mode.hold"
     )
 }
 
-/// `task.retry_options` needs TypeScript for project policy (any
-/// `project-strategies.json`, including one that cannot be read) and for remote
-/// eligibility (any runner on a host). A strategy Rust cannot load also forwards.
-pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
-    let Ok(strategy) = load_strategy(&ctx.pacer_home) else {
-        return true;
-    };
-    let remote = strategy["runners"]
+/// TypeScript's remote eligibility (`remoteExclusion`) applies to runners on a host.
+fn has_host_runner(strategy: &Value) -> bool {
+    strategy["runners"]
         .as_object()
-        .is_some_and(|runners| runners.values().any(|r| r["host"].is_string()));
-    let policy = !matches!(
-        std::fs::metadata(ctx.pacer_home.join("project-strategies.json")),
-        Err(error) if error.kind() == std::io::ErrorKind::NotFound
-    );
-    remote || policy
+        .is_some_and(|runners| runners.values().any(|r| r["host"].is_string()))
 }
 
-/// `routing.route` with `goal` or `repo` needs classifier / project policy + remote eligibility (TS).
-/// A strategy with `pacing.balance: least-loaded` also forwards: the load-aware order lives only
-/// in the TypeScript engine, and the preview must agree with what runs.
+/// The active strategy when Rust and Bun load the same file alike. Rust resolves an absolute
+/// or dotted active name to another file than Node's `path.join`, so `load_strategy` alone
+/// may read a strategy without TypeScript's host runners.
+fn native_strategy(ctx: &Ctx) -> Option<Value> {
+    native_load(&ctx.pacer_home).and_then(Result::ok)
+}
+
+/// A `project-strategies.json` only TypeScript reads: present, but not a regular file Rust
+/// reads and validates, or beside a repository registry only TypeScript reads.
+fn policy_needs_core(ctx: &Ctx) -> bool {
+    let home = &ctx.pacer_home;
+    match std::fs::metadata(home.join(POLICY_FILE)) {
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
+        Ok(meta) if meta.is_file() => {
+            read_project_strategies(home).is_err() || pacer_repos::registry_needs_core(home, false)
+        }
+        _ => true,
+    }
+}
+
+/// Live agent sessions hold slots in `slotUse(…, ctx)`, and only Core probes their runs:
+/// any session record that has not ended keeps the least-loaded order in TypeScript.
+fn agent_sessions_may_hold_slots(ctx: &Ctx) -> bool {
+    if !ctx.pacer_home.join("state/tasks.db").exists() {
+        return false;
+    }
+    let Ok(mut store) = TaskStore::open(&ctx.pacer_home) else {
+        return true;
+    };
+    let Ok(db) = store.connection() else {
+        return true;
+    };
+    let count = |sql: &str| db.query_row(sql, [], |row| row.get::<_, i64>(0));
+    match count("SELECT count(*) FROM sqlite_master WHERE type='table' AND name='agent_sessions'") {
+        Ok(0) => false,
+        Ok(_) => count(
+            "SELECT count(*) FROM agent_sessions WHERE json_extract(record, '$.state') IS NOT 'ended'",
+        )
+        .map_or(true, |open| open > 0),
+        Err(_) => true,
+    }
+}
+
+/// `task.retry_options` forwards for a strategy Rust does not load as Bun does, any runner on a
+/// host (remote eligibility) and a project policy only TypeScript reads.
+pub fn task_retry_options_stays_forwarded(ctx: &Ctx) -> bool {
+    native_strategy(ctx).is_none_or(|strategy| has_host_runner(&strategy)) || policy_needs_core(ctx)
+}
+
+/// `routing.route` forwards for a `goal` (the classifier), a strategy Rust does not load as Bun
+/// does, any runner on a host (remote eligibility), a relative `repo` that names no registered
+/// repository (Core's working directory), a policy or registry only TypeScript reads, and a
+/// least-loaded balance that live agent sessions may affect.
 pub fn routing_route_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    params
-        .get("goal")
-        .is_some_and(|g| g.as_str().is_some_and(|s| !s.is_empty()))
-        || params
-            .get("repo")
-            .is_some_and(|r| r.as_str().is_some_and(|s| !s.is_empty()))
-        || load_strategy(&ctx.pacer_home)
-            .ok()
-            .is_some_and(|strategy| strategy["pacing"]["balance"] == "least-loaded")
+    let text = |key: &str| {
+        params
+            .get(key)
+            .and_then(Value::as_str)
+            .filter(|s| !s.is_empty())
+    };
+    if text("goal").is_some() {
+        return true;
+    }
+    let Some(strategy) = native_strategy(ctx) else {
+        return true;
+    };
+    if has_host_runner(&strategy) {
+        return true;
+    }
+    let home = &ctx.pacer_home;
+    if let Some(repo) = text("repo") {
+        let absolute = Path::new(repo).is_absolute();
+        if policy_needs_core(ctx)
+            || pacer_repos::registry_needs_core(home, absolute)
+            || !absolute
+                && !pacer_repos::list_repos_read_only(home)
+                    .iter()
+                    .any(|known| known.key == repo)
+        {
+            return true;
+        }
+    }
+    strategy["pacing"]["balance"] == "least-loaded" && agent_sessions_may_hold_slots(ctx)
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -125,40 +197,154 @@ pub async fn routing_status(ctx: &Ctx, params: Value, parts: Value) -> Result<Va
     Ok(usage_broker::routing_status(ctx, &strategy, &parts))
 }
 
-fn parse_route_params(params: &Value) -> Result<Option<String>, CoreError> {
-    let map = object(params)?;
-    for key in map.keys() {
-        if key != "kind" {
-            return Err(invalid("params: Unrecognized key(s) in object"));
+/// `{kind: z.enum(KINDS).optional(), goal, repo: z.string().min(1).optional()}`: unknown keys
+/// are stripped, and every issue is reported in schema order.
+fn parse_route_params(params: &Value) -> Result<(Value, Option<String>), CoreError> {
+    let empty = Map::new();
+    let map = match params {
+        Value::Null => &empty,
+        other => object(other)?,
+    };
+    let mut issues = Vec::new();
+    let kind = match map.get("kind") {
+        None => Value::Null,
+        Some(Value::String(kind)) if TASK_KINDS.contains(&kind.as_str()) => json!(kind),
+        Some(_) => {
+            let kinds: Vec<_> = TASK_KINDS.iter().map(|k| format!("\"{k}\"")).collect();
+            issues.push(format!(
+                "kind: Invalid option: expected one of {}",
+                kinds.join("|")
+            ));
+            Value::Null
         }
+    };
+    let mut text = |key: &str| match map.get(key) {
+        None => None,
+        Some(Value::String(value)) if value.is_empty() => {
+            issues.push(format!(
+                "{key}: Too small: expected string to have >=1 characters"
+            ));
+            None
+        }
+        Some(Value::String(value)) => Some(value.clone()),
+        Some(other) => {
+            issues.push(format!(
+                "{key}: Invalid input: expected string, received {}",
+                type_name(other)
+            ));
+            None
+        }
+    };
+    text("goal");
+    let repo = text("repo");
+    if !issues.is_empty() {
+        return Err(invalid(issues.join("; ")));
     }
-    match map.get("kind") {
-        None => Ok(None),
-        Some(Value::Null) => Ok(None),
-        Some(Value::String(kind)) if TASK_KINDS.contains(&kind.as_str()) => Ok(Some(kind.clone())),
-        Some(Value::String(kind)) => Err(invalid(format!(
-            "kind: Invalid enum value. Expected 'boilerplate' | 'tests' | 'docs' | 'rename' | 'migration' | 'feature' | 'debug' | 'refactor' | 'performance' | 'unfamiliar-code' | 'research', received '{kind}'"
-        ))),
-        Some(other) => Err(invalid(format!(
-            "kind: Invalid input: expected string, received {}",
-            type_name(other)
-        ))),
-    }
+    Ok((kind, repo))
 }
 
-pub async fn routing_route(ctx: &Ctx, params: Value, parts: Value) -> Result<Value, CoreError> {
-    let kind = parse_route_params(&params)?;
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
-    let mut params = params;
-    if let Some(kind) = kind {
-        if let Some(map) = params.as_object_mut() {
-            map.insert("kind".into(), Value::String(kind));
-        }
-    } else if let Some(map) = params.as_object_mut() {
-        map.remove("kind");
-        map.insert("kind".into(), Value::Null);
+fn policy_error(AdmissionError(message): AdmissionError) -> CoreError {
+    let hint = if message.starts_with("Cannot read") {
+        "Check project-strategies.json permissions before delegating."
+    } else {
+        "Repair project-strategies.json before delegating; no global fallback was used."
+    };
+    invalid(message).hint(hint)
+}
+
+fn internal(error: impl ToString) -> CoreError {
+    CoreError::new(Code::Internal, error.to_string())
+}
+
+/// A project naming its executors makes repository identity mandatory.
+fn policy_is_strict(projects: &Value) -> bool {
+    projects["projects"]
+        .as_object()
+        .is_some_and(|projects| projects.values().any(|p| !p["executors"].is_null()))
+}
+
+/// `requirePolicyIdentity`.
+fn require_policy_identity(repo: &Value, projects: &Value) -> Result<(), CoreError> {
+    if repo["identityUnverified"] == true && policy_is_strict(projects) {
+        return Err(invalid("Cannot establish repository identity for project routing").hint(
+            "Restore Git access and retry; project policy cannot safely fall back to global routing.",
+        ));
     }
-    Ok(usage_broker::routing_route(ctx, &strategy, &parts, &params))
+    Ok(())
+}
+
+/// `resolvePolicyRepoInput`: an absolute checkout registers (strictly when the policy names
+/// executors); any other value names a registered repository. Unlike TypeScript, registration
+/// takes the `repos` lock, so a lock timeout answers `internal`.
+fn policy_repo(ctx: &Ctx, value: &str, projects: &Value) -> Result<Value, CoreError> {
+    if !Path::new(value).is_absolute() {
+        return pacer_repos::list_repos(ctx, false)
+            .map_err(internal)?
+            .into_iter()
+            .find(|known| known.key == value)
+            .map(|known| known.to_json())
+            .ok_or_else(|| invalid("repo must be an absolute path or a registered repo key"));
+    }
+    let strict = policy_is_strict(projects);
+    let mut repo = with_lock(ctx, "repos", LockOptions::default(), || {
+        pacer_repos::register_repo(ctx, value, strict)
+    })
+    .map_err(internal)??;
+    repo["path"] = json!(pacer_repos::canonical(value).map_err(internal)?);
+    require_policy_identity(&repo, projects)?;
+    Ok(repo)
+}
+
+/// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
+/// slot-holding tasks when `pacing.balance` is least-loaded. Every refusal precedes the
+/// status read, as in TypeScript.
+pub async fn routing_route(
+    ctx: &Ctx,
+    params: Value,
+    parts: OpFuture<'_>,
+) -> Result<Value, CoreError> {
+    let (kind, repo) = parse_route_params(&params)?;
+    let strategy = match load_strategy(&ctx.pacer_home) {
+        Ok(strategy) => strategy,
+        Err(error) => {
+            parts.await?;
+            return Err(internal(error));
+        }
+    };
+    let selection = match repo {
+        None => None,
+        Some(value) => {
+            let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
+            let repo = policy_repo(ctx, &value, &projects)?;
+            let key = repo["key"].as_str().unwrap_or_default();
+            project_selection(&strategy, key, &projects)
+        }
+    };
+    let parts = parts.await?;
+    let mut route = usage_broker::routing_route(&strategy, &parts, &kind, selection.as_ref());
+    if strategy["pacing"]["balance"] == "least-loaded" {
+        let mut store = TaskStore::open(&ctx.pacer_home).map_err(internal)?;
+        let filter = TaskFilter {
+            states: Some(SLOT_STATES),
+            ..TaskFilter::default()
+        };
+        let tasks = store.list(&filter).map_err(internal)?;
+        let statuses: Map<String, Value> = parts["providers"]
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter_map(|p| Some((p["id"].as_str()?.to_owned(), p.clone())))
+            .collect();
+        let ranked = route["ranked"].as_array().cloned().unwrap_or_default();
+        route["ranked"] = json!(balance_by_load(
+            &ranked,
+            &strategy,
+            &pacer_lifecycle::slot_use(&tasks),
+            &Value::Object(statuses),
+            |id| pacer_lifecycle::slot_limit(&strategy, id).executor,
+        ));
+    }
+    Ok(route)
 }
 
 pub fn task_retry_options_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
@@ -223,8 +409,32 @@ pub async fn task_retry_options(
     let mut store = pacer_store::TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let task = retry::retry_task(&mut store, id).map_err(read_model_error)?;
+    let selection = retry_selection(ctx, &task)?;
     let parts = parts.await?;
-    retry::retry_options(ctx, &mut store, &task, &parts).map_err(read_model_error)
+    retry::retry_options(ctx, &mut store, &task, &parts, selection.as_ref())
+        .map_err(read_model_error)
+}
+
+/// `optionsFor`'s project selection: the stored repository, else the registered checkout of
+/// `brief.repo`, else its unverified identity, which a strict policy refuses.
+fn retry_selection(ctx: &Ctx, task: &Value) -> Result<Option<Value>, CoreError> {
+    let home = &ctx.pacer_home;
+    let Ok(strategy) = load_strategy(home) else {
+        return Ok(None);
+    };
+    let projects = read_project_strategies(home).map_err(policy_error)?;
+    let brief_repo = task["brief"]["repo"].as_str().unwrap_or_default();
+    let repo = match task.get("repo").filter(|repo| !repo.is_null()) {
+        Some(repo) => repo.clone(),
+        None => pacer_repos::registered_repo(home, brief_repo).unwrap_or_else(|| {
+            let mut repo = pacer_repos::repo_for(home, brief_repo);
+            repo["identityUnverified"] = json!(true);
+            repo
+        }),
+    };
+    require_policy_identity(&repo, &projects)?;
+    let key = repo["key"].as_str().unwrap_or_default();
+    Ok(project_selection(&strategy, key, &projects))
 }
 
 /// Native registry entries for status operations using injected broker data.
@@ -281,10 +491,29 @@ mod tests {
                 .await
                 .is_err()
         );
-        assert!(
-            routing_route(&ctx, json!({"goal": "x"}), json!({}))
-                .await
-                .is_err()
+        let parts = || -> OpFuture<'static> { Box::pin(async { Ok(json!({"providers": []})) }) };
+        let error = routing_route(
+            &ctx,
+            json!({"kind": "nope", "goal": 1, "repo": ""}),
+            parts(),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            error.message,
+            "kind: Invalid option: expected one of \"boilerplate\"|\"tests\"|\"docs\"|\"rename\"|\"migration\"|\"feature\"|\"debug\"|\"refactor\"|\"performance\"|\"unfamiliar-code\"|\"research\"; goal: Invalid input: expected string, received number; repo: Too small: expected string to have >=1 characters"
+        );
+        let route = routing_route(&ctx, json!({"extra": true}), parts())
+            .await
+            .unwrap();
+        assert_eq!(route["kind"], Value::Null);
+        assert_eq!(route["uncertain"], json!([]));
+        let error = routing_route(&ctx, json!({"repo": "not/registered"}), parts())
+            .await
+            .unwrap_err();
+        assert_eq!(
+            error.message,
+            "repo must be an absolute path or a registered repo key"
         );
     }
 
@@ -326,9 +555,15 @@ mod tests {
         let local = "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n";
         std::fs::write(pacer_home.join("strategy.yaml"), local).unwrap();
         assert!(!task_retry_options_stays_forwarded(&ctx));
-        std::fs::write(pacer_home.join("project-strategies.json"), "{}").unwrap();
+        let policy = pacer_home.join("project-strategies.json");
+        std::fs::write(&policy, "{}").unwrap();
         assert!(task_retry_options_stays_forwarded(&ctx));
-        std::fs::remove_file(pacer_home.join("project-strategies.json")).unwrap();
+        std::fs::write(&policy, r#"{"version":1,"projects":{}}"#).unwrap();
+        assert!(!task_retry_options_stays_forwarded(&ctx));
+        std::fs::remove_file(&policy).unwrap();
+        std::fs::create_dir(&policy).unwrap();
+        assert!(task_retry_options_stays_forwarded(&ctx));
+        std::fs::remove_dir(&policy).unwrap();
         let accounts = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nhosts:\n  devbox: {ssh: devbox, repos: {}}\nrunners:\n  claude-code: {}\n";
         std::fs::write(pacer_home.join("strategy.yaml"), accounts).unwrap();
         assert!(!task_retry_options_stays_forwarded(&ctx));
@@ -345,68 +580,101 @@ mod tests {
         assert_eq!(missing.message, "unknown task t-20990101-000000-abcd");
     }
 
-    #[test]
-    fn routing_route_stays_forwarded_for_goal_or_repo() {
+    fn route_ctx(strategy: &str) -> (tempfile::TempDir, Ctx) {
         let dir = tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let pacer_home = home.join(".pacer");
+        let pacer_home = dir.path().join(".pacer");
         std::fs::create_dir_all(&pacer_home).unwrap();
-        let ctx = Ctx::with(home, pacer_home.clone(), HashMap::new(), 1.0);
-        std::fs::write(
-            pacer_home.join("strategy.yaml"),
-            "planner: claude-code\nproviders:\n  claude-code: {}\n",
-        )
-        .unwrap();
+        std::fs::write(pacer_home.join("strategy.yaml"), strategy).unwrap();
+        let ctx = Ctx::with(dir.path().into(), pacer_home, HashMap::new(), 1.0);
+        (dir, ctx)
+    }
+
+    const LOCAL: &str = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nrunners:\n  claude-code: {}\n  codex: {}\n";
+
+    #[test]
+    fn routing_route_forwards_goals_relative_repos_and_host_runners() {
+        let (_dir, ctx) = route_ctx(LOCAL);
         assert!(routing_route_stays_forwarded(
             &ctx,
             &json!({"goal": "add tests"})
         ));
         assert!(routing_route_stays_forwarded(
             &ctx,
+            &json!({"repo": "not/registered"})
+        ));
+        assert!(!routing_route_stays_forwarded(
+            &ctx,
             &json!({"repo": "/tmp/x"})
         ));
-    }
-
-    #[test]
-    fn routing_route_alone_matches_the_active_strategy_balance() {
-        let dir = tempdir().unwrap();
-        let home = dir.path().to_path_buf();
-        let pacer_home = home.join(".pacer");
-        std::fs::create_dir_all(&pacer_home).unwrap();
-        let ctx = Ctx::with(home, pacer_home.clone(), HashMap::new(), 1.0);
-        std::fs::write(
-            pacer_home.join("strategy.yaml"),
-            "planner: claude-code\nproviders:\n  claude-code: {}\n",
-        )
-        .unwrap();
-        // Goal and repo forwarding is covered by routing_route_stays_forwarded_for_goal_or_repo;
-        // this test covers the plain route against the active strategy's balance key.
-        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(!routing_route_stays_forwarded(
+            &ctx,
+            &json!({"goal": "", "repo": ""})
+        ));
         assert!(!routing_route_stays_forwarded(
             &ctx,
             &json!({"kind": "tests"})
         ));
+        let policy = ctx.pacer_home.join("project-strategies.json");
+        std::fs::write(&policy, "not json").unwrap();
+        assert!(routing_route_stays_forwarded(
+            &ctx,
+            &json!({"repo": "/tmp/x"})
+        ));
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        std::fs::remove_file(&policy).unwrap();
+        let hosts = "hosts:\n  devbox: {ssh: devbox, repos: {}}\n";
         std::fs::write(
-            pacer_home.join("strategy.yaml"),
-            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: least-loaded\n",
-        )
-        .unwrap();
-        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
-        std::fs::write(
-            pacer_home.join("strategy.yaml"),
-            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: off\n",
+            ctx.pacer_home.join("strategy.yaml"),
+            format!("{LOCAL}{hosts}"),
         )
         .unwrap();
         assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
-        // The active strategy may live in strategies/<name>.yaml: with balance least-loaded
-        // there, the plain route must forward even while strategy.yaml has no balance key.
-        std::fs::create_dir_all(pacer_home.join("strategies")).unwrap();
-        std::fs::write(pacer_home.join("active"), "balanced\n").unwrap();
-        std::fs::write(
-            pacer_home.join("strategies/balanced.yaml"),
-            "planner: claude-code\nproviders:\n  claude-code: {}\npacing:\n  balance: least-loaded\n",
+        let remote = format!("{LOCAL}  codex@devbox: {{}}\n{hosts}");
+        std::fs::write(ctx.pacer_home.join("strategy.yaml"), remote).unwrap();
+        assert!(load_strategy(&ctx.pacer_home).is_ok());
+        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
+    }
+
+    #[test]
+    fn routes_and_retry_options_forward_unless_rust_loads_the_strategy_bun_loads() {
+        let (dir, ctx) = route_ctx(LOCAL);
+        let home = &ctx.pacer_home;
+        let elsewhere = dir.path().join("elsewhere");
+        std::fs::create_dir_all(&elsewhere).unwrap();
+        std::fs::write(elsewhere.join("local.yaml"), LOCAL).unwrap();
+        std::fs::create_dir_all(home.join("strategies")).unwrap();
+        std::fs::write(home.join("strategies/local.yaml"), LOCAL).unwrap();
+        let absolute = elsewhere.join("local").to_str().unwrap().to_owned();
+        for (name, rust_loads) in [(absolute.as_str(), true), ("none/../local", false)] {
+            std::fs::write(home.join("active"), format!("{name}\n")).unwrap();
+            assert_eq!(load_strategy(home).is_ok(), rust_loads, "{name}");
+            assert!(routing_route_stays_forwarded(&ctx, &json!({})), "{name}");
+            assert!(task_retry_options_stays_forwarded(&ctx), "{name}");
+        }
+        std::fs::write(home.join("active"), "local\n").unwrap();
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(!task_retry_options_stays_forwarded(&ctx));
+        std::fs::remove_file(home.join("strategies/local.yaml")).unwrap();
+        assert!(routing_route_stays_forwarded(&ctx, &json!({})));
+        assert!(task_retry_options_stays_forwarded(&ctx));
+    }
+
+    #[test]
+    fn least_loaded_routes_forward_only_while_agent_sessions_are_open() {
+        let (_dir, ctx) = route_ctx(&format!("{LOCAL}pacing:\n  balance: least-loaded\n"));
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+        let db = store.connection().unwrap();
+        db.execute_batch(
+            "CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, record TEXT NOT NULL)",
         )
         .unwrap();
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        db.execute_batch(r#"INSERT INTO agent_sessions VALUES ('a', '{"state":"ended"}')"#)
+            .unwrap();
+        assert!(!routing_route_stays_forwarded(&ctx, &json!({})));
+        db.execute_batch(r#"INSERT INTO agent_sessions VALUES ('b', '{"state":"running"}')"#)
+            .unwrap();
         assert!(routing_route_stays_forwarded(&ctx, &json!({})));
     }
 }
