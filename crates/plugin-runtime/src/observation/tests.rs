@@ -23,6 +23,14 @@ struct Fixture {
 
 impl Fixture {
     async fn new(capabilities: &[&str], core: Core) -> Self {
+        let capabilities = capabilities
+            .iter()
+            .map(|name| json!({"name": name}))
+            .collect();
+        Self::declaring(capabilities, core).await
+    }
+
+    async fn declaring(capabilities: Vec<Value>, core: Core) -> Self {
         let dir = TempDir::new().unwrap();
         let lines = dir.path().join("lines");
         let script = format!(
@@ -49,10 +57,6 @@ impl Fixture {
         });
         owner.spawn(ID, &spec).unwrap();
         let lane = owner.lane(ID).unwrap();
-        let capabilities: Vec<Value> = capabilities
-            .iter()
-            .map(|name| json!({"name": name}))
-            .collect();
         let hello = json!({
             "protocol":"1.10.0","pacer":"0.2.0",
             "manifest":{"id":ID,"version":"1.0.0","publisher":"fixture","host":">=1.10.0",
@@ -374,8 +378,14 @@ async fn failed_pump_is_reported_and_stops_the_child() {
 
 #[tokio::test]
 async fn idle_session_answers_only_what_it_may() {
-    let fixture = Fixture::new(
-        &["tasks.read", "events.subscribe", "log", "config.get"],
+    let fixture = Fixture::declaring(
+        vec![
+            json!({"name":"tasks.read"}),
+            json!({"name":"events.subscribe"}),
+            json!({"name":"log"}),
+            json!({"name":"config.get"}),
+            json!({"name":"fs.read","scopes":["${HOME}/**"]}),
+        ],
         Box::new(|body| match body["kind"].as_str() {
             Some("log") => Ok(Value::Null),
             _ => events_after(body, &json!([]), CURSOR),
@@ -421,6 +431,11 @@ async fn idle_session_answers_only_what_it_may() {
             "capability.tasks.read",
             json!({"readOwner":"pro_fixture"}),
             "unknown or foreign read owner",
+        ),
+        (
+            "capability.fs.read",
+            Value::Null,
+            "scoped capability requires an active owning call",
         ),
     ] {
         let refused = fixture
