@@ -2,7 +2,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { PluginError, pairingStart, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string }
+interface Fixture { pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
@@ -52,6 +52,7 @@ await serve({
                 aborted = () => reject(new PluginError("cancelled", "overlap barrier cancelled"));
                 signal.addEventListener("abort", aborted, { once: true });
                 if (signal.aborted) aborted();
+                if (fixture.barrierTimeoutMs) setTimeout(() => reject(new PluginError("plugin_timeout", "overlap barrier timed out")), fixture.barrierTimeoutMs);
                 barrier.then(resolve);
               });
             } finally {

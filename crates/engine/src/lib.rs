@@ -532,6 +532,17 @@ fn account_preference(strategy: &Value, id: &str, preference: &[String]) -> usiz
         .position(|name| account(strategy, name) == account(strategy, id))
         .unwrap_or(preference.len())
 }
+/// An excluded executor in TypeScript `rankExecutors` key order: id, account (when configured), reason, eligibility.
+fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -> Value {
+    let mut value = json!({"id": id});
+    if !account.is_null() {
+        value["account"] = account;
+    }
+    value["reason"] = reason;
+    value["eligibility"] = eligibility;
+    value
+}
+
 /// Rank statuses using the current TS routing and account ordering rules.
 pub fn rank_executors(input: &Value) -> Value {
     let strategy = &input["strategy"];
@@ -594,21 +605,26 @@ pub fn rank_executors(input: &Value) -> Value {
                 None
             };
         if let Some(reason) = exclude_reason {
-            let mut value = json!({"id": id, "reason": reason, "eligibility": restriction(field(status, "eligibility"), Some(if reason == "planner" { "planner" } else { "unavailable" }))});
-            if !account_field.is_null() {
-                value["account"] = account_field;
-            }
-            excluded.push(value);
+            let eligibility = restriction(
+                field(status, "eligibility"),
+                Some(if reason == "planner" {
+                    "planner"
+                } else {
+                    "unavailable"
+                }),
+            );
+            excluded.push(excluded_entry(
+                id,
+                account_field,
+                json!(reason),
+                eligibility,
+            ));
             continue;
         }
         let decision = restriction(field(status, "eligibility"), None);
         if string(&decision["state"]) == "ineligible" {
-            let mut value =
-                json!({"id": id, "reason": eligibility_detail(&decision), "eligibility": decision});
-            if !account_field.is_null() {
-                value["account"] = account_field;
-            }
-            excluded.push(value);
+            let reason = json!(eligibility_detail(&decision));
+            excluded.push(excluded_entry(id, account_field, reason, decision));
             continue;
         }
         let unknown = string(&decision["state"]) == "uncertain";

@@ -201,11 +201,10 @@ export function startServer(
         if (pathname === "/_internal/status-broker-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
-            const { computeStatus } = await import("../engine/status");
+            const { computeStatus, statusBrokerParts } = await import("../engine/status");
             const { loadStrategy } = await import("../config/strategy");
             const ctx = getCtx();
-            const status = await computeStatus(ctx, loadStrategy(ctx));
-            return Response.json({ result: { accounts: status.accounts, providers: status.providers } });
+            return Response.json({ result: statusBrokerParts(await computeStatus(ctx, loadStrategy(ctx))) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
