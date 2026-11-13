@@ -2,7 +2,7 @@ import { afterAll, beforeAll, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
 import { loadStrategy } from "../src/config/strategy";
 import { computeStatus } from "../src/engine/status";
 import type { ProviderStatus } from "../src/engine/rank";
@@ -38,7 +38,20 @@ const policy = (executors: string[] | null) => JSON.stringify({ version: 1, proj
 const STRICT = policy(["codex#codex@local", "cursor#cursor@local"]);
 const REGISTRY = JSON.stringify({ [APP]: { key: KEY, path: APP, lastUsed: 1 } });
 
-type Seed = { strategy: string; policy?: string; registered?: boolean; tasks?: (ctx: Ctx) => void };
+// Active names Rust and Node resolve to different files; `strategy.use` refuses both. Rust reads the
+// absolute name's `<elsewhere>/local.yaml` and cannot open `strategies/none/../remote.yaml`; Node
+// reads `strategies/<name>.yaml` after `path.join`.
+const elsewhere = fresh("pacer-residue-elsewhere-");
+writeFileSync(join(elsewhere, "local.yaml"), LOCAL);
+const ABSOLUTE = join(elsewhere, "local"), DOTTED = "none/../remote";
+const activeName = (name: string) => (ctx: Ctx) => {
+  writeFileSync(join(ctx.pacerHome, "active"), `${name}\n`);
+  const path = join(ctx.pacerHome, "strategies", `${name}.yaml`);
+  mkdirSync(dirname(path), { recursive: true });
+  writeFileSync(path, REMOTE);
+};
+
+type Seed = { strategy: string; policy?: string; registered?: boolean; setup?: (ctx: Ctx) => void };
 
 /** A home whose data directory is `pacerHome`; the driver and the reference use one directory for both. */
 function seed(s: Seed, pacerHome = (home: string) => home): Ctx {
@@ -48,7 +61,7 @@ function seed(s: Seed, pacerHome = (home: string) => home): Ctx {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), s.strategy);
   if (s.policy !== undefined) writeFileSync(join(ctx.pacerHome, "project-strategies.json"), s.policy);
   if (s.registered) writeFileSync(join(ctx.pacerHome, "state/repos.json"), REGISTRY);
-  s.tasks?.(ctx);
+  s.setup?.(ctx);
   return ctx;
 }
 
@@ -98,9 +111,10 @@ async function scenarios(): Promise<Case[]> {
   await add("null resetsAt reads as a week", local, "mode.hold", { mode: "normal" }, await parts(local, p => {
     p.accounts = [{ name: "claude", resetsAt: null }];
   }));
-  for (const params of [{ mode: "strict", until: NOW + 30 }, { mode: "normal", until: 1_700_000_100 }, { mode: "x", until: "y" }, { mode: "normal", until: null }, [], null]) {
+  for (const params of [{ mode: "strict", until: NOW + 30 }, { mode: "normal", until: 1_700_000_100 }, { mode: "relaxed", until: 1e16 }, { mode: "relaxed", until: 2 ** 53 + 2 }, { mode: "relaxed", until: 18446744073709549568 }, { mode: "x", until: "y" }, { mode: "normal", until: null }, [], null]) {
     await add(`hold params ${JSON.stringify(params)}`, local, "mode.hold", params);
   }
+  for (const until of [2 ** 64, 1e20, 1e21]) await add(`hold until ${until} forwards`, local, "mode.hold", { mode: "relaxed", until }, undefined, true);
 
   const strict = seed({ strategy: LOCAL, policy: STRICT, registered: true });
   await add("route by repository alias", strict, "routing.route", { repo: KEY, kind: "tests" });
@@ -118,14 +132,20 @@ async function scenarios(): Promise<Case[]> {
   await add("project inheriting global routing", open, "routing.route", { repo: APP });
   await add("unregistered absolute checkout without a policy", seed({ strategy: LOCAL }), "routing.route", { repo: PLAIN });
 
-  const least = seed({ strategy: LEAST, tasks: running("cursor", 3) });
+  const least = seed({ strategy: LEAST, setup: running("cursor", 3) });
   await add("least-loaded spreads one band", least, "routing.route", {}, await parts(least, eligibleCodex));
   await add("least-loaded with a kind", least, "routing.route", { kind: "docs" }, await parts(least, eligibleCodex));
   await add("least-loaded keeps near-limit bands apart", least, "routing.route", {}, await parts(least, p => { eligibleCodex(p); byId(p).codex!.verdict = "NEAR_LIMIT"; }));
   await add("least-loaded leaves uncertain fallbacks apart", least, "routing.route", {});
-  const leastPolicy = seed({ strategy: LEAST, policy: STRICT, registered: true, tasks: running("codex", 1) });
+  const leastPolicy = seed({ strategy: LEAST, policy: STRICT, registered: true, setup: running("codex", 1) });
   await add("least-loaded within a project policy", leastPolicy, "routing.route", { repo: KEY }, await parts(leastPolicy, eligibleCodex));
   await add("host runner forwards (F1)", seed({ strategy: REMOTE }), "routing.route", {}, undefined, true);
+  for (const [label, name] of [["absolute active name", ABSOLUTE], ["active name only Node opens", DOTTED]] as const) {
+    const ctx = seed({ strategy: LOCAL, setup: activeName(name) });
+    await add(`${label}: route forwards`, ctx, "routing.route", {}, undefined, true);
+    await add(`${label}: kind route forwards`, ctx, "routing.route", { kind: "tests" }, undefined, true);
+    await add(`${label}: retry options forward`, ctx, "task.retry_options", { id: task(ctx, "tests") }, undefined, true);
+  }
 
   {
     const ctx = seed({ strategy: LOCAL, policy: STRICT, registered: true });
@@ -204,6 +224,7 @@ test("Rust answers held modes, repository and least-loaded routes and policy ret
     const [ts, rs] = twins[i]!;
     if (c.forwarded) {
       expect(`${c.name}: ${JSON.stringify(actual[i])}`).toBe(`${c.name}: {"forwarded":true}`);
+      if (c.op === "routing.route" && c.name.includes("active name")) expect(`${c.name}: ${JSON.stringify(expected[i])}`).toContain("devbox paused");
       return;
     }
     expect(`${c.name}: ${JSON.stringify(actual[i])}`).toBe(`${c.name}: ${JSON.stringify(expected[i])}`);
@@ -212,7 +233,7 @@ test("Rust answers held modes, repository and least-loaded routes and policy ret
   // The matrix must reach every behavior it claims to.
   const text = JSON.stringify(expected);
   for (const fragment of [
-    `"until":${NOW + 7200}`, `"until":${NOW + 7 * 86400}`, '"until":1700007200}', '"until":1700000100}', "mode hold until must be a future unix timestamp",
+    `"until":${NOW + 7200}`, `"until":${NOW + 7 * 86400}`, '"until":1700007200}', '"until":1700000100}', '"until":10000000000000000}', '"until":18446744073709550000}', "mode hold until must be a future unix timestamp",
     `"policy":{"source":"project","repoKey":"${KEY}","rev":3`, "Cannot establish repository identity for project routing",
     " · load 3/4", " · load 0/2", " · load 1/2", '"state":"down"', "Host offline", "Invalid option: expected one of",
   ]) expect(text).toContain(fragment);
@@ -282,6 +303,20 @@ for (const transport of ["stdio", "http"] as const) {
     expect(replies[0]).toContain("devbox paused");
   }, 180_000);
 
+  test.skipIf(!front)(`${transport}: an active strategy Rust resolves elsewhere keeps routes and retry options forwarded`, async () => {
+    for (const name of [ABSOLUTE, DOTTED]) {
+      const replies = await compare(transport, { strategy: LOCAL, setup: activeName(name) }, ctx => [
+        { op: "strategy.use", params: { name }, native: false },
+        { op: "routing.route", params: {}, native: false },
+        { op: "routing.route", params: { kind: "tests" }, native: false },
+        { op: "task.retry_options", params: { id: task(ctx, "tests") }, native: false },
+      ]);
+      expect(replies[0]).toContain(`unknown strategy \\"${name}\\"`);
+      expect(replies[1]).toContain("devbox paused");
+      expect(replies[2]).toContain("devbox paused");
+    }
+  }, 180_000);
+
   test.skipIf(!front)(`${transport}: routes by repository and project policy natively`, async () => {
     const replies = await compare(transport, { strategy: LOCAL, policy: STRICT, registered: true }, () => [
       { op: "routing.route", params: { repo: KEY, kind: "tests" }, native: true },
@@ -296,7 +331,7 @@ for (const transport of ["stdio", "http"] as const) {
 
   test.skipIf(!front)(`${transport}: least-loaded routes, held modes and policy retry options answer natively`, async () => {
     let id = "";
-    const replies = await compare(transport, { strategy: LEAST, policy: STRICT, registered: true, tasks: running("claude-code", 2) }, ctx => {
+    const replies = await compare(transport, { strategy: LEAST, policy: STRICT, registered: true, setup: running("claude-code", 2) }, ctx => {
       id = task(ctx, "tests", row => { row.executor = "codex"; });
       return [
         { op: "routing.route", params: {}, native: true },
@@ -310,5 +345,16 @@ for (const transport of ["stdio", "http"] as const) {
     expect(replies[2]).toContain('"id":"cursor"');
     expect(replies[2]).not.toContain('"id":"claude-code"');
     expect(replies[4]).toContain('"until":<week>');
+  }, 180_000);
+
+  test.skipIf(!front)(`${transport}: integral holds are written as JSON.stringify writes them`, async () => {
+    const replies = await compare(transport, { strategy: LOCAL }, () => [
+      { op: "mode.hold", params: { mode: "relaxed", until: 1e16 }, native: true },
+      { op: "mode.hold", params: { mode: "relaxed", until: 18446744073709549568 }, native: true },
+      { op: "mode.hold", params: { mode: "relaxed", until: 1e20 }, native: false },
+    ]);
+    expect(replies[0]).toContain('"until":10000000000000000}');
+    expect(replies[1]).toContain('"until":18446744073709550000}');
+    expect(replies[2]).toContain('"until":100000000000000000000}');
   }, 180_000);
 }
