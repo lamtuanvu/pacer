@@ -1,6 +1,7 @@
 #![allow(clippy::unwrap_used)]
 //! The door's own plugin calls on a local owner run as one sealed call: Core's
-//! spawn spec and call authority, a call-scoped session, `ready` on Core's
+//! spawn spec and call authority, a call-scoped session under Core's
+//! owning-call seal, `ready` on Core's
 //! state, levelled `capability.log` lines, and admission against a stop.
 
 use super::*;
@@ -130,10 +131,12 @@ impl Fixture {
                 },
             },
         });
+        // Core seals `owning` for any call it issues resources to.
         let mut sealed = json!({
             "resources": {"reads": [{"path": readable.to_str().unwrap(), "kind": "file"}]},
             "grants": grants,
             "ttlMs": 30_000,
+            "owning": true,
         });
         if let (Some(sealed), Some(extra)) = (sealed.as_object_mut(), authority.as_object()) {
             sealed.extend(extra.clone());
@@ -249,6 +252,37 @@ async fn an_unsealed_call_never_reads_with_a_door_calls_authority() {
         "an idle session was installed after the call"
     );
     fx.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_door_call_answers_scoped_capabilities_only_inside_an_owning_call() {
+    let read_on = |authority: Value| async move {
+        let fx = Fixture::new(&[], authority);
+        let path = fx.dir.path().join("door-only.txt");
+        fs::write(&path, "door-only").unwrap();
+        let reply = fx
+            .ping(json!({"mode": "read", "path": path.to_str().unwrap()}))
+            .await
+            .unwrap();
+        fx.stop().await;
+        reply
+    };
+    // A ping with nothing issued: Core seals no owning call, as TypeScript's `needsAuthority`.
+    let outside = read_on(json!({"resources": {}, "owning": false})).await;
+    assert_eq!(outside["read"], Value::Null, "{outside}");
+    assert_eq!(
+        outside["error"],
+        "scoped capability requires an active owning call"
+    );
+    // A plugin that declares `hosts` gets an owning call with nothing issued.
+    let owning = read_on(json!({"resources": {}, "owning": true})).await;
+    assert_eq!(owning["read"], Value::Null, "{owning}");
+    assert_eq!(
+        owning["error"],
+        "capability is not granted to the owning call: read path was not issued"
+    );
+    let issued = read_on(json!({})).await;
+    assert_eq!(issued["read"], "door-only", "{issued}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

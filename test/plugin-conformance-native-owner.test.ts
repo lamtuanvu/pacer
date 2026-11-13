@@ -80,14 +80,12 @@ const root = mkdtempSync("/tmp/pcn-");
 afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, force: true }); });
 
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
-const ROUTED_HTTP = "routed: for any owner call without host resources, such as a diagnostic ping, Core auto-issues a granted manifest's exact net.http hosts and exact fs.read paths (autoIssueFromManifest), so the owner serves them; TypeScript refuses every scoped capability outside an owning call";
 const ROUTED_OBSERVATIONS = "routed: the owner admits the observation bootstrap call, but no task or activity event reaches the plugin's callback until the owner runs observation generations";
-const ROUTED_MESSAGE = "routed: the owner refuses with the Rust broker's message (`capability is not granted to the owning call: … was not issued`), TypeScript with `scoped capability requires an active owning call`";
 
 /** Subset of CASES, by name, with the reason a case is expected to fail on the owner doors. */
 const SUBSET: Record<string, string | null> = {
   "lazy start: list starts nothing, doctor starts the process": PID_NULL,
-  "capability denial: undeclared calls are refused, declared ones answer": ROUTED_HTTP,
+  "capability denial: undeclared calls are refused, declared ones answer": null,
   "serialisation: one call at a time unless reentrant": PID_NULL,
   "logs: stderr lands in the plugin log file, never on stdout": null,
   "shutdown: closing the host terminates its plugins": null,
@@ -177,12 +175,12 @@ function relayCase(label: string, capability: string, declared: string[] | ((hom
 
 const RELAY: [ConformanceCase, string | null][] = [
   [relayCase("config.get", "config.get", [], "config.get", () => ({})), null],
-  [relayCase("fs.read", "fs.read", ["${HOME}/data/**"], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_MESSAGE],
-  [relayCase("fs.read exact path", "fs.read", home => [join(home, "data", "x.txt")], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_HTTP],
-  [relayCase("fs.write", "fs.write", ["${HOME}/out/**"], "fs.write", home => ({ path: join(home, "out", "x.txt"), text: "written" })), ROUTED_MESSAGE],
-  [relayCase("fs.beginWrite transfer", "fs.write", ["${HOME}/out/**"], "fs.beginWrite", home => ({ path: join(home, "out", "x.txt"), bytes: 7 })), ROUTED_MESSAGE],
-  [relayCase("process.spawn", "process.spawn", ["fx-tool"], "process.spawn", () => ({ argv: ["fx-tool"], timeoutMs: 1000 })), ROUTED_MESSAGE],
-  [relayCase("net.http", "net.http", ["127.0.0.1"], "net.http", () => ({ url: `http://127.0.0.1:${listener.port}/`, method: "GET", timeoutMs: 2000 })), ROUTED_HTTP],
+  [relayCase("fs.read", "fs.read", ["${HOME}/data/**"], "fs.read", home => ({ path: join(home, "data", "x.txt") })), null],
+  [relayCase("fs.read exact path", "fs.read", home => [join(home, "data", "x.txt")], "fs.read", home => ({ path: join(home, "data", "x.txt") })), null],
+  [relayCase("fs.write", "fs.write", ["${HOME}/out/**"], "fs.write", home => ({ path: join(home, "out", "x.txt"), text: "written" })), null],
+  [relayCase("fs.beginWrite transfer", "fs.write", ["${HOME}/out/**"], "fs.beginWrite", home => ({ path: join(home, "out", "x.txt"), bytes: 7 })), null],
+  [relayCase("process.spawn", "process.spawn", ["fx-tool"], "process.spawn", () => ({ argv: ["fx-tool"], timeoutMs: 1000 })), null],
+  [relayCase("net.http", "net.http", ["127.0.0.1"], "net.http", () => ({ url: `http://127.0.0.1:${listener.port}/`, method: "GET", timeoutMs: 2000 })), null],
 ];
 
 for (const [c, reason] of RELAY) {
@@ -228,3 +226,38 @@ const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in
   expect(seen.typescript).toContain("<time> [stderr] dropped a line over 1 MiB");
   for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
 }, 90000);
+
+// An undeclared identity.sign during a ping: the TypeScript host refuses it and audits the refusal.
+// A flag-on serve that keeps plugin.doctor in Core makes the ping a Core call on the owner, so Core
+// refuses and audits it the same way. The owner doors' own calls carry no Core yet (DOOR_SECRET_TEXT),
+// so they refuse with no audit line and no signature.
+type Signing = { ok: boolean; error: string | null; audit: unknown[] };
+let signing: Signing | undefined;
+const undeclaredSign: ConformanceCase = { name: "identity.sign undeclared", async run(t) {
+  t.install("good", { manifest: { id: "fx-unsigned", host: "^1.6", capabilities: [{ name: "log" }] },
+    fixture: { callCapability: "identity.sign", capabilityParams: { purpose: "greeting", payload: Buffer.from("hello").toString("base64") } } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-unsigned", grant: true });
+  const report = await doctor(h, "fx-unsigned");
+  const audit = join(t.home, ".pacer", "logs", "identity-audit.jsonl");
+  signing = { ok: report.ok, error: report.error, audit: existsSync(audit) ? readFileSync(audit, "utf8").trim().split("\n").map(line => {
+    const { pluginId, purpose, outcome, reason } = JSON.parse(line);
+    return { pluginId, purpose, outcome, reason };
+  }) : [] };
+} };
+const coreDoctor: Door[] = front ? [{ label: "serve owner, Core doctor", argv: [front],
+  door: { env: { ...ownerEnv, PACER_FORWARD_OPS: "plugin.doctor" }, homePrefix: "c-", session: (argv, env) => new ServeSession(argv, env) } }] : [];
+
+cases(null)("native owner conformance: an undeclared identity.sign is refused and audited as on the TypeScript host", async () => {
+  const seen: Record<string, Signing> = {};
+  for (const { label, argv, door } of [tsDoor, ...coreDoctor, ...doors]) {
+    signing = undefined;
+    await runCase(undeclaredSign, argv, root, door);
+    seen[label] = signing!;
+  }
+  console.log(`identity.sign undeclared: ${JSON.stringify(seen)}`);
+  expect(seen.typescript).toEqual({ ok: false, error: "capability_denied: plugin fx-unsigned did not declare identity.sign",
+    audit: [{ pluginId: "fx-unsigned", purpose: "greeting", outcome: "refused", reason: "capability not declared" }] });
+  expect(seen["serve owner, Core doctor"]).toEqual(seen.typescript);
+  for (const { label } of doors) expect(seen[label]).toMatchObject({ ok: false, audit: [] });
+}, 120000);

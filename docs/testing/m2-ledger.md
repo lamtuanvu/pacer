@@ -6,6 +6,13 @@ Native means Rust registers an operation and produces its reply for at least som
 
 **M2 wave 3 PR 7 gate (2026-11-12):** **RED**. The PR 6 consumer matrix and conformance subset pass except rows routed to security review, each with an expected-fail test: the flag-on assistant secret alias, Core auto-issuing a granted manifest's exact `net.http` hosts and exact `fs.read` paths for any owner call without host resources (`autoIssueFromManifest`), `plugin.doctor` observation events (the bootstrap call passes; events wait for observation generations), and owner refusal message text. The I1 row is green: `_run` runners no longer inherit `PACER_HOST_SOCKET` and own their plugin children, as flag-off (ADR 0027). The owner appends plugin stderr to the plugin log (`logs/plugins/<id>.log`) in the TypeScript format, but not yet the transport notes TypeScript also writes there (a malformed JSON line or a line over 1 MiB on stdout, and spawn, stdin and write errors). The door's own plugin calls run through the sealed owner call: no call's capability session is left on the shared owner, concurrent first calls send one hello and one `ready`, a call queued behind a stop or teardown never reaches the child, and a `failing` refusal carries the enable hint; that the owner keeps its `failing` mark when Core restarts is still to be recorded in ADR 0027 and does not gate default-on. Per the maintainer's decision, default-on waits until these rows are green.
 
+**PR 7 gate, owner parity PR A (2026-11-13):** still **RED** for the other rows. Three rows are green:
+- **Auto-issued paths and hosts.** Core no longer issues exact `net.http` hosts or exact `fs.read` paths from the manifest. It seals `owning` (flag-off `needsAuthority`) and `explicitWildcardGrant` into `call_authority`, and the owner refuses every scoped capability outside an owning call with TypeScript's `scoped capability requires an active owning call`. A per-resource refusal inside an owning call keeps the broker's text with the same `capability_denied` code (maintainer decision Q4).
+- **Assistant secret alias.** Core answers `capability.secrets.resolve` itself on the call's bridge connection when the manifest declares it, and `capability.identity.sign` on every call, so an undeclared signing request is refused and audited as flag-off does. A flag-on assistant turn answers like flag-off, and a Core call for another plugin during the turn gets the flag-off refusal (maintainer decision Q1).
+- **Owner refusal text** outside an owning call.
+
+The capability relay conformance cases (`fs.read`, exact-path `fs.read`, `fs.write`, `fs.beginWrite`, `process.spawn`, `net.http`) now match the TypeScript host with zero listener hits. Remaining: the `plugin.doctor` path the Rust door runs itself forwards no Core method. There, another plugin's `capability.secrets.resolve` is refused with the owner's `secret alias was not issued` (same code), `capability.identity.sign` is not answered, and an undeclared signing request is refused without an audit line.
+
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
 | `config.get` | Native (P2) | Pure keys/sources via `pacer_config::settings::get_settings`; Core supplies filtered terminal choices, machine guard/slots and planner candidates through `/_internal/config-host-parts` (serve) or `_internal.config-host.parts` (stdio, sealed by `PACER_NATIVE_CONFIG_SYNC_KEY`). TypeScript still owns terminal detection, slot sampling and planner discovery. `PACER_FORWARD_OPS` remains the escape hatch. |
@@ -558,8 +565,10 @@ private `call` on the flag-on path, but **keeps default serve TypeScript-owned**
 (`serve_starts_reverse_bridge_by_default = false`). **P4d-6/7** wire
 `PluginCapabilitySession` on the flag-on `ProcessOwner`: hello-sealed
 `capability.log` / `capability.config.get`, plus Core `call_authority` that
-seals exact-path `fs.read` / exact-host `net.http` (and host-supplied
-reads/commands/http) so native modules attach for fixture plugin calls.
+seals the host-supplied reads/commands/http so native modules attach for
+fixture plugin calls. Since owner parity PR A, `call_authority` issues nothing
+from the manifest and seals `owning` (flag-off `needsAuthority`), so the owner
+refuses every scoped capability outside an owning call as TypeScript does.
 Default stays off because TypeScript plugin consumers cannot reach the native
 owner: Core refuses local spawn when the host is on, and only native HTTP
 `plugin.*` operations start children. P4d-13 flipped the const without that and
