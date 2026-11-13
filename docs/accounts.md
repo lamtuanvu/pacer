@@ -300,8 +300,11 @@ checks can restore eligibility without dispatching a task. Codex windows with
 nonpositive durations are ignored when parsed. Previously saved `0h`
 zero-duration quota artifacts are retired only after a newer, current, non-stale
 provider or session-log measurement with a valid percentage covers the same
-account identity and scope. Real unknown, exhausted or expired windows and
-manual limits remain constraints; an omitted window alone does not prove recovery. BytePlus
+account identity and scope. A manual limit (`pacer report-limit`) stays a
+constraint until its end time. When a newer reading from the same source leaves out
+a window, that source's unknown or expired value for it is retired, but a window at
+or above the exhausted threshold stays until its reset; readings from other sources
+never retire it. BytePlus
 and metered sources use their existing usage readers; BytePlus authentication
 errors include Ark CLI sign-in guidance. An unchanged reading explicitly says
 **Reading unchanged**; details explain that no new usage observation was received.

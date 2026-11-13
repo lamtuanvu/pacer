@@ -5,6 +5,7 @@ import { dirname, join } from "node:path";
 import { validateStrategy } from "../src/config/strategy";
 import { binaryFor, computeStatus, displayName } from "../src/engine/status";
 import { claudeCachePaths } from "../src/usage/claude";
+import { markExhausted } from "../src/usage/reactive";
 import type { RunFn } from "../src/types";
 import { fakeCtx, localTs, tmpDir } from "./helpers";
 import { clearTerminalEnvCache, terminalEnv } from "../src/exec/login-env";
@@ -49,6 +50,21 @@ test("assembles verdicts, planner mode and the default executor ranking", async 
   expect(by["opencode#byteplus"].verdict).toBe("EXPIRING");
   expect(by["opencode#local"].verdict).toBe("OK");
   expect(st.executors.ranked[0].id).toBe("opencode#byteplus");
+});
+
+test("an expired manual exhausted mark does not make a reactive executor uncertain", async () => {
+  const ctx: any = withLoginIndicators(fakeCtx({ now: now - 7200 }));
+  const s = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, cursor: { usage: "reactive" } }, pacing: { policy: "even" }, routing: [{ default: ["cursor"] }] }, "/x");
+  markExhausted(ctx, "cursor", ctx.now + 3600, { manual: true });
+  const pastReadings = new Map([["cursor", { windows: [], capturedAt: ctx.now, stale: false, source: "reactive" } as any]]);
+  await computeStatus(ctx, s, { profile: null, readings: pastReadings });
+  ctx.now = now;
+  const readings = new Map([["cursor", { windows: [], capturedAt: now, stale: false, source: "reactive" } as any]]);
+  const st = await computeStatus(ctx, s, { profile: null, readings });
+  const provider = st.providers.find((p: any) => p.id === "cursor")!;
+  expect(provider.eligibility!.state).toBe("eligible");
+  expect(provider.stale).toBe(false);
+  expect(provider.eligibility!.reasons.map((r: any) => r.code)).not.toContain("refresh_failed");
 });
 
 test("broken sources degrade to UNKNOWN and the status still renders", async () => {
