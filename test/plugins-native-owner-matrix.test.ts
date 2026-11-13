@@ -329,13 +329,19 @@ const doctorSetup: Scenario = async (door, h, observe) => {
   observe("setup.health", doctorText(h, await door.call("setup.health", { trigger: "manual" }), observe, "setup.health"));
 };
 
-/** The Link check reports measured loopback latency; its name, level and remedy follow the measurement. */
+const LINK_CHECKS = ["Link", "Link latency"];
+const isLinkRepair = (value: unknown) => !!value && typeof value === "object"
+  && (value as Record<string, unknown>).kind === "remedy" && LINK_CHECKS.includes((value as Record<string, unknown>).check as string);
+/**
+ * The Link check reports measured loopback latency; its name, level and remedy follow the measurement,
+ * and setup.health lists its remedy as a repair only while the measurement warns.
+ */
 function linkLatencyMasked(text: string) {
   const measured = (value: unknown): unknown => {
-    if (Array.isArray(value)) return value.map(measured);
+    if (Array.isArray(value)) return value.filter(item => !isLinkRepair(item)).map(measured);
     if (!value || typeof value !== "object") return value;
     const record = value as Record<string, unknown>;
-    if ((record.name === "Link" || record.name === "Link latency") && "level" in record) return { name: "Link", level: "<measured>" };
+    if (LINK_CHECKS.includes(record.name as string) && "level" in record) return { name: "Link", level: "<measured>" };
     return Object.fromEntries(Object.entries(record).map(([key, child]) => [key, measured(child)]));
   };
   return JSON.stringify(measured(JSON.parse(`{${text}}`))).slice(1, -1);
@@ -395,13 +401,35 @@ async function connectClaude(door: Door) {
 }
 const integrationLines = (stderr: string) => stderr.split("\n").filter(line => line.startsWith("pacer: integration")).join("\n");
 
+const RECONCILE_COMMIT_MS = 20000;
+
+/**
+ * Startup reconcile commits through the install journal: it writes install-transaction.json, then the integration
+ * files, then install-manifest.json, and removes the journal last. A restored file can precede its manifest record.
+ * Call after a file the commit writes has appeared, so an absent journal means the commit has finished.
+ */
+async function reconcileCommitted(h: Home, manifestBefore: string) {
+  const journal = join(h.state, "install-transaction.json"), manifest = join(h.state, "install-manifest.json");
+  const committed = () => !existsSync(journal) && existsSync(manifest) && readFileSync(manifest, "utf8") !== manifestBefore;
+  const deadline = Date.now() + RECONCILE_COMMIT_MS;
+  while (!committed()) {
+    if (Date.now() > deadline) {
+      throw Error(`startup reconcile restored a file but did not commit install-manifest.json within ${RECONCILE_COMMIT_MS} ms`
+        + `\njournal: ${existsSync(journal) ? "present" : "absent"}\nmanifest:\n${storeBytes(h, "install-manifest.json")}`);
+    }
+    await Bun.sleep(100);
+  }
+}
+
 const startupReconcile: Scenario = async (door, h, observe, restart) => {
   observe("agent.connect", replyText(h, await connectClaude(door)));
   observe("manifest after connect", storeBytes(h, "install-manifest.json"));
   observe("agent.connect again", replyText(h, await connectClaude(door)));
   observe("manifest after reconnect", storeBytes(h, "install-manifest.json"));
+  const reconnected = readFileSync(join(h.state, "install-manifest.json"), "utf8");
   await restart(() => unlinkSync(join(h.home, ".claude", "rules", "pacer.md")));
   observe("restored rules file", await poll(async () => fileText(h, ".claude/rules/pacer.md"), text => text !== "<absent>", 20000));
+  await reconcileCommitted(h, reconnected);
   observe("integration files after refresh", fileTree(h, ".claude"));
   observe("manifest after refresh", storeBytes(h, "install-manifest.json"));
   await restart(() => writeFileSync(join(h.home, ".claude", "skills", "pacer", "SKILL.md"), "edited by hand\n"));
@@ -416,6 +444,8 @@ test.skipIf(!front)("startup reconcile refreshes a deleted integration file and 
   const runs = await reconcileRuns();
   for (const run of runs) expect(run.observed["restored rules file"], run.mode.label).not.toBe("<absent>");
   for (const run of runs) expect(run.observed["conflict warning"], run.mode.label).toContain("managed integration content changed");
+  const refreshed = JSON.parse(runs[0]!.observed["manifest after refresh"]!).planners?.["claude-code"];
+  expect(refreshed?.integration?.fingerprint ?? "<missing>", `${runs[0]!.mode.label}: startup reconcile records its refresh in install-manifest.json`).toMatch(/^[0-9a-f]{64}$/);
   console.log(expectIdentical(runs).join("\n"));
 }, 240000);
 
