@@ -82,6 +82,31 @@ pub(super) fn fold(text: &str) -> String {
         .collect()
 }
 
+/// Longest run of ASCII characters (length >= 2) in a word, ASCII-lowered for
+/// SQL pre-filtering of non-ASCII query words.
+pub(super) fn longest_ascii_run(word: &str) -> Option<String> {
+    let mut best = String::new();
+    let mut cur = String::new();
+    for ch in word.chars() {
+        if ch.is_ascii() {
+            cur.push(ch);
+        } else {
+            if cur.len() > best.len() {
+                best = std::mem::take(&mut cur);
+            } else {
+                cur.clear();
+            }
+        }
+    }
+    if cur.len() > best.len() {
+        best = cur;
+    }
+    if best.chars().count() < 2 {
+        return None;
+    }
+    Some(ascii_lower(&best))
+}
+
 /// The words SQLite cannot fold (anything with a non-ASCII character): they are
 /// checked in `TaskStore::list` on the decoded records, with `fold` applied the
 /// same way in both runtimes.
@@ -177,7 +202,7 @@ pub(super) fn page_query(
     query_text(
         clauses,
         bind,
-        "id, record",
+        "id, json_extract(record, '$.title'), json_extract(record, '$.brief.goal')",
         SqlValue::Integer(i64::try_from(batch).unwrap_or(i64::MAX)),
         " INDEXED BY sqlite_autoindex_tasks_1",
     )
@@ -255,6 +280,14 @@ fn build_clauses(filter: &TaskFilter<'_>, clauses: &mut Vec<String>, bind: &mut 
                     bind.push(SqlValue::Text(w.clone()));
                     bind.push(SqlValue::Text(w));
                 }
+            } else if let Some(run) = longest_ascii_run(word) {
+                clauses.push(
+                    "(instr(lower(id), ?)>0 OR instr(lower(json_extract(record, '$.title')), ?)>0 OR instr(lower(json_extract(record, '$.brief.goal')), ?)>0)"
+                        .to_owned(),
+                );
+                bind.push(SqlValue::Text(run.clone()));
+                bind.push(SqlValue::Text(run.clone()));
+                bind.push(SqlValue::Text(run));
             }
         }
     }
