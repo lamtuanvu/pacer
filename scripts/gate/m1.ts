@@ -70,10 +70,56 @@ export function validateNativeRegistry(source: string): void {
   }
 }
 
-async function gate(dir: string): Promise<number> {
+/** `all` runs every check; `skip` runs every check but the Bun suite; `shard` runs only one CI shard of it. */
+export type BunSuite = "all" | "skip" | "shard";
+
+export function parseGateArgs(args: string[]): { dir: string; suite: BunSuite } {
+  const usage = "usage: bun run gate:m1 --release-dir <version-directory> [--bun-suite all|skip|shard]";
+  if (args[0] !== "--release-dir" || !args[1] || (args.length !== 2 && args.length !== 4)) throw Error(usage);
+  const suite = args.length === 2 ? "all" : args[2] === "--bun-suite" ? args[3] : undefined;
+  if (suite !== "all" && suite !== "skip" && suite !== "shard") throw Error(usage);
+  return { dir: args[1], suite };
+}
+
+/** The test files of shard SHARD_INDEX of SHARD_COUNT, partitioned exactly as CI's sharded suite. */
+export function shardTestFiles(root: string, env: NodeJS.ProcessEnv): string[] {
+  const index = env.SHARD_INDEX ?? "", count = env.SHARD_COUNT ?? "";
+  if (!/^\d+$/.test(index) || !/^[1-9]\d*$/.test(count) || Number(index) >= Number(count)) {
+    throw Error("Shard mode needs SHARD_INDEX below a positive SHARD_COUNT");
+  }
+  const result = Bun.spawnSync(["python3", "scripts/ci/shard-tests.py"], { cwd: root, env: { ...process.env, SHARD_INDEX: index, SHARD_COUNT: count }, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw Error(`Cannot list shard test files: ${result.stderr.toString().trim()}`);
+  const files = JSON.parse(result.stdout.toString()) as string[];
+  if (!files.length) throw Error(`Shard ${index} of ${count} has no test files`);
+  return files;
+}
+
+const GATE_STEPS = [
+  "paired artifact versions",
+  "native startup beats the Bun core (20-run medians)",
+  "plugin conformance against released front door",
+  "released transport parity",
+  "native operation parity coverage",
+  "Rust workspace",
+  "build isolated native test front door",
+  "Bun suite",
+  "crate LOC",
+  "crate dependencies",
+] as const;
+type GateStep = typeof GATE_STEPS[number];
+const SUITE_STEPS = new Set<GateStep>(["build isolated native test front door", "Bun suite"]);
+
+/** The ordered gate steps a mode runs; every mode first proves the pair reports the manifest version. */
+export function gatePlan(suite: BunSuite): GateStep[] {
+  return GATE_STEPS.filter(name => name === "paired artifact versions" || suite === "all" || (suite === "shard") === SUITE_STEPS.has(name));
+}
+
+async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
   const root = resolve(import.meta.dir, "../..");
   if (process.env.PACER_CORE_ARGV) throw Error("Unset PACER_CORE_ARGV: M1 gate must use the released companion");
   const artifacts = validateM1Artifacts(dir);
+  const files = suite === "shard" ? shardTestFiles(root, process.env) : [];
+  const plan = new Set(gatePlan(suite));
   const temporary = mkdtempSync(join(tmpdir(), "pacer-m1-gate-"));
   chmodSync(temporary, 0o700);
   const front = join(temporary, "pacer"), core = join(temporary, "pacer-core"), home = join(temporary, "home");
@@ -87,9 +133,11 @@ async function gate(dir: string): Promise<number> {
     PACER_BIN: undefined, PACER_CORE_ARGV: undefined, PACER_TEST_FRONT_DOOR: undefined, PACER_TEST_NATIVE_FRONT_DOOR: undefined,
     PACER_NO_SELF_REPAIR: "1", PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh" };
   let failures = 0;
-  const step = async (name: string, run: () => Promise<void>) => {
-    try { await run(); console.log(`PASS ${name}`); return true; }
-    catch (error) { failures++; console.error(`FAIL ${name}: ${(error as Error).message}`); return false; }
+  const step = async (name: GateStep, run: () => Promise<void>) => {
+    if (!plan.has(name)) return true;
+    const label = name === "Bun suite" && suite === "shard" ? `Bun suite shard ${process.env.SHARD_INDEX} of ${process.env.SHARD_COUNT}` : name;
+    try { await run(); console.log(`PASS ${label}`); return true; }
+    catch (error) { failures++; console.error(`FAIL ${label}: ${(error as Error).message}`); return false; }
   };
   const command = async (argv: string[], extra: NodeJS.ProcessEnv = {}) => {
     const child = Bun.spawn(argv, { cwd: root, env: { ...env, ...extra }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -126,9 +174,9 @@ async function gate(dir: string): Promise<number> {
       const source = readFileSync(join(root, "crates/server/src/native.rs"), "utf8");
       validateNativeRegistry(source);
     });
-    if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
     await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
-    await step("Bun suite", () => command([process.execPath, "run", "test"], {
+    if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
+    await step("Bun suite", () => command([process.execPath, "run", "test", ...files], {
       PACER_TEST_FRONT_DOOR: front, PACER_TEST_NATIVE_FRONT_DOOR: testFront, PACER_TEST_REFERENCE_CORE: core,
     }));
     await step("crate LOC", () => command(["cargo", "xtask", "loc", "--check"]));
@@ -138,8 +186,7 @@ async function gate(dir: string): Promise<number> {
 }
 
 if (import.meta.main) {
-  const args = process.argv.slice(2);
-  if (args.length !== 2 || args[0] !== "--release-dir") throw Error("usage: bun run gate:m1 --release-dir <version-directory>");
-  try { process.exitCode = await gate(resolve(args[1])); }
+  const { dir, suite } = parseGateArgs(process.argv.slice(2));
+  try { process.exitCode = await gate(resolve(dir), suite); }
   catch (error) { console.error(`FAIL M1 gate: ${(error as Error).message}`); process.exitCode = 1; }
 }

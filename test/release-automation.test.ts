@@ -143,8 +143,8 @@ for (const mismatch of ["tree", "merge", "base", "branch"]) {
   });
 }
 
-test("Each M1 build prebuilds and supplies the SQLite proof binary", () => {
-  const steps = load("release.yml").jobs.build!.steps;
+test("Each M1 suite shard prebuilds and supplies the SQLite proof binary", () => {
+  const steps = load("release.yml").jobs["m1-suite"]!.steps;
   const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof");
   const gate = steps.findIndex(s => s.run?.includes("bun run gate:m1 --release-dir"));
   expect(build).toBeGreaterThan(-1);
@@ -152,8 +152,8 @@ test("Each M1 build prebuilds and supplies the SQLite proof binary", () => {
   expect(steps[gate]!.env?.PACER_SQLITE_PROOF_BIN).toBe("${{ github.workspace }}/target/debug/pacer-sqlite-proof");
 });
 
-test("Each M1 build prebuilds and supplies the task store probe binary", () => {
-  const steps = load("release.yml").jobs.build!.steps;
+test("Each M1 suite shard prebuilds and supplies the task store probe binary", () => {
+  const steps = load("release.yml").jobs["m1-suite"]!.steps;
   const build = steps.findIndex(s => s.run === "cargo build --locked -p pacer-store --bin task_store_probe");
   const gate = steps.findIndex(s => s.run?.includes("bun run gate:m1 --release-dir"));
   expect(build).toBeGreaterThan(-1);

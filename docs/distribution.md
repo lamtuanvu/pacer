@@ -89,7 +89,7 @@ From a checkout whose package version, app assets and changelog are prepared for
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The workflow checks the input against `package.json` and typechecks. Its macOS and Linux build jobs run the full M1 gate, including the Bun suite against the verified host release pair, before publishing can proceed. The workflow also builds all four target pairs, smoke-tests each runner’s native pair, writes metadata, and prints asset SHA-256 hashes and release notes. The Rust SDK testing-feature check remains in verify. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
+The workflow checks the input against `package.json` and typechecks. Its macOS and Linux build jobs run the M1 gate checks against the verified host release pair, and four `m1-suite` shards per runner run the Bun suite against that same pair; publishing waits for all of them. The workflow also builds all four target pairs, smoke-tests each runner’s native pair, writes metadata, and prints asset SHA-256 hashes and release notes. The Rust SDK testing-feature check remains in verify. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
 

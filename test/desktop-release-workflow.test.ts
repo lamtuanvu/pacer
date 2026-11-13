@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 const jobs = (Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8")) as any).jobs;
 test("desktop promotion requires the native signed build and standalone release while CLI publishing stays independent", () => {
-  expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
+  expect(jobs.publish.needs).toEqual(["verify", "build", "m1-suite", "desktop"]);
   expect(jobs.desktop.strategy.matrix.include.every((entry: any) => entry.platform.startsWith("linux-"))).toBe(true);
   expect(jobs["desktop-publish"].needs).toEqual(["verify", "desktop-build", "publish"]);
   expect(jobs["desktop-build"].strategy.matrix.include).toEqual([
