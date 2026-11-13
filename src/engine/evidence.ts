@@ -103,15 +103,21 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
     facts.budget = facts.budget.filter(f => f.source !== "execution" || f.value.name !== "limit"
       || !measured.every(sample => sample.observedAt! > (f.observedAt ?? Infinity) && appliesTo(sample, f.scope)));
   }
-  // Cooldown marks (execution limit windows) stop constraining once their cooldown ends.
-  // Use resetsAt/validUntil, not the short-window freshness cap: a six-hour mark must still
-  // bind after two hours. Expired peers otherwise leave equal-authority conflicts that
-  // reactive usage checks cannot overwrite, so refresh/status would never clear Skipped.
+  // Cooldown marks (execution and manual configuration limits) stop constraining once
+  // their stated end passes. Expired peers otherwise mark the reading stale forever.
   facts.budget = facts.budget.filter(f => {
-    if (f.source !== "execution" || f.value.name !== "limit") return true;
+    if ((f.source !== "execution" && f.source !== "configuration") || f.value.name !== "limit") return true;
     const until = f.validUntil ?? f.value.resetsAt;
     return observationValid(f, now) && (until === null || until > now);
   });
+  // A newer valid read from the same source that omits a window retires that source's unknown
+  // or lapsed fact for it. Live measured windows, other sources and limit marks are kept.
+  const reported = new Set(incoming.budget.map(f => f.value.name));
+  const witnesses = incoming.budget.filter(g => g.observedAt !== null && !g.value.stale && typeof g.value.usedPct === "number"
+    && Number.isFinite(g.value.usedPct) && g.value.usedPct >= 0 && g.value.usedPct <= 100);
+  facts.budget = facts.budget.filter(f => f.value.name === "limit" || reported.has(f.value.name) || f.observedAt === null
+    || (f.value.usedPct !== null && currentEvidence(f, now, evidenceDeadline(f)))
+    || !witnesses.some(g => g.source === f.source && appliesTo(g, f.scope) && g.observedAt! > f.observedAt!));
   const retained = [...facts.availability, ...facts.budget, ...facts.spending];
   return { facts, conflicts: conflicts.filter(id => retained.some(f => f.id === id)).sort() };
 }
