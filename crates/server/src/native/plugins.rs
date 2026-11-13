@@ -31,8 +31,8 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CallFailure, CrashReport, DoorRefusal, DoorRequest, SharedOwner, StopOutcome, call_door,
-    stop_on_owner,
+    CallFailure, CrashReport, DoorRefusal, DoorRequest, OwnerKey, SharedOwner, StopOutcome,
+    call_door, stop_on_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -120,8 +120,8 @@ pub enum ProcessRpc {
     Local(SharedOwner),
     /// The live serve owner at this `host.sock`, reached by a stdio connection:
     /// Core relays calls through its `PACER_HOST_SOCKET` (private `relay`);
-    /// the door only stops lanes there.
-    Attached(PathBuf),
+    /// the door only stops lanes there, proving the owner's credential.
+    Attached(PathBuf, OwnerKey),
 }
 
 /// Ops and reads stay off the epoch lock so a long plugin RPC cannot stall
@@ -460,7 +460,7 @@ impl Owner {
             }
             // Core's registry seals the call to the serve owner and answers the
             // plugin's capability requests over its own socket connection.
-            ProcessRpc::Attached(_) => {
+            ProcessRpc::Attached(..) => {
                 return self
                     .request(json!({"kind":"relay", "id":id, "method":method, "params":params}))
                     .await;
@@ -532,7 +532,7 @@ impl Owner {
                     })?;
                 }
             }
-            ProcessRpc::Attached(socket) => match stop_on_owner(socket, id).await {
+            ProcessRpc::Attached(socket, key) => match stop_on_owner(socket, key, id).await {
                 Ok(StopOutcome::Stopped | StopOutcome::NotRunning | StopOutcome::OwnerGone) => {}
                 Err(error) => {
                     return Err(CoreError::new(Code::PluginUnavailable, error.to_string())

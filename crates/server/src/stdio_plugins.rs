@@ -13,7 +13,9 @@
 //! or an owner of this connection's own on `run/s<12-hex>.sock` (own; a private
 //! per-user directory when that path is too long), torn down when the
 //! connection ends or the door receives SIGTERM. Flag-off, Core owns the
-//! children and never sees an inherited `PACER_HOST_SOCKET`.
+//! children and never sees an inherited `PACER_HOST_SOCKET`. Flag-on, the core
+//! child alone receives the owner's credential (`PACER_HOST_SOCKET_KEY`):
+//! serve's from `run/host.key` when attaching, or the connection owner's own.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::native::plugins::{ProcessRpc, Service, is_read};
 use pacer_foundation::{
@@ -26,8 +28,8 @@ use pacer_plugin_ops::{
     settings::js_json,
 };
 use pacer_plugin_runtime::{
-    CrashReport, DoorRequest, HOST_SOCKET_ENV, HomeOwner, NativeHostSession,
-    native_plugin_host_enabled_from_env, probe_home_owner,
+    CrashReport, DoorRequest, HOST_SOCKET_ENV, HOST_SOCKET_KEY_ENV, HomeOwner, NativeHostSession,
+    OwnerKey, native_plugin_host_enabled_from_env, probe_home_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -152,21 +154,28 @@ impl CoreIpc for PluginLink {
     }
 }
 
-/// The core child's `PACER_HOST_SOCKET`, which tells Core who runs plugin processes.
+/// The core child's `PACER_HOST_SOCKET`, which tells Core who runs plugin
+/// processes, and the credential that owner accepts.
 pub(crate) enum HostSocket {
-    /// Scoped work forwards everything and keeps what it inherited.
+    /// Scoped work forwards everything and keeps the socket it inherited.
     Inherit,
     /// Core owns the children; an inherited socket was never probed by this door.
     Unset,
-    Set(String),
+    Set(String, OwnerKey),
 }
 
 impl HostSocket {
+    /// Only an owner this door started or probed hands out a credential, so an
+    /// inherited one never reaches Core.
     pub(crate) fn apply<'a>(&self, command: &'a mut Command) -> &'a mut Command {
         match self {
-            Self::Inherit => command,
-            Self::Unset => command.env_remove(HOST_SOCKET_ENV),
-            Self::Set(socket) => command.env(HOST_SOCKET_ENV, socket),
+            Self::Inherit => command.env_remove(HOST_SOCKET_KEY_ENV),
+            Self::Unset => command
+                .env_remove(HOST_SOCKET_ENV)
+                .env_remove(HOST_SOCKET_KEY_ENV),
+            Self::Set(socket, key) => command
+                .env(HOST_SOCKET_ENV, socket)
+                .env(HOST_SOCKET_KEY_ENV, key.to_hex()),
         }
     }
 }
@@ -199,13 +208,18 @@ impl Ownership {
             ));
         }
         let debug = std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1");
-        match probe_home_owner(pacer_home) {
-            HomeOwner::Live(socket) => {
+        // The probe may wait for a just-started serve to publish its key.
+        let home = pacer_home.to_path_buf();
+        let found = tokio::task::spawn_blocking(move || probe_home_owner(&home))
+            .await
+            .map_err(io::Error::other)?;
+        match found {
+            HomeOwner::Live(socket, key) => {
                 if debug {
                     eprintln!("native plugin owner attach {}", socket.display());
                 }
-                let core_socket = HostSocket::Set(socket.display().to_string());
-                let service = Service::with_process_rpc(ProcessRpc::Attached(socket));
+                let core_socket = HostSocket::Set(socket.display().to_string(), key.clone());
+                let service = Service::with_process_rpc(ProcessRpc::Attached(socket, key));
                 Ok((
                     Self {
                         service: Arc::new(service),
@@ -232,7 +246,10 @@ impl Ownership {
                         session.socket_path().display()
                     );
                 }
-                let core_socket = HostSocket::Set(session.socket_path().display().to_string());
+                let core_socket = HostSocket::Set(
+                    session.socket_path().display().to_string(),
+                    session.key().clone(),
+                );
                 let service = Service::with_native_owner(Arc::clone(session.owner()));
                 Ok((
                     Self {
@@ -468,6 +485,27 @@ mod tests {
         // Past both budgets: the raw line goes to the core unchanged.
         assert!(classify_text(&deep(600), "").is_none());
         assert!(classify_text("{nope", "").is_none());
+    }
+
+    #[test]
+    fn only_a_probed_or_started_owner_hands_core_a_credential() {
+        let key = OwnerKey::generate().unwrap();
+        let env = |socket: HostSocket| {
+            let mut command = Command::new("true");
+            socket.apply(&mut command);
+            command
+                .as_std()
+                .get_envs()
+                .map(|(name, value)| (name.to_owned(), value.map(ToOwned::to_owned)))
+                .collect::<HashMap<_, _>>()
+        };
+        let name = std::ffi::OsStr::new(HOST_SOCKET_KEY_ENV);
+        let set = env(HostSocket::Set("/s.sock".into(), key.clone()));
+        assert_eq!(set[name], Some(key.to_hex().into()));
+        for socket in [HostSocket::Inherit, HostSocket::Unset] {
+            // `None` removes an inherited value from the child's environment.
+            assert_eq!(env(socket)[name], None);
+        }
     }
 
     #[test]

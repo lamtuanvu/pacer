@@ -11,7 +11,11 @@
 //! connection socket ([`NativeHostSession::start_connection`]).
 //!
 //! Serve's session also writes `run/host.sock.pid` (0600) beside the socket so
-//! a refused second serve and `pacer doctor` can name the owner. Both
+//! a refused second serve and `pacer doctor` can name the owner, and
+//! `run/host.key` (0600) so attaching stdio connections can prove the
+//! credential ([`crate::bridge_auth`]). Every session draws a fresh key; the
+//! env pairs it returns carry only the socket, and the caller hands
+//! [`NativeHostSession::key`] to its Core child alone. Both
 //! shutdowns refuse new children, terminate every child together (SIGTERM,
 //! then SIGKILL after [`crate::TERMINATE_GRACE`]) and only then remove the
 //! sidecar and unlink the socket, so the lease outlives the children it
@@ -22,8 +26,8 @@
 //! [`NativeHostSession::door_requests`].
 
 use crate::{
-    BridgeError, BridgeHandle, DoorRequest, HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV,
-    HOST_SOCKET_NAME, OwnerError, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
+    BridgeError, BridgeHandle, DoorRequest, HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV,
+    HOST_SOCKET_NAME, OwnerError, OwnerKey, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
     connection_socket_name,
     crash::{CrashBook, CrashReport},
     dark_bridge_disabled, dark_bridge_enabled,
@@ -52,20 +56,29 @@ pub fn read_owner_pid(pacer_home: &Path) -> Option<u32> {
         .ok()
 }
 
-/// Write `pid` to `path` through a 0600 temporary and a rename.
-fn write_pid_file(path: &Path, pid: u32) -> std::io::Result<()> {
-    let temp = path.with_extension(format!("pid.{pid}.tmp"));
+/// Write `text` to `path` through a 0600 temporary and a rename.
+fn write_private(path: &Path, text: &str) -> std::io::Result<()> {
+    let mut temp = path.as_os_str().to_owned();
+    temp.push(format!(".{}.tmp", std::process::id()));
+    let temp = PathBuf::from(temp);
     let _ = fs::remove_file(&temp);
     let mut file = fs::OpenOptions::new()
         .write(true)
         .create_new(true)
         .mode(0o600)
         .open(&temp)?;
-    let written = writeln!(file, "{pid}").and_then(|()| fs::rename(&temp, path));
+    let written = writeln!(file, "{text}").and_then(|()| fs::rename(&temp, path));
     if written.is_err() {
         let _ = fs::remove_file(&temp);
     }
     written
+}
+
+/// Remove `path` only while it still holds `text`: a later owner's file stays.
+fn remove_if_holds(path: &Path, text: &str) {
+    if fs::read_to_string(path).is_ok_and(|held| held.trim() == text) {
+        let _ = fs::remove_file(path);
+    }
 }
 
 /// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
@@ -120,22 +133,38 @@ pub struct NativeHostSession {
     roster: Arc<LaneRoster>,
     bridge: BridgeHandle,
     socket: PathBuf,
+    key: OwnerKey,
     /// Serve's `run/host.sock.pid`; connection sessions write none.
     pid_file: Option<PathBuf>,
+    /// Serve's `run/host.key`; a connection's key never touches disk.
+    key_file: Option<PathBuf>,
 }
 
 impl NativeHostSession {
-    /// Claim native supervision, bind `host.sock`, spawn the accept loop with
-    /// live owner dispatch, and return Core env pairs (`PACER_HOST_SOCKET`).
-    /// A live socket fails with [`BridgeError::LiveSocket`]. Does not mutate
-    /// process env.
+    /// Claim native supervision, bind `host.sock`, publish `run/host.key`,
+    /// spawn the accept loop with live owner dispatch, and return Core env
+    /// pairs (`PACER_HOST_SOCKET`). A live socket fails with
+    /// [`BridgeError::LiveSocket`]. Does not mutate process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let (mut session, env) = Self::start_with(pacer_home, || {
-            ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid())
+        let key = OwnerKey::generate().map_err(BridgeError::from)?;
+        let key_text = key.to_hex();
+        let (mut session, env) = Self::start_with(pacer_home, key.clone(), || {
+            let bridge =
+                ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid(key))?;
+            // The socket is the lease and is bound first, so a refused second
+            // serve never overwrites the live owner's key.
+            if let Err(error) =
+                write_private(&bridge.path().with_file_name(HOST_KEY_NAME), &key_text)
+            {
+                let _ = fs::remove_file(bridge.path());
+                return Err(error.into());
+            }
+            Ok(bridge)
         })?;
+        session.key_file = Some(session.socket.with_file_name(HOST_KEY_NAME));
         let pid_file = session.socket.with_file_name(HOST_SOCKET_PID_NAME);
         // Diagnostics only: the socket, not this file, is the lease.
-        if write_pid_file(&pid_file, std::process::id()).is_ok() {
+        if write_private(&pid_file, &std::process::id().to_string()).is_ok() {
             session.pid_file = Some(pid_file);
         }
         Ok((session, env))
@@ -151,8 +180,9 @@ impl NativeHostSession {
         tag: [u8; 6],
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let name = connection_socket_name(tag);
-        Self::start_with(pacer_home, || {
-            ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid())
+        let key = OwnerKey::generate().map_err(BridgeError::from)?;
+        Self::start_with(pacer_home, key.clone(), || {
+            ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid(key))
         })
     }
 
@@ -160,6 +190,7 @@ impl NativeHostSession {
     /// TypeScript host does.
     fn start_with(
         pacer_home: &Path,
+        key: OwnerKey,
         bind: impl FnOnce() -> Result<ReverseBridge, BridgeError>,
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let mut owner = ProcessOwner::native_for_serve();
@@ -179,7 +210,9 @@ impl NativeHostSession {
                 roster,
                 bridge,
                 socket,
+                key,
                 pid_file: None,
+                key_file: None,
             },
             core_env,
         ))
@@ -191,6 +224,12 @@ impl NativeHostSession {
 
     pub fn socket_path(&self) -> &Path {
         &self.socket
+    }
+
+    /// This start's credential. Hand it to the owner's own Core child only,
+    /// as [`crate::HOST_SOCKET_KEY_ENV`]; never to any other child.
+    pub fn key(&self) -> &OwnerKey {
+        &self.key
     }
 
     /// Crashes this owner detects from now on; the door delivers each to its
@@ -212,15 +251,15 @@ impl NativeHostSession {
 
     /// Serve shutdown: refuse new children, terminate every child at once
     /// (even one a caller holding the owner lock is waiting on), then remove
-    /// the pid sidecar and unlink `host.sock`.
+    /// the pid and key sidecars and unlink `host.sock`.
     pub async fn shutdown(self) {
         self.crashes.set_sink(None);
         terminate_lanes(self.roster.close()).await;
-        if let Some(pid_file) = &self.pid_file
-            && fs::read_to_string(pid_file)
-                .is_ok_and(|text| text.trim() == std::process::id().to_string())
-        {
-            let _ = fs::remove_file(pid_file);
+        if let Some(pid_file) = &self.pid_file {
+            remove_if_holds(pid_file, &std::process::id().to_string());
+        }
+        if let Some(key_file) = &self.key_file {
+            remove_if_holds(key_file, &self.key.to_hex());
         }
         self.bridge.shutdown().await;
     }

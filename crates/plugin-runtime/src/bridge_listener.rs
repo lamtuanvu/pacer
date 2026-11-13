@@ -1,8 +1,11 @@
 //! Reverse-bridge Unix listener (X1c / P4d-1 / P4d-2).
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
-//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
-//! by Unix credentials. Sockets are bound in a verified private directory and
+//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find` / `_host.plugin.stop`,
+//! and authorizes peers by Unix credentials and then by the owner's
+//! per-start credential ([`crate::bridge_auth`], #918): a same-user process
+//! that cannot prove the key is refused before its first request.
+//! Sockets are bound in a verified private directory and
 //! narrowed to 0600 by path; the process umask is never changed. A stdio
 //! connection's socket may live outside the home (`connection_dir`).
 //! Default serve must not call [`ReverseBridge::bind`] or
@@ -10,11 +13,14 @@
 //! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
 //!
-//! Without a live [`SharedOwner`], call/find/spawn/stop stay dark stubs.
+//! Without a live [`SharedOwner`], call/find/stop stay dark stubs.
 //! Flag-on serve attaches the owner so handlers reach tracked
-//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
-//! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
-//! starts, hellos and authorizes the child before calling it.
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A live owner answers
+//! only Core-sealed calls (`_host.plugin.call` carrying `spawn`, see
+//! `crate::bridge_call`): the owner starts, hellos and authorizes the child
+//! from Core's spec before calling it. The unsealed call and
+//! `_host.plugin.spawn` are refused, so no caller can start a lane from its
+//! own spec for a later sealed call to reuse.
 //!
 //! An existing socket path is probed with a non-blocking connect before bind:
 //! a refused connect marks it stale and it is removed, while an accepted or
@@ -22,6 +28,7 @@
 //! that loses a race with another owner reports `LiveSocket` as well, so serve
 //! can wait for the owner and then exit 3 (ADR 0027, OD-7).
 
+use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
 use crate::connection_dir::{
@@ -33,10 +40,8 @@ use crate::host_bridge::{
     dark_bridge_enabled, prepare_run_dir,
 };
 use crate::owner::ProcessOwner;
-use pacer_plugin_host::SpawnSpec;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
     fs, io,
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
@@ -107,29 +112,27 @@ pub enum BridgeError {
 /// Peer authorization policy for accepted Unix connections.
 #[derive(Clone, Debug)]
 pub struct PeerAuth {
-    /// Only this uid may speak on the bridge. Defaults to the process uid.
+    /// Only this uid may speak on the bridge, normally the process uid.
     pub allowed_uid: u32,
+    /// The credential a connection must prove before its first request.
+    pub key: OwnerKey,
 }
 
 impl PeerAuth {
-    pub fn same_uid() -> Self {
+    pub fn same_uid(key: OwnerKey) -> Self {
         Self {
             allowed_uid: current_uid(),
+            key,
         }
     }
 
     /// Test helper: reject every real peer (allowed uid never matches).
-    pub fn deny_all_for_tests() -> Self {
+    pub fn deny_all_for_tests(key: OwnerKey) -> Self {
         let uid = current_uid();
         Self {
             allowed_uid: if uid == 0 { 1 } else { 0 },
+            key,
         }
-    }
-}
-
-impl Default for PeerAuth {
-    fn default() -> Self {
-        Self::same_uid()
     }
 }
 
@@ -156,9 +159,10 @@ impl ReverseBridge {
     ///
     /// Does **not** export `PACER_HOST_SOCKET`. Callers that need Core to dial
     /// must use [`Self::dark_core_env`] under the enable flag. Starts in
-    /// [`BridgeDispatch::Stub`] until [`Self::with_live_owner`].
+    /// [`BridgeDispatch::Stub`] until [`Self::with_live_owner`]. Draws a fresh
+    /// credential; read it back through [`Self::auth`].
     pub fn bind(pacer_home: &Path) -> Result<Self, BridgeError> {
-        Self::bind_with_auth(pacer_home, PeerAuth::same_uid())
+        Self::bind_with_auth(pacer_home, PeerAuth::same_uid(OwnerKey::generate()?))
     }
 
     pub fn bind_with_auth(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
@@ -240,7 +244,8 @@ impl ReverseBridge {
         Ok(meta.mode() & 0o777)
     }
 
-    /// Env pairs for a Core child under explicit dark wiring only.
+    /// Env pairs for a Core child under explicit dark wiring only. Carries
+    /// the socket, not the credential: dark wiring has no Core caller.
     ///
     /// Reads [`HOST_BRIDGE_ENABLE_ENV`] from the process environment. Prefer
     /// [`Self::dark_core_env_if`] in tests so the process env stays untouched.
@@ -406,6 +411,15 @@ async fn handle_connection(
         return Err(error);
     }
     let mut reader = BufReader::new(stream);
+    match tokio::time::timeout(AUTH_DEADLINE, accept(&mut reader, &auth.key)).await {
+        Ok(Ok(true)) => {}
+        Ok(Ok(false)) => return Ok(()),
+        Ok(Err(error)) => return Err(error),
+        Err(_) => {
+            let _ = write_error(reader.get_mut(), Value::Null, UNAUTHORIZED, "unauthorized").await;
+            return Err(BridgeError::UntrustedCaller);
+        }
+    }
     loop {
         let mut line = Vec::new();
         let read = reader.read_until(b'\n', &mut line).await?;
@@ -587,7 +601,6 @@ async fn response_for_line(
     match method {
         METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch, cancel, forward).await,
         METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
-        METHOD_PLUGIN_SPAWN => dispatch_spawn(id, params, dispatch).await,
         METHOD_PLUGIN_STOP => dispatch_stop(id, params, dispatch).await,
         _ => json!({
             "jsonrpc": "2.0",
@@ -626,56 +639,49 @@ async fn dispatch_call(
                 .and_then(Value::as_u64)
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_CALL_DEADLINE);
-            match SealedCall::from_params(&params) {
+            let sealed = match SealedCall::from_params(&params) {
                 Err(message) => return rpc_error(id, INVALID_PARAMS, message),
-                Ok(Some(sealed)) => {
-                    let until = Instant::now() + deadline;
-                    return match call_sealed(
-                        owner,
-                        plugin_id,
-                        method,
-                        call_params,
-                        until,
-                        cancel,
-                        sealed,
-                        Some(forward),
-                    )
-                    .await
-                    {
-                        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                        Err(failure) => {
-                            let mut data = json!({"code": failure.code});
-                            if let Some(hint) = failure.hint {
-                                data["hint"] = Value::String(hint);
-                            }
-                            if failure.from_plugin {
-                                data["origin"] = Value::String("plugin".into());
-                            }
-                            json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "error": {
-                                    "code": PLUGIN_UNAVAILABLE,
-                                    "message": failure.message,
-                                    "data": data
-                                }
-                            })
-                        }
-                    };
+                Ok(None) => {
+                    return rpc_error(
+                        id,
+                        INVALID_PARAMS,
+                        "call must carry Core's spawn spec and authority",
+                    );
                 }
-                Ok(None) => {}
-            }
-            let tracked = owner.lock().await.lane_for_call(plugin_id);
-            let called = match tracked {
-                Ok((lane, session)) => {
-                    lane.call(session, method, call_params, deadline, None)
-                        .await
-                }
-                Err(error) => Err(error),
+                Ok(Some(sealed)) => sealed,
             };
-            match called {
+            let until = Instant::now() + deadline;
+            match call_sealed(
+                owner,
+                plugin_id,
+                method,
+                call_params,
+                until,
+                cancel,
+                sealed,
+                Some(forward),
+            )
+            .await
+            {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
+                Err(failure) => {
+                    let mut data = json!({"code": failure.code});
+                    if let Some(hint) = failure.hint {
+                        data["hint"] = Value::String(hint);
+                    }
+                    if failure.from_plugin {
+                        data["origin"] = Value::String("plugin".into());
+                    }
+                    json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": PLUGIN_UNAVAILABLE,
+                            "message": failure.message,
+                            "data": data
+                        }
+                    })
+                }
             }
         }
     }
@@ -707,68 +713,6 @@ async fn dispatch_find(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
                     "id": id,
                     "result": {"found": false, "id": plugin_id}
                 }),
-            }
-        }
-    }
-}
-
-async fn dispatch_spawn(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
-    match dispatch {
-        BridgeDispatch::Stub => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "activated": false,
-                "reason": "native-plugin-ownership-not-activated"
-            }
-        }),
-        BridgeDispatch::Live(owner) => {
-            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
-                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
-            };
-            let Some(argv) = params.get("argv").and_then(Value::as_array).map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            }) else {
-                return rpc_error(id, INVALID_PARAMS, "missing argv");
-            };
-            if argv.is_empty() {
-                return rpc_error(id, INVALID_PARAMS, "empty argv");
-            }
-            let Some(cwd) = params.get("cwd").and_then(Value::as_str) else {
-                return rpc_error(id, INVALID_PARAMS, "missing cwd");
-            };
-            let mut env = HashMap::new();
-            if let Some(object) = params.get("env").and_then(Value::as_object) {
-                for (key, value) in object {
-                    if let Some(text) = value.as_str() {
-                        env.insert(key.clone(), text.to_owned());
-                    }
-                }
-            }
-            let spec = SpawnSpec {
-                argv,
-                cwd: cwd.into(),
-                env,
-            };
-            let mut guard = owner.lock().await;
-            match guard.ensure(plugin_id, &spec) {
-                Ok(created) => {
-                    let pid = guard.find_plugin(plugin_id);
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "id": plugin_id,
-                            "created": created,
-                            "pid": pid,
-                        }
-                    })
-                }
-                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
             }
         }
     }

@@ -5,7 +5,9 @@
 //! / `PACER_HOST_BRIDGE` opt in; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
 //! is the documented escape hatch once default-on lands. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with
-//! live call/find/spawn/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
+//! live sealed call/find/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
+//! The owner's credential goes to the Core child alone ([`Guard::core_key`]):
+//! the native operations' environment never holds it.
 //! The shared owner is attached to the HTTP plugin service so native ops spawn
 //! children there instead of in TypeScript.
 //!
@@ -17,8 +19,8 @@
 //! socket is replaced. Crashes the owner sees reach Core as `crashed`.
 
 use pacer_plugin_runtime::{
-    BridgeError, CrashReport, DoorRequest, NativeHostError, NativeHostSession, SharedOwner,
-    native_plugin_host_enabled_from_env, read_owner_pid,
+    BridgeError, CrashReport, DoorRequest, HOST_SOCKET_KEY_ENV, NativeHostError, NativeHostSession,
+    SharedOwner, native_plugin_host_enabled_from_env, read_owner_pid,
 };
 use std::{
     collections::HashMap,
@@ -87,6 +89,11 @@ impl Guard {
         self.session.door_requests()
     }
 
+    /// The Core child's credential pair; add it to the Core child's env only.
+    pub(super) fn core_key(&self) -> (String, String) {
+        (HOST_SOCKET_KEY_ENV.to_owned(), self.session.key().to_hex())
+    }
+
     pub(super) async fn shutdown(self) {
         self.session.shutdown().await;
     }
@@ -105,6 +112,8 @@ pub(super) async fn maybe_start(
     pacer_home: &Path,
     env: &mut HashMap<String, String>,
 ) -> io::Result<Option<Guard>> {
+    // Only the owner this serve starts hands Core a credential.
+    env.remove(HOST_SOCKET_KEY_ENV);
     if !native_plugin_host_enabled_from_env(env) {
         return Ok(None);
     }

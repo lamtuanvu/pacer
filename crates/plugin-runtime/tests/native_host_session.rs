@@ -1,20 +1,22 @@
 #![allow(clippy::unwrap_used)]
-//! Flag-on NativeHostSession: socket appears, same-uid peer auth, live call/find
-//! against owned fixture children, clean shutdown.
+//! Flag-on NativeHostSession: socket appears, same-uid peer and credential
+//! auth, live sealed call/find against owned fixture children, clean shutdown.
+//! Callers without the credential are covered in `bridge_caller_auth`.
 //! Flag-off stays dark (no socket, no PACER_HOST_SOCKET).
 //! Wrong-uid denial remains covered by reverse_bridge::denies_untrusted_caller.
 //! Stub (no-owner) call/find stay in reverse_bridge::fixture_dial_plugin_call_and_find_stubs.
 
 use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, SpawnSpec, StartFailure, TERMINATE_GRACE,
-    native_plugin_host_enabled, serve_starts_reverse_bridge_by_default, start_lane,
+    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, OwnerKey, SpawnSpec, StartFailure,
+    TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
+    serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
 use std::{
     env, fs,
     os::unix::fs::MetadataExt,
-    path::Path,
+    path::PathBuf,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -38,12 +40,32 @@ fn peer(script: &str) -> SpawnSpec {
     }
 }
 
-async fn dial_json(path: &Path, request: Value) -> Value {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+/// A session's socket and the credential its Core holds.
+#[derive(Clone)]
+struct Dial {
+    path: PathBuf,
+    key: OwnerKey,
+}
+
+fn dial(session: &NativeHostSession) -> Dial {
+    Dial {
+        path: session.socket_path().to_path_buf(),
+        key: session.key().clone(),
+    }
+}
+
+/// Connect and prove the credential, as Core does before its request.
+async fn connect(target: &Dial) -> BufReader<UnixStream> {
+    let mut reader = BufReader::new(UnixStream::connect(&target.path).await.unwrap());
+    authenticate(&mut reader, &target.key).await.unwrap();
+    reader
+}
+
+async fn dial_json(target: &Dial, request: Value) -> Value {
+    let mut reader = connect(target).await;
     let mut bytes = serde_json::to_vec(&request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
-    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut line = Vec::new();
     reader.read_until(b'\n', &mut line).await.unwrap();
     if line.last() == Some(&b'\n') {
@@ -145,7 +167,7 @@ async fn flag_on_session_binds_socket_exports_env_and_shuts_down() {
     tokio::task::yield_now().await;
     // Live dispatch with no children: missing id is invalid params (not the stub).
     let call = dial_json(
-        &socket,
+        &dial(&session),
         json!({"jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,"params":{}}),
     )
     .await;
@@ -164,7 +186,7 @@ async fn flag_on_session_binds_socket_exports_env_and_shuts_down() {
 async fn flag_on_same_uid_peer_is_accepted() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     tokio::task::yield_now().await;
     let find = dial_json(
         &path,
@@ -184,7 +206,7 @@ async fn flag_on_same_uid_peer_is_accepted() {
 async fn live_call_and_find_against_fixture_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
 
     let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ok:true,echo:m.params||{}}}));}}"#;
     {
@@ -213,6 +235,8 @@ async fn live_call_and_find_against_fixture_under_owner() {
     .await;
     assert_eq!(missing["result"]["found"], false);
 
+    // Only Core-sealed calls run: even Core may not call a lane it did not
+    // start from its own spec.
     let call = dial_json(
         &path,
         json!({
@@ -223,21 +247,11 @@ async fn live_call_and_find_against_fixture_under_owner() {
         }),
     )
     .await;
-    assert!(call.get("error").is_none(), "{call}");
-    assert_eq!(call["result"]["ok"], true);
-    assert_eq!(call["result"]["echo"]["n"], 1);
-
-    let unknown = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":13,
-            "method":METHOD_PLUGIN_CALL,
-            "params":{"id":"absent","method":"probe","params":{}}
-        }),
-    )
-    .await;
-    assert_eq!(unknown["error"]["code"], -32002);
+    assert_eq!(call["error"]["code"], -32602, "{call}");
+    assert_eq!(
+        call["error"]["message"],
+        "call must carry Core's spawn spec and authority"
+    );
 
     {
         let mut owner = session.owner().lock().await;
@@ -250,7 +264,7 @@ async fn live_call_and_find_against_fixture_under_owner() {
 async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let note = account_home.join("note.txt");
@@ -356,10 +370,10 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let mut hang = request(38, json!(account_home));
     hang["params"]["method"] = json!("hang.forever");
     {
-        let mut stream = UnixStream::connect(&path).await.unwrap();
+        let mut stream = connect(&path).await;
         let mut bytes = serde_json::to_vec(&hang).unwrap();
         bytes.push(b'\n');
-        stream.write_all(&bytes).await.unwrap();
+        stream.get_mut().write_all(&bytes).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     let started = std::time::Instant::now();
@@ -409,7 +423,7 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
 async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let file = |name: &str| {
@@ -539,15 +553,14 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
 
 /// Dial one call; answer every owner-forwarded request with `answer` until the final reply.
 async fn dial_with_core(
-    path: &Path,
+    target: &Dial,
     request: Value,
     answer: impl Fn(&Value) -> Value,
 ) -> (Value, Vec<Value>) {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+    let mut reader = connect(target).await;
     let mut bytes = serde_json::to_vec(&request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
-    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut forwarded = Vec::new();
     loop {
         let mut line = Vec::new();
@@ -571,7 +584,7 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     use std::os::unix::fs::PermissionsExt;
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let tools = temp_home();
@@ -757,7 +770,7 @@ const ORCA_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call
 async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("plugin.js");
     fs::write(&script, ORCA_CHILD).unwrap();
@@ -949,7 +962,7 @@ const PLANNER_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',c
 async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("planner.js");
     fs::write(&script, PLANNER_CHILD).unwrap();
@@ -1171,7 +1184,7 @@ const CHUNKED_CHILD: &str = r#"try{const r=Bun.stdin.stream().getReader();let b=
 async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("chunked.js");
     fs::write(&script, CHUNKED_CHILD).unwrap();
@@ -1361,7 +1374,7 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
 async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_features() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("simple.js");
     fs::write(
@@ -1453,7 +1466,7 @@ const HELLO_FORWARD_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let 
 async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("hello-forward.js");
     fs::write(&script, HELLO_FORWARD_CHILD).unwrap();
@@ -1532,66 +1545,47 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn bridge_spawn_and_stop_under_owner() {
+async fn bridge_spawn_is_retired_and_stop_stays_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
-    let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ok:true}}));}}"#;
+    let path = dial(&session);
+    let script = r#"const reader=Bun.stdin.stream().getReader();for(;;){const {done}=await reader.read();if(done)break;}"#;
     let peer = peer(script);
     tokio::task::yield_now().await;
 
-    let spawn_params = json!({
-        "id":"fx-spawn",
-        "argv":peer.argv,
-        "cwd":peer.cwd.display().to_string(),
-        "env":peer.env,
-    });
+    // No caller starts a lane from its own spec, not even an authenticated one.
     let spawned = dial_json(
         &path,
         json!({
             "jsonrpc":"2.0",
             "id":20,
             "method":METHOD_PLUGIN_SPAWN,
-            "params":spawn_params,
-        }),
-    )
-    .await;
-    assert!(spawned.get("error").is_none(), "{spawned}");
-    assert_eq!(spawned["result"]["created"], true);
-    assert_eq!(spawned["result"]["id"], "fx-spawn");
-    assert!(spawned["result"]["pid"].as_u64().is_some());
-
-    let again = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":21,
-            "method":METHOD_PLUGIN_SPAWN,
             "params":{
                 "id":"fx-spawn",
                 "argv":peer.argv,
                 "cwd":peer.cwd.display().to_string(),
                 "env":peer.env,
-            }
+            },
         }),
     )
     .await;
-    assert_eq!(again["result"]["created"], false);
-    assert_eq!(again["result"]["pid"], spawned["result"]["pid"]);
+    assert_eq!(spawned["error"]["code"], -32601, "{spawned}");
+    assert!(
+        session
+            .owner()
+            .lock()
+            .await
+            .find_plugin("fx-spawn")
+            .is_none()
+    );
 
-    let call = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":22,
-            "method":METHOD_PLUGIN_CALL,
-            "params":{"id":"fx-spawn","method":"probe","params":{}}
-        }),
-    )
-    .await;
-    assert!(call.get("error").is_none(), "{call}");
-    assert_eq!(call["result"]["ok"], true);
-
+    // Stop serves the attached door's plugin.disable and plugin.remove.
+    session
+        .owner()
+        .lock()
+        .await
+        .spawn("fx-spawn", &peer)
+        .unwrap();
     let stopped = dial_json(
         &path,
         json!({"jsonrpc":"2.0","id":23,"method":METHOD_PLUGIN_STOP,"params":{"id":"fx-spawn"}}),
@@ -1621,7 +1615,7 @@ const UNSEALED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let
 async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("unsealed-chunk.js");
     fs::write(&script, UNSEALED_CHUNK_CHILD).unwrap();
@@ -1686,7 +1680,7 @@ const UNNEGOTIATED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader()
 async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("unnegotiated-chunk.js");
     fs::write(&script, UNNEGOTIATED_CHUNK_CHILD).unwrap();
