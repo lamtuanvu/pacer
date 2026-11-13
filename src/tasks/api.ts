@@ -507,7 +507,10 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
               "Remote executor exited after stop was requested", backend: "direct" };
         });
       });
-    } catch { /* Preserve pending remote stop for another exact reconciliation. */ }
+    } catch (error) {
+      // Preserve pending remote stop for another exact reconciliation.
+      console.error(`pacer: task ${id} remote stop reconcile failed: ${String(error)}`);
+    }
     return readTask(ctx, id) ?? t;
   }
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
@@ -614,7 +617,10 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           });
         });
       }
-    } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
+    } catch (error) {
+      // Preserve the pending intent for the next bounded reconciliation.
+      console.error(`pacer: task ${id} stop reconcile failed: ${String(error)}`);
+    }
     return readTask(ctx, id) ?? t;
   }
   const run = t.run, current = run && run.attempt > t.attempts.length;

@@ -66,12 +66,13 @@ test("rename and close use a revision and never signal an unrelated process", as
   await expect(workspace.getTerminal(ctx, terminal.id)).rejects.toMatchObject({ code: "invalid_input" });
 });
 test("terminal children do not inherit service or executor credentials", async () => {
-  const ctx = fakeCtx({env:{...process.env,PACER_WORK_GRANT:"private",PACER_INTERNAL_TOKEN:"private",PACER_ROLE:"executor"}});
+  const ctx = fakeCtx({env:{...process.env,PACER_WORK_GRANT:"private",PACER_INTERNAL_TOKEN:"private",PACER_ROLE:"executor",PACER_HOST_SOCKET:"/tmp/owner/host.sock"}});
   let spawned: Record<string,string|undefined> = {};
   await workspace.createTerminal(ctx,{requestId:"clean-env",kind:"action",title:"Safe",argv:["true"]},{start:spec=>{spawned=spec.env;return {pid:99999999};}});
   expect(spawned.PACER_WORK_GRANT).toBeUndefined();
   expect(spawned.PACER_INTERNAL_TOKEN).toBeUndefined();
   expect(spawned.PACER_ROLE).toBeUndefined();
+  expect(spawned.PACER_HOST_SOCKET).toBeUndefined();
   expect(spawned.HOME).toBe(ctx.home);
 });
 

@@ -59,11 +59,14 @@ export function detectTerminal(ctx:Ctx,platform:NodeJS.Platform=process.platform
  if(!ctx.env.DISPLAY&&!ctx.env.WAYLAND_DISPLAY)return null;
  return ['ghostty','wezterm','kitty','alacritty','gnome-terminal','x-terminal-emulator'].find(bin=>ctx.which(bin))??null;
 }
+/** A user's terminal never inherits the native owner's private socket, as `executorEnv` drops it. */
+export function viewerEnv(env:Ctx['env']):Ctx['env']{const {PACER_HOST_SOCKET:_,...rest}=env;return rest;}
 /** GUI terminals may remain in the foreground for the lifetime of the window. */
 export async function launchViewer(ctx:Ctx,argv:string[],verifyExit=false):Promise<boolean>{
  try{
-  if(verifyExit)return (await ctx.run(argv,15_000,{env:ctx.env})).code===0;
-  const proc=Bun.spawn(argv,{env:ctx.env,stdin:'ignore',stdout:'ignore',stderr:'ignore',detached:true});
+  const env=viewerEnv(ctx.env);
+  if(verifyExit)return (await ctx.run(argv,15_000,{env})).code===0;
+  const proc=Bun.spawn(argv,{env,stdin:'ignore',stdout:'ignore',stderr:'ignore',detached:true});
   const status=await Promise.race([proc.exited,Bun.sleep(100).then(()=>null)]);
   proc.unref();return status===null||status===0;
  }catch{return false;}

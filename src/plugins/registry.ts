@@ -113,6 +113,10 @@ const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
 const NATIVE_WRITE_METHODS = ["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"];
 /** Core holds the Orca attempt session, so every Orca effect of an attempt call is answered by Core. */
 const NATIVE_ORCA_METHODS = Object.keys(ORCA_CAPABILITY_METHODS);
+/** A detached stop, inspection or remote stop grant stays in Core, which consumes it once as flag-off does. */
+const NATIVE_DETACHED_STOP_METHOD = "capability.process.stopRun";
+const NATIVE_DETACHED_INSPECT_METHOD = "capability.process.inspectRun";
+const NATIVE_REMOTE_STOP_METHOD = "capability.hosts.stopOwned";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -2545,7 +2549,7 @@ export class PluginRegistry {
     const issued = options.resources;
     if (issued?.hosts?.length)
       throw new CoreError("plugin_unavailable", `${method} needs hosts resources, which the native process owner bridge does not serve`);
-    const { orcaAttempt, orcaLive } = issued ?? {};
+    const { orcaAttempt, orcaLive, detachedStop, detachedInspect, remoteStop } = issued ?? {};
     const writes = issued?.writes?.length ? issued.writes : undefined;
     const point = method.split(".")[0]!;
     // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
@@ -2562,7 +2566,8 @@ export class PluginRegistry {
         await checkPlannerGeneration();
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
-        // Writes are answered by Core (`coreMethods`), so the owner is never issued them.
+        // Writes and the detached stop, inspection and remote stop grants are answered by Core (`coreMethods`),
+        // so the owner is never issued them (`sealProvided` carries neither).
         const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
         const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome,
           plannerResources: lease !== undefined, credentialBindings: credentialBound,
@@ -2583,7 +2588,9 @@ export class PluginRegistry {
         const chunked = method === "usage.read" || effects;
         const scopedCoreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
           ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
-          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
+          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : []),
+          ...(detachedStop ? [NATIVE_DETACHED_STOP_METHOD] : []), ...(detachedInspect ? [NATIVE_DETACHED_INSPECT_METHOD] : []),
+          ...(remoteStop ? [NATIVE_REMOTE_STOP_METHOD] : [])];
         // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
         // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner. Core also
         // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
@@ -2591,7 +2598,9 @@ export class PluginRegistry {
         const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
           "capability.identity.sign"];
         const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
-          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
+          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}),
+          ...(detachedStop ? { detachedStop } : {}), ...(detachedInspect ? { detachedInspect } : {}),
+          ...(remoteStop ? { remoteStop } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
@@ -2613,6 +2622,13 @@ export class PluginRegistry {
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
         let transferStarted = false;
+        // Of flag-off `answerHosts`, only the direct executor's issued remote stop is answered for an owner call.
+        const hostBroker = remoteStop ? async (name: string, params: unknown, authority: CallAuthority) => {
+          authority.assertGranted("hosts");
+          if (e.id !== "pacer-exec-direct" || name !== NATIVE_REMOTE_STOP_METHOD)
+            throw new CoreError("capability_denied", "direct executor has no general SSH broker authority");
+          return answerOwnedRemoteStop(authority, params as { taskId: string; attempt: number; graceMs: number });
+        } : undefined;
         const onRequest = coreMethods.length ? ((name: string, params: unknown, request: number) => {
           if (name === RESULT_CHUNK_METHOD) {
             if (params && typeof params === "object" && "request" in params && params.request !== request)
@@ -2629,7 +2645,7 @@ export class PluginRegistry {
             return staging.stage(parsed.data.offset, parsed.data.base64);
           }
           return coreMethods.includes(name)
-            ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
+            ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport, hostBroker)
             : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
         }) : undefined;
         const call: NativeOwnerCall = {
