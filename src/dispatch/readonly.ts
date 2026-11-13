@@ -1,6 +1,6 @@
 import { CoreError } from "../core/errors";
-import { Database } from "bun:sqlite";
-import { existsSync, statSync } from "node:fs";
+import { Database, constants } from "bun:sqlite";
+import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -10,43 +10,78 @@ import { observationSchema, type Observation } from "./types";
  * A read-only view of the task store for `dispatch.explain`. Unlike `taskDatabase`, opening it
  * creates no file, runs no DDL, sets no journal mode and imports no legacy JSON. A missing
  * store, or a store without a table, reads as empty and says so through `available`.
+ *
+ * A WAL-mode store needs `-wal` and `-shm` to be read normally: SQLite creates them when
+ * `state/` is writable, and the first read fails when it is not (or always, with the system
+ * SQLite on macOS). A WAL-mode store whose WAL is absent or empty has nothing to miss, so when
+ * either file is absent it is opened `immutable`. Otherwise the plain open and its first read
+ * run first, and a WAL-mode store with an empty WAL falls back to `immutable` if either fails.
+ * The one file SQLite may still create is `-shm` beside a WAL with content whose index was
+ * removed. Mirrored by `pacer_store::read_only`.
  */
 export interface ReadOnlyStore {
   readonly available: boolean;
-  /** True only for the cleanly closed WAL fallback, which cannot observe a later WAL. */
+  /** True only for the `immutable` snapshot, which cannot observe a later write; keep such a handle short-lived. */
   immutable: boolean;
   refresh(): void;
   has(table: string): boolean;
   query<T>(sql: string, ...bindings: (string | number)[]): T[];
   close(): void;
 }
+class ReadFailure extends Error {}
+const readTables = (db: Database) => new Set(db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
+/**
+ * The header says WAL mode (read version 2). Closing any descriptor on a file releases every
+ * POSIX lock this process holds on it, SQLite's included, so this runs only while `-wal` or
+ * `-shm` is absent: no WAL connection, here or elsewhere, has the store open then.
+ */
+function walMode(path: string): boolean {
+  let fd: number | undefined;
+  try {
+    fd = openSync(path, "r");
+    const header = Buffer.alloc(20);
+    return readSync(fd, header, 0, 20, 0) === 20 && header.toString("latin1", 0, 16) === "SQLite format 3\0" && header[19] === 2;
+  } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
+}
+/**
+ * Opens and reads the table list. A failed first read closes the handle and throws `ReadFailure`.
+ * `bun:sqlite` passes no `SQLITE_OPEN_URI`, and Bun's bundled SQLite on Linux is built without
+ * `SQLITE_USE_URI`, so the `immutable` URI needs the flag. Numeric flags drop `strict` binding,
+ * which the positional `?` bindings here do not use.
+ */
+function attempt(target: string, immutable: boolean): { db: Database; tables: Set<string>; immutable: boolean } {
+  const db = immutable ? new Database(target, constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI) : new Database(target, { readonly: true, strict: true });
+  try { db.run("PRAGMA query_only = ON"); } catch (error) { db.close(); throw error; }
+  try { return { db, tables: readTables(db), immutable }; } catch (error) { db.close(); throw new ReadFailure(String(error)); }
+}
+function connect(path: string) {
+  const size = (suffix: string) => { try { return statSync(path + suffix).size; } catch { return undefined; } };
+  const wal = size("-wal");
+  const sidecarMissing = wal === undefined || size("-shm") === undefined;
+  const emptyWal = !wal && (!sidecarMissing || walMode(path));
+  const immutable = () => attempt(`file:${path.replace(/[%?#]/g, encodeURIComponent)}?mode=ro&immutable=1`, true);
+  if (emptyWal && sidecarMissing) return immutable();
+  try { return attempt(path, false); }
+  catch (error) { if (!emptyWal) throw error; return immutable(); }
+}
 export function openReadOnlyStore(ctx: Ctx, strict = false): ReadOnlyStore {
   const path = resolve(ctx.pacerHome, "state", "tasks.db");
   let db = null as Database | null;
   let immutable = false;
-  const open = (target: string, options: ConstructorParameters<typeof Database>[1]) => { const d = new Database(target, options); d.run("PRAGMA query_only = ON"); return d; };
-  try {
-    if (existsSync(path)) {
-      try { db = open(path, { readonly: true, strict: true }); }
-      catch (error) {
-        // A cleanly closed WAL database has no -wal/-shm files, which a read-only handle cannot create.
-        // With no WAL content to miss, an immutable handle reads it safely.
-        const wal = `${path}-wal`;
-        if (existsSync(wal) && statSync(wal).size > 0) throw error;
-        db = open(`file:${path}?mode=ro&immutable=1`, { readonly: true, strict: true });
-        immutable = true;
-      }
-    }
-  } catch { db?.close(); db = null; if(strict)throw new CoreError("conflict","Session reservations are unavailable; retry before changing workspaces"); }
   let tables = new Set<string>();
-  const readTables = () => new Set(db!.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
-  if (db) try { tables = readTables(); } catch { if(strict){db.close();throw new CoreError("conflict","Session reservations are unreadable");} /* previews read empty */ }
+  if (existsSync(path)) {
+    try { ({ db, tables, immutable } = connect(path)); }
+    catch (error) {
+      if (strict) throw new CoreError("conflict", error instanceof ReadFailure ? "Session reservations are unreadable" : "Session reservations are unavailable; retry before changing workspaces");
+      /* previews read empty */
+    }
+  }
   return {
     get available() { return db !== null && tables.has("tasks"); },
     immutable,
     refresh: () => {
       if (!db) return;
-      try { tables = readTables(); }
+      try { tables = readTables(db); }
       catch { tables = new Set(); if (strict) throw new CoreError("conflict", "Session reservations are unreadable"); }
     },
     has: t => tables.has(t),

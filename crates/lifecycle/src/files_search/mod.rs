@@ -6,8 +6,8 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
 };
+use pacer_store::read_only::open_read_only;
 use regex::Regex;
-use rusqlite::{Connection, OpenFlags};
 use serde_json::{Map, Value, json};
 use std::{
     cmp::Ordering,
@@ -378,48 +378,15 @@ fn list_tracked(env: &HashMap<String, String>, root: &str) -> Arc<Listing> {
 /// `openReadOnlyStore` + `runningTasksReadOnly`: any failure reads as no running tasks.
 fn running_tasks(pacer_home: &Path) -> Vec<Value> {
     let path = pacer_home.join("state").join("tasks.db");
-    if !path.exists() {
+    let Ok(Some(store)) = open_read_only(&path) else {
+        return Vec::new();
+    };
+    if !store.tables.contains("tasks") {
         return Vec::new();
     }
-    let open = |target: &str, flags: OpenFlags| -> rusqlite::Result<Connection> {
-        let db = Connection::open_with_flags(target, flags)?;
-        db.execute_batch("PRAGMA query_only = ON")?;
-        Ok(db)
-    };
-    let display = path.to_string_lossy();
-    let db = match open(
-        &display,
-        OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-    ) {
-        Ok(db) => db,
-        Err(_) => {
-            let wal = pacer_home.join("state").join("tasks.db-wal");
-            if std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0) {
-                return Vec::new();
-            }
-            let uri = format!("file:{display}?mode=ro&immutable=1");
-            match open(
-                &uri,
-                OpenFlags::SQLITE_OPEN_READ_ONLY
-                    | OpenFlags::SQLITE_OPEN_URI
-                    | OpenFlags::SQLITE_OPEN_NO_MUTEX,
-            ) {
-                Ok(db) => db,
-                Err(_) => return Vec::new(),
-            }
-        }
-    };
-    let has_tasks = db
-        .prepare("SELECT name FROM sqlite_master WHERE type='table'")
-        .and_then(|mut stmt| {
-            let names = stmt.query_map([], |row| row.get::<_, String>(0))?;
-            Ok(names.flatten().any(|name| name == "tasks"))
-        })
-        .unwrap_or(false);
-    if !has_tasks {
-        return Vec::new();
-    }
-    db.prepare("SELECT record FROM tasks WHERE state='running' ORDER BY id DESC")
+    store
+        .db
+        .prepare("SELECT record FROM tasks WHERE state='running' ORDER BY id DESC")
         .and_then(|mut stmt| {
             let rows = stmt.query_map([], |row| row.get::<_, String>(0))?;
             Ok(rows

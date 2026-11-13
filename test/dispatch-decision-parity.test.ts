@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Strategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
@@ -403,4 +403,61 @@ describe("read-only task store", () => {
     expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
     expect(existsSync(join(missing, "state"))).toBe(false);
   });
+
+  /** This process's POSIX locks on `path`, or null without `/proc/locks` (macOS). */
+  function heldLocks(path: string): number | null {
+    if (!existsSync("/proc/locks")) return null;
+    const inode = statSync(path, { bigint: true }).ino.toString();
+    return readFileSync("/proc/locks", "utf8").split("\n").map(line => line.trim().split(/\s+/))
+      .filter(f => f[4] === String(process.pid) && f[5]?.split(":")[2] === inode).length;
+  }
+
+  // pacer-store, rusqlite and Linux remove -wal and -shm on a clean close; the macOS
+  // system SQLite keeps them, so the seed removes them to match. The rollback store is
+  // locked from another process, as a writer would hold it: closing any descriptor on a
+  // file releases this process's own POSIX locks on it, and the opener reads the header
+  // of a store that has no WAL.
+  test("reads cleanly closed, live and locked stores without creating files", async () => {
+    const tasks = `CREATE TABLE tasks(id TEXT PRIMARY KEY, state TEXT, record TEXT); INSERT INTO tasks VALUES ('t1','running','{"id":"t1"}');`;
+    const closed = (readOnly: boolean, name = "") => {
+      const home = join(tmpDir(), name);
+      seed(home, `PRAGMA journal_mode=WAL; ${tasks}`);
+      for (const suffix of ["-wal", "-shm"]) rmSync(join(home, "state", `tasks.db${suffix}`), { force: true });
+      if (readOnly) chmodSync(join(home, "state"), 0o555);
+      return home;
+    };
+    const writable = closed(false), readOnly = closed(true), special = closed(false, "s?p#e%c x");
+    const live = tmpDir();
+    mkdirSync(join(live, "state"));
+    const writer = new Database(join(live, "state", "tasks.db"));
+    writer.exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; ${tasks}`);
+    const locked = tmpDir();
+    seed(locked, tasks);
+    const lock = Bun.spawn([process.execPath, "-e", `import { Database } from "bun:sqlite";
+      const db = new Database(${JSON.stringify(join(locked, "state", "tasks.db"))}); db.exec("BEGIN EXCLUSIVE");
+      console.log("locked"); await Bun.stdin.text(); db.close();`], { stdin: "pipe", stdout: "pipe" });
+    const homes = [writable, readOnly, special, live, locked];
+    const files = () => homes.map(home => readdirSync(join(home, "state")).sort());
+    try {
+      expect(new TextDecoder().decode((await lock.stdout.getReader().read()).value)).toBe("locked\n");
+      const before = files();
+      expect(before.slice(0, 3)).toEqual([["tasks.db"], ["tasks.db"], ["tasks.db"]]);
+      const held = heldLocks(join(live, "state", "tasks.db"));
+      const cases = homes.flatMap(home => [[home, false], [home, true]] as const);
+      const expected = cases.map(([pacerHome, strict]) => ts(pacerHome, strict));
+      if (held !== null) expect([held > 0, heldLocks(join(live, "state", "tasks.db"))]).toEqual([true, held]);
+      const read = (immutable: boolean) => ({ available: true, immutable, running: [{ id: "t1" }] });
+      expect(expected.slice(0, 6)).toMatchObject(Array(6).fill(read(true)));
+      expect(expected.slice(6, 8)).toMatchObject(Array(2).fill(read(false)));
+      expect(expected[8]).toMatchObject({ available: false, running: [] });
+      expect(expected[9]).toEqual({ error: { code: "conflict", message: "Session reservations are unreadable" } });
+      expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
+      expect(files()).toEqual(before);
+    } finally {
+      writer.close();
+      lock.kill();
+      await lock.exited;
+      chmodSync(join(readOnly, "state"), 0o755);
+    }
+  }, 60_000);
 });
