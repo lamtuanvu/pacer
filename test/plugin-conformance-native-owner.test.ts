@@ -75,8 +75,7 @@ afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, fo
 
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
 const ROUTED_HTTP = "routed: for any owner call without host resources, such as a diagnostic ping, Core auto-issues a granted manifest's exact net.http hosts and exact fs.read paths (autoIssueFromManifest), so the owner serves them; TypeScript refuses every scoped capability outside an owning call";
-const ROUTED_OBSERVATIONS = "routed: the owner refuses the observation bootstrap for plugin.doctor (`observation owner or transport was not issued`)";
-const ROUTED_REENTRANT = "routed: the owner runs one call at a time per plugin even when the manifest sets reentrant; overlapping calls would need call-scoped capability sessions per call, not one per plugin";
+const ROUTED_OBSERVATIONS = "routed: the owner admits the observation bootstrap call, but no task or activity event reaches the plugin's callback until the owner runs observation generations";
 const STDERR_DROPPED = "reported: the owner starts plugin children with stderr discarded, so no stderr line reaches the plugin log (a parity fix exceeds this PR's fix budget)";
 const ROUTED_MESSAGE = "routed: the owner refuses with the Rust broker's message (`capability is not granted to the owning call: … was not issued`), TypeScript with `scoped capability requires an active owning call`";
 
@@ -96,7 +95,10 @@ test("the native owner subset names existing conformance cases", () => expect(su
 const listed = async (h: HostClient) => (await h.call<{ plugins: { id: string; state: string; pid: number | null }[] }>("plugin.list")).plugins;
 const doctor = async (h: HostClient, id: string) => (await h.call<{ reports: { ok: boolean; pid: number | null; error: string | null }[] }>("plugin.doctor", { id })).reports[0]!;
 
-/** The two PID_NULL cases with every pid check replaced by what the owner reports instead. */
+/**
+ * The two PID_NULL cases with every pid check replaced by what the owner reports instead, and the
+ * observations cases' bootstrap call without their event assertions (ROUTED_OBSERVATIONS).
+ */
 const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
   { name: "lazy start without pids: list starts nothing, doctor makes the plugin ready", async run(t) {
     t.install("good");
@@ -107,8 +109,8 @@ const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
     assert(r.ok && r.pid === null, `doctor starts the plugin; the owner's pid is not reported (got ${JSON.stringify(r)})`);
     assert((await listed(h)).find(p => p.id === "fx-good")?.state === "ready", "the plugin is ready after the first call");
   } },
-  ...([["fx-serial", "serial", null], ["fx-reentrant", "barrier", ROUTED_REENTRANT]] as const).map(([id, probe, reason]): ConformanceCase & { reason: string | null } => ({
-    name: `serialisation without pids: ${id} ${probe === "serial" ? "runs one call at a time" : "overlaps two calls"}`, reason, async run(t) {
+  ...([["fx-serial", "serial"], ["fx-reentrant", "barrier"]] as const).map(([id, probe]): ConformanceCase => ({
+    name: `serialisation without pids: ${id} ${probe === "serial" ? "runs one call at a time" : "overlaps two calls"}`, async run(t) {
       t.install(id === "fx-serial" ? "serial" : "reentrant", { fixture: { pingProbe: probe, ...(probe === "barrier" ? { barrierTimeoutMs: 3000 } : {}) } });
       const h = await t.host();
       await h.call("plugin.enable", { id, grant: true });
@@ -123,6 +125,14 @@ const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
       assertPingReceipts(readFileSync(join(t.pluginsDir, id, "ping-receipts.jsonl"), "utf8"), probe === "barrier");
     },
   })),
+  { name: "observation bootstrap: plugin.doctor answers the sealed observation call", async run(t) {
+    t.install("observations");
+    writeFileSync(join(t.home, ".pacer", "strategy.yaml"), "planner: claude-code\nproviders: {claude-code: {}}\nplugins:\n  config:\n    fx-observations:\n      types: [task]\n");
+    const h = await t.host({ subscribe: false });
+    await h.call("plugin.enable", { id: "fx-observations", grant: true });
+    const r = await doctor(h, "fx-observations");
+    assert(r.ok, `the owner answers the observation bootstrap (got ${r.error})`);
+  } },
 ];
 
 const cases = (reason: string | null) => !front ? test.skip : reason ? test.failing : test;

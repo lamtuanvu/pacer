@@ -99,6 +99,8 @@ test("Core records a native owner's crash report as its own exit, and only with 
     const owning = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "s0123456789ab.sock") } });
     expect(fx(await crashed(owning, "exited with code 3", true))).toMatchObject({ state: "idle", restarts: 1, error: "exited with code 3" });
     const spec = (await pluginNativeRequest(on, { kind: "spawn_spec", id: "fx-ui" }) as any).value;
+    // The door reports `ready` for a child it finds ready only while Core lists it otherwise.
+    expect(spec.state).toBe("idle");
     expect(spec.nextStartAt).toBeGreaterThanOrEqual(before + 1000);
     expect(spec.nextStartAt).toBeLessThanOrEqual(Date.now() + 1000);
     expect(fx(await crashed(on, "exited on SIGKILL"))).toMatchObject({ state: "idle", restarts: 2 });
