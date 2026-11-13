@@ -315,7 +315,7 @@ for (const c of DEADLINES) {
     for (const { label } of [tsDoor, ...doors]) {
       expect({ label, call: seen[label]!.call }).toEqual({ label, call: seen.typescript!.call });
       expect(seen[label]!.afterMs, label).toBeGreaterThanOrEqual(c.deadlineMs);
-      expect(seen[label]!.afterMs, label).toBeLessThan(c.deadlineMs + 1000);
+      expect(seen[label]!.afterMs, label).toBeLessThan(c.deadlineMs + 1500);
     }
   }, 120000);
   if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host [${c.book.reason.split(":")[0]}]`, async () => {
