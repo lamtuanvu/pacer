@@ -163,9 +163,10 @@ jobs:
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
           git tag -a "$tag" "$release_sha" -m "pacer $version"
           if test -n "${RECOVERY_DRY_RUN_ID:-}"; then
-            remote_main=$(git ls-remote origin refs/heads/main | cut -f 1)
-            test "$remote_main" = "$release_sha" \
-              || { echo '::error::Main advanced during recovery validation; refusing to tag'; exit 1; }
+            # The tag names the validated commit, so later merges are fine; a rewritten main is not.
+            git fetch --no-tags origin main
+            git merge-base --is-ancestor "$release_sha" origin/main \
+              || { echo '::error::Validated commit is no longer on main; refusing to tag'; exit 1; }
           fi
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.extraheader=$auth" push origin "refs/tags/$tag"

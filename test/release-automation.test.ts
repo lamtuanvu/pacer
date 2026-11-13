@@ -313,7 +313,7 @@ test("Recovery validates and tags a later main commit containing a CI fix", () =
   expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(fixed);
 });
 
-test("Recovery refuses to tag if main advances after its dry run", () => {
+test("Recovery tags the validated commit even if main advances after its dry run", () => {
   const { work, origin } = recoveryFixture();
   expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
   expect(recoveryStep(work, validateRecovery, recoveryEnv(work)).exitCode).toBe(0);
@@ -323,8 +323,22 @@ test("Recovery refuses to tag if main advances after its dry run", () => {
   git(work, "push", "--quiet", "origin", "main");
   git(work, "switch", "--detach", "--quiet", validated.RELEASE_COMMIT!);
   const result = runTag(work, validated.RELEASE_COMMIT!, "chore: release 0.5.0 (#220)", validated);
+  expect(result.exitCode).toBe(0);
+  expect(git(origin, "rev-parse", "v0.5.0^{commit}")).toBe(validated.RELEASE_COMMIT!);
+});
+
+test("Recovery refuses to tag once main no longer contains the validated commit", () => {
+  const { work, origin } = recoveryFixture();
+  expect(recoveryStep(work, resolveRecovery).exitCode).toBe(0);
+  expect(recoveryStep(work, validateRecovery, recoveryEnv(work)).exitCode).toBe(0);
+  const validated = recoveryEnv(work);
+  git(work, "switch", "--quiet", "--orphan", "rewritten");
+  git(work, "commit", "--allow-empty", "--quiet", "-m", "fix: rewritten main");
+  git(work, "push", "--quiet", "--force", "origin", "rewritten:main");
+  git(work, "switch", "--detach", "--quiet", validated.RELEASE_COMMIT!);
+  const result = runTag(work, validated.RELEASE_COMMIT!, "chore: release 0.5.0 (#220)", validated);
   expect(result.exitCode).not.toBe(0);
-  expect(result.stdout.toString()).toContain("Main advanced during recovery validation");
+  expect(result.stdout.toString()).toContain("Validated commit is no longer on main");
   expect(git(origin, "tag", "--list")).toBe("");
 });
 
