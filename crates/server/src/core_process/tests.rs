@@ -1,5 +1,7 @@
+#![allow(clippy::unwrap_used)]
+
 use super::*;
-use pacer_plugin_runtime::HOST_SOCKET_ENV;
+use pacer_plugin_runtime::{HOST_SOCKET_ENV, OwnerKey};
 
 fn map(pairs: &[(&str, &str)]) -> HashMap<String, String> {
     pairs
@@ -72,13 +74,16 @@ fn stdio_applies_the_host_socket_decision() {
     assert_eq!(socket(&HostSocket::Inherit), Some("/inherited.sock".into()));
     assert_eq!(socket(&HostSocket::Unset), None);
     assert_eq!(
-        socket(&HostSocket::Set("/owned.sock".into())),
+        socket(&HostSocket::Set(
+            "/owned.sock".into(),
+            OwnerKey::generate().unwrap()
+        )),
         Some("/owned.sock".into())
     );
     let set = stdio_env(
         inherited.clone(),
         &HashMap::new(),
-        &HostSocket::Set("/owned.sock".into()),
+        &HostSocket::Set("/owned.sock".into(), OwnerKey::generate().unwrap()),
     );
     assert!(!set.contains_key(OsStr::new("PACER_HOST_SOCKET_KEY")));
 }
