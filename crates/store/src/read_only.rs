@@ -18,14 +18,17 @@ use std::path::Path;
 pub struct ReadOnlyConnection {
     pub db: Connection,
     pub tables: HashSet<String>,
-    /// Opened `immutable`: a snapshot that cannot observe a later WAL.
+    /// Opened `immutable`: a snapshot that cannot observe a later write, so
+    /// such a handle should be short-lived.
     pub immutable: bool,
 }
 
 /// Which step failed: opening the store, or its first read.
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum ReadOnlyError {
+    #[error("read-only task store could not be opened: {0}")]
     Open(rusqlite::Error),
+    #[error("read-only task store could not be read: {0}")]
     Read(rusqlite::Error),
 }
 
@@ -36,7 +39,10 @@ pub fn read_tables(db: &Connection) -> rusqlite::Result<HashSet<String>> {
     names.collect()
 }
 
-/// The database header says WAL mode (read version 2).
+/// The database header says WAL mode (read version 2). Closing any descriptor
+/// on a file releases every POSIX lock this process holds on it, SQLite's
+/// included, so this runs only while `-wal` or `-shm` is absent: no WAL
+/// connection, here or elsewhere, has the store open then.
 fn wal_mode(path: &Path) -> bool {
     let mut header = [0u8; 20];
     std::fs::File::open(path)
@@ -80,12 +86,14 @@ pub fn open_read_only(path: &Path) -> Result<Option<ReadOnlyConnection>, ReadOnl
         std::fs::metadata(name).ok()
     };
     let wal = sidecar("-wal");
-    let empty_wal = wal_mode(path) && wal.as_ref().is_none_or(|m| m.len() == 0);
+    let sidecar_missing = wal.is_none() || sidecar("-shm").is_none();
+    let empty_wal =
+        wal.as_ref().is_none_or(|m| m.len() == 0) && (!sidecar_missing || wal_mode(path));
     let immutable = || {
         let uri = format!("file:{}?mode=ro&immutable=1", uri_path(path));
         attempt(&uri, flags | OpenFlags::SQLITE_OPEN_URI, true)
     };
-    if empty_wal && (wal.is_none() || sidecar("-shm").is_none()) {
+    if empty_wal && sidecar_missing {
         return immutable().map(Some);
     }
     match attempt(&path.to_string_lossy(), flags, false) {
@@ -147,6 +155,23 @@ mod tests {
         }
     }
 
+    /// This process's POSIX locks on `path`, from `/proc/locks`.
+    #[cfg(target_os = "linux")]
+    fn held_locks(path: &Path) -> usize {
+        use std::os::unix::fs::MetadataExt;
+        let inode = std::fs::metadata(path).unwrap().ino().to_string();
+        let pid = std::process::id().to_string();
+        std::fs::read_to_string("/proc/locks")
+            .unwrap()
+            .lines()
+            .map(|line| line.split_whitespace().collect::<Vec<_>>())
+            .filter(|f| {
+                f.get(4) == Some(&pid.as_str())
+                    && f.get(5).and_then(|d| d.rsplit(':').next()) == Some(inode.as_str())
+            })
+            .count()
+    }
+
     #[test]
     fn reads_a_live_wal_through_the_writer() {
         let dir = tempfile::tempdir().unwrap();
@@ -155,9 +180,17 @@ mod tests {
         writer
             .execute_batch("PRAGMA wal_autocheckpoint=0; INSERT INTO tasks VALUES ('t2');")
             .unwrap();
+        #[cfg(target_os = "linux")]
+        let held = held_locks(&path);
         let store = open_read_only(&path).unwrap().unwrap();
         assert!(!store.immutable);
         assert_eq!(count(&store), 2);
+        drop(store);
+        #[cfg(target_os = "linux")]
+        assert!(
+            held > 0 && held_locks(&path) == held,
+            "the writer's locks were released"
+        );
     }
 
     #[test]

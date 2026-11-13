@@ -1,5 +1,5 @@
 import { CoreError } from "../core/errors";
-import { Database } from "bun:sqlite";
+import { Database, constants } from "bun:sqlite";
 import { closeSync, existsSync, openSync, readSync, statSync } from "node:fs";
 import { resolve } from "node:path";
 import type { TaskRecord } from "../tasks/types";
@@ -21,7 +21,7 @@ import { observationSchema, type Observation } from "./types";
  */
 export interface ReadOnlyStore {
   readonly available: boolean;
-  /** True only for the `immutable` snapshot, which cannot observe a later WAL. */
+  /** True only for the `immutable` snapshot, which cannot observe a later write; keep such a handle short-lived. */
   immutable: boolean;
   refresh(): void;
   has(table: string): boolean;
@@ -30,7 +30,11 @@ export interface ReadOnlyStore {
 }
 class ReadFailure extends Error {}
 const readTables = (db: Database) => new Set(db.query<{ name: string }, []>("SELECT name FROM sqlite_master WHERE type='table'").all().map(r => r.name));
-/** The header says WAL mode (read version 2). */
+/**
+ * The header says WAL mode (read version 2). Closing any descriptor on a file releases every
+ * POSIX lock this process holds on it, SQLite's included, so this runs only while `-wal` or
+ * `-shm` is absent: no WAL connection, here or elsewhere, has the store open then.
+ */
 function walMode(path: string): boolean {
   let fd: number | undefined;
   try {
@@ -39,18 +43,24 @@ function walMode(path: string): boolean {
     return readSync(fd, header, 0, 20, 0) === 20 && header.toString("latin1", 0, 16) === "SQLite format 3\0" && header[19] === 2;
   } catch { return false; } finally { if (fd !== undefined) closeSync(fd); }
 }
-/** Opens and reads the table list. A failed first read closes the handle and throws `ReadFailure`. */
+/**
+ * Opens and reads the table list. A failed first read closes the handle and throws `ReadFailure`.
+ * `bun:sqlite` passes no `SQLITE_OPEN_URI`, and Bun's bundled SQLite on Linux is built without
+ * `SQLITE_USE_URI`, so the `immutable` URI needs the flag. Numeric flags drop `strict` binding,
+ * which the positional `?` bindings here do not use.
+ */
 function attempt(target: string, immutable: boolean): { db: Database; tables: Set<string>; immutable: boolean } {
-  const db = new Database(target, { readonly: true, strict: true });
+  const db = immutable ? new Database(target, constants.SQLITE_OPEN_READONLY | constants.SQLITE_OPEN_URI) : new Database(target, { readonly: true, strict: true });
   try { db.run("PRAGMA query_only = ON"); } catch (error) { db.close(); throw error; }
   try { return { db, tables: readTables(db), immutable }; } catch (error) { db.close(); throw new ReadFailure(String(error)); }
 }
 function connect(path: string) {
   const size = (suffix: string) => { try { return statSync(path + suffix).size; } catch { return undefined; } };
   const wal = size("-wal");
-  const emptyWal = walMode(path) && !wal;
+  const sidecarMissing = wal === undefined || size("-shm") === undefined;
+  const emptyWal = !wal && (!sidecarMissing || walMode(path));
   const immutable = () => attempt(`file:${path.replace(/[%?#]/g, encodeURIComponent)}?mode=ro&immutable=1`, true);
-  if (emptyWal && (wal === undefined || size("-shm") === undefined)) return immutable();
+  if (emptyWal && sidecarMissing) return immutable();
   try { return attempt(path, false); }
   catch (error) { if (!emptyWal) throw error; return immutable(); }
 }
