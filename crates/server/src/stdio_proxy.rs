@@ -355,6 +355,11 @@ async fn forward_input<
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::strategy_settings_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {

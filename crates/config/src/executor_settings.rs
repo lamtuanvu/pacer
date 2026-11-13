@@ -12,7 +12,8 @@ use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{collections::HashSet, fs, path::Path};
 
-fn revision(text: &str) -> String {
+/// `strategyRevision`: the strategy file's sha256, shared by every revision-checked settings edit.
+pub fn revision(text: &str) -> String {
     hex::encode(Sha256::digest(text.as_bytes()))
 }
 
