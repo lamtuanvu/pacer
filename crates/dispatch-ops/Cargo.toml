@@ -10,6 +10,7 @@ rust-version.workspace = true
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
 pacer-config = { path = "../config" }
+pacer-dispatch = { path = "../dispatch" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-store = { path = "../store" }
 rusqlite = { version = "0.41", features = ["bundled"] }

@@ -32,6 +32,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
 | `crates/js-json` | `pacer-js-json`: JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form), `JSON.stringify` bytes and JS value helpers; layer 1 |
 | `crates/models` | `pacer-models`: runner model listings and the `runner.set` model check (OpenCode listing cache, endpoint connection models, closest-model suggestions); OpenCode discovery lands here in M2 wave 4; layer 4 |
+| `crates/dispatch` | `pacer-dispatch`: the dispatch decision library (model inventory, candidates, decision hash, tier choice, ladder engine, read-only task store view, status-cache observations); library only, used by `pacer-dispatch-ops`; layer 6 |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/desktop-protocol` | `pacer-desktop-protocol`: generated desktop capture and update operation types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
