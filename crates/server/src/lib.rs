@@ -1,5 +1,6 @@
 //! Client protocol transports and native operation dispatch.
 pub use pacer_mcp as mcp;
+mod core_process;
 pub mod native;
 mod stdio_plugins;
 mod stdio_proxy;

@@ -46,12 +46,12 @@ export const configSteps = [
   {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  claude: {kind: claude}", `  claude: {padding: "${"x".repeat(100)}", kind: claude, kind: claude}`)},
   {op:"runner.set",params:{id:"codex",enabled:false},error:"invalid_input",fixture:golden.initial.replace("  codex: {kind: codex}", "  codex: {kind: codex}\n  &k codex: {kind: codex}")},
   {op:"runner.set",params:{id:"codex",enabled:true},fixture:golden.initial},
-  // Model checks: connection models and a fresh OpenCode listing are native; a stale listing forwards to `opencode models`.
+  // Model checks: connection models, a fresh OpenCode listing and a stale one (listed through the stand-in `opencode models`) are native.
   {op:"runner.set",params:{id:"opencode#acme",model:"pacer-acme/xa"},fixture:models},
   {op:"runner.set",params:{id:"opencode#acme",model:"pacer-acme/x😀"},error:"invalid_input",hint:"Available: pacer-acme/x😁, pacer-acme/xa, pacer-acme/a"},
   {op:"runner.set",params:{id:"opencode#oc",model:"acme/b",max_tasks:2},cache:listing(0)},
   {op:"runner.set",params:{id:"opencode#oc",model:"acme/zz"},error:"invalid_input",hint:"Available: acme/zy, acme/a, acme/b"},
-  {op:"runner.set",params:{id:"opencode#oc",model:"acme/c"},cache:listing(601),forwards:true},
+  {op:"runner.set",params:{id:"opencode#oc",model:"acme/c"},cache:listing(601),discovers:true},
 ] as const;
 
 function normalized(value: unknown, home: string): unknown {
@@ -162,7 +162,7 @@ function checkReply(step: typeof configSteps[number], reply: {error?:{code:strin
 function checkTrace(trace: string, forwarded: boolean) {
   for (const op of new Set(configSteps.map(s=>s.op))) {
     const count=trace.split("\n").filter(line=>line.startsWith(`native ${op}`)).length;
-    const expected=forwarded?0:configSteps.filter(s=>s.op===op && !("forwards" in s)).length;
+    const expected=forwarded?0:configSteps.filter(s=>s.op===op).length;
     if (count!==expected) throw Error(`Native dispatch evidence differs for ${op}`);
   }
 }
@@ -257,7 +257,7 @@ export async function exerciseNativeConfig(session: Session): Promise<void> {
         throw Error(`${transport} native/forwarded config parity differs`);
       }
       comparisons[transport]=results[0];
-      record(session,{kind:"note",behavior:"runner.set model check",surface:`${transport} API`,verdict:"PASS",text:"Connection-account models (accepted, and refused with UTF-16 closest-model hints) and a fresh OpenCode listing cache are checked natively; a stale listing forwards to TypeScript, which lists through the stand-in opencode. Replies, hints, strategy bytes and opencode calls match PACER_FORWARD_OPS=*."});
+      record(session,{kind:"note",behavior:"runner.set model check",surface:`${transport} API`,verdict:"PASS",text:"Connection-account models (accepted, and refused with UTF-16 closest-model hints), a fresh OpenCode listing cache and a stale one, listed natively through the stand-in opencode with the Core child's environment and working directory, are checked natively. Replies, hints, strategy bytes and opencode calls match PACER_FORWARD_OPS=*."});
       for (const op of new Set(configSteps.map(s=>s.op))) record(session,{kind:"note",behavior:`P2-C ${op}`,surface:`${transport} API`,verdict:"PASS",text:"Fixed native and PACER_FORWARD_OPS=* results and file states match; native trace verified. Legacy migration and alice author environment, CRLF/trailing-space rule removal, exact rejected-edit diagnostics, IEEE-754 infinity/NaN/overflow, literal marker rejection and endpoint synchronization exercised."});
     }
     writeFileSync(join(fixture,"results.json"),JSON.stringify(comparisons,null,2),{mode:0o600,flag:"wx"});
@@ -282,7 +282,7 @@ async function guardedCli(session: Session, fixture: string): Promise<void> {
   await call("strategy.use", {name});
   const states = [];
   for (const step of configSteps) {
-    if ("error" in step || "forwards" in step) continue;
+    if ("error" in step || "discovers" in step) continue;
     resetFixture(home,step);
     if (step.op === "strategy.save" && "fixture" in step) atomicWrite(path, step.fixture);
     const params = JSON.parse(JSON.stringify(step.params).replaceAll('"review"', JSON.stringify(saved)).replace('"from":"default"', `"from":"${name}"`));
