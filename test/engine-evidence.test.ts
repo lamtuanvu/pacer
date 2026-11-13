@@ -236,3 +236,30 @@ test("different-source read does not retire a persisted null 5h fact", () => {
   const merged = reconcileEvidence(previous, incoming, now);
   expect(merged.facts.budget.some(f => f.value.name === "5h")).toBe(true);
 });
+
+test("same-source read without 5h keeps a lapsed exhausted 5h fact until its reset", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 9000, null, "quota_observed",
+      { name: "5h", usedPct: 100, resetsAt: now + 9000, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h" && f.value.usedPct === 100)).toBe(true);
+  expect(evaluateEligibility({ now, scope, usage: "quota", allowPaid: false, evidence: merged, restrictions: [] }).state).not.toBe("eligible");
+});
+
+test("a future-dated read does not retire an unreported window", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 100, null, "quota_observed",
+      { name: "5h", usedPct: null, resetsAt: now + 3600, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now + 600, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h")).toBe(true);
+});

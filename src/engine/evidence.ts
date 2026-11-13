@@ -1,6 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AccountEvidence, Evidence, EvidenceScope, ReconciledEvidence } from "../evidence/types";
 import type { UsageWindow } from "../types";
+import { EXHAUSTED_PCT } from "./verdict";
 
 export const emptyEvidence = (): AccountEvidence => ({ availability: [], budget: [], spending: [] });
 export function evidenceFact<T>(scope: EvidenceScope, source: Evidence<T>["source"], observedAt: number | null,
@@ -111,12 +112,15 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
     return observationValid(f, now) && (until === null || until > now);
   });
   // A newer valid read from the same source that omits a window retires that source's unknown
-  // or lapsed fact for it. Live measured windows, other sources and limit marks are kept.
+  // or lapsed fact for it. Live measured windows, exhaustion before its reset, other sources
+  // and limit marks are kept.
   const reported = new Set(incoming.budget.map(f => f.value.name));
-  const witnesses = incoming.budget.filter(g => g.observedAt !== null && !g.value.stale && typeof g.value.usedPct === "number"
+  const witnesses = incoming.budget.filter(g => observationValid(g, now) && !g.value.stale && typeof g.value.usedPct === "number"
     && Number.isFinite(g.value.usedPct) && g.value.usedPct >= 0 && g.value.usedPct <= 100);
-  facts.budget = facts.budget.filter(f => f.value.name === "limit" || reported.has(f.value.name) || f.observedAt === null
+  const kept = (f: Evidence<UsageWindow>) => f.value.name === "limit" || reported.has(f.value.name) || f.observedAt === null
     || (f.value.usedPct !== null && currentEvidence(f, now, evidenceDeadline(f)))
+    || (f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT && (f.value.resetsAt === null || f.value.resetsAt > now));
+  facts.budget = facts.budget.filter(f => kept(f)
     || !witnesses.some(g => g.source === f.source && appliesTo(g, f.scope) && g.observedAt! > f.observedAt!));
   const retained = [...facts.availability, ...facts.budget, ...facts.spending];
   return { facts, conflicts: conflicts.filter(id => retained.some(f => f.id === id)).sort() };
