@@ -321,6 +321,8 @@ test("Recovery tags the validated commit even if main advances after its dry run
   git(work, "switch", "--quiet", "main");
   git(work, "commit", "--allow-empty", "--quiet", "-m", "fix: another main change");
   git(work, "push", "--quiet", "origin", "main");
+  // The tag step must fetch main itself; the push above already refreshed this clone's view.
+  git(work, "update-ref", "refs/remotes/origin/main", validated.RELEASE_COMMIT!);
   git(work, "switch", "--detach", "--quiet", validated.RELEASE_COMMIT!);
   const result = runTag(work, validated.RELEASE_COMMIT!, "chore: release 0.5.0 (#220)", validated);
   expect(result.exitCode).toBe(0);
@@ -335,6 +337,8 @@ test("Recovery refuses to tag once main no longer contains the validated commit"
   git(work, "switch", "--quiet", "--orphan", "rewritten");
   git(work, "commit", "--allow-empty", "--quiet", "-m", "fix: rewritten main");
   git(work, "push", "--quiet", "--force", "origin", "rewritten:main");
+  // The tag step must fetch main itself; the push above already refreshed this clone's view.
+  git(work, "update-ref", "refs/remotes/origin/main", validated.RELEASE_COMMIT!);
   git(work, "switch", "--detach", "--quiet", validated.RELEASE_COMMIT!);
   const result = runTag(work, validated.RELEASE_COMMIT!, "chore: release 0.5.0 (#220)", validated);
   expect(result.exitCode).not.toBe(0);

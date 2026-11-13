@@ -164,7 +164,8 @@ jobs:
           git tag -a "$tag" "$release_sha" -m "pacer $version"
           if test -n "${RECOVERY_DRY_RUN_ID:-}"; then
             # The tag names the validated commit, so later merges are fine; a rewritten main is not.
-            git fetch --no-tags origin main
+            git fetch --no-tags origin main \
+              || { echo '::error::Could not fetch main to confirm the validated commit'; exit 1; }
             git merge-base --is-ancestor "$release_sha" origin/main \
               || { echo '::error::Validated commit is no longer on main; refusing to tag'; exit 1; }
           fi
