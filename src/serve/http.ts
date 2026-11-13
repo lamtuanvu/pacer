@@ -42,7 +42,8 @@ import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { brokerTick } from "../messaging/broker";
 
 import { DEFAULT_PORT } from "./constants";
-import { writeJsonAtomic } from "../fsutil";
+import { writeJsonAtomic, sweepAtomicWriteTmps } from "../fsutil";
+import { sweepUsageState } from "../plugins/usage-state";
 import { backgroundWorkerEntryURL, supervisionWorkerEntryURL } from "./worker-location";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
@@ -69,6 +70,8 @@ export function startServer(
   const initialCtx = getCtx();
   const bg = !!opts.backgroundWorker;
   resetCaptureBroker(initialCtx.pacerHome);
+  void sweepUsageState(initialCtx.pacerHome);
+  sweepAtomicWriteTmps(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),

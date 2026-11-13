@@ -183,6 +183,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Route selection no longer fails with "Task changed during route selection" when its own bookkeeping write changes nothing and so keeps the task's revision, which could leave a dispatched reservation waiting.
 
+- Usage staging folders (`.pacer-usage-state-*`) left in `PACER_HOME/cache` and `PACER_HOME/state`, and atomic-write temp files (`*.json.<pid>.<id>.tmp`) left in `PACER_HOME/cache`, by killed pacer processes are removed once they are an hour old. The service sweeps them when it starts, and writable usage reads sweep at most every 10 minutes in the background; symlinks are never followed and read-only reads never sweep.
+
 ## [0.14.0] - 2026-11-01
 
 ### Added
