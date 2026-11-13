@@ -104,8 +104,16 @@ fn planner(strategy: &Value, chosen: &Value, window: Value) -> Value {
 }
 
 /// `{executor, account, runner, model, host}` for a chosen candidate.
-fn chosen_of(c: &Object, strategy: &Value) -> Value {
-    let binding = c.get("binding").unwrap_or(&Value::Null);
+/// `c.binding`, which TypeScript dereferences and so throws on when it is missing or null.
+fn binding(c: &Object) -> Result<&Value, CoreError> {
+    match c.get("binding") {
+        Some(binding) if !binding.is_null() => Ok(binding),
+        _ => Err(CoreError::new(Code::Internal, "A candidate has no binding")),
+    }
+}
+
+fn chosen_of(c: &Object, strategy: &Value) -> Result<Value, CoreError> {
+    let binding = binding(c)?;
     let model = if binding.get("kind") == Some(&json!("exact")) {
         object([
             ("kind", Some(json!("exact"))),
@@ -115,7 +123,7 @@ fn chosen_of(c: &Object, strategy: &Value) -> Value {
         json!({"kind": "executor-default"})
     };
     let host = strategy["runners"][js_string(c.get("runner"))].get("host");
-    object([
+    Ok(object([
         ("executor", c.get("executor").cloned()),
         ("account", c.get("account").cloned()),
         ("runner", c.get("runner").cloned()),
@@ -128,7 +136,7 @@ fn chosen_of(c: &Object, strategy: &Value) -> Value {
                     .unwrap_or(Value::Null),
             ),
         ),
-    ])
+    ]))
 }
 
 fn skip_reason(step: Option<&Value>, kind: Option<&Value>) -> &'static str {
@@ -325,7 +333,7 @@ pub fn build_explanation(e: &Explain, p: &LadderPreview) -> Result<Value, CoreEr
         reasons.push(reason("engine_failed", "fail", facts, None, None));
     }
     if let Some(top) = top.filter(|_| outcome != "fail") {
-        chosen = chosen_of(top, strategy);
+        chosen = chosen_of(top, strategy)?;
         let step_id = step.get("id").filter(|id| !id.is_null()).cloned();
         let facts = object([
             ("stepId", Some(step_id.unwrap_or(json!("")))),
@@ -409,7 +417,7 @@ pub fn build_explanation(e: &Explain, p: &LadderPreview) -> Result<Value, CoreEr
         if !truthy(c.get("capacityKnown")) {
             uncertainty.push(info("capacity_unmeasured", json!({}), subject));
         }
-        if c["binding"]["kind"] == "executor-default" {
+        if binding(c)?["kind"] == "executor-default" {
             uncertainty.push(info("default_model_unresolved", json!({}), subject));
         }
     }
