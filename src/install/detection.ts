@@ -6,6 +6,8 @@ import type { Ctx } from "../types";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+export const DETECT_DEADLINE_MS = 20_000;
+
 export const AGENT_BINS = {
   "claude-code": ["claude"],
   codex: ["codex"],
@@ -60,7 +62,7 @@ export interface AgentDetection {
 /** Probe policy/cache stay host-owned; plugin owns detection interpretation and hints. */
 export async function detectAgents(
   ctx: Ctx,
-  o: { host?: string } = {},
+  o: { host?: string; agent?: AgentId } = {},
 ): Promise<AgentDetection[]> {
   const ids = Object.keys(AGENT_BINS) as AgentId[];
   const binaries = ids.map((id) =>
@@ -89,8 +91,10 @@ export async function detectAgents(
       "plugin_unavailable",
       "planner detection plugin unavailable",
     );
+  const probeIds = o.agent ? [o.agent] : ids;
   const rows = await Promise.all(
-    ids.map(async (agent, index) => {
+    probeIds.map(async (agent) => {
+      const index = ids.indexOf(agent);
       const binary = binaries[index],
         env = { HOME: ctx.home, PATH: ctx.env.PATH ?? "" };
       const probe =
@@ -108,22 +112,33 @@ export async function detectAgents(
           readOnly: true,
           which: (name: string) => (name === binary?.name ? selected : null),
         };
-      return await registry.call<AgentDetection>(
-        host,
-        id,
-        "planner.detect",
-        {
-          agent,
-          binary: binary ? { name: binary.name, path: selected } : null,
-          ...(probe ? { probe } : {}),
-        },
-        {
-          resources: { reads: [], commands: probe ? [probe] : [], stores: [] },
-        },
-      );
+      try {
+        return await registry.call<AgentDetection>(
+          host,
+          id,
+          "planner.detect",
+          {
+            agent,
+            binary: binary ? { name: binary.name, path: selected } : null,
+            ...(probe ? { probe } : {}),
+          },
+          {
+            resources: { reads: [], commands: probe ? [probe] : [], stores: [] },
+            deadlineMs: DETECT_DEADLINE_MS,
+          },
+        );
+      } catch (error) {
+        if (error instanceof CoreError && error.code === "plugin_timeout")
+          throw new CoreError(
+            "plugin_timeout",
+            `Detecting ${names[agent]} timed out`,
+            "Run the check again.",
+          );
+        throw error;
+      }
     }),
   );
-  if (!ctx.readOnly && o.host === undefined)
+  if (!ctx.readOnly && o.host === undefined && o.agent === undefined)
     writeJsonAtomic(file, { at: ctx.now, rows });
   return rows;
 }
