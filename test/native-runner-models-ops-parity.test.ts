@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { closedPort, isolatedEnv } from "./isolated-port";
 
 // Native runner.models.* and dispatch.tierTargets.* against the same requests forced through
@@ -77,7 +77,7 @@ routing: [{default: [codex, opencode#acme]}]
 `;
 
 type Step = [op: string, params: unknown];
-interface Case { name: string; strategy?: string | null; steps: Step[]; native: boolean }
+interface Case { name: string; strategy?: string | null; setup?: (home: string) => void; steps: Step[]; native: boolean }
 
 function makeHome(): string {
   // host.sock must fit SUN_LEN; bun test's TMPDIR is too deep for the native front door.
@@ -103,24 +103,36 @@ function reset(home: string, c: Case) {
   put(strategy, c.strategy === undefined ? STRATEGY : c.strategy);
   put(`${strategy}.pre-accounts.bak`, null);
   put(join(home, "opencode-calls.log"), null);
+  for (const path of [join(pacer, "active"), join(pacer, "strategies"), join(pacer, "x.yaml"), join(home, "outside")]) put(path, null);
   const cache = join(pacer, "cache", "available-models");
   rmSync(cache, { recursive: true, force: true });
   mkdirSync(cache, { recursive: true, mode: 0o700 });
   const runner = "opencode#oc";
   put(join(cache, `${createHash("sha256").update(runner).digest("hex")}.json`),
     JSON.stringify({ runner, source: "opencode", models: [{ id: "acme/a" }, { id: "acme/b" }, { id: "acme/zy" }], fetchedAt: Date.now() / 1000, provider: "acme" }));
+  c.setup?.(home);
 }
 
-const fileBytes = (home: string, ...path: string[]) => {
-  try { return readFileSync(join(home, ...path), "utf8"); } catch (error) { return `<${(error as NodeJS.ErrnoException).code}>`; }
+const read = (path: string) => {
+  try { return readFileSync(path, "utf8"); } catch (error) { return `<${(error as NodeJS.ErrnoException).code}>`; }
+};
+const fileBytes = (home: string, ...path: string[]) => read(join(home, ...path));
+/** The active strategy file as `strategyPath` builds it, with Node's `path.join`. */
+const strategyFile = (home: string) => {
+  const active = join(home, ".pacer", "active");
+  const name = existsSync(active) ? readFileSync(active, "utf8").trim() : "";
+  return name ? join(home, ".pacer", "strategies", `${name}.yaml`) : join(home, ".pacer", "strategy.yaml");
 };
 /** What a step changes on disk: the strategy, its migration backup and OpenCode calls. */
 const disk = (home: string) => ({
   strategy: fileBytes(home, ".pacer", "strategy.yaml"),
   backup: fileBytes(home, ".pacer", "strategy.yaml.pre-accounts.bak"),
   opencode: fileBytes(home, "opencode-calls.log"),
+  // A named active strategy, and the file Rust's `Path::join` would pick for an absolute name.
+  named: read(strategyFile(home)),
+  outside: fileBytes(home, "outside", "evil.yaml"),
 });
-const revision = (home: string) => createHash("sha256").update(fileBytes(home, ".pacer", "strategy.yaml")).digest("hex");
+const revision = (home: string) => createHash("sha256").update(read(strategyFile(home))).digest("hex");
 const withRevision = (home: string, params: unknown) => JSON.parse(JSON.stringify(params ?? null).replaceAll("$REV", revision(home)));
 const outbox = (home: string) => {
   const path = join(home, ".pacer", "link", "outbox.jsonl");
@@ -134,6 +146,15 @@ const normalize = (home: string, text: string) => text.replaceAll(home, "$HOME")
 const envelopes = (home: string, lines: string[]) => lines.map(line => JSON.parse(line).envelope)
   .filter(envelope => envelope.type === "config" || (envelope.type === "entity" && envelope.data?.kind === "activity"))
   .map(envelope => normalize(home, JSON.stringify(envelope)));
+/** The runners and strategy `config` events a home's outbox holds, as its SSE stream sends them. */
+const configEvents = (home: string) => outbox(home).map(line => JSON.parse(line).envelope)
+  .filter(envelope => envelope.type === "config" && /^(runners|strategy)$/.test(envelope.data?.area))
+  .map(envelope => normalize(home, JSON.stringify(envelope.data)));
+const isSubsequence = (part: string[], whole: string[]) => {
+  let i = 0;
+  for (const item of whole) if (item === part[i]) i++;
+  return i === part.length;
+};
 
 function env(home: string, forward: boolean, port = closedPort()) {
   return isolatedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
@@ -156,7 +177,7 @@ function lines(stream: ReadableStream<Uint8Array>, onLine: (line: string) => voi
 }
 const markerOf = (line: string) => /^native (runner\.models\.\S+|dispatch\.tierTargets\.\S+)( \d+)?$/.test(line) ? line : null;
 
-interface Door { call(op: string, params: unknown): Promise<string>; markers: string[]; events: string[]; stop(): Promise<void> }
+interface Door { call(op: string, params: unknown): Promise<string>; markers: string[]; events: string[]; ended?: () => boolean; stop(): Promise<void> }
 
 async function stdio(home: string, forward: boolean): Promise<Door> {
   const child = Bun.spawn([front!, "api", "--stdio"], { env: env(home, forward), cwd: home, stdin: "pipe", stdout: "pipe", stderr: "pipe" });
@@ -196,6 +217,7 @@ async function http(home: string, forward: boolean): Promise<Door> {
   const auth = { Authorization: `Bearer ${token}` };
   // SSE: keep the runners and strategy config events only; other publications depend on timing.
   const events: string[] = [], abort = new AbortController();
+  let ended = false;
   const stream = await fetch(base + "/v3/events", { headers: auth, signal: abort.signal });
   expect(stream.ok).toBe(true);
   const sse = (async () => {
@@ -204,7 +226,7 @@ async function http(home: string, forward: boolean): Promise<Door> {
     try {
       for (;;) {
         const { done, value } = await reader.read();
-        if (done) break;
+        if (done) { ended = true; break; }
         buffer += decoder.decode(value, { stream: true });
         for (let i = buffer.indexOf("\n\n"); i >= 0; i = buffer.indexOf("\n\n")) {
           const frame = buffer.slice(0, i); buffer = buffer.slice(i + 2);
@@ -220,7 +242,7 @@ async function http(home: string, forward: boolean): Promise<Door> {
         body: JSON.stringify(params), signal: AbortSignal.timeout(30000) });
       return `${response.status} ${await response.text()}`;
     },
-    markers, events,
+    markers, events, ended: () => ended,
     stop: async () => { abort.abort(); await sse; child.kill("SIGTERM"); await child.exited; await err; },
   };
 }
@@ -252,9 +274,18 @@ async function compare(transport: "stdio" | "http", cases: Case[]) {
     }
     expect(doors[1].markers).toEqual([]);
     if (transport === "http") {
-      await Bun.sleep(200);
-      expect(doors[0].events).toEqual(doors[1].events);
-      expect(doors[0].events.length).toBeGreaterThan(0);
+      // Each door's stream tails its own home's outbox, which the steps above compared. The forwarded
+      // door's stream can drop an event under load (a pre-existing forwarded-path loss), so it must
+      // only never invent or reorder one; the native door must deliver every event.
+      const expected = homes.map(configEvents);
+      expect(expected[0]!.length).toBeGreaterThan(0);
+      for (let deadline = Date.now() + 10_000; Date.now() < deadline;) {
+        if (doors.every((door, i) => door.events.length >= expected[i]!.length)) break;
+        await Bun.sleep(20);
+      }
+      expect(doors[0].events, `native SSE (stream ended: ${doors[0].ended?.()})`).toEqual(expected[0]!);
+      expect(isSubsequence(doors[1].events, expected[1]!),
+        `forwarded SSE ${JSON.stringify(doors[1].events)} (stream ended: ${doors[1].ended?.()}) against ${JSON.stringify(expected[1])}`).toBe(true);
     }
     return homes.map(disk);
   } finally {
@@ -337,6 +368,21 @@ const unloadable: Step[] = [
   ["dispatch.tierTargets.set", { expectedRevision: "$REV", targets: {} }],
 ];
 
+/** Steps on a strategy named by `active`; `$REV` is the revision of the file Node's `path.join` names. */
+const named: Step[] = [
+  ["runner.models.get", { id: "codex" }],
+  ["runner.models.set", set("codex", "gpt-9", [{ id: "gpt-9", tier: "small" }])],
+  ["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-8")] }],
+  ["dispatch.tierTargets.get", {}],
+  ["dispatch.tierTargets.set", { expectedRevision: "$REV", targets: { simple: "medium" } }],
+];
+const NODE_JOINED = STRATEGY.replace("codex: {model: gpt-5}", "codex: {model: node-joined}");
+const writeNamed = (home: string, name: string) => {
+  writeFileSync(join(home, ".pacer", "active"), name);
+  mkdirSync(dirname(strategyFile(home)), { recursive: true });
+  writeFileSync(strategyFile(home), NODE_JOINED);
+};
+
 const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },
@@ -357,6 +403,15 @@ const cases: Case[] = [
   { name: "missing strategy", strategy: null, steps: unloadable, native: false },
   { name: "YAML syntax error", strategy: "planner: [\n", steps: unloadable, native: false },
   { name: "schema-invalid strategy", strategy: "planner: nobody\n", steps: unloadable, native: false },
+  { name: "a named active strategy", setup: home => writeNamed(home, "work\n"), steps: named, native: true },
+  // Rust's `Path::join` reads an absolute name itself; Node joins it under strategies/.
+  { name: "an absolute active name", setup: home => {
+    mkdirSync(join(home, "outside"));
+    writeFileSync(join(home, "outside", "evil.yaml"), STRATEGY.replace("codex: {model: gpt-5}", "codex: {model: rust-joined}"));
+    writeNamed(home, join(home, "outside", "evil"));
+  }, steps: named, native: false },
+  // With strategies/ present, Rust's `strategies/../x.yaml` reaches the same file; only the path check forwards.
+  { name: "an active name with ..", setup: home => { mkdirSync(join(home, ".pacer", "strategies")); writeNamed(home, "../x"); }, steps: named, native: false },
 ];
 
 for (const transport of ["stdio", "http"] as const) {

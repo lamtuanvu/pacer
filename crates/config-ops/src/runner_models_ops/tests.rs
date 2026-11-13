@@ -181,6 +181,37 @@ async fn set_many_commits_every_runner_or_none() {
     );
 }
 
+#[tokio::test]
+async fn set_many_refuses_a_stale_revision_and_writes_nothing() {
+    let (dir, c) = seeded(STRATEGY);
+    let first = revision(STRATEGY);
+    let runners = json!([{"id": "codex", "default": "gpt-6", "models": []}, {"id": "opencode#ep", "default": "pacer-ep/m2", "models": []}]);
+    runner_models_set(
+        &c,
+        json!({"id": "codex", "expectedRevision": first, "default": "gpt-7", "models": []}),
+    )
+    .await
+    .unwrap();
+    let saved = text(&dir);
+    for expected in [first.as_str(), "stale"] {
+        let stale = runner_models_set_many(
+            &c,
+            json!({"expectedRevision": expected, "runners": runners}),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            (stale.code, stale.message.as_str(), stale.hint.as_deref()),
+            (
+                Code::Conflict,
+                "Executor settings changed elsewhere.",
+                Some("Reload saved settings, then reapply your changes.")
+            )
+        );
+        assert_eq!(text(&dir), saved);
+    }
+}
+
 #[test]
 fn saves_forward_whole_when_any_runner_needs_discovery() {
     let (_dir, c) = seeded(STRATEGY);
