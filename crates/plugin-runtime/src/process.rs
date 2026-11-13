@@ -156,12 +156,14 @@ impl Shared {
     fn close(&self, reason: &str) {
         let mut routes = self.routes();
         routes.closed.get_or_insert_with(|| reason.to_owned());
+        // Before the calls' replies drop: a woken call must not find the
+        // transport open, or it reports the closed stream instead of the exit.
+        self.closed.send_replace(true);
         routes.calls.clear();
         routes.idle.clear();
         routes.idle_handler = None;
         drop(routes);
         self.idle.notify_one();
-        self.closed.send_replace(true);
     }
 
     fn closed(&self) -> ProcessError {
