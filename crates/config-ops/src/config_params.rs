@@ -249,6 +249,9 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ("rank", Integer(0.0), true),
         ]),
         "runner.reorder" => object(vec![("ids", array(id()), false)]),
+        "executor.models.available" => {
+            object(vec![("runner", id(), false), ("refresh", Bool, true)])
+        }
         "runner.remove" => object(vec![("id", RunnerId, false)]),
         "runner.settings.get" => object(vec![]),
         "runner.settings.save" => object(vec![

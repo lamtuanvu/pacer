@@ -15,9 +15,9 @@ use pacer_foundation::{
     lock::{LockOptions, with_lock},
 };
 use pacer_models::{
-    AvailableModels, Listing, Refusal, available_models,
+    AvailableModels, Listing, Refusal,
     declarations::{array_bounds, at, issue, model_declarations, received, string},
-    model_declaration_warnings, provider_name, validate_runner_models,
+    listing, listing_needs_core, model_declaration_warnings, provider_name, validate_runner_models,
 };
 use serde_json::{Map, Value, json};
 use std::{
@@ -199,8 +199,8 @@ fn editable(strategy: &Value, reference: &str) -> Result<String, CoreError> {
     Ok(runner["id"].as_str().unwrap_or(reference).to_owned())
 }
 
-fn listing(ctx: &Ctx, strategy: &Value, id: &str) -> Result<AvailableModels, CoreError> {
-    match available_models(&ctx.pacer_home, ctx.now, strategy, id) {
+async fn list(ctx: &Ctx, strategy: &Value, id: &str) -> Result<AvailableModels, CoreError> {
+    match listing(&ctx.pacer_home, ctx.now, strategy, id).await {
         Listing::Known(list) => Ok(list),
         _ => Err(CoreError::new(Code::Unavailable, FORWARDED)),
     }
@@ -335,7 +335,7 @@ fn current(ctx: &Ctx, expected: &str) -> Result<(PathBuf, String, Value), CoreEr
     Ok((path, text, strategy))
 }
 
-fn save_models(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
+async fn save_models(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
     let Entry {
         id,
         default,
@@ -347,7 +347,7 @@ fn save_models(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
     });
     let before = load_strategy(&ctx.pacer_home).map_err(load_error)?;
     let resolved = resolve(&before, &id).ok_or_else(|| invalid(format!("unknown runner {id}")))?;
-    let list = listing(ctx, &before, resolved["id"].as_str().unwrap_or(&id))?;
+    let list = list(ctx, &before, resolved["id"].as_str().unwrap_or(&id)).await?;
     locked(ctx, || {
         let (path, text, s) = current(ctx, &p.expected)?;
         let runner = editable(&s, &id)?;
@@ -369,7 +369,7 @@ fn save_models(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
     })
 }
 
-fn save_many(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
+async fn save_many(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
     let ids: HashSet<&str> = p.entries.iter().map(|e| e.id.as_str()).collect();
     if ids.len() != p.entries.len() {
         return Err(invalid("duplicate runner ids"));
@@ -379,7 +379,7 @@ fn save_many(ctx: &Ctx, p: Params) -> Result<Value, CoreError> {
     let mut validated = Vec::new();
     for entry in p.entries {
         let runner = editable(&before, &entry.id)?;
-        let list = listing(ctx, &before, &runner)?;
+        let list = list(ctx, &before, &runner).await?;
         let provider = provider_name(&before, &before["runners"][&runner]);
         let models = validate_runner_models(
             provider,
@@ -415,8 +415,8 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
         let p = parse(op, params)?;
         match op {
             "runner.models.get" => read_models(ctx, &p),
-            "runner.models.set" => save_models(ctx, p),
-            _ => save_many(ctx, p),
+            "runner.models.set" => save_models(ctx, p).await,
+            _ => save_many(ctx, p).await,
         }
     })
 }
@@ -431,9 +431,9 @@ pub fn runner_models_set_many(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     run(ctx, "runner.models.set_many", params)
 }
 
-/// A save whose runners only TypeScript can list (an OpenCode provider
-/// without a fresh listing cache, or a cache shape only TypeScript serves)
-/// forwards whole, before the lock: TypeScript lists every runner first.
+/// A save whose runners only TypeScript can list (discovery the front door
+/// cannot run as Core does, or a cache or catalog shape only TypeScript
+/// serves) forwards whole, before the lock: TypeScript lists every runner first.
 pub fn runner_models_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     if !matches!(op, "runner.models.set" | "runner.models.set_many") {
         return false;
@@ -447,10 +447,7 @@ pub fn runner_models_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
     p.entries.iter().any(|entry| {
         resolve(&strategy, &entry.id).is_some_and(|runner| {
             let id = runner["id"].as_str().unwrap_or(&entry.id);
-            !matches!(
-                available_models(&ctx.pacer_home, ctx.now, &strategy, id),
-                Listing::Known(_)
-            )
+            listing_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
         })
     })
 }

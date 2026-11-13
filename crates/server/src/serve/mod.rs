@@ -781,6 +781,7 @@ pub async fn run_serve(
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
+    crate::core_process::record_serve(&env);
     #[cfg(target_os = "macos")]
     let core = Arc::new(match &native {
         Some(native) => core_child::CoreChild::spawn_native(core, env, native.clone()),

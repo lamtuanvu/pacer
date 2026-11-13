@@ -1605,9 +1605,12 @@ version = "0.1.0"
 dependencies = [
  "pacer-config",
  "pacer-js-json",
+ "rand 0.9.5",
+ "rustix",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1849,6 +1852,7 @@ dependencies = [
  "pacer-mcp",
  "pacer-mdns",
  "pacer-messaging-ops",
+ "pacer-models",
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",

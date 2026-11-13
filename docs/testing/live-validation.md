@@ -619,9 +619,9 @@ It also saves a
 `0.000001` planner reserve to check YAML number bytes. `runner.set` model cases
 check connection-account models and a seeded fresh OpenCode listing cache
 natively, including refusals with closest-model hints; a seeded stale listing
-must forward, and the fixture home puts a stand-in `opencode` first on `PATH`
-and compares its call log. The guarded CLI pass skips the forwarding case so the
-sandbox service never runs a real `opencode`. It compares each result and
+is listed natively through a stand-in `opencode` that the fixture home puts
+first on `PATH`, and its call log is compared. The guarded CLI pass skips that
+discovery case so the sandbox service never runs a real `opencode`. It compares each result and
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.

@@ -27,6 +27,7 @@ pacer-store = { path = "../store" }
 pacer-read-model = { path = "../read-model" }
 pacer-task-ops = { path = "../task-ops" }
 pacer-config-ops = { path = "../config-ops" }
+pacer-models = { path = "../models" }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-issues = { path = "../issues" }

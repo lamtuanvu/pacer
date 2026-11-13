@@ -76,7 +76,7 @@ dispatch: {engine: ladder, tierTargets: {complex: frontier}}
 routing: [{default: [codex, opencode#acme]}]
 `;
 
-type Step = [op: string, params: unknown];
+type Step = [op: string, params: unknown, contains?: string];
 interface Case { name: string; strategy?: string | null; setup?: (home: string) => void; steps: Step[]; native: boolean }
 
 function makeHome(): string {
@@ -84,8 +84,11 @@ function makeHome(): string {
   const home = realpathSync(mkdtempSync("/tmp/nrm-")), bin = join(home, "bin");
   mkdirSync(join(home, ".pacer"), { mode: 0o700 });
   mkdirSync(bin);
-  // Stand-in OpenCode: logs each call and lists two acme models.
-  writeFileSync(join(bin, "opencode"), `#!/bin/sh\necho "$*" >> "${join(home, "opencode-calls.log")}"\nprintf 'acme/a\\nacme/b\\n'\n`);
+  // Stand-in OpenCode: logs each call and lists two acme models, fails or lists nothing (opencode-mode).
+  const mode = join(home, "opencode-mode");
+  writeFileSync(join(bin, "opencode"), `#!/bin/sh\necho "$*" >> "${join(home, "opencode-calls.log")}"
+case "$(cat "${mode}" 2>/dev/null)" in fail) exit 1 ;; empty) exit 0 ;; esac
+printf 'acme/a\\nacme/b\\n'\n`);
   chmodSync(join(bin, "opencode"), 0o755);
   return home;
 }
@@ -103,6 +106,7 @@ function reset(home: string, c: Case) {
   put(strategy, c.strategy === undefined ? STRATEGY : c.strategy);
   put(`${strategy}.pre-accounts.bak`, null);
   put(join(home, "opencode-calls.log"), null);
+  put(join(home, "opencode-mode"), null);
   for (const path of [join(pacer, "active"), join(pacer, "strategies"), join(pacer, "x.yaml"), join(home, "outside")]) put(path, null);
   const cache = join(pacer, "cache", "available-models");
   rmSync(cache, { recursive: true, force: true });
@@ -260,11 +264,12 @@ async function compare(transport: "stdio" | "http", cases: Case[]) {
   try {
     for (const c of cases) {
       homes.forEach(home => reset(home, c));
-      for (const [op, params] of c.steps) {
+      for (const [op, params, contains] of c.steps) {
         const label = `${transport} ${c.name}: ${op} ${JSON.stringify(params).slice(0, 300)}`;
         const before = homes.map(home => outbox(home).length);
         const replies = await Promise.all([0, 1].map(async i => normalize(homes[i]!, await doors[i]!.call(op, withRevision(homes[i]!, params)))));
         expect(replies[0], label).toBe(replies[1]!);
+        if (contains) expect(replies[0], label).toContain(contains);
         expect(disk(homes[0]), `${label}: disk`).toEqual(disk(homes[1]));
         expect(envelopes(homes[0], outbox(homes[0]).slice(before[0])), `${label}: events`).toEqual(envelopes(homes[1], outbox(homes[1]).slice(before[1])));
         if (c.native) expectedMarkers.push(`native ${op}`);
@@ -383,13 +388,20 @@ const writeNamed = (home: string, name: string) => {
   writeFileSync(strategyFile(home), NODE_JOINED);
 };
 
+const NOTES = { fail: "opencode could not list models for acme", empty: "opencode lists no models for acme; check opencode auth list" };
 const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },
   { name: "existing dispatch block", strategy: DISPATCH_BLOCK, steps: tierBlock, native: true },
-  // TypeScript lists the runner through `opencode models` and caches it; each case starts without that cache.
-  { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: false },
-  { name: "set_many with a runner only OpenCode lists", steps: [["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-6"), entry("opencode#oc-miss", "acme/nope")] }]], native: false },
+  // The runner is listed through `opencode models` and cached; each case starts without that cache.
+  { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: true },
+  // A failing or empty listing saves the declaration with a "could not be checked" warning.
+  ...(["fail", "empty"] as const).map(mode => ({ name: `a ${mode === "fail" ? "failing" : "empty"} OpenCode listing`,
+    setup: (home: string) => writeFileSync(join(home, "opencode-mode"), mode), steps: [
+      ["runner.models.set", set("opencode#oc-miss", "acme/zz", [{ id: "acme/zz", tier: "small" }]), `acme/zz could not be checked: ${NOTES[mode]}`],
+      ["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("opencode#oc-miss", "acme/zy")] }, `acme/zy could not be checked: ${NOTES[mode]}`],
+    ] as Step[], native: true })),
+  { name: "set_many with a runner only OpenCode lists", steps: [["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-6"), entry("opencode#oc-miss", "acme/nope")] }]], native: true },
   { name: "legacy strategy migrates with its backup", strategy: LEGACY, steps: [["runner.models.set", set("codex", "gpt-6", [{ id: "gpt-6", tier: "small" }])]], native: true },
   { name: "legacy strategy with trailing whitespace", strategy: LEGACY_TRAILING, steps: [["runner.models.set", set("codex", "gpt-6")]], native: true },
   { name: "flow and quoted layouts", strategy: FLOW, steps: [
