@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installKeychainStub } from "../scripts/live/keychain";
 import { taskStop } from "../src/tasks/api";
 import { readTask } from "../src/tasks/store";
 import { TERMINAL_STATES } from "../src/tasks/types";
-import { fakeCtx, gitRepo } from "./helpers";
+import { fakeCtx, gitRepo, readPid, waitPid } from "./helpers";
 import { alive, front, frontEnv, freePort, makeHome, type Home, type Reply, spawnServe } from "./native-plugin-door";
 import { closedPort } from "./pinned-port";
 
@@ -99,8 +99,7 @@ async function orphanStop(nativeHost: "0" | "1") {
     const reply = await serve.call("task.delegate", { goal: "Write a note", repo, executor: "codex", difficulty: "simple" });
     expect(reply.json.error, reply.line).toBeUndefined();
     id = reply.json.result.task_id;
-    await poll(() => existsSync(pidFile), started => started, 60000);
-    const codex = Number(readFileSync(pidFile, "utf8").trim());
+    const codex = await waitPid(pidFile, 60000);
     for (const pid of processes(command => command.includes(`_run ${id}`))) process.kill(pid, "SIGKILL");
     await poll(() => alive(readTask(ctx, id)!.runnerPid!), up => !up, 10000);
     logs += await serve.stop();
@@ -115,7 +114,8 @@ async function orphanStop(nativeHost: "0" | "1") {
       codexAlive: alive(codex), reconcileErrors: logs.split("\n").filter(line => line.includes("stop reconcile failed")) };
   } finally {
     if (serve) await serve.stop();
-    if (existsSync(pidFile)) try { process.kill(Number(readFileSync(pidFile, "utf8").trim()), "SIGKILL"); } catch { /* Already gone. */ }
+    const codex = readPid(pidFile);
+    if (codex) try { process.kill(codex, "SIGKILL"); } catch { /* Already gone. */ }
     if (id) for (const pid of processes(command => command.includes(`_run ${id}`))) try { process.kill(pid, "SIGKILL"); } catch { /* Already gone. */ }
     rmSync(repo, { recursive: true, force: true });
     h.done();

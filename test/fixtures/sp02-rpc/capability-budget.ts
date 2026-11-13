@@ -1,8 +1,8 @@
-import { mkdirSync, writeFileSync, existsSync, readFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { PluginRegistry } from "../../../src/plugins/registry";
 import { CAPABILITY_METHODS } from "../../../src/plugins/protocol";
-import { fakeCtx, cleanupTestTmp } from "../../helpers";
+import { fakeCtx, cleanupTestTmp, readPid } from "../../helpers";
 // This timeout override is isolated in its own process; no shared suite schema mutation.
 CAPABILITY_METHODS["capability.process.spawn"]!.deadlineMs = 25;
 const ctx = fakeCtx(), executable = join(ctx.home, "owned-provider"), marker = join(ctx.home, "owned-pid");
@@ -21,6 +21,7 @@ try {
     { resources: { reads: [], stores: [], commands: [{ argv: ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"], timeoutMs: 2000 }] } });
   } catch (error) { code = (error as { code?: string }).code ?? "unknown"; }
   elapsed = Date.now() - started;
-  if (existsSync(marker)) { try { process.kill(Number(readFileSync(marker, "utf8")), 0); alive = true; } catch {} }
+  const pid = readPid(marker);
+  if (pid) { try { process.kill(pid, 0); alive = true; } catch {} }
 } finally { await registry.shutdown(); cleanupTestTmp(); }
 console.log(JSON.stringify({ code, elapsed, alive }));

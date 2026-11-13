@@ -11,7 +11,7 @@ use pacer_plugin_runtime::{
 };
 use serde_json::{Value, json};
 use std::{
-    env, fs,
+    env, fs, io,
     os::unix::fs::MetadataExt,
     path::Path,
     time::{Duration, Instant},
@@ -101,19 +101,7 @@ async fn exchange_raw(socket: &Path, frame: &[u8]) -> Vec<Value> {
     let mut stream = BufReader::new(UnixStream::connect(socket).await.unwrap());
     // The owner may refuse and close before reading a large frame to its end.
     let _ = stream.get_mut().write_all(frame).await;
-    let mut replies = Vec::new();
-    loop {
-        let mut line = Vec::new();
-        // The owner closes a refused connection well before this timeout.
-        let read =
-            tokio::time::timeout(Duration::from_secs(15), stream.read_until(b'\n', &mut line))
-                .await
-                .unwrap();
-        if read.unwrap() == 0 {
-            return replies;
-        }
-        replies.push(serde_json::from_slice(&line).unwrap());
-    }
+    lines_until_close(&mut stream).await
 }
 
 async fn assert_refuses_every_frame(socket: &Path, home: &Path) {
@@ -267,12 +255,10 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
     bytes.extend(serde_json::to_vec(&sealed(1, home.path())).unwrap());
     bytes.push(b'\n');
     let _ = stream.get_mut().write_all(&bytes).await;
-    line.clear();
-    stream.read_line(&mut line).await.unwrap();
-    let refused: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(refused["error"]["code"], -32001, "{refused}");
-    line.clear();
-    assert_eq!(stream.read_line(&mut line).await.unwrap(), 0, "{line}");
+    assert_refused(
+        &lines_until_close(&mut stream).await,
+        "wrong proof and a call",
+    );
     assert!(
         session
             .owner()
@@ -285,20 +271,23 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
 }
 
 /// Every line the owner sends on `stream` until it closes the connection.
+/// Linux reports a close that left our bytes unread as a reset instead of EOF,
+/// but only after every line the owner sent before closing.
 async fn lines_until_close(stream: &mut BufReader<UnixStream>) -> Vec<Value> {
     let mut lines = Vec::new();
     loop {
         let mut line = Vec::new();
         // The owner closes a refused connection well before this timeout.
         let read =
-            tokio::time::timeout(Duration::from_secs(5), stream.read_until(b'\n', &mut line))
+            tokio::time::timeout(Duration::from_secs(15), stream.read_until(b'\n', &mut line))
                 .await
-                .unwrap()
                 .unwrap();
-        if read == 0 {
-            return lines;
+        match read {
+            Ok(0) => return lines,
+            Ok(_) => lines.push(serde_json::from_slice(&line).unwrap()),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => return lines,
+            Err(error) => panic!("reading the owner's replies: {error}"),
         }
-        lines.push(serde_json::from_slice(&line).unwrap());
     }
 }
 

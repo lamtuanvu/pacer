@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readOutput, readRun, startRun, stopRun } from "../src/supervisor/run";
 import { killTree } from "../src/exec/process";
-import { tmpDir } from "./helpers";
+import { readPid, tmpDir, waitPid } from "./helpers";
 
 const until = async (f: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(25); } };
 const env = { PATH: process.env.PATH };
@@ -136,11 +136,10 @@ test("stopRun does not signal a process that replaced the wrapper during readine
 test("stopRun escalates to KILL when TERM is ignored", async () => {
   const dir = tmpDir(), marker = join(tmpDir(), "child");
   startRun({ dir, argv: ["sh", "-c", `trap '' TERM; sleep 30 & echo $! > '${marker}'; trap '' TERM; wait`], cwd: tmpDir(), env });
-  await until(() => existsSync(marker));
+  const child = await waitPid(marker, 5000);
   const res = await stopRun(dir, { graceMs: 500 });
   expect(res.killed).toBe(true);
   expect(res.code).toBe(137);
-  const child = Number(readFileSync(marker, "utf8"));
   await until(() => { try { process.kill(child, 0); return false; } catch { return true; } });
 });
 
@@ -155,8 +154,8 @@ test("stopRun lets the interactive host record exit after escalating its TERM-re
     expect(result).toEqual({ code: 143, killed: false });
     expect(readRun(dir).exit).toBe(143);
   } finally {
-    const child = Number(readFileSync(join(dir, "child"), "utf8"));
-    killTree(child, "SIGKILL");
+    const child = readPid(join(dir, "child"));
+    if (child) killTree(child, "SIGKILL");
     if ("pid" in run) killTree(run.pid, "SIGKILL");
   }
 });

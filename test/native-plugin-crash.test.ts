@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { hostSocketCheck } from "../src/install/host-socket-check";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, waitPid } from "./helpers";
 import { alive, front, makeHome, normalize, ownerOn, semantic, serve, spawnServe, stdio, tsOwner, type Home, type Reply } from "./native-plugin-door";
 
 // Crash reporting, restart backoff, stop escalation and one serve per home (ADR 0027, OD-7)
@@ -17,27 +17,27 @@ const hold = { plugin: "fx-ui", surface: "activity", id: "checklist", context, a
 function crashMain(h: Home, stubborn = false) {
   writeFileSync(join(h.plugin, "main.ts"), `#!/usr/bin/env bun
 import {serve,stdinLines} from '@pacer/plugin';
-import {appendFileSync,readFileSync,writeFileSync} from 'node:fs';
+import {appendFileSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
 appendFileSync('starts', process.pid + ' ' + Date.now() + '\\n');
 ${stubborn ? "process.on('SIGTERM',()=>appendFileSync('sigterm',process.pid+' '+Date.now()+'\\n'));" : ""}
 const manifest=JSON.parse(readFileSync(new URL('./pacer-plugin.json',import.meta.url),'utf8'));
 await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
- if(p.action==='hold'){writeFileSync('held',String(process.pid));await new Promise(()=>{});}
+ if(p.action==='hold'){writeFileSync('held.tmp',String(process.pid));renameSync('held.tmp','held');await new Promise(()=>{});}
  return {result:'done'};
 }}});`);
 }
 
-/** `[pid, at]` for each line of a fixture log: every start, or every SIGTERM a stubborn child ignored. */
+/** `[pid, at]` for each line of a fixture log: every start, or every SIGTERM a stubborn child ignored.
+ * An empty log yields no entry, never pid 0, which the tests would signal as the runner's process group. */
 const timeLog = (h: Home, name: string): [number, number][] => existsSync(join(h.plugin, name))
-  ? readFileSync(join(h.plugin, name), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number])
+  ? readFileSync(join(h.plugin, name), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number]).filter(([pid]) => pid > 0)
   : [];
 const startLog = (h: Home) => timeLog(h, "starts");
 
 /** Start a `hold` action and wait until the child holds it; returns the child's pid. */
 async function holdAction(h: Home, call: (op: string, params: unknown) => Promise<Reply>) {
   void call("plugin.ui.action", hold).catch(() => undefined);
-  for (let i = 0; i < 1000 && !existsSync(join(h.plugin, "held")); i++) await Bun.sleep(10);
-  return Number(readFileSync(join(h.plugin, "held"), "utf8"));
+  return await waitPid(join(h.plugin, "held"));
 }
 
 /** The door stopped within the grace, SIGTERM reached the child at once, and nothing of the home is left running. */
@@ -120,8 +120,7 @@ test.skipIf(!front)("a crash mid-call fails that call as plugin_unavailable nami
     try {
       await service.call("plugin.enable", { id: "fx-ui", grant: true });
       const pending = service.call("plugin.ui.action", hold);
-      for (let i = 0; i < 1000 && !existsSync(join(h.plugin, "held")); i++) await Bun.sleep(10);
-      process.kill(Number(readFileSync(join(h.plugin, "held"), "utf8")), "SIGKILL");
+      process.kill(await waitPid(join(h.plugin, "held")), "SIGKILL");
       errors[name] = semantic(await pending);
       // The next call is served by a new child once the backoff passes.
       expect((await service.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0]).toMatchObject({ ok: true, restarts: 1 });

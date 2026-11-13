@@ -5,7 +5,7 @@ import { createCallAuthority } from "../src/plugins/authority";
 import { prepareSpawnAuthority } from "../src/plugins/capability-spawn";
 import { answerCapability } from "../src/plugins/host";
 import { armDuplexInput, consumeDuplexInputReceipt } from "../src/plugins/capability-duplex";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, tmpDir, waitPid } from "./helpers";
 
 test("a stream-owned duplex SSH child uses exact argv and bounded simultaneous bytes", async () => {
   const dir = tmpDir(), ssh = join(dir, "ssh"), pidFile = join(dir, "pid");
@@ -107,13 +107,11 @@ test("a timed-out duplex read reaps its SSH child and retires the handle", async
   const call = (method: string, params: unknown) => answerCapability(ctx, plugin, method, params, authority);
   try {
     const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
-    for (let i = 0; i < 100 && !existsSync(pidFile); i++) await Bun.sleep(10);
-    expect(existsSync(pidFile)).toBe(true);
+    const pid = await waitPid(pidFile, 2000);
     await expect(call("capability.process.duplex.read", { handle, length: 1, timeoutMs: 30 }))
       .rejects.toMatchObject({ code: "plugin_timeout" });
     await expect(call("capability.process.duplex.write", { handle, base64: "YQ==", timeoutMs: 1000 }))
       .rejects.toMatchObject({ code: "capability_denied" });
-    const pid = Number(readFileSync(pidFile, "utf8"));
     expect(() => process.kill(pid, 0)).toThrow();
   } finally { await authority.revoke(); }
 });
@@ -134,8 +132,7 @@ test(`graceful SSH stream close preserves actual exit ${code}${exitedFirst ? " a
     const { handle } = await call("capability.process.duplex.open", { argv, timeoutMs: 1000 }) as { handle: string };
     // Child exit drains unread stdio unless the broker retains it for the first read.
     if (exitedFirst) {
-      for (let i = 0; i < 100 && !existsSync(pidFile); i++) await Bun.sleep(10);
-      const pid = Number(readFileSync(pidFile, "utf8"));
+      const pid = await waitPid(pidFile, 2000);
       for (let i = 0; i < 100; i++) { try { process.kill(pid, 0); } catch { break; } await Bun.sleep(10); }
       expect(() => process.kill(pid, 0)).toThrow();
       await Bun.sleep(50);
@@ -264,9 +261,7 @@ test("an exited leader does not strand a pipe-holding process-group descendant",
   try {
     const { handle } = await answerCapability(ctx, plugin, "capability.process.duplex.open",
       { argv, timeoutMs: 5000 }, authority) as { handle: string };
-    for (let i = 0; i < 100 && !existsSync(childFile); i++) await Bun.sleep(10);
-    expect(existsSync(childFile)).toBe(true);
-    descendant = Number(readFileSync(childFile, "utf8"));
+    descendant = await waitPid(childFile, 2000);
     await expect(answerCapability(ctx, plugin, "capability.process.duplex.close", { handle }, authority))
       .resolves.toMatchObject({ ok: true, terminated: true });
     expect(readFileSync(terminatedFile, "utf8")).toBe("terminated");

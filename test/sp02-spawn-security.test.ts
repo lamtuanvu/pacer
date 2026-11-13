@@ -1,9 +1,9 @@
 import { expect, spyOn, test } from "bun:test";
 import * as childProcess from "node:child_process";
-import { chmodSync, existsSync, readFileSync, renameSync, writeFileSync } from "node:fs";
+import { chmodSync, renameSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { createCallAuthority } from "../src/plugins/authority";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, waitPid } from "./helpers";
 import { answerSpawn, prepareSpawnAuthority, readSpawnOutput } from "../src/plugins/capability-spawn";
 
 const argv = ["opencode", "stats", "--models", "--cost", "--json", "--days", "7"];
@@ -133,10 +133,7 @@ test("timeout reaps a TERM-ignoring child and concurrent calls cannot start anot
     spawning.mockRestore();
     clock.mockRestore(); // No global mock remains installed across an await.
     await expect(answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 })).rejects.toMatchObject({ code: "capability_denied" });
-    const readyDeadline = Date.now() + 5000;
-    while (!existsSync(f.executable + ".ready") && Date.now() < readyDeadline) await Bun.sleep(10);
-    expect(existsSync(f.executable + ".ready")).toBe(true);
-    const pid = Number(readFileSync(f.executable + ".ready", "utf8"));
+    const pid = await waitPid(f.executable + ".ready", 5000);
     expect(pid).toBeGreaterThan(1);
     expect(() => process.kill(pid, 0)).not.toThrow();
     expect(expire).toBeDefined();
