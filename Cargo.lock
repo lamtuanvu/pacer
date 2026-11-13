@@ -1414,6 +1414,7 @@ version = "0.0.0"
 dependencies = [
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-store",
  "rusqlite",
  "serde_json",
  "sha2",
