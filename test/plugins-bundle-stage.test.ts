@@ -257,7 +257,7 @@ test("missing frame, nonzero exit and owner cancellation never publish a bundle"
   }
   const f = fixture("printf '__PACER_BEGIN__\\n'; sleep 5; printf abc");
   const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
-  const until = Date.now() + 1000;
+  const until = Date.now() + 5000;
   while (!existsSync(join(f.ctx.pacerHome, "transfers")) && Date.now() < until) await Bun.sleep(10);
   await f.owner.revoke();
   await expect(pending).rejects.toBeDefined();
@@ -268,7 +268,7 @@ test("owner revoke does not signal the same bundle process group twice before ex
   const f = fixture(home => `printf '__PACER_BEGIN__\\n'; touch '${join(home, "started")}'; sleep 5`);
   const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
   const settled = pending.then(() => false, () => true);
-  const until = Date.now() + 1000;
+  const until = Date.now() + 5000;
   while (!existsSync(join(f.ctx.home, "started")) && Date.now() < until) await Bun.sleep(10);
   expect(existsSync(join(f.ctx.home, "started"))).toBe(true);
   const originalKill = process.kill;
@@ -290,7 +290,7 @@ test("failed first bundle group signal retains cleanup uncertainty", async () =>
   const f = fixture(home => `printf '__PACER_BEGIN__\\n'; touch '${join(home, "started")}'; sleep 5`);
   const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
   const settled = pending.then(() => false, () => true);
-  const until = Date.now() + 1000;
+  const until = Date.now() + 5000;
   while (!existsSync(join(f.ctx.home, "started")) && Date.now() < until) await Bun.sleep(10);
   expect(existsSync(join(f.ctx.home, "started"))).toBe(true);
   const originalKill = process.kill;
@@ -311,7 +311,7 @@ test("failed first bundle group signal retains cleanup uncertainty", async () =>
 test("host generation change cancels an in-flight binary stage promptly", async () => {
   const f = fixture("printf '__PACER_BEGIN__\\n'; sleep 5; printf abc");
   const pending = stageBundle(f.owner, { argv: f.issued.argv, timeoutMs: 1000, maxBytes: 16 });
-  const until = Date.now() + 1000;
+  const until = Date.now() + 5000;
   while (!existsSync(join(f.ctx.pacerHome, "transfers")) && Date.now() < until) await Bun.sleep(10);
   writeFileSync(join(f.ctx.pacerHome, "strategy.yaml"),
     "planner: claude-code\nproviders: {claude-code: {}}\nhosts:\n  box:\n    ssh: changed-host\n");
@@ -365,8 +365,9 @@ test("revoke after leader exit never signals its retired numeric PID", async () 
   void pending.catch(() => {});
   const pidFile = join(f.ctx.home, "leader.pid");
   const originalKill = process.kill;
-  const until = Date.now() + 500;
+  const until = Date.now() + 5000;
   while (!existsSync(pidFile) && Date.now() < until) await Bun.sleep(5);
+  expect(existsSync(pidFile), "leader should have written its pid file").toBe(true);
   const retiredPid = Number(readFileSync(pidFile, "utf8"));
   while (Date.now() < until) {
     try { originalKill(retiredPid, 0); } catch { break; }
