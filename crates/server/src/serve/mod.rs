@@ -203,6 +203,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
