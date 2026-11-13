@@ -1042,5 +1042,180 @@
         "second": "z"
       }
     }
+  },
+  {
+    "id": "delete-block-seq-before-sibling",
+    "classes": [
+      "block-map",
+      "block-seq",
+      "delete",
+      "inline-comment"
+    ],
+    "before": "runners:\n  codex: {model: gpt-5}\n  opencode#acme:\n    model: pacer-acme/b # chosen default\n    models:\n      - id: pacer-acme/b\n        tier: medium\n      - id: pacer-acme/a\n        strengths:\n          - code\n  opencode#oc: {model: acme/a}\nrouting:\n  - default: [codex]\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "opencode#acme",
+      "models"
+    ]
+  },
+  {
+    "id": "delete-block-seq-first-key",
+    "classes": [
+      "block-map",
+      "block-seq",
+      "delete"
+    ],
+    "before": "runners:\n  a:\n    models:\n      - b\n    model: x\n  c: {model: y}\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "a",
+      "models"
+    ]
+  },
+  {
+    "id": "delete-block-seq-keeps-following-comment",
+    "classes": [
+      "block-map",
+      "block-seq",
+      "delete",
+      "comment"
+    ],
+    "before": "runners:\n  a:\n    model: x\n    models:\n      - {id: b}\n\n  # note\n  c: {model: y}\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "a",
+      "models"
+    ]
+  },
+  {
+    "id": "delete-block-map-entry",
+    "classes": [
+      "block-map",
+      "delete"
+    ],
+    "before": "runners:\n  a:\n    model: x\n  c: {model: y}\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "a"
+    ]
+  },
+  {
+    "id": "delete-flow-seq-trailing-comment",
+    "classes": [
+      "block-map",
+      "flow-seq",
+      "delete",
+      "inline-comment"
+    ],
+    "before": "runners:\n  a:\n    model: x\n    models: [b] # note\n  c: {model: y}\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "a",
+      "models"
+    ]
+  },
+  {
+    "id": "delete-block-seq-crlf",
+    "classes": [
+      "block-map",
+      "block-seq",
+      "delete",
+      "crlf"
+    ],
+    "before": "runners:\r\n  a:\r\n    model: x\r\n    models:\r\n      - b\r\n  c: {}\r\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "a",
+      "models"
+    ]
+  },
+  {
+    "id": "delete-block-map-before-top-level",
+    "classes": [
+      "block-map",
+      "delete"
+    ],
+    "before": "runners:\n  a: {model: x}\n  b:\n    model: y\nrouting: []\n",
+    "op": "deleteIn",
+    "path": [
+      "runners",
+      "b"
+    ]
+  },
+  {
+    "id": "set-flow-seq-unpadded-nested-maps",
+    "classes": [
+      "flow-map",
+      "flow-seq",
+      "replace",
+      "flow-padding"
+    ],
+    "before": "runners:\n  \"codex\": {model: gpt-5, models: [{id: gpt-5, tier: small}, {id: gpt-6, tier: frontier, strengths: [code]}]}\n  claude-code: {}\n",
+    "op": "setIn",
+    "path": [
+      "runners",
+      "codex",
+      "models"
+    ],
+    "value": [
+      {
+        "id": "gpt-6",
+        "tier": "medium",
+        "strengths": [
+          "a",
+          "b"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "set-block-key-flow-seq-unpadded",
+    "classes": [
+      "block-map",
+      "flow-seq",
+      "replace",
+      "flow-padding"
+    ],
+    "before": "runners:\n  codex:\n    model: gpt-5\n    models: [{id: gpt-5, tier: small}]\n",
+    "op": "setIn",
+    "path": [
+      "runners",
+      "codex",
+      "models"
+    ],
+    "value": [
+      {
+        "id": "gpt-6",
+        "tier": "medium"
+      }
+    ]
+  },
+  {
+    "id": "set-padded-flow-seq-nested-maps",
+    "classes": [
+      "block-map",
+      "flow-seq",
+      "replace",
+      "flow-padding"
+    ],
+    "before": "runners:\n  codex:\n    models: [ { id: gpt-5, tier: small } ] # keep\n",
+    "op": "setIn",
+    "path": [
+      "runners",
+      "codex",
+      "models"
+    ],
+    "value": [
+      {
+        "id": "gpt-6",
+        "tier": "medium"
+      }
+    ]
   }
 ]
