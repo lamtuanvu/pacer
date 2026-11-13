@@ -42,7 +42,7 @@ pub use native_write::NativeWrite;
 pub use observation_generation::{ObservationCall, ObservationGeneration};
 pub use observations::{
     EVENT_QUEUE_BYTES, EVENT_QUEUE_COUNT, EventBatch, EventSubscription, POLICY_EVENT_TYPES,
-    ReadContext, ReadOwner, TaskProjection, read_task,
+    ReadContext, ReadOwner, TaskProjection, notification_frame, read_task,
 };
 pub use pairing::{PairingCandidate, PairingRegistry, handover_pairing, pair};
 pub use policy::{
