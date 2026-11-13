@@ -214,8 +214,13 @@ async function runStage(authority: CallAuthority, state: State, pin: Pin, timeou
     resetPipeTimer = () => {
       if (!exited || closedPipe) return;
       if (pipeTimer) clearTimeout(pipeTimer);
-      // This is an idle bound after the leader exits; normal buffered output can keep draining.
-      pipeTimer = setTimeout(retainedPipes, 250);
+      // After an active group kill the pipes stay open only until every group member is
+      // reaped (a killed leader's stdout write-end is inherited by its foreground
+      // children), which can take longer than the few hundred ms an idle, still-draining
+      // natural leader needs. Give the whole-group termination that room instead of
+      // declaring cleanup unverified on the tight idle bound.
+      const idleAfterExit = terminationSignaled ? 2000 : 250;
+      pipeTimer = setTimeout(retainedPipes, idleAfterExit);
     };
     child.on("error", () => { failure ??= new CoreError("plugin_unavailable", "bundle SSH child could not start"); });
     let prefix = Buffer.alloc(0), framed = false, lineStart = true;
