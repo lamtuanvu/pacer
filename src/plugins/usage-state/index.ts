@@ -100,7 +100,7 @@ async function begin(authority: CallAuthority, params: Record<string, unknown>) 
       authority.assertActive();
       await validateStateAuthority(authority);
       await guardStorePath(lease.home, store.path);
-      if (!lease.disposable) await sweepUsageStateIfDue(lease.home);
+      if (!lease.disposable) void sweepUsageStateIfDue(lease.home);
       const created = await privateDirectory(store.path, lease.disposable);
       lease.directory = created.directory;
       lease.directoryIdentity = created.identity;

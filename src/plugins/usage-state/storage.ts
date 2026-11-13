@@ -20,7 +20,7 @@ export async function privateDirectory(storePath: string, readOnly: boolean): Pr
     const info = await lstat(dir);
     return { directory: dir, identity: { device: info.dev, inode: info.ino } };
   }
-  catch (error) { await rm(dir, { recursive: true, force: true }); throw error; }
+  catch (error) { await rm(dir, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 export async function writeParts(path: string, parts: AsyncIterable<string>, check: () => void) {
   const file = await open(path, "wx", 0o600);
@@ -97,12 +97,14 @@ const lastSweep = new Map<string, number>();
 export async function sweepUsageState(pacerHome: string, now = Date.now()): Promise<number> {
   let removed = 0;
   for (const parent of [join(pacerHome, "cache"), join(pacerHome, "state")]) {
-    let names: string[];
-    try { if (!(await lstat(parent)).isDirectory()) continue; names = await readdir(parent); } catch { continue; }
+    let names: string[], before: Awaited<ReturnType<typeof lstat>>;
+    try { before = await lstat(parent); if (!before.isDirectory()) continue; names = await readdir(parent); } catch { continue; }
     for (const name of names) {
       if (!name.startsWith(".pacer-usage-state-")) continue;
       const path = join(parent, name);
       try {
+        const current = await lstat(parent);
+        if (!current.isDirectory() || current.dev !== before.dev || current.ino !== before.ino) break;
         const entry = await lstat(path);
         if (!entry.isDirectory() || now - entry.mtimeMs <= SWEEP_AGE_MS) continue;
         await rm(path, { recursive: true, force: true }); removed++;

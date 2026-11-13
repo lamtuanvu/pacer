@@ -409,5 +409,6 @@ test("writable begin sweeps orphaned staging directories and a read-only begin l
   const writer = setup();
   const swept = await orphan(writer);
   await call(writer.authority, "release", { lease: (await snapshot(writer.authority)).lease });
+  for (let i = 0; i < 50 && (await readdir(dirname(swept))).includes(basename(swept)); i++) await Bun.sleep(20);
   expect((await readdir(dirname(swept))).includes(basename(swept))).toBe(false);
 });
