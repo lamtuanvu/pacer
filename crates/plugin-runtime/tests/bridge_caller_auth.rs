@@ -34,8 +34,9 @@ fn temp_home() -> tempfile::TempDir {
 /// Answers hello and reports which spec started it and its pid.
 const WHO_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'pacer-assistant',version:'1.0.0',contributes:['diagnostic']}});else if(m.method==='diagnostic.ping')send({id:m.id,result:{who:process.argv.at(-1),pid:process.pid}});}}"#;
 
-/// Larger than the owner's 8 KiB read buffer, so a frame it refuses leaves
-/// bytes unread and Linux reports the close as a reset on every runner.
+/// The owner's `BufReader` default capacity. A refused frame larger than this
+/// leaves bytes unread, so Linux reports the close as a reset on every runner.
+const OWNER_READ_BUFFER: usize = 8 * 1024;
 const PAD_BYTES: usize = 32 * 1024;
 
 fn spec(who: &str, home: &Path) -> Value {
@@ -118,7 +119,11 @@ async fn assert_refuses_every_frame(socket: &Path, home: &Path) {
         if parsed.as_ref().is_some_and(|frame| {
             frame["params"]["spawn"].is_object() || frame["params"]["argv"].is_array()
         }) {
-            assert!(frame.len() > PAD_BYTES, "{what}: {} bytes", frame.len());
+            assert!(
+                frame.len() > OWNER_READ_BUFFER,
+                "{what}: {} bytes",
+                frame.len()
+            );
         }
         let replies = exchange_raw(socket, &frame).await;
         assert_refused(&replies, what);
@@ -266,7 +271,7 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
     bytes.push(b'\n');
     bytes.extend(serde_json::to_vec(&sealed(1, home.path())).unwrap());
     bytes.push(b'\n');
-    assert!(bytes.len() > PAD_BYTES, "{} bytes", bytes.len());
+    assert!(bytes.len() > OWNER_READ_BUFFER, "{} bytes", bytes.len());
     let _ = stream.get_mut().write_all(&bytes).await;
     assert_refused(
         &lines_until_close(&mut stream).await,
