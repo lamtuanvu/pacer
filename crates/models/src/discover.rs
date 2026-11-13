@@ -24,6 +24,9 @@ use tokio::{io::AsyncReadExt, task::JoinHandle};
 pub const TIMEOUT: Duration = Duration::from_secs(90);
 /// After a timeout kill, `execProcess` waits this long for the streams.
 const GRACE: Duration = Duration::from_secs(2);
+/// TypeScript reads stdout uncapped, but there a runaway CLI fills the core
+/// child; here it would fill the front door.
+pub const STDOUT_CAP: usize = 64 << 20;
 
 /// What Core's `defaultRun` gives a subprocess: Core's `process.env` and
 /// `process.cwd()`. The front door records it when it starts the core child.
@@ -65,30 +68,48 @@ impl Drop for Group {
     }
 }
 
-async fn drain<R: AsyncReadExt + Unpin>(reader: Option<R>) -> Vec<u8> {
+/// The stream up to EOF, or `None` once it passes `cap` bytes.
+async fn drain<R: AsyncReadExt + Unpin>(reader: Option<R>, cap: usize) -> Option<Vec<u8>> {
     let mut bytes = Vec::new();
-    if let Some(mut reader) = reader {
-        let _ = reader.read_to_end(&mut bytes).await;
+    if let Some(reader) = reader {
+        let _ = reader.take(cap as u64 + 1).read_to_end(&mut bytes).await;
     }
-    bytes
+    (bytes.len() <= cap).then_some(bytes)
 }
 
-/// The exit status and stdout; a descendant holding a pipe keeps this pending.
+/// Reads stderr to EOF without keeping it, so the CLI never sees a closed pipe.
+async fn discard<R: AsyncReadExt + Unpin>(reader: Option<R>) {
+    if let Some(mut reader) = reader {
+        let _ = tokio::io::copy(&mut reader, &mut tokio::io::sink()).await;
+    }
+}
+
+/// The exit status and stdout, or `None` when stdout overflowed; a descendant
+/// holding a pipe keeps this pending.
 async fn finish(
     child: &mut tokio::process::Child,
-    out: &mut JoinHandle<Vec<u8>>,
-    err: &mut JoinHandle<Vec<u8>>,
-) -> (Option<std::process::ExitStatus>, Vec<u8>) {
+    out: &mut JoinHandle<Option<Vec<u8>>>,
+    err: &mut JoinHandle<()>,
+) -> Option<(Option<std::process::ExitStatus>, Vec<u8>)> {
+    let stdout = out.await.ok().flatten()?;
     let status = child.wait().await.ok();
-    let stdout = out.await.unwrap_or_default();
     let _ = err.await;
-    (status, stdout)
+    Some((status, stdout))
 }
 
 /// `execProcess` for `opencode models` in a new process group: stdout when it
-/// exits 0 within `timeout`. A spawn failure, a nonzero exit or a timeout
-/// (which kills the group) is `None`. Like TypeScript, stdout is not capped.
+/// exits 0 within `timeout`. A spawn failure, a nonzero exit, a timeout or
+/// more than `STDOUT_CAP` bytes of stdout (both of which kill the group) is
+/// `None`.
 pub async fn run_models(process: &CoreProcess, timeout: Duration) -> Option<Vec<u8>> {
+    run_capped(process, timeout, STDOUT_CAP).await
+}
+
+pub(crate) async fn run_capped(
+    process: &CoreProcess,
+    timeout: Duration,
+    cap: usize,
+) -> Option<Vec<u8>> {
     use std::os::unix::process::CommandExt as _;
     let mut command = std::process::Command::new("opencode");
     command
@@ -106,17 +127,21 @@ pub async fn run_models(process: &CoreProcess, timeout: Duration) -> Option<Vec<
     command.kill_on_drop(true);
     let mut child = command.spawn().ok()?;
     let mut group = Group(child.id());
-    let mut out = tokio::spawn(drain(child.stdout.take()));
-    let mut err = tokio::spawn(drain(child.stderr.take()));
-    let finished = tokio::time::timeout(timeout, finish(&mut child, &mut out, &mut err)).await;
-    if finished.is_err() {
+    let mut out = tokio::spawn(drain(child.stdout.take(), cap));
+    let mut err = tokio::spawn(discard(child.stderr.take()));
+    let finished = tokio::time::timeout(timeout, finish(&mut child, &mut out, &mut err))
+        .await
+        .ok()
+        .flatten();
+    let Some((status, stdout)) = finished else {
         group.kill();
-        let _ = tokio::time::timeout(GRACE, finish(&mut child, &mut out, &mut err)).await;
+        // A finished JoinHandle must not be polled again, so the grace waits for the child only.
+        let _ = tokio::time::timeout(GRACE, child.wait()).await;
         out.abort();
         err.abort();
-    }
+        return None;
+    };
     group.0 = None;
-    let (status, stdout) = finished.ok()?;
     status.filter(|s| s.success()).map(|_| stdout)
 }
 

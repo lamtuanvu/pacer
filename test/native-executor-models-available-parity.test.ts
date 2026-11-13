@@ -47,7 +47,7 @@ const CATALOG = JSON.stringify({ fetchedAt: 1, providers: {
 const SEEDED = Math.floor(Date.now() / 1000) - 5;
 
 interface Setup { mode?: "list" | "empty" | "fail" | "hang"; models?: string }
-type Step = [op: string, params: unknown, native: boolean, setup?: Setup];
+type Step = [op: string, params: unknown, native: boolean, setup?: Setup, contains?: string];
 
 function cachePath(home: string, runner: string) {
   return join(home, ".pacer", "cache", "available-models", `${createHash("sha256").update(runner).digest("hex")}.json`);
@@ -181,7 +181,10 @@ const STEPS: Step[] = [
   ["executor.models.available", available("opencode#oc-stale"), true],
   ["executor.models.available", available("opencode#oc-fresh", { refresh: true }), true],
   ["executor.models.available", available("opencode#oc-fail"), true, { mode: "fail" }],
+  // A listing that fails or is empty saves the model with a "could not be checked" warning.
+  ["runner.set", { id: "opencode#oc-fail", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode could not list models for acme"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "empty" }],
+  ["runner.set", { id: "opencode#oc-empty", model: "acme/zz" }, true, undefined, "acme/zz could not be checked: opencode lists no models for acme; check opencode auth list"],
   ["executor.models.available", available("opencode#oc-empty"), true, { mode: "list", models: "other/x\n" }],
   ["executor.models.available", available("opencode#oc-empty", { refresh: false }), true, { mode: "list", models: "\ufeffacme/x \r\nacme/a\n" }],
   ["executor.models.available", available("missing"), true],
@@ -201,11 +204,12 @@ for (const transport of ["stdio", "http"] as const) {
     const doors = [await start(homes[0], false), await start(homes[1], true)] as const;
     const expected: string[] = [];
     try {
-      for (const [op, params, native, setup] of STEPS) {
+      for (const [op, params, native, setup, contains] of STEPS) {
         const label = `${transport} ${op} ${JSON.stringify(params)}`;
         if (setup) homes.forEach(home => configure(home, setup));
         const replies = await Promise.all([0, 1].map(async i => normalize(homes[i]!, await doors[i]!.call(op, params))));
         expect(replies[0], label).toBe(replies[1]!);
+        if (contains) expect(replies[0], label).toContain(contains);
         expect(disk(homes[0]), `${label}: disk`).toEqual(disk(homes[1]));
         if (native) expected.push(`native ${op}`);
         await settle(doors[0].markers, expected.length);
@@ -213,8 +217,9 @@ for (const transport of ["stdio", "http"] as const) {
       }
       expect(doors[1].markers).toEqual([]);
       const state = disk(homes[0]);
-      // stale, refresh, two acme listings, nullcat (TypeScript), runner.set's discovery once cached.
-      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(8).fill("args=models pwd=$HOME/work cwd=$HOME/work probe=door-env"));
+      // stale, refresh, fail and runner.set, empty and runner.set, two acme listings, nullcat
+      // (TypeScript), runner.set's discovery once cached.
+      expect(state.opencode.split("\n").filter(Boolean)).toEqual(Array(10).fill("args=models pwd=$HOME/work cwd=$HOME/work probe=door-env"));
       expect(state.dirMode).toBe("700");
       expect(state.caches.every(line => / 600 /.test(line))).toBe(true);
       expect(readFileSync(cachePath(homes[0], "opencode#oc-stale"), "utf8")).toMatch(

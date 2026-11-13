@@ -7,27 +7,11 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
-use pacer_models::{available_needs_core, available_reply};
+use pacer_models::{PROTOTYPE_KEYS, available_needs_core, available_reply};
 use serde_json::Value;
 
 const FORWARDED: &str = "executor.models.available requires the forwarded operation";
 const OP: &str = "executor.models.available";
-
-/// Names every plain object inherits, so `runners[name]` is truthy in TypeScript.
-const INHERITED: [&str; 12] = [
-    "__proto__",
-    "__defineGetter__",
-    "__defineSetter__",
-    "__lookupGetter__",
-    "__lookupSetter__",
-    "constructor",
-    "hasOwnProperty",
-    "isPrototypeOf",
-    "propertyIsEnumerable",
-    "toLocaleString",
-    "toString",
-    "valueOf",
-];
 
 pub fn executor_models_available(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     Box::pin(async move {
@@ -65,7 +49,7 @@ pub fn executor_models_available_stays_forwarded(ctx: &Ctx, op: &str, params: &V
     };
     let runner = p["runner"].as_str().unwrap_or("");
     if strategy["runners"].get(runner).is_none() {
-        return INHERITED.contains(&runner);
+        return PROTOTYPE_KEYS.contains(&runner);
     }
     available_needs_core(
         &ctx.pacer_home,
