@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
 const jobs = (Bun.YAML.parse(readFileSync(".github/workflows/release.yml", "utf8")) as any).jobs;
 test("desktop promotion requires the native signed build and standalone release while CLI publishing stays independent", () => {
-  expect(jobs.publish.needs).toEqual(["verify", "build", "m1-suite", "desktop"]);
+  expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
   expect(jobs.desktop.strategy.matrix.include.every((entry: any) => entry.platform.startsWith("linux-"))).toBe(true);
   for (const job of [jobs.desktop, jobs["desktop-build"]]) {
     const installs = job.steps.filter((s: any) => s.run === "bun install --frozen-lockfile").map((s: any) => s["working-directory"] ?? ".");

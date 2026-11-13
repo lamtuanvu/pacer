@@ -9,7 +9,7 @@ import subprocess
 KEYS = ("bun", "rust", "e2e", "ui", "codeql")
 CI_TESTS = ("test/ci-selection.test.ts", "test/ci-service-survival.test.ts",
             "test/release-automation.test.ts", "test/release-workflow.test.ts",
-            "test/desktop-release-workflow.test.ts")
+            "test/desktop-release-workflow.test.ts", "test/release-ci-evidence.test.ts")
 
 
 def select(paths):

@@ -171,29 +171,16 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(gate.if).toBeUndefined();
   expect((gate as any)["continue-on-error"]).toBeUndefined();
   expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
-  const suite = jobs["m1-suite"]!;
-  expect(suite.needs).toEqual(["verify", "build"]);
+  const suite = jobs["ci-suite"]!;
+  expect(suite.needs).toBe("verify");
   expect((suite as any).if).toBeUndefined();
-  expect((suite as any).strategy["fail-fast"]).toBe(false);
-  expect((suite as any).strategy.matrix.runner).toEqual(build.strategy!.matrix.include.map(entry => entry.runner));
-  expect((suite as any).strategy.matrix.shard).toEqual([0, 1, 2, 3]);
-  expect((suite as any).strategy.matrix.include).toEqual(build.strategy!.matrix.include.map(({ runner, image }) => ({ runner, image })));
-  const shard = suite.steps.find(s => s.name === "M1 Bun suite shard against built host release artifacts")!;
-  expect(shard.if).toBeUndefined();
-  expect((shard as any)["continue-on-error"]).toBeUndefined();
-  expect(shard.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite shard');
-  expect(shard.env).toMatchObject({ SHARD_INDEX: "${{ matrix.shard }}", SHARD_COUNT: 4 });
-  const warm = suite.steps.findIndex(s => s.run?.startsWith("bun run release:host --out \"$RUNNER_TEMP/"));
-  expect(warm).toBeGreaterThan(suite.steps.findIndex(s => s.name === "Install Linux cross-build tools"));
-  expect(warm).toBeLessThan(suite.steps.indexOf(shard));
-  const downloads = suite.steps.filter(s => s.uses?.startsWith("actions/download-artifact@")).map(s => s.with);
-  expect(downloads).toEqual([
-    { name: "binaries-${{ matrix.runner }}", path: "dist/release" },
-    { name: "m1-manifest-${{ matrix.runner }}", path: "dist/release" },
-  ]);
-  expect(suite.steps.indexOf(shard)).toBeGreaterThan(suite.steps.findIndex(s => s.with?.name === "m1-manifest-${{ matrix.runner }}"));
-  expect(build.steps.find(s => s.with?.name === "m1-manifest-${{ matrix.runner }}")?.with?.path).toBe("dist/release/*/manifest.json");
-  expect(jobs.publish.needs).toEqual(["verify", "build", "m1-suite", "desktop"]);
+  expect((suite as any).permissions).toEqual({ contents: "read", actions: "write" });
+  const evidence = suite.steps.find(s => s.name === "Require CI's full suite on both OSes for this commit")!;
+  expect(evidence.if).toBeUndefined();
+  expect((evidence as any)["continue-on-error"]).toBeUndefined();
+  expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");
+  expect(evidence.env).toMatchObject({ CI_SHA: "${{ github.event.pull_request.head.sha || github.sha }}", CI_REF: "${{ github.head_ref || github.ref_name }}" });
+  expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
@@ -215,11 +202,7 @@ test("M1 gate failure stops the release build despite log capture", () => {
   const root = tmpDir(), bin = join(root, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  for (const gate of [
-    jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!,
-    jobs["m1-suite"]!.steps.find(s => s.name === "M1 Bun suite shard against built host release artifacts")!,
-  ]) {
-    const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
-    expect(result.exitCode).not.toBe(0);
-  }
+  const gate = jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
+  const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
+  expect(result.exitCode).not.toBe(0);
 });

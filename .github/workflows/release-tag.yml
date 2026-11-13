@@ -23,7 +23,8 @@ jobs:
   tag:
     if: "github.event_name == 'workflow_dispatch' || startsWith(github.event.head_commit.message, 'chore: release ')"
     runs-on: ubuntu-24.04
-    timeout-minutes: 100
+    # Outlasts a recovery dry run whose ci-suite job may wait for a dispatched CI run.
+    timeout-minutes: 210
     permissions:
       contents: read
       actions: write
