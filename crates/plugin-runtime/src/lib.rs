@@ -5,8 +5,9 @@
 //! false. Library callers may hold live [`PluginProcess`] children under
 //! [`ProcessOwner::native_for_tests`]. Truthy [`NATIVE_PLUGIN_HOST_ENABLE_ENV`]
 //! / [`HOST_BRIDGE_ENABLE_ENV`] opt into a [`NativeHostSession`] that claims
-//! supervision, binds the reverse bridge with live `_host.plugin.call` /
-//! `find` / `spawn` / `stop`, and exports [`HOST_SOCKET_ENV`] for Core.
+//! supervision, binds the reverse bridge with live sealed `_host.plugin.call`
+//! / `find` / `stop`, and exports [`HOST_SOCKET_ENV`] and the per-start
+//! credential [`HOST_SOCKET_KEY_ENV`] for Core alone ([`OwnerKey`]).
 //! Falsy values (`0` / `false` / `no`) are the P4d-5 escape hatch for the
 //! future default-on cutover. Flag-on serve routes native plugin RPC through
 //! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7
@@ -22,6 +23,7 @@
 //! plugin subscribed under, fed by the owning door's Core, and answers requests
 //! sent between calls in its own idle session (`observation`).
 
+mod bridge_auth;
 mod bridge_call;
 mod bridge_listener;
 mod capability;
@@ -39,6 +41,10 @@ mod process;
 mod serve_host;
 mod worktree_attach;
 
+pub use bridge_auth::{
+    AUTH_DEADLINE, AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH, OwnerKey,
+    authenticate,
+};
 pub use bridge_call::{CallFailure, DoorCall, DoorReady, call_door, ready_info};
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,

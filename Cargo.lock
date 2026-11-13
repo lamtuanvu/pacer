@@ -1767,11 +1767,14 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hmac",
  "nix",
  "pacer-plugin-capabilities",
  "pacer-plugin-host",
  "pacer-store",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",

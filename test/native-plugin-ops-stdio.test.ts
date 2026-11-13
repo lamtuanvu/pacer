@@ -276,7 +276,14 @@ test.skipIf(!front)("a client cannot reach the private channel and plugin childr
       const doctor = await s.call("plugin.doctor", { id: "fx-ui" });
       expect(doctor.json.result.reports[0].ok, doctor.line).toBe(true);
       expect(readFileSync(join(h.plugin, "inherited-key"), "utf8")).toBe("absent");
-    } finally { await s.stop(); h.done(); }
+      expect(readFileSync(join(h.plugin, "inherited-owner-key"), "utf8")).toBe("absent");
+      // An owning connection's credential never touches disk: run/ holds only its socket.
+      if (options === ownerOn) expect(readdirSync(join(h.state, "run")).filter(name => !name.endsWith(".sock"))).toEqual([]);
+    } finally {
+      // Nor does it reach the log.
+      expect(await s.stop()).not.toMatch(/[0-9a-f]{64}/);
+      h.done();
+    }
   }
 }, 90000);
 
@@ -354,7 +361,12 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   writeFileSync(join(h.plugin, "main.ts"), recordingMain);
   const service = await serve(h, "", ownerOn);
   const s = await stdio(h, "", ownerOn);
+  const hostSocket = join(h.state, "run", "host.sock");
+  let key = "<unread>";
   try {
+    key = readFileSync(join(h.state, "run", "host.key"), "utf8").trim();
+    expect(key).toMatch(/^[0-9a-f]{64}$/);
+    expect(statSync(join(h.state, "run", "host.key")).mode & 0o777).toBe(0o600);
     expect(connectionSockets(h)).toHaveLength(0);
     await s.call("plugin.enable", { id: "fx-ui", grant: true });
     const params = { plugin: "fx-ui", surface: "activity", id: "checklist", context };
@@ -364,6 +376,13 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
     // One child, started for the stdio connection, also serves the service.
     expect(starts(h)).toHaveLength(1);
     const [first] = starts(h);
+    expect(readFileSync(join(h.plugin, "inherited-owner-key"), "utf8")).toBe("absent");
+    // A same-uid peer without the credential cannot find, stop or call through serve's owner.
+    for (const method of ["_host.plugin.find", "_host.plugin.stop", "_host.plugin.call"]) {
+      const refused = await ask(hostSocket, { jsonrpc: "2.0", id: 1, method, params: { id: "fx-ui", method: "diagnostic.ping", params: {} } });
+      expect(refused.error, method).toEqual({ code: -32001, message: "unauthorized" });
+    }
+    expect(alive(first)).toBe(true);
     // Disable through stdio stops the shared lane; the service's next call starts a new one.
     expect((await s.call("plugin.disable", { id: "fx-ui" })).json.result).toBeDefined();
     for (let i = 0; i < 300 && alive(first); i++) await Bun.sleep(10);
@@ -374,7 +393,9 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   } finally {
     const log = await s.stop();
     expect(log).toMatch(/^native plugin owner attach .*\/run\/host\.sock$/m);
-    await service.stop(); h.done();
+    expect(log).not.toContain(key);
+    expect(await service.stop()).not.toContain(key);
+    h.done();
   }
 }, 90000);
 
@@ -605,9 +626,10 @@ async function deepHomeBinds(h: Home, dir: string) {
     await s.call("plugin.enable", { id: "fx-ui", grant: true });
     expect((await s.call("plugin.ui.render", params)).json.error).toBeUndefined();
     expect((await s.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0].ok).toBe(true);
-    // The socket Core was given serves this connection's owner and its child.
+    // The socket Core was given serves this connection's owner, and only callers holding its credential.
     const found = await ask(socket, { jsonrpc: "2.0", id: 1, method: "_host.plugin.find", params: { id: "fx-ui" } });
-    expect(found.result).toEqual({ found: true, id: "fx-ui", pid: starts(h)[0] });
+    expect(found.error).toEqual({ code: -32001, message: "unauthorized" });
+    expect(starts(h)).toHaveLength(1);
   } finally {
     const log = await s.stop();
     expect(log).toContain(`native plugin owner own ${socket}`);

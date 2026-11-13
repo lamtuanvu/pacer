@@ -528,7 +528,7 @@ test.skipIf(!front)("PR 4 endpoint shapes: empty-binding launchEnv crosses, cred
 /** Bun processes the preload probe recorded: the `_run` runners Core detaches for a retried task, or every other one. */
 function runnerEnvs(log: string, runners = true) {
   if (!existsSync(log)) return [];
-  return readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line) as { socket: string | null; args: string[] })
+  return readFileSync(log, "utf8").trim().split("\n").map(line => JSON.parse(line) as { socket: string | null; key: string | null; args: string[] })
     .filter(entry => (entry.args[0] === "_run") === runners);
 }
 function killRunners(id: string) {
@@ -551,7 +551,7 @@ function runnerHome(name: string, codex?: string) {
   const repo = gitRepo();
   const log = join(h.home, "bun-processes");
   const probe = join(h.home, "socket-probe.cjs");
-  writeFileSync(probe, `require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({ socket: process.env.PACER_HOST_SOCKET ?? null, args: process.argv.slice(2) }) + "\\n");\n`);
+  writeFileSync(probe, `require("node:fs").appendFileSync(${JSON.stringify(log)}, JSON.stringify({ socket: process.env.PACER_HOST_SOCKET ?? null, key: process.env.PACER_HOST_SOCKET_KEY ? "present" : null, args: process.argv.slice(2) }) + "\\n");\n`);
   // Serve clears BUN_OPTIONS for its Core child; Bun still reads bunfig.toml from the working directory Core and its runners share.
   writeFileSync(join(h.home, "bunfig.toml"), `preload = [${JSON.stringify(probe)}]\n`);
   writeFileSync(join(h.home, ".codex", "auth.json"), "{}");
@@ -561,6 +561,7 @@ function runnerHome(name: string, codex?: string) {
     h, ctx, repo, ids,
     open: (mode: Mode) => openDoor(h, mode, { BUN_OPTIONS: `--preload ${probe}` }, h.home),
     sockets: (runners: boolean) => [...new Set(runnerEnvs(log, runners).map(entry => entry.socket?.replace(h.state, "<PACER_HOME>") ?? null))],
+    keys: (runners: boolean) => [...new Set(runnerEnvs(log, runners).map(entry => entry.key))],
     runnerStarted: () => poll(async () => runnerEnvs(log), entries => entries.length > 0, 60000),
     done() {
       for (const id of ids) killRunners(id);
@@ -589,7 +590,7 @@ async function runnerSocket(mode: Mode) {
     expect(retry.json.error, retry.line).toBeUndefined();
     await fixture.runnerStarted();
     await poll(() => door.call("task.get", { id }), reply => reply.json.result?.state !== "running", 30000);
-    return { runners: fixture.sockets(true), core: fixture.sockets(false) };
+    return { runners: fixture.sockets(true), runnerKeys: fixture.keys(true), core: fixture.sockets(false), coreKeys: fixture.keys(false) };
   } finally {
     await door.stop();
     fixture.done();
@@ -607,6 +608,11 @@ test.skipIf(!front)("I1: a detached _run runner gets no owner socket in any mode
   expect(on.core).toContain("<PACER_HOME>/run/host.sock");
   expect(off.core).toEqual([null]);
   expect(owned.core.some(socket => /^<PACER_HOME>\/run\/s[0-9a-f]{12}\.sock$/.test(socket ?? ""))).toBe(true);
+  // Only Core holds the owner's credential (#918): no runner inherits it in any mode.
+  for (const run of [on, off, owned]) expect(run.runnerKeys).toEqual([null]);
+  expect(on.coreKeys).toContain("present");
+  expect(owned.coreKeys).toContain("present");
+  expect(off.coreKeys).toEqual([null]);
 }, 400000);
 
 /** Codex reads the attempt's prompt and succeeds after a pause long enough to end the door under it. */
