@@ -82,7 +82,7 @@ fn needs_core(error: &StrategyError) -> bool {
 
 /// `loadStrategy` for the active strategy, or `None` when TypeScript must answer: Rust builds
 /// another path, the failure carries Bun or Node text, or Bun may read the text differently.
-pub(crate) fn native_load(home: &Path) -> Option<Result<Value, StrategyError>> {
+pub fn native_load(home: &Path) -> Option<Result<Value, StrategyError>> {
     let (path, name) = strategy_path(home).ok()?;
     if !built_like_node(home, &path, &name) {
         return None;

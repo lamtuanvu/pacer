@@ -134,6 +134,12 @@ pub fn repo_for(pacer_home: &Path, path: &str) -> Value {
     json!({"key": local_key(&real), "label": basename(&real), "path": real})
 }
 
+/// `registeredRepo(ctx, path)`: `repoFor` of a path inside a registered checkout.
+pub fn registered_repo(pacer_home: &Path, path: &str) -> Option<Value> {
+    Registry::read(pacer_home, false).registered(&cached_canonical(path))?;
+    Some(repo_for(pacer_home, path))
+}
+
 /// `repoFor(ctx, path).key`.
 pub fn repo_key_for(pacer_home: &Path, path: &str) -> String {
     repo_for(pacer_home, path)["key"]

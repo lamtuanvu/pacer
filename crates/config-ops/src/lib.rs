@@ -21,7 +21,7 @@ pub mod setup_effects;
 pub mod setup_init_ops;
 pub mod setup_ops;
 pub mod strategy_build_ops;
-mod strategy_load;
+pub mod strategy_load;
 pub mod strategy_preview_ops;
 
 pub mod engine_ops;
