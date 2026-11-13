@@ -224,6 +224,10 @@ test.skipIf(!front)("an attached stdio connection cannot restart a plugin the se
       expect(report.ok).toBe(false);
     }
     expect(report.error).toContain("plugin fx-ui is failing: 3 failures within a minute");
+    // The owner's refusal reaches the attached door through its Core with the hint.
+    expect(semantic(await s.call("plugin.ui.action", { ...hold, action: "refresh", requestId: "failing" }))).toMatchObject({
+      code: "plugin_unavailable", message: expect.stringContaining("plugin fx-ui is failing"), hint: "Enable the plugin through the pacer service.",
+    });
     expect(startLog(h)).toHaveLength(3);
     // Enabling through the service clears the owner's mark, and the attached door is served again.
     await service.call("plugin.enable", { id: "fx-ui", grant: true });

@@ -261,7 +261,8 @@ cases(null)("native owner conformance: an undeclared identity.sign is refused an
 }, 120000);
 
 // The doors' doctor and UI calls keep each method's flag-off deadline: a ping gets 5 s, which also bounds the
-// hello, and a render 2 s. Each case runs once per host; `call` is the reply and `book` Core's bookkeeping after it.
+// hello, and a render 2 s. Each delay outlasts the deadline plus the margin, so a later deadline fails the time bound
+// too. Each case runs once per host; `call` is the reply and `book` Core's bookkeeping after it.
 type Deadline = { afterMs: number; call: unknown; book?: unknown };
 let deadline: Deadline | undefined;
 const timed = async (call: () => Promise<unknown>) => {
@@ -271,26 +272,29 @@ const timed = async (call: () => Promise<unknown>) => {
 };
 const HELLO_CRASH = "routed: PR 7 gate row 'owner hello-timeout crash accounting': flag-off stops a child whose hello missed the call's deadline and records a crash; the owner keeps the child";
 const FAILED_READY = "routed: PR 7 gate row 'readiness after a failed first sealed call': Core loses the hello summary when its deadline ends the sealed call, so plugin.list shows idle where flag-off shows ready";
+// Flag-off records whichever of the call's deadline and the hello's own deadline fires first.
+const helloCrash = (error: string | null | undefined) =>
+  error === "owning plugin call ended" || /^plugin\.hello passed its \d+ ms deadline$/.test(error ?? "") ? "<the hello missed the call's deadline>" : error;
 const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string } })[] = [
-  { name: "a 6 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: HELLO_CRASH }, async run(t) {
-    t.install("good", { fixture: { helloDelayMs: 6000 } });
+  { name: "a 7 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: HELLO_CRASH }, async run(t) {
+    t.install("good", { fixture: { startDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
     const { afterMs, seen } = await timed(() => doctor(h, "fx-good"));
     const report = seen as { ok: boolean; error: string | null; restarts: number };
     const entry = (await listed(h)).find(p => p.id === "fx-good") as { error?: string | null };
-    deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { restarts: report.restarts, error: entry.error } };
+    deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { restarts: report.restarts, error: helloCrash(entry.error) } };
   } },
-  { name: "a 6 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: FAILED_READY }, async run(t) {
-    t.install("good", { fixture: { pingDelayMs: 6000 } });
+  { name: "a 7 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: FAILED_READY }, async run(t) {
+    t.install("good", { fixture: { pingDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
     const { afterMs, seen } = await timed(() => doctor(h, "fx-good"));
     const report = seen as { ok: boolean; error: string | null; state: string };
     deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { state: report.state } };
   } },
-  { name: "a 3 s render fails the 2 s ui.render", deadlineMs: 2000, async run(t) {
-    t.install("ui", { fixture: { renderDelayMs: 3000 } });
+  { name: "a 4 s render fails the 2 s ui.render", deadlineMs: 2000, async run(t) {
+    t.install("ui", { fixture: { renderDelayMs: 4000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-ui", grant: true });
     assert((await doctor(h, "fx-ui")).ok, "the plugin starts");
@@ -323,3 +327,30 @@ for (const c of DEADLINES) {
     for (const { label } of doors) expect({ label, book: seen[label]!.book }).toEqual({ label, book: seen.typescript!.book });
   }, 120000);
 }
+
+// The TypeScript host writes a `capability.log` line when it arrives, so a call that then misses its
+// deadline keeps the line; the owner hands the call's lines back with its failure for Core to write.
+type Logged = { ok: boolean; error: string | null; logged: boolean };
+let logged: Logged | undefined;
+const logThenTimeout: ConformanceCase = { name: "capability.log before a timed-out ping", async run(t) {
+  t.install("good", { fixture: { callCapability: "log", pingDelayMs: 7000 } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-good", grant: true });
+  const report = await doctor(h, "fx-good");
+  const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
+  const read = () => existsSync(log) && readFileSync(log, "utf8").includes("[info] hello from fixture");
+  for (const end = Date.now() + 3000; Date.now() < end && !read();) await t.sleep(50);
+  logged = { ok: report.ok, error: report.error, logged: read() };
+} };
+
+cases(null)("native owner conformance: a timed-out call keeps its capability.log lines as on the TypeScript host", async () => {
+  const seen: Record<string, Logged> = {};
+  for (const { label, argv, door } of [tsDoor, ...coreDoctor, ...doors]) {
+    logged = undefined;
+    await runCase(logThenTimeout, argv, root, door);
+    seen[label] = logged!;
+  }
+  console.log(`capability.log before a timeout: ${JSON.stringify(seen)}`);
+  expect(seen.typescript).toEqual({ ok: false, error: "plugin_timeout: plugin call passed its absolute deadline", logged: true });
+  for (const { label } of [...coreDoctor, ...doors]) expect({ label, seen: seen[label] }).toEqual({ label, seen: seen.typescript });
+}, 120000);
