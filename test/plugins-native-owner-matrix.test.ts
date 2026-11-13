@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
+import { afterAll, expect, test } from "bun:test";
+import { existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, statSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
 import { installFixture } from "../conformance/install";
 import { installKeychainStub } from "../scripts/live/keychain";
@@ -147,10 +147,15 @@ async function openDoor(h: Home, mode: Mode, extra: Record<string, string> = {},
   };
 }
 
-/** Epoch seconds, elapsed seconds and pace figures the clock decides, never the fixture. */
-const CLOCK_KEYS = /"(\w*(?:At|Until)|\w*AgeS|at|ts|now|mtime|mtimeMs|ageS|durationSeconds|durationMs|uptimeS|latencyMs|elapsedMs|pace|pacePct|delta|activeHoursLeft)": ?-?\d+(?:\.\d+)?(?:e-?\d+)?/g;
-/** Kernel and process identities, random record ids, and the evidence counter serve's background ticks advance. */
-const IDENTITY_KEYS = /"(pid|inode|ino|id|machineId|turnId|conversationId|jobId|job|requestId|evidenceRevision)":(?:\d+|"[^"]*")/g;
+/** Epoch seconds, elapsed seconds and pace figures the clock decides, never the fixture (`resetsAt` comes from the fixture plans). */
+const CLOCK_KEYS = /"((?!resetsAt")\w*(?:At|Until)|\w*AgeS|at|ts|now|mtime|mtimeMs|ageS|durationSeconds|durationMs|uptimeS|latencyMs|elapsedMs|pace|pacePct|delta|activeHoursLeft)": ?-?\d+(?:\.\d+)?(?:e-?\d+)?/g;
+/** Kernel and process identities, keys that only ever hold generated ids, and the evidence counter serve's background ticks advance. */
+const IDENTITY_KEYS = /"(pid|inode|ino|machineId|turnId|conversationId|jobId|job|requestId|evidenceRevision)":(?:\d+|"[^"]*")/g;
+/**
+ * Generated record ids by shape: job UUIDs, task ids `t-<local stamp>-<hex>`, assistant `turn-`/`conv-` ids, and
+ * evidence fact ids (24 hex, hashed over the fact's clock stamps). Executor, provider and plugin ids stay visible.
+ */
+const GENERATED_IDS = /"id":"(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|t-\d{8}-\d{6}-[0-9a-f]{4}|(?:turn|conv)-[0-9a-f]{8}-[0-9a-f]{3}|[0-9a-f]{24})"/g;
 
 /** Integration backups are named after the local wall clock second they were taken. */
 const BACKUP_STAMP = /pacer-bak-\d{8}-\d{6}/g;
@@ -162,7 +167,7 @@ function maskClockValues(text: string) {
   return text.replace(CLOCK_KEYS, '"$1":"<clock>"').replace(BACKUP_STAMP, "pacer-bak-<clock>").replace(STATUS_AGES, "<age>");
 }
 function maskProcessAndRecordIds(text: string) {
-  return text.replace(IDENTITY_KEYS, '"$1":"<id>"');
+  return text.replace(IDENTITY_KEYS, '"$1":"<id>"').replace(GENERATED_IDS, '"id":"<id>"');
 }
 /** Normalized reply text: the same envelope bytes once clock values and generated ids are masked. */
 function replyText(h: Home, reply: Reply) {
@@ -199,8 +204,12 @@ type Restart = (between?: () => void) => Promise<void>;
 type Scenario = (door: Door, h: Home, observe: (key: string, value: string) => void, restart: Restart) => Promise<void>;
 type Run = { mode: Mode; observed: Observation; stderr: string };
 
+/** This run's own short /tmp root: owner sockets bind under each home, and every mode of a row reuses one path. */
+const matrixRoot = mkdtempSync("/tmp/pom-");
+afterAll(() => rmSync(matrixRoot, { recursive: true, force: true }));
+
 async function runModes(name: string, modes: Mode[], scenario: Scenario, stores: string[] = [], extra: Record<string, string> = {}) {
-  const root = `/tmp/pom-${name}`;
+  const root = join(matrixRoot, name);
   const runs: Run[] = [];
   const chat = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: chatCompletion });
   try {
@@ -510,7 +519,7 @@ function killRunners(id: string) {
 
 /** I1: what PACER_HOST_SOCKET a detached `_run` runner inherits from Core in each mode. */
 async function runnerSocket(mode: Mode) {
-  const root = `/tmp/pom-i1`;
+  const root = join(matrixRoot, "i1");
   const h = matrixHome(root, closedPort());
   const repo = gitRepo();
   const log = join(h.home, "bun-processes");
@@ -566,6 +575,7 @@ async function stdioRows(name: string, scenario: Scenario, stores: string[], kno
   const attached = await runModes(`${name}-attached`, [stdioOffServed, stdioAttached], scenario, stores);
   expect(owned[1]!.stderr).toContain("native plugin owner own ");
   expect(attached[1]!.stderr).toContain(`native plugin owner attach ${attached[1]!.stderr.match(/attach (\S+host\.sock)/)?.[1] ?? "<missing>"}`);
+  for (const run of [owned[1]!, attached[1]!]) for (const key of known.filter(key => KNOWN_REFUSED[key])) expect(run.observed[key], `${run.mode.label} ${key}`).toContain(refusal(KNOWN_REFUSED[key]!));
   return [
     ...expectIdentical(owned, { [stdioOwn.label]: known }),
     ...expectIdentical(attached, { [stdioAttached.label]: known }),
