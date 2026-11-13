@@ -49,10 +49,13 @@ use tokio::sync::{mpsc, oneshot};
 /// the chunked result transport (negotiated like a feature), which Core answers
 /// so it can stage a large result with the same bounds and ordering as flag-off.
 /// Core answers the assistant's endpoint key and machine signatures itself
-/// too: the Keychain and the machine key stay with Core.
+/// too: the Keychain and the machine key stay with Core. A detached stop,
+/// inspection or remote stop grant also stays in Core, which consumes it once.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.fs.write" | "capability.fs.mkdir" | "capability.fs.remove" => Some("fs.write"),
+        "capability.process.stopRun" | "capability.process.inspectRun" => Some("process.spawn"),
+        "capability.hosts.stopOwned" => Some("hosts"),
         _ if method.starts_with("capability.orca.") => Some("orca"),
         "capability.usage.state.begin"
         | "capability.usage.state.readChunk"
