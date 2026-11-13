@@ -406,25 +406,18 @@ const startupReconcile: Scenario = async (door, h, observe, restart) => {
 
 let reconcileMemo: Promise<Run[]> | undefined;
 const reconcileRuns = () => reconcileMemo ??= runModes("reconcile", [httpOff, httpOn, httpForward], startupReconcile, ["install-manifest.json"]);
-/**
- * Routed (security boundary): the native owner writes every plugin frame with
- * plugin-host `process::frame`, which sorts object keys, so a planner echoing its prior
- * record back makes Core persist install-manifest.json with sorted keys.
- */
-const PRIOR_ECHO_MANIFESTS = ["manifest after reconnect", "manifest after refresh", "install-manifest.json"];
 
 test.skipIf(!front)("startup reconcile refreshes a deleted integration file and reports a hand-edited one", async () => {
   const runs = await reconcileRuns();
   for (const run of runs) expect(run.observed["restored rules file"], run.mode.label).not.toBe("<absent>");
   for (const run of runs) expect(run.observed["conflict warning"], run.mode.label).toContain("managed integration content changed");
-  for (const run of runs) for (const key of PRIOR_ECHO_MANIFESTS) expect(JSON.parse(run.observed[key]!), `${run.mode.label} ${key}`).toEqual(JSON.parse(runs[0]!.observed[key]!));
-  console.log(expectIdentical(runs, { "http on": PRIOR_ECHO_MANIFESTS }).join("\n"));
+  console.log(expectIdentical(runs).join("\n"));
 }, 240000);
 
-(front ? test.failing : test.skip)("routed: flag-on planner reconnect and refresh keep install-manifest.json key order", async () => {
+test.skipIf(!front)("flag-on planner reconnect and refresh keep install-manifest.json key order", async () => {
   const runs = await reconcileRuns();
   const [off, on] = runs;
-  for (const key of PRIOR_ECHO_MANIFESTS) expect(on!.observed[key], key).toBe(off!.observed[key]);
+  for (const key of ["manifest after reconnect", "manifest after refresh", "install-manifest.json"]) expect(on!.observed[key], key).toBe(off!.observed[key]);
 }, 240000);
 
 /** The delivery ledger keys each attention item by id and since; delivery times are the clock's. */
@@ -688,18 +681,12 @@ const stdioReconnectRuns = () => stdioReconnectMemo ??= (async () => [
   ...await runModes("stdio-reconnect-attached", [stdioOffServed, stdioAttached], reconnect),
 ])();
 
-test.skipIf(!front)("stdio rows: planner reconnect matches flag-off except the routed manifest key order", async () => {
+test.skipIf(!front)("stdio rows: planner reconnect matches flag-off", async () => {
   const runs = await stdioReconnectRuns();
-  for (const [off, on] of [[runs[0]!, runs[1]!], [runs[2]!, runs[3]!]]) {
-    expect(JSON.parse(on.observed["manifest after reconnect"]!), on.mode.label).toEqual(JSON.parse(off.observed["manifest after reconnect"]!));
-  }
-  console.log([
-    ...expectIdentical(runs.slice(0, 2), { [stdioOwn.label]: ["manifest after reconnect"] }),
-    ...expectIdentical(runs.slice(2), { [stdioAttached.label]: ["manifest after reconnect"] }),
-  ].join("\n"));
+  console.log([...expectIdentical(runs.slice(0, 2)), ...expectIdentical(runs.slice(2))].join("\n"));
 }, 300000);
 
-(front ? test.failing : test.skip)("routed: flag-on stdio planner reconnect keeps install-manifest.json key order", async () => {
+test.skipIf(!front)("flag-on stdio planner reconnect keeps install-manifest.json key order", async () => {
   const runs = await stdioReconnectRuns();
   expect(runs[1]!.observed["manifest after reconnect"]).toBe(runs[0]!.observed["manifest after reconnect"]);
   expect(runs[3]!.observed["manifest after reconnect"]).toBe(runs[2]!.observed["manifest after reconnect"]);

@@ -227,8 +227,7 @@ pub struct EventSubscription {
     retired: bool,
 }
 fn event_size(event: &Value) -> usize {
-    crate::js_canonical_json(&json!({"jsonrpc":"2.0","method":"$/event","params":event}))
-        .map_or(usize::MAX, |s| s.len() + 1)
+    pacer_js_json::stringify(&json!({"jsonrpc":"2.0","method":"$/event","params":event})).len() + 1
 }
 fn valid_event(e: &Value) -> bool {
     e.as_object().is_some_and(|o| o.len() == 4)
