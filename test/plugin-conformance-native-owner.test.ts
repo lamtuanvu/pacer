@@ -1,5 +1,5 @@
 import { afterAll, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { assert, assertPingReceipts, type CaseContext, type ConformanceCase } from "../conformance/cases";
 import { HostError, type HostClient } from "../conformance/host";
@@ -68,13 +68,13 @@ const doors: Door[] = front ? [
 ] : [];
 const tsDoor: Door = { label: "typescript", argv: tsHost, door: { homePrefix: "t-" } };
 
-/** Owner sockets bind under the home, so every home sits directly in a short /tmp root. */
-const root = "/tmp/pcn";
+/** Owner sockets bind under the home, so every home sits directly in a short /tmp root of this run's own. */
+const root = mkdtempSync("/tmp/pcn-");
 // A flag-on serve's Core can still be writing its home for a moment after serve exits.
 afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, force: true }); });
 
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
-const ROUTED_HTTP = "routed: the owner serves capability.net.http for an installed plugin's diagnostic ping inside its declared scope without host-issued hosts; TypeScript refuses every scoped capability outside an owning call";
+const ROUTED_HTTP = "routed: for any owner call without host resources, such as a diagnostic ping, Core auto-issues a granted manifest's exact net.http hosts and exact fs.read paths (autoIssueFromManifest), so the owner serves them; TypeScript refuses every scoped capability outside an owning call";
 const ROUTED_OBSERVATIONS = "routed: the owner refuses the observation bootstrap for plugin.doctor (`observation owner or transport was not issued`)";
 const ROUTED_REENTRANT = "routed: the owner runs one call at a time per plugin even when the manifest sets reentrant; overlapping calls would need call-scoped capability sessions per call, not one per plugin";
 const STDERR_DROPPED = "reported: the owner starts plugin children with stderr discarded, so no stderr line reaches the plugin log (a parity fix exceeds this PR's fix budget)";
@@ -109,11 +109,15 @@ const OWNER_VARIANTS: (ConformanceCase & { reason?: string | null })[] = [
   } },
   ...([["fx-serial", "serial", null], ["fx-reentrant", "barrier", ROUTED_REENTRANT]] as const).map(([id, probe, reason]): ConformanceCase & { reason: string | null } => ({
     name: `serialisation without pids: ${id} ${probe === "serial" ? "runs one call at a time" : "overlaps two calls"}`, reason, async run(t) {
-      t.install(id === "fx-serial" ? "serial" : "reentrant", { fixture: { pingProbe: probe } });
+      t.install(id === "fx-serial" ? "serial" : "reentrant", { fixture: { pingProbe: probe, ...(probe === "barrier" ? { barrierTimeoutMs: 3000 } : {}) } });
       const h = await t.host();
       await h.call("plugin.enable", { id, grant: true });
       assert((await doctor(h, id)).ok, `${id} warmup succeeds`);
       const reports = await Promise.all([doctor(h, id), doctor(h, id)]);
+      if (probe === "barrier") {
+        const peak = Math.max(...readFileSync(join(t.pluginsDir, id, "ping-receipts.jsonl"), "utf8").trim().split("\n").map(line => JSON.parse(line).active as number));
+        assert(peak === 2, `${id} overlaps the two calls (receipts peak at ${peak} active; errors: ${reports.map(report => report.error).join()})`);
+      }
       assert(reports.every(report => report.ok), `${id} both measured calls finish (got ${reports.map(report => report.error).join()})`);
       // The receipts are the measured event order; the plugin log lines are the logs case's (STDERR_DROPPED).
       assertPingReceipts(readFileSync(join(t.pluginsDir, id, "ping-receipts.jsonl"), "utf8"), probe === "barrier");
@@ -141,10 +145,11 @@ let httpHits = 0;
 const listener = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => { httpHits++; return new Response("{}"); } });
 afterAll(() => listener.stop(true));
 
-function relayCase(label: string, capability: string, scopes: string[], method: string, params: (home: string) => Record<string, unknown>): ConformanceCase {
+function relayCase(label: string, capability: string, declared: string[] | ((home: string) => string[]), method: string, params: (home: string) => Record<string, unknown>): ConformanceCase {
   return { name: `capability relay: ${label}`, async run(t: CaseContext) {
     mkdirSync(join(t.home, "data"), { recursive: true });
     writeFileSync(join(t.home, "data", "x.txt"), "fixture\n");
+    const scopes = typeof declared === "function" ? declared(t.home) : declared;
     const dir = t.install("good", { manifest: { id: "fx-relay", host: "^1.6", capabilities: [{ name: "log" }, { name: capability, ...(scopes.length ? { scopes } : {}) }] }, fixture: { callCapability: method, capabilityParams: params(t.home), capabilityResultFile: "capability-result.json" } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-relay", grant: true });
@@ -158,6 +163,7 @@ function relayCase(label: string, capability: string, scopes: string[], method: 
 const RELAY: [ConformanceCase, string | null][] = [
   [relayCase("config.get", "config.get", [], "config.get", () => ({})), null],
   [relayCase("fs.read", "fs.read", ["${HOME}/data/**"], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_MESSAGE],
+  [relayCase("fs.read exact path", "fs.read", home => [join(home, "data", "x.txt")], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_HTTP],
   [relayCase("fs.write", "fs.write", ["${HOME}/out/**"], "fs.write", home => ({ path: join(home, "out", "x.txt"), text: "written" })), ROUTED_MESSAGE],
   [relayCase("fs.beginWrite transfer", "fs.write", ["${HOME}/out/**"], "fs.beginWrite", home => ({ path: join(home, "out", "x.txt"), bytes: 7 })), ROUTED_MESSAGE],
   [relayCase("process.spawn", "process.spawn", ["fx-tool"], "process.spawn", () => ({ argv: ["fx-tool"], timeoutMs: 1000 })), ROUTED_MESSAGE],
