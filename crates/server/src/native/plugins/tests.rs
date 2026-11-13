@@ -224,7 +224,7 @@ async fn an_unsealed_call_never_reads_with_a_door_calls_authority() {
     })
     .await;
     assert!(!call.is_finished(), "{:?}", call.await.unwrap());
-    // The unsealed `_host.plugin.call` takes its lane and session this way.
+    // An unsealed call takes its lane and session this way.
     let (lane, session) = fx.owner.lock().await.lane_for_call("fx").unwrap();
     assert!(
         session.is_none(),

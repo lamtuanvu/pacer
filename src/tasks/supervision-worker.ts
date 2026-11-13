@@ -1,4 +1,5 @@
 import { makeCtx } from "../ctx";
+import { HOST_SOCKET_KEY_ENV, takeOwnerKey } from "../plugins/host-bridge";
 import { superviseTasks } from "./api";
 import { reconcileTaskJson } from "./store";
 
@@ -8,6 +9,8 @@ interface WorkerMessage {
   env: Record<string, string>;
   /** The service's selfCommand(); the worker's own argv names the worker module. */
   selfCommand: string[];
+  /** The plugin owner's credential Core holds; this thread does not share Core's module state. */
+  ownerKey?: string;
 }
 
 let stopped = false;
@@ -61,6 +64,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   if (msg.type === "init") {
     try {
       init = { env: msg.env, pacerHome: msg.pacerHome };
+      if (typeof msg.ownerKey === "string") takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: msg.ownerKey });
       if (!Array.isArray(msg.selfCommand) || !msg.selfCommand.length || msg.selfCommand.some(part => typeof part !== "string" || !part))
         throw new Error("missing service self command");
       const { spawnRunnerWith } = await import("./api");

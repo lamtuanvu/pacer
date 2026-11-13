@@ -65,9 +65,10 @@ test("executors never inherit the internal credential", () => {
   expect(executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PATH: "/bin" }, {}).PACER_INTERNAL_TOKEN).toBeUndefined();
 });
 
-test("executors never inherit the native process owner socket", () => {
-  const env = executorEnv({ PACER_HOST_SOCKET: "/tmp/pacer/run/host.sock", PATH: "/bin" }, {}, "t-1");
+test("executors never inherit the native process owner socket or its credential", () => {
+  const env = executorEnv({ PACER_HOST_SOCKET: "/tmp/pacer/run/host.sock", PACER_HOST_SOCKET_KEY: "ab".repeat(32), PATH: "/bin" }, {}, "t-1");
   expect(env).not.toHaveProperty("PACER_HOST_SOCKET");
+  expect(env).not.toHaveProperty("PACER_HOST_SOCKET_KEY");
   expect(env.PATH).toBe("/bin");
 });
 

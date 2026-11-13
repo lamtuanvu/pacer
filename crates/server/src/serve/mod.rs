@@ -770,6 +770,11 @@ pub async fn run_serve(
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
+    // After `ctx.env`: the owner's credential reaches the Core child alone.
+    if let Some(host) = &native_host {
+        let (name, key) = host.core_key();
+        env.insert(name, key);
+    }
     #[cfg(target_os = "macos")]
     let native =
         native_context::NativeContext::prepare(&ctx.pacer_home, port, &core, _version, &_argv)?;

@@ -3,8 +3,8 @@
 //! Does not activate serve or flip claim_native_supervision.
 
 use pacer_plugin_runtime::{
-    BridgeError, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, OwnerError, PeerAuth,
-    ProcessOwner, ReverseBridge, bridge_methods_are_private,
+    BridgeError, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, OwnerError, OwnerKey,
+    PeerAuth, ProcessOwner, ReverseBridge, authenticate, bridge_methods_are_private,
     serve_starts_reverse_bridge_by_default,
 };
 use serde_json::{Value, json};
@@ -20,6 +20,10 @@ use tokio::{
     net::UnixStream,
 };
 
+fn key() -> OwnerKey {
+    OwnerKey::generate().unwrap()
+}
+
 // The bridge requires a private home; temp dirs follow the process umask.
 fn temp_home() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
@@ -28,12 +32,12 @@ fn temp_home() -> tempfile::TempDir {
     home
 }
 
-async fn dial_json(path: &Path, request: Value) -> Value {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+async fn dial_json(path: &Path, key: &OwnerKey, request: Value) -> Value {
+    let mut reader = BufReader::new(UnixStream::connect(path).await.unwrap());
+    authenticate(&mut reader, key).await.unwrap();
     let mut bytes = serde_json::to_vec(&request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
-    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut line = Vec::new();
     reader.read_until(b'\n', &mut line).await.unwrap();
     if line.last() == Some(&b'\n') {
@@ -100,11 +104,13 @@ async fn fixture_dial_plugin_call_and_find_stubs() {
     let home = temp_home();
     let bridge = ReverseBridge::bind(home.path()).unwrap();
     let path = bridge.path().to_path_buf();
+    let key = bridge.auth().key.clone();
     let handle = bridge.spawn();
     tokio::task::yield_now().await;
 
     let call = dial_json(
         &path,
+        &key,
         json!({"jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,"params":{"id":"fx"}}),
     )
     .await;
@@ -116,6 +122,7 @@ async fn fixture_dial_plugin_call_and_find_stubs() {
 
     let find = dial_json(
         &path,
+        &key,
         json!({"jsonrpc":"2.0","id":2,"method":METHOD_PLUGIN_FIND,"params":{"id":"fx"}}),
     )
     .await;
@@ -123,6 +130,7 @@ async fn fixture_dial_plugin_call_and_find_stubs() {
 
     let unknown = dial_json(
         &path,
+        &key,
         json!({"jsonrpc":"2.0","id":3,"method":"_host.plugin.missing","params":{}}),
     )
     .await;
@@ -135,7 +143,7 @@ async fn fixture_dial_plugin_call_and_find_stubs() {
 async fn denies_untrusted_caller() {
     let home = temp_home();
     let bridge =
-        ReverseBridge::bind_with_auth(home.path(), PeerAuth::deny_all_for_tests()).unwrap();
+        ReverseBridge::bind_with_auth(home.path(), PeerAuth::deny_all_for_tests(key())).unwrap();
     let path = bridge.path().to_path_buf();
     let handle = bridge.spawn();
     tokio::task::yield_now().await;
