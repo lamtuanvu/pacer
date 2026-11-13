@@ -62,4 +62,5 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
 
   const again = await run([pacer, "update"], env);
   expect(again).toEqual({ code: 0, out: "pacer 0.9.0 is up to date\n", err: "" });
-}, 300_000);
+  // Two release compiles, each a single-threaded LTO link of about three minutes even when warm.
+}, 900_000);
