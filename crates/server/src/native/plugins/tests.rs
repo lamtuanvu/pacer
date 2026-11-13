@@ -21,7 +21,7 @@ const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const waits=new 
 const ask=(method,params,meta)=>new Promise(res=>{const id=next++;waits.set(id,res);send({id,method,params,...(meta?{_meta:meta}:{})});});
 const sleep=ms=>new Promise(r=>setTimeout(r,ms));
 async function handle(m){if(rec)fs.appendFileSync(rec,m.method+'\n');
- if(m.method==='plugin.hello'){await sleep(Number(process.env.HELLO_DELAY||0));return send({id:m.id,result:{ok:true,protocol:'1.10.0',id:'fx',version:'1.0.0',contributes:['diagnostic']}});}
+ if(m.method==='plugin.hello'){await sleep(Number(process.env.HELLO_DELAY||0));return send({id:m.id,result:{ok:true,protocol:'1.10.0',id:'fx',version:'1.0.0',contributes:['diagnostic'],features:['policyObservations']}});}
  const p=m.params||{};const out={ok:true};
  if(p.mode==='log'){const r=await ask('capability.log',{level:'warn',message:'from door'},m._meta);out.logged=r.result?.ok===true;}
  if(p.mode==='tasks'){const r=await ask('capability.tasks.list',{},m._meta);out.tasks=r.result?.tasks??null;out.error=r.error?.message??null;}
@@ -70,6 +70,7 @@ impl CoreIpc for FakeCore {
                     spawn
                 }
                 Some("call_authority") => self.authority.clone(),
+                Some("observation_read") => json!({"tasks": [{"id": "t1"}]}),
                 Some("ready")
                     if self
                         .refuse_ready
@@ -348,16 +349,18 @@ async fn a_call_scoped_log_line_reaches_core_with_its_level() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn the_sealed_observation_token_is_the_calls_capability_token() {
+async fn the_sealed_observation_token_reads_tasks_through_the_doors_core() {
     let home = tempfile::tempdir().unwrap();
     let pacer_home = home.path().join(".pacer");
     fs::create_dir_all(&pacer_home).unwrap();
     let token = "obs-call-token-fixture";
+    let generation = "a".repeat(64);
     let fx = Fixture::new(
         &[],
         json!({"observation": {
             "callToken": token,
             "bootstrap": true,
+            "generation": generation,
             "readContext": {
                 "home": home.path().to_str().unwrap(),
                 "pacerHome": pacer_home.to_str().unwrap(),
@@ -365,9 +368,28 @@ async fn the_sealed_observation_token_is_the_calls_capability_token() {
             },
         }}),
     );
+    // Without the door's Core, the owner has nowhere to read tasks from.
     let reply = fx.ping(json!({"mode": "tasks"})).await.unwrap();
     assert_eq!(reply["meta"], json!({"capabilityCall": token}));
-    assert_eq!(reply["tasks"], json!([]), "{reply}");
+    assert_eq!(reply["tasks"], Value::Null, "{reply}");
+    assert!(fx.core.requests("observation_read").is_empty());
+
+    let (sink, requests) = tokio::sync::mpsc::unbounded_channel();
+    fx.owner.lock().await.set_door_sink(sink);
+    let ipc: Arc<dyn CoreIpc> = fx.core.clone();
+    tokio::spawn(deliver_door_requests(requests, move || {
+        let ipc = ipc.clone();
+        async move { Some((ipc, String::new())) }
+    }));
+    let reply = fx.ping(json!({"mode": "tasks"})).await.unwrap();
+    assert_eq!(reply["tasks"], json!([{"id": "t1"}]), "{reply}");
+    assert_eq!(
+        fx.core.requests("observation_read"),
+        vec![
+            json!({"kind": "observation_read", "id": "fx", "generation": generation,
+            "method": "capability.tasks.list", "params": {}})
+        ]
+    );
     fx.stop().await;
 }
 

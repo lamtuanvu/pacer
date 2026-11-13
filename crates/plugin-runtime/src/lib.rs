@@ -18,7 +18,9 @@
 //! ([`probe_home_owner`]) or own children on a per-connection socket
 //! ([`NativeHostSession::start_connection`]) — ADR 0027. The owner detects
 //! crashed children, reports them to the owning door's Core and holds a
-//! restart floor ([`crash`]).
+//! restart floor ([`crash`]). A lane keeps the observation generation its
+//! plugin subscribed under, fed by the owning door's Core, and answers requests
+//! sent between calls in its own idle session (`observation`).
 
 mod bridge_call;
 mod bridge_listener;
@@ -28,6 +30,7 @@ pub mod crash;
 mod executor_attach;
 mod host_attach;
 mod host_bridge;
+mod observation;
 mod orca_attach;
 mod owner;
 mod owner_attach;
@@ -57,6 +60,7 @@ pub use host_bridge::{
     connection_socket_name, dark_bridge_disabled, dark_bridge_enabled, host_socket_path,
     prepare_host_run_dir, prepare_run_dir,
 };
+pub use observation::{DoorRefusal, DoorRequest, PUMP_EVERY};
 pub use orca_attach::{FixtureOrcaSession, OrcaBridge, SharedOrcaBridge};
 pub use owner::{OwnerError, Ownership, PluginLane, ProcessOwner, terminate_lanes};
 pub use owner_attach::{

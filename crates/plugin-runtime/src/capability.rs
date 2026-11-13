@@ -5,7 +5,8 @@
 //! `capability.config.get`) are answered locally from the sealed hello. Scoped
 //! native modules answer when Core issues call-scoped [`CallResources`] (P4d-7).
 //! P4d-8 wires observation bootstrap (`tasks.read` / `events.subscribe`) when
-//! Core seals it. P4d-9 attaches Core-sealed host provider snapshots for
+//! Core seals it; the call's lane answers it under its observation generation,
+//! fed by the owning door's Core (`crate::observation`). P4d-9 attaches Core-sealed host provider snapshots for
 //! `hosts` when issued. P4d-10 attaches Core-sealed Orca attempt/live resources
 //! through [`NativeOrca`] when issued. P4d-12 attaches Core-sealed
 //! `executorClaim` through [`NativeRun`] when issued. Core also seals whether
@@ -14,6 +15,7 @@
 
 use crate::executor_attach::{ExecutorAttachPlan, ExecutorCallContext, issue_executor};
 use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
+use crate::observation::{CallObservation, LaneObservation};
 use crate::orca_attach::{
     FixtureOrcaSession, OrcaAttach, OrcaAttachPlan, bind_orca_fixture, bind_process_owner_orca,
     orca_sidecar_call,
@@ -25,17 +27,14 @@ use pacer_plugin_capabilities::{
 };
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ORCA_PROVIDER,
-    ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
-    ReadContext, TaskProjection, parse_manifest,
+    ObservationCall, OrcaAttemptResource, ParsedManifest, ProviderSnapshot, ReadContext,
+    parse_manifest,
 };
 use serde_json::{Value, json};
 use std::{
     collections::{HashMap, HashSet},
     path::Path,
-    sync::{
-        Arc,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::Arc,
     time::{Duration, Instant},
 };
 use thiserror::Error;
@@ -226,44 +225,10 @@ impl CapabilityEffect for LocalHostEffect {
     }
 }
 
-struct ListFixtureProjection;
-
-impl TaskProjection for ListFixtureProjection {
-    fn authorize(
-        &self,
-        _context: &ReadContext,
-        method: &str,
-        _params: &serde_json::Value,
-    ) -> Result<(), BrokerError> {
-        if method == "capability.tasks.list" {
-            Ok(())
-        } else {
-            Err(BrokerError::Authority(AuthorityError::Denied(
-                "task projection fixture supports list only".into(),
-            )))
-        }
-    }
-
-    async fn project(
-        &mut self,
-        _context: ReadContext,
-        method: &str,
-        _params: serde_json::Value,
-    ) -> Result<serde_json::Value, BrokerError> {
-        if method == "capability.tasks.list" {
-            Ok(json!({"tasks": []}))
-        } else {
-            Err(BrokerError::Authority(AuthorityError::Denied(
-                "task projection fixture supports list only".into(),
-            )))
-        }
-    }
-}
-
 struct ObservationState {
-    generation: ObservationGeneration,
-    call: ObservationCall,
-    projection: ListFixtureProjection,
+    call: CallObservation,
+    /// The lane whose generation answers; a session built outside a lane has none.
+    lane: Option<Arc<LaneObservation>>,
 }
 
 enum HostSidecar {
@@ -416,6 +381,8 @@ pub struct ObservationBootstrap {
     pub call_token: String,
     pub bootstrap: bool,
     pub context: ReadContext,
+    /// Core's name for the plugin's observation generation.
+    pub generation: Option<String>,
 }
 
 /// One plugin's broker + local effect. ProcessOwner answers `capability.*`
@@ -723,54 +690,31 @@ impl PluginCapabilitySession {
         }
     }
 
+    /// Answer observations through this call's lane generation.
+    pub(crate) fn bind_observation_lane(&mut self, lane: Arc<LaneObservation>) {
+        if let Some(state) = &mut self.observation {
+            state.lane = Some(lane);
+        }
+    }
+
     async fn answer_observation(
         &mut self,
         method: &str,
         params: Value,
         metadata: Option<Value>,
     ) -> Result<Value, Value> {
-        let Some(state) = &mut self.observation else {
+        let Some(ObservationState {
+            call,
+            lane: Some(lane),
+        }) = &self.observation
+        else {
             return Err(json!({
                 "code": -32000,
                 "message": "observation owner or transport was not issued",
                 "data": {"code": "capability_denied"}
             }));
         };
-        let request = json!({
-            "id": 1,
-            "_meta": metadata.unwrap_or_else(|| json!({})),
-        });
-        let result = if method == "capability.events.subscribe" {
-            state
-                .generation
-                .subscribe(&params, &request, Some(&state.call), 0)
-        } else {
-            state
-                .generation
-                .read(
-                    method,
-                    params,
-                    &request,
-                    Some(&state.call),
-                    &mut state.projection,
-                )
-                .await
-        };
-        match result {
-            Ok(value) => Ok(value),
-            Err(error) => {
-                let code = match &error {
-                    BrokerError::Authority(_) => "capability_denied",
-                    BrokerError::Invalid(_) => "invalid_input",
-                    _ => "capability_denied",
-                };
-                Err(json!({
-                    "code": -32000,
-                    "message": error.to_string(),
-                    "data": {"code": code}
-                }))
-            }
-        }
+        Box::pin(lane.answer(method, params, metadata, Some(call))).await
     }
 
     pub fn take_logs(&mut self) -> Vec<(String, String)> {
@@ -1045,31 +989,23 @@ pub fn session_for_call_in(
         });
     }
     if let Some(bootstrap) = observation {
-        let negotiated = features.iter().any(|f| f == "policyObservations");
-        let alive = Arc::new(AtomicBool::new(true));
-        let check = alive.clone();
         let observation_grants: Vec<String> = grants
             .iter()
             .filter(|g| *g == "tasks.read" || *g == "events.subscribe")
             .cloned()
             .collect();
-        let generation = ObservationGeneration::new(
-            bootstrap.context,
-            manifest,
-            observation_grants.clone(),
-            negotiated,
-            Arc::new(move || check.load(Ordering::SeqCst)),
-        );
-        let call = ObservationCall::new(
-            bootstrap.call_token,
-            Instant::now() + lifetime,
-            observation_grants,
-            bootstrap.bootstrap,
-        );
         session.observation = Some(ObservationState {
-            generation,
-            call,
-            projection: ListFixtureProjection,
+            call: CallObservation {
+                call: ObservationCall::new(
+                    bootstrap.call_token,
+                    Instant::now() + lifetime,
+                    observation_grants,
+                    bootstrap.bootstrap,
+                ),
+                context: bootstrap.context,
+                generation: bootstrap.generation,
+            },
+            lane: None,
         });
     }
     Ok(session)
@@ -1219,9 +1155,19 @@ pub fn observation_bootstrap_from_value(
         .get("now")
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
+    let generation = match raw.get("generation") {
+        None => None,
+        Some(name) => Some(
+            name.as_str()
+                .filter(|name| name.len() == 64 && name.bytes().all(|b| b.is_ascii_hexdigit()))
+                .ok_or(CapabilitySessionError::Malformed("observation generation"))?
+                .to_owned(),
+        ),
+    };
     Ok(Some(ObservationBootstrap {
         call_token,
         bootstrap,
+        generation,
         context: ReadContext {
             home,
             pacer_home,

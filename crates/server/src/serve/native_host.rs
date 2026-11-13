@@ -17,7 +17,7 @@
 //! socket is replaced. Crashes the owner sees reach Core as `crashed`.
 
 use pacer_plugin_runtime::{
-    BridgeError, CrashReport, NativeHostError, NativeHostSession, SharedOwner,
+    BridgeError, CrashReport, DoorRequest, NativeHostError, NativeHostSession, SharedOwner,
     native_plugin_host_enabled_from_env, read_owner_pid,
 };
 use std::{
@@ -81,6 +81,10 @@ impl Guard {
 
     pub(super) fn crash_reports(&self) -> mpsc::UnboundedReceiver<CrashReport> {
         self.session.crash_reports()
+    }
+
+    pub(super) fn door_requests(&self) -> mpsc::UnboundedReceiver<DoorRequest> {
+        self.session.door_requests()
     }
 
     pub(super) async fn shutdown(self) {

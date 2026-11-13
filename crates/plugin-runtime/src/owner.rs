@@ -18,6 +18,7 @@
 
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
+use crate::observation::{DoorRequest, DoorSlot, LaneObservation};
 use crate::orca_attach::SharedOrcaBridge;
 use crate::plugin_log::PluginLog;
 use crate::process::PluginProcess;
@@ -127,10 +128,18 @@ pub struct PluginLane {
     door_hello: AtomicBool,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
+    /// The child's observation generation and idle session.
+    observation: Arc<LaneObservation>,
+}
+
+impl Drop for PluginLane {
+    fn drop(&mut self) {
+        self.observation.retire();
+    }
 }
 
 impl PluginLane {
-    fn new(process: PluginProcess) -> Self {
+    fn new(process: PluginProcess, lane: Weak<PluginLane>, door: Arc<DoorSlot>) -> Self {
         Self {
             process,
             gate: RwLock::new(()),
@@ -138,7 +147,12 @@ impl PluginLane {
             ready: std::sync::Mutex::new(None),
             door_hello: AtomicBool::new(false),
             settled: watch::Sender::new(false),
+            observation: Arc::new(LaneObservation::new(door, lane)),
         }
+    }
+
+    pub(crate) fn observation(&self) -> &Arc<LaneObservation> {
+        &self.observation
     }
 
     pub(crate) fn note_door_hello(&self) {
@@ -270,6 +284,8 @@ impl PluginLane {
 #[derive(Default)]
 pub(crate) struct LaneRoster {
     state: std::sync::Mutex<RosterState>,
+    /// Where every lane's observation generation reaches the owning door's Core.
+    door: Arc<DoorSlot>,
 }
 
 #[derive(Default)]
@@ -300,7 +316,9 @@ impl LaneRoster {
         if state.closing {
             return Err(OwnerError::Closing);
         }
-        let lane = Arc::new(PluginLane::new(start()?));
+        let process = start()?;
+        let lane =
+            Arc::new_cyclic(|lane| PluginLane::new(process, lane.clone(), self.door.clone()));
         state.lanes.retain(|lane| lane.strong_count() > 0);
         state.lanes.push(Arc::downgrade(&lane));
         Ok(lane)
@@ -310,11 +328,22 @@ impl LaneRoster {
     pub(crate) fn close(&self) -> Vec<Arc<PluginLane>> {
         let mut state = self.state();
         state.closing = true;
-        state
+        let lanes: Vec<_> = state
             .lanes
             .drain(..)
             .filter_map(|lane| lane.upgrade())
-            .collect()
+            .collect();
+        drop(state);
+        self.door.set(None);
+        for lane in &lanes {
+            lane.observation().retire();
+        }
+        lanes
+    }
+
+    /// Send every lane's observation requests to `sink` (the owning door's Core).
+    pub(crate) fn set_door(&self, sink: Option<mpsc::UnboundedSender<DoorRequest>>) {
+        self.door.set(sink);
     }
 }
 
@@ -386,6 +415,12 @@ impl ProcessOwner {
     /// Send each crash this owner sees to `sink` (the owning door's Core).
     pub fn set_crash_sink(&self, sink: mpsc::UnboundedSender<CrashReport>) {
         self.crashes.set_sink(Some(sink));
+    }
+
+    /// Send each lane's observation requests (events, task reads, idle log
+    /// lines) to `sink`, the owning door's Core.
+    pub fn set_door_sink(&self, sink: mpsc::UnboundedSender<DoorRequest>) {
+        self.roster.set_door(Some(sink));
     }
 
     /// The earliest instant this owner starts `id` again after a crash.
@@ -568,6 +603,7 @@ impl ProcessOwner {
             .children
             .remove(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;
+        lane.observation().retire();
         lane.process().terminate().await?;
         Ok(())
     }

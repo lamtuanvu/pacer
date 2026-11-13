@@ -31,7 +31,8 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CallFailure, CrashReport, SharedOwner, StopOutcome, call_door, stop_on_owner,
+    CallFailure, CrashReport, DoorRefusal, DoorRequest, SharedOwner, StopOutcome, call_door,
+    stop_on_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -203,6 +204,41 @@ pub(crate) async fn deliver_crashes<F, Fut>(
             let _ = pacer_plugin_ops::ipc::request(&*ipc, &body, &mut Vec::new()).await;
         }
         let _ = report.done.send(());
+    }
+}
+
+/// Answer the owner's private requests (observation events and reads, idle
+/// `capability.log` lines) from the owning door's Core, each on its own task
+/// so a slow read never holds up another lane's pump.
+pub(crate) async fn deliver_door_requests<F, Fut>(
+    mut requests: tokio::sync::mpsc::UnboundedReceiver<DoorRequest>,
+    link: F,
+) where
+    F: Fn() -> Fut + Clone + Send + 'static,
+    Fut: Future<Output = Option<CoreLink>> + Send,
+{
+    while let Some(request) = requests.recv().await {
+        let link = link.clone();
+        tokio::spawn(async move {
+            let reply = match link().await {
+                Some((ipc, _)) => {
+                    pacer_plugin_ops::ipc::request(&*ipc, &request.body, &mut Vec::new())
+                        .await
+                        .map_err(|error| DoorRefusal {
+                            code: serde_json::to_value(error.code)
+                                .ok()
+                                .and_then(|code| code.as_str().map(str::to_owned))
+                                .unwrap_or_else(|| "internal".into()),
+                            message: error.message,
+                        })
+                }
+                None => Err(DoorRefusal {
+                    code: "unavailable".into(),
+                    message: "plugin process owner is unavailable".into(),
+                }),
+            };
+            let _ = request.reply.send(reply);
+        });
     }
 }
 
