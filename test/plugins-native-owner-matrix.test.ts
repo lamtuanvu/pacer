@@ -176,12 +176,17 @@ function maskProcessAndRecordIds(text: string) {
 function replyText(h: Home, reply: Reply) {
   return maskProcessAndRecordIds(maskClockValues(reply.text.replaceAll(h.home, "<HOME>")));
 }
-/** Activity lines keep kind, level, text and links; id, time and machine are generated. */
+/**
+ * Activity lines keep kind, level, text and links; id, time and machine are generated.
+ * Serve's background link pump logs budget_refreshed whenever its timer lands, so those lines are timing.
+ */
 function activityLines(h: Home) {
   const path = join(h.state, "state", "activity.jsonl");
   if (!existsSync(path)) return "";
   return readFileSync(path, "utf8").trim().split("\n").filter(Boolean)
-    .map(line => { const { id: _id, at: _at, machineId: _machine, ...rest } = JSON.parse(line); return JSON.stringify(rest).replaceAll(h.home, "<HOME>"); })
+    .map(line => JSON.parse(line))
+    .filter(entry => entry.kind !== "budget_refreshed")
+    .map(({ id: _id, at: _at, machineId: _machine, ...rest }) => JSON.stringify(rest).replaceAll(h.home, "<HOME>"))
     .join("\n");
 }
 /** A persisted store's bytes with clock values and file identities masked. */
