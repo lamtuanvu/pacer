@@ -15,10 +15,11 @@ export function buildRunSpawnPlan(input: {
 }) {
   const scriptArgv = input.argv1 ? [input.execPath, input.argv1, "status"] : [input.execPath, "status"];
   const [cmd, ...pre] = selfCommand(scriptArgv, input.execPath);
+  const { PACER_HOST_SOCKET: _owner, ...baseEnv } = input.baseEnv;
   return {
     argv: [...[cmd, ...pre], "_run", input.taskId],
     env: {
-      ...input.baseEnv,
+      ...baseEnv,
       HOME: input.home,
       PACER_HOME: input.pacerHome,
       PACER_ADMISSION_LEASE: input.admissionLease,
@@ -59,6 +60,16 @@ const GOLDENS = [
     taskId: "t-20261106-000000-ijkl",
     admissionLease: "lease-3",
   },
+  {
+    // Rust's plan_drops_the_door_owner_socket pins the same case.
+    execPath: "/bin/pacer-core",
+    argv1: "status",
+    home: "/home",
+    pacerHome: "/home/.pacer",
+    baseEnv: { PATH: "/bin", PACER_HOST_SOCKET: "/home/.pacer/run/s0123456789ab.sock" },
+    taskId: "t-20261106-000000-abcd",
+    admissionLease: "lease-1",
+  },
 ] as const;
 
 test("run spawn plan goldens stay aligned with Rust run_spawn", () => {
@@ -82,5 +93,6 @@ test("run spawn plan goldens stay aligned with Rust run_spawn", () => {
     expect(plan.env.PACER_ADMISSION_TASK).toBe(row.taskId);
     expect(plan.log_path).toBe(join(row.pacerHome, "logs", "runner.log"));
     expect(plan.owner).toBe("typescript_core");
+    expect(plan.env).not.toHaveProperty("PACER_HOST_SOCKET");
   }
 });
