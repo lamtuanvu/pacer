@@ -1,12 +1,9 @@
 //! `openReadOnlyStore` and its readers (`src/dispatch/readonly.ts`): a view of the
-//! task store that runs no DDL, sets no journal mode, imports no legacy JSON and
-//! creates no file ([`pacer_store::read_only`]). A missing store or table reads as
-//! empty. A cleanly closed WAL store (no `-wal`/`-shm`) reads its rows through an
-//! `immutable` snapshot, whether or not `state/` is writable.
+//! task store that creates no file, runs no DDL, sets no journal mode and imports
+//! no legacy JSON. A missing store, or one without a table, reads as empty.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::api::{Code, CoreError};
-use pacer_store::read_only::{ReadOnlyError, open_read_only, read_tables};
-use rusqlite::{Connection, Params, Row, types::ValueRef};
+use rusqlite::{Connection, OpenFlags, Params, Row, types::ValueRef};
 use serde_json::Value;
 use std::collections::HashSet;
 use std::path::Path;
@@ -32,7 +29,7 @@ pub struct Reservation {
 
 /// `JSON.parse(cell)`, which reads the cell's JavaScript `String()` text: `null`,
 /// numbers, text, or a blob's bytes joined by commas.
-pub(crate) fn parse_cell(cell: ValueRef<'_>) -> Option<Value> {
+fn parse_cell(cell: ValueRef<'_>) -> Option<Value> {
     let text = match cell {
         ValueRef::Null => "null".to_owned(),
         ValueRef::Integer(n) => n.to_string(),
@@ -51,6 +48,37 @@ fn conflict(message: &str) -> CoreError {
     CoreError::new(Code::Conflict, message)
 }
 
+fn open(target: &str, flags: OpenFlags) -> rusqlite::Result<Connection> {
+    let db = Connection::open_with_flags(target, flags)?;
+    db.execute_batch("PRAGMA query_only = ON")?;
+    Ok(db)
+}
+
+fn read_tables(db: &Connection) -> rusqlite::Result<HashSet<String>> {
+    let mut stmt = db.prepare("SELECT name FROM sqlite_master WHERE type='table'")?;
+    let names = stmt.query_map([], |row| row.get::<_, String>(0))?;
+    names.collect()
+}
+
+/// The store connection, or the immutable fallback for a cleanly closed WAL
+/// database (no `-wal` content to miss).
+fn connect(path: &Path) -> rusqlite::Result<(Connection, bool)> {
+    let display = path.to_string_lossy();
+    let flags = OpenFlags::SQLITE_OPEN_READ_ONLY | OpenFlags::SQLITE_OPEN_NO_MUTEX;
+    match open(&display, flags) {
+        Ok(db) => Ok((db, false)),
+        Err(error) => {
+            let wal = path.with_file_name("tasks.db-wal");
+            if std::fs::metadata(&wal).is_ok_and(|m| m.len() > 0) {
+                return Err(error);
+            }
+            let uri = format!("file:{display}?mode=ro&immutable=1");
+            let db = open(&uri, flags | OpenFlags::SQLITE_OPEN_URI)?;
+            Ok((db, true))
+        }
+    }
+}
+
 impl ReadOnlyStore {
     /// `openReadOnlyStore(ctx, strict)` over `<pacer_home>/state/tasks.db`.
     pub fn open(pacer_home: &Path, strict: bool) -> Result<Self, CoreError> {
@@ -61,24 +89,22 @@ impl ReadOnlyStore {
             immutable: false,
             strict,
         };
-        match open_read_only(&path) {
-            Ok(Some(open)) => {
-                store.db = Some(open.db);
-                store.tables = open.tables;
-                store.immutable = open.immutable;
+        if !path.exists() {
+            return Ok(store);
+        }
+        match connect(&path) {
+            Ok((db, immutable)) => {
+                store.db = Some(db);
+                store.immutable = immutable;
             }
-            Ok(None) => {}
-            Err(ReadOnlyError::Open(_)) if strict => {
+            Err(_) if strict => {
                 return Err(conflict(
                     "Session reservations are unavailable; retry before changing workspaces",
                 ));
             }
-            Err(ReadOnlyError::Read(_)) if strict => {
-                return Err(conflict("Session reservations are unreadable"));
-            }
-            Err(_) => {}
+            Err(_) => return Ok(store),
         }
-        Ok(store)
+        store.refresh().map(|()| store)
     }
 
     /// The store exists and has a `tasks` table.

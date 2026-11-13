@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Strategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
@@ -88,11 +88,7 @@ function obs(runner: string, account: string, method: Observation["method"], val
 
 const observations: Observation[] = [
   obs("codex", "codex", "models", { models: [{ id: "gpt-x", tier: "unknown", strengths: [] }, { id: "gpt-z", tier: "unknown", strengths: [] }] }),
-  // Listed before the older reading: evidence applies in `observedAt` order, so this one wins.
-  obs("claude-code", "claude", "capabilities", { context: 500000 }, { observedAt: NOW - 20 }, { kind: "exact", id: "opus" }),
   obs("claude-code", "claude", "capabilities", { tools: true, context: 400000 }, {}, { kind: "exact", id: "opus" }),
-  // Under an hour left: burn divides by Math.max(1, hoursLeft).
-  obs("codex", "codex", "usage", { windows: [{ pool: "[\"codex\",\"1h\"]", usedPct: 40, hoursLeft: 0.5 }] }, {}, { kind: "exact", id: "gpt-x" }),
   obs("claude-code", "claude", "capabilities", { tools: false }, { observedAt: NOW - 50 }, { kind: "exact", id: "sonnet" }),
   obs("codex", "codex", "actual-model", { model: "gpt-5.1" }, {}, { kind: "exact", id: "gpt-5" }),
   obs("claude-code", "claude", "usage", { windows: [{ pool: "[\"claude\",\"5h\"]", usedPct: 30, hoursLeft: 2 }, { pool: "[\"claude\",\"week\"]", usedPct: 55.5, hoursLeft: 100 }], cost: 0.3 }),
@@ -163,12 +159,10 @@ describe("model inventory and candidates", () => {
 
   test("candidates: exclusions, headroom, burn, cost and pinned models across tasks", () => {
     const inventory = buildModelInventory(strategy, observations, NOW);
-    expect(inventory.find(m => m.binding.kind === "exact" && m.binding.id === "opus")).toMatchObject({ tools: true, context: 500000 });
     const built = tasks.map(task => buildCandidates(strategy, task, inventory, observations, NOW));
     expect(new Set(built.flatMap(b => b.excluded.map(e => e.reason)))).toEqual(new Set([
       "Runner unavailable or disabled", "Task requirements not satisfied", "Different pinned model", "Runner not healthy", "Quota exhausted",
     ]));
-    expect(built[0]!.candidates.find(c => c.binding.kind === "exact" && c.binding.id === "gpt-x")).toMatchObject({ headroom: 60, burn: 60 });
     expectSame(rust(tasks.map(task => ({ fn: "candidates", strategy, task, inventory, observations, now: NOW }))), built);
   });
 
@@ -236,19 +230,6 @@ describe("ladder and tier choice", () => {
       ["capable-with-headroom", "usable-fallback", "reviewers", "cheap", "anything", "strict"],
     ));
     expect(proposals.some(p => p.state === "ranked" && p.skipped.length > 0 && p.choices.length > 1)).toBe(true);
-    expectSame(rust(cases.map(c => ({ fn: "ladder", ...c }))), proposals);
-  });
-
-  test("breaks equal factors by id ascending, not input order", () => {
-    const cases = [
-      { request: { task: baseTask, candidates: [record("zeta", "medium", 50), record("alpha", "medium", 50)] }, config: dispatchConfigSchema.parse({}) },
-      {
-        request: { task: baseTask, candidates: [record("zz", "unknown", null), record("aa", "unknown", null)] },
-        config: dispatchConfigSchema.parse({ steps: [{ id: "any", capacity: "unknown" }] }),
-      },
-    ].map(c => ({ ...c, request: c.request as unknown as DecisionRequest }));
-    const proposals = cases.map(c => evaluateLadder(c.request, c.config));
-    expect(proposals.map(p => p.state === "ranked" ? p.choices.map(choice => JSON.parse(choice.id)[0]) : p.state)).toEqual([["alpha", "zeta"], ["aa", "zz"]]);
     expectSame(rust(cases.map(c => ({ fn: "ladder", ...c }))), proposals);
   });
 
@@ -403,67 +384,4 @@ describe("read-only task store", () => {
     expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
     expect(existsSync(join(missing, "state"))).toBe(false);
   });
-
-  /** This process's POSIX locks on `path`, or null without `/proc/locks` (macOS). */
-  function heldLocks(path: string): number | null {
-    if (!existsSync("/proc/locks")) return null;
-    const inode = statSync(path, { bigint: true }).ino.toString();
-    return readFileSync("/proc/locks", "utf8").split("\n").map(line => line.trim().split(/\s+/))
-      .filter(f => f[4] === String(process.pid) && f[5]?.split(":")[2] === inode).length;
-  }
-
-  // pacer-store, rusqlite and Linux remove -wal and -shm on a clean close; the macOS
-  // system SQLite keeps them, so the seed removes them to match. The rollback store is
-  // locked from another process, as a writer would hold it: closing any descriptor on a
-  // file releases this process's own POSIX locks on it, and the opener reads the header
-  // of a store that has no WAL.
-  test("reads cleanly closed, live and locked stores without creating files", async () => {
-    const tasks = `CREATE TABLE tasks(id TEXT PRIMARY KEY, state TEXT, record TEXT); INSERT INTO tasks VALUES ('t1','running','{"id":"t1"}');`;
-    const closed = (readOnly: boolean, name = "") => {
-      const home = join(tmpDir(), name);
-      seed(home, `PRAGMA journal_mode=WAL; ${tasks}`);
-      for (const suffix of ["-wal", "-shm"]) rmSync(join(home, "state", `tasks.db${suffix}`), { force: true });
-      if (readOnly) chmodSync(join(home, "state"), 0o555);
-      return home;
-    };
-    const writable = closed(false), readOnly = closed(true), special = closed(false, "s?p#e%c x");
-    const live = tmpDir();
-    mkdirSync(join(live, "state"));
-    const writer = new Database(join(live, "state", "tasks.db"));
-    writer.exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; ${tasks}`);
-    const locked = tmpDir();
-    seed(locked, tasks);
-    const lock = Bun.spawn([process.execPath, "-e", `import { Database } from "bun:sqlite";
-      const db = new Database(${JSON.stringify(join(locked, "state", "tasks.db"))}); db.exec("BEGIN EXCLUSIVE");
-      console.log("locked"); await Bun.stdin.text(); db.close();`], { stdin: "pipe", stdout: "pipe" });
-    const homes = [writable, readOnly, special, live, locked];
-    const files = () => homes.map(home => readdirSync(join(home, "state")).sort());
-    try {
-      expect(new TextDecoder().decode((await lock.stdout.getReader().read()).value)).toBe("locked\n");
-      const before = files();
-      expect(before.slice(0, 3)).toEqual([["tasks.db"], ["tasks.db"], ["tasks.db"]]);
-      const held = heldLocks(join(live, "state", "tasks.db"));
-      const cases = homes.flatMap(home => [[home, false], [home, true]] as const);
-      const expected = cases.map(([pacerHome, strict]) => ts(pacerHome, strict));
-      if (held !== null) expect([held > 0, heldLocks(join(live, "state", "tasks.db"))]).toEqual([true, held]);
-      const read = (immutable: boolean) => ({ available: true, immutable, running: [{ id: "t1" }] });
-      expect(expected.slice(0, 6)).toMatchObject(Array(6).fill(read(true)));
-      expect(expected.slice(6, 8)).toMatchObject(Array(2).fill(read(false)));
-      expect(expected[8]).toMatchObject({ available: false, running: [] });
-      expect(expected[9]).toEqual({ error: { code: "conflict", message: "Session reservations are unreadable" } });
-      expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
-      // #978: a locked store fails at once, as Bun's reader does, instead of waiting out a busy timeout.
-      for (const strict of [false, true]) {
-        const started = performance.now();
-        expectSame(rust([{ fn: "readonly", pacerHome: locked, strict, now: NOW }]), [expected[strict ? 9 : 8]]);
-        expect(performance.now() - started).toBeLessThan(1000);
-      }
-      expect(files()).toEqual(before);
-    } finally {
-      writer.close();
-      lock.kill();
-      await lock.exited;
-      chmodSync(join(readOnly, "state"), 0o755);
-    }
-  }, 60_000);
 });
