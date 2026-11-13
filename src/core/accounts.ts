@@ -86,6 +86,9 @@ export async function finishNativeConfigEdit(ctx: Ctx, op: unknown): Promise<voi
       "runner.reorder",
       "runner.remove",
       "routing.set",
+      "runner.models.set",
+      "runner.models.set_many",
+      "dispatch.tierTargets.set",
     ].includes(op as string)
   )
     throw new CoreError("unknown_op", "unknown operation");

@@ -16,12 +16,14 @@ pub mod project_strategy_ops;
 pub mod repo_ops;
 pub mod repo_registry_ops;
 pub mod runner_check_ops;
+pub mod runner_models_ops;
 pub mod runner_ops;
 pub mod setup_effects;
 pub mod setup_init_ops;
 pub mod setup_ops;
 pub mod strategy_build_ops;
 pub mod strategy_load;
+pub use strategy_load::active_strategy_needs_core;
 pub mod strategy_preview_ops;
 
 pub mod engine_ops;

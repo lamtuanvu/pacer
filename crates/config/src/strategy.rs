@@ -231,6 +231,24 @@ pub fn migration_lines(path: &Path, result: &MigrationResult) -> Vec<String> {
     lines
 }
 
+/// `text.replace(/[ \t]+(?=\r?$)/gm, "")`: blanks before any JavaScript line terminator.
+fn strip_trailing_blanks(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut blanks = String::new();
+    for c in text.chars() {
+        if c == ' ' || c == '\t' {
+            blanks.push(c);
+            continue;
+        }
+        if !matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+            out.push_str(&blanks);
+        }
+        blanks.clear();
+        out.push(c);
+    }
+    out
+}
+
 pub fn migrate_strategy(
     path: &Path,
     expected: Option<&str>,
@@ -373,7 +391,7 @@ pub fn migrate_strategy(
         doc.set_in(&[json!("runners")], &Value::Object(unreferenced))
             .map_err(|e| StrategyError::Other(e.to_string()))?;
     }
-    let after = doc.as_str().to_owned();
+    let after = strip_trailing_blanks(doc.as_str());
     let parsed = parse_yaml_value(&after).map_err(|e| StrategyError::Other(e.to_string()))?;
     validate_yaml_strategy(&parsed, path, "default")?;
     let backup = PathBuf::from(format!("{}.pre-accounts.bak", path.display()));

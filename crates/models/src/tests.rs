@@ -354,3 +354,106 @@ fn validation_follows_the_runner_set_order() {
     seed(dir.path(), "opencode#oc", &cache(json!([null]), NOW));
     assert_eq!(check("opencode#oc", "acme/a"), Validation::NeedsCore);
 }
+
+#[test]
+fn declarations_report_zod_issues_in_schema_order() {
+    let parse = |value: Value| {
+        let mut issues = Vec::new();
+        let out = declarations::model_declarations(Some(&value), "models", &mut issues);
+        (out, issues.join("; "))
+    };
+    assert_eq!(
+        parse(json!([{"id": "", "tier": "huge", "strengths": [""], "tools": 1, "context": -1.5, "x": 1}, 7])).1,
+        "models.0.id: Too small: expected string to have >=1 characters; models.0.tier: Invalid option: expected one of \"small\"|\"medium\"|\"frontier\"|\"unknown\"; models.0.strengths.0: Too small: expected string to have >=1 characters; models.0.tools: Invalid input: expected boolean, received number; models.0.context: Invalid input: expected int, received number; models.0: Unrecognized key: \"x\"; models.1: Invalid input: expected object, received number"
+    );
+    assert_eq!(
+        parse(
+            json!([{"id": "a", "context": 1e300}, {"id": "b", "context": -1e300, "y": 1, "z": 2}])
+        )
+        .1,
+        "models.0.context: Too big: expected int to be <=9007199254740991; models.1.context: Too small: expected int to be >=-9007199254740991; models.1.context: Too small: expected number to be >0; models.1: Unrecognized keys: \"y\", \"z\""
+    );
+    assert_eq!(
+        parse(json!("x")).1,
+        "models: Invalid input: expected array, received string"
+    );
+    let (out, issues) =
+        parse(json!([{"context": 5, "tools": false, "tier": "frontier", "id": "m"}, {"id": "n"}]));
+    assert_eq!(issues, "");
+    assert_eq!(
+        serde_json::to_string(&out).unwrap(),
+        r#"[{"id":"m","tier":"frontier","strengths":[],"tools":false,"context":5},{"id":"n","tier":"unknown","strengths":[]}]"#
+    );
+}
+
+#[test]
+fn runner_models_validation_matches_validate_runner_models() {
+    let listing = |ids: &[&str]| AvailableModels {
+        runner: "r".into(),
+        source: ModelSource::Connection,
+        models: Some(
+            ids.iter()
+                .map(|id| AvailableModel { id: (*id).into() })
+                .collect(),
+        ),
+        fetched_at: NOW,
+        note: None,
+        provider: None,
+    };
+    let known = listing(&["a", "b", "ab"]);
+    let declare = |ids: &[(&str, &[&str])]| -> Vec<Value> {
+        ids.iter()
+            .map(|(id, strengths)| json!({"id": id, "tier": "small", "strengths": strengths}))
+            .collect()
+    };
+    let mut warnings = Vec::new();
+    let models = validate_runner_models(
+        "acme",
+        &known,
+        "b",
+        &declare(&[("a", &["x"]), ("b", &[])]),
+        &mut warnings,
+    )
+    .unwrap();
+    assert_eq!(
+        serde_json::to_string(&models).unwrap(),
+        r#"[{"id":"a","tier":"small","strengths":["x"]},{"id":"b","tier":"small"}]"#
+    );
+    let refuse = |default: &str, models: &[(&str, &[&str])]| {
+        validate_runner_models("acme", &known, default, &declare(models), &mut Vec::new())
+            .unwrap_err()
+    };
+    assert_eq!(
+        refuse("a", &[("a", &[]), ("a", &[])]).message,
+        "duplicate models"
+    );
+    assert_eq!(
+        refuse("c", &[("a", &[]), ("b", &[])]).message,
+        "default must be one of models: a, b"
+    );
+    assert_eq!(
+        refuse("a", &[("a", &[]), ("zz", &[])]),
+        Refusal {
+            message: "zz is not offered by acme".into(),
+            hint: Some("Available: a, b, ab".into())
+        }
+    );
+    assert_eq!(refuse("zz", &[]).message, "zz is not offered by acme");
+    let unknown = AvailableModels {
+        models: None,
+        note: Some("no list".into()),
+        ..listing(&[])
+    };
+    let mut warnings = Vec::new();
+    validate_runner_models("acme", &unknown, "q", &[], &mut warnings).unwrap();
+    assert_eq!(warnings, ["q could not be checked: no list"]);
+    assert_eq!(
+        model_declaration_warnings(
+            &json!({"id": "r", "model": "x", "models": [{"id": "a", "tier": "unknown"}]})
+        ),
+        [
+            "runners.r: default model \"x\" is not in models",
+            "runners.r: model \"a\" is unrated (tier unknown)"
+        ]
+    );
+}

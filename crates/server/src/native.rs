@@ -21,6 +21,7 @@ use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
+use pacer_dispatch_ops::tier_targets_ops;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
 use pacer_config_ops::engine_ops;
@@ -50,6 +51,7 @@ pub mod plugins;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_check_ops;
+use pacer_config_ops::runner_models_ops;
 use pacer_config_ops::runner_ops;
 pub(crate) use pacer_core_bridge::session_sync;
 pub(crate) use pacer_core_bridge::setup_effects_sync;
@@ -137,6 +139,20 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
     runner_ops::runner_stays_forwarded(ctx, op, params)
         || runner_check_ops::runner_check_stays_forwarded(ctx, op, params)
         || attention_ops::attention_stays_forwarded(ctx, op, params)
+}
+
+/// `runner.models.*` and `dispatch.tierTargets.*` requests whose strategy only
+/// TypeScript loads, or whose runners only TypeScript can list.
+pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    matches!(
+        op,
+        "runner.models.get"
+            | "runner.models.set"
+            | "runner.models.set_many"
+            | "dispatch.tierTargets.get"
+            | "dispatch.tierTargets.set"
+    ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
+        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params))
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -300,6 +316,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "runner.settings.save",
         call: config_writes::runner_settings_save,
+    },
+    NativeOp {
+        name: "runner.models.get",
+        call: runner_models_ops::runner_models_get,
+    },
+    NativeOp {
+        name: "runner.models.set",
+        call: runner_models_ops::runner_models_set,
+    },
+    NativeOp {
+        name: "runner.models.set_many",
+        call: runner_models_ops::runner_models_set_many,
     },
     NativeOp {
         name: "notifications.get",
@@ -660,6 +688,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.config.get",
         call: dispatch_ops::dispatch_config_get,
+    },
+    NativeOp {
+        name: "dispatch.tierTargets.get",
+        call: tier_targets_ops::dispatch_tier_targets_get,
+    },
+    NativeOp {
+        name: "dispatch.tierTargets.set",
+        call: tier_targets_ops::dispatch_tier_targets_set,
     },
     NativeOp {
         name: "dispatch.tree",

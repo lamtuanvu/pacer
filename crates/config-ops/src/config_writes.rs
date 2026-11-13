@@ -75,10 +75,13 @@ pub fn area(op: &str) -> Option<&'static str> {
         | "runner.set"
         | "runner.reorder"
         | "runner.remove"
-        | "runner.settings.save" => Some("runners"),
+        | "runner.settings.save"
+        | "runner.models.set"
+        | "runner.models.set_many" => Some("runners"),
         "host.add" | "host.set" | "host.remove" | "host.repo.map" | "host.account.add" => {
             Some("hosts")
         }
+        "dispatch.tierTargets.set" => Some("strategy"),
         "routing.set" => Some("routing"),
         "notifications.set" => Some("config"),
         "delegation.pause" | "delegation.resume" => Some("delegation"),
@@ -107,6 +110,9 @@ pub fn syncs_endpoints(op: &str) -> bool {
             | "runner.reorder"
             | "runner.remove"
             | "routing.set"
+            | "runner.models.set"
+            | "runner.models.set_many"
+            | "dispatch.tierTargets.set"
     )
 }
 

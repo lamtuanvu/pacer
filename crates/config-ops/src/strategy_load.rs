@@ -94,6 +94,12 @@ pub fn native_load(home: &Path) -> Option<Result<Value, StrategyError>> {
     Some(loaded)
 }
 
+/// Whether TypeScript must answer an operation that needs the active strategy loaded: it fails
+/// to load, Rust builds another path, or Bun may read its text differently.
+pub fn active_strategy_needs_core(home: &Path) -> bool {
+    !matches!(native_load(home), Some(Ok(_)))
+}
+
 /// A strategy file whose text Bun may read differently; a missing file has none.
 pub(crate) fn text_may_differ(path: &Path) -> bool {
     fs::read_to_string(path).is_ok_and(|text| yaml_may_differ(&text))
