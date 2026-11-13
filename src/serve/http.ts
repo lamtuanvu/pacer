@@ -705,6 +705,7 @@ export function startServer(
         pacerHome: initialCtx.pacerHome,
         env: initialCtx.env,
         selfCommand: selfCommand(),
+        ...(heldOwnerKey() ? { ownerKey: heldOwnerKey() } : {}),
       });
       workerSupervises = true;
       workerHeartbeat = Date.now();

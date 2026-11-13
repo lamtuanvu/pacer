@@ -82,8 +82,9 @@ A pacer home has at most one native plugin owner that other front doors attach t
      `_host.plugin.stop` frames. A door strips an inherited key from every Core child it does
      not hand one, and serve strips it before deciding whether to start an owner.
    - *Who holds it.* Core takes the key out of its environment as its first step, before it
-     starts anything, and keeps it in memory. It passes it to its background worker thread and
-     to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
+     starts anything, and keeps it in memory. It passes it to its own worker threads (task
+     supervision and background work, which run stop reconciliation and periodic plugin calls)
+     and to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
      executor environments also drop it explicitly. Another same-user process can still read
      `run/host.key` and Core's initial environment; the consequence on the assistant's endpoint
      key below states that accepted residual and its follow-ups.
