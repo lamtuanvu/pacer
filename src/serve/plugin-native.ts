@@ -70,7 +70,8 @@ const request = z.discriminatedUnion("kind", [
     id: z.string(),
     // A call-scoped `capability.log` line keeps its level; without one it is child stderr.
     level: z.enum(["debug", "info", "warn", "error"]).optional(),
-    message: z.string().max(1000),
+    // `appendPluginLog` keeps 4,096 UTF-16 code units of a line.
+    message: z.string().max(4096),
   }).strict(),
   z.object({ kind: z.literal("crashed"), id: z.string(), reason: z.string().regex(CRASH_REASON) }).strict(),
   z.object({

@@ -7,12 +7,14 @@ use super::*;
 use pacer_plugin_runtime::{ProcessOwner, SpawnSpec, start_lane};
 use std::{
     fs,
+    sync::atomic::{AtomicUsize, Ordering::SeqCst},
     time::{Duration, Instant},
 };
 
 /// Records each host request's method in `$RECORD`. `diagnostic.ping` modes:
 /// `log` sends a `capability.log` warn line, `tasks` lists tasks with the
-/// call's `_meta`, `hold` answers after `ms`. Every reply echoes `_meta`.
+/// call's `_meta`, `read` reads `path` and then answers after `ms`, `hold`
+/// answers after `ms`. Every reply echoes `_meta`.
 const PLUGIN: &str = r#"const fs=require('fs');const rec=process.env.RECORD;if(process.env.STUBBORN)process.on('SIGTERM',()=>{});
 const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const waits=new Map();let next=1000;
 const ask=(method,params,meta)=>new Promise(res=>{const id=next++;waits.set(id,res);send({id,method,params,...(meta?{_meta:meta}:{})});});
@@ -22,7 +24,8 @@ async function handle(m){if(rec)fs.appendFileSync(rec,m.method+'\n');
  const p=m.params||{};const out={ok:true};
  if(p.mode==='log'){const r=await ask('capability.log',{level:'warn',message:'from door'},m._meta);out.logged=r.result?.ok===true;}
  if(p.mode==='tasks'){const r=await ask('capability.tasks.list',{},m._meta);out.tasks=r.result?.tasks??null;out.error=r.error?.message??null;}
- if(p.mode==='hold')await sleep(p.ms||0);
+ if(p.mode==='read'){const r=await ask('capability.fs.read',{path:p.path},m._meta);out.read=r.result?.text??null;out.error=r.error?.message??null;}
+ if(p.mode==='hold'||p.mode==='read')await sleep(p.ms||0);
  out.meta=m._meta??null;send({id:m.id,result:out});}
 const r=Bun.stdin.stream().getReader();let b='';
 for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);
@@ -32,11 +35,13 @@ for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().dec
 
 /// Core's side of the private channel: records each request, answers
 /// `spawn_spec` with the plugin's current state and `call_authority` with the
-/// sealed authority; `ready` makes the plugin ready.
+/// sealed authority; `ready` makes the plugin ready unless `refuse_ready`
+/// still has refusals left.
 struct FakeCore {
     spawn: Value,
     authority: Value,
     state: Mutex<(String, Vec<Value>)>,
+    refuse_ready: AtomicUsize,
 }
 
 impl FakeCore {
@@ -64,6 +69,14 @@ impl CoreIpc for FakeCore {
                     spawn
                 }
                 Some("call_authority") => self.authority.clone(),
+                Some("ready")
+                    if self
+                        .refuse_ready
+                        .try_update(SeqCst, SeqCst, |left| left.checked_sub(1))
+                        .is_ok() =>
+                {
+                    return Err(pacer_plugin_ops::ipc::Failure::Unavailable);
+                }
                 Some("ready") => {
                     state.0 = "ready".into();
                     Value::Null
@@ -97,7 +110,8 @@ impl Fixture {
         for (key, value) in env {
             vars.insert((*key).into(), json!(value));
         }
-        let grants = json!(["log", "tasks.read"]);
+        let grants = json!(["log", "tasks.read", "fs.read"]);
+        let readable = dir.path().join("door-only.txt");
         let spawn = json!({
             "argv": ["bun", script.to_str().unwrap()],
             "cwd": dir.path().to_str().unwrap(),
@@ -107,12 +121,20 @@ impl Fixture {
                 "features": ["policyObservations"],
                 "manifest": {
                     "id": "fx", "version": "1.0.0", "publisher": "fixture", "host": ">=1.10.0",
-                    "capabilities": [{"name": "log"}, {"name": "tasks.read"}],
+                    "capabilities": [
+                        {"name": "log"},
+                        {"name": "tasks.read"},
+                        {"name": "fs.read", "scopes": [readable.to_str().unwrap()]},
+                    ],
                     "contributes": {"diagnostic": {}},
                 },
             },
         });
-        let mut sealed = json!({"resources": {}, "grants": grants, "ttlMs": 30_000});
+        let mut sealed = json!({
+            "resources": {"reads": [{"path": readable.to_str().unwrap(), "kind": "file"}]},
+            "grants": grants,
+            "ttlMs": 30_000,
+        });
         if let (Some(sealed), Some(extra)) = (sealed.as_object_mut(), authority.as_object()) {
             sealed.extend(extra.clone());
         }
@@ -122,6 +144,7 @@ impl Fixture {
                 spawn,
                 authority: sealed,
                 state: Mutex::new(("idle".into(), Vec::new())),
+                refuse_ready: AtomicUsize::new(0),
             }),
             owner: Arc::new(tokio::sync::Mutex::new(ProcessOwner::native_for_tests())),
         }
@@ -179,14 +202,17 @@ fn count(items: &[String], method: &str) -> usize {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn a_door_call_installs_no_session_on_the_shared_owner() {
+async fn an_unsealed_call_never_reads_with_a_door_calls_authority() {
     let fx = Fixture::new(&[], json!({}));
+    let path = fx.dir.path().join("door-only.txt");
+    fs::write(&path, "door-only").unwrap();
+    let read = json!({"mode": "read", "path": path.to_str().unwrap(), "ms": 400});
     let call = {
         let door = fx.door();
+        let read = read.clone();
         tokio::spawn(async move {
             let mut door = door;
-            door.call_native("fx", "diagnostic.ping", json!({"mode": "hold", "ms": 400}))
-                .await
+            door.call_native("fx", "diagnostic.ping", read).await
         })
     };
     until("the held call", || {
@@ -194,13 +220,29 @@ async fn a_door_call_installs_no_session_on_the_shared_owner() {
     })
     .await;
     assert!(!call.is_finished(), "{:?}", call.await.unwrap());
-    // Another call on the owner must not inherit this call's sealed authority.
-    let (_, session) = fx.owner.lock().await.lane_for_call("fx").unwrap();
+    // The unsealed `_host.plugin.call` takes its lane and session this way.
+    let (lane, session) = fx.owner.lock().await.lane_for_call("fx").unwrap();
     assert!(
         session.is_none(),
         "the door call's session leaked to the owner"
     );
-    call.await.unwrap().unwrap();
+    let door = call.await.unwrap().unwrap();
+    assert_eq!(door["read"], "door-only", "{door}");
+    let unsealed = lane
+        .call(
+            session,
+            "diagnostic.ping",
+            read,
+            Duration::from_secs(10),
+            None,
+        )
+        .await
+        .unwrap();
+    assert_eq!(unsealed["read"], Value::Null, "{unsealed}");
+    assert_eq!(
+        unsealed["error"],
+        "capability is not granted: capability.fs.read"
+    );
     let (_, session) = fx.owner.lock().await.lane_for_call("fx").unwrap();
     assert!(
         session.is_none(),
@@ -242,6 +284,20 @@ async fn a_door_call_reports_a_child_another_core_readied() {
     // Core now lists it ready: later calls stay quiet.
     fx.ping(json!({})).await.unwrap();
     assert_eq!(fx.core.requests("ready").len(), 1);
+    fx.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_ready_report_core_refused_is_sent_by_the_next_door_call() {
+    let fx = Fixture::new(&[], json!({}));
+    fx.core.refuse_ready.store(1, SeqCst);
+    fx.ping(json!({})).await.unwrap_err();
+    assert_eq!(fx.core.requests("ready").len(), 1);
+    fx.ping(json!({})).await.unwrap();
+    assert_eq!(count(&fx.received(), "plugin.hello"), 1);
+    assert_eq!(fx.core.requests("ready").len(), 2);
+    fx.ping(json!({})).await.unwrap();
+    assert_eq!(fx.core.requests("ready").len(), 2);
     fx.stop().await;
 }
 

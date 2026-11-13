@@ -261,8 +261,10 @@ test("private log keeps a call-scoped capability.log level; a bare line is stder
   expect((await pluginNativeRequest(ctx, { kind: "log", id: "fx-ui", level: "warn", message: "from door" })).error).toBeUndefined();
   expect((await pluginNativeRequest(ctx, { kind: "log", id: "fx-ui", message: "ui line" })).error).toBeUndefined();
   expect((await pluginNativeRequest(ctx, { kind: "log", id: "fx-ui", level: "loud", message: "x" })).error?.code).toBe("invalid_input");
+  expect((await pluginNativeRequest(ctx, { kind: "log", id: "fx-ui", level: "info", message: "é".repeat(4096) })).error).toBeUndefined();
+  expect((await pluginNativeRequest(ctx, { kind: "log", id: "fx-ui", level: "info", message: "x".repeat(4097) })).error?.code).toBe("invalid_input");
   const lines = readFileSync(join(ctx.pacerHome, "logs", "plugins", "fx-ui.log"), "utf8").trim().split("\n");
-  expect(lines.map(line => line.replace(/^\S+ /, ""))).toEqual(["[warn] from door", "[stderr] ui line"]);
+  expect(lines.map(line => line.replace(/^\S+ /, ""))).toEqual(["[warn] from door", "[stderr] ui line", `[info] ${"é".repeat(4096)}`]);
 });
 
 test("private call_authority rejects unknown plugins under PACER_HOST_SOCKET", async () => {

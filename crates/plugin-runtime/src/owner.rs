@@ -120,7 +120,8 @@ pub struct PluginLane {
     /// `Some` once the child answered `plugin.hello`, with the summary when the
     /// caller recorded one.
     ready: std::sync::Mutex<Option<Option<Value>>>,
-    /// True once a door-local call sent `plugin.hello`; that call reports `ready` to its Core.
+    /// True once a door-local call sent `plugin.hello` and reports `ready` to its Core;
+    /// cleared when that report fails.
     door_hello: AtomicBool,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
@@ -140,6 +141,10 @@ impl PluginLane {
 
     pub(crate) fn note_door_hello(&self) {
         self.door_hello.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn forget_door_hello(&self) {
+        self.door_hello.store(false, Ordering::SeqCst);
     }
 
     pub(crate) fn door_helloed(&self) -> bool {

@@ -32,7 +32,8 @@ use tokio::sync::{Mutex, watch};
 
 const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 const DEFAULT_TTL_MS: u64 = 30_000;
-const LOG_MAX_BYTES: usize = 1000;
+/// TypeScript `appendPluginLog` keeps this many UTF-16 code units of a line.
+const LOG_MAX_UNITS: usize = 4096;
 /// Orca and hosts capability handlers lock the owner, which waits for this call's lane.
 const REENTRANT_RESOURCES: &str =
     "orca and hosts resources re-enter the process owner and are not served over the bridge";
@@ -309,13 +310,14 @@ impl Sealed {
     }
 }
 
-/// A `capability.log` message cut to the private `log` line limit on a character boundary.
+/// A `capability.log` message cut to the plugin log's line limit on a character boundary.
 fn log_line(mut message: String) -> String {
-    if message.len() > LOG_MAX_BYTES {
-        let mut cut = LOG_MAX_BYTES;
-        while !message.is_char_boundary(cut) {
-            cut -= 1;
-        }
+    let mut units = 0;
+    let cut = message.char_indices().find_map(|(at, ch)| {
+        units += ch.len_utf16();
+        (units > LOG_MAX_UNITS).then_some(at)
+    });
+    if let Some(cut) = cut {
         message.truncate(cut);
     }
     message
@@ -361,10 +363,26 @@ pub struct DoorCall {
     /// The hello summary to report to the door's Core as `ready`: set when this
     /// call sent the hello, or when Core does not list the child as ready and no
     /// concurrent door call that sent the hello will report it.
-    pub ready: Option<Value>,
+    pub ready: Option<DoorReady>,
     /// The call's `capability.log` lines: `(level, message)`, each message cut
-    /// to the private `log` line limit.
+    /// to the plugin log's line limit.
     pub logs: Vec<(String, String)>,
+}
+
+/// A hello summary a door call owes its Core as `ready`.
+pub struct DoorReady {
+    pub hello: Value,
+    lane: Option<Arc<PluginLane>>,
+}
+
+impl DoorReady {
+    /// Core did not record the `ready`, so the next door call on this child
+    /// that finds Core not ready reports it instead.
+    pub fn unreported(&self) {
+        if let Some(lane) = &self.lane {
+            lane.forget_door_hello();
+        }
+    }
 }
 
 /// A door-local sealed call: Core's `spawn_spec` and `call_authority` replies
@@ -398,7 +416,10 @@ pub async fn call_door(
                     .lane
                     .as_ref()
                     .is_some_and(|lane| lane.door_helloed()));
-        (report && hello.is_object()).then_some(hello)
+        (report && hello.is_object()).then(|| DoorReady {
+            hello,
+            lane: outcome.lane.clone(),
+        })
     });
     let logs = outcome
         .logs
@@ -772,8 +793,20 @@ pub fn ready_info(reply: &Value, hello: &Value) -> Value {
 
 #[cfg(test)]
 mod tests {
-    use super::ready_info;
+    use super::{log_line, ready_info};
     use serde_json::json;
+
+    #[test]
+    fn log_lines_keep_4096_utf16_units_on_a_character_boundary() {
+        assert_eq!(log_line("a".repeat(5000)), "a".repeat(4096));
+        assert_eq!(log_line("é".repeat(4096)), "é".repeat(4096));
+        // An astral character is two units; one that would straddle the limit is dropped.
+        assert_eq!(
+            log_line(format!("{}😀b", "a".repeat(4095))),
+            "a".repeat(4095)
+        );
+        assert_eq!(log_line("😀".repeat(2049)), "😀".repeat(2048));
+    }
 
     #[test]
     fn ready_info_keeps_offered_features_the_protocol_admits() {

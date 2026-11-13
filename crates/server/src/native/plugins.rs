@@ -454,7 +454,8 @@ impl Owner {
                 .request(json!({"kind":"log", "id":id, "level":level, "message":message}))
                 .await;
         }
-        if let Some(hello) = call.ready {
+        if let Some(ready) = call.ready {
+            let hello = &ready.hello;
             let contributes = &spawn["hello"]["manifest"]["contributes"];
             let served = hello["served"]
                 .as_array()
@@ -468,13 +469,18 @@ impl Owner {
                 })
                 .cloned()
                 .collect::<Vec<_>>();
-            self.request(json!({
-                "kind":"ready",
-                "id":id,
-                "protocol":hello["protocol"],
-                "served":served,
-            }))
-            .await?;
+            let reported = self
+                .request(json!({
+                    "kind":"ready",
+                    "id":id,
+                    "protocol":hello["protocol"],
+                    "served":served,
+                }))
+                .await;
+            if reported.is_err() {
+                ready.unreported();
+            }
+            reported?;
         }
         call.value.map_err(call_error)
     }
