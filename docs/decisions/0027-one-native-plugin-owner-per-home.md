@@ -222,16 +222,21 @@ to serve's Core.
 - **The doors' own plugin calls go through Core.** A door's `plugin.doctor` ping and its
   `plugin.ui.render`, `plugin.ui.action` and settings-check calls are the private `relay`, so
   Core seals them as it seals its own calls: it answers `secrets.resolve` and `identity.sign`
-  on them as above, writes their log lines, records the hello, and gives each method its
-  flag-off deadline (`diagnostic.ping` 5 s, which also bounds the hello, `ui.render` 2 s,
-  `ui.action` 10 s, `ui.settings.validate` 2 s). The door no longer builds a sealed call of
-  its own. A door whose Core is restarting refuses the operation as it does flag-off.
+  on them as above, writes their log lines, and gives each method its flag-off deadline
+  (`diagnostic.ping` 5 s, which also bounds the hello, `ui.render` 2 s, `ui.action` 10 s,
+  `ui.settings.validate` 2 s). The owner returns a failed call's log lines with its error, and
+  when Core's deadline or a revocation ends a call, Core shuts its write side and waits up to
+  1 s for that reply, so the lines are kept as flag-off keeps them. Core records the hello only
+  from a successful call, so a plugin whose first call fails stays `idle` until a later call
+  succeeds. The door no longer builds a sealed call of its own. A door whose Core is restarting
+  refuses the operation as it does flag-off.
   Core makes each relayed call on its own owner connection and proves the owner's key there
   (item 9), as for its other calls: it refuses `relay` without an owner socket, and fails the
   call with `plugin_unavailable` before it connects when it holds no key. A door proves the
   key itself only for an attached connection's `_host.plugin.stop` frames; serve's door and an
-  owning stdio connection run the owner and stop their lanes in process. No door call reaches a plugin any other way:
-  the owner refuses a connection without the key and an unsealed `_host.plugin.call`.
+  owning stdio connection run the owner and stop their lanes in process. No door call reaches
+  a plugin any other way: the owner refuses a connection without the key and an unsealed
+  `_host.plugin.call`.
 - **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
   orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
   `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants
