@@ -73,11 +73,11 @@ function homeFiles(home: string, skip: string): string[] {
 type Report = { ok?: boolean; error?: string };
 type Seen = { turn: { state?: string; answer?: string; error?: string }; concurrent: Report; later: Report; endpointCalls: Record<string, unknown>; authorized: boolean; leaks: string[] };
 
-async function scenario(label: string, options: typeof tsOwner): Promise<Seen> {
+async function scenario(label: string, options: typeof tsOwner, forward = ""): Promise<Seen> {
   const chat = endpoint();
   const h = keyHome(label, chat.server.port!);
   const env = { PATH: `${join(h.home, "bin")}:/usr/bin:/bin`, PACER_TEST_LOCAL_SERVER_PORTS: `${closedPort()},${closedPort()}`, OLLAMA_HOST: `127.0.0.1:${closedPort()}` };
-  const door = await serve(h, "", { ...options, env });
+  const door = await serve(h, forward, { ...options, env });
   const replies: Reply[] = [];
   const call = async (op: string, params: unknown) => { const reply = await door.call(op, params); replies.push(reply); return reply; };
   const doctor = async () => (await call("plugin.doctor", { id: "fx-peek" })).json.result?.reports?.[0];
@@ -126,9 +126,13 @@ async function scenario(label: string, options: typeof tsOwner): Promise<Seen> {
 test.skipIf(!front)("the assistant key reaches its own endpoint flag-on as flag-off, and no other call, plugin, log or error", async () => {
   const off = await scenario("off", tsOwner);
   const on = await scenario("on", ownerOn);
-  console.log(JSON.stringify({ off, on }));
+  // Core keeps plugin.doctor, so fx-peek's ping is a Core call on the owner while the assistant's call holds the key.
+  const core = await scenario("on-core", ownerOn, "plugin.doctor");
+  console.log(JSON.stringify({ off, on, core }));
   expect(on.turn).toEqual(off.turn);
-  for (const seen of [off, on]) {
+  expect(core.turn).toEqual(off.turn);
+  expect(core.concurrent).toEqual(off.concurrent);
+  for (const seen of [off, on, core]) {
     expect(seen.turn.state).toBe("done");
     expect(seen.turn.answer).toContain("Fixture answer.");
     expect(seen.authorized).toBe(true);
@@ -144,4 +148,4 @@ test.skipIf(!front)("the assistant key reaches its own endpoint flag-on as flag-
   expect(on.endpointCalls["account.models keyless"]).toMatchObject({ message: refusal("endpoint.models") });
   expect(JSON.stringify(on.endpointCalls["account.test"])).toContain(refusal("endpoint.test"));
   expect(on.endpointCalls["routing.route goal"]).toMatchObject({ message: refusal("classifier.ask") });
-}, 240000);
+}, 360000);
