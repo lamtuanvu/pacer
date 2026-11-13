@@ -93,7 +93,7 @@ const events = (dir: string) => {
   if (!existsSync(path)) return [];
   // The TypeScript core publishes asynchronously, so compare the events without ids, clocks or interleaving.
   return readFileSync(path, "utf8").trim().split("\n").map(line => JSON.stringify(JSON.parse(line).envelope)
-    .replace(/"(id|at)":"?\d+\.\d+(-[0-9a-f]+)?"?/g, '"$1":"<now>"').replace(/"id":"<now>","value"/, '"value"')).sort();
+    .replace(/"(id|at)":"?(?:\d+\.\d+|\d{10,})(-[0-9a-f]+)?"?/g, '"$1":"<now>"').replace(/"id":"<now>","value"/, '"value"')).sort();
 };
 
 const endpoint = (name: string, extra: Record<string, unknown> = {}) => ({ name, kind: "endpoint", base_url: `https://${name}.test/v1`,
