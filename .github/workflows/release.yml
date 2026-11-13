@@ -195,6 +195,9 @@ jobs:
           echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       - name: Build the Rust fixture plugin for the M1 gate
         run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
+      # Tests that build the pacer crate themselves start from a warm target/debug, as in CI.
+      - name: Prebuild the pacer crate for the M1 gate
+        run: cargo build --locked -p pacer
       - name: Build the SQLite cross-runtime proof for the M1 gate
         run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Build the task store probe for the M1 gate

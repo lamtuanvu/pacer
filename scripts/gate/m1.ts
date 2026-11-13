@@ -94,12 +94,32 @@ export function shardTestFiles(root: string, env: NodeJS.ProcessEnv): string[] {
   return files;
 }
 
+const GATE_STEPS = [
+  "paired artifact versions",
+  "native startup beats the Bun core (20-run medians)",
+  "plugin conformance against released front door",
+  "released transport parity",
+  "native operation parity coverage",
+  "Rust workspace",
+  "build isolated native test front door",
+  "Bun suite",
+  "crate LOC",
+  "crate dependencies",
+] as const;
+type GateStep = typeof GATE_STEPS[number];
+const SUITE_STEPS = new Set<GateStep>(["build isolated native test front door", "Bun suite"]);
+
+/** The ordered gate steps a mode runs; every mode first proves the pair reports the manifest version. */
+export function gatePlan(suite: BunSuite): GateStep[] {
+  return GATE_STEPS.filter(name => name === "paired artifact versions" || suite === "all" || (suite === "shard") === SUITE_STEPS.has(name));
+}
+
 async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
   const root = resolve(import.meta.dir, "../..");
   if (process.env.PACER_CORE_ARGV) throw Error("Unset PACER_CORE_ARGV: M1 gate must use the released companion");
   const artifacts = validateM1Artifacts(dir);
   const files = suite === "shard" ? shardTestFiles(root, process.env) : [];
-  const checks = suite !== "shard";
+  const plan = new Set(gatePlan(suite));
   const temporary = mkdtempSync(join(tmpdir(), "pacer-m1-gate-"));
   chmodSync(temporary, 0o700);
   const front = join(temporary, "pacer"), core = join(temporary, "pacer-core"), home = join(temporary, "home");
@@ -113,9 +133,11 @@ async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
     PACER_BIN: undefined, PACER_CORE_ARGV: undefined, PACER_TEST_FRONT_DOOR: undefined, PACER_TEST_NATIVE_FRONT_DOOR: undefined,
     PACER_NO_SELF_REPAIR: "1", PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh" };
   let failures = 0;
-  const step = async (name: string, run: () => Promise<void>) => {
-    try { await run(); console.log(`PASS ${name}`); return true; }
-    catch (error) { failures++; console.error(`FAIL ${name}: ${(error as Error).message}`); return false; }
+  const step = async (name: GateStep, run: () => Promise<void>) => {
+    if (!plan.has(name)) return true;
+    const label = name === "Bun suite" && suite === "shard" ? `Bun suite shard ${process.env.SHARD_INDEX} of ${process.env.SHARD_COUNT}` : name;
+    try { await run(); console.log(`PASS ${label}`); return true; }
+    catch (error) { failures++; console.error(`FAIL ${label}: ${(error as Error).message}`); return false; }
   };
   const command = async (argv: string[], extra: NodeJS.ProcessEnv = {}) => {
     const child = Bun.spawn(argv, { cwd: root, env: { ...env, ...extra }, stdin: "ignore", stdout: "pipe", stderr: "pipe" });
@@ -130,7 +152,7 @@ async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
         if (result.exitCode !== 0 || result.stdout.toString().trim() !== `pacer ${artifacts.version}`) throw Error("Front door and core must report the manifest version");
       }
     })) return 1;
-    if (checks) await step("native startup beats the Bun core (20-run medians)", async () => {
+    await step("native startup beats the Bun core (20-run medians)", async () => {
       const median = (path: string) => {
         const samples = Array.from({ length: 20 }, () => {
           const start = performance.now();
@@ -144,27 +166,21 @@ async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
       console.log(`Rust ${rust.toFixed(2)} ms; Bun ${bun.toFixed(2)} ms`);
       if (rust >= bun) throw Error("Rust startup median is not below the core's");
     });
-    if (checks) {
-      await step("plugin conformance against released front door", async () => {
-        for (const entry of CASES) { await runCase(entry, [front], join(temporary, "conformance")); console.log(`  PASS ${entry.name}`); }
-      });
-      await step("released transport parity", () => command([process.execPath, "test", "test/transport-parity.test.ts"], { PACER_TEST_FRONT_DOOR: front }));
-      await step("native operation parity coverage", async () => {
-        const source = readFileSync(join(root, "crates/server/src/native.rs"), "utf8");
-        validateNativeRegistry(source);
-      });
-      await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
-    }
-    if (suite !== "skip") {
-      if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
-      await step(suite === "shard" ? `Bun suite shard ${process.env.SHARD_INDEX} of ${process.env.SHARD_COUNT}` : "Bun suite", () => command([process.execPath, "run", "test", ...files], {
-        PACER_TEST_FRONT_DOOR: front, PACER_TEST_NATIVE_FRONT_DOOR: testFront, PACER_TEST_REFERENCE_CORE: core,
-      }));
-    }
-    if (checks) {
-      await step("crate LOC", () => command(["cargo", "xtask", "loc", "--check"]));
-      await step("crate dependencies", () => command(["cargo", "xtask", "deps"]));
-    }
+    await step("plugin conformance against released front door", async () => {
+      for (const entry of CASES) { await runCase(entry, [front], join(temporary, "conformance")); console.log(`  PASS ${entry.name}`); }
+    });
+    await step("released transport parity", () => command([process.execPath, "test", "test/transport-parity.test.ts"], { PACER_TEST_FRONT_DOOR: front }));
+    await step("native operation parity coverage", async () => {
+      const source = readFileSync(join(root, "crates/server/src/native.rs"), "utf8");
+      validateNativeRegistry(source);
+    });
+    await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
+    if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
+    await step("Bun suite", () => command([process.execPath, "run", "test", ...files], {
+      PACER_TEST_FRONT_DOOR: front, PACER_TEST_NATIVE_FRONT_DOOR: testFront, PACER_TEST_REFERENCE_CORE: core,
+    }));
+    await step("crate LOC", () => command(["cargo", "xtask", "loc", "--check"]));
+    await step("crate dependencies", () => command(["cargo", "xtask", "deps"]));
     return failures ? 1 : 0;
   } finally { rmSync(temporary, { recursive: true, force: true }); }
 }

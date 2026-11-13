@@ -3,7 +3,27 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { hostTarget, assetFile, companionFile, sha256Hex } from "../src/update/manifest";
-import { parseGateArgs, shardTestFiles, validateM1Artifacts, validateNativeRegistry } from "../scripts/gate/m1";
+import { gatePlan, parseGateArgs, shardTestFiles, validateM1Artifacts, validateNativeRegistry } from "../scripts/gate/m1";
+
+test("M1 gate modes split the checks between build and shard jobs without dropping one", () => {
+  const all = gatePlan("all"), skip = gatePlan("skip"), shard = gatePlan("shard");
+  expect(all).toEqual([
+    "paired artifact versions", "native startup beats the Bun core (20-run medians)", "plugin conformance against released front door",
+    "released transport parity", "native operation parity coverage", "Rust workspace", "build isolated native test front door", "Bun suite",
+    "crate LOC", "crate dependencies",
+  ]);
+  expect(shard).toEqual(["paired artifact versions", "build isolated native test front door", "Bun suite"]);
+  expect(skip).toEqual(all.filter(name => !shard.includes(name) || name === "paired artifact versions"));
+  expect([...new Set([...skip, ...shard])].sort()).toEqual([...all].sort());
+});
+
+test("the shard script lists exactly the tracked files Bun runs as tests", () => {
+  const root = join(import.meta.dir, "..");
+  const tracked = Bun.spawnSync(["git", "ls-files"], { cwd: root, stdout: "pipe" }).stdout.toString().split("\n");
+  const bunTests = tracked.filter(path => !path.split("/").includes("node_modules") && /[._](test|spec)\.[cm]?[jt]sx?$/.test(path));
+  expect(bunTests.length).toBeGreaterThan(1000);
+  expect(shardTestFiles(root, { SHARD_INDEX: "0", SHARD_COUNT: "1" }).sort()).toEqual(bunTests.sort());
+});
 
 test("M1 gate runs the whole Bun suite unless told to skip it or run one shard", () => {
   expect(parseGateArgs(["--release-dir", "dist/1.2.3"])).toEqual({ dir: "dist/1.2.3", suite: "all" });
