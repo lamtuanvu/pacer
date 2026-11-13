@@ -31,11 +31,12 @@ mod host_bridge;
 mod orca_attach;
 mod owner;
 mod owner_attach;
+mod plugin_log;
 mod process;
 mod serve_host;
 mod worktree_attach;
 
-pub use bridge_call::ready_info;
+pub use bridge_call::{CallFailure, DoorCall, DoorReady, call_door, ready_info};
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,

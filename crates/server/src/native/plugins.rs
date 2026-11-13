@@ -31,10 +31,7 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CrashReport, SharedOwner, SpawnSpec, StartFailure, StopOutcome, call_resources_from_value,
-    crash_message, executor_context_from_value, host_snapshots_from_value,
-    observation_bootstrap_from_value, orca_context_from_value, ready_info, session_for_call,
-    session_from_hello, start_lane, stop_on_owner, worktree_context_from_value,
+    CallFailure, CrashReport, SharedOwner, StopOutcome, call_door, stop_on_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -44,6 +41,32 @@ use std::{
     sync::{Arc, Mutex},
     time::Duration,
 };
+
+/// A failed sealed call as the error Core raises. A plugin's own JSON-RPC error reply keeps
+/// its code only when that is one of pacer's reply codes, as TypeScript `pluginReplyError`
+/// reads it; anything else is `plugin_unavailable`.
+fn call_error(failure: CallFailure) -> CoreError {
+    let code = match failure.code.as_str() {
+        "unknown_op" => Code::UnknownOp,
+        "unknown_task" => Code::UnknownTask,
+        "invalid_input" => Code::InvalidInput,
+        "unknown_executor" => Code::UnknownExecutor,
+        "conflict" => Code::Conflict,
+        "not_allowed" => Code::NotAllowed,
+        "plugin_timeout" => Code::PluginTimeout,
+        "plugin_refused" => Code::PluginRefused,
+        "capability_denied" => Code::CapabilityDenied,
+        "unknown_plugin" => Code::UnknownPlugin,
+        "not_found" => Code::NotFound,
+        "too_large" => Code::TooLarge,
+        _ => Code::PluginUnavailable,
+    };
+    let error = CoreError::new(code, failure.message);
+    match failure.hint {
+        Some(hint) => error.hint(hint),
+        None => error,
+    }
+}
 
 fn requires_owner(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async {
@@ -381,10 +404,9 @@ fn internal(e: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, e.to_string())
 }
 
-/// A plugin method's deadline on a local owner, including any restart wait.
+/// A plugin call's absolute deadline on a local owner: any restart wait, the
+/// hello and the method.
 const CALL_DEADLINE: Duration = Duration::from_secs(30);
-/// How long a child may take to answer `plugin.hello`, including its turn.
-const HELLO_DEADLINE: Duration = Duration::from_secs(5);
 
 impl Owner {
     async fn call_native(
@@ -409,212 +431,58 @@ impl Owner {
             }
             ProcessRpc::Local(owner) => owner.clone(),
         };
-        let spec_body = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
-        let argv = spec_body["argv"]
-            .as_array()
-            .ok_or_else(|| internal("spawn_spec missing argv"))?
-            .iter()
-            .filter_map(Value::as_str)
-            .map(str::to_owned)
-            .collect::<Vec<_>>();
-        if argv.is_empty() {
-            return Err(internal("spawn_spec empty argv"));
-        }
-        let cwd = spec_body["cwd"]
-            .as_str()
-            .ok_or_else(|| internal("spawn_spec missing cwd"))?;
-        let mut env = HashMap::new();
-        if let Some(object) = spec_body["env"].as_object() {
-            for (key, value) in object {
-                if let Some(text) = value.as_str() {
-                    env.insert(key.clone(), text.to_owned());
-                }
-            }
-        }
-        let hello = spec_body
-            .get("hello")
-            .cloned()
-            .ok_or_else(|| internal("spawn_spec missing hello"))?;
+        let spawn = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
         // P4d-7: Core seals call-scoped CallResources before the plugin method.
-        let authority_body = self
+        let authority = self
             .request(json!({"kind":"call_authority", "id":id, "method":method}))
             .await?;
-        let resources = call_resources_from_value(
-            authority_body
-                .get("resources")
-                .unwrap_or(&Value::Object(Default::default())),
-        )
-        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let grants = authority_body
-            .get("grants")
-            .and_then(Value::as_array)
-            .map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            });
-        let ttl = authority_body
-            .get("ttlMs")
-            .and_then(Value::as_u64)
-            .filter(|ms| *ms > 0)
-            .unwrap_or(30_000);
-        let call_lifetime = Duration::from_millis(ttl);
-        let observation = observation_bootstrap_from_value(&authority_body)
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let host_attach = host_snapshots_from_value(&authority_body)
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let orca_context = orca_context_from_value(&authority_body)
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let worktree_context = worktree_context_from_value(&authority_body)
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let executor_context = executor_context_from_value(&authority_body)
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        let spec = SpawnSpec {
-            argv,
-            cwd: cwd.into(),
-            env,
-        };
-        let lane = start_lane(
+        let call = call_door(
             &owner,
             id,
-            &spec,
-            spec_body["nextStartAt"].as_u64(),
+            method,
+            params,
+            &spawn,
+            authority,
             std::time::Instant::now() + CALL_DEADLINE,
-            None,
+            spawn["state"] == "ready",
         )
         .await
-        .map_err(|error| match error {
-            StartFailure::Owner(error) => {
-                CoreError::new(Code::PluginUnavailable, error.to_string())
-            }
-            StartFailure::Crashed(text) => {
-                CoreError::new(Code::PluginUnavailable, format!("{method}: {text}"))
-            }
-            other => CoreError::new(Code::PluginTimeout, other.to_string()),
-        })?;
-        let mut session = session_for_call(
-            &hello,
-            resources,
-            grants,
-            call_lifetime,
-            observation,
-            Some(&host_attach),
-            orca_context,
-            worktree_context,
-            executor_context,
-        )
-        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        session
-            .bind_process_owner_hosts(owner.clone())
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        session
-            .bind_process_owner_orca(owner.clone())
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        session
-            .bind_process_owner_worktree()
-            .await
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        session
-            .bind_process_owner_executor()
-            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
-        // The owner lock only installs the session: the hello and the call run
-        // on the lane, so shutdown and other plugins never wait for this reply.
-        let session = {
-            let mut guard = owner.lock().await;
-            guard
-                .install_capability_session(id, session)
-                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
-            guard.capability_session(id)
-        };
-        if !lane.is_ready() {
-            let expires = tokio::time::Instant::now() + HELLO_DEADLINE;
-            let hello_result = match lane.exclusive(expires).await {
-                Ok(_turn) if !lane.is_ready() => {
-                    let left = expires.saturating_duration_since(tokio::time::Instant::now());
-                    lane.request_in_turn(session.clone(), "plugin.hello", hello.clone(), left, None)
-                        .await
-                        .map(Some)
-                }
-                Ok(_) => Ok(None),
-                Err(error) => Err(error),
-            };
-            let hello_result = match hello_result {
-                Ok(reply) => reply,
-                Err(error) => {
-                    return Err(match crash_message(&lane, id, "plugin.hello").await {
-                        Some(message) => CoreError::new(Code::PluginUnavailable, message),
-                        None => CoreError::new(Code::PluginRefused, error.to_string()),
-                    });
-                }
-            };
-            if let Some(hello_result) = hello_result {
-                // Bridge calls that require a negotiated feature read it from this summary.
-                lane.mark_ready(Some(ready_info(&hello_result, &hello)));
-                let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
-                let mut served = vec!["diagnostic".to_owned()];
-                if let Some(points) = hello_result["contributes"].as_array() {
-                    for point in points {
-                        if let Some(name) = point.as_str()
-                            && name != "diagnostic"
-                            && !served.iter().any(|s| s == name)
-                        {
-                            served.push(name.to_owned());
-                        }
-                    }
-                }
-                self.request(json!({
-                    "kind":"ready",
-                    "id":id,
-                    "protocol":protocol,
-                    "served":served,
-                }))
-                .await?;
-            }
-        }
-        let result = lane
-            .call(session, method, params, CALL_DEADLINE, None)
-            .await
-            .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
-        // Drop call-scoped natives; keep hello-only between calls.
-        if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
-            let _ = owner.lock().await.install_capability_session(id, idle);
-        }
-        let result = match result {
-            Err(error) => match crash_message(&lane, id, method).await {
-                Some(message) => Err(CoreError::new(Code::PluginUnavailable, message)),
-                None => Err(error),
-            },
-            ok => ok,
-        };
-        self.flush_capability_logs(owner, id).await;
-        result
-    }
-
-    async fn flush_capability_logs(&mut self, owner: SharedOwner, id: &str) {
-        let logs = {
-            let guard = owner.lock().await;
-            let Some(session) = guard.capability_session(id) else {
-                return;
-            };
-            drop(guard);
-            let mut session = session.lock().await;
-            session.take_logs()
-        };
-        for (level, message) in logs {
-            let mut text = if level == "info" {
-                message
-            } else {
-                format!("[{level}] {message}")
-            };
-            if text.len() > 1000 {
-                text.truncate(1000);
-            }
+        .map_err(internal)?;
+        for (level, message) in call.logs {
+            // Logging must not replace the call's own result.
             let _ = self
-                .request(json!({"kind":"log", "id":id, "message":text}))
+                .request(json!({"kind":"log", "id":id, "level":level, "message":message}))
                 .await;
         }
+        if let Some(ready) = call.ready {
+            let hello = &ready.hello;
+            let contributes = &spawn["hello"]["manifest"]["contributes"];
+            let served = hello["served"]
+                .as_array()
+                .into_iter()
+                .flatten()
+                .filter(|name| {
+                    *name == "diagnostic"
+                        || name
+                            .as_str()
+                            .is_some_and(|name| contributes.get(name).is_some())
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            let reported = self
+                .request(json!({
+                    "kind":"ready",
+                    "id":id,
+                    "protocol":hello["protocol"],
+                    "served":served,
+                }))
+                .await;
+            if reported.is_err() {
+                ready.unreported();
+            }
+            reported?;
+        }
+        call.value.map_err(call_error)
     }
 
     async fn stop_native(&mut self, id: &str) -> Result<Value, CoreError> {
@@ -695,3 +563,6 @@ impl MutationRuntime for Owner {
         self.logs.push((id.into(), message.into()));
     }
 }
+
+#[cfg(test)]
+mod tests;

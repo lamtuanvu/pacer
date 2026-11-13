@@ -3,7 +3,7 @@ import { mkdtempSync, mkdirSync, rmSync, symlinkSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { CASES, type ConformanceCase, prepareHome } from "./cases";
-import { HostSession,publishTaskFixtureEvent } from "./host";
+import { type HostClient, HostSession, publishTaskFixtureEvent } from "./host";
 import { installFixture } from "./install";
 import { installKeychainStub } from "../scripts/live/keychain";
 
@@ -19,23 +19,34 @@ function sandboxKeychain(home: string): string {
   return bin;
 }
 
+/**
+ * How a case reaches the host: extra environment, a session other than `<host> api --stdio`,
+ * and a home name short enough for owner sockets.
+ */
+export interface FrontDoor {
+  env?: Record<string, string>;
+  session?: (argv: string[], env: Record<string, string>) => HostClient;
+  homePrefix?: string;
+}
+
 /** Run one case against a host argv with a fresh home under root. Throws on failure. */
-export async function runCase(c: ConformanceCase, hostArgv: string[], root: string): Promise<void> {
+export async function runCase(c: ConformanceCase, hostArgv: string[], root: string, door: FrontDoor = {}): Promise<void> {
   mkdirSync(root, { recursive: true });
-  const home = mkdtempSync(join(root, `${c.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-`));
+  const home = mkdtempSync(join(root, door.homePrefix ?? `${c.name.replace(/[^a-z0-9]+/gi, "-").toLowerCase()}-`));
   const pluginsDir = prepareHome(home);
   // Installed fixtures resolve the SDK even when root is outside the repository.
   const scope = join(home, "node_modules", "@pacer");
   mkdirSync(scope, { recursive: true });
   symlinkSync(resolve(import.meta.dir, "../packages/plugin-sdk"), join(scope, "plugin"), "dir");
   const bin = sandboxKeychain(home);
-  const sessions: HostSession[] = [];
-  const env = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}) };
+  const sessions: HostClient[] = [];
+  const env = { PATH: `${bin}:${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: home, PACER_HOME: join(home, ".pacer"), PACER_NO_UPDATE_CHECK: "1", TZ: "Asia/Ho_Chi_Minh", ...(process.env.PACER_CORE_ARGV ? { PACER_CORE_ARGV: process.env.PACER_CORE_ARGV } : {}), ...door.env };
+  const open = door.session ?? ((argv, env) => new HostSession(argv, env));
   try {
     await c.run({
       home, pluginsDir,
       install: (name, overrides) => installFixture(name, pluginsDir, overrides),
-      host: async options => { const s = new HostSession(hostArgv, env); sessions.push(s); return await s.start(options); },
+      host: async options => { const s = open(hostArgv, env); sessions.push(s); return await s.start(options); },
       sleep: ms => Bun.sleep(ms),
       publishTaskEvent:id=>publishTaskFixtureEvent(home,id),
     });

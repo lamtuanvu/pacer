@@ -32,10 +32,11 @@ const hostsCfg = load("src/config/hosts.ts", ["canonical", "repoKey"], {});
 const { AGENTS } = load("src/config/agent-id.ts", ["AGENTS"], {});
 const runnerId = load("src/config/runner-id.ts", ["parseRunnerId"], { AGENTS });
 const { AGENT_BINS } = load("src/install/detection.ts", ["AGENT_BINS"], {});
+const { awaitsAnswer } = load("src/tasks/types.ts", ["awaitsAnswer"], {});
 const taskFns = load(
   "src/api/read-model/tasks.ts",
   ["taskAttentionReason", "supersededTaskIds"],
-  {},
+  { awaitsAnswer },
 );
 const discovery = load("src/discovery/prompts.ts", ["discoveryPrompts"], {});
 const { executorName } = load("src/link/notification.ts", ["executorName"], {});
@@ -55,6 +56,7 @@ const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
   ...runnerId,
   ...taskFns,
   ...discovery,
+  awaitsAnswer,
   executorName,
   workActionRequestId,
   awaitsAnswer,

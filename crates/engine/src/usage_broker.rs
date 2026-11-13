@@ -12,9 +12,10 @@ fn disabled(ctx: &Ctx) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("off"))
 }
 
-/// Merge host-owned pause/hold/disabled with broker-injected budget rows.
+/// Merge host-owned pause/hold/disabled with broker-injected budget rows and the
+/// plugin policy summary, activity pace profile and warnings Core computed with them.
 pub fn assemble_compose_input(ctx: &Ctx, strategy: &Value, parts: &Value) -> Value {
-    json!({
+    let mut input = json!({
         "now": ctx.now,
         "strategy": strategy,
         "accounts": parts.get("accounts").cloned().unwrap_or(json!([])),
@@ -22,7 +23,13 @@ pub fn assemble_compose_input(ctx: &Ctx, strategy: &Value, parts: &Value) -> Val
         "paused": pause::read_pause(ctx).map_or(Value::Null, |v| json!(v)),
         "modeHold": mode_hold::read_hold(ctx).map_or(Value::Null, |v| json!(v)),
         "disabled": disabled(ctx),
-    })
+    });
+    for key in ["policy", "calendarPace", "warnings"] {
+        if let Some(value) = parts.get(key) {
+            input[key] = value.clone();
+        }
+    }
+    input
 }
 
 /// Pure `limits.check` once broker parts match a `computeStatus` snapshot.

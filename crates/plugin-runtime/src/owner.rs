@@ -19,12 +19,17 @@
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
 use crate::orca_attach::SharedOrcaBridge;
+use crate::plugin_log::PluginLog;
 use crate::process::PluginProcess;
 use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    sync::{Arc, Weak},
+    path::PathBuf,
+    sync::{
+        Arc, Weak,
+        atomic::{AtomicBool, Ordering},
+    },
     time::Duration,
 };
 use thiserror::Error;
@@ -57,6 +62,9 @@ pub enum OwnerError {
     Failing(String),
     #[error("the plugin owner is shutting down")]
     Closing,
+    /// The child was asked to stop: no new request reaches it.
+    #[error("the plugin is stopping")]
+    Stopping,
 }
 
 impl From<ProcessError> for OwnerError {
@@ -114,6 +122,9 @@ pub struct PluginLane {
     /// `Some` once the child answered `plugin.hello`, with the summary when the
     /// caller recorded one.
     ready: std::sync::Mutex<Option<Option<Value>>>,
+    /// True once a door-local call sent `plugin.hello` and reports `ready` to its Core;
+    /// cleared when that report fails.
+    door_hello: AtomicBool,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
 }
@@ -125,8 +136,30 @@ impl PluginLane {
             gate: RwLock::new(()),
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
+            door_hello: AtomicBool::new(false),
             settled: watch::Sender::new(false),
         }
+    }
+
+    pub(crate) fn note_door_hello(&self) {
+        self.door_hello.store(true, Ordering::SeqCst);
+    }
+
+    pub(crate) fn forget_door_hello(&self) {
+        self.door_hello.store(false, Ordering::SeqCst);
+    }
+
+    pub(crate) fn door_helloed(&self) -> bool {
+        self.door_hello.load(Ordering::SeqCst)
+    }
+
+    /// Refuse a request once [`PluginProcess::terminate`] began, so a call
+    /// queued behind a stop never writes to the child.
+    pub(crate) fn admit(&self) -> Result<(), OwnerError> {
+        if self.process.is_stopping() {
+            return Err(OwnerError::Stopping);
+        }
+        Ok(())
     }
 
     pub(crate) fn settle(&self) {
@@ -197,6 +230,7 @@ impl PluginLane {
     ) -> Result<Value, OwnerError> {
         let expires = Instant::now() + deadline;
         let _turn = self.exclusive(expires).await?;
+        self.admit()?;
         let left = expires.saturating_duration_since(Instant::now());
         self.request_in_turn(session, method, params, left, cancel)
             .await
@@ -298,6 +332,8 @@ pub struct ProcessOwner {
     crashes: Arc<CrashBook>,
     /// No child starts once teardown began ([`Self::close`]).
     roster: Arc<LaneRoster>,
+    /// `$PACER_HOME/logs/plugins`: children started here log stderr there.
+    log_dir: Option<PathBuf>,
 }
 
 impl ProcessOwner {
@@ -310,7 +346,13 @@ impl ProcessOwner {
             sessions: HashMap::new(),
             crashes: Arc::default(),
             roster: Arc::default(),
+            log_dir: None,
         }
+    }
+
+    /// Append the stderr of children started from now on to `<dir>/<id>.log`.
+    pub fn set_log_dir(&mut self, dir: PathBuf) {
+        self.log_dir = Some(dir);
     }
 
     /// Production serve constructor: TypeScript remains the process owner.
@@ -451,7 +493,13 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        let lane = self.roster.admit(|| Ok(PluginProcess::spawn(spec)?))?;
+        let log = self
+            .log_dir
+            .as_deref()
+            .and_then(|dir| PluginLog::new(dir, &id));
+        let lane = self
+            .roster
+            .admit(|| Ok(PluginProcess::spawn_logged(spec, log)?))?;
         self.adopt(id, lane);
         Ok(())
     }
@@ -595,6 +643,9 @@ impl ProcessOwner {
         id: &str,
     ) -> Result<(Arc<PluginLane>, Option<SharedSession>), OwnerError> {
         self.ensure_native_library()?;
+        if self.roster.is_closing() {
+            return Err(OwnerError::Closing);
+        }
         let lane = self
             .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;

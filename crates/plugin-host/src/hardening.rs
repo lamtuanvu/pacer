@@ -61,7 +61,7 @@ fn strip_legacy_metadata(params: &mut Value) {
     };
     if let Some(input) = params.get_mut("input").and_then(Value::as_object_mut) {
         for key in keys {
-            input.remove(*key);
+            input.shift_remove(*key);
         }
     }
 }
@@ -273,7 +273,7 @@ impl PolicyPrivacy {
                     wire["input"]
                         .as_object_mut()
                         .ok_or(BrokerError::Invalid("policy input"))?
-                        .remove("note");
+                        .shift_remove("note");
                     if metadata_negotiated {
                         wire["input"]["noteLength"] = json!(crate::js_semantics::utf16_len(note));
                         wire["input"]["noteHash"] = json!(opaque(&json!(note))?);
