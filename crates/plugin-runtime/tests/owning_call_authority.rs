@@ -232,3 +232,38 @@ async fn a_declared_wildcard_host_needs_the_sealed_explicit_grant() {
         .unwrap();
     assert_eq!(hits.load(Ordering::SeqCst), 1);
 }
+
+#[tokio::test]
+async fn an_undeclared_signature_request_reaches_core_so_core_audits_its_refusal() {
+    let mut session = issued(&hello("log", &[]), json!({}), json!({}));
+    let (core, mut requests) = tokio::sync::mpsc::channel::<pacer_plugin_runtime::CoreRequest>(4);
+    let sealed = ["capability.identity.sign", "capability.secrets.resolve"]
+        .map(String::from)
+        .into();
+    session.bind_core(core, sealed, false);
+    let denied = json!({"code":-32000,"message":"plugin fx-owning did not declare identity.sign","data":{"code":"capability_denied"}});
+    let answered = denied.clone();
+    let core_side = tokio::spawn(async move {
+        let mut forwarded = Vec::new();
+        while let Some((method, _, reply)) = requests.recv().await {
+            forwarded.push(method);
+            let _ = reply.send(Err(answered.clone()));
+        }
+        forwarded
+    });
+    let sign = json!({"purpose":"greeting","payload":"aGVsbG8="});
+    let signed = answer(&mut session, "capability.identity.sign", sign)
+        .await
+        .unwrap_err();
+    assert_eq!(signed, denied);
+    let resolve = json!({"ref":"endpoint:lab"});
+    let resolved = answer(&mut session, "capability.secrets.resolve", resolve)
+        .await
+        .unwrap_err();
+    assert_eq!(
+        resolved["message"],
+        "plugin did not declare secrets.resolve"
+    );
+    drop(session);
+    assert_eq!(core_side.await.unwrap(), ["capability.identity.sign"]);
+}

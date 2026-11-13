@@ -2539,10 +2539,11 @@ export class PluginRegistry {
           ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
           ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
         // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
-        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner.
+        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner. Core also
+        // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
         const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
         const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
-          ...(declares("identity.sign") ? ["capability.identity.sign"] : [])];
+          "capability.identity.sign"];
         const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
           ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,

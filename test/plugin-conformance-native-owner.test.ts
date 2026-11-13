@@ -226,3 +226,38 @@ const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in
   expect(seen.typescript).toContain("<time> [stderr] dropped a line over 1 MiB");
   for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
 }, 90000);
+
+// An undeclared identity.sign during a ping: the TypeScript host refuses it and audits the refusal.
+// A flag-on serve that keeps plugin.doctor in Core makes the ping a Core call on the owner, so Core
+// refuses and audits it the same way. The owner doors' own calls carry no Core yet (DOOR_SECRET_TEXT),
+// so they refuse with no audit line and no signature.
+type Signing = { ok: boolean; error: string | null; audit: unknown[] };
+let signing: Signing | undefined;
+const undeclaredSign: ConformanceCase = { name: "identity.sign undeclared", async run(t) {
+  t.install("good", { manifest: { id: "fx-unsigned", host: "^1.6", capabilities: [{ name: "log" }] },
+    fixture: { callCapability: "identity.sign", capabilityParams: { purpose: "greeting", payload: Buffer.from("hello").toString("base64") } } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-unsigned", grant: true });
+  const report = await doctor(h, "fx-unsigned");
+  const audit = join(t.home, ".pacer", "logs", "identity-audit.jsonl");
+  signing = { ok: report.ok, error: report.error, audit: existsSync(audit) ? readFileSync(audit, "utf8").trim().split("\n").map(line => {
+    const { pluginId, purpose, outcome, reason } = JSON.parse(line);
+    return { pluginId, purpose, outcome, reason };
+  }) : [] };
+} };
+const coreDoctor: Door[] = front ? [{ label: "serve owner, Core doctor", argv: [front],
+  door: { env: { ...ownerEnv, PACER_FORWARD_OPS: "plugin.doctor" }, homePrefix: "c-", session: (argv, env) => new ServeSession(argv, env) } }] : [];
+
+cases(null)("native owner conformance: an undeclared identity.sign is refused and audited as on the TypeScript host", async () => {
+  const seen: Record<string, Signing> = {};
+  for (const { label, argv, door } of [tsDoor, ...coreDoctor, ...doors]) {
+    signing = undefined;
+    await runCase(undeclaredSign, argv, root, door);
+    seen[label] = signing!;
+  }
+  console.log(`identity.sign undeclared: ${JSON.stringify(seen)}`);
+  expect(seen.typescript).toEqual({ ok: false, error: "capability_denied: plugin fx-unsigned did not declare identity.sign",
+    audit: [{ pluginId: "fx-unsigned", purpose: "greeting", outcome: "refused", reason: "capability not declared" }] });
+  expect(seen["serve owner, Core doctor"]).toEqual(seen.typescript);
+  for (const { label } of doors) expect(seen[label]).toMatchObject({ ok: false, audit: [] });
+}, 120000);

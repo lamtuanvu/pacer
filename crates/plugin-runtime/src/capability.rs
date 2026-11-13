@@ -683,14 +683,17 @@ impl PluginCapabilitySession {
         params: Value,
     ) -> Result<Value, Value> {
         let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
-        if !self.declared.iter().any(|name| name == capability) {
+        let declared = self.declared.iter().any(|name| name == capability);
+        // Core refuses an undeclared signature request itself, so its identity
+        // audit records the refusal as flag-off `refuseSign` does.
+        if !declared && method != "capability.identity.sign" {
             return Err(refuse(
                 "capability_denied",
                 format!("plugin did not declare {capability}"),
             ));
         }
         let authority = self.broker.authority();
-        if let Err(error) = authority.granted(capability) {
+        if declared && let Err(error) = authority.granted(capability) {
             return Err(refuse("capability_denied", error.to_string()));
         }
         let deadline = authority.deadline();
