@@ -259,3 +259,138 @@ fn status_adapter_marks_unsupported_methods_and_expired_readings() {
         "error"
     );
 }
+
+#[test]
+fn reasons_round_counts_like_javascript_and_omit_a_missing_subject() {
+    let busy = reason(
+        "executor_busy",
+        "fail",
+        json!({"of": "codex", "used": 2.5, "limit": -2.5}),
+        None,
+        None,
+    );
+    assert_eq!(
+        busy,
+        json!({"code": "executor_busy", "outcome": "fail",
+            "facts": {"of": "codex", "used": 2.5, "limit": -2.5}, "text": "codex is busy (3/-2 running)."})
+    );
+    let custom = reason("override", "info", json!({}), Some("cursor"), Some("Mine."));
+    assert_eq!(custom["subject"], "cursor");
+    assert_eq!(custom["text"], "Mine.");
+}
+
+#[test]
+fn exclusion_reasons_match_the_last_host_marker_and_keep_unknown_text() {
+    let host = exclusion_reason(
+        "r",
+        "host a reachability unknown b reachability unknown",
+        None,
+    );
+    assert_eq!(host["code"], "host_reachability_unknown");
+    assert_eq!(host["facts"], json!({"host": "a reachability unknown b"}));
+    let busy = exclusion_reason("r", "a busy (1/2) busy (3/4)", None);
+    assert_eq!(
+        busy["facts"],
+        json!({"of": "a busy (1/2)", "used": 3, "limit": 4})
+    );
+    let budget = json!({"state": "ineligible", "reasons": [{"code": "budget_exhausted"}]});
+    assert_eq!(
+        exclusion_reason("r", "spent", Some(&budget))["code"],
+        "quota_exhausted"
+    );
+    let other = exclusion_reason("r", "Something else", None);
+    assert_eq!(
+        (other["code"].clone(), other["text"].clone()),
+        (json!("other_exclusion"), json!("Something else"))
+    );
+}
+
+#[test]
+fn runner_map_keeps_the_first_position_and_the_last_value() {
+    let (a, b) = (json!("a"), json!("b"));
+    let entries = [(Some(&a), 1), (Some(&b), 2), (Some(&a), 3), (None, 4)];
+    assert_eq!(crate::explain::by_key(entries), vec![3, 2, 4]);
+}
+
+#[test]
+fn a_candidate_without_a_binding_fails_like_typescript() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ReadOnlyStore::open(dir.path(), false).unwrap();
+    let (strategy, kind, status) = (json!({"runners": {}}), json!({"value": null}), json!({}));
+    let e = Explain {
+        strategy: &strategy,
+        kind: &kind,
+        requested: None,
+        status: &status,
+        store: &store,
+        pause: None,
+        admission_hooks: false,
+        draft: false,
+        now: 1000.0,
+    };
+    let explain = |binding: Option<Value>| {
+        let mut candidate = json!({"runner": "x", "capacityKnown": true});
+        if let Some(binding) = binding {
+            candidate["binding"] = binding;
+        }
+        let preview = json!({"request": {"task": {}, "config": {"steps": []}, "candidates": [candidate]},
+            "proposal": {"state": "none"}, "engine": {"id": "ladder"}, "validation": "valid", "recommendedAction": "queue"});
+        let p = LadderPreview {
+            preview: &preview,
+            exclusions: &[],
+            uncertainty: &[],
+            engine_not_running: None,
+        };
+        build_explanation(&e, &p).map_err(|error| error.message)
+    };
+    // `c.binding.kind` throws a TypeError for a missing or null binding, and reads
+    // `undefined` off any other primitive.
+    for binding in [None, Some(Value::Null)] {
+        assert_eq!(explain(binding).unwrap_err(), "A candidate has no binding");
+    }
+    let primitive = explain(Some(json!("executor-default"))).unwrap();
+    let codes: Vec<_> = primitive["uncertainty"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["code"].clone())
+        .collect();
+    assert!(!codes.contains(&json!("default_model_unresolved")));
+}
+
+#[test]
+fn learned_fit_needs_enabled_learning_and_enough_recent_reviews() {
+    let dir = tempfile::tempdir().unwrap();
+    std::fs::create_dir_all(dir.path().join("state")).unwrap();
+    let db = rusqlite::Connection::open(dir.path().join("state/tasks.db")).unwrap();
+    db.execute_batch("CREATE TABLE work_reviews(data TEXT)")
+        .unwrap();
+    let mut strategy = json!({"runners": {"codex": {"agent": "codex", "account": "codex"}}, "providers": {"codex": {}},
+        "dispatch": {"engine": "ladder", "learning": {"enabled": true, "minSamples": 2, "maxAgeDays": 1}}});
+    let settings = crate::learning::settings_hash(&strategy, "codex");
+    for (accepted, at) in [(true, 1000.0), (false, 1000.0), (true, 1000.0 - 86400.5)] {
+        let row = json!({"kind": "debug", "difficulty": "standard", "runner": "codex", "model": "m", "settings": settings,
+            "accepted": accepted, "at": at, "provenance": "human"});
+        db.execute("INSERT INTO work_reviews VALUES (?1)", [row.to_string()])
+            .unwrap();
+    }
+    drop(db);
+    let store = ReadOnlyStore::open(dir.path(), false).unwrap();
+    let candidate = json!({"runner": "codex", "actualModel": "m"})
+        .as_object()
+        .cloned()
+        .unwrap();
+    let task = json!({"kind": "debug", "difficulty": "standard"});
+    let fitted =
+        apply_learned_fit(&strategy, vec![candidate.clone()], &task, 1000.0, &store).unwrap();
+    assert_eq!(fitted[0]["learnedFit"]["sampleCount"], 2);
+    assert_eq!(fitted[0]["learnedFit"]["successRate"], 0.5);
+    strategy["dispatch"]["learning"]["minSamples"] = json!(3);
+    let short =
+        apply_learned_fit(&strategy, vec![candidate.clone()], &task, 1000.0, &store).unwrap();
+    assert!(short[0].get("learnedFit").is_none());
+    strategy["dispatch"]["learning"]["enabled"] = json!(false);
+    strategy["dispatch"]["learning"]["minSamples"] = json!(1);
+    let off = apply_learned_fit(&strategy, vec![candidate], &task, 1000.0, &store).unwrap();
+    assert!(off[0].get("learnedFit").is_none());
+}

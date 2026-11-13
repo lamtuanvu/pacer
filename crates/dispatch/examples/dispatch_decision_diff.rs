@@ -2,10 +2,12 @@
 //! per stdin line, one `JSON.stringify` reply per stdout line.
 #![allow(clippy::result_large_err)]
 use pacer_dispatch::{
-    Object, ReadOnlyStore, SelectOptions, build_candidates, decision_hash, evaluate_ladder,
-    model_inventory, parse_observation, select_model, status_observations, target_tier,
-    tier_buckets,
+    Explain, LadderPreview, Object, Ranked, ReadOnlyStore, SelectOptions, apply_learned_fit,
+    build_candidates, build_explanation, decision_hash, evaluate_ladder, exclusion_reason,
+    explain_ranked, model_inventory, parse_observation, reason, select_model, status_observations,
+    target_tier, tier_buckets,
 };
+use pacer_foundation::api::CoreError;
 use pacer_js_json::stringify;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
@@ -50,7 +52,79 @@ fn readonly(input: &Value) -> Value {
             "reservations": reservations,
         }))
     };
-    read().unwrap_or_else(|e| json!({"error": {"code": e.code, "message": e.message}}))
+    read().unwrap_or_else(failure)
+}
+
+fn failure(e: CoreError) -> Value {
+    json!({"error": {"code": e.code, "message": e.message}})
+}
+
+fn store(input: &Value) -> Result<ReadOnlyStore, CoreError> {
+    let home = input["pacerHome"].as_str().unwrap_or_default();
+    ReadOnlyStore::open(home.as_ref(), input["strict"] == true)
+}
+
+fn learned(input: &Value) -> Result<Value, CoreError> {
+    let candidates = objects(&input["candidates"]);
+    let task = &input["task"];
+    let fitted = apply_learned_fit(
+        &input["strategy"],
+        candidates,
+        task,
+        now(input),
+        &store(input)?,
+    )?;
+    Ok(json!(fitted))
+}
+
+/// Explanations: `{runner, reason}` exclusions and `[id, text]` guards, as TypeScript keeps them.
+fn explain(input: &Value, ranked: bool) -> Result<Value, CoreError> {
+    let store = store(input)?;
+    let e = Explain {
+        strategy: &input["strategy"],
+        kind: &input["kind"],
+        requested: input["requested"].as_str(),
+        status: &input["status"],
+        store: &store,
+        pause: input.get("pause").filter(|p| !p.is_null()),
+        admission_hooks: input["admissionHooks"] == true,
+        draft: input["draft"] == true,
+        now: now(input),
+    };
+    let pairs = |key: &str, first: &str, second: &str| -> Vec<(String, Value)> {
+        let items = input[key].as_array().into_iter().flatten();
+        let pair = |v: &Value| {
+            (
+                v[first].as_str().unwrap_or_default().to_owned(),
+                v[second].clone(),
+            )
+        };
+        items.map(pair).collect()
+    };
+    if ranked {
+        let guards: Vec<(String, String)> = pairs("guards", "id", "text")
+            .into_iter()
+            .map(|(id, text)| (id, text.as_str().unwrap_or_default().to_owned()))
+            .collect();
+        let eligible = input["eligible"].as_array().cloned().unwrap_or_default();
+        let r = Ranked {
+            input: &input["input"],
+            ranking: &input["ranking"],
+            guards: &guards,
+            eligible: &eligible,
+            selection: input.get("selection").filter(|s| !s.is_null()),
+        };
+        return Ok(explain_ranked(&e, &r));
+    }
+    let exclusions = pairs("exclusions", "runner", "reason");
+    let uncertainty = input["uncertainty"].as_array().cloned().unwrap_or_default();
+    let p = LadderPreview {
+        preview: &input["preview"],
+        exclusions: &exclusions,
+        uncertainty: &uncertainty,
+        engine_not_running: input["engineNotRunning"].as_str(),
+    };
+    build_explanation(&e, &p)
 }
 
 fn select(input: &Value) -> Value {
@@ -108,6 +182,21 @@ fn run(input: &Value) -> Value {
             json!(status_observations(&input["status"], &scopes, now(input)))
         }
         "readonly" => readonly(input),
+        "reason" => reason(
+            input["code"].as_str().unwrap_or_default(),
+            input["outcome"].as_str().unwrap_or_default(),
+            input["facts"].clone(),
+            input["subject"].as_str(),
+            input["text"].as_str(),
+        ),
+        "exclusion" => exclusion_reason(
+            input["subject"].as_str().unwrap_or_default(),
+            input["text"].as_str().unwrap_or_default(),
+            input.get("eligibility"),
+        ),
+        "learnedFit" => learned(input).unwrap_or_else(failure),
+        "explain" => explain(input, false).unwrap_or_else(failure),
+        "explainRanked" => explain(input, true).unwrap_or_else(failure),
         other => json!({"error": format!("unknown fn {other}")}),
     }
 }
