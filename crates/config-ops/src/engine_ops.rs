@@ -1,19 +1,23 @@
-//! Safe P5 engine ops that do not need the usage broker: pause/resume, mode
-//! hold/release (explicit `until`), and `limits.report`. P5c/P5d broker-backed
-//! status ops live in `status_ops`; `routing.route` selectively forwards when
-//! `goal` or `repo` need classifier / remote eligibility.
+//! P5 engine ops: pause/resume, mode hold/release and `limits.report`. `mode.hold`
+//! without `until` reads the planner account's reset from the usage-broker parts.
+//! P5c/P5d broker-backed status ops live in `status_ops`.
 #![allow(clippy::result_large_err)]
+use crate::strategy_load;
 use pacer_config::{config_writes, strategy::load_strategy};
-use pacer_engine::{exhausted, mode_hold, pause};
+use pacer_engine::{exhausted, mode_hold, pause, status};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, OpFuture},
 };
 use serde_json::{Value, json};
 
-/// `mode.hold` without `until` needs planner reset from `computeStatus` (TS).
-pub fn mode_hold_stays_forwarded(params: &Value) -> bool {
+const MODES: [&str; 4] = ["strict", "normal", "relaxed", "emergency"];
+
+/// `mode.hold` without `until` loads the strategy; one Rust does not load the way
+/// TypeScript does keeps `loadStrategy`'s error text.
+pub fn mode_hold_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     params.get("until").is_none()
+        && !matches!(strategy_load::native_load(&ctx.pacer_home), Some(Ok(_)))
 }
 
 fn invalid(message: impl Into<String>) -> CoreError {
@@ -122,30 +126,70 @@ pub fn delegation_resume(ctx: &Ctx, params: Value) -> OpFuture<'_> {
     })
 }
 
-pub fn mode_hold_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move {
-        if mode_hold_stays_forwarded(&params) {
-            return Err(CoreError::new(
-                Code::Unavailable,
-                "mode.hold without until requires the forwarded TypeScript path",
+/// The `mode.hold` Zod schema: issues in key order, `null` params read as `{}`.
+fn parse_hold(params: &Value) -> Result<(&'static str, Option<f64>), CoreError> {
+    let empty = serde_json::Map::new();
+    let p = if params.is_null() {
+        &empty
+    } else {
+        object(params)?
+    };
+    let mut issues = Vec::new();
+    let given = p.get("mode").and_then(Value::as_str);
+    let mode = match MODES.into_iter().find(|mode| given == Some(*mode)) {
+        Some(mode) => mode,
+        None => {
+            issues.push(format!(
+                "mode: Invalid option: expected one of {}",
+                MODES.map(|m| format!("\"{m}\"")).join("|")
             ));
+            ""
         }
-        let p = object(&params)?;
-        let mode = require_string(p, "mode")?;
-        let until = match p.get("until") {
-            Some(Value::Number(n)) => n
-                .as_f64()
-                .ok_or_else(|| invalid("until: Invalid input: expected number, received number"))?,
-            Some(other) => {
-                return Err(invalid(format!(
-                    "until: Invalid input: expected number, received {}",
-                    type_name(other)
-                )));
-            }
-            None => unreachable!("mode_hold_stays_forwarded gates missing until"),
-        };
-        mode_hold::hold(ctx, mode, until).map_err(map_io)
-    })
+    };
+    let until = match p.get("until") {
+        None => None,
+        Some(Value::Number(n)) => n.as_f64(),
+        Some(other) => {
+            issues.push(format!(
+                "until: Invalid input: expected number, received {}",
+                type_name(other)
+            ));
+            None
+        }
+    };
+    if !issues.is_empty() {
+        return Err(invalid(issues.join("; ")));
+    }
+    Ok((mode, until))
+}
+
+/// `holdMode`: without `until`, hold until the planner account's `resetsAt` in the broker
+/// parts, or for a week.
+pub async fn mode_hold(
+    ctx: &Ctx,
+    params: Value,
+    parts: Option<OpFuture<'_>>,
+) -> Result<Value, CoreError> {
+    let (mode, until) = parse_hold(&params)?;
+    let until = match until {
+        Some(until) => until,
+        None => {
+            let strategy = load_strategy(&ctx.pacer_home)
+                .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
+            let parts = parts
+                .ok_or_else(|| {
+                    CoreError::new(Code::Unavailable, "usage broker bridge unavailable")
+                })?
+                .await?;
+            let planner = strategy["planner"]["account"].as_str().unwrap_or_default();
+            status::default_mode_hold_until(&parts, planner, ctx.now)
+        }
+    };
+    mode_hold::hold(ctx, mode, until).map_err(map_io)
+}
+
+pub fn mode_hold_op(ctx: &Ctx, params: Value) -> OpFuture<'_> {
+    Box::pin(mode_hold(ctx, params, None))
 }
 
 pub fn mode_release(ctx: &Ctx, params: Value) -> OpFuture<'_> {
@@ -278,20 +322,58 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn mode_hold_requires_until_and_release_clears() {
+    async fn mode_hold_with_until_and_release_clears() {
         let (_dir, ctx) = ctx(100.0);
-        assert!(mode_hold_stays_forwarded(&json!({"mode":"normal"})));
-        assert!(!mode_hold_stays_forwarded(
-            &json!({"mode":"normal","until":200.0})
-        ));
+        assert!(!mode_hold_stays_forwarded(&ctx, &json!({"mode":"normal"})));
         let held = mode_hold_op(&ctx, json!({"mode":"emergency","until":160.0}))
             .await
             .unwrap();
-        assert_eq!(held, json!({"mode":"emergency","until":160.0}));
+        assert_eq!(held.to_string(), r#"{"mode":"emergency","until":160}"#);
         assert_eq!(
             mode_release(&ctx, json!({})).await.unwrap(),
             json!({"released": true})
         );
+    }
+
+    #[tokio::test]
+    async fn mode_hold_without_until_reads_the_planner_reset() {
+        let (_dir, ctx) = ctx(100.0);
+        let parts = |reset: Value| -> Option<OpFuture<'static>> {
+            Some(Box::pin(async move {
+                Ok(
+                    json!({"accounts": [{"name": "codex", "resetsAt": 900}, {"name": "claude-code", "resetsAt": reset}]}),
+                )
+            }))
+        };
+        let hold = |p| mode_hold(&ctx, json!({"mode": "strict"}), p);
+        assert_eq!(
+            hold(parts(json!(500))).await.unwrap().to_string(),
+            r#"{"mode":"strict","until":500}"#
+        );
+        assert_eq!(
+            hold(parts(Value::Null)).await.unwrap()["until"],
+            json!(604_900)
+        );
+        let past = hold(parts(json!(50))).await.unwrap_err();
+        assert_eq!(
+            past.message,
+            "mode hold until must be a future unix timestamp"
+        );
+        let missing = hold(None).await.unwrap_err();
+        assert_eq!(missing.code, Code::Unavailable);
+        let bad = mode_hold(&ctx, json!({"mode": "x", "until": "y"}), None)
+            .await
+            .unwrap_err();
+        assert_eq!(
+            bad.message,
+            "mode: Invalid option: expected one of \"strict\"|\"normal\"|\"relaxed\"|\"emergency\"; until: Invalid input: expected number, received string"
+        );
+        std::fs::write(ctx.pacer_home.join("strategy.yaml"), "planner: [\n").unwrap();
+        assert!(mode_hold_stays_forwarded(&ctx, &json!({"mode":"normal"})));
+        assert!(!mode_hold_stays_forwarded(
+            &ctx,
+            &json!({"mode":"normal","until":200.0})
+        ));
     }
 
     #[tokio::test]

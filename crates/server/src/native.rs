@@ -83,7 +83,6 @@ pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
 pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
-pub(crate) use engine_ops::mode_hold_stays_forwarded;
 pub(crate) use host_check_clean_setup_ops::{host_stays_forwarded, needs_host_effects};
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
@@ -141,15 +140,23 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
-pub(crate) use status_ops::{
-    needs_usage_broker, routing_route_stays_forwarded, task_retry_options_stays_forwarded,
-};
+pub(crate) use status_ops::needs_usage_broker;
 
 /// The usage-broker parts params an op's request needs; `{}` asks for the active strategy's parts.
 pub(crate) fn usage_broker_params(op: &str, params: &Value) -> Value {
     match op {
         "strategy.preview" => strategy_preview_ops::broker_params(params),
         _ => serde_json::json!({}),
+    }
+}
+
+/// `mode.hold`, `routing.route` and `task.retry_options` inputs only TypeScript answers.
+pub fn status_residue_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    match op {
+        "mode.hold" => engine_ops::mode_hold_stays_forwarded(ctx, params),
+        "routing.route" => status_ops::routing_route_stays_forwarded(ctx, params),
+        "task.retry_options" => status_ops::task_retry_options_stays_forwarded(ctx),
+        _ => false,
     }
 }
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
@@ -897,6 +904,8 @@ pub async fn call_native(
     let result = if op.name == "host.set" {
         host_set_alias = Some(host_mut_ops::host_set_write(ctx, params).await?);
         Value::Null
+    } else if op.name == "mode.hold" {
+        engine_ops::mode_hold(ctx, params, broker_sync).await?
     } else if needs_usage_broker(op.name) {
         let parts = broker_sync.ok_or_else(|| {
             CoreError::new(
@@ -907,7 +916,7 @@ pub async fn call_native(
         match op.name {
             "limits.check" => status_ops::limits_check(ctx, params, parts.await?).await?,
             "routing.status" => status_ops::routing_status(ctx, params, parts.await?).await?,
-            "routing.route" => status_ops::routing_route(ctx, params, parts.await?).await?,
+            "routing.route" => status_ops::routing_route(ctx, params, parts).await?,
             "task.retry_options" => status_ops::task_retry_options(ctx, params, parts).await?,
             "strategy.preview" => {
                 strategy_preview_ops::strategy_preview(ctx, params, parts).await?

@@ -2,6 +2,7 @@
 //! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
 //! protocol types. Pacing status ops compose from [`usage_broker`] injections; selective
 //! `routing.route` params still forward for classifier and remote eligibility.
+pub mod balance;
 pub mod exhausted;
 pub mod mode_hold;
 pub mod pause;
@@ -633,13 +634,18 @@ pub fn rank_executors(input: &Value) -> Value {
         } else {
             status_reason(status)
         };
-        let mut output = json!({"id": id, "eligibility": decision, "score": candidate_score(status, policy), "verdict": status["verdict"], "reason": reason});
+        // TypeScript key order: id, account, eligibility, fallback, score, verdict, reason.
+        let mut output = json!({"id": id});
         if !account_field.is_null() {
             output["account"] = account_field;
         }
+        output["eligibility"] = decision;
         if unknown {
             output["fallback"] = json!("uncertain");
         }
+        output["score"] = json!(candidate_score(status, policy));
+        output["verdict"] = status["verdict"].clone();
+        output["reason"] = json!(reason);
         candidates.push(Candidate {
             output,
             unknown,
