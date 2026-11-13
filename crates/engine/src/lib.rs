@@ -532,7 +532,6 @@ fn account_preference(strategy: &Value, id: &str, preference: &[String]) -> usiz
         .position(|name| account(strategy, name) == account(strategy, id))
         .unwrap_or(preference.len())
 }
-/// Rank statuses using the current TS routing and account ordering rules.
 /// An excluded executor in TypeScript `rankExecutors` key order: id, account (when configured), reason, eligibility.
 fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -> Value {
     let mut value = json!({"id": id});
@@ -544,6 +543,7 @@ fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -
     value
 }
 
+/// Rank statuses using the current TS routing and account ordering rules.
 pub fn rank_executors(input: &Value) -> Value {
     let strategy = &input["strategy"];
     let mut normalized = serde_json::Map::new();
