@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { Strategy } from "../src/config/strategy";
 import { CoreError } from "../src/core/errors";
@@ -403,4 +403,45 @@ describe("read-only task store", () => {
     expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
     expect(existsSync(join(missing, "state"))).toBe(false);
   });
+
+  // pacer-store, rusqlite and Linux remove -wal and -shm on a clean close; the macOS
+  // system SQLite keeps them, so the seed removes them to match.
+  test("reads cleanly closed, live and locked stores without creating files", () => {
+    const tasks = `CREATE TABLE tasks(id TEXT PRIMARY KEY, state TEXT, record TEXT); INSERT INTO tasks VALUES ('t1','running','{"id":"t1"}');`;
+    const closed = (readOnly: boolean) => {
+      const home = tmpDir();
+      seed(home, `PRAGMA journal_mode=WAL; ${tasks}`);
+      for (const suffix of ["-wal", "-shm"]) rmSync(join(home, "state", `tasks.db${suffix}`), { force: true });
+      if (readOnly) chmodSync(join(home, "state"), 0o555);
+      return home;
+    };
+    const writable = closed(false), readOnly = closed(true);
+    const live = tmpDir();
+    mkdirSync(join(live, "state"));
+    const writer = new Database(join(live, "state", "tasks.db"));
+    writer.exec(`PRAGMA journal_mode=WAL; PRAGMA wal_autocheckpoint=0; ${tasks}`);
+    const locked = tmpDir();
+    seed(locked, tasks);
+    const lock = new Database(join(locked, "state", "tasks.db"));
+    lock.exec("BEGIN EXCLUSIVE");
+    const homes = [writable, readOnly, live, locked];
+    const files = () => homes.map(home => readdirSync(join(home, "state")).sort());
+    try {
+      const before = files();
+      expect(before.slice(0, 2)).toEqual([["tasks.db"], ["tasks.db"]]);
+      const cases = homes.flatMap(home => [[home, false], [home, true]] as const);
+      const expected = cases.map(([pacerHome, strict]) => ts(pacerHome, strict));
+      const read = (immutable: boolean) => ({ available: true, immutable, running: [{ id: "t1" }] });
+      expect(expected.slice(0, 4)).toMatchObject(Array(4).fill(read(true)));
+      expect(expected.slice(4, 6)).toMatchObject(Array(2).fill(read(false)));
+      expect(expected[6]).toMatchObject({ available: false, running: [] });
+      expect(expected[7]).toEqual({ error: { code: "conflict", message: "Session reservations are unreadable" } });
+      expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
+      expect(files()).toEqual(before);
+    } finally {
+      writer.close();
+      lock.close();
+      chmodSync(join(readOnly, "state"), 0o755);
+    }
+  }, 60_000);
 });

@@ -224,6 +224,30 @@ fn readonly_store_reads_rows_and_strict_mode_refuses_garbage() {
 }
 
 #[test]
+fn readonly_store_reads_a_cleanly_closed_wal_store_without_creating_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let db = rusqlite::Connection::open(state.join("tasks.db")).unwrap();
+    db.execute_batch(
+        "PRAGMA journal_mode=WAL; CREATE TABLE tasks(id TEXT, state TEXT, record TEXT);
+         INSERT INTO tasks VALUES('a','running','{\"id\":\"a\"}');",
+    )
+    .unwrap();
+    drop(db);
+    for strict in [false, true] {
+        let store = ReadOnlyStore::open(dir.path(), strict).unwrap();
+        assert!(store.available() && store.immutable());
+        assert_eq!(store.running_tasks().unwrap(), vec![json!({"id": "a"})]);
+    }
+    let files: Vec<_> = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(files, ["tasks.db"]);
+}
+
+#[test]
 fn status_adapter_marks_unsupported_methods_and_expired_readings() {
     let status = json!({"generatedAt": 1000, "providers": [{"id": "codex", "installed": true,
         "usage": "metered", "windows": [{"name": "5h", "usedPct": 40, "resetsAt": 1000 + 7200, "stale": false}]}],

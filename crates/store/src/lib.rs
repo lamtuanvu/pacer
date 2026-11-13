@@ -10,6 +10,7 @@ pub mod outbox;
 mod outbox_index;
 pub use outbox_index::{OutboxReplay, read_outbox_replay};
 pub mod publish;
+pub mod read_only;
 mod retention;
 mod task;
 

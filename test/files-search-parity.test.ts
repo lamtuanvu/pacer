@@ -1,7 +1,7 @@
 import { Database } from "bun:sqlite";
 import { beforeAll, beforeEach, expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, realpathSync, writeFileSync } from "node:fs";
+import { mkdirSync, readdirSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
@@ -92,7 +92,7 @@ test("non-ASCII paths, case folding and UTF-16 ranges match TypeScript", async (
   for (const query of ["straße", "ünï", "οδος", "ΟΔΟΣ", "face", "x.ts", "😀", "istanbul", "i̇stan", "ü s"]) await same(pacerHome, { query });
 });
 
-test("running-task annotations and ordering match TypeScript", async () => {
+async function runningTaskSearch(wal: boolean) {
   const repo = repoWith({ "src/remote/access.ts": "a", "src/remote/accessor.ts": "b", "src/acc.ts": "", "src/shared.ts": "" });
   const base = git(repo, "rev-parse", "HEAD").stdout.toString().trim();
   const worktree = join(realpathSync(dirname(repo)), `wt-${Date.now()}`);
@@ -107,9 +107,23 @@ test("running-task annotations and ordering match TypeScript", async () => {
   runningTask(pacerHome, { id: "t-20261028-100000-bbbb", repo: ref, brief: { repo }, run: { mode: "new", workdir: "/nowhere", host: "box" } });
   runningTask(pacerHome, { id: "t-20261028-100000-cccc", title: "", repo: ref, brief: { repo }, startSha: base, run: { mode: "current", workdir: repo } });
   runningTask(pacerHome, { id: "t-20261028-100000-dddd", repo: { key: "other" }, brief: { repo }, run: { mode: "new", workdir: worktree } });
-  await same(pacerHome, { query: "access" });
+  const state = join(pacerHome, "state");
+  if (wal) {
+    // A clean close by pacer-store, rusqlite or Linux leaves no -wal or -shm; the macOS system SQLite keeps them.
+    const db = new Database(join(state, "tasks.db"));
+    db.run("PRAGMA journal_mode=WAL");
+    db.close();
+    for (const suffix of ["-wal", "-shm"]) rmSync(join(state, `tasks.db${suffix}`), { force: true });
+  }
+  const stores = () => readdirSync(state).filter(name => name.startsWith("tasks.db")).sort();
+  const before = stores();
+  const ts = await same(pacerHome, { query: "access" });
+  expect(JSON.stringify(ts)).toContain("t-20261028-100000-aaaa");
   await same(pacerHome, { query: "src" });
-});
+  expect(stores()).toEqual(before);
+}
+test("running-task annotations and ordering match TypeScript", () => runningTaskSearch(false));
+test("running-task annotations read a cleanly closed WAL store without creating files", () => runningTaskSearch(true));
 
 test("validation, blank queries and unknown keys match TypeScript errors", async () => {
   const pacerHome = home({ "local:x": repoWith({ "a.ts": "" }) });
