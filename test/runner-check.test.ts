@@ -130,6 +130,19 @@ test("readiness uses real account and limits readers and the shared launcher", a
   expect(job.steps[2]).toMatchObject({state: "passed", detail: "Weekly window · 3% used"});
   expect(existsSync(repo)).toBe(false);
 });
+test("checkRunner requests only the runner's agent", async () => {
+  const ctx = setup();
+  const seen: any[] = [];
+  const d = deps();
+  d.detectAgents = async (ctx, opts) => {
+    seen.push(opts);
+    return [{ agent: "codex", found: true, version: "1.0", path: "/bin/codex", install_hint: "install codex" }];
+  };
+  await checkRunner(ctx, "codex#team", d);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toEqual({ host: undefined, agent: "codex" });
+});
+
 test("failed shared test tasks are cleaned and secrets stay out of jobs and results", async () => {
   const ctx = setup(); ctx.env.TEST_TOKEN = "private-readiness-value";
   const d = deps(); let repo = "";

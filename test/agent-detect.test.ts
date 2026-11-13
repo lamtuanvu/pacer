@@ -1,9 +1,13 @@
-import { expect, test } from "bun:test";
-import { detectAgents } from "../src/install/detection";
+import { expect, spyOn, test } from "bun:test";
+import { detectAgents, DETECT_DEADLINE_MS } from "../src/install/detection";
 import { callOp } from "../src/api/ops";
+import { CoreError } from "../src/core/errors";
+import { PluginRegistry } from "../src/plugins/registry";
 import { fakeCtx } from "./install-plugin-fixtures";
 import {withVersionFixtures} from "./planner-detect-fixtures";
 import { listJobs } from "../src/jobs/registry";
+import { join } from "node:path";
+import { readdirSync } from "node:fs";
 
 test("detects installed CLIs and versions using only --version with a five second timeout", async () => {
   const calls: string[][] = [];
@@ -38,5 +42,62 @@ test("failed or unparseable version commands keep found path and null version", 
   for (const run of [async () => ({ code: 1, stdout: "error 9.9.9", stderr: "" }), async () => ({ code: 0, stdout: "development", stderr: "" }), async () => { throw Error("timeout"); }]) {
     const rows = await detectAgents(withVersionFixtures(fakeCtx({ run })));
     expect(rows.every(row => row.found && row.version === null)).toBe(true);
+  }
+});
+
+test("planner.detect calls use the explicit 20s deadline", async () => {
+  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? "/bin/codex" : null, run: async () => ({ code: 0, stdout: "codex 1.0.0", stderr: "" }) }));
+  const original = PluginRegistry.prototype.call;
+  const seen: number[] = [];
+  const spy = spyOn(PluginRegistry.prototype, "call").mockImplementation(async function (this: any, ...args: any[]) {
+    const options = args[4];
+    if (args[2] === "planner.detect") seen.push(options?.deadlineMs);
+    return original.apply(this, args as any);
+  } as any);
+  try {
+    await detectAgents(ctx);
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((value) => value === DETECT_DEADLINE_MS)).toBe(true);
+    expect(DETECT_DEADLINE_MS).toBe(20000);
+  } finally {
+    spy.mockRestore();
+  }
+});
+
+test("single-agent detection probes only that agent and does not write the cache", async () => {
+  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? "/bin/codex" : null, run: async () => ({ code: 0, stdout: "codex 1.0.0", stderr: "" }) }));
+  const result = await detectAgents(ctx, { agent: "codex" });
+  expect(result).toHaveLength(1);
+  expect(result[0].agent).toBe("codex");
+  const cacheDir = join(ctx.pacerHome, "cache");
+  let files: string[] = [];
+  try { files = readdirSync(cacheDir).filter((name) => name.startsWith("agent-detect-")); } catch {}
+  expect(files).toHaveLength(0);
+});
+
+test("single-agent detection answers from a fresh full cache without probing", async () => {
+  let calls = 0;
+  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? "/bin/codex" : null, run: async () => { calls++; return { code: 0, stdout: "codex 1.0.0", stderr: "" }; } }));
+  await detectAgents(ctx);
+  const before = calls;
+  const result = await detectAgents(ctx, { agent: "codex" });
+  expect(calls).toBe(before);
+  expect(result).toHaveLength(4);
+});
+
+test("a plugin_timeout names the agent being detected", async () => {
+  const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "codex" ? "/bin/codex" : null, run: async () => ({ code: 0, stdout: "codex 1.0.0", stderr: "" }) }));
+  const original = PluginRegistry.prototype.call;
+  const spy = spyOn(PluginRegistry.prototype, "call").mockImplementation(async function (this: any, ...args: any[]) {
+    if (args[2] === "planner.detect") throw new CoreError("plugin_timeout", "plugin timed out");
+    return original.apply(this, args as any);
+  } as any);
+  try {
+    await expect(detectAgents(ctx, { agent: "codex" })).rejects.toMatchObject({
+      code: "plugin_timeout",
+      message: "Detecting Codex timed out",
+    });
+  } finally {
+    spy.mockRestore();
   }
 });

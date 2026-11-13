@@ -92,6 +92,16 @@ test("prefers the newer of the pacer cache and the legacy budget file", async ()
   expect((await readClaude(ctx)).windows[0].usedPct).toBe(20);
 });
 
+test("reads only the windows present in the cache", async () => {
+  const ctx = fakeCtx({ now: 1791640000 });
+  await put(claudeCachePaths(ctx)[0], { seven_day: { used_percentage: 4, resets_at: "2026-10-17T05:00:00Z" }, captured_at: 1791633891.03 }, 1791633891);
+  expect((await readClaude(ctx)).windows.map(w => w.name)).toEqual(["weekly"]);
+  await put(claudeCachePaths(ctx)[0], { five_hour: { used_percentage: 2, resets_at: 1791643200 }, captured_at: 1791633891.03 }, 1791633891);
+  expect((await readClaude(ctx)).windows.map(w => w.name)).toEqual(["5h"]);
+  await put(claudeCachePaths(ctx)[0], { captured_at: 1791633891.03 }, 1791633891);
+  expect((await readClaude(ctx)).windows).toEqual([]);
+});
+
 test("missing data is an error reading; freshness of old data is left to the engine", async () => {
   const ctx = fakeCtx({ now: 1791640000 });
   const none = await readClaude(ctx);

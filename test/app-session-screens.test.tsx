@@ -81,7 +81,9 @@ test('takeover startup and timeout keep progress and retry visible',()=>{
  expect(renderToString(<Session data={data} takeoverStarting takeoverBusy/>)).toContain('Starting interactive session…');
  const html=renderToString(<Session data={data} takeoverError="Interactive session did not start within 30 seconds." onTakeover={()=>{}}/>);
  expect(html).toContain('role="alert"');expect(html).toContain('Try again');
- const builtin=renderToString(<Session data={{...data,session:{...data.session!,takeover:{available:false,reason:'Already interactive'}}}}/>);
+ // Headless host: the takeover renders directly, not through LazyTerminal, whose module-level
+ // loaded state depends on which test files ran earlier in the same worker.
+ const builtin=renderToString(<Session data={{...data,session:{...data.session!,host:'none',takeover:{available:false,reason:'Already interactive'}}}}/>);
  expect(builtin).toContain('title="Already interactive"');
  expect(renderToString(<Session data={{...data,phase:'driving'}}/>)).toContain(">You're driving<");
  expect(renderToString(<Session data={{...data,phase:undefined,session:{...data.session!,driving:true}}}/>)).toContain(">You're driving<");

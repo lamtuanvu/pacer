@@ -23,10 +23,11 @@ import { PairingView } from "./Pairing";
 import { UpdatesSection } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
+import { LazyModelMatrix } from "./LazyModelMatrix";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
-import { settingsPageId } from "../../settings-pages";
+import { settingsPageId, settingsPageTitle } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
 import { Page, Stack } from "../../ds/Page";
 import { Card } from "../../ds/Patterns";
@@ -152,6 +153,9 @@ export function SettingsGeneral({
     case "dispatcher":
       content = <LazyDispatcher query={query} />;
       break;
+    case "models":
+      content = <LazyModelMatrix />;
+      break;
     case "app":
     case "updates":
     case "notifications":
@@ -176,6 +180,7 @@ export function SettingsGeneral({
         <SettingsQueryContext.Provider value={query}>
         {section === "dispatcher" && <PageHead><h1>Dispatcher</h1></PageHead>}
         {section === "assistant" && <PageHead><header className="pc-settings-board__header"><h1>Assistant</h1><p>Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.</p></header></PageHead>}
+        {section === "models" && <PageHead><header className="pc-settings-board__header"><h1>{settingsPageTitle("models")}</h1><nav className="pc-model-matrix__back"><TextAction href="#/settings/dispatcher">Back to Dispatcher</TextAction></nav></header></PageHead>}
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}
