@@ -4,18 +4,19 @@ export const SUITE_STEP = "Test (full suite, sharded)";
 export const SUITE_JOBS = ["ubuntu-latest", "macos-latest"].flatMap(os => [0, 1, 2, 3].map(shard => `Test (${os}, shard ${shard})`));
 
 export type CiRun = { id: number; event: string; status: string; conclusion: string | null; created_at: string; html_url: string };
-export type CiJob = { name: string; steps?: { name: string; conclusion: string | null }[] };
+export type CiJob = { name: string; conclusion: string | null; steps?: { name: string; conclusion: string | null }[] };
 export type Ci = {
   runs(sha: string): Promise<CiRun[]>;
   jobs(run: number): Promise<CiJob[]>;
+  refSha(ref: string): Promise<string>;
   dispatch(ref: string): Promise<void>;
   sleep(ms: number): Promise<void>;
   now(): number;
 };
 
-/** Path-filtered and pull-request runs skip the suite step, so only an executed, passing step counts. */
+/** Path-filtered and pull-request runs skip the suite step, so only an executed, passing step in a passing job counts. */
 export function fullSuitePassed(jobs: CiJob[]): boolean {
-  return SUITE_JOBS.every(name => jobs.some(job => job.name === name && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "success")));
+  return SUITE_JOBS.every(name => jobs.some(job => job.name === name && job.conclusion === "success" && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "success")));
 }
 
 export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline: number, log = console.log): Promise<CiRun> {
@@ -32,6 +33,8 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
     for (const run of pending) checked.delete(run.id);
     if (pending.length) log(`Waiting for CI: ${pending.map(run => run.html_url).join(", ")}`);
     else if (dispatchedAt === undefined) {
+      const head = await ci.refSha(ref);
+      if (head !== sha) throw Error(`${ref} now points at ${head}, not ${sha}; CI dispatched there would test another commit`);
       log(`No usable CI run for ${sha}; dispatching CI on ${ref}`);
       await ci.dispatch(ref);
       dispatchedAt = ci.now();
@@ -53,6 +56,7 @@ export function githubCi(repo: string): Ci {
   return {
     runs: async sha => JSON.parse(gh(["api", `repos/${repo}/actions/workflows/ci.yml/runs?head_sha=${sha}&per_page=100`])).workflow_runs,
     jobs: async run => JSON.parse(gh(["api", "--paginate", "--slurp", `repos/${repo}/actions/runs/${run}/jobs?filter=latest&per_page=100`])).flatMap((page: { jobs: CiJob[] }) => page.jobs),
+    refSha: async ref => gh(["api", `repos/${repo}/commits/${encodeURIComponent(ref)}`, "--jq", ".sha"]).trim(),
     dispatch: async ref => { gh(["workflow", "run", "ci.yml", "--repo", repo, "--ref", ref]); },
     sleep: ms => Bun.sleep(ms),
     now: () => Date.now(),
