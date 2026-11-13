@@ -1,7 +1,8 @@
 #!/bin/sh
 # Test stand-in for `opencode models`. State lives in $PACER_FAKE_OPENCODE_DIR (default $HOME/.fake-opencode):
-#   mode    list (default) | empty | fail | hang
+#   mode    list (default) | empty | fail | hang | env | flood
 #   models  stdout for `list`
+#   flood   byte count `flood` writes (then it sleeps if a `hang` file exists)
 #   calls.log  one line per call: arguments, $PWD, the physical cwd and $PACER_FAKE_OPENCODE_PROBE
 state=${PACER_FAKE_OPENCODE_DIR:-$HOME/.fake-opencode}
 mkdir -p "$state"
@@ -13,6 +14,12 @@ case "$mode" in
   list) [ -f "$state/models" ] && cat "$state/models"; exit 0 ;;
   empty) exit 0 ;;
   fail) echo "fake opencode: provider unavailable" >&2; exit 1 ;;
+  env) env; exit 0 ;;
+  flood)
+    echo $$ > "$state/flood.pid"
+    head -c "$(cat "$state/flood")" /dev/zero
+    [ -f "$state/hang" ] && exec sleep 300
+    exit 0 ;;
   hang)
     # A grandchild in the same process group; a timeout must kill it too.
     sleep 300 &

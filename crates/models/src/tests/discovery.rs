@@ -136,6 +136,74 @@ async fn a_timeout_kills_the_whole_process_group() {
 }
 
 #[tokio::test]
+async fn the_child_gets_only_the_recorded_env() {
+    let fake = Fake::new("env", "");
+    let process = fake.process();
+    let out = run_models(&process, Duration::from_secs(30)).await.unwrap();
+    let text = String::from_utf8(out).unwrap();
+    let child: Vec<&str> = text
+        .lines()
+        .filter_map(|l| l.split_once('='))
+        .map(|(k, _)| k)
+        .collect();
+    let recorded: Vec<&OsString> = process.env.iter().map(|(k, _)| k).collect();
+    for key in recorded.iter().map(|k| k.to_str().unwrap()).chain(["PWD"]) {
+        assert!(child.contains(&key), "{key} missing from {child:?}");
+    }
+    // `sh` sets these itself.
+    let shell = ["PWD", "OLDPWD", "SHLVL", "_"];
+    let only_here: Vec<String> = std::env::vars_os()
+        .map(|(k, _)| k)
+        .filter(|k| !k.to_str().is_some_and(|k| shell.contains(&k)) && !recorded.contains(&k))
+        .filter_map(|k| k.into_string().ok())
+        .collect();
+    assert!(!only_here.is_empty());
+    let leaked: Vec<&String> = only_here
+        .iter()
+        .filter(|k| child.contains(&k.as_str()))
+        .collect();
+    assert!(
+        leaked.is_empty(),
+        "test-process env reached the child: {leaked:?}"
+    );
+}
+
+#[tokio::test]
+async fn stdout_past_the_cap_kills_the_group_and_lists_nothing() {
+    let fake = Fake::new("flood", "");
+    let state = fake.home().join(".fake-opencode");
+    fs::write(state.join("flood"), (STDOUT_CAP + 1).to_string()).unwrap();
+    assert_eq!(
+        run_models(&fake.process(), Duration::from_secs(60)).await,
+        None
+    );
+    fs::write(state.join("flood"), "8").unwrap();
+    assert_eq!(
+        crate::discover::run_capped(&fake.process(), Duration::from_secs(30), 8).await,
+        Some(vec![0; 8])
+    );
+    // Past the cap a CLI that keeps running is killed at once, not at the timeout.
+    fs::write(state.join("flood"), "9").unwrap();
+    fs::write(state.join("hang"), "").unwrap();
+    let started = Instant::now();
+    assert_eq!(
+        crate::discover::run_capped(&fake.process(), Duration::from_secs(60), 8).await,
+        None
+    );
+    assert!(started.elapsed() < Duration::from_secs(10));
+    let pid: i32 = fs::read_to_string(state.join("flood.pid"))
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let deadline = Instant::now() + Duration::from_secs(5);
+    while alive(pid) && Instant::now() < deadline {
+        tokio::time::sleep(Duration::from_millis(50)).await;
+    }
+    assert!(!alive(pid), "flooding CLI {pid} survived the cap");
+}
+
+#[tokio::test]
 async fn a_listing_is_cached_with_private_modes_and_exact_bytes() {
     let fake = Fake::new("list", "acme/a\nacme/b\nother/x\n");
     let list = known(fake.discover().await);

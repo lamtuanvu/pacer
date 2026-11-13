@@ -12,8 +12,9 @@ use std::{
 /// OpenCode listings are cached for ten minutes; connection lists are read fresh.
 pub const CACHE_TTL_S: f64 = 600.0;
 
-/// Names `strategy.accounts[name]` resolves through `Object.prototype` in TypeScript.
-pub(crate) const PROTOTYPE_KEYS: [&str; 12] = [
+/// Names a plain object (`strategy.accounts[name]`, `strategy.runners[name]`)
+/// resolves through `Object.prototype` in TypeScript.
+pub const PROTOTYPE_KEYS: [&str; 12] = [
     "__proto__",
     "__defineGetter__",
     "__defineSetter__",
