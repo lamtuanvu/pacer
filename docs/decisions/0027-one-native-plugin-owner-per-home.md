@@ -72,7 +72,9 @@ The private stdio channel is `_internal.plugins`. Core answers it only when the 
 carries the connection's sync key (`PACER_NATIVE_CONFIG_SYNC_KEY`, which Core removes from
 its environment before plugin children start), the session negotiated protocol 3, and no
 work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`, plus
-`relay`. Core refuses `relay` on HTTP and on a stdio connection that is not attached.
+`relay`. Core refuses `relay` on HTTP and on a stdio connection that is not attached. It
+refuses `crashed` without an owner socket and on an attached connection, because serve's
+owner reports its children's crashes to serve's Core.
 
 ## Consequences
 
@@ -99,8 +101,10 @@ work grant is set. It carries the same request kinds as HTTP's `/_internal/plugi
   than the owning door, or a failing one at all. A native `plugin.enable` through the owning
   door clears the floor. An enable through an attached connection, or forwarded to TypeScript
   (`PACER_FORWARD_OPS`), clears only that Core's state, so the owner keeps its floor and its
-  failing mark (known limit). A report that reaches the owning door while its Core restarts is
-  dropped, not retried; that crash counts only toward the owner's floor.
+  failing mark (known limit). A restart of the owning door's Core child does the same: the new
+  Core starts with no crash state, while the owner keeps refusing a failing plugin until a native
+  `plugin.enable` through that door. A report that reaches the owning door while its Core
+  restarts is dropped, not retried; that crash counts only toward the owner's floor.
 - Serve shutdown and an owning connection's end (EOF or SIGTERM) stop accepting new starts and
   send each child SIGTERM at once and SIGKILL 2 seconds later, before the socket is removed. A
   plugin call in flight does not delay this: the owner reaches its children through a lane
@@ -118,6 +122,13 @@ work grant is set. It carries the same request kinds as HTTP's `/_internal/plugi
   default.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
+- Detached task runners (`_run`) are the same kind of Core. Core removes `PACER_HOST_SOCKET`
+  from every runner it starts, on serve and on attached and self-owned stdio connections, so a
+  runner owns its plugin children as it does with the flag off. An attempt therefore keeps its
+  executor plugin, and the host-side `executor.run` options the owner bridge does not carry,
+  when the connection that dispatched it ends or the service restarts. While a runner is alive,
+  a plugin can run under two owners on the home: the runner's and the door's. This extends the
+  plain CLI known limit to runners.
 - **OD-7.** The maintainer decided that a second serve on a home whose `run/host.sock` owner is
   live refuses to start, instead of falling back to TypeScript ownership. A flag-on serve on
   another port that finds the socket live waits up to 5 seconds (`PACER_SERVE_OWNER_WAIT_MS`),
