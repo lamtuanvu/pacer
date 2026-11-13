@@ -342,25 +342,6 @@ async fn a_child_that_exits_mid_call_fails_the_call() {
 }
 
 #[tokio::test]
-async fn requests_between_calls_go_to_the_next_call() {
-    let script = r#"console.log(JSON.stringify({jsonrpc:'2.0',id:'early',method:'capability.log',params:{n:1}}));const r=Bun.stdin.stream().getReader();let b='',early,probe;const done=()=>early&&probe!==undefined&&console.log(JSON.stringify({jsonrpc:'2.0',id:probe,result:{early}}));for(;;){const {value,done:end}=await r.read();if(end)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.id==='early')early=m.result;else if(m.method==='probe')probe=m.id;done();}}"#;
-    let child = PluginProcess::spawn(&peer(script)).unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let result = child
-        .request_with_handler(
-            "probe",
-            json!({}),
-            Duration::from_secs(5),
-            None,
-            |_, params, _| async move { Ok(json!({"seen": params["n"]})) },
-        )
-        .await
-        .unwrap();
-    assert_eq!(result["early"], json!({"seen": 1}), "{result}");
-    child.terminate().await.unwrap();
-}
-
-#[tokio::test]
 async fn a_request_flood_is_refused_past_the_call_bound() {
     // 40 requests at once: the handler is slow, so the call's queue fills and
     // the rest are refused at once; the call's own reply still arrives.
@@ -446,4 +427,88 @@ async fn stderr_reaches_the_plugin_log_and_its_reader_stops_with_the_child() {
         lines,
         ["[stderr] one", "[stderr] two", "[stderr] ", "[stderr] last"]
     );
+}
+
+/// A request sent while no call is pending waits for the idle handler, even
+/// when a call starts first: the next call's session never answers it (D4).
+#[tokio::test]
+async fn untokened_request_between_calls_never_reaches_the_next_call() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='',idle,probe;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const done=()=>{if(idle!==undefined&&probe!==undefined)send({id:probe,result:idle});};send({id:5,method:'capability.config.get',params:{}});for(;;){const {value,done:end}=await r.read();if(end)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe'){probe=m.id;done();}else if(m.id===5){idle=m.result??m.error;done();}}}"#;
+    let child = Arc::new(PluginProcess::spawn(&peer(script)).unwrap());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let call = tokio::spawn({
+        let child = Arc::clone(&child);
+        async move {
+            child
+                .request_with_handler(
+                    "probe",
+                    json!({}),
+                    Duration::from_secs(5),
+                    None,
+                    |_, _, _| async { Ok(json!({"from":"call"})) },
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    child.serve_idle(|_, _, _| async { Ok(json!({"from":"idle"})) });
+    assert_eq!(call.await.unwrap().unwrap(), json!({"from":"idle"}));
+    child.terminate().await.unwrap();
+}
+
+/// A read-owner request belongs to the plugin's observation generation, not
+/// to the call pending when it arrives.
+#[tokio::test]
+async fn read_owner_request_during_a_call_reaches_the_idle_handler() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='',probe;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe'){probe=m.id;send({id:6,method:'capability.tasks.read',params:{id:'t'},_meta:{readOwner:'pro_fixture'}});}else if(m.id===6)send({id:probe,result:m.result??m.error});}}"#;
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
+    child.serve_idle(|_, _, metadata| async move { Ok(json!({"from":"idle","meta":metadata})) });
+    let result = child
+        .request_with_handler(
+            "probe",
+            json!({}),
+            Duration::from_secs(5),
+            None,
+            |_, _, _| async { Ok(json!({"from":"call"})) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        json!({"from":"idle","meta":{"readOwner":"pro_fixture"}})
+    );
+    child.terminate().await.unwrap();
+}
+
+/// `$/event` lines are written as `JSON.stringify` writes them.
+#[tokio::test]
+async fn bounded_notification_is_written_as_javascript_writes_it() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("lines");
+    let script = format!(
+        r#"const r=Bun.stdin.stream().getReader();const {{appendFileSync}}=require('node:fs');for(;;){{const {{value,done}}=await r.read();if(done)break;appendFileSync({path:?},value);}}"#,
+        path = path.to_str().unwrap()
+    );
+    let child = PluginProcess::spawn(&peer(&script)).unwrap();
+    let params: Value = serde_json::from_str(
+        r#"{"type":"task","seq":3000000000005,"data":{"usd":1e21,"z":1,"a":0.1}}"#,
+    )
+    .unwrap();
+    child
+        .notify_bounded("$/event", params, Duration::from_secs(2), || Ok(()))
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::fs::read(&path).map_or(true, |bytes| !bytes.ends_with(b"\n")) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the line never arrived"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "{\"jsonrpc\":\"2.0\",\"method\":\"$/event\",\"params\":{\"type\":\"task\",\"seq\":3000000000005,\"data\":{\"usd\":1e+21,\"z\":1,\"a\":0.1}}}\n"
+    );
+    child.terminate().await.unwrap();
 }
