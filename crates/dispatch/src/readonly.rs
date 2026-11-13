@@ -36,7 +36,7 @@ pub struct Reservation {
 
 /// `JSON.parse(cell)`, which reads the cell's JavaScript `String()` text: `null`,
 /// numbers, text, or a blob's bytes joined by commas.
-fn parse_cell(cell: ValueRef<'_>) -> Option<Value> {
+pub(crate) fn parse_cell(cell: ValueRef<'_>) -> Option<Value> {
     let text = match cell {
         ValueRef::Null => "null".to_owned(),
         ValueRef::Integer(n) => n.to_string(),
