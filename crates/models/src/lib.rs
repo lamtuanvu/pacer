@@ -19,12 +19,13 @@ mod tests;
 mod validate;
 
 pub use available::{
-    AvailableModel, AvailableModels, CACHE_TTL_S, Discovery, Listing, ModelSource,
+    AvailableModel, AvailableModels, CACHE_TTL_S, Discovery, Listing, ModelSource, PROTOTYPE_KEYS,
     available_models, cache_file,
 };
 pub use closest::{closest_models, is_offered};
 pub use discover::{
-    CoreProcess, TIMEOUT, core_process, discover, model_ids, run_models, set_core_process,
+    CoreProcess, STDOUT_CAP, TIMEOUT, core_process, discover, model_ids, run_models,
+    set_core_process,
 };
 pub use reply::{available_needs_core, available_reply, listing, listing_needs_core, wire_value};
 pub use validate::{
