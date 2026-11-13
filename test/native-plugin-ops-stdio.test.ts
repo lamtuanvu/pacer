@@ -362,8 +362,9 @@ test.skipIf(!front)("a stdio connection attaches to the live serve owner and sha
   const service = await serve(h, "", ownerOn);
   const s = await stdio(h, "", ownerOn);
   const hostSocket = join(h.state, "run", "host.sock");
-  const key = readFileSync(join(h.state, "run", "host.key"), "utf8").trim();
+  let key = "<unread>";
   try {
+    key = readFileSync(join(h.state, "run", "host.key"), "utf8").trim();
     expect(key).toMatch(/^[0-9a-f]{64}$/);
     expect(statSync(join(h.state, "run", "host.key")).mode & 0o777).toBe(0o600);
     expect(connectionSockets(h)).toHaveLength(0);
