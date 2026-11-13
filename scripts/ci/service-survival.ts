@@ -66,7 +66,11 @@ async function op<T>(name: string, params: unknown): Promise<T> {
   if (!r.ok) throw Error(`${name}: ${body.error?.message ?? r.status}`);
   return body.result as T;
 }
-const num = (path: string) => Number(readFileSync(path, "utf8").trim());
+// The wrapper writes `child` non-atomically, so the file can exist before it holds a pid.
+const readPid = (path: string) => {
+  try { const text = readFileSync(path, "utf8").trim(); return /^[1-9]\d*$/.test(text) ? Number(text) : undefined; } catch { return undefined; }
+};
+const pidOf = (path: string) => { const pid = readPid(path); if (pid === undefined) throw Error(`no pid in ${path}`); return pid; };
 
 let failed = true;
 let isolatedUnit = false;
@@ -85,18 +89,18 @@ try {
   const record = await until("the delegated run to start", () => {
     try {
       const t = JSON.parse(readFileSync(join(pacerHome, "tasks", `${task.task_id}.json`), "utf8")) as { state: string; runnerPid?: number; run?: { dir: string } };
-      return t.state === "running" && t.runnerPid && t.run && existsSync(join(t.run.dir, "child")) ? t as { runnerPid: number; run: { dir: string } } : undefined;
+      return t.state === "running" && t.runnerPid && t.run && readPid(join(t.run.dir, "child")) ? t as { runnerPid: number; run: { dir: string } } : undefined;
     } catch { return undefined; }
   });
   const terminal = await op<{ id: string; rev: number }>("terminal.create", { request_id: "ci-survival", kind: "shell", cwd: repo });
   const terminalDir = join(pacerHome, "terminals", terminal.id);
-  await until("the terminal host to start", () => existsSync(join(terminalDir, "child")) ? true : undefined);
+  await until("the terminal host to start", () => readPid(join(terminalDir, "child")));
   const watched: [string, ProcessIdentity | null][] = [
     ["task runner", processIdentity(record.runnerPid)],
-    ["run wrapper", processIdentity(num(join(record.run.dir, "pid")))],
-    ["agent", processIdentity(num(join(record.run.dir, "child")))],
-    ["terminal session host", processIdentity(num(join(terminalDir, "pid")))],
-    ["terminal shell", processIdentity(num(join(terminalDir, "child")))],
+    ["run wrapper", processIdentity(pidOf(join(record.run.dir, "pid")))],
+    ["agent", processIdentity(pidOf(join(record.run.dir, "child")))],
+    ["terminal session host", processIdentity(pidOf(join(terminalDir, "pid")))],
+    ["terminal shell", processIdentity(pidOf(join(terminalDir, "child")))],
   ];
   for (const [name, identity] of watched) if (!identity) throw Error(`could not read the ${name}'s identity`);
   const restart = await run([systemctl, "--user", "restart", "pacer-serve.service"], env);

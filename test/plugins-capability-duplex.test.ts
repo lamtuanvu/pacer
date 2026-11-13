@@ -222,7 +222,7 @@ test("service exit terminates the owned duplex SSH process group", async () => {
   const dir = tmpDir(), ssh = join(dir, "ssh"), pidFile = join(dir, "pid"), service = join(dir, "service.ts");
   writeFileSync(ssh, "#!/bin/sh\nprintf '%s' \"$$\" > \"$1\"\nexec sleep 30\n", { mode: 0o755 });
   writeFileSync(service, `
-    import {existsSync} from 'node:fs';
+    import {readFileSync} from 'node:fs';
     import {createCallAuthority} from ${JSON.stringify(new URL("../src/plugins/authority.ts", import.meta.url).pathname)};
     import {prepareSpawnAuthority} from ${JSON.stringify(new URL("../src/plugins/capability-spawn.ts", import.meta.url).pathname)};
     import {answerDuplex} from ${JSON.stringify(new URL("../src/plugins/capability-duplex.ts", import.meta.url).pathname)};
@@ -232,14 +232,13 @@ test("service exit terminates the owned duplex SSH process group", async () => {
       {deadlineMs:Date.now()+5000,grants:['process.spawn']});
     prepareSpawnAuthority(authority);
     await answerDuplex(authority,['ssh'],'capability.process.duplex.open',{argv,timeoutMs:1000});
-    for(let i=0;i<100&&!existsSync(${JSON.stringify(pidFile)});i++) await Bun.sleep(10);
-    if(!existsSync(${JSON.stringify(pidFile)})) process.exit(2);
-    process.exit(0);
+    const written=()=>{try{return /^[1-9]\\d*$/.test(readFileSync(${JSON.stringify(pidFile)},'utf8').trim());}catch{return false;}};
+    for(let i=0;i<100&&!written();i++) await Bun.sleep(10);
+    process.exit(written()?0:2);
   `);
   const processResult = Bun.spawn([process.execPath, service], { stdout: "ignore", stderr: "pipe" });
   expect(await processResult.exited).toBe(0);
-  expect(existsSync(pidFile)).toBe(true);
-  const pid = Number(readFileSync(pidFile, "utf8"));
+  const pid = await waitPid(pidFile, 1000);
   for (let i = 0; i < 100; i++) {
     try { process.kill(pid, 0); } catch { break; }
     await Bun.sleep(10);
