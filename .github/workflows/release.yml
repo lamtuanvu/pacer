@@ -198,6 +198,9 @@ jobs:
       # Tests that build the pacer crate themselves start from a warm target/debug, as in CI.
       - name: Prebuild the pacer crate for the M1 gate
         run: cargo build --locked -p pacer
+      # Tests that compile a host release build must finish within their 300-second timeout.
+      - name: Prebuild the host release for the M1 gate
+        run: bun run release:host --out "$RUNNER_TEMP/pacer-m1-warm-release"
       - name: Build the SQLite cross-runtime proof for the M1 gate
         run: cargo build --locked -p pacer-sqlite-proof --bin pacer-sqlite-proof
       - name: Build the task store probe for the M1 gate
@@ -284,6 +287,8 @@ jobs:
           rustup show active-toolchain
           echo "RUSTUP_TOOLCHAIN=$(rustup show active-toolchain | cut -d ' ' -f 1)" >> "$GITHUB_ENV"
           rustup target add "$TARGET"
+      - name: Install app dependencies
+        run: bun install --frozen-lockfile
       - name: Install desktop CLI
         working-directory: desktop
         run: bun install --frozen-lockfile
