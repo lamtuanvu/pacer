@@ -138,7 +138,7 @@ const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
 const level = z.enum(["off", "important", "all"]);
-const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
+export const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
 const endpointModel = z.object({id: z.string().min(1), name: z.string().optional(), context: z.number().int().positive(), output: z.number().int().positive(), tools: z.boolean()});
 const endpointFields = {
   base_url: z.url().refine(value => /^https?:\/\//.test(value), "base URL must be HTTP(S)"),

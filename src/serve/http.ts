@@ -201,10 +201,17 @@ export function startServer(
         if (pathname === "/_internal/status-broker-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
-            const { computeStatus, statusBrokerParts } = await import("../engine/status");
-            const { loadStrategy } = await import("../config/strategy");
-            const ctx = getCtx();
-            return Response.json({ result: statusBrokerParts(await computeStatus(ctx, loadStrategy(ctx))) });
+            // The body is optional; an empty one means no params.
+            const text = await req.text();
+            let params: unknown = {};
+            if (text.trim()) {
+              try { params = JSON.parse(text); } catch {
+                const { CoreError } = await import("../core/errors");
+                throw new CoreError("invalid_input", "params: invalid JSON");
+              }
+            }
+            const { statusBrokerPartsFor } = await import("../api/status-broker-bridge");
+            return Response.json({ result: await statusBrokerPartsFor(getCtx(), params) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);

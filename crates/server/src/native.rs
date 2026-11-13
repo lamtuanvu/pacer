@@ -144,6 +144,14 @@ pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
 pub(crate) use status_ops::{
     needs_usage_broker, routing_route_stays_forwarded, task_retry_options_stays_forwarded,
 };
+
+/// The usage-broker parts params an op's request needs; `{}` asks for the active strategy's parts.
+pub(crate) fn usage_broker_params(op: &str, params: &Value) -> Value {
+    match op {
+        "strategy.preview" => strategy_preview_ops::broker_params(params),
+        _ => serde_json::json!({}),
+    }
+}
 pub(crate) use task_dismiss_ops::needs_task_clean_bridge;
 pub(crate) use task_get_ops::needs_task_read_bridge;
 pub(crate) use task_review_ops::needs_task_review_bridge;

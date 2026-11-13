@@ -3,6 +3,7 @@ import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, wr
 import { join } from "node:path";
 import type { Ctx } from "../src/types";
 import { tmpDir, withLoginIndicators } from "./helpers";
+import { closedPort, spawnPinned } from "./port-isolation";
 
 // Native job.*, strategy.preview and executor.setup.{models,connect} against
 // the same requests forced through PACER_FORWARD_OPS to the TypeScript core.
@@ -26,6 +27,8 @@ routing:
   - default: [claude-code, codex, cursor]
 pacing: {policy: priority, order: [claude-code, codex, cursor]}
 `;
+/** A saved strategy without the cursor account, as a draft source whose accounts differ. */
+const LEAN = STRATEGY.replace("  cursor: {kind: cursor}\n", "").replace("  cursor: {}\n", "").replaceAll(", cursor]", "]");
 
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
@@ -63,6 +66,8 @@ function home(): string {
   const dir = tmpDir(), pacer = join(dir, ".pacer"), jobs = join(pacer, "state", "jobs");
   mkdirSync(jobs, { recursive: true, mode: 0o700 });
   writeFileSync(join(pacer, "strategy.yaml"), STRATEGY);
+  mkdirSync(join(pacer, "strategies"));
+  writeFileSync(join(pacer, "strategies", "lean.yaml"), LEAN);
   // Installed agent CLIs, so the usage broker ranks the runners.
   mkdirSync(join(dir, "bin"));
   for (const bin of ["claude", "codex", "cursor-agent"]) { writeFileSync(join(dir, "bin", bin), "#!/bin/sh\nexit 1\n"); chmodSync(join(dir, "bin", bin), 0o755); }
@@ -146,8 +151,61 @@ test.skipIf(!front)("strategy.preview over the usage broker matches forced forwa
   expect(native).toEqual(forwarded);
   expect(JSON.parse(native[0]!).result.ok).toBe(true);
   expect(JSON.parse(native[0]!).result.ranking.current.length).toBeGreaterThan(0);
-  const providers = requests([["strategy.preview", draft({ set: { "pacing.planner_reserve": 40 } })], ["strategy.preview", draft({ set: { planner: "codex" } })]]);
-  expect(await exchange(dir, providers, false, {}, false)).toEqual(await exchange(dir, providers, true));
+  // Drafts that change provider inputs rank over the draft's own usage-broker parts.
+  const providers = requests(PROVIDER_DRAFTS);
+  const changed = await exchange(dir, providers, false);
+  expect(changed).toEqual(await exchange(dir, providers, true));
+  expect(JSON.parse(changed[2]!).result.ranking.draft).not.toContain("cursor");
+}, 120000);
+
+/** Valid drafts whose provider rows differ from the active strategy's: they forwarded before the draft parts. */
+const PROVIDER_DRAFTS: [string, unknown][] = [
+  ["strategy.preview", { draft: { from: "default", set: { "pacing.planner_reserve": 40 } } }],
+  ["strategy.preview", { draft: { from: "default", set: { planner: "codex" } } }],
+  ["strategy.preview", { draft: { from: "lean" } }],
+  ["strategy.preview", { draft: { from: "lean", set: { "pacing.order": ["codex", "claude-code"], "pacing.behind_threshold": 5 } } }],
+  ["strategy.preview", { draft: { from: "lean", set: { "pacing.policy": "nope" } } }],
+];
+
+async function serve(dir: string, forward: boolean) {
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", port], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: { HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, PACER_PORT: port,
+      PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+      ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+  const stderr = new Response(child.stderr).text();
+  const base = `http://127.0.0.1:${port}`;
+  let token = "", ready = false;
+  for (let n = 0; n < 1000 && !ready; n++) {
+    try {
+      token = readFileSync(join(dir, ".pacer/token"), "utf8").trim();
+      ready = (await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+    } catch {}
+    if (!ready) await Bun.sleep(20);
+  }
+  if (!ready) { child.kill("SIGTERM"); await child.exited; throw new Error(`serve did not start: ${await stderr}`); }
+  return {
+    post: async (op: string, body: unknown) => {
+      const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { "Content-Type": "application/json", Authorization: `Bearer ${token}` },
+        body: JSON.stringify(body), signal: AbortSignal.timeout(60000) });
+      return `${response.status} ${await response.text()}`;
+    },
+    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native strategy\.preview$/.test(line)); },
+  };
+}
+
+test.skipIf(!front)("strategy.preview with provider-input drafts over HTTP matches forced forwarding", async () => {
+  const results: { bodies: string[]; markers: string[] }[] = [];
+  for (const forward of [false, true]) {
+    const server = await serve(home(), forward);
+    const bodies: string[] = [];
+    try { for (const [op, params] of PROVIDER_DRAFTS) bodies.push(await server.post(op, params)); }
+    finally { results.push({ bodies, markers: await server.stop() }); }
+  }
+  expect(results[0]!.bodies).toEqual(results[1]!.bodies);
+  expect(results[0]!.markers).toHaveLength(PROVIDER_DRAFTS.length);
+  expect(results[1]!.markers).toEqual([]);
+  expect(results[0]!.bodies[2]).toStartWith("200 ");
 }, 120000);
 
 test.skipIf(!front)("strategy.preview without a loadable current strategy matches forced forwarding", async () => {

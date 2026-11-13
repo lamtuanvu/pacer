@@ -1,6 +1,9 @@
 #![allow(clippy::result_large_err)]
 //! Fixed bridge for usage-broker injection parts from the TypeScript `computeStatus`
-//! owner; no caller-controlled operation crosses this channel.
+//! owner; no caller-controlled operation crosses this channel. `params` is an object of
+//! the route's optional fields (`src/api/status-broker-bridge.ts`): `{}` for the active
+//! strategy's parts, `cacheOnly: true` for cached, read-only parts, and a
+//! `strategy.preview` `draft` for `{current, draft}` (or `{current, errors}`) parts.
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
@@ -18,7 +21,7 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
         .ok_or_else(|| unavailable("invalid usage broker response"))
 }
 
-pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
+pub async fn http(target: Option<(u16, String)>, params: Value) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::BodyExt;
     use hyper_util::{
@@ -34,7 +37,7 @@ pub async fn http(target: Option<(u16, String)>) -> Result<Value, CoreError> {
             ))
             .header("authorization", format!("Bearer {token}"))
             .header("content-type", "application/json")
-            .body(Body::from("{}"))
+            .body(Body::from(params.to_string()))
             .map_err(|_| unavailable("usage broker bridge unavailable"))?;
         let client: Client<HttpConnector, Body> =
             Client::builder(TokioExecutor::new()).build_http();
@@ -61,15 +64,21 @@ pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core: &mut W,
     prefix: &str,
     key: &str,
+    params: Value,
     replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
 ) -> Result<Value, CoreError> {
     use tokio::io::AsyncWriteExt;
     let id = format!("{prefix}:{}", hex::encode(rand::random::<[u8; 16]>()));
+    let mut params = match params {
+        Value::Object(params) => params,
+        _ => serde_json::Map::new(),
+    };
+    params.insert("key".into(), Value::String(key.into()));
     let request = serde_json::json!({
         "jsonrpc": "2.0",
         "id": id,
         "method": "_internal.status-broker.parts",
-        "params": {"key": key},
+        "params": params,
     });
     let mut bytes = serde_json::to_vec(&request)
         .map_err(|_| CoreError::new(Code::Internal, "usage broker encoding failed"))?;

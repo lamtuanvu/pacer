@@ -57,15 +57,22 @@ function materialize(ctx:Ctx,draft:Draft) {
 }
 /** Validate a draft into a strategy without writing it. Throws StrategyError with the draft's problems. */
 export function draftStrategy(ctx:Ctx,draft:Draft) {return validateStrategy(draftYaml(ctx,draft).raw,"draft",draft.from);}
-export async function preview(ctx:Ctx,draft:Draft) {
+/** `preview`'s two read-only statuses: the active strategy's, then the draft's over the same readings. `errors` replaces `draft` when the draft fails. */
+export async function draftStatuses(ctx:Ctx,draft:Draft,opts:{cacheOnly?:boolean}={}) {
   ctx={...ctx,readOnly:true};
-  const readings=new Map<string,UsageReading>();
-  const current=loadStrategy(ctx), status=await computeStatus(ctx,current,{readings});
-  const ranking={current:status.executors.ranked.map(x=>x.id),draft:[] as string[]};
+  const readings=new Map<string,UsageReading>(), status=(s:Strategy)=>computeStatus(ctx,s,opts.cacheOnly ? {readings,cacheOnly:true} : {readings});
+  const current=loadStrategy(ctx), currentStatus=await status(current);
   let yaml="";
-  try { const serialized=draftYaml(ctx,draft);yaml=serialized.yaml; const d={yaml,strategy:validateStrategy(serialized.raw,"draft",draft.from)}, st=await computeStatus(ctx,d.strategy,{readings}); ranking.draft=st.executors.ranked.map(x=>x.id);
-    return {ok:true,errors:[] as string[],yaml:d.yaml,summary:summarize(d.strategy),ranking,routing:{current:current.routing,draft:d.strategy.routing}};
-  } catch(e) {return {ok:false,errors:e instanceof StrategyError ? e.problems : [String((e as Error).message)],yaml,summary:"",ranking,routing:{current:current.routing,draft:[]}};}
+  try { const serialized=draftYaml(ctx,draft);yaml=serialized.yaml; const strategy=validateStrategy(serialized.raw,"draft",draft.from);
+    return {current,currentStatus,yaml,draft:{strategy,status:await status(strategy)}};
+  } catch(e) {return {current,currentStatus,yaml,errors:e instanceof StrategyError ? e.problems : [String((e as Error).message)]};}
+}
+export async function preview(ctx:Ctx,draft:Draft) {
+  const {current,currentStatus,yaml,...result}=await draftStatuses(ctx,draft);
+  const ranking={current:currentStatus.executors.ranked.map(x=>x.id),draft:[] as string[]};
+  if(!result.draft) return {ok:false,errors:result.errors,yaml,summary:"",ranking,routing:{current:current.routing,draft:[]}};
+  ranking.draft=result.draft.status.executors.ranked.map(x=>x.id);
+  return {ok:true,errors:[] as string[],yaml,summary:summarize(result.draft.strategy),ranking,routing:{current:current.routing,draft:result.draft.strategy.routing}};
 }
 const line=(text:string)=>text.replace(/[\r\n\x00-\x1f]/g," ");
 export function save(ctx:Ctx,name:string,draft:Draft,reason:string,opts:{overwrite?:boolean;activeOk?:boolean;who?:string}={}) {
