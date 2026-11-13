@@ -130,6 +130,9 @@ const rpcReply = z.object({
 
 let nextId = 1;
 
+/** An owner that cannot prove this Core's key: a restarted service drew a new one, or the socket is not this Core's owner. */
+const UNPROVEN_HINT = "If the pacer service restarted, reconnect: each start issues a new credential. Otherwise this socket is not this connection's plugin owner.";
+
 function unreachable(socketPath: string, detail: string): CoreError {
   return new CoreError("plugin_unavailable", `native process owner socket ${socketPath} is unreachable: ${detail}`,
     "Restart the pacer service.");
@@ -221,7 +224,7 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
         if (reply.error) return settle(bridgeError(socketPath, reply.error));
         const challenge = reply.result as { nonce?: unknown; proof?: unknown } | undefined;
         if (reply.id !== "auth" || !proves(key, nonce, challenge?.nonce, challenge?.proof))
-          return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} failed authentication`, "Restart the pacer service."));
+          return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} failed authentication`, UNPROVEN_HINT));
         authenticated = true;
         const coreProof = proof(key, CORE_PROOF, nonce, challenge!.nonce as string).toString("hex");
         socket.write(JSON.stringify({ jsonrpc: "2.0", method: HOST_AUTH, params: { proof: coreProof } }) + "\n");

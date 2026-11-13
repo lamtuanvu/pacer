@@ -155,6 +155,20 @@ pub enum AttachError {
     Refused(String),
 }
 
+impl AttachError {
+    /// What the user can do. An owner that cannot prove the connection's key
+    /// is a serve that restarted with a new one, or not this home's owner.
+    pub fn hint(&self) -> &'static str {
+        match self {
+            Self::Unproven => {
+                "If the pacer service restarted, reconnect: each start issues a new credential. \
+                 Otherwise this socket is not this connection's plugin owner."
+            }
+            _ => "Restart the pacer service.",
+        }
+    }
+}
+
 /// Ask the owner at `socket` to terminate `id`'s lane through `_host.plugin.stop`.
 ///
 /// The peer uid and the credential are checked on every dial: the socket path

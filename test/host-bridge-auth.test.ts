@@ -1,4 +1,5 @@
 import { afterEach, expect, test } from "bun:test";
+import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
@@ -84,23 +85,25 @@ test("Core sends no proof and no call to an owner that cannot prove the credenti
   expect(JSON.parse(seen[0]!)).toMatchObject({ id: "auth", method: "_host.auth", params: { nonce: expect.stringMatching(/^[0-9a-f]{64}$/) } });
 });
 
-test("a call proven to the owner reaches it; a refused caller learns to reconnect", async () => {
+test("a call proven to the owner reaches it; an owner that restarted with a new key is told apart", async () => {
   useOwnerKey();
   const seen: string[] = [];
-  const owner = await listen(authed(socket => record(socket, seen, line => {
+  const reply = (line: string) => {
     const frame = JSON.parse(line);
     return JSON.stringify({ jsonrpc: "2.0", id: frame.id, result: { value: { ok: true }, hello: null, logs: [] } });
-  })));
+  };
+  const owner = await listen(authed(socket => record(socket, seen, reply)));
   expect(await callNativeOwner(owner.path, call)).toMatchObject({ value: { ok: true } });
   expect(JSON.parse(seen[0]!)).toMatchObject({ method: "_host.plugin.call", params: { id: "fx" } });
   expect(seen.join("\n")).not.toContain("_host.auth");
 
-  // A rotated owner (a restarted service) refuses the old credential.
-  const restarted = await listen(socket => record(socket, [], line => {
-    const frame = JSON.parse(line);
-    return JSON.stringify({ jsonrpc: "2.0", id: frame.id, error: { code: -32001, message: "unauthorized" } });
-  }));
+  // A restarted service proves its new key first; Core, holding the old one, rejects it and sends nothing more.
+  const served: string[] = [];
+  const restarted = await listen(authed(socket => record(socket, served, reply), randomBytes(32)));
   await expect(callNativeOwner(restarted.path, call)).rejects.toMatchObject({
-    code: "plugin_unavailable", message: expect.stringContaining("refused this caller"), hint: expect.stringContaining("Reconnect"),
+    code: "plugin_unavailable",
+    message: expect.stringContaining("failed authentication"),
+    hint: expect.stringMatching(/restarted, reconnect.*not this connection's plugin owner/),
   });
+  expect(served).toEqual([]);
 });

@@ -536,7 +536,7 @@ impl Owner {
                 Ok(StopOutcome::Stopped | StopOutcome::NotRunning | StopOutcome::OwnerGone) => {}
                 Err(error) => {
                     return Err(CoreError::new(Code::PluginUnavailable, error.to_string())
-                        .hint("Restart the pacer service."));
+                        .hint(error.hint()));
                 }
             },
         }

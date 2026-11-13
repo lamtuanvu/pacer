@@ -23,10 +23,11 @@ export function ownerKey(): Buffer {
 const proof = (secret: Buffer, label: string, caller: string, owner: string) =>
   createHmac("sha256", secret).update(`${label}\0${caller}\0${owner}`).digest();
 
-/** Wrap a stand-in owner's connection handler: it runs only after the caller proves the key. */
-export function authed(handler: (socket: Socket) => void): (socket: Socket) => void {
+/** Wrap a stand-in owner's connection handler: it runs only after the caller proves the key
+ * (`own`, or the key in-process Core holds). */
+export function authed(handler: (socket: Socket) => void, own?: Buffer): (socket: Socket) => void {
   return socket => {
-    const secret = ownerKey();
+    const secret = own ?? ownerKey();
     socket.on("error", () => {});
     let text = "", caller: string | undefined;
     const owner = randomBytes(32).toString("hex");
