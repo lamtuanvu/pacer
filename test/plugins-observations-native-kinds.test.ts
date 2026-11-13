@@ -6,6 +6,7 @@ import { callOp } from "../src/api/ops";
 import { editStrategy } from "../src/config/edit";
 import { taskData } from "../src/link/pump";
 import { publish } from "../src/link/publish";
+import { pluginRegistry } from "../src/plugins";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
 import { createTask } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
@@ -47,6 +48,25 @@ test("observation kinds answer only the native owner of the door that owns the p
     { kind: "observation_read", id: "fx-observations", generation: name, method: "capability.fs.read", params: {} }]) {
     expect((await ask(on, bad)).error, JSON.stringify(bad)).toMatchObject({ code: "invalid_input" });
   }
+});
+
+test("an owning observation call keeps the generation the registry names through the sealed authority", async () => {
+  const { on, ask } = await setup();
+  const names = new Set<string>();
+  for (const method of ["diagnostic.ping", "policy.before"]) {
+    const sealed = (await ask(on, { kind: "call_authority", id: "fx-observations", method })).value;
+    expect(sealed.owning).toBe(true);
+    expect(sealed.observation.generation).toMatch(/^[0-9a-f]{64}$/);
+    names.add(sealed.observation.generation);
+    const events = await ask(on, { kind: "observation_events", id: "fx-observations", generation: sealed.observation.generation, since: null, types: ["task"] });
+    expect(events.error).toBeUndefined();
+  }
+  expect(names.size).toBe(1);
+  // Neither the owner's request nor a Core caller can name the fingerprint.
+  const forged = await ask(on, { kind: "call_authority", id: "fx-observations", method: "diagnostic.ping", observationFingerprint: "forged" });
+  expect(forged.error).toMatchObject({ code: "invalid_input" });
+  const sealed = pluginRegistry(on).nativeIssueCallAuthority(on, "fx-observations", { method: "policy.before", observationFingerprint: "forged" } as never);
+  expect(sealed.observation?.generation).toBe([...names][0]);
 });
 
 test("a new generation starts at the outbox end and gets only its types, in order", async () => {
