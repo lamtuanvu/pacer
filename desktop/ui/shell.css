@@ -539,7 +539,7 @@ button.button { font: inherit; font-weight: var(--type-body-strong-weight); curs
 .button:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 /* Same treatment as the app's .pc-btn[aria-disabled=true]. */
 .button[aria-disabled="true"], .button.primary[aria-disabled="true"]:hover { opacity: 0.5; cursor: not-allowed; }
-#takeover-progress:focus { outline: 2px solid var(--focus); outline-offset: 2px; }
+#takeover-progress:focus-visible { outline: 2px solid var(--focus); outline-offset: 2px; }
 .callout-warn { padding: var(--space-3); border: 1px solid var(--warn-line); border-radius: var(--radius-md); background: var(--warn-bg); color: var(--warn-fg); }
 .install-details { margin: var(--space-5) 0; }
 .install-details dt { color: var(--ink-secondary); margin-top: var(--space-3); }

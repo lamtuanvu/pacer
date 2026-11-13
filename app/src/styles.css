@@ -12,6 +12,10 @@ html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] 
 html[data-pacer-desktop] .pc-main-scroll{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+/* Programmatic focus targets (headings, regions, panes, frames, non-interactive containers with tabIndex=-1) must not draw a focus ring, even when WebKit treats the programmatic focus as :focus-visible. The focus move itself is preserved. */
+[tabindex="-1"]:focus,[tabindex="-1"]:focus-visible,h1:focus,h1:focus-visible,h2:focus,h2:focus-visible{outline:none}
+/* Interactive controls keep a visible keyboard ring even while temporarily tabindex="-1" (roving focus). */
+button[tabindex="-1"]:focus-visible,a[tabindex="-1"]:focus-visible,input[tabindex="-1"]:focus-visible,select[tabindex="-1"]:focus-visible,textarea[tabindex="-1"]:focus-visible,summary[tabindex="-1"]:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
 code{display:inline-block;max-width:100%;min-width:0;vertical-align:bottom;font-family:var(--font-mono);user-select:text;white-space:pre;overflow-x:auto;overflow-wrap:normal;word-break:normal}
 
