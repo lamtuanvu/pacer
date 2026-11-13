@@ -61,30 +61,6 @@ function emptyResources(): SealedResources {
   return { reads: [], writes: [], commands: [], hosts: [] };
 }
 
-function autoIssueFromManifest(manifest: PluginManifest, grants: readonly string[]): SealedResources {
-  const out = emptyResources();
-  if (grants.includes("fs.read")) {
-    for (const cap of manifest.capabilities) {
-      if (cap.name !== "fs.read") continue;
-      for (const scope of cap.scopes ?? []) {
-        if (!isExactIssuedPath(scope)) continue;
-        out.reads.push({ path: resolve(scope), kind: "file" });
-      }
-    }
-  }
-  if (grants.includes("net.http")) {
-    const hosts: string[] = [];
-    for (const cap of manifest.capabilities) {
-      if (cap.name !== "net.http") continue;
-      for (const scope of cap.scopes ?? []) {
-        if (isExactHttpHost(scope)) hosts.push(scope);
-      }
-    }
-    if (hosts.length) out.http = { hosts: [...new Set(hosts)] };
-  }
-  return out;
-}
-
 const OBSERVATION_ADMISSION_METHODS = new Set(["diagnostic.ping", "policy.before"]);
 const HOST_SCRIPT = /^[A-Z][A-Z0-9_]{0,31}$/;
 const ORCA_PROVIDER = "pacer-exec-orca";
@@ -303,6 +279,10 @@ export type CallAuthoritySeal = {
   resources: SealedResources;
   grants: string[];
   ttlMs: number;
+  /** Flag-off `needsAuthority`: without an owning call the owner refuses every scoped capability. */
+  owning: boolean;
+  /** An installed plugin granted `net.http` may use a declared `*` host scope (flag-off `prepareHttpAuthority`). */
+  explicitWildcardGrant: boolean;
   /** P4d-8: policy/doctor observation bootstrap for tasks.read / events.subscribe. */
   observation?: ObservationSeal;
   /** P4d-9: provider snapshots for flag-on ProcessOwner host attach. */
@@ -328,19 +308,39 @@ function observationAdmission(
   return declared && granted;
 }
 
+export type CallAuthorityOptions = {
+  resources?: CallResources;
+  ttlMs?: number;
+  method?: string;
+  accountHome?: string | null;
+  bundled?: boolean;
+  /** The call carries a planner borrow (`plannerResources`). */
+  plannerResources?: boolean;
+  /** The call carries credential bindings, even an empty list. */
+  credentialBindings?: boolean;
+};
+
+/** Whether flag-off would give this call a `CallAuthority` (`needsAuthority` in the registry's `call`). */
+function owningCall(manifest: PluginManifest, options: CallAuthorityOptions): boolean {
+  const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
+  const observation = options.method !== undefined && OBSERVATION_ADMISSION_METHODS.has(options.method)
+    && (declares("tasks.read") || declares("events.subscribe"));
+  return observation || options.method === "usage.read" || options.plannerResources === true
+    || options.resources !== undefined || options.credentialBindings === true || declares("hosts");
+}
+
 /** Seal call-scoped resources Core hands to Rust ProcessOwner for one plugin call. */
 export function sealCallAuthority(
   ctx: Ctx,
   manifest: PluginManifest,
   grants: readonly string[],
-  options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {},
+  options: CallAuthorityOptions = {},
 ): CallAuthoritySeal {
   const ttlMs = options.ttlMs && options.ttlMs > 0 && options.ttlMs <= 600_000
     ? Math.floor(options.ttlMs)
     : 30_000;
-  const sealed = options.resources
-    ? sealProvided(options.resources, grants, options.accountHome)
-    : autoIssueFromManifest(manifest, grants);
+  // Only resources the host issued for this call; flag-off issues nothing from the manifest.
+  const sealed = options.resources ? sealProvided(options.resources, grants, options.accountHome) : emptyResources();
   const observation = observationAdmission(options.method, grants, manifest)
     ? {
       callToken: randomUUID(),
@@ -348,5 +348,10 @@ export function sealCallAuthority(
       readContext: { home: ctx.home, pacerHome: ctx.pacerHome, now: ctx.now },
     }
     : undefined;
-  return { resources: sealed, grants: [...grants], ttlMs, ...(observation ? { observation } : {}) };
+  return {
+    resources: sealed, grants: [...grants], ttlMs,
+    owning: owningCall(manifest, options),
+    explicitWildcardGrant: options.bundled === false && grants.includes("net.http"),
+    ...(observation ? { observation } : {}),
+  };
 }

@@ -31,7 +31,7 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
-import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
+import { sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
 import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
@@ -1784,22 +1784,16 @@ export class PluginRegistry {
   }
 
   /**
-   * Seal call-scoped CallResources for flag-on ProcessOwner (P4d-7).
-   * Auto-issues exact absolute fs.read paths and exact net.http hosts from the
-   * granted manifest; host-supplied resources are validated then echoed sealed.
-   * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
+   * Seal the flag-off call authority for flag-on ProcessOwner (P4d-7): only the
+   * resources the host issued for this call, validated then echoed sealed, and
+   * whether flag-off would make it an owning call at all.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: Omit<CallAuthorityOptions, "bundled"> = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
-    const sealed = sealCallAuthority(ctx, manifest, grants, {
-      resources: options.resources,
-      ttlMs: options.ttlMs,
-      method: options.method,
-      accountHome: options.accountHome,
-    });
+    const sealed = sealCallAuthority(ctx, manifest, grants, { ...options, bundled: e.bundled });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
       out = { ...out, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
@@ -2362,7 +2356,7 @@ export class PluginRegistry {
       // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
       // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
       if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
-      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint, credentialBindings !== undefined);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
@@ -2494,7 +2488,7 @@ export class PluginRegistry {
    * Core seals the same spawn spec and call authority it serves over
    * `/_internal/plugins` and never spawns a second owner for the plugin id.
    */
-  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string): Promise<T> {
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string, credentialBound = false): Promise<T> {
     const lease = options.plannerResources;
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
@@ -2524,7 +2518,9 @@ export class PluginRegistry {
         const spawn = this.nativeSpawnSpec(ctx, e.id);
         // Writes are answered by Core (`coreMethods`), so the owner is never issued them.
         const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
-        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome,
+          plannerResources: lease !== undefined, credentialBindings: credentialBound,
+          ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
         // An attempt's Orca effects (the worker wait above all) run as long as the call itself.
         if (orcaAttempt && remaining !== undefined) authority.ttlMs = remaining;
         // Commands without an issued environment get the flag-off minimal environment of Core.

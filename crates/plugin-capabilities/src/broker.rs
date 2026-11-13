@@ -145,6 +145,9 @@ impl CapabilityBroker {
         self.explicit_http_wildcard_grant = granted;
         self
     }
+    pub fn set_explicit_http_wildcard_grant(&mut self, granted: bool) {
+        self.explicit_http_wildcard_grant = granted;
+    }
     /// Capture exact regular-file descriptors before the plugin starts its call.
     pub fn with_native_read(
         mut self,

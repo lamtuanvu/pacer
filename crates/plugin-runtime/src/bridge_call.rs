@@ -555,6 +555,7 @@ async fn prepare_sealed(
         &process,
     )
     .map_err(refused)?;
+    session.seal_call_authority(authority);
     session.broker_mut().set_scope_roots(sealed.roots);
     // Give the session the Core-sealed method set before the hello so a child
     // that asks for one while answering `plugin.hello` is refused locally

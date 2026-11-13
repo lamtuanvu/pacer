@@ -80,14 +80,12 @@ const root = mkdtempSync("/tmp/pcn-");
 afterAll(async () => { await Bun.sleep(1000); rmSync(root, { recursive: true, force: true }); });
 
 const PID_NULL = "known: flag-on plugin.doctor reports pid null for owner-supervised children (ADR 0027, ledger row 22)";
-const ROUTED_HTTP = "routed: for any owner call without host resources, such as a diagnostic ping, Core auto-issues a granted manifest's exact net.http hosts and exact fs.read paths (autoIssueFromManifest), so the owner serves them; TypeScript refuses every scoped capability outside an owning call";
 const ROUTED_OBSERVATIONS = "routed: the owner admits the observation bootstrap call, but no task or activity event reaches the plugin's callback until the owner runs observation generations";
-const ROUTED_MESSAGE = "routed: the owner refuses with the Rust broker's message (`capability is not granted to the owning call: … was not issued`), TypeScript with `scoped capability requires an active owning call`";
 
 /** Subset of CASES, by name, with the reason a case is expected to fail on the owner doors. */
 const SUBSET: Record<string, string | null> = {
   "lazy start: list starts nothing, doctor starts the process": PID_NULL,
-  "capability denial: undeclared calls are refused, declared ones answer": ROUTED_HTTP,
+  "capability denial: undeclared calls are refused, declared ones answer": null,
   "serialisation: one call at a time unless reentrant": PID_NULL,
   "logs: stderr lands in the plugin log file, never on stdout": null,
   "shutdown: closing the host terminates its plugins": null,
@@ -177,12 +175,12 @@ function relayCase(label: string, capability: string, declared: string[] | ((hom
 
 const RELAY: [ConformanceCase, string | null][] = [
   [relayCase("config.get", "config.get", [], "config.get", () => ({})), null],
-  [relayCase("fs.read", "fs.read", ["${HOME}/data/**"], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_MESSAGE],
-  [relayCase("fs.read exact path", "fs.read", home => [join(home, "data", "x.txt")], "fs.read", home => ({ path: join(home, "data", "x.txt") })), ROUTED_HTTP],
-  [relayCase("fs.write", "fs.write", ["${HOME}/out/**"], "fs.write", home => ({ path: join(home, "out", "x.txt"), text: "written" })), ROUTED_MESSAGE],
-  [relayCase("fs.beginWrite transfer", "fs.write", ["${HOME}/out/**"], "fs.beginWrite", home => ({ path: join(home, "out", "x.txt"), bytes: 7 })), ROUTED_MESSAGE],
-  [relayCase("process.spawn", "process.spawn", ["fx-tool"], "process.spawn", () => ({ argv: ["fx-tool"], timeoutMs: 1000 })), ROUTED_MESSAGE],
-  [relayCase("net.http", "net.http", ["127.0.0.1"], "net.http", () => ({ url: `http://127.0.0.1:${listener.port}/`, method: "GET", timeoutMs: 2000 })), ROUTED_HTTP],
+  [relayCase("fs.read", "fs.read", ["${HOME}/data/**"], "fs.read", home => ({ path: join(home, "data", "x.txt") })), null],
+  [relayCase("fs.read exact path", "fs.read", home => [join(home, "data", "x.txt")], "fs.read", home => ({ path: join(home, "data", "x.txt") })), null],
+  [relayCase("fs.write", "fs.write", ["${HOME}/out/**"], "fs.write", home => ({ path: join(home, "out", "x.txt"), text: "written" })), null],
+  [relayCase("fs.beginWrite transfer", "fs.write", ["${HOME}/out/**"], "fs.beginWrite", home => ({ path: join(home, "out", "x.txt"), bytes: 7 })), null],
+  [relayCase("process.spawn", "process.spawn", ["fx-tool"], "process.spawn", () => ({ argv: ["fx-tool"], timeoutMs: 1000 })), null],
+  [relayCase("net.http", "net.http", ["127.0.0.1"], "net.http", () => ({ url: `http://127.0.0.1:${listener.port}/`, method: "GET", timeoutMs: 2000 })), null],
 ];
 
 for (const [c, reason] of RELAY) {
