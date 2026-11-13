@@ -221,9 +221,11 @@ child.
   - The idle session answers `capability.log`, which it sends to Core with its level, and
     `capability.config.get` from the sealed hello.
   - It answers task reads and subscriptions only under the generation's read owner.
-  - It refuses everything else with the TypeScript messages: "capability token has no active
-    pending request", "read owner cannot authorize this method" and "scoped capability
-    requires an active owning call".
+  - It refuses everything else with code `capability_denied`. Before the idle session exists,
+    and for "capability token has no active pending request" and "read owner cannot authorize
+    this method", the text matches the TypeScript owner. Once the idle session exists, scoped
+    capabilities are refused by the broker as not issued to the owning call; the TypeScript
+    text "scoped capability requires an active owning call" depends on the owning-call seal.
 
 **Differences from the TypeScript owner:**
 
@@ -232,8 +234,11 @@ child.
 - Requests between calls are answered one at a time.
 - Between calls, `secrets.resolve` and `identity.sign` are refused. The registry answers them
   outside a call.
-- `config.get` returns the config sealed at the hello. The registry returns the same for an
-  observing child but the current config for any other plugin.
+- `config.get` returns the config sealed at the first call's hello, and the idle session is
+  not refreshed. The registry returns the current config for every plugin. An observing child
+  sees the same result because a config change moves its generation and restarts it; a child
+  without a live generation keeps the stale config between calls. Calls get the current
+  config, because each call seals a fresh hello.
 
 **Rejected.** The owner reading the outbox and task store directly. That would duplicate
 Core's protocol 3 event conversion and task projection, and split the authority checks
