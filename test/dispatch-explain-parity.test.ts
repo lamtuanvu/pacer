@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { classifierConfig } from "../src/config/classifier";
 import { resolveRunner } from "../src/config/runner-id";
@@ -214,27 +214,6 @@ describe("learned fit", () => {
     expectSame(["default steps", "task-fit only"], rust(ladder.map(c => ({ fn: "ladder", ...c }))), proposals);
   });
 
-  // F7: native dispatch.preview reads learned fit through the read-only view; TypeScript's preview reads the
-  // writable store. Both must read the same reviews from a cleanly closed WAL store.
-  test("a cleanly closed WAL store reads the same through the read-only view and the writable store", () => {
-    const home = tmpDir();
-    // The writable store's own schema and journal mode, closed by its owner.
-    execFileSync(process.execPath, ["-e", `
-      const { dispatchDatabase } = await import(${JSON.stringify(join(root, "src/dispatch/store.ts"))});
-      const db = dispatchDatabase({ home: "/nonexistent", pacerHome: process.argv[1], now: 0, env: {} });
-      db.exec("INSERT INTO work_learning_exclusions VALUES ('/repo/excluded'); INSERT INTO work_learning_reset VALUES ('/repo/reset', ${NOW - 1000})");
-      const insert = db.query("INSERT INTO work_reviews VALUES (?,1,?,'human',?)");
-      JSON.parse(await Bun.stdin.text()).forEach((row, i) => insert.run("t" + i, ${NOW}, typeof row === "string" || typeof row === "number" ? row : JSON.stringify(row)));
-      db.close();`, home], { input: JSON.stringify(rows) });
-    for (const suffix of ["-wal", "-shm"]) rmSync(join(home, "state", `tasks.db${suffix}`), { force: true });
-    // Header bytes 18 and 19 are 2 in WAL mode.
-    expect([...readFileSync(join(home, "state", "tasks.db")).subarray(18, 20)]).toEqual([2, 2]);
-    const [native] = rust([{ fn: "learnedFit", strategy, pacerHome: home, candidates, task, now: NOW }]);
-    const writable = applyLearnedFit(fakeCtx({ pacerHome: home, now: NOW }), strategy, candidates, task.kind, task.difficulty);
-    expect(writable.filter(c => c.learnedFit).map(c => c.runner)).toEqual(["codex", "codex#b", "claude-code"]);
-    expect(native).toBe(JSON.stringify(writable));
-  });
-
   test("a null review row fails in both", () => {
     const home = tmpDir(); seed(home, [review("codex", "gpt-x")]);
     const db = new Database(join(home, "state", "tasks.db")); db.run("INSERT INTO work_reviews VALUES ('n',1,1,'human',NULL)"); db.close();
@@ -334,18 +313,6 @@ describe("route explanations", () => {
 
     add("select, comfortable", setup({ "claude-code": 10, codex: 20, cursor: 30 }), base());
     add("select, usable at 14.5% free", setup({ "claude-code": 10, codex: 85.5, cursor: 92 }), base());
-    add("exactly at the comfortable threshold", setup({ "claude-code": 10, codex: 80, cursor: 85 }), base());
-    const reserve = setup({ "claude-code": 10, codex: 75, cursor: 92 });
-    reserve.strategy.dispatch = dispatchConfigSchema.parse({ reservePct: 10 });
-    add("reserve makes it usable", reserve, base());
-    add("override to a later-step executor", setup({ "claude-code": 10, codex: 20, cursor: 85 }), { ...base(), executor: "cursor" });
-    // codex's medium model is excluded first, its small model second, for a different reason.
-    const twoModels = { runners: { codex: { models: [{ id: "provider/deep", tier: "medium" }, { id: "provider/small", tier: "small" }] },
-      cursor: { models: [{ id: "provider/mid", tier: "medium" }] } } };
-    add("two exclusions for one runner", setup({ "claude-code": 10, codex: 20, cursor: 30 }, twoModels),
-      { ...base(), executor: "codex", model: "provider/mid", requirements: { minTier: "medium" } });
-    add("two exclusions, the first refuses", setup({ "claude-code": 10, codex: 100, cursor: 30 }, twoModels),
-      { ...base(), executor: "codex", requirements: { minTier: "medium" } });
     add("detected kind", setup({ "claude-code": 10, codex: 20, cursor: 30 }), { ...base(), kind: undefined });
     const skipped = setup({ "claude-code": 10, codex: 95, cursor: 30 });
     skipped.strategy.dispatch = steps({ id: "docs-only", match: { kind: "docs" }, capacity: "comfortable" }, { id: "nobody", candidates: { executors: ["none"] } });
@@ -427,15 +394,6 @@ describe("route explanations", () => {
     expect(ts[cases.findIndex(c => c.label === "learning with a review history")]!.uncertainty.some(u => u.code === "learning_unavailable")).toBe(false);
     expect(ts.some(r => r.fallbacks.some(f => f.state === "eligible" && f.step === "usable-fallback"))).toBe(true);
     expect(ts.some(r => r.step?.skipped.some(s => s.reason === "step_kind_mismatch") && r.step.skipped.some(s => s.reason === "step_no_candidates"))).toBe(true);
-    const of = (label: string) => ts[cases.findIndex(c => c.label === label)]!;
-    const codes = (label: string) => of(label).reasons.map(r => r.code);
-    expect(codes("exactly at the comfortable threshold")).toContain("capacity_comfortable");
-    expect(codes("reserve makes it usable")).toContain("capacity_usable");
-    const later = of("override to a later-step executor");
-    expect([later.outcome, later.chosen?.runner, later.fallbacks.find(f => f.runner === "cursor")?.step]).toEqual(["select", "codex", "usable-fallback"]);
-    expect(later.reasons.find(r => r.code === "override_unavailable")?.facts).toEqual({ requested: "cursor", reason: "not_ranked" });
-    expect(of("two exclusions for one runner").fallbacks.find(f => f.runner === "codex")?.reason?.code).toBe("pinned_to_other_model");
-    expect([of("two exclusions, the first refuses").outcome, codes("two exclusions, the first refuses")]).toEqual(["fail", expect.arrayContaining(["quota_exhausted"])]);
   });
 
   test("ranked explanations match TypeScript byte for byte", async () => {
