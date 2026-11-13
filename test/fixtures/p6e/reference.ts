@@ -50,12 +50,14 @@ const { isOffered, closestModels } = load(
   ["isOffered", "closestModels"],
   {},
 );
+const { awaitsAnswer } = load("src/tasks/types.ts", ["awaitsAnswer"], {});
 const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
   ...runnerId,
   ...taskFns,
   ...discovery,
   executorName,
   workActionRequestId,
+  awaitsAnswer,
 });
 const taskAttention = load("src/core/task-attention.ts", ["deriveTaskItems"], {
   ...taskFns,
