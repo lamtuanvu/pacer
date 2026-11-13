@@ -53,9 +53,11 @@ function matrixHome(root: string, chat: number): Home {
   installKeychainStub(bin, join(home, "keychain"));
   symlinkSync(process.execPath, join(bin, "bun"));
   script(bin, "arkcli", `echo "$*" >> "$HOME/arkcli.log"\ncat <<'EOF'\n${JSON.stringify(ARK_PLAN)}\nEOF`);
-  script(bin, "codex", `case "$1" in --version) echo "codex-cli 0.50.0";; *) echo "codex $*" >> "$HOME/codex.log"; exit 1;; esac`);
+  // The app-server reads the host's request before failing: exiting first races the host's stdin write (EPIPE).
+  script(bin, "codex", `case "$1" in --version) echo "codex-cli 0.50.0";; *) echo "codex $*" >> "$HOME/codex.log"; case "$*" in *app-server*) read -r _;; esac; exit 1;; esac`);
   script(bin, "claude", `case "$1" in --version) echo "2.1.0 (Claude Code)";; *) echo "claude $*" >> "$HOME/claude.log"; exit 1;; esac`);
-  script(bin, "osascript", `printf '%s|' "$@" >> "$HOME/notify.log"; echo >> "$HOME/notify.log"`);
+  // pacer-notify delivers with osascript on macOS and notify-send on Linux.
+  for (const notifier of ["osascript", "notify-send"]) script(bin, notifier, `printf '%s|' "$@" >> "$HOME/notify.log"; echo >> "$HOME/notify.log"`);
   script(bin, "fake-term", `printf '%s\\n' "$@" >> "$HOME/terminal.log"`);
   for (const stub of ["launchctl", "systemctl"]) script(bin, stub, "exit 1");
   writeFileSync(join(state, "strategy.yaml"), STRATEGY(chat), { mode: 0o600 });
@@ -435,11 +437,11 @@ const notifier: Scenario = async (_door, h, observe) => {
   const delivered = await poll(async () => fileText(h, "notify.log"), text => text !== "<absent>", 20000);
   await Bun.sleep(2000);
   observe("notifier first delivery", delivered === "<absent>" ? delivered : "delivered");
-  observe("osascript argv", fileText(h, "notify.log").split("\n").filter(Boolean).sort().join("\n"));
+  observe("notifier argv", fileText(h, "notify.log").split("\n").filter(Boolean).sort().join("\n"));
   observe("notified ledger", ledgerKeys(h));
 };
 
-test.skipIf(!front)("notifier: serve delivers attention through pacer-notify's sealed osascript command", async () => {
+test.skipIf(!front)("notifier: serve delivers attention through pacer-notify's sealed OS command", async () => {
   const runs = await runModes("notifier", [httpOff, httpOn, httpForward], notifier);
   for (const run of runs) expect(run.observed["notifier first delivery"], run.mode.label).toBe("delivered");
   console.log(expectIdentical(runs).join("\n"));
