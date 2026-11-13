@@ -313,6 +313,52 @@ fn runner_map_keeps_the_first_position_and_the_last_value() {
 }
 
 #[test]
+fn a_candidate_without_a_binding_fails_like_typescript() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = ReadOnlyStore::open(dir.path(), false).unwrap();
+    let (strategy, kind, status) = (json!({"runners": {}}), json!({"value": null}), json!({}));
+    let e = Explain {
+        strategy: &strategy,
+        kind: &kind,
+        requested: None,
+        status: &status,
+        store: &store,
+        pause: None,
+        admission_hooks: false,
+        draft: false,
+        now: 1000.0,
+    };
+    let explain = |binding: Option<Value>| {
+        let mut candidate = json!({"runner": "x", "capacityKnown": true});
+        if let Some(binding) = binding {
+            candidate["binding"] = binding;
+        }
+        let preview = json!({"request": {"task": {}, "config": {"steps": []}, "candidates": [candidate]},
+            "proposal": {"state": "none"}, "engine": {"id": "ladder"}, "validation": "valid", "recommendedAction": "queue"});
+        let p = LadderPreview {
+            preview: &preview,
+            exclusions: &[],
+            uncertainty: &[],
+            engine_not_running: None,
+        };
+        build_explanation(&e, &p).map_err(|error| error.message)
+    };
+    // `c.binding.kind` throws a TypeError for a missing or null binding, and reads
+    // `undefined` off any other primitive.
+    for binding in [None, Some(Value::Null)] {
+        assert_eq!(explain(binding).unwrap_err(), "A candidate has no binding");
+    }
+    let primitive = explain(Some(json!("executor-default"))).unwrap();
+    let codes: Vec<_> = primitive["uncertainty"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|u| u["code"].clone())
+        .collect();
+    assert!(!codes.contains(&json!("default_model_unresolved")));
+}
+
+#[test]
 fn learned_fit_needs_enabled_learning_and_enough_recent_reviews() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::create_dir_all(dir.path().join("state")).unwrap();

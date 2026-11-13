@@ -313,6 +313,18 @@ describe("route explanations", () => {
 
     add("select, comfortable", setup({ "claude-code": 10, codex: 20, cursor: 30 }), base());
     add("select, usable at 14.5% free", setup({ "claude-code": 10, codex: 85.5, cursor: 92 }), base());
+    add("exactly at the comfortable threshold", setup({ "claude-code": 10, codex: 80, cursor: 85 }), base());
+    const reserve = setup({ "claude-code": 10, codex: 75, cursor: 92 });
+    reserve.strategy.dispatch = dispatchConfigSchema.parse({ reservePct: 10 });
+    add("reserve makes it usable", reserve, base());
+    add("override to a later-step executor", setup({ "claude-code": 10, codex: 20, cursor: 85 }), { ...base(), executor: "cursor" });
+    // codex's medium model is excluded first, its small model second, for a different reason.
+    const twoModels = { runners: { codex: { models: [{ id: "provider/deep", tier: "medium" }, { id: "provider/small", tier: "small" }] },
+      cursor: { models: [{ id: "provider/mid", tier: "medium" }] } } };
+    add("two exclusions for one runner", setup({ "claude-code": 10, codex: 20, cursor: 30 }, twoModels),
+      { ...base(), executor: "codex", model: "provider/mid", requirements: { minTier: "medium" } });
+    add("two exclusions, the first refuses", setup({ "claude-code": 10, codex: 100, cursor: 30 }, twoModels),
+      { ...base(), executor: "codex", requirements: { minTier: "medium" } });
     add("detected kind", setup({ "claude-code": 10, codex: 20, cursor: 30 }), { ...base(), kind: undefined });
     const skipped = setup({ "claude-code": 10, codex: 95, cursor: 30 });
     skipped.strategy.dispatch = steps({ id: "docs-only", match: { kind: "docs" }, capacity: "comfortable" }, { id: "nobody", candidates: { executors: ["none"] } });
@@ -394,6 +406,15 @@ describe("route explanations", () => {
     expect(ts[cases.findIndex(c => c.label === "learning with a review history")]!.uncertainty.some(u => u.code === "learning_unavailable")).toBe(false);
     expect(ts.some(r => r.fallbacks.some(f => f.state === "eligible" && f.step === "usable-fallback"))).toBe(true);
     expect(ts.some(r => r.step?.skipped.some(s => s.reason === "step_kind_mismatch") && r.step.skipped.some(s => s.reason === "step_no_candidates"))).toBe(true);
+    const of = (label: string) => ts[cases.findIndex(c => c.label === label)]!;
+    const codes = (label: string) => of(label).reasons.map(r => r.code);
+    expect(codes("exactly at the comfortable threshold")).toContain("capacity_comfortable");
+    expect(codes("reserve makes it usable")).toContain("capacity_usable");
+    const later = of("override to a later-step executor");
+    expect([later.outcome, later.chosen?.runner, later.fallbacks.find(f => f.runner === "cursor")?.step]).toEqual(["select", "codex", "usable-fallback"]);
+    expect(later.reasons.find(r => r.code === "override_unavailable")?.facts).toEqual({ requested: "cursor", reason: "not_ranked" });
+    expect(of("two exclusions for one runner").fallbacks.find(f => f.runner === "codex")?.reason?.code).toBe("pinned_to_other_model");
+    expect([of("two exclusions, the first refuses").outcome, codes("two exclusions, the first refuses")]).toEqual(["fail", expect.arrayContaining(["quota_exhausted"])]);
   });
 
   test("ranked explanations match TypeScript byte for byte", async () => {
