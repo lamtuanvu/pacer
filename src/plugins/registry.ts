@@ -2535,10 +2535,15 @@ export class PluginRegistry {
         // negotiates chunkedResults and sends `$/resultChunk`; Core stages those with the
         // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
         const chunked = method === "usage.read" || effects;
-        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+        const scopedCoreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
           ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
           ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
-        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+        // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
+        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner.
+        const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
+        const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
+          ...(declares("identity.sign") ? ["capability.identity.sign"] : [])];
+        const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
           ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
@@ -2561,7 +2566,7 @@ export class PluginRegistry {
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
         let transferStarted = false;
-        const onRequest = local && ((name: string, params: unknown, request: number) => {
+        const onRequest = coreMethods.length ? ((name: string, params: unknown, request: number) => {
           if (name === RESULT_CHUNK_METHOD) {
             if (params && typeof params === "object" && "request" in params && params.request !== request)
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
@@ -2571,7 +2576,7 @@ export class PluginRegistry {
             // plain single-frame limit (read-only planner calls, diagnostics, …).
             if (!coreMethods.includes(RESULT_CHUNK_METHOD))
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
-            if (!staging) staging = new ResultStaging(local);
+            if (!staging) staging = new ResultStaging(local!);
             const parsed = resultChunkParams.safeParse(params);
             if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
             return staging.stage(parsed.data.offset, parsed.data.base64);
@@ -2579,7 +2584,7 @@ export class PluginRegistry {
           return coreMethods.includes(name)
             ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
             : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
-        });
+        }) : undefined;
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },

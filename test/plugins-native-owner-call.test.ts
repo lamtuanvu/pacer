@@ -672,10 +672,73 @@ test("flag-on endpoint.launchEnv with empty bindings writes the config through C
   const [call] = on!.relay!.calls;
   expect(call.method).toBe("endpoint.launchEnv");
   expect(call.authority.resources.writes ?? []).toEqual([]);
-  expect(call.coreMethods).toEqual(["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"]);
+  expect(call.coreMethods).toEqual(["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove", "capability.secrets.resolve"]);
   expect(on!.relay!.forwarded).toEqual(["capability.fs.mkdir", "capability.fs.write"]);
   expect(on!.relay!.refused).toEqual([]);
   expect(JSON.stringify(call)).not.toContain("credentialBindings");
+});
+
+// Answers hello as `id` serving `point`, then each call by sending every capability request in turn and replying with what it got.
+const askScript = (id: string, point: string, asks: [string, unknown][]) => `const asks=${JSON.stringify(asks)};const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));let call,answers=[];const ask=()=>answers.length<asks.length?send({id:900+answers.length,method:asks[answers.length][0],params:asks[answers.length][1]}):send({id:call,result:{answers}});for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\\n')){const i=b.indexOf('\\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:m.params.protocol,id:${JSON.stringify(id)},version:m.params.manifest.version,contributes:[${JSON.stringify(point)}]}});else if(m.method&&m.id!==undefined){call=m.id;answers=[];ask();}else if(m.id>=900){answers.push(m.error?{code:m.error.data?.code,message:m.error.message}:{value:m.result});ask();}}}`;
+const resolves = (refs: string[]): [string, unknown][] => refs.map(ref => ["capability.secrets.resolve", { ref }]);
+const assistantPlugin = BUNDLED.find(plugin => plugin.manifest.id === "pacer-assistant")!;
+const ASSISTANT_KEY = "sk-fake-assistant-fixture-key";
+
+test("flag-on Core answers the assistant's endpoint key on its own call exactly as flag-off, and only that key", async () => {
+  const outcomes = [];
+  for (const flag of [false, true]) {
+    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("pacer-assistant", "assistant", resolves(["endpoint:lab", "endpoint/lab", "endpoint:open", "env:HOME"])) }, assistantPlugin);
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: claude-code\naccounts:\n  claude-code: {kind: claude}\n  lab: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "http://127.0.0.1:9/v1", key: file, models: [{id: m, context: 100, output: 10, tools: false}]}}\nrunners:\n  opencode#lab: {model: m}\n`, { mode: 0o600 });
+    mkdirSync(join(ctx.pacerHome, "secrets"), { recursive: true, mode: 0o700 });
+    writeFileSync(join(ctx.pacerHome, "secrets", "lab.key"), ASSISTANT_KEY, { mode: 0o600 });
+    const { writeSettings } = await import("../src/assistant/store");
+    writeSettings(ctx, { runner: "opencode#lab", account: "lab", expect_rev: 1 });
+    outcomes.push(await registry.call(ctx, "pacer-assistant", "assistant.respond", {}, { deadlineMs: 10000 }));
+    if (relay) {
+      expect(relay.calls.map(call => call.coreMethods)).toEqual([["capability.secrets.resolve"]]);
+      expect(relay.forwarded).toEqual(Array(4).fill("capability.secrets.resolve"));
+      expect(JSON.stringify(relay.calls)).not.toContain(ASSISTANT_KEY);
+      expect(relay.calls[0].authority.owning).toBe(false);
+    }
+  }
+  const denied = { code: "capability_denied", message: "That secret is not the assistant's account key." };
+  expect(outcomes[0]).toEqual({ answers: [{ value: { value: ASSISTANT_KEY } }, { value: { value: ASSISTANT_KEY } }, denied, denied] });
+  expect(outcomes[1]).toEqual(outcomes[0]);
+});
+
+test("flag-on Core refuses the assistant's key to another plugin with the flag-off text, before reading it", async () => {
+  const outcomes = [];
+  for (const flag of [false, true]) {
+    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("pacer-endpoints", "endpoint", resolves(["endpoint:lab"])) });
+    outcomes.push(await registry.call(ctx, "pacer-endpoints", "endpoint.launchEnv", { account: null, accounts: [], pacerHome: ctx.pacerHome }, {
+      resources: { reads: [], commands: [], stores: [] }, credentialBindings: [] }));
+    if (relay) expect(relay.forwarded).toEqual(["capability.secrets.resolve"]);
+  }
+  expect(outcomes[0]).toEqual({ answers: [{ code: "capability_denied", message: "plugin pacer-endpoints may not resolve assistant secrets" }] });
+  expect(outcomes[1]).toEqual(outcomes[0]);
+});
+
+test("flag-on Core signs with the machine key for a declared purpose and audits it, as flag-off", async () => {
+  const { clearIdentityCache, setIdentityPlatformForTests } = await import("../src/identity/store");
+  const { verifyFrom } = await import("../src/identity/sign");
+  const { identityAuditPath } = await import("../src/identity/audit");
+  const signer = { manifest: manifestSchema.parse({ id: "fx-signer", version: "1.0.0", publisher: "test", host: "^1.6", contributes: { diagnostic: {} },
+    capabilities: [{ name: "identity.sign", scopes: ["greeting"] }] }), main: async () => ({}) } as never;
+  const payload = Buffer.from("hello").toString("base64");
+  const outcomes = [];
+  for (const flag of [false, true]) {
+    clearIdentityCache(); setIdentityPlatformForTests("linux");
+    const { ctx, registry, relay } = await bundledSetup(flag, { script: askScript("fx-signer", "diagnostic", [
+      ["capability.identity.sign", { purpose: "greeting", payload }], ["capability.identity.sign", { purpose: "other", payload }]]) }, signer);
+    const { answers: [signed, refused] } = await registry.call(ctx, "fx-signer", "diagnostic.ping", {}, { deadlineMs: 10000 }) as { answers: any[] };
+    expect(verifyFrom(signed.value.machineId, "fx-signer", "greeting", Buffer.from("hello"), Buffer.from(signed.value.signature, "base64"))).toBe(true);
+    const audit = readFileSync(identityAuditPath(ctx), "utf8").trim().split("\n").map(line => JSON.parse(line).outcome);
+    outcomes.push({ refused, audit });
+    if (relay) expect(relay.calls.map(call => call.coreMethods)).toEqual([["capability.identity.sign"]]);
+  }
+  expect(outcomes[1]).toEqual(outcomes[0]);
+  expect(outcomes[0]!.refused.code).toBe("capability_denied");
+  expect(outcomes[0]!.audit).toEqual(["signed", "refused"]);
 });
 
 test("flag-on endpoint launch settings get the flag-off env and secretEnv validation", async () => {

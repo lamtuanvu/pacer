@@ -49,6 +49,8 @@ use tokio::sync::{mpsc, oneshot};
 /// the Orca effects of an attempt, whose session it holds. `$/resultChunk` is
 /// the chunked result transport (negotiated like a feature), which Core answers
 /// so it can stage a large result with the same bounds and ordering as flag-off.
+/// Core answers the assistant's endpoint key and machine signatures itself
+/// too: the Keychain and the machine key stay with Core.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.fs.write" | "capability.fs.mkdir" | "capability.fs.remove" => Some("fs.write"),
@@ -64,6 +66,8 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
         | "capability.fs.readRange"
         | "capability.planner.readPriorRange" => Some("fs.read"),
         "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
+        "capability.secrets.resolve" => Some("secrets.resolve"),
+        "capability.identity.sign" => Some("identity.sign"),
         "$/resultChunk" => Some("result"),
         _ => None,
     }
