@@ -185,3 +185,56 @@ owner reports its children's crashes to serve's Core.
 - **Stdio leaves ownership to TypeScript when serve is live.** The stdio Core would start its
   own TypeScript children beside serve's native owner: the two-owner problem this record
   exists to avoid.
+
+## Addendum: observation generations under the owner (2026-11-13)
+
+A policy plugin that subscribes to events gets the same events with the owner on as with the
+owner off: the same filtering, payload bytes and order. With the owner on, the plugin's
+subscription belongs to its lane, not to the call that made it, and lives as long as the
+child.
+
+- **Generation.** Core's `call_authority` seals `observation.generation`, the SHA-256 of the
+  plugin's observation fingerprint (manifest, config and grant). The first sealed call that
+  subscribes starts the lane's generation under that name. A later call sealed under another
+  name stops the old child and starts a fresh one, as the registry does for a local child.
+- **Source.** The owning door's Core supplies the events and task reads through the private
+  kinds `observation_events`, `observation_read` and `observation_retired`. A flag-off Core
+  refuses them, and so does a stdio Core attached to the service's `host.sock`. On every
+  request Core checks again that the plugin is enabled, declares and is granted the
+  capability, and still has the fingerprint the generation was sealed with. Core filters events
+  to the subscribed types plus `reset`. `since: null` returns only the current end of the
+  outbox, so a new subscription sees only later events.
+- **Delivery.** The lane asks Core for new events every 100 ms. A separate task writes each
+  `$/event` line within 2 s, in outbox order, with `JSON.stringify` key order and number text.
+  The queue keeps the TypeScript bounds: 128 events and 256 KiB.
+- **Retirement.** The generation retires when:
+  - its child exits or is stopped;
+  - the owner closes (serve stops or the stdio connection ends);
+  - Core refuses it, for example because the plugin was disabled or reconfigured. The owner
+    stops the child and records no failure.
+  - a pump or delivery fails. Core logs `[observation] <reason>` and marks the plugin
+    `failing`, and the owner stops the child.
+
+  A retired generation's read owner is refused.
+- **Between calls.** A request that arrives while no call is pending, or that names a read
+  owner, goes to the lane's idle session. It is never answered by the next call's session.
+  - The idle session answers `capability.log`, which it sends to Core with its level, and
+    `capability.config.get` from the sealed hello.
+  - It answers task reads and subscriptions only under the generation's read owner.
+  - It refuses everything else with the TypeScript messages: "capability token has no active
+    pending request", "read owner cannot authorize this method" and "scoped capability
+    requires an active owning call".
+
+**Differences from the TypeScript owner:**
+
+- While Core is unavailable, the lane keeps its cursor and asks again on the next tick. The
+  TypeScript registry runs inside Core and has no such gap.
+- Requests between calls are answered one at a time.
+- Between calls, `secrets.resolve` and `identity.sign` are refused. The registry answers them
+  outside a call.
+- `config.get` returns the config sealed at the hello. The registry returns the same for an
+  observing child but the current config for any other plugin.
+
+**Rejected.** The owner reading the outbox and task store directly. That would duplicate
+Core's protocol 3 event conversion and task projection, and split the authority checks
+between two processes.
