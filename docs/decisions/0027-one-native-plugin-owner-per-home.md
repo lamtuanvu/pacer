@@ -148,15 +148,22 @@ owner reports its children's crashes to serve's Core.
   capability with TypeScript's `scoped capability requires an active owning call`. A missing or
   malformed seal grants neither (maintainer decision Q4 on the refusal text).
 - **The assistant's endpoint key crosses the owner (maintainer decision Q1).** Core answers
-  `capability.secrets.resolve` and `capability.identity.sign` itself when the plugin declares
-  them: the owner forwards the request on the bridge connection of the call that issued it, and
-  Core runs its flag-off check (`assistantSecret` admits only `pacer-assistant` and its chosen
-  endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key and
-  the audit in Core). The resolved key crosses only that connection (0600 socket, same user) and
-  the child's stdin, as the reply to the child's own request. The owner keeps nothing and logs
-  no frame. Endpoint and classifier calls that carry credential bindings stay refused. The Rust
-  door's own owner calls (`plugin.doctor`, `plugin.ui.*`) forward no Core method, so there the
-  owner refuses both with its own text.
+  `capability.secrets.resolve` itself when the plugin declares it, and `capability.identity.sign`
+  on every call it makes, so an undeclared signing request is refused and audited in Core as
+  flag-off does. The owner forwards the request on the bridge connection of the call that issued
+  it, and Core runs its flag-off check (`assistantSecret` admits only `pacer-assistant` and its
+  chosen endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key
+  and the audit in Core). The resolved key crosses only that connection (0600 socket, same user)
+  and the child's stdin, as the reply to the child's own request. The owner keeps nothing and
+  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused. The
+  Rust door's own owner calls (`plugin.doctor`, `plugin.ui.*`) forward no Core method, so there
+  the owner refuses both with its own text and audits no refused signing request.
+  Until the bridge authenticates its callers (#918), a same-user process can reach the resolved
+  key or a signature: it can put its own process in the assistant's or a signing plugin's lane
+  (the bridge's unsealed spawn and stop, or a lane it started first), or stand in for the socket,
+  and Core then answers that process. This gives it nothing a same-user process cannot already
+  read: the Keychain items have no access list, and file and environment keys are same-user
+  readable.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.

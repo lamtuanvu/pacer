@@ -8,10 +8,10 @@ Native means Rust registers an operation and produces its reply for at least som
 
 **PR 7 gate, owner parity PR A (2026-11-13):** still **RED** for the other rows. Three rows are green:
 - **Auto-issued paths and hosts.** Core no longer issues exact `net.http` hosts or exact `fs.read` paths from the manifest. It seals `owning` (flag-off `needsAuthority`) and `explicitWildcardGrant` into `call_authority`, and the owner refuses every scoped capability outside an owning call with TypeScript's `scoped capability requires an active owning call`. A per-resource refusal inside an owning call keeps the broker's text with the same `capability_denied` code (maintainer decision Q4).
-- **Assistant secret alias.** Core answers `capability.secrets.resolve` and `capability.identity.sign` itself on the call's bridge connection when the manifest declares them. A flag-on assistant turn answers like flag-off (maintainer decision Q1).
+- **Assistant secret alias.** Core answers `capability.secrets.resolve` itself on the call's bridge connection when the manifest declares it, and `capability.identity.sign` on every call, so an undeclared signing request is refused and audited as flag-off does. A flag-on assistant turn answers like flag-off, and a Core call for another plugin during the turn gets the flag-off refusal (maintainer decision Q1).
 - **Owner refusal text** outside an owning call.
 
-The capability relay conformance cases (`fs.read`, exact-path `fs.read`, `fs.write`, `fs.beginWrite`, `process.spawn`, `net.http`) now match the TypeScript host with zero listener hits. Remaining: the `plugin.doctor` path the Rust door runs itself forwards no Core method. There, another plugin's `capability.secrets.resolve` is refused with the owner's `secret alias was not issued` (same code), and `capability.identity.sign` is not answered.
+The capability relay conformance cases (`fs.read`, exact-path `fs.read`, `fs.write`, `fs.beginWrite`, `process.spawn`, `net.http`) now match the TypeScript host with zero listener hits. Remaining: the `plugin.doctor` path the Rust door runs itself forwards no Core method. There, another plugin's `capability.secrets.resolve` is refused with the owner's `secret alias was not issued` (same code), `capability.identity.sign` is not answered, and an undeclared signing request is refused without an audit line.
 
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
