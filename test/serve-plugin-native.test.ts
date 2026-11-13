@@ -38,32 +38,57 @@ test("private prepare still works when PACER_HOST_SOCKET is set", async () => {
   expect(out.value).toEqual({});
 });
 
-test("sealCallAuthority auto-issues exact fs.read paths and http hosts", () => {
+test("sealCallAuthority issues no declared path or host the caller did not issue", () => {
   const path = "/tmp/pacer-p4d7-fixture.txt";
   expect(isExactIssuedPath(path)).toBe(true);
   expect(isExactIssuedPath("$HOME/**")).toBe(false);
   expect(isExactHttpHost("127.0.0.1")).toBe(true);
   expect(isExactHttpHost("*.example.com")).toBe(false);
-  const sealed = sealCallAuthority(
-    fakeCtx(),
-    {
-      id: "fx-auth",
-      version: "1.0.0",
-      publisher: "fixture",
-      host: ">=1.10.0",
-      capabilities: [
-        { name: "fs.read", scopes: [path, "$HOME/**"] },
-        { name: "net.http", scopes: ["127.0.0.1", "*.bad"] },
-        { name: "log" },
-      ],
-      contributes: { diagnostic: {} },
-    } as any,
-    ["fs.read", "net.http", "log"],
-  );
+  const manifest = {
+    id: "fx-auth",
+    version: "1.0.0",
+    publisher: "fixture",
+    host: ">=1.10.0",
+    capabilities: [
+      { name: "fs.read", scopes: [path, "$HOME/**"] },
+      { name: "net.http", scopes: ["127.0.0.1", "*.bad"] },
+      { name: "log" },
+    ],
+    contributes: { diagnostic: {} },
+  } as any;
+  const sealed = sealCallAuthority(fakeCtx(), manifest, ["fs.read", "net.http", "log"], { method: "diagnostic.ping", bundled: false });
   expect(sealed.ttlMs).toBe(30_000);
-  expect(sealed.resources.reads).toEqual([{ path, kind: "file" }]);
-  expect(sealed.resources.http).toEqual({ hosts: ["127.0.0.1"] });
+  expect(sealed.resources.reads).toEqual([]);
+  expect(sealed.resources.http).toBeUndefined();
   expect(sealed.grants).toEqual(["fs.read", "net.http", "log"]);
+  expect(sealed.owning).toBe(false);
+  expect(sealed.explicitWildcardGrant).toBe(true);
+});
+
+test("sealCallAuthority seals an owning call exactly where TypeScript needs an authority", () => {
+  const manifest = (capabilities: { name: string; scopes?: string[] }[], contributes: Record<string, unknown> = { diagnostic: {} }) =>
+    ({ id: "fx-owning", version: "1.0.0", publisher: "fixture", host: ">=1.10.0", capabilities, contributes }) as any;
+  const owning = (m: any, options: Parameters<typeof sealCallAuthority>[3]) => sealCallAuthority(fakeCtx(), m, ["fs.read", "tasks.read", "hosts"], options).owning;
+  const plain = manifest([{ name: "fs.read", scopes: ["/tmp/x"] }]);
+  expect(owning(plain, { method: "diagnostic.ping" })).toBe(false);
+  expect(owning(plain, { method: "diagnostic.ping", resources: { reads: [], writes: [], commands: [] } as any })).toBe(true);
+  expect(owning(plain, { method: "usage.read" })).toBe(true);
+  expect(owning(plain, { method: "diagnostic.ping", plannerResources: true })).toBe(true);
+  expect(owning(plain, { method: "diagnostic.ping", credentialBindings: true })).toBe(true);
+  expect(owning(manifest([{ name: "hosts" }]), { method: "diagnostic.ping" })).toBe(true);
+  const observer = manifest([{ name: "tasks.read" }], { policy: {} });
+  expect(owning(observer, { method: "policy.before" })).toBe(true);
+  expect(owning(observer, { method: "diagnostic.ping" })).toBe(true);
+  expect(owning(observer, { method: "ui.render" })).toBe(false);
+});
+
+test("sealCallAuthority grants a declared wildcard host only to an installed plugin granted net.http", () => {
+  const manifest = { id: "fx-wild", version: "1.0.0", publisher: "fixture", host: ">=1.10.0", capabilities: [{ name: "net.http", scopes: ["*"] }], contributes: { diagnostic: {} } } as any;
+  const wildcard = (grants: string[], bundled?: boolean) => sealCallAuthority(fakeCtx(), manifest, grants, { bundled }).explicitWildcardGrant;
+  expect(wildcard(["net.http"], false)).toBe(true);
+  expect(wildcard(["net.http"], true)).toBe(false);
+  expect(wildcard(["net.http"])).toBe(false);
+  expect(wildcard([], false)).toBe(false);
 });
 
 test("sealCallAuthority seals observation bootstrap for policy admission methods", () => {

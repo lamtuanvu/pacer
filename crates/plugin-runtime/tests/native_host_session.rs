@@ -288,7 +288,7 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[{"path":note,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
                     "grants":["fs.read"],
                     "ttlMs":10000
@@ -447,7 +447,7 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[{"path":read,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
                     "grants":["fs.read"],"ttlMs":10000
                 },
@@ -628,7 +628,7 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[],"writes":[],"hosts":[],"commands":[
                         {"argv":[codex,"-s","read-only","-a","never","app-server"],"timeoutMs":10000,"mode":"codex-live","env":codex_env},
                         {"argv":[fx_env],"timeoutMs":10000}
@@ -808,7 +808,7 @@ async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
                         "config":{},"grants":["orca","fs.write"],"features":[]
                     },
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":resources,
                     "grants":grants,
                     "ttlMs":10000,
@@ -984,7 +984,7 @@ async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation(
                         "features":["chunkedResults","plannerInstallTransactions"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":core_methods,
                 "requireFeatures":required
@@ -1201,7 +1201,7 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
                         "features":["chunkedResults","plannerInstallTransactions"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":core_methods.clone(),
                 "requireFeatures":["plannerInstallTransactions"]
@@ -1387,7 +1387,7 @@ async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_featur
                         "config":{},"grants":[],"features":["chunkedResults"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":[],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":[],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":Value::Null,
                 "requireFeatures":required
@@ -1482,7 +1482,7 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
                     "features":["chunkedResults","plannerInstallTransactions"]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":planner_methods,
             "requireFeatures":["plannerInstallTransactions"]
@@ -1643,7 +1643,7 @@ async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
                     "config":{},"grants":["fs.read"],"features":[]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":["capability.fs.read"]
         }
@@ -1709,7 +1709,7 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
                     "features":["chunkedResults","plannerInstallTransactions"]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":[
                 "capability.planner.run",

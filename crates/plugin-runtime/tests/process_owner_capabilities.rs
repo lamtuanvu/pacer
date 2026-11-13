@@ -274,7 +274,7 @@ for (;;) {{
         "hosts":[]
     });
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["fs.read".into()]),
@@ -286,6 +286,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -378,7 +379,7 @@ for (;;) {{
         "hosts":[]
     });
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["process.spawn".into()]),
@@ -390,6 +391,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -480,7 +482,7 @@ for (;;) {{
     });
     let observation = observation_bootstrap_from_value(&sealed).unwrap();
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["tasks.read".into(), "events.subscribe".into()]),
@@ -492,6 +494,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -600,6 +603,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_hosts_fixture(
         FixtureHostProvider::new(snapshot.clone(), "probe-ok"),
         [snapshot],
@@ -723,6 +727,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session
         .bind_orca_fixture(
             home.path(),
@@ -894,6 +899,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_process_owner_worktree().await.unwrap();
 
     let dir = TempDir::new().unwrap();
@@ -1018,6 +1024,7 @@ for (;;) {
         executor_context,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_process_owner_executor().unwrap();
 
     let dir = TempDir::new().unwrap();

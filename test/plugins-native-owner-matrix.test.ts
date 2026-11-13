@@ -491,21 +491,11 @@ const assistant: Scenario = async (door, h, observe) => {
 let assistantMemo: Promise<Run[]> | undefined;
 const assistantRuns = () => assistantMemo ??= runModes("assistant", [httpOff, httpOn, httpForward], assistant);
 
-test.skipIf(!front)("assistant: flag-off and forwarded turns answer from the fixture endpoint", async () => {
+/** pacer-assistant resolves its endpoint key with capability.secrets.resolve, which Core answers for the owner call. */
+test.skipIf(!front)("assistant: flag-off, flag-on and forwarded turns answer from the fixture endpoint", async () => {
   const runs = await assistantRuns();
-  for (const run of runs.filter(run => run.mode.nativeHost === "0")) expect(run.observed["assistant.turn"], run.mode.label).toContain("Fixture answer.");
-  console.log(expectIdentical(runs.filter(run => run.mode.nativeHost === "0")).join("\n"));
-  const on = runs.find(run => run.mode === httpOn)!;
-  expect(on.observed["assistant.turn"]).toContain('"state":"error","error":"capability is not granted to the owning call: secret alias was not issued"');
-}, 240000);
-
-/**
- * Routed (secrets boundary): pacer-assistant resolves its endpoint key with
- * capability.secrets.resolve, and the native owner call carries no issued secret alias.
- */
-(front ? test.failing : test.skip)("routed: flag-on assistant turn answers like flag-off", async () => {
-  const runs = await assistantRuns();
-  expectIdentical([runs.find(run => run.mode === httpOff)!, runs.find(run => run.mode === httpOn)!]);
+  for (const run of runs) expect(run.observed["assistant.turn"], run.mode.label).toContain("Fixture answer.");
+  console.log(expectIdentical(runs).join("\n"));
 }, 240000);
 
 const refusal = (method: string) => `${method} needs credential bindings, which the native process owner bridge does not carry`;
@@ -697,12 +687,11 @@ test.skipIf(!front)("stdio rows: PR 4 endpoint shapes self-owned and attached", 
   console.log((await stdioRows("stdio-endpoints", endpoints, ["strategy.yaml"], Object.keys(KNOWN_REFUSED))).join("\n"));
 }, 300000);
 
-test.skipIf(!front)("stdio rows: assistant turns fail flag-on with the routed secret alias error", async () => {
-  const runs = [...await runModes("stdio-assistant-owned", [stdioOff, stdioOwn], assistant), ...await runModes("stdio-assistant-attached", [stdioOffServed, stdioAttached], assistant)];
-  for (const run of runs) {
-    if (run.mode.nativeHost === "0") expect(run.observed["assistant.turn"], run.mode.label).toContain('"answer":"Fixture answer."');
-    else expect(run.observed["assistant.turn"], run.mode.label).toContain('"error":"capability is not granted to the owning call: secret alias was not issued"');
-  }
+test.skipIf(!front)("stdio rows: assistant turns answer self-owned and attached", async () => {
+  const owned = await runModes("stdio-assistant-owned", [stdioOff, stdioOwn], assistant);
+  const attached = await runModes("stdio-assistant-attached", [stdioOffServed, stdioAttached], assistant);
+  for (const run of [...owned, ...attached]) expect(run.observed["assistant.turn"], run.mode.label).toContain('"answer":"Fixture answer."');
+  console.log([...expectIdentical(owned), ...expectIdentical(attached)].join("\n"));
 }, 300000);
 
 const reconnect: Scenario = async (door, h, observe) => {

@@ -31,7 +31,7 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
-import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
+import { sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
 import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
@@ -1784,22 +1784,16 @@ export class PluginRegistry {
   }
 
   /**
-   * Seal call-scoped CallResources for flag-on ProcessOwner (P4d-7).
-   * Auto-issues exact absolute fs.read paths and exact net.http hosts from the
-   * granted manifest; host-supplied resources are validated then echoed sealed.
-   * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
+   * Seal the flag-off call authority for flag-on ProcessOwner (P4d-7): only the
+   * resources the host issued for this call, validated then echoed sealed, and
+   * whether flag-off would make it an owning call at all.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: Omit<CallAuthorityOptions, "bundled"> = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
-    const sealed = sealCallAuthority(ctx, manifest, grants, {
-      resources: options.resources,
-      ttlMs: options.ttlMs,
-      method: options.method,
-      accountHome: options.accountHome,
-    });
+    const sealed = sealCallAuthority(ctx, manifest, grants, { ...options, bundled: e.bundled });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
       out = { ...out, hostSnapshots: this.nativeHostSnapshots(ctx, e, sealed.resources.hosts) };
@@ -2362,7 +2356,7 @@ export class PluginRegistry {
       // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
       // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
       if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
-      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint, credentialBindings !== undefined);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
@@ -2494,7 +2488,7 @@ export class PluginRegistry {
    * Core seals the same spawn spec and call authority it serves over
    * `/_internal/plugins` and never spawns a second owner for the plugin id.
    */
-  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string): Promise<T> {
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string, credentialBound = false): Promise<T> {
     const lease = options.plannerResources;
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
@@ -2524,7 +2518,9 @@ export class PluginRegistry {
         const spawn = this.nativeSpawnSpec(ctx, e.id);
         // Writes are answered by Core (`coreMethods`), so the owner is never issued them.
         const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
-        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome,
+          plannerResources: lease !== undefined, credentialBindings: credentialBound,
+          ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
         // An attempt's Orca effects (the worker wait above all) run as long as the call itself.
         if (orcaAttempt && remaining !== undefined) authority.ttlMs = remaining;
         // Commands without an issued environment get the flag-off minimal environment of Core.
@@ -2539,10 +2535,16 @@ export class PluginRegistry {
         // negotiates chunkedResults and sends `$/resultChunk`; Core stages those with the
         // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
         const chunked = method === "usage.read" || effects;
-        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+        const scopedCoreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
           ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
           ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
-        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+        // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
+        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner. Core also
+        // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
+        const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
+        const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
+          "capability.identity.sign"];
+        const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
           ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
@@ -2565,7 +2567,7 @@ export class PluginRegistry {
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
         let transferStarted = false;
-        const onRequest = local && ((name: string, params: unknown, request: number) => {
+        const onRequest = coreMethods.length ? ((name: string, params: unknown, request: number) => {
           if (name === RESULT_CHUNK_METHOD) {
             if (params && typeof params === "object" && "request" in params && params.request !== request)
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
@@ -2575,7 +2577,7 @@ export class PluginRegistry {
             // plain single-frame limit (read-only planner calls, diagnostics, …).
             if (!coreMethods.includes(RESULT_CHUNK_METHOD))
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
-            if (!staging) staging = new ResultStaging(local);
+            if (!staging) staging = new ResultStaging(local!);
             const parsed = resultChunkParams.safeParse(params);
             if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
             return staging.stage(parsed.data.offset, parsed.data.base64);
@@ -2583,7 +2585,7 @@ export class PluginRegistry {
           return coreMethods.includes(name)
             ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
             : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
-        });
+        }) : undefined;
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },

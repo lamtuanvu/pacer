@@ -8,7 +8,9 @@
 //! Core seals it. P4d-9 attaches Core-sealed host provider snapshots for
 //! `hosts` when issued. P4d-10 attaches Core-sealed Orca attempt/live resources
 //! through [`NativeOrca`] when issued. P4d-12 attaches Core-sealed
-//! `executorClaim` through [`NativeRun`] when issued.
+//! `executorClaim` through [`NativeRun`] when issued. Core also seals whether
+//! the call is an owning call; outside one, scoped capabilities are refused as
+//! the TypeScript host refuses them.
 
 use crate::executor_attach::{ExecutorAttachPlan, ExecutorCallContext, issue_executor};
 use crate::host_attach::{HostAttachSnapshot, native_hosts_for_attach};
@@ -47,6 +49,8 @@ use tokio::sync::{mpsc, oneshot};
 /// the Orca effects of an attempt, whose session it holds. `$/resultChunk` is
 /// the chunked result transport (negotiated like a feature), which Core answers
 /// so it can stage a large result with the same bounds and ordering as flag-off.
+/// Core answers the assistant's endpoint key and machine signatures itself
+/// too: the Keychain and the machine key stay with Core.
 pub fn core_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.fs.write" | "capability.fs.mkdir" | "capability.fs.remove" => Some("fs.write"),
@@ -62,7 +66,89 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
         | "capability.fs.readRange"
         | "capability.planner.readPriorRange" => Some("fs.read"),
         "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
+        "capability.secrets.resolve" => Some("secrets.resolve"),
+        "capability.identity.sign" => Some("identity.sign"),
         "$/resultChunk" => Some("result"),
+        _ => None,
+    }
+}
+
+/// The TypeScript host's refusal of a scoped capability outside an owning call.
+const NO_OWNING_CALL: &str = "scoped capability requires an active owning call";
+
+/// The capability of a method TypeScript answers only inside an owning call
+/// (`answerCapability`, `src/plugins/host.ts`): every known method of fs.read,
+/// fs.write, process.spawn, usage.state, net.http, secrets.resolve, hosts,
+/// worktree and orca, except `capability.secrets.resolve`.
+fn owning_call_capability(method: &str) -> Option<&'static str> {
+    match method {
+        "capability.fs.read"
+        | "capability.fs.list"
+        | "capability.fs.stat"
+        | "capability.fs.readRange"
+        | "capability.planner.readPriorRange" => Some("fs.read"),
+        "capability.fs.write"
+        | "capability.fs.mkdir"
+        | "capability.fs.remove"
+        | "capability.fs.beginWrite"
+        | "capability.fs.writeChunk"
+        | "capability.fs.commitWrite"
+        | "capability.fs.releaseWrite" => Some("fs.write"),
+        "capability.process.spawn"
+        | "capability.process.outputChunk"
+        | "capability.process.stageBundle"
+        | "capability.process.startRun"
+        | "capability.process.stopRun"
+        | "capability.process.inspectRun"
+        | "capability.process.claimRun"
+        | "capability.process.pollRun"
+        | "capability.process.readRunOutput"
+        | "capability.process.completeReportedRun"
+        | "capability.process.duplex.open"
+        | "capability.process.duplex.read"
+        | "capability.process.duplex.write"
+        | "capability.process.duplex.close"
+        | "capability.planner.run" => Some("process.spawn"),
+        "capability.usage.state.begin"
+        | "capability.usage.state.readChunk"
+        | "capability.usage.state.stageChunk"
+        | "capability.usage.state.commit"
+        | "capability.usage.state.release" => Some("usage.state"),
+        "capability.net.http"
+        | "capability.net.http.body.begin"
+        | "capability.net.http.body.stageChunk"
+        | "capability.net.http.body.readChunk"
+        | "capability.net.http.body.release" => Some("net.http"),
+        "capability.secrets.check" => Some("secrets.resolve"),
+        "capability.hosts.open"
+        | "capability.hosts.run"
+        | "capability.hosts.fetch"
+        | "capability.hosts.close"
+        | "capability.hosts.prepareOwned"
+        | "capability.hosts.claimOwned"
+        | "capability.hosts.startOwned"
+        | "capability.hosts.pollOwned"
+        | "capability.hosts.readOwnedOutput"
+        | "capability.hosts.stopOwned"
+        | "capability.hosts.transferOwned" => Some("hosts"),
+        "capability.worktree.inspect"
+        | "capability.worktree.resolveBase"
+        | "capability.worktree.createOrReuse" => Some("worktree"),
+        "capability.orca.prepare"
+        | "capability.orca.place"
+        | "capability.orca.start"
+        | "capability.orca.wait"
+        | "capability.orca.status"
+        | "capability.orca.lookup"
+        | "capability.orca.sessionState"
+        | "capability.orca.terminal"
+        | "capability.orca.stop"
+        | "capability.orca.liveAnswer"
+        | "capability.orca.adopt"
+        | "capability.orca.unstarted"
+        | "capability.orca.settle"
+        | "capability.orca.finish"
+        | "capability.orca.abandon" => Some("orca"),
         _ => None,
     }
 }
@@ -352,9 +438,13 @@ pub struct PluginCapabilitySession {
     /// feature gate.
     chunked_result_negotiated: bool,
     core: Option<(CoreForward, HashSet<String>)>,
+    /// Whether Core sealed this call as an owning call (flag-off
+    /// `needsAuthority`). Without one every [`owning_call_capability`] is refused.
+    owning_call: bool,
 }
 
 impl PluginCapabilitySession {
+    /// A session outside any owning call until [`Self::seal_call_authority`].
     pub fn new(broker: CapabilityBroker, effect: LocalHostEffect) -> Self {
         Self {
             broker,
@@ -368,7 +458,19 @@ impl PluginCapabilitySession {
             sealed_core_methods: HashSet::new(),
             chunked_result_negotiated: false,
             core: None,
+            owning_call: false,
         }
+    }
+
+    /// Apply the flag-off authority Core sealed in `call_authority`: `owning`
+    /// makes this an owning call, and `explicitWildcardGrant` (an installed
+    /// plugin granted `net.http`) admits a declared `*` host scope. A missing
+    /// or malformed value grants neither.
+    pub fn seal_call_authority(&mut self, authority: &Value) {
+        let sealed = |name: &str| authority.get(name).and_then(Value::as_bool) == Some(true);
+        self.owning_call = sealed("owning");
+        self.broker
+            .set_explicit_http_wildcard_grant(sealed("explicitWildcardGrant"));
     }
 
     /// Record the Core-sealed methods before the hello, so a child that asks
@@ -479,6 +581,19 @@ impl PluginCapabilitySession {
             // capability: relay it to Core when bound, else refuse.
             return self.answer_result_chunk(method, params).await;
         }
+        // TypeScript refuses an undeclared capability first (the broker's
+        // check below), then a scoped one outside an owning call, before the
+        // grant check and every issued resource.
+        if !self.owning_call
+            && let Some(capability) = owning_call_capability(method)
+            && self.declared.iter().any(|name| name == capability)
+        {
+            return Err(json!({
+                "code": -32000,
+                "message": NO_OWNING_CALL,
+                "data": {"code": "capability_denied"}
+            }));
+        }
         if let Some(capability) = core_capability(method) {
             // A Core-sealed method must be refused before Core is bound (while
             // the child answers `plugin.hello`, before the feature gate), never
@@ -568,14 +683,17 @@ impl PluginCapabilitySession {
         params: Value,
     ) -> Result<Value, Value> {
         let refuse = |code: &str, message: String| json!({"code": -32000, "message": message, "data": {"code": code}});
-        if !self.declared.iter().any(|name| name == capability) {
+        let declared = self.declared.iter().any(|name| name == capability);
+        // Core refuses an undeclared signature request itself, so its identity
+        // audit records the refusal as flag-off `refuseSign` does.
+        if !declared && method != "capability.identity.sign" {
             return Err(refuse(
                 "capability_denied",
                 format!("plugin did not declare {capability}"),
             ));
         }
         let authority = self.broker.authority();
-        if let Err(error) = authority.granted(capability) {
+        if declared && let Err(error) = authority.granted(capability) {
             return Err(refuse("capability_denied", error.to_string()));
         }
         let deadline = authority.deadline();
@@ -762,7 +880,8 @@ fn attach_natives(
 }
 
 /// Build a session from the sealed `plugin.hello` params Core put on spawn_spec.
-/// Empty [`CallResources`]: native fs/process/http modules are not attached.
+/// Empty [`CallResources`]: native fs/process/http modules are not attached,
+/// and it is no owning call.
 pub fn session_from_hello(
     hello: &Value,
     lifetime: Duration,
@@ -791,7 +910,8 @@ pub struct OrcaCallContext {
 /// Call-scoped session: Core-issued [`CallResources`] attach native fs/process/http.
 ///
 /// `grants` overrides hello grants when Core seals a call-authority response;
-/// otherwise hello grants are reused.
+/// otherwise hello grants are reused. The caller applies the rest of Core's
+/// authority with [`PluginCapabilitySession::seal_call_authority`].
 #[allow(clippy::too_many_arguments)]
 pub fn session_for_call(
     hello: &Value,
