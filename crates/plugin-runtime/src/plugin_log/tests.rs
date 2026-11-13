@@ -150,6 +150,10 @@ async fn copy_stderr_drains_then_stops_after_exit() {
     exit_tx.send_replace(Some("exited with code 0".into()));
     let stopped = tokio::time::timeout(DRAIN_AFTER_EXIT * 4, copy).await;
     assert!(stopped.is_ok(), "the reader outlived the child");
+    for _ in 0..4 {
+        let late = tokio::io::AsyncWriteExt::write_all(&mut writer, &[b'x'; 64]).await;
+        assert!(late.is_ok(), "a late write fails once the reader stops");
+    }
     drop(writer);
     assert_eq!(
         logged(&dir.path().join("fx.log")),

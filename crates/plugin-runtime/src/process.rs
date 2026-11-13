@@ -232,7 +232,7 @@ pub struct PluginProcess {
     stops: mpsc::UnboundedSender<Stop>,
     exit: watch::Receiver<Option<String>>,
     stopping: AtomicBool,
-    tasks: Vec<JoinHandle<()>>,
+    tasks: [JoinHandle<()>; 3],
 }
 
 impl Drop for PluginProcess {
@@ -395,15 +395,16 @@ impl PluginProcess {
         let (stops, stop_rx) = mpsc::unbounded_channel();
         let (exit_tx, exit) = watch::channel(None);
         let pid = child.id();
-        let stderr = child.stderr.take().zip(log);
-        let mut tasks = vec![
+        if let Some((stderr, log)) = child.stderr.take().zip(log) {
+            // Not aborted with the process: a descendant that inherited stderr
+            // can outlive the child, and the reader ends on its own.
+            tokio::spawn(copy_stderr(stderr, log, exit.clone()));
+        }
+        let tasks = [
             tokio::spawn(write_frames(stdin, queued, shared.clone())),
             tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),
             tokio::spawn(watch_child(child, stop_rx, exit_tx)),
         ];
-        if let Some((stderr, log)) = stderr {
-            tasks.push(tokio::spawn(copy_stderr(stderr, log, exit.clone())));
-        }
         Ok(Self {
             pid,
             writes,

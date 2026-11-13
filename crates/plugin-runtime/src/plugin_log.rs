@@ -167,15 +167,18 @@ impl Lines {
 }
 
 /// Append `stderr`'s lines to `log` until the pipe closes, or until
-/// [`DRAIN_AFTER_EXIT`] after `exit` publishes the child's exit. The pipe is
-/// always read, so the child never blocks on it; dropping the task closes it.
+/// [`DRAIN_AFTER_EXIT`] after `exit` publishes the child's exit or its sender
+/// is dropped. The pipe is read between writes, holding at most 16 KiB of a
+/// line. A descendant still holding the pipe after that has its stderr read
+/// and discarded until it closes, as the TypeScript host ignores stderr after
+/// the exit, so it never gets SIGPIPE or EPIPE.
 pub(crate) async fn copy_stderr(
-    mut stderr: impl AsyncRead + Unpin,
+    mut stderr: impl AsyncRead + Unpin + Send + 'static,
     log: PluginLog,
     mut exit: watch::Receiver<Option<String>>,
 ) {
     let (mut lines, mut chunk, mut drain) = (Lines::default(), vec![0; 8192], None);
-    loop {
+    let held = loop {
         let read = match drain {
             Some(until) => timeout_at(until, stderr.read(&mut chunk)).await.ok(),
             None => tokio::select! {
@@ -187,6 +190,7 @@ pub(crate) async fn copy_stderr(
             },
         };
         let mut out = Vec::new();
+        let held = read.is_none();
         let more = match read {
             Some(Ok(read @ 1..)) => {
                 lines.push(&chunk[..read], &mut out);
@@ -207,8 +211,11 @@ pub(crate) async fn copy_stderr(
             .await;
         }
         if !more {
-            return;
+            break held;
         }
+    };
+    if held {
+        tokio::spawn(async move { while matches!(stderr.read(&mut chunk).await, Ok(1..)) {} });
     }
 }
 
