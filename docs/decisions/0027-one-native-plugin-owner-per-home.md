@@ -141,6 +141,22 @@ owner reports its children's crashes to serve's Core.
   with that pid and a stale one as replaced at the next start. A hung owner that keeps its
   socket live keeps a new serve from starting until it is stopped; launchd keeps retrying the
   service, so a restart converges once the old process exits.
+- **Owning calls.** Core seals into each `call_authority` whether TypeScript would give the call a
+  call authority (`owning`, the registry's `needsAuthority`) and whether an installed plugin
+  granted `net.http` may use a declared `*` host scope (`explicitWildcardGrant`). It issues no
+  path or host from the manifest. Outside an owning call the owner refuses every scoped
+  capability with TypeScript's `scoped capability requires an active owning call`. A missing or
+  malformed seal grants neither (maintainer decision Q4 on the refusal text).
+- **The assistant's endpoint key crosses the owner (maintainer decision Q1).** Core answers
+  `capability.secrets.resolve` and `capability.identity.sign` itself when the plugin declares
+  them: the owner forwards the request on the bridge connection of the call that issued it, and
+  Core runs its flag-off check (`assistantSecret` admits only `pacer-assistant` and its chosen
+  endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key and
+  the audit in Core). The resolved key crosses only that connection (0600 socket, same user) and
+  the child's stdin, as the reply to the child's own request. The owner keeps nothing and logs
+  no frame. Endpoint and classifier calls that carry credential bindings stay refused. The Rust
+  door's own owner calls (`plugin.doctor`, `plugin.ui.*`) forward no Core method, so there the
+  owner refuses both with its own text.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
