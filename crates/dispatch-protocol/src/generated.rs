@@ -7310,6 +7310,411 @@ impl<'de> ::serde::Deserialize<'de> for DispatchSubmitParamsTitle {
             })
     }
 }
+///`DispatchTierTargetsGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchTierTargetsGetParams {}
+impl ::std::default::Default for DispatchTierTargetsGetParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`DispatchTierTargetsSetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expectedRevision",
+///    "targets"
+///  ],
+///  "properties": {
+///    "expectedRevision": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "targets": {
+///      "type": "object",
+///      "required": [
+///        "complex",
+///        "simple",
+///        "standard"
+///      ],
+///      "properties": {
+///        "complex": {
+///          "default": "frontier",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        },
+///        "simple": {
+///          "default": "small",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        },
+///        "standard": {
+///          "default": "medium",
+///          "type": "string",
+///          "enum": [
+///            "small",
+///            "medium",
+///            "frontier"
+///          ]
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchTierTargetsSetParams {
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: DispatchTierTargetsSetParamsExpectedRevision,
+    pub targets: DispatchTierTargetsSetParamsTargets,
+}
+///`DispatchTierTargetsSetParamsExpectedRevision`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct DispatchTierTargetsSetParamsExpectedRevision(::std::string::String);
+impl ::std::ops::Deref for DispatchTierTargetsSetParamsExpectedRevision {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<DispatchTierTargetsSetParamsExpectedRevision> for ::std::string::String {
+    fn from(value: DispatchTierTargetsSetParamsExpectedRevision) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for DispatchTierTargetsSetParamsExpectedRevision {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchTierTargetsSetParamsExpectedRevision {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for DispatchTierTargetsSetParamsExpectedRevision {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`DispatchTierTargetsSetParamsTargets`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "complex",
+///    "simple",
+///    "standard"
+///  ],
+///  "properties": {
+///    "complex": {
+///      "default": "frontier",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    },
+///    "simple": {
+///      "default": "small",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    },
+///    "standard": {
+///      "default": "medium",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct DispatchTierTargetsSetParamsTargets {
+    pub complex: DispatchTierTargetsSetParamsTargetsComplex,
+    pub simple: DispatchTierTargetsSetParamsTargetsSimple,
+    pub standard: DispatchTierTargetsSetParamsTargetsStandard,
+}
+///`DispatchTierTargetsSetParamsTargetsComplex`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "frontier",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchTierTargetsSetParamsTargetsComplex {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DispatchTierTargetsSetParamsTargetsComplex {
+    fn from(value: &DispatchTierTargetsSetParamsTargetsComplex) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchTierTargetsSetParamsTargetsComplex {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchTierTargetsSetParamsTargetsComplex {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchTierTargetsSetParamsTargetsComplex {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchTierTargetsSetParamsTargetsComplex {
+    fn default() -> Self {
+        DispatchTierTargetsSetParamsTargetsComplex::Frontier
+    }
+}
+///`DispatchTierTargetsSetParamsTargetsSimple`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "small",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchTierTargetsSetParamsTargetsSimple {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DispatchTierTargetsSetParamsTargetsSimple {
+    fn from(value: &DispatchTierTargetsSetParamsTargetsSimple) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchTierTargetsSetParamsTargetsSimple {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchTierTargetsSetParamsTargetsSimple {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchTierTargetsSetParamsTargetsSimple {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchTierTargetsSetParamsTargetsSimple {
+    fn default() -> Self {
+        DispatchTierTargetsSetParamsTargetsSimple::Small
+    }
+}
+///`DispatchTierTargetsSetParamsTargetsStandard`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "medium",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum DispatchTierTargetsSetParamsTargetsStandard {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+}
+impl ::std::convert::From<&Self> for DispatchTierTargetsSetParamsTargetsStandard {
+    fn from(value: &DispatchTierTargetsSetParamsTargetsStandard) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for DispatchTierTargetsSetParamsTargetsStandard {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+        }
+    }
+}
+impl ::std::str::FromStr for DispatchTierTargetsSetParamsTargetsStandard {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for DispatchTierTargetsSetParamsTargetsStandard {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for DispatchTierTargetsSetParamsTargetsStandard {
+    fn default() -> Self {
+        DispatchTierTargetsSetParamsTargetsStandard::Medium
+    }
+}
 ///`DispatchTreeParams`
 ///
 /// <details><summary>JSON schema</summary>

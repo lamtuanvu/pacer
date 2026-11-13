@@ -18,6 +18,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "runner.settings.save",
     "runner.models.get",
     "runner.models.set",
+    "runner.models.set_many",
     "desktop.capture.register",
     "desktop.capture.targets",
     "desktop.capture.request",
@@ -63,6 +64,8 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "desktop.reconcile.request",
     "desktop.reconcile.cancel",
     "dispatch.config.get",
+    "dispatch.tierTargets.get",
+    "dispatch.tierTargets.set",
     "dispatch.preview",
     "dispatch.explain",
     "dispatch.submit",
@@ -191,7 +194,10 @@ pub fn op_schemas(input: &Value) -> Value {
         }
     }
     for (op, field) in [
+        ("task.delegate", "difficulty"),
+        ("task.delegate", "model"),
         ("task.delegate", "dispatch"),
+        ("task.list", "q"),
         ("client.register", "capture"),
         ("client.heartbeat", "notifier"),
     ] {

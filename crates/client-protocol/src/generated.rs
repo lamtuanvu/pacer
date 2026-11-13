@@ -10677,6 +10677,606 @@ impl<'de> ::serde::Deserialize<'de> for RunnerModelsGetParamsId {
             })
     }
 }
+///`RunnerModelsSetManyParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expectedRevision",
+///    "runners"
+///  ],
+///  "properties": {
+///    "expectedRevision": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "runners": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "default",
+///          "id",
+///          "models"
+///        ],
+///        "properties": {
+///          "default": {
+///            "type": "string",
+///            "minLength": 1
+///          },
+///          "id": {
+///            "type": "string",
+///            "maxLength": 128,
+///            "minLength": 1
+///          },
+///          "models": {
+///            "type": "array",
+///            "items": {
+///              "type": "object",
+///              "required": [
+///                "id",
+///                "strengths",
+///                "tier"
+///              ],
+///              "properties": {
+///                "context": {
+///                  "type": "integer",
+///                  "maximum": 9007199254740991.0,
+///                  "exclusiveMinimum": 0.0
+///                },
+///                "id": {
+///                  "type": "string",
+///                  "maxLength": 256,
+///                  "minLength": 1
+///                },
+///                "strengths": {
+///                  "default": [],
+///                  "type": "array",
+///                  "items": {
+///                    "type": "string",
+///                    "maxLength": 256,
+///                    "minLength": 1
+///                  },
+///                  "maxItems": 64
+///                },
+///                "tier": {
+///                  "default": "unknown",
+///                  "type": "string",
+///                  "enum": [
+///                    "small",
+///                    "medium",
+///                    "frontier",
+///                    "unknown"
+///                  ]
+///                },
+///                "tools": {
+///                  "type": "boolean"
+///                }
+///              },
+///              "additionalProperties": false
+///            },
+///            "maxItems": 256
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 64,
+///      "minItems": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerModelsSetManyParams {
+    #[serde(rename = "expectedRevision")]
+    pub expected_revision: RunnerModelsSetManyParamsExpectedRevision,
+    pub runners: ::std::vec::Vec<RunnerModelsSetManyParamsRunnersItem>,
+}
+///`RunnerModelsSetManyParamsExpectedRevision`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunnerModelsSetManyParamsExpectedRevision(::std::string::String);
+impl ::std::ops::Deref for RunnerModelsSetManyParamsExpectedRevision {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunnerModelsSetManyParamsExpectedRevision> for ::std::string::String {
+    fn from(value: RunnerModelsSetManyParamsExpectedRevision) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsExpectedRevision {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsExpectedRevision {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunnerModelsSetManyParamsExpectedRevision {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunnerModelsSetManyParamsRunnersItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "default",
+///    "id",
+///    "models"
+///  ],
+///  "properties": {
+///    "default": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "models": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "id",
+///          "strengths",
+///          "tier"
+///        ],
+///        "properties": {
+///          "context": {
+///            "type": "integer",
+///            "maximum": 9007199254740991.0,
+///            "exclusiveMinimum": 0.0
+///          },
+///          "id": {
+///            "type": "string",
+///            "maxLength": 256,
+///            "minLength": 1
+///          },
+///          "strengths": {
+///            "default": [],
+///            "type": "array",
+///            "items": {
+///              "type": "string",
+///              "maxLength": 256,
+///              "minLength": 1
+///            },
+///            "maxItems": 64
+///          },
+///          "tier": {
+///            "default": "unknown",
+///            "type": "string",
+///            "enum": [
+///              "small",
+///              "medium",
+///              "frontier",
+///              "unknown"
+///            ]
+///          },
+///          "tools": {
+///            "type": "boolean"
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 256
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerModelsSetManyParamsRunnersItem {
+    pub default: RunnerModelsSetManyParamsRunnersItemDefault,
+    pub id: RunnerModelsSetManyParamsRunnersItemId,
+    pub models: ::std::vec::Vec<RunnerModelsSetManyParamsRunnersItemModelsItem>,
+}
+///`RunnerModelsSetManyParamsRunnersItemDefault`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunnerModelsSetManyParamsRunnersItemDefault(::std::string::String);
+impl ::std::ops::Deref for RunnerModelsSetManyParamsRunnersItemDefault {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunnerModelsSetManyParamsRunnersItemDefault> for ::std::string::String {
+    fn from(value: RunnerModelsSetManyParamsRunnersItemDefault) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsRunnersItemDefault {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsRunnersItemDefault {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunnerModelsSetManyParamsRunnersItemDefault {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunnerModelsSetManyParamsRunnersItemId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunnerModelsSetManyParamsRunnersItemId(::std::string::String);
+impl ::std::ops::Deref for RunnerModelsSetManyParamsRunnersItemId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunnerModelsSetManyParamsRunnersItemId> for ::std::string::String {
+    fn from(value: RunnerModelsSetManyParamsRunnersItemId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsRunnersItemId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsRunnersItemId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunnerModelsSetManyParamsRunnersItemId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunnerModelsSetManyParamsRunnersItemModelsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "strengths",
+///    "tier"
+///  ],
+///  "properties": {
+///    "context": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "maxLength": 256,
+///      "minLength": 1
+///    },
+///    "strengths": {
+///      "default": [],
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 256,
+///        "minLength": 1
+///      },
+///      "maxItems": 64
+///    },
+///    "tier": {
+///      "default": "unknown",
+///      "type": "string",
+///      "enum": [
+///        "small",
+///        "medium",
+///        "frontier",
+///        "unknown"
+///      ]
+///    },
+///    "tools": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunnerModelsSetManyParamsRunnersItemModelsItem {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub context: ::std::option::Option<::std::num::NonZeroU64>,
+    pub id: RunnerModelsSetManyParamsRunnersItemModelsItemId,
+    pub strengths: ::std::vec::Vec<RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem>,
+    pub tier: RunnerModelsSetManyParamsRunnersItemModelsItemTier,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub tools: ::std::option::Option<bool>,
+}
+///`RunnerModelsSetManyParamsRunnersItemModelsItemId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunnerModelsSetManyParamsRunnersItemModelsItemId(::std::string::String);
+impl ::std::ops::Deref for RunnerModelsSetManyParamsRunnersItemModelsItemId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunnerModelsSetManyParamsRunnersItemModelsItemId>
+    for ::std::string::String
+{
+    fn from(value: RunnerModelsSetManyParamsRunnersItemModelsItemId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsRunnersItemModelsItemId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsRunnersItemModelsItemId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunnerModelsSetManyParamsRunnersItemModelsItemId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 256,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem(::std::string::String);
+impl ::std::ops::Deref for RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem>
+    for ::std::string::String
+{
+    fn from(value: RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 256usize {
+            return Err("longer than 256 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de>
+    for RunnerModelsSetManyParamsRunnersItemModelsItemStrengthsItem
+{
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunnerModelsSetManyParamsRunnersItemModelsItemTier`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "default": "unknown",
+///  "type": "string",
+///  "enum": [
+///    "small",
+///    "medium",
+///    "frontier",
+///    "unknown"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    #[serde(rename = "small")]
+    Small,
+    #[serde(rename = "medium")]
+    Medium,
+    #[serde(rename = "frontier")]
+    Frontier,
+    #[serde(rename = "unknown")]
+    Unknown,
+}
+impl ::std::convert::From<&Self> for RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    fn from(value: &RunnerModelsSetManyParamsRunnersItemModelsItemTier) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Small => f.write_str("small"),
+            Self::Medium => f.write_str("medium"),
+            Self::Frontier => f.write_str("frontier"),
+            Self::Unknown => f.write_str("unknown"),
+        }
+    }
+}
+impl ::std::str::FromStr for RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "small" => Ok(Self::Small),
+            "medium" => Ok(Self::Medium),
+            "frontier" => Ok(Self::Frontier),
+            "unknown" => Ok(Self::Unknown),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl ::std::default::Default for RunnerModelsSetManyParamsRunnersItemModelsItemTier {
+    fn default() -> Self {
+        RunnerModelsSetManyParamsRunnersItemModelsItemTier::Unknown
+    }
+}
 ///`RunnerModelsSetParams`
 ///
 /// <details><summary>JSON schema</summary>
