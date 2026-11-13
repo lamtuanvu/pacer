@@ -164,6 +164,16 @@ owner reports its children's crashes to serve's Core.
   and Core then answers that process. This gives it nothing a same-user process cannot already
   read: the Keychain items have no access list, and file and environment keys are same-user
   readable.
+- **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
+  orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
+  `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants
+  into `call_authority`. When it issues one, it seals `capability.process.stopRun`,
+  `capability.process.inspectRun` or `capability.hosts.stopOwned` as a Core method of that call,
+  and answers the plugin's request on the call's bridge connection with its flag-off broker. The
+  grant is therefore consumed once and bound to its task, attempt, run directory and wrapper pid
+  exactly as flag-off, with the same refusal codes and texts. The owner forwards an unsealed
+  request to none of them, so a plugin cannot stop or inspect a run its call was not issued.
+  The flag-on remote stop then needs the SSH host runner, which the owner does not serve yet.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
@@ -185,6 +195,10 @@ owner reports its children's crashes to serve's Core.
 - **Stdio leaves ownership to TypeScript when serve is live.** The stdio Core would start its
   own TypeScript children beside serve's native owner: the two-owner problem this record
   exists to avoid.
+- **Sealing the detached stop and inspection grants for the owner's native process broker.**
+  The grants would cross the socket as new `call_authority` resources, the native broker would
+  need a second one-use implementation with its own refusal texts, and a remote stop would
+  still need Core's host runner, which the bridge refuses.
 
 ## Addendum: observation generations under the owner (2026-11-13)
 

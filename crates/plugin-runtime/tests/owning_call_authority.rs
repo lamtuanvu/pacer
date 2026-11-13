@@ -3,7 +3,8 @@
 //! owning call Core sealed, like the TypeScript host's `answerCapability`.
 
 use pacer_plugin_runtime::{
-    PluginCapabilitySession, call_resources_from_value, session_for_call, session_from_hello,
+    PluginCapabilitySession, call_resources_from_value, core_capability, session_for_call,
+    session_from_hello,
 };
 use serde_json::{Value, json};
 use std::{
@@ -266,4 +267,53 @@ async fn an_undeclared_signature_request_reaches_core_so_core_audits_its_refusal
     );
     drop(session);
     assert_eq!(core_side.await.unwrap(), ["capability.identity.sign"]);
+}
+
+#[tokio::test]
+async fn detached_stop_inspection_and_remote_stop_reach_core_only_when_sealed() {
+    for (method, capability) in [
+        ("capability.process.stopRun", "process.spawn"),
+        ("capability.process.inspectRun", "process.spawn"),
+        ("capability.hosts.stopOwned", "hosts"),
+    ] {
+        assert_eq!(core_capability(method), Some(capability), "{method}");
+        let hello = hello(capability, scopes_for(capability));
+        let mut params = json!({"taskId":"t-20260101-000000-abcd","attempt":1});
+        if method != "capability.process.inspectRun" {
+            params["graceMs"] = json!(3000);
+        }
+        // Core keeps the one-use grant and answers with its flag-off broker.
+        let refused = json!({"code":-32000,"message":"not issued for this call","data":{"code":"capability_denied"}});
+        for sealed in [true, false] {
+            let mut session = issued(&hello, json!({}), json!({"owning": true}));
+            let (core, mut requests) =
+                tokio::sync::mpsc::channel::<pacer_plugin_runtime::CoreRequest>(4);
+            let methods = if sealed {
+                [method.to_owned()].into()
+            } else {
+                Default::default()
+            };
+            session.bind_core(core, methods, false);
+            let answered = refused.clone();
+            let core_side = tokio::spawn(async move {
+                let mut forwarded = Vec::new();
+                while let Some((method, _, reply)) = requests.recv().await {
+                    forwarded.push(method);
+                    let _ = reply.send(Err(answered.clone()));
+                }
+                forwarded
+            });
+            let error = answer(&mut session, method, params.clone())
+                .await
+                .unwrap_err();
+            drop(session);
+            let forwarded = core_side.await.unwrap();
+            if sealed {
+                assert_eq!(error, refused, "{method}");
+                assert_eq!(forwarded, [method], "{method}");
+            } else {
+                assert!(forwarded.is_empty(), "unsealed {method} never reaches Core");
+            }
+        }
+    }
 }
