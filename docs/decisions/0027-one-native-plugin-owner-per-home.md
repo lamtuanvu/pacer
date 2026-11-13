@@ -223,9 +223,9 @@ child.
   - It answers task reads and subscriptions only under the generation's read owner.
   - It refuses everything else with code `capability_denied`. Before the idle session exists,
     and for "capability token has no active pending request" and "read owner cannot authorize
-    this method", the text matches the TypeScript owner. Once the idle session exists, scoped
-    capabilities are refused by the broker as not issued to the owning call; the TypeScript
-    text "scoped capability requires an active owning call" depends on the owning-call seal.
+    this method", the text matches the TypeScript owner. The idle session is no owning call
+    (see **Owning calls** above), so once it exists a declared scoped capability is refused
+    with TypeScript's "scoped capability requires an active owning call" too.
 
 **Differences from the TypeScript owner:**
 
