@@ -1,6 +1,13 @@
 //! `openReadOnlyStore` and its readers (`src/dispatch/readonly.ts`): a view of the
-//! task store that creates no file, runs no DDL, sets no journal mode and imports
-//! no legacy JSON. A missing store, or one without a table, reads as empty.
+//! task store that runs no DDL, sets no journal mode and imports no legacy JSON.
+//! A missing store creates no file, and a missing store or table reads as empty.
+//!
+//! SQLite may still create `tasks.db-wal` and `tasks.db-shm` beside a WAL-mode
+//! store whose `state/` directory is writable. For a cleanly closed WAL store
+//! this view reads the rows, while Bun's system SQLite on macOS fails the first
+//! read and reads empty (or `conflict` when strict). The immutable fallback is
+//! unreachable in both: the open succeeds, and any failure comes on the first
+//! read, outside the fallback (issue #974).
 #![allow(clippy::result_large_err)]
 use pacer_foundation::api::{Code, CoreError};
 use rusqlite::{Connection, OpenFlags, Params, Row, types::ValueRef};

@@ -1,5 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
+use crate::hash::canonical;
 use serde_json::{Value, json};
 
 fn observation(method: &str, value: Value) -> Value {

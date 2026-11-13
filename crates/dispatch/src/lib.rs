@@ -21,7 +21,7 @@ mod status_adapter;
 mod tier_select;
 
 pub use candidates::{Built, build_candidates, meets_requirements, tier_rank};
-pub use hash::{canonical, decision_hash};
+pub use hash::decision_hash;
 pub use inventory::{is_exact, model_inventory};
 pub use js::Object;
 pub use ladder::evaluate_ladder;
