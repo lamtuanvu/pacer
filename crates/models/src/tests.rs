@@ -67,10 +67,10 @@ fn cache_path_hashes_the_runner_id() {
 fn opencode_accounts_need_discovery_without_a_fresh_cache() {
     let dir = tempfile::tempdir().unwrap();
     let s = strategy();
-    assert_eq!(
+    assert!(matches!(
         available_models(dir.path(), NOW, &s, "opencode#oc"),
-        Listing::NeedsDiscovery
-    );
+        Listing::NeedsDiscovery(_)
+    ));
     for (text, why) in [
         (
             cache(json!([{"id": "acme/a"}]), NOW - CACHE_TTL_S),
@@ -116,14 +116,14 @@ fn opencode_accounts_need_discovery_without_a_fresh_cache() {
     ] {
         seed(dir.path(), "opencode#oc", &text);
         let got = available_models(dir.path(), NOW, &s, "opencode#oc");
-        assert_eq!(got, Listing::NeedsDiscovery, "{why}: {text}");
+        assert!(matches!(got, Listing::NeedsDiscovery(_)), "{why}: {text}");
     }
     fs::remove_file(cache_file(dir.path(), "opencode#oc")).unwrap();
     fs::create_dir(cache_file(dir.path(), "opencode#oc")).unwrap();
-    assert_eq!(
+    assert!(matches!(
         available_models(dir.path(), NOW, &s, "opencode#oc"),
-        Listing::NeedsDiscovery
-    );
+        Listing::NeedsDiscovery(_)
+    ));
 }
 
 #[test]
@@ -273,11 +273,7 @@ fn closest_models_rank_by_utf16_prefix_then_distance() {
     let list = |ids: &[&str]| AvailableModels {
         runner: "r".into(),
         source: ModelSource::Connection,
-        models: Some(
-            ids.iter()
-                .map(|id| AvailableModel { id: (*id).into() })
-                .collect(),
-        ),
+        models: Some(ids.iter().map(|id| AvailableModel::new(*id)).collect()),
         fetched_at: NOW,
         note: None,
         provider: None,
@@ -303,40 +299,49 @@ fn closest_models_rank_by_utf16_prefix_then_distance() {
     assert_eq!(is_offered(&list(&["same"]), "other"), Some(false));
 }
 
-#[test]
-fn validation_follows_the_runner_set_order() {
+#[tokio::test]
+async fn validation_follows_the_runner_set_order() {
     let dir = tempfile::tempdir().unwrap();
     let s = strategy();
-    let check =
-        |runner: &str, model: &str| validate_runner_model(dir.path(), NOW, &s, runner, model);
-    assert_eq!(check("missing", "m"), Validation::NotReached);
-    assert_eq!(check("claude-code", "m"), Validation::NotReached);
-    assert_eq!(check("codex", "anything"), Validation::Accepted(None));
-    assert_eq!(check("opencode#oc", "acme/a"), Validation::NeedsCore);
-    assert_eq!(check("fast", "pacer-acct/y"), Validation::Accepted(None));
+    let check = |runner: &'static str, model: &'static str| {
+        let (home, s) = (dir.path().to_owned(), s.clone());
+        async move { validate_runner_model(&home, NOW, &s, runner, model).await }
+    };
+    assert_eq!(check("missing", "m").await, Validation::NotReached);
+    assert_eq!(check("claude-code", "m").await, Validation::NotReached);
+    assert_eq!(check("codex", "anything").await, Validation::Accepted(None));
+    // No core process is recorded in unit tests, so discovery stays with TypeScript.
+    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
+    assert!(model_check_needs_core(dir.path(), NOW, &s, "opencode#oc"));
+    assert!(!model_check_needs_core(dir.path(), NOW, &s, "codex"));
+    assert!(!model_check_needs_core(dir.path(), NOW, &s, "claude-code"));
     assert_eq!(
-        check("fast", "pacer-acct/x😀"),
+        check("fast", "pacer-acct/y").await,
+        Validation::Accepted(None)
+    );
+    assert_eq!(
+        check("fast", "pacer-acct/x😀").await,
         Validation::Refused {
             message: "pacer-acct/x😀 is not offered by acct".into(),
             hint: Some("Available: pacer-acct/x😁, pacer-acct/xa, pacer-acct/xab".into()),
         }
     );
     assert_eq!(
-        check("opencode#named", "nope"),
+        check("opencode#named", "nope").await,
         Validation::Refused {
             message: "nope is not offered by vendor".into(),
             hint: Some("Available: pacer-named/a, pacer-named/b".into()),
         }
     );
     assert_eq!(
-        check("opencode#empty", "pacer-empty/a"),
+        check("opencode#empty", "pacer-empty/a").await,
         Validation::Accepted(Some(
             "pacer-empty/a could not be checked: empty declares no models".into()
         ))
     );
     seed(dir.path(), "opencode#oc", &cache(json!([]), NOW));
     assert_eq!(
-        check("opencode#oc", "acme/a"),
+        check("opencode#oc", "acme/a").await,
         Validation::Refused {
             message: "acme/a is not offered by acme".into(),
             hint: None
@@ -348,11 +353,11 @@ fn validation_follows_the_runner_set_order() {
         r#"{"runner":"opencode#oc","source":"opencode","models":null,"fetchedAt":1700000000}"#,
     );
     assert_eq!(
-        check("opencode#oc", "acme/a"),
+        check("opencode#oc", "acme/a").await,
         Validation::Accepted(Some("acme/a could not be checked: ".into()))
     );
     seed(dir.path(), "opencode#oc", &cache(json!([null]), NOW));
-    assert_eq!(check("opencode#oc", "acme/a"), Validation::NeedsCore);
+    assert_eq!(check("opencode#oc", "acme/a").await, Validation::NeedsCore);
 }
 
 #[test]
@@ -391,11 +396,7 @@ fn runner_models_validation_matches_validate_runner_models() {
     let listing = |ids: &[&str]| AvailableModels {
         runner: "r".into(),
         source: ModelSource::Connection,
-        models: Some(
-            ids.iter()
-                .map(|id| AvailableModel { id: (*id).into() })
-                .collect(),
-        ),
+        models: Some(ids.iter().map(|id| AvailableModel::new(*id)).collect()),
         fetched_at: NOW,
         note: None,
         provider: None,
@@ -457,3 +458,5 @@ fn runner_models_validation_matches_validate_runner_models() {
         ]
     );
 }
+
+mod discovery;

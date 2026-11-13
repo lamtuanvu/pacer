@@ -387,9 +387,9 @@ const cases: Case[] = [
   { name: "reads and refusals", steps: refusals, native: true },
   { name: "saves", steps: saves, native: true },
   { name: "existing dispatch block", strategy: DISPATCH_BLOCK, steps: tierBlock, native: true },
-  // TypeScript lists the runner through `opencode models` and caches it; each case starts without that cache.
-  { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: false },
-  { name: "set_many with a runner only OpenCode lists", steps: [["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-6"), entry("opencode#oc-miss", "acme/nope")] }]], native: false },
+  // The runner is listed through `opencode models` and cached; each case starts without that cache.
+  { name: "a runner only OpenCode lists", steps: [["runner.models.set", set("opencode#oc-miss", "acme/b")]], native: true },
+  { name: "set_many with a runner only OpenCode lists", steps: [["runner.models.set_many", { expectedRevision: "$REV", runners: [entry("codex", "gpt-6"), entry("opencode#oc-miss", "acme/nope")] }]], native: true },
   { name: "legacy strategy migrates with its backup", strategy: LEGACY, steps: [["runner.models.set", set("codex", "gpt-6", [{ id: "gpt-6", tier: "small" }])]], native: true },
   { name: "legacy strategy with trailing whitespace", strategy: LEGACY_TRAILING, steps: [["runner.models.set", set("codex", "gpt-6")]], native: true },
   { name: "flow and quoted layouts", strategy: FLOW, steps: [

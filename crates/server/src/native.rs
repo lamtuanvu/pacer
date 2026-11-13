@@ -48,6 +48,7 @@ pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
 pub mod plugins;
+use pacer_config_ops::available_ops;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_check_ops;
@@ -141,8 +142,9 @@ pub fn runner_attention_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> 
         || attention_ops::attention_stays_forwarded(ctx, op, params)
 }
 
-/// `runner.models.*` and `dispatch.tierTargets.*` requests whose strategy only
-/// TypeScript loads, or whose runners only TypeScript can list.
+/// `runner.models.*`, `dispatch.tierTargets.*` and `executor.models.available`
+/// requests whose strategy only TypeScript loads, or whose runners only
+/// TypeScript can list.
 pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     matches!(
         op,
@@ -151,8 +153,10 @@ pub fn strategy_settings_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) ->
             | "runner.models.set_many"
             | "dispatch.tierTargets.get"
             | "dispatch.tierTargets.set"
+            | "executor.models.available"
     ) && (pacer_config_ops::active_strategy_needs_core(&ctx.pacer_home)
-        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params))
+        || runner_models_ops::runner_models_stays_forwarded(ctx, op, params)
+        || available_ops::executor_models_available_stays_forwarded(ctx, op, params))
 }
 pub(crate) use session_ops::needs_session_probe;
 pub(crate) use snapshot_get_ops::needs_snapshot_bridge;
@@ -328,6 +332,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "runner.models.set_many",
         call: runner_models_ops::runner_models_set_many,
+    },
+    NativeOp {
+        name: "executor.models.available",
+        call: available_ops::executor_models_available,
     },
     NativeOp {
         name: "notifications.get",
