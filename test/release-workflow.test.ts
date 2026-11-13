@@ -167,11 +167,30 @@ test("release publication is gated by both artifact M1 builds", () => {
     { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
     { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
   ]);
-  const gate = build.steps.find(s => s.name === "Full M1 gate against built host release artifacts")!;
+  const gate = build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
   expect(gate.if).toBeUndefined();
   expect((gate as any)["continue-on-error"]).toBeUndefined();
-  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION"');
-  expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
+  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
+  const suite = jobs["m1-suite"]!;
+  expect(suite.needs).toEqual(["verify", "build"]);
+  expect((suite as any).if).toBeUndefined();
+  expect((suite as any).strategy["fail-fast"]).toBe(false);
+  expect((suite as any).strategy.matrix.runner).toEqual(build.strategy!.matrix.include.map(entry => entry.runner));
+  expect((suite as any).strategy.matrix.shard).toEqual([0, 1, 2, 3]);
+  expect((suite as any).strategy.matrix.include).toEqual(build.strategy!.matrix.include.map(({ runner, image }) => ({ runner, image })));
+  const shard = suite.steps.find(s => s.name === "M1 Bun suite shard against built host release artifacts")!;
+  expect(shard.if).toBeUndefined();
+  expect((shard as any)["continue-on-error"]).toBeUndefined();
+  expect(shard.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite shard');
+  expect(shard.env).toMatchObject({ SHARD_INDEX: "${{ matrix.shard }}", SHARD_COUNT: 4 });
+  const downloads = suite.steps.filter(s => s.uses?.startsWith("actions/download-artifact@")).map(s => s.with);
+  expect(downloads).toEqual([
+    { name: "binaries-${{ matrix.runner }}", path: "dist/release" },
+    { name: "m1-manifest-${{ matrix.runner }}", path: "dist/release" },
+  ]);
+  expect(suite.steps.indexOf(shard)).toBeGreaterThan(suite.steps.findIndex(s => s.with?.name === "m1-manifest-${{ matrix.runner }}"));
+  expect(build.steps.find(s => s.with?.name === "m1-manifest-${{ matrix.runner }}")?.with?.path).toBe("dist/release/*/manifest.json");
+  expect(jobs.publish.needs).toEqual(["verify", "build", "m1-suite", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
@@ -183,7 +202,7 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(verify).not.toContain("bun run test");
   const source = readFileSync("scripts/gate/m1.ts", "utf8");
   expect(source).toContain('validateM1Artifacts(dir)');
-  expect(source).toContain('[process.execPath, "run", "test"]');
+  expect(source).toContain('[process.execPath, "run", "test", ...files]');
   expect(source).toContain('PACER_TEST_FRONT_DOOR: front');
   expect(source).toContain('PACER_TEST_REFERENCE_CORE: core');
   expect(source).toContain('return failures ? 1 : 0');
@@ -193,7 +212,11 @@ test("M1 gate failure stops the release build despite log capture", () => {
   const root = tmpDir(), bin = join(root, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  const gate = jobs.build.steps.find(s => s.name === "Full M1 gate against built host release artifacts")!;
-  const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
-  expect(result.exitCode).not.toBe(0);
+  for (const gate of [
+    jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!,
+    jobs["m1-suite"]!.steps.find(s => s.name === "M1 Bun suite shard against built host release artifacts")!,
+  ]) {
+    const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
+    expect(result.exitCode).not.toBe(0);
+  }
 });
