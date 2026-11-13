@@ -53,8 +53,9 @@ home, and how releases ship and update the pair.
   `pacer-core serve --internal`, which binds an ephemeral loopback port,
   announces it as one JSON line on stdout, and accepts only
   `Authorization: Bearer <PACER_INTERNAL_TOKEN>`. The token is 32 random bytes,
-  fresh for every core generation, and exists only in the child's environment.
-  The core clears it before spawning executors. A dedicated stdin pipe ties the
+  fresh for every core generation, and reaches the child only in the secrets
+  frame on its stdin, never in its environment or argv (amended by ADR 0027,
+  item 9). A dedicated stdin pipe ties the
   core lifetime to the front door: EOF stops the core even if its parent is
   killed without signal cleanup. Old stdout readers are cancelled on restart
   so a descendant retaining a pipe cannot stall the next generation.

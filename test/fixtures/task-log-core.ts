@@ -2,13 +2,15 @@
 // agent, credential, config or installer paths are exercised.
 import { handleV3 } from "../../src/api/http";
 import type { Ctx } from "../../src/types";
+import { readCoreSecrets, scrubCoreSecrets } from "../../src/core-secrets";
 const home = process.env.PACER_HOME;
 if (!home || process.env.HOME !== home) throw Error("isolated home required");
+const token = scrubCoreSecrets(process.env) ? readCoreSecrets().internalToken : undefined;
 const ctx = { pacerHome: home, env: {}, now: 1000 } as Ctx;
 const server = Bun.serve({
   hostname: "127.0.0.1", port: 0,
   fetch(req) {
-    if (req.headers.get("authorization") !== `Bearer ${process.env.PACER_INTERNAL_TOKEN}`)
+    if (req.headers.get("authorization") !== `Bearer ${token}`)
       return new Response(null, { status: 401 });
     return handleV3(req, { getCtx: () => ctx, tailMs: 10 });
   },

@@ -3,12 +3,13 @@ import { randomBytes } from "node:crypto";
 import { mkdirSync } from "node:fs";
 import { createServer, type Server, type Socket } from "node:net";
 import { join } from "node:path";
-import { callNativeOwner, HOST_SOCKET_KEY_ENV, takeOwnerKey, type NativeOwnerCall } from "../src/plugins/host-bridge";
+import { callNativeOwner, holdOwnerKey, type NativeOwnerCall } from "../src/plugins/host-bridge";
 import { authed, useOwnerKey } from "./fixtures/owner-auth";
 import { tmpDir } from "./helpers";
 
-// Core's side of the owner credential (#918): taken out of the environment at
-// startup, proven on every connection, never sent to an owner that cannot prove it.
+// Core's side of the owner credential (#918): read from the stdin secrets frame at
+// startup (test/core-secrets-frame.test.ts), proven on every connection, never sent
+// to an owner that cannot prove it.
 
 const servers: Server[] = [];
 /** Server-side sockets that never end on their own; `server.close()` waits for them. */
@@ -50,17 +51,8 @@ function record(socket: Socket, seen: string[], reply?: (line: string) => string
   });
 }
 
-test("Core takes the credential out of its environment and the process environment", () => {
-  const env: Record<string, string | undefined> = { [HOST_SOCKET_KEY_ENV]: "ab".repeat(32), PATH: "/bin" };
-  process.env[HOST_SOCKET_KEY_ENV] = "ab".repeat(32);
-  takeOwnerKey(env);
-  expect(env).not.toHaveProperty(HOST_SOCKET_KEY_ENV);
-  expect(process.env[HOST_SOCKET_KEY_ENV]).toBeUndefined();
-  expect(env.PATH).toBe("/bin");
-});
-
 test("without a credential Core never dials the owner", async () => {
-  takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: "not-a-key" });
+  holdOwnerKey("not-a-key");
   const owner = await listen(socket => socket.destroy());
   await expect(callNativeOwner(owner.path, call)).rejects.toMatchObject({
     code: "plugin_unavailable", message: "native process owner credential is missing", hint: "Restart the pacer service.",

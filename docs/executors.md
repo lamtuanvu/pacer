@@ -264,6 +264,25 @@ applies `disabledMcpjsonServers` before `enableAllProjectMcpServers`, also when 
 come from the per-run file. If either file exists but cannot be read or parsed, pacer
 approves nothing for that launch and the attempt note says Claude's MCP prompt may appear.
 
+### Agent sandboxes and the plugin owner
+
+Because of the options above, pacer's executors run without their agent's sandbox, as
+ordinary processes of your user, and pacer ships no sandbox profile of its own. Such a
+process can already read your pacer home. The one sandboxed launch is an attended Codex
+session from the agent-session plugin, which runs with `-s workspace-write` and nothing
+that widens it.
+
+If you turn on an agent's own sandbox for work that reaches pacer, do not let it connect
+to Unix sockets under `$PACER_HOME/run` or under pacer's per-user socket directories
+(`pacer-<hash>` in the user temporary directory that `getconf DARWIN_USER_TEMP_DIR`
+prints on macOS, or in `$XDG_RUNTIME_DIR` on Linux), which a home with a long path uses.
+A setting that
+allows every Unix socket allows these too. The native plugin owner listens there, and a
+sandboxed process that can read `run/host.key` and connect could have the owner start
+plugin processes outside the sandbox. Pacer hands Core its own secrets on Core's stdin,
+not in its environment, so a sandbox that keeps the process out of your pacer home also
+keeps those secrets from it. See [ADR 0027](decisions/0027-one-native-plugin-owner-per-home.md).
+
 ## Session environment
 
 An executor session behaves as if you ran the same agent CLI in a new terminal in the

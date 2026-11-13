@@ -1,3 +1,4 @@
+use crate::core_secrets::{self, CoreSecrets};
 use crate::native::{call_native, service_registry};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
@@ -1184,20 +1185,26 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         tasks: tokio::task::JoinSet::new(),
         ids: HashMap::new(),
     };
+    let secrets = CoreSecrets {
+        internal_token: None,
+        owner_key: host_socket.owner_key(),
+        native_config_sync_key: Some(sync_key.clone()),
+    };
     let session = async {
         let mut command = Command::new(program);
-        let mut child = host_socket
+        host_socket
             .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
-            .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
-        let input = child
+            .kill_on_drop(true);
+        let mut child = core_secrets::announce(&mut command).spawn()?;
+        let mut input = child
             .stdin
             .take()
             .ok_or_else(|| io::Error::other("missing core stdin"))?;
+        // Before any forwarded line: Core reads the frame first.
+        core_secrets::send(&mut input, &secrets).await?;
         let output = child
             .stdout
             .take()

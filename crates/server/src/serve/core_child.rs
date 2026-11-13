@@ -1,4 +1,6 @@
 //! Supervised internal core, with a fresh credential for every generation.
+//! Its secrets reach it on stdin, never in its environment ([`core_secrets`]).
+use crate::core_secrets::{self, CoreSecrets};
 use std::{collections::HashMap, io, process::Stdio, sync::Arc, time::Duration};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
@@ -23,10 +25,16 @@ impl CoreChild {
             task: Mutex::new(None),
         }
     }
-    pub fn spawn(core: Vec<String>, env: HashMap<String, String>) -> Self {
+    /// `owner_key` is the native plugin owner's credential, for every generation.
+    pub fn spawn(
+        core: Vec<String>,
+        env: HashMap<String, String>,
+        owner_key: Option<String>,
+    ) -> Self {
         Self::spawn_inner(
             core,
             env,
+            owner_key,
             #[cfg(target_os = "macos")]
             None,
         )
@@ -35,13 +43,15 @@ impl CoreChild {
     pub fn spawn_native(
         core: Vec<String>,
         env: HashMap<String, String>,
+        owner_key: Option<String>,
         native: Arc<super::native_context::NativeContext>,
     ) -> Self {
-        Self::spawn_inner(core, env, Some(native))
+        Self::spawn_inner(core, env, owner_key, Some(native))
     }
     fn spawn_inner(
         core: Vec<String>,
         env: HashMap<String, String>,
+        owner_key: Option<String>,
         #[cfg(target_os = "macos")] native: Option<Arc<super::native_context::NativeContext>>,
     ) -> Self {
         let target = Arc::new(RwLock::new(None));
@@ -52,24 +62,32 @@ impl CoreChild {
             loop {
                 let mut healthy_since = None;
                 let token = hex::encode(rand::random::<[u8; 32]>());
+                let secrets = CoreSecrets {
+                    internal_token: Some(token.clone()),
+                    owner_key: owner_key.clone(),
+                    native_config_sync_key: None,
+                };
                 #[cfg(target_os = "macos")]
                 let result = if let Some(native) = &native {
-                    command(&core, &env, &token)
-                        .and_then(|mut command| native.start(&mut command))
+                    command(&core, &env)
+                        .and_then(|mut command| native.start(&mut command, &secrets.frame()))
                         .map(|(child, control)| (child, Some(control)))
                 } else {
-                    start(&core, &env, &token).map(|child| (child, None))
+                    start(&core, &env).map(|child| (child, None))
                 };
                 #[cfg(not(target_os = "macos"))]
-                let result =
-                    start(&core, &env, &token).map(|child| (child, None::<JoinHandle<()>>));
+                let result = start(&core, &env).map(|child| (child, None::<JoinHandle<()>>));
                 match result {
                     Ok((mut child, control)) => {
                         let _native_control = ControlGuard(control);
                         // Child::wait closes stdin unless its handle has been taken.
                         // Keep ownership until this generation exits or is terminated.
-                        let _ownership = child.stdin.take();
+                        let mut ownership = child.stdin.take();
                         let ready = async {
+                            // A paired native core gets its frame on the parent channel instead.
+                            if let Some(stdin) = ownership.as_mut() {
+                                core_secrets::send(stdin, &secrets).await?;
+                            }
                             let stdout = child
                                 .stdout
                                 .take()
@@ -92,7 +110,7 @@ impl CoreChild {
                         match ready {
                             Ok(Ok((port, mut stdout))) => {
                                 healthy_since = Some(Instant::now());
-                                // The credential belongs only to this child's environment.
+                                // Only this child holds the credential, read from its stdin.
                                 *shared.write().await = Some((port, token));
                                 let copy = tokio::spawn(async move {
                                     let mut output = tokio::io::stdout();
@@ -166,10 +184,10 @@ impl Drop for ControlGuard {
         }
     }
 }
-fn start(core: &[String], env: &HashMap<String, String>, token: &str) -> io::Result<Child> {
-    command(core, env, token)?.spawn()
+fn start(core: &[String], env: &HashMap<String, String>) -> io::Result<Child> {
+    command(core, env)?.spawn()
 }
-fn command(core: &[String], env: &HashMap<String, String>, token: &str) -> io::Result<Command> {
+fn command(core: &[String], env: &HashMap<String, String>) -> io::Result<Command> {
     let (program, args) = core
         .split_first()
         .ok_or_else(|| io::Error::other("empty core argv"))?;
@@ -182,12 +200,12 @@ fn command(core: &[String], env: &HashMap<String, String>, token: &str) -> io::R
         .env_remove("BUN_OPTIONS")
         .env_remove("NODE_OPTIONS")
         .env_remove("PACER_INTERNAL_NATIVE_BOOTSTRAP")
-        .env("PACER_INTERNAL_TOKEN", token)
         .env("PACER_INTERNAL_PARENT_PIPE", "1")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
         .stderr(Stdio::inherit())
         .kill_on_drop(true);
+    core_secrets::announce(&mut command);
     Ok(command)
 }
 async fn terminate(child: &mut Child) {
@@ -215,12 +233,51 @@ mod tests {
                 "printf '%s' \"$PACER_INTERNAL_NATIVE_BOOTSTRAP\"".into(),
             ],
             &HashMap::from([("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "untrusted".into())]),
-            "test-token",
         )
         .unwrap();
         let output = child.wait_with_output().await.unwrap();
         assert!(output.status.success());
         assert!(output.stdout.is_empty());
+    }
+    #[tokio::test]
+    async fn secrets_reach_core_on_stdin_and_never_in_its_environment() {
+        let dir = tempfile::tempdir().unwrap();
+        let owner = "c".repeat(64);
+        let secrets = |token: &str| CoreSecrets {
+            internal_token: Some(token.into()),
+            owner_key: Some(owner.clone()),
+            native_config_sync_key: None,
+        };
+        let length = secrets(&"0".repeat(64)).frame().len();
+        let mut env = HashMap::from([("OUT".into(), dir.path().to_string_lossy().into_owned())]);
+        for name in core_secrets::SECRET_ENV {
+            env.insert(name.into(), "inherited".into());
+        }
+        let core = CoreChild::spawn(
+            vec![
+                "/bin/sh".into(),
+                "-c".into(),
+                format!(
+                    "env > \"$OUT/env\"; head -c {length} > \"$OUT/frame\"; printf '{{\"internal\":{{\"port\":12345}}}}\\n'; exec sleep 5"
+                ),
+            ],
+            env,
+            Some(owner.clone()),
+        );
+        let (_, token) = ready(&core).await;
+        let env = std::fs::read_to_string(dir.path().join("env")).unwrap();
+        for name in core_secrets::SECRET_ENV {
+            assert!(
+                !env.lines()
+                    .any(|line| line.starts_with(&format!("{name}="))),
+                "{name} reached the core's environment"
+            );
+        }
+        assert!(!env.contains(&token) && !env.contains(&owner));
+        assert!(env.lines().any(|line| line == "PACER_CORE_SECRETS=stdin/1"));
+        let frame = std::fs::read(dir.path().join("frame")).unwrap();
+        assert_eq!(frame, secrets(&token).frame());
+        core.shutdown().await;
     }
     async fn ready(core: &CoreChild) -> (u16, String) {
         timeout(Duration::from_secs(4), async {
@@ -243,6 +300,7 @@ mod tests {
                 "printf '{\"internal\":{\"port\":12345}}\\n'; exec sleep 0.2".into(),
             ],
             HashMap::new(),
+            None,
         );
         let first = ready(&core).await;
         assert_eq!(first.0, 12345);
@@ -269,6 +327,7 @@ mod tests {
             vec!["/bin/sh".into(), "-c".into(),
                 "sleep 10 & echo $! >> \"$PIDS\"; printf '{\"internal\":{\"port\":12345}}\\n'; exec sleep 0.1".into()],
             HashMap::from([("PIDS".into(), pids.to_string_lossy().into_owned())]),
+            None,
         );
         let first = ready(&core).await;
         let restarted = timeout(Duration::from_secs(3), async {

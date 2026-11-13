@@ -23,7 +23,7 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         Default::default(),
         1_800_000_000.0,
     );
-    let core = Arc::new(core_child::CoreChild::spawn(vec![], HashMap::new()));
+    let core = Arc::new(core_child::CoreChild::spawn(vec![], HashMap::new(), None));
     let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
         .await
         .unwrap();
@@ -116,6 +116,7 @@ async fn host_effects_bridge_to_core_over_http() {
             script.into(),
         ],
         HashMap::new(),
+        None,
     ));
     for _ in 0..100 {
         if core.target().await.is_some() {
@@ -224,6 +225,7 @@ async fn public_listener_forwards_to_available_core() {
             script.into(),
         ],
         HashMap::new(),
+        None,
     ));
     for _ in 0..100 {
         if core.target().await.is_some() {

@@ -30,6 +30,35 @@ test("Codex delivers initial images natively with ordinary permissions and liter
   const launch = prepare({...base, agent: "codex", version: "0.164.0", attachments: [image], model: "chosen"});
   expect(launch.argv).toEqual(["codex", "--no-daemon", "-C", "/tmp/repo", "-s", "workspace-write", "--add-dir", "/tmp/run", "-m", "chosen", "-i", image.path, "--", base.request]);
 });
+// #918 item 3: this is the one sandbox pacer controls. Codex's workspace-write sandbox denies
+// connect() to the native owner's socket; a Unix-socket, network or config override reopens it.
+test("Codex sessions keep the workspace-write sandbox with no socket, network or config override", () => {
+  const help = "--config --cd --sandbox --add-dir --model --image --dangerously-bypass-hook-trust --no-daemon";
+  const valued = new Set(["-C", "-s", "--add-dir", "-m", "-i"]);
+  for (const input of [
+    {...base},
+    {...base, model: "chosen", attachmentDir: "/tmp/files", attachments: [image]},
+    {...base, sessionId: identity},
+    {...base, help, resumeHelp: help, sessionId: identity, model: "chosen"},
+    {...base, help: help.replace(" --no-daemon", "")},
+  ]) {
+    const argv = prepare({...input, agent: "codex", version: "0.166.0"}).argv;
+    const options = argv.slice(0, argv.indexOf("--"));
+    const resumed = "sessionId" in input;
+    expect(options.slice(0, options[1] === "resume" ? 2 : 1)).toEqual(resumed ? ["codex", "resume"] : ["codex"]);
+    const sandboxes: string[] = [];
+    for (let i = resumed ? 2 : 1; i < options.length; i++) {
+      const option = options[i]!;
+      expect(option === "--no-daemon" || valued.has(option), `unexpected codex option ${option}`).toBe(true);
+      if (option === "-s") sandboxes.push(options[i + 1]!);
+      if (valued.has(option)) i++;
+    }
+    expect(sandboxes).toEqual(["workspace-write"]);
+    for (const forbidden of ["--allow-unix-socket", "--sandbox", "-c", "--config", "-P", "--profile", "--full-auto",
+      "--dangerously-bypass-approvals-and-sandbox", "--yolo", "danger-full-access"]) expect(options).not.toContain(forbidden);
+    expect(options.join(" ")).not.toMatch(/unix_socket|network_access|sandbox_workspace_write|sandbox_mode/);
+  }
+});
 test("Claude starts with an assigned native UUID and explicitly referenced files", () => {
   const launch = prepare({...base, agent: "claude-code", version: "2.1.281", newSessionId: identity, model: "sonnet", attachmentDir: "/tmp/files", attachments: [image]});
   expect(launch.argv.slice(0, 9)).toEqual(["claude", "--add-dir", "/tmp/run", "--add-dir", "/tmp/files", "--model", "sonnet", "--session-id", identity]);

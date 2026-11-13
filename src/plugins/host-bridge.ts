@@ -9,9 +9,9 @@
  * never pipelines.
  *
  * The owner accepts only callers that prove its per-start credential (#918, ADR
- * 0027). The owner hands it to its own Core child as `PACER_HOST_SOCKET_KEY`;
- * `takeOwnerKey` removes it from the environment before Core starts anything, so
- * no runner, executor or plugin child inherits it. Each connection opens with a
+ * 0027). The owner hands it to its own Core child in the stdin secrets frame
+ * (`src/core-secrets.ts`), never in an environment, so no runner, executor or
+ * plugin child inherits it; Core holds it with `holdOwnerKey`. Each connection opens with a
  * mutual HMAC-SHA256 challenge: Core checks the owner's proof before it sends
  * the call, so it never answers a forwarded capability request from an impostor.
  */
@@ -22,7 +22,6 @@ import { CoreError, type CoreErrorCode } from "../core/errors";
 import { pluginReplyError } from "./errors";
 
 export const HOST_PLUGIN_CALL = "_host.plugin.call";
-export const HOST_SOCKET_KEY_ENV = "PACER_HOST_SOCKET_KEY";
 const HOST_AUTH = "_host.auth";
 const OWNER_PROOF = "pacer-host-owner/v1";
 const CORE_PROOF = "pacer-host-core/v1";
@@ -33,13 +32,10 @@ const MAX_FRAME_BYTES = 1024 * 1024;
 
 let ownerKey: Buffer | undefined;
 
-/** Take the owner's credential out of `env` (and the process environment) for this
- * process's bridge calls. Call once at startup, before anything spawns a child. */
-export function takeOwnerKey(env: Record<string, string | undefined>): void {
-  const text = env[HOST_SOCKET_KEY_ENV];
-  delete env[HOST_SOCKET_KEY_ENV];
-  delete process.env[HOST_SOCKET_KEY_ENV];
-  if (text !== undefined) ownerKey = HEX_KEY.test(text) ? Buffer.from(text, "hex") : undefined;
+/** Hold the owner's credential for this process's bridge calls; anything but 64 hex
+ * digits leaves Core without one. */
+export function holdOwnerKey(text: string): void {
+  ownerKey = HEX_KEY.test(text) ? Buffer.from(text, "hex") : undefined;
 }
 
 /** The credential this Core holds, for its own in-process worker threads only. */

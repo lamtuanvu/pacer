@@ -5,6 +5,7 @@ import { backfillAttemptUsage } from "../tokens/store";
 import { pruneTaskChanges } from "./changes";
 import { retentionScheduler } from "./retention";
 import type { Ctx } from "../types";
+import { CORE_SECRET_ENV } from "../core-secrets";
 
 /** Only retry lock contention; malformed data and filesystem errors stay visible. */
 export async function backfillTaskHistory(ctx: Ctx): Promise<void> {
@@ -32,7 +33,7 @@ export function startTaskHistory(ctx: Ctx): { stop: () => Promise<void> } {
       ? [process.execPath, fileURLToPath(new URL("../cli.ts", import.meta.url)), "_task-history"]
       : [process.execPath, "_task-history"];
     const env = { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_HISTORY_PARENT_PIPE: "1" };
-    for (const key of ["PACER_INTERNAL_TOKEN", "PACER_INTERNAL_NATIVE_BOOTSTRAP", "PACER_WORK_GRANT", "PACER_ENFORCEMENT_TOKEN", "NODE_OPTIONS", "BUN_OPTIONS"]) {
+    for (const key of [...CORE_SECRET_ENV, "PACER_INTERNAL_NATIVE_BOOTSTRAP", "PACER_WORK_GRANT", "PACER_ENFORCEMENT_TOKEN", "NODE_OPTIONS", "BUN_OPTIONS"]) {
       delete (env as NodeJS.ProcessEnv)[key];
     }
     try {

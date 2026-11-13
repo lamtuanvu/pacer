@@ -56,8 +56,7 @@ async fn flag_on_sets_socket_env_and_cleans_up() {
     );
     // Serve's env is also the native operations' env: the key is not in it.
     assert!(!env.contains_key(HOST_SOCKET_KEY_ENV));
-    let (name, key) = guard.core_key();
-    assert_eq!(name, HOST_SOCKET_KEY_ENV);
+    let key = guard.owner_key();
     let published = home.path().join("run").join(HOST_KEY_NAME);
     assert_eq!(fs::read_to_string(&published).unwrap().trim(), key);
     assert_eq!(
