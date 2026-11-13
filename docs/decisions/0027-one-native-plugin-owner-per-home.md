@@ -226,10 +226,11 @@ to serve's Core.
   on them as above, writes their log lines, and gives each method its flag-off deadline
   (`diagnostic.ping` 5 s, which also bounds the hello, `ui.render` 2 s, `ui.action` 10 s,
   `ui.settings.validate` 2 s). The owner returns a failed call's log lines with its error, and
-  when Core's deadline or a revocation ends a call, Core shuts its write side and waits up to
-  1 s for that reply, so the lines are kept as flag-off keeps them. Core records the hello only
-  from a successful call, so a plugin whose first call fails stays `idle` until a later call
-  succeeds. The door no longer builds a sealed call of its own. A door whose Core is restarting
+  when Core's deadline or a revocation ends a call that was already sent, Core shuts its write
+  side and waits up to 1 s for that reply, so the lines are kept as flag-off keeps them. A call
+  ended before the owner's handshake completes was never sent and fails at once. Core records
+  the hello only from a successful call, so a plugin whose first call fails stays `idle` until a
+  later call succeeds. The door no longer builds a sealed call of its own. A door whose Core is restarting
   refuses the operation as it does flag-off.
   Core makes each relayed call on its own owner connection and proves the owner's key there
   (item 9), as for its other calls: it refuses `relay` without an owner socket, and fails the
