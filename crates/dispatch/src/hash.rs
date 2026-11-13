@@ -8,7 +8,7 @@ use crate::js::js_cmp;
 /// `canonical(value)`: object keys sorted by JavaScript `<` (UTF-16 code units),
 /// everything else as `JSON.stringify` writes it. TypeScript drops `undefined`
 /// members; callers omit those keys.
-pub fn canonical(value: &Value) -> String {
+pub(crate) fn canonical(value: &Value) -> String {
     let mut out = String::new();
     write(value, &mut out);
     out
@@ -44,7 +44,7 @@ fn write(value: &Value, out: &mut String) {
     }
 }
 
-/// `decisionHash(value)`: the lowercase hex SHA-256 of [`canonical`].
+/// `decisionHash(value)`: the lowercase hex SHA-256 of `canonical(value)`.
 pub fn decision_hash(value: &Value) -> String {
     format!("{:x}", Sha256::digest(canonical(value).as_bytes()))
 }
