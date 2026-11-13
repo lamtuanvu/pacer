@@ -408,3 +408,42 @@ async fn a_call_that_times_out_leaves_the_child_usable() {
         Err(ProcessError::Unavailable(_))
     ));
 }
+
+#[tokio::test]
+async fn stderr_reaches_the_plugin_log_and_its_reader_stops_with_the_child() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-err").unwrap();
+    let status = home.path().join("late-status");
+    // The descendant inherits stderr, holds the pipe open after the child exits
+    // and writes to it after the drain window: the line is not logged, and the
+    // write succeeds, as under TypeScript.
+    let late = format!("sleep 0.6; echo late >&2; echo $? > '{}'", status.display());
+    let script = format!(
+        r#"await Bun.write(Bun.stderr,"one\r\ntwo\n\nlast");Bun.spawn(["sh","-c",{late:?}],{{stdio:["ignore","ignore","inherit"]}}).unref();process.exit(0);"#
+    );
+    let child = PluginProcess::spawn_logged(&peer(&script), Some(log)).unwrap();
+    let mut exit = child.exit_watch();
+    tokio::time::timeout(Duration::from_secs(5), exit.wait_for(Option::is_some))
+        .await
+        .unwrap()
+        .unwrap();
+    drop(child);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !status.exists() && Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(&status).ok().as_deref(),
+        Some("0\n"),
+        "the descendant's late stderr write failed"
+    );
+    let text = std::fs::read_to_string(home.path().join("fx-err.log")).unwrap();
+    let lines: Vec<_> = text
+        .lines()
+        .map(|line| line.split_once(' ').unwrap().1)
+        .collect();
+    assert_eq!(
+        lines,
+        ["[stderr] one", "[stderr] two", "[stderr] ", "[stderr] last"]
+    );
+}

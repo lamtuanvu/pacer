@@ -127,7 +127,7 @@ impl NativeHostSession {
     /// A live socket fails with [`BridgeError::LiveSocket`]. Does not mutate
     /// process env.
     pub fn start(pacer_home: &Path) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let (mut session, env) = Self::start_with(|| {
+        let (mut session, env) = Self::start_with(pacer_home, || {
             ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid())
         })?;
         let pid_file = session.socket.with_file_name(HOST_SOCKET_PID_NAME);
@@ -148,14 +148,20 @@ impl NativeHostSession {
         tag: [u8; 6],
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
         let name = connection_socket_name(tag);
-        Self::start_with(|| ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid()))
+        Self::start_with(pacer_home, || {
+            ReverseBridge::bind_connection(pacer_home, &name, PeerAuth::same_uid())
+        })
     }
 
+    /// Children log stderr to `$PACER_HOME/logs/plugins/<id>.log`, as the
+    /// TypeScript host does.
     fn start_with(
+        pacer_home: &Path,
         bind: impl FnOnce() -> Result<ReverseBridge, BridgeError>,
     ) -> Result<(Self, Vec<(String, String)>), NativeHostError> {
-        let owner = ProcessOwner::native_for_serve();
+        let mut owner = ProcessOwner::native_for_serve();
         owner.claim_native_supervision()?;
+        owner.set_log_dir(pacer_home.join("logs").join("plugins"));
         let crashes = owner.crash_book();
         let roster = owner.roster();
         let owner = Arc::new(Mutex::new(owner));

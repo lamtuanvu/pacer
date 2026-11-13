@@ -19,11 +19,13 @@
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
 use crate::orca_attach::SharedOrcaBridge;
+use crate::plugin_log::PluginLog;
 use crate::process::PluginProcess;
 use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{
     collections::HashMap,
+    path::PathBuf,
     sync::{
         Arc, Weak,
         atomic::{AtomicBool, Ordering},
@@ -330,6 +332,8 @@ pub struct ProcessOwner {
     crashes: Arc<CrashBook>,
     /// No child starts once teardown began ([`Self::close`]).
     roster: Arc<LaneRoster>,
+    /// `$PACER_HOME/logs/plugins`: children started here log stderr there.
+    log_dir: Option<PathBuf>,
 }
 
 impl ProcessOwner {
@@ -342,7 +346,13 @@ impl ProcessOwner {
             sessions: HashMap::new(),
             crashes: Arc::default(),
             roster: Arc::default(),
+            log_dir: None,
         }
+    }
+
+    /// Append the stderr of children started from now on to `<dir>/<id>.log`.
+    pub fn set_log_dir(&mut self, dir: PathBuf) {
+        self.log_dir = Some(dir);
     }
 
     /// Production serve constructor: TypeScript remains the process owner.
@@ -483,7 +493,13 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        let lane = self.roster.admit(|| Ok(PluginProcess::spawn(spec)?))?;
+        let log = self
+            .log_dir
+            .as_deref()
+            .and_then(|dir| PluginLog::new(dir, &id));
+        let lane = self
+            .roster
+            .admit(|| Ok(PluginProcess::spawn_logged(spec, log)?))?;
         self.adopt(id, lane);
         Ok(())
     }
