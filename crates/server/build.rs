@@ -12,12 +12,8 @@ fn main() {
         .unwrap_or_else(|| panic!("cannot read the version from {}", package.display()));
     // The TypeScript core reports package.json's version in hello; so does the Rust proxy.
     println!("cargo:rustc-env=PACER_PACKAGE_VERSION={package_version}");
-    let version = std::env::var("PACER_BUILD_VERSION")
-        .ok()
-        .or(Some(package_version));
-    if let Some(version) = version {
-        println!("cargo:rustc-env=PACER_BUILD_VERSION={version}");
-    }
+    let version = std::env::var("PACER_BUILD_VERSION").unwrap_or(package_version);
+    println!("cargo:rustc-env=PACER_BUILD_VERSION={version}");
     let assets = root.join("src/app/assets.generated.ts");
     println!("cargo:rerun-if-changed={}", assets.display());
     // Import the same checked-in bundle used by the TypeScript server.
