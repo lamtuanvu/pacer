@@ -174,7 +174,7 @@ async function gate(dir: string, suite: BunSuite = "all"): Promise<number> {
       const source = readFileSync(join(root, "crates/server/src/native.rs"), "utf8");
       validateNativeRegistry(source);
     });
-    await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked"]));
+    await step("Rust workspace", () => command(["cargo", "test", "--workspace", "--locked", "--no-fail-fast"]));
     if (!await step("build isolated native test front door", () => command(["cargo", "build", "--locked", "-p", "pacer", "--features", "test-ops", "--target-dir", join(temporary, "target")]))) return 1;
     await step("Bun suite", () => command([process.execPath, "run", "test", ...files], {
       PACER_TEST_FRONT_DOOR: front, PACER_TEST_NATIVE_FRONT_DOOR: testFront, PACER_TEST_REFERENCE_CORE: core,
