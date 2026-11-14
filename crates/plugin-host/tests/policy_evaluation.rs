@@ -19,7 +19,7 @@ impl PolicyCaller for Caller {
     ) -> Result<Value, BrokerError> {
         self.calls.push(id.into());
         if self.slow {
-            tokio::time::sleep(Duration::from_millis(80)).await;
+            tokio::time::sleep(Duration::from_millis(1000)).await;
         }
         Ok(self
             .replies
@@ -80,7 +80,7 @@ async fn shared_budget_stops_later_calls_and_closed_mode_cannot_ignore_failures(
             snapshot(closed),
             json!({"decision":"route","input":{"taskId":"t-x","candidates":[]}}),
             &mut caller,
-            Instant::now() + Duration::from_millis(20),
+            Instant::now() + Duration::from_millis(300),
         )
         .await;
         assert_eq!(caller.calls, ["policy-a"]);
