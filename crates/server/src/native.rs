@@ -58,7 +58,6 @@ use pacer_config_ops::available_ops;
 use pacer_config_ops::project_messaging_ops;
 use pacer_config_ops::repo_ops;
 use pacer_config_ops::runner_check_ops;
-use pacer_config_ops::runner_models_ops;
 use pacer_config_ops::runner_ops;
 pub(crate) use pacer_core_bridge::session_sync;
 pub(crate) use pacer_core_bridge::setup_effects_sync;
