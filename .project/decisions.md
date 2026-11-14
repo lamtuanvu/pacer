@@ -2,6 +2,31 @@
 
 This log holds dated governance decisions, exceptions and superseded rules. Architectural decisions keep their ADRs in [docs/decisions/](../docs/decisions/); entries here link to them.
 
+## Scoped exception: pacer-server CRATE-1 size (2026-11-10)
+
+Authority: @lamtuanvu explicitly decided in the coordinating session to record
+this scoped exception. The maintainer's merge of this PR records it; it is not
+an AI reviewer approval or a governance amendment.
+
+Scope: CRATE-1's 12,000 LOC split-before-merge requirement for `pacer-server`
+only. This applies to M2 native-op migration PRs that add op registration,
+bridges or front-door wiring to `pacer-server`; each such PR states its
+`pacer-server` LOC delta in its description. No other crate and no other rule
+is waived. The 8,000 LOC justification requirement still applies, with the
+split plan as its justification.
+
+Basis: `cargo xtask loc` measured `pacer-server` on main at 12,054 handwritten
+LOC, against a planned 2,000–2,500 LOC. The split is in progress on
+`refactor/split-pacer-server`.
+
+Expiry: when the `pacer-server` split merges, or 2026-12-01 at 23:59 UTC,
+whichever comes first. After expiry, PRs that leave `pacer-server` above 12,000
+LOC need the split or a new exception.
+
+Open item: `cargo xtask loc --check` warns rather than fails above 12,000 LOC,
+although CRATE-1's enforcement column says CI fails above that threshold. This
+mismatch remains to be resolved separately.
+
 ## Scoped exception: interactive lifecycle local deployment (2026-11-03)
 
 Authority: @lamtuanvu explicitly instructed creation of the interactive-lifecycle
