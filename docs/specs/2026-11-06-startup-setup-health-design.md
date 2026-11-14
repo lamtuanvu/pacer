@@ -62,6 +62,7 @@ Full-window stage once the service is ready (or immediately after update before 
 | All required steps passed | Enter app; quiet chrome: **Setup OK · checked just now** (status strip or Overview) |
 | Warnings only | Stay on the gate with the primary fix, **Continue to pacer** and **Open Diagnostics**; never auto-enter. After the user continues, show a persistent **Setup** attention chip with count (“2 fixes recommended”) whose Review reopens the gate |
 | Hard fail (no service identity, no planner wiring when a planner is selected, etc.) | Stay on the gate with **Fix**, **Open Diagnostics**, **Continue anyway** |
+| Service unreachable (setup checks could not finish) | Stay on the gate with **Run checks again** and **Restart service**, then rerun the checks |
 
 ## Suggest and handle
 
@@ -71,6 +72,7 @@ Known doctor / integration codes map to one primary action:
 - Stale or mismatched `CLAUDE_CONFIG_DIR` / planner account folder (when pacer owns the service env) → repair to the selected account folder and prompt restart if required
 - Stale usage where refresh is supported → `limits.refresh`
 - Disabled/missing runner when an alternative is ready → enable or point Setup at that runner
+- Multiple automatic repairs → **Fix N issues automatically** runs them in service-safe order with one confirmation, then reruns the checks once
 
 Do not auto-install arbitrary third-party CLIs. Do not treat exhausted quota as fixable setup.
 
