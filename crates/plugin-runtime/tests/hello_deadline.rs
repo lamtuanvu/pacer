@@ -3,7 +3,7 @@
 //! bounded by the call's own deadline, and words a hello timeout as the
 //! registry does: `plugin.hello passed its 10000 ms deadline`.
 
-use pacer_plugin_runtime::{METHOD_PLUGIN_CALL, NativeHostSession};
+use pacer_plugin_runtime::{METHOD_PLUGIN_CALL, NativeHostSession, OwnerKey, authenticate};
 use serde_json::{Value, json};
 use std::{
     env, fs,
@@ -57,7 +57,7 @@ impl Bridge {
             }
         });
         let started = Instant::now();
-        let reply = dial(self.session.socket_path(), &request).await;
+        let reply = dial(self.session.socket_path(), self.session.key(), &request).await;
         (reply, started.elapsed())
     }
 
@@ -67,16 +67,15 @@ impl Bridge {
     }
 }
 
-async fn dial(path: &Path, request: &Value) -> Value {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+/// Prove the session's key, as Core does, then send one request.
+async fn dial(path: &Path, key: &OwnerKey, request: &Value) -> Value {
+    let mut reader = BufReader::new(UnixStream::connect(path).await.unwrap());
+    authenticate(&mut reader, key).await.unwrap();
     let mut bytes = serde_json::to_vec(request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut line = Vec::new();
-    BufReader::new(stream)
-        .read_until(b'\n', &mut line)
-        .await
-        .unwrap();
+    reader.read_until(b'\n', &mut line).await.unwrap();
     serde_json::from_slice(line.trim_ascii_end()).unwrap()
 }
 
