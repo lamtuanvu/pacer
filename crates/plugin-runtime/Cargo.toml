@@ -10,7 +10,7 @@ rust-version.workspace = true
 pacer-plugin-capabilities = { path = "../plugin-capabilities" }
 pacer-plugin-host = { path = "../plugin-host" }
 getrandom = "0.4"
-hmac = "0.12"
+hmac = "0.13"
 nix = { version = "0.31", features = ["fs", "user", "socket", "signal"] }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 sha2 = "0.10"
