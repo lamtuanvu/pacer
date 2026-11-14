@@ -8,11 +8,13 @@
 //! Core's own registry when the native host is off (private `call`), a
 //! [`SharedOwner`] in this process when it is on (serve, or a stdio connection
 //! with no live serve owner, ADR 0027), or the live serve owner a stdio
-//! connection attached to (private `relay`, plus `_host.plugin.stop`). With the
-//! host on, Core keeps the bookkeeping kinds prepare/spawn_spec/call_authority/
-//! ready/stop/changed/publish/log/crashed and never spawns a child itself. A
-//! local owner starts a child no sooner than Core's sealed `nextStartAt` and
-//! its own restart floor, and an in-flight call whose child died answers
+//! connection attached to (plus `_host.plugin.stop`). With the host on, every
+//! door's plugin call is the private `relay`: Core runs its sealed owner call
+//! on its owner socket with the method's flag-off deadline and answers the
+//! Core-run capabilities itself, and never spawns a child. Core also keeps the
+//! bookkeeping kinds prepare/stop/changed/publish/log/crashed. A local owner
+//! starts a child no sooner than Core's sealed `nextStartAt` and its own
+//! restart floor, and an in-flight call whose child died answers
 //! `plugin_unavailable` naming the plugin once the crash is on record.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
@@ -31,8 +33,7 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CallFailure, CrashReport, DoorRefusal, DoorRequest, OwnerKey, SharedOwner, StopOutcome,
-    call_door, stop_on_owner,
+    CrashReport, DoorRefusal, DoorRequest, OwnerKey, SharedOwner, StopOutcome, stop_on_owner,
 };
 use serde_json::{Value, json};
 use std::{
@@ -40,34 +41,7 @@ use std::{
     future::Future,
     path::PathBuf,
     sync::{Arc, Mutex},
-    time::Duration,
 };
-
-/// A failed sealed call as the error Core raises. A plugin's own JSON-RPC error reply keeps
-/// its code only when that is one of pacer's reply codes, as TypeScript `pluginReplyError`
-/// reads it; anything else is `plugin_unavailable`.
-fn call_error(failure: CallFailure) -> CoreError {
-    let code = match failure.code.as_str() {
-        "unknown_op" => Code::UnknownOp,
-        "unknown_task" => Code::UnknownTask,
-        "invalid_input" => Code::InvalidInput,
-        "unknown_executor" => Code::UnknownExecutor,
-        "conflict" => Code::Conflict,
-        "not_allowed" => Code::NotAllowed,
-        "plugin_timeout" => Code::PluginTimeout,
-        "plugin_refused" => Code::PluginRefused,
-        "capability_denied" => Code::CapabilityDenied,
-        "unknown_plugin" => Code::UnknownPlugin,
-        "not_found" => Code::NotFound,
-        "too_large" => Code::TooLarge,
-        _ => Code::PluginUnavailable,
-    };
-    let error = CoreError::new(code, failure.message);
-    match failure.hint {
-        Some(hint) => error.hint(hint),
-        None => error,
-    }
-}
 
 fn requires_owner(_: &Ctx, _: Value) -> OpFuture<'_> {
     Box::pin(async {
@@ -117,6 +91,8 @@ pub enum ProcessRpc {
     #[default]
     Core,
     /// A ProcessOwner in this process: serve's, or a stdio connection's own.
+    /// Calls relay through Core, whose `PACER_HOST_SOCKET` is this owner's;
+    /// the door stops lanes and clears restart floors here.
     Local(SharedOwner),
     /// The live serve owner at this `host.sock`, reached by a stdio connection:
     /// Core relays calls through its `PACER_HOST_SOCKET` (private `relay`);
@@ -440,10 +416,6 @@ fn internal(e: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, e.to_string())
 }
 
-/// A plugin call's absolute deadline on a local owner: any restart wait, the
-/// hello and the method.
-const CALL_DEADLINE: Duration = Duration::from_secs(30);
-
 impl Owner {
     async fn call_native(
         &mut self,
@@ -451,74 +423,16 @@ impl Owner {
         method: &str,
         params: Value,
     ) -> Result<Value, CoreError> {
-        let owner = match &self.rpc {
+        let kind = match &self.rpc {
             // Private `call` is retired once a ProcessOwner owns RPC.
-            ProcessRpc::Core => {
-                return self
-                    .request(json!({"kind":"call", "id":id, "method":method, "params":params}))
-                    .await;
-            }
-            // Core's registry seals the call to the serve owner and answers the
-            // plugin's capability requests over its own socket connection.
-            ProcessRpc::Attached(..) => {
-                return self
-                    .request(json!({"kind":"relay", "id":id, "method":method, "params":params}))
-                    .await;
-            }
-            ProcessRpc::Local(owner) => owner.clone(),
+            ProcessRpc::Core => "call",
+            // Core's registry seals the call to the owner on its socket, with the
+            // method's own deadline, and answers the plugin's Core-run capability
+            // requests (`secrets.resolve`, `identity.sign`, …) over its own connection.
+            ProcessRpc::Local(_) | ProcessRpc::Attached(..) => "relay",
         };
-        let spawn = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
-        // P4d-7: Core seals call-scoped CallResources before the plugin method.
-        let authority = self
-            .request(json!({"kind":"call_authority", "id":id, "method":method}))
-            .await?;
-        let call = call_door(
-            &owner,
-            id,
-            method,
-            params,
-            &spawn,
-            authority,
-            std::time::Instant::now() + CALL_DEADLINE,
-            spawn["state"] == "ready",
-        )
-        .await
-        .map_err(internal)?;
-        for (level, message) in call.logs {
-            // Logging must not replace the call's own result.
-            let _ = self
-                .request(json!({"kind":"log", "id":id, "level":level, "message":message}))
-                .await;
-        }
-        if let Some(ready) = call.ready {
-            let hello = &ready.hello;
-            let contributes = &spawn["hello"]["manifest"]["contributes"];
-            let served = hello["served"]
-                .as_array()
-                .into_iter()
-                .flatten()
-                .filter(|name| {
-                    *name == "diagnostic"
-                        || name
-                            .as_str()
-                            .is_some_and(|name| contributes.get(name).is_some())
-                })
-                .cloned()
-                .collect::<Vec<_>>();
-            let reported = self
-                .request(json!({
-                    "kind":"ready",
-                    "id":id,
-                    "protocol":hello["protocol"],
-                    "served":served,
-                }))
-                .await;
-            if reported.is_err() {
-                ready.unreported();
-            }
-            reported?;
-        }
-        call.value.map_err(call_error)
+        self.request(json!({"kind":kind, "id":id, "method":method, "params":params}))
+            .await
     }
 
     async fn stop_native(&mut self, id: &str) -> Result<Value, CoreError> {

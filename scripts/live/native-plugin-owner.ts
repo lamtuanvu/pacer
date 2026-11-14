@@ -217,7 +217,7 @@ export async function exerciseNativePluginOwner(session: Session): Promise<void>
     await startService(session);
     if ((await report(session)).ok !== true) throw Error("the plugin did not start after the service came back");
     record(session, { kind: "note", behavior, surface: "service", verdict: "PASS",
-      steps: "Hold plugin.ui.render (renderDelayMs 60000, past the 30 s call deadline), SIGTERM the service pid alone, wait for both to exit, start the service again",
+      steps: "Hold plugin.ui.render (renderDelayMs 60000), SIGTERM the service pid alone 1 s later, inside the 2 s ui.render deadline, wait for both to exit, start the service again",
       text: `With the render in flight, plugin process ${held.child} exited ${held.childGone} ms and service ${held.service} ${held.serviceGone} ms after the service's SIGTERM (grace ${GRACE_MS} ms); host.sock, its sidecar and every plugin process were gone. The held call ended with: ${held.reply}. The restarted service ${session.pid} started the plugin again.` });
   } catch (error) {
     record(session, { kind: "note", behavior, surface: "HTTP API", verdict: "FAIL", text: (error as Error).message });

@@ -419,6 +419,87 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     session.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_sealed_call_returns_its_logs_even_to_a_caller_that_shut_its_write_side() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let target = dial(&session);
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'fx-logs',version:'1.0.0',contributes:['diagnostic']}});else if(m.method==='log.then.fail'){pending=m.id;send({id:7,method:'capability.log',params:{level:'warn',message:'before failing'}});}else if(m.method==='log.then.hang')send({id:8,method:'capability.log',params:{level:'info',message:'before hanging'}});else if(m.id===7)send({id:pending,error:{code:-32000,message:'refused after logging',data:{code:'conflict'}}});}}"#,
+    )
+    .unwrap();
+    let request = |rpc: u64, method: &str| {
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-logs",
+                "method":method,
+                "params":{},
+                "deadlineMs":5000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"fx-logs","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"log"}],"contributes":{"diagnostic":{}}
+                        },
+                        "config":{},"grants":["log"],"features":[]
+                    },
+                },
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"commands":[],"hosts":[]},"grants":["log"],"ttlMs":10000},
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null}
+            }
+        })
+    };
+    tokio::task::yield_now().await;
+
+    let failed = dial_json(&target, request(40, "log.then.fail")).await;
+    assert_eq!(
+        failed["error"]["message"], "refused after logging",
+        "{failed}"
+    );
+    assert_eq!(
+        failed["error"]["data"]["logs"],
+        json!([{"level": "warn", "message": "before failing"}])
+    );
+
+    // Shutting the write side cancels the call; the final reply still carries its logs.
+    let mut reader = connect(&target).await;
+    let mut bytes = serde_json::to_vec(&request(41, "log.then.hang")).unwrap();
+    bytes.push(b'\n');
+    reader.get_mut().write_all(&bytes).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    reader.get_mut().shutdown().await.unwrap();
+    let mut line = Vec::new();
+    reader.read_until(b'\n', &mut line).await.unwrap();
+    let cancelled: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
+    assert_eq!(
+        cancelled["error"]["data"]["code"], "plugin_timeout",
+        "{cancelled}"
+    );
+    assert_eq!(
+        cancelled["error"]["data"]["logs"],
+        json!([{"level": "info", "message": "before hanging"}])
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-logs")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
     let home = temp_home();

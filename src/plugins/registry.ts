@@ -32,7 +32,7 @@ import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { observationGeneration, sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
-import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
+import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
@@ -2648,6 +2648,13 @@ export class PluginRegistry {
             ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport, hostBroker)
             : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
         }) : undefined;
+        // Written as soon as the owner answers, whether or not the call then fails, as flag-off writes each line on arrival.
+        const writeLogs = (logs: NativeOwnerReply["logs"]) => {
+          for (const line of logs) {
+            if (typeof line === "string") appendPluginLog(ctx, e.id, "stderr", line);
+            else appendPluginLog(ctx, e.id, line.level, line.message);
+          }
+        };
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
@@ -2677,7 +2684,8 @@ export class PluginRegistry {
           if (logReads) await prepareFilesystemAuthority(local!);
           if (writes) await prepareWriteAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal);
+          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          writeLogs(reply.logs);
           value = reply.value;
           // A child that sent its result in `$/resultChunk` pieces ends with a
           // `_chunkedResult` completion: assemble the staged bytes now, while the
@@ -2700,10 +2708,6 @@ export class PluginRegistry {
         // Re-check after the reply: a revocation racing the final reply line must still fail
         // the call before the planner install/uninstall transaction commits any write.
         if (effects) await checkPlannerGeneration();
-        for (const line of reply.logs) {
-          if (typeof line === "string") appendPluginLog(ctx, e.id, "stderr", line);
-          else appendPluginLog(ctx, e.id, line.level, line.message);
-        }
         if (reply.hello && e.state !== "ready") {
           this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
             reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));

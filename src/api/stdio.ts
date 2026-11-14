@@ -258,7 +258,7 @@ export async function runStdio(
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { pluginNativeRequest } = await import("../serve/plugin-native");
-          result = await pluginNativeRequest(getCtx(), (r.params as { request?: unknown }).request, { relay: true });
+          result = await pluginNativeRequest(getCtx(), (r.params as { request?: unknown }).request, { stdio: true });
           break;
         }
         case "_internal.setup.doctor": {

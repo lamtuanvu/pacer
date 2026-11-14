@@ -31,10 +31,11 @@ const operation = z.enum([
  * subscription's would. Each re-checks that the plugin is enabled, granted and
  * keeps the fingerprint the generation was sealed with.
  *
- * `relay` is the stdio door's `call` while it is attached to the serve owner
- * (ADR 0027): the registry seals the call to that owner over
- * `PACER_HOST_SOCKET` and answers the plugin's capability requests itself.
- * Only the sync-keyed stdio channel may send it.
+ * `relay` is a door's `call` flag-on (ADR 0027): the registry seals the call to
+ * the owner over `PACER_HOST_SOCKET`, with the method's flag-off deadline, and
+ * answers the plugin's Core-run capability requests itself. Serve's door and a
+ * stdio connection's door, attached or owning, send it; Core refuses it without
+ * an owner socket.
  */
 const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
 /** The exit reasons the native owner reports, as the registry's own `onExit` words them. */
@@ -114,9 +115,9 @@ const request = z.discriminatedUnion("kind", [
 
 /**
  * Called only after internal-generation authentication (HTTP) or the stdio sync
- * key, never on the public API. `relay` is set only by the stdio channel.
+ * key, never on the public API. `stdio` is set only by the stdio channel.
  */
-export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: boolean } = {}) {
+export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { stdio?: boolean } = {}) {
   try {
     const parsed = request.safeParse(raw);
     if (!parsed.success) throw new CoreError("invalid_input", "invalid private plugin request");
@@ -150,9 +151,9 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
             "private call is retired when the native process owner is active",
           );
         }
-        if (p.kind === "relay" && (!o.relay || !nativeOwnsChildren)) {
+        if (p.kind === "relay" && !nativeOwnsChildren) {
           // Without the owner socket the registry would spawn the child itself.
-          throw new CoreError("plugin_unavailable", "owner relay requires an attached stdio connection");
+          throw new CoreError("plugin_unavailable", "owner relay requires the native process owner");
         }
         // Doctor ignores successful ping payloads. Do not send arbitrary plugin
         // output through the native read bridge or execute a diagnostic twice.
@@ -184,7 +185,7 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
         // Only the owner this Core's door runs supervises children it could see die.
         if (!nativeOwnsChildren) throw new CoreError("plugin_unavailable", "crash reports require the native process owner");
         // A stdio Core on the home's `host.sock` is attached: the service's owner reports to the service's Core.
-        if (o.relay && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock") {
+        if (o.stdio && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock") {
           throw new CoreError("plugin_unavailable", "crash reports go to the Core of the door that owns the plugin");
         }
         reg.nativeCrash(ctx, p.id, p.reason);
@@ -193,7 +194,7 @@ export async function pluginNativeRequest(ctx: Ctx, raw: unknown, o: { relay?: b
       case "observation_read":
       case "observation_retired":
         // An owner lane's generation is the owning door's Core's to feed, as with crashes.
-        if (!nativeOwnsChildren || (o.relay && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock")) {
+        if (!nativeOwnsChildren || (o.stdio && basename(ctx.env.PACER_HOST_SOCKET!) === "host.sock")) {
           throw new CoreError("plugin_unavailable", "observations are served to the native owner of the door that owns the plugin");
         }
         if (p.kind === "observation_events") value = await reg.nativeObservationEvents(ctx, p.id, p.generation, p.since, p.types);

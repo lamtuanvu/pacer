@@ -142,9 +142,8 @@ test.skipIf(!front)("the assistant key reaches its own endpoint flag-on as flag-
     expect(seen.later).toEqual(seen.concurrent);
   }
   expect(off.concurrent).toEqual({ ok: false, error: "capability_denied: plugin fx-peek may not resolve assistant secrets" });
-  // DOOR_SECRET_TEXT: plugin.doctor runs on the Rust door's own owner call, which forwards no method to Core,
-  // so the owner's broker refuses the unissued secret with its own text and the same code.
-  expect(on.concurrent).toEqual({ ok: false, error: "capability_denied: capability is not granted to the owning call: secret alias was not issued" });
+  // The Rust door relays plugin.doctor through Core's sealed owner call, so Core refuses the other plugin as flag-off.
+  expect(on.concurrent).toEqual(off.concurrent);
   expect(on.endpointCalls["account.models keyless"]).toMatchObject({ message: refusal("endpoint.models") });
   expect(JSON.stringify(on.endpointCalls["account.test"])).toContain(refusal("endpoint.test"));
   expect(on.endpointCalls["routing.route goal"]).toMatchObject({ message: refusal("classifier.ask") });
