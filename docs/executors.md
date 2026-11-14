@@ -280,8 +280,9 @@ A setting that
 allows every Unix socket allows these too. The native plugin owner listens there, and a
 sandboxed process that can read `run/host.key` and connect could have the owner start
 plugin processes outside the sandbox. Pacer hands Core its own secrets on Core's stdin,
-not in its environment, so a sandbox that keeps the process out of your pacer home also
-keeps those secrets from it. See [ADR 0027](decisions/0027-one-native-plugin-owner-per-home.md).
+not in its environment, so on macOS a sandbox that keeps the process out of your pacer home
+also keeps those secrets from it. On Linux the sandbox must also hide other processes'
+`/proc` entries. See [ADR 0027](decisions/0027-one-native-plugin-owner-per-home.md).
 
 ## Session environment
 

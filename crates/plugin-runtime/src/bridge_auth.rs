@@ -1,9 +1,9 @@
 //! Core's credential on the reverse bridge (#918, ADR 0027).
 //!
 //! Every owner start draws a fresh 32-byte key that only the owner and its
-//! Cores hold. The owner hands it to its own Core child as
-//! [`HOST_SOCKET_KEY_ENV`], which Core removes from its environment before it
-//! starts anything. Serve also publishes it as `run/host.key` (0600, in the
+//! Cores hold. The owner hands it to its own Core child in the secrets frame on
+//! Core's stdin (`pacer-server` `core_secrets`), never in its environment.
+//! Serve also publishes it as `run/host.key` (0600, in the
 //! 0700 run directory) for the stdio connections that attach to it; an owning
 //! connection's key never touches disk.
 //!
@@ -28,7 +28,8 @@ use std::{
 use thiserror::Error;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader};
 
-/// The Core child's copy of the credential. Core removes it at startup.
+/// The credential's former environment name. No front door sets it; Core and
+/// the doors remove it so an inherited value reaches no child.
 pub const HOST_SOCKET_KEY_ENV: &str = "PACER_HOST_SOCKET_KEY";
 /// Serve's published credential beside `host.sock`, for attaching connections.
 pub const HOST_KEY_NAME: &str = "host.key";

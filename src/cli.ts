@@ -59,7 +59,7 @@ import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { shutdownPlugins } from "./plugins";
 import { holdOwnerKey } from "./plugins/host-bridge";
-import { CORE_SECRETS_ENV, CORE_SECRETS_STDIN, readCoreSecrets, scrubCoreSecrets, type CoreSecrets } from "./core-secrets";
+import { CORE_SECRETS_ENV, CORE_SECRETS_STDIN, LEGACY_CORE_SECRETS, legacyCoreSecrets, readCoreSecrets, scrubCoreSecrets, type CoreSecrets } from "./core-secrets";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -450,6 +450,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   let secretsOnStdin: boolean;
   let secrets: CoreSecrets = {};
   let nativeBootstrap;
+  const legacySecrets = legacyCoreSecrets(ctx.env);
   try {
     secretsOnStdin = scrubCoreSecrets(ctx.env);
     nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
@@ -659,6 +660,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "api": {
       if (rest[0] !== "--stdio") return apiCommand(rest, ctx);
       if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer api --stdio" };
+      if (legacySecrets) console.error(`pacer: ${LEGACY_CORE_SECRETS}`);
       async function* lines() {
         const decoder = new StringDecoder("utf8");
         let remainder = "";
@@ -686,7 +688,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
-      const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door`;
+      const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door${legacySecrets ? `; ${LEGACY_CORE_SECRETS}` : ""}`;
       if (internal && !nativeBootstrap && !secrets.internalToken) return { code: 2, out: "", err: tokenRequired };
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.

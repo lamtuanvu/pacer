@@ -59,6 +59,7 @@ impl CoreBuild<'_> {
                         .args(self.prefix)
                         .arg("--pacer-component-descriptor")
                         .envs(self.env)
+                        .env_remove(core_secrets::ANNOUNCE_ENV)
                         .stdin(Stdio::null())
                         .stderr(Stdio::inherit())
                         .kill_on_drop(true)
@@ -1160,6 +1161,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let mut ctx = Ctx::from_env();
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
+    ctx.env.remove(core_secrets::ANNOUNCE_ENV);
     // The core child's env fixes who owns plugin processes for this connection.
     let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
     crate::core_process::record_stdio(&env, &host_socket);

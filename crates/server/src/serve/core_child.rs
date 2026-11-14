@@ -70,7 +70,7 @@ impl CoreChild {
                 #[cfg(target_os = "macos")]
                 let result = if let Some(native) = &native {
                     command(&core, &env)
-                        .and_then(|mut command| native.start(&mut command, &secrets.frame()))
+                        .and_then(|mut command| native.start(&mut command, secrets.frame()))
                         .map(|(child, control)| (child, Some(control)))
                 } else {
                     start(&core, &env).map(|child| (child, None))

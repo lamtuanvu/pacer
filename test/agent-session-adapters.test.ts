@@ -46,14 +46,16 @@ test("Codex sessions keep the workspace-write sandbox with no socket, network or
     const options = argv.slice(0, argv.indexOf("--"));
     const resumed = "sessionId" in input;
     expect(options.slice(0, options[1] === "resume" ? 2 : 1)).toEqual(resumed ? ["codex", "resume"] : ["codex"]);
-    const sandboxes: string[] = [];
+    const sandboxes: string[] = [], writable: string[] = [];
     for (let i = resumed ? 2 : 1; i < options.length; i++) {
       const option = options[i]!;
       expect(option === "--no-daemon" || valued.has(option), `unexpected codex option ${option}`).toBe(true);
       if (option === "-s") sandboxes.push(options[i + 1]!);
+      if (option === "--add-dir") writable.push(options[i + 1]!);
       if (valued.has(option)) i++;
     }
     expect(sandboxes).toEqual(["workspace-write"]);
+    expect(writable).toEqual("attachmentDir" in input ? [base.runDir, input.attachmentDir] : [base.runDir]);
     for (const forbidden of ["--allow-unix-socket", "--sandbox", "-c", "--config", "-P", "--profile", "--full-auto",
       "--dangerously-bypass-approvals-and-sandbox", "--yolo", "danger-full-access"]) expect(options).not.toContain(forbidden);
     expect(options.join(" ")).not.toMatch(/unix_socket|network_access|sandbox_workspace_write|sandbox_mode/);

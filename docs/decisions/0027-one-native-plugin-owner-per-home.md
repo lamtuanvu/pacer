@@ -84,9 +84,13 @@ A pacer home has at most one native plugin owner that other front doors attach t
      `PACER_NATIVE_CONFIG_SYNC_KEY`). The frame is `pacer-core-secrets/1 <length>\n` followed by
      that many bytes of JSON, announced by the non-secret `PACER_CORE_SECRETS=stdin/1`. Core reads
      exactly those bytes once, at startup, before anything else reads stdin, and refuses to start
-     when the frame is missing or malformed. A signed paired Core receives the frame on its
-     parent channel after the descriptor byte, and reads it only after it has authenticated that
-     channel. An attaching stdio connection reads `run/host.key` after the
+     when the frame is missing, malformed or repeats a key, when stdin is a terminal, or when no
+     frame arrives within 10 seconds. Doors drop an inherited announcement from every other
+     child, so only a parent that writes a frame announces one. The door and Core must come from
+     the same build; a Core that sees another frame version, or an older door's environment
+     secrets, says so. A signed paired Core receives the descriptor byte on its parent channel,
+     authenticates the channel and acknowledges; serve writes the frame only after that
+     acknowledgement. An attaching stdio connection reads `run/host.key` after the
      peer check in item 2: the file must be a regular file opened without following symlinks,
      owned by the current user with no group or other access, and written no earlier than the
      socket. It waits up to 2 seconds for a restarting serve to publish it; otherwise it treats
@@ -261,7 +265,11 @@ to serve's Core.
   `$PACER_HOME/run` or the per-user directory of item 5 (allowing all Unix sockets allows
   these). With such an allowance a sandboxed process can read `run/host.key` and drive the
   owner, which then starts processes outside that sandbox. Core's secrets travel on its stdin,
-  so a sandbox that denies reads of the home also keeps them from a sandboxed process.
+  so on macOS a sandbox that denies reads of the home also keeps them from a sandboxed process.
+  On Linux that alone is not enough: a same-user process allowed to ptrace Core (the check that
+  guards `/proc/<pid>/environ`) can open `/proc/<core>/fd/0` and race Core for the frame while
+  Core starts. Core then refuses to start, so the race is visible; the sandbox must also hide
+  other processes' `/proc` entries ([#973](https://github.com/lamtuanvu/pacer/issues/973)).
 - **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
   orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
   `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants
