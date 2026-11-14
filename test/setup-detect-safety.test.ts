@@ -20,6 +20,7 @@ for (const headlessCursor of [false, true]) {
         return { code: 0, stdout: argv[0] === "lms" ? "[]" : "1.2.3", stderr: "" };
       },
     });
+    ctx.env.LMS_API_SERVER_INFO_PATH = undefined;
     withVersionFixtures(ctx);
     const request = spyOn(globalThis, "fetch").mockResolvedValue(Response.json({ models: [] }));
     try {
@@ -72,6 +73,7 @@ test("LM Studio discovery never retries without an explicit port when its server
   const ctx = fakeCtx({ which: bin => bin === "lms" ? "/fake/lms" : null,
     run: async argv => { calls.push(argv); return { code: 1, stdout: "", stderr: "server is not running" }; },
   });
+  ctx.env.LMS_API_SERVER_INFO_PATH = undefined;
   expect(await detect(ctx)).toMatchObject({ clis: { lms: "/fake/lms" }, lmstudioModel: null });
   expect(calls).toEqual([["lms", "ls", "--json", "--port", "41343"]]);
 });
@@ -81,6 +83,7 @@ test("LM Studio discovery uses its published API port without launching an app",
   const ctx = fakeCtx({ which: bin => bin === "lms" ? "/fake/lms" : null,
     run: async argv => { calls.push(argv); return { code: 0, stdout: '[{"type":"llm","modelKey":"qwen"}]', stderr: "" }; },
   });
+  ctx.env.LMS_API_SERVER_INFO_PATH = undefined;
   const dir = join(ctx.home, ".lmstudio", ".internal");
   mkdirSync(dir, { recursive: true });
   writeFileSync(join(dir, "http-server.json"), JSON.stringify({ port: 52993 }));

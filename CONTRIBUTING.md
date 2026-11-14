@@ -8,7 +8,7 @@ bun run typecheck
 bun run test
 ```
 
-The test script pins `TZ=Asia/Ho_Chi_Minh` because some tests depend on local dates and active-hour bins. Use `bun run test` for the consistent timezone.
+The test script pins `TZ=Asia/Ho_Chi_Minh` because some tests depend on local dates and active-hour bins. Use `bun run test` for the consistent timezone and local service isolation; see [test isolation](docs/testing/test-isolation.md).
 
 When changing `app/`, also run `bun run app:build` and include its generated assets. Use the exact Bun version pinned in `.github/workflows/ci.yml` (currently 1.4.2) to generate and validate these assets: compiler output can differ between patch releases. A test checks that the embedded app assets are fresh. Re-run tests after rebuilding.
 

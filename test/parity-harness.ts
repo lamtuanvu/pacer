@@ -1,3 +1,4 @@
+import { childEnv, pinnedEnv } from "./child-env";
 /** Migration preparation only: equal forwarded responses do not prove native parity. */
 import { cpSync, lstatSync, mkdtempSync, readdirSync, readFileSync, readlinkSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -34,7 +35,7 @@ class Session {
   constructor(command: string[], home: string, readyLine?: string, extraEnv: Record<string, string> = {}) {
     // Do not inherit provider tokens, host sockets, or the user's native homes.
     this.child = Bun.spawn(command, {
-      env: { HOME: home, PACER_HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "Asia/Ho_Chi_Minh", LANG: "C", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", ...extraEnv },
+      env: pinnedEnv({ ...childEnv(home), PACER_HOME: home, PATH: process.env.PATH ?? "/usr/bin:/bin", TZ: "Asia/Ho_Chi_Minh", LANG: "C", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", ...extraEnv }),
       stdin: "pipe", stdout: "pipe", stderr: "pipe",
     });
     this.reader = this.child.stdout.getReader();

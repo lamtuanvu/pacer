@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -34,7 +35,7 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
   mkdirSync(join(home, ".pacer"), { recursive: true });
   const original = "planner: claude-code\nproviders:\n  codex: {usage: quota}\n";
   writeFileSync(join(home, ".pacer", "strategy.yaml"), original);
-  const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: home, PACER_RELEASE_BASE: pathToFileURL(releases).href };
+  const env = { PATH: process.env.PATH ?? "/usr/bin:/bin", ...childEnv(home), PACER_RELEASE_BASE: pathToFileURL(releases).href };
 
   expect((await run([pacer, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
   const check = await run([pacer, "update", "--check"], env);

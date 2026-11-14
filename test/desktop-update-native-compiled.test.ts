@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { join, resolve } from "node:path";
 import { chmodSync, mkdirSync, readFileSync, readdirSync, realpathSync, renameSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
@@ -19,7 +20,7 @@ test("compiled fixture transport requires its fixed signed native shim and never
  success([process.execPath,"build","--compile","test/fixtures/desktop-update/compiled-socket.ts","--define",'PACER_BUILD_VERSION="0.2.3"',"--define",`PACER_BUILD_OTA_FIXTURE=${JSON.stringify(JSON.stringify(policy))}`,"--outfile",executable]);
  const sign=(path:string,identifier:string,extra:string[]=[])=>success(["/usr/bin/codesign","--force","--sign","-","--identifier",identifier,...extra,path]);
  sign(executable,FIXTURE_IDENTIFIERS.cli,["--entitlements",entitlements]);
- const execute=()=>run([executable,"serve","--port","54321"],{HOME:home,PATH:"/usr/bin:/bin:/usr/sbin:/sbin"});
+ const execute=()=>run([executable,"serve","--port","54321"],{...childEnv(home,54321),PATH:"/usr/bin:/bin:/usr/sbin:/sbin"});
  const smokeDirectories=()=>readdirSync("/private/tmp").filter(name=>name.startsWith("pacer-native-smoke-")).sort();
  const beforeSmoke=smokeDirectories();
  const missing=execute();expect(missing.exitCode).not.toBe(0);

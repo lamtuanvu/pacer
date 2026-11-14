@@ -1,3 +1,4 @@
+import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -16,9 +17,8 @@ async function exchange(home: string, forward: boolean) {
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "snapshot.get", params: {} });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      HOME: home,
-      PACER_HOME: join(home, ".pacer"),
-      PATH: agentFreePath,
+      ...childEnv(home),
+      PATH: `${fakeServiceManager(home)}:${agentFreePath}`,
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1",

@@ -8,7 +8,7 @@ const goodFetch = (async () => Response.json({ ok: true, pid: 456 }, { headers: 
 function mac(label?: string) {
   const calls: string[][] = [];
   const ctx = fakeCtx({ env: { PATH: "/bin:/usr/bin", PACER_BIN: "/opt/pacer" }, which: () => null, run: async argv => { calls.push(argv); return { code: 0, stdout: "service = {\n state = running\n pid = 456\n last exit code = 0\n}\n", stderr: "" }; } });
-  return { ctx, calls, d: { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, waitMs: 0, ...(label ? { label } : {}) } as ServiceDeps };
+  return { ctx, calls, d: { platform: "darwin", uid: 501, argv: ["/opt/pacer"], fetch: goodFetch, port: 4317, waitMs: 0, ...(label ? { label } : {}) } as ServiceDeps };
 }
 
 test("a release build keeps the real launchd label", () => {
