@@ -6,6 +6,7 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { runStdio } from "../src/api/stdio";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
+import { useOwnerKey } from "./fixtures/owner-auth";
 import { fakeCtx } from "./helpers";
 import { alive, front, makeHome, normalize, ownerOn, recordingMain, semantic, serve, starts, stdio, tsOwner, type Home, type Reply } from "./native-plugin-door";
 
@@ -265,6 +266,8 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
     const relay = { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} };
     expect((await pluginNativeRequest(off, relay) as any).error).toMatchObject(refusal);
     const socket = join(h.state, "run", "host.sock");
+    // Core checks its credential before dialing; hold one so the missing socket is what fails.
+    useOwnerKey();
     const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, PACER_HOST_SOCKET: socket } });
     const unreachable = (await pluginNativeRequest(on, relay) as any).error;
     expect(unreachable.code).toBe("plugin_unavailable");

@@ -30,7 +30,8 @@ use std::{
 };
 use tokio::sync::{Mutex, watch};
 
-const HELLO_DEADLINE: Duration = Duration::from_secs(5);
+/// The registry's `HELLO_DEADLINE_MS`; the call's own deadline still bounds it.
+const HELLO_DEADLINE: Duration = Duration::from_secs(10);
 const DEFAULT_TTL_MS: u64 = 30_000;
 /// How long a restart waits for the stopped child's lane to settle.
 const RESTART_SETTLE: Duration = Duration::from_secs(5);
@@ -73,6 +74,22 @@ fn expired() -> CallFailure {
 
 fn cancelled() -> CallFailure {
     failure("plugin_timeout", "plugin call was cancelled")
+}
+
+/// A hello that outlived its own cap, as the registry's request timer words it.
+/// When the call's deadline ends the wait first, the call has expired instead.
+fn hello_failure(error: OwnerError, wait: Duration) -> CallFailure {
+    match &error {
+        OwnerError::Process(text)
+            if wait == HELLO_DEADLINE && *text == ProcessError::Timeout.to_string() =>
+        {
+            failure(
+                "plugin_timeout",
+                format!("plugin.hello passed its {} ms deadline", wait.as_millis()),
+            )
+        }
+        _ => call_failure(error, "plugin_refused"),
+    }
 }
 
 /// Keep timeouts and the child's own `{message, data:{code, hint}}` error.
@@ -706,7 +723,7 @@ impl Prepared {
                             Err(error) => {
                                 return Err(match crash_message(lane, id, "plugin.hello").await {
                                     Some(message) => unavailable(message),
-                                    None => call_failure(error.into(), "plugin_refused"),
+                                    None => hello_failure(error.into(), wait),
                                 });
                             }
                         };
