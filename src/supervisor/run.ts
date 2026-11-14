@@ -145,7 +145,6 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
     if (o.requireRecordedExit) throw new Error("detached run stop has no recorded exit");
     return { code: 137, killed: false };
   };
-  if (s.pid === null || !s.alive) return noReceipt();
   const end = Date.now() + (o.graceMs ?? 5000);
   // The wrapper can exit before its atomic exit receipt appears. Once it is gone,
   // wait within the original grace period rather than signalling an unowned PID.
@@ -156,6 +155,13 @@ export async function stopRun(dir: string, o: { graceMs?: number; sleep?: (ms: n
       await sleep(50);
     }
   };
+  if (s.pid === null) return noReceipt();
+  if (!s.alive) {
+    // A stop that began after the wrapper died, such as a retried completion, still needs its receipt.
+    if (!o.requireRecordedExit) return noReceipt();
+    const exit = await waitForExit();
+    return exit === null ? noReceipt() : { code: exit, killed: false };
+  }
   // The parent publishes pid before the wrapper installs its traps and starts the child.
   // Wait for child readiness so an immediate stop can record a graceful TERM exit.
   while (!existsSync(join(dir, "child")) && Date.now() < end) {
