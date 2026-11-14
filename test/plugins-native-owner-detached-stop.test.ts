@@ -104,6 +104,9 @@ async function orphanStop(nativeHost: "0" | "1") {
     await poll(() => alive(readTask(ctx, id)!.runnerPid!), up => !up, 10000);
     logs += await serve.stop();
     serve = undefined;
+    // The killed runner may have died holding the task lock, which pacer takes over only after
+    // it is 120 s stale. With the runner and serve gone nothing can hold it, so release it here.
+    rmSync(join(h.state, "orca", `task-${id}.lock`), { force: true });
     const orphaned = { running: readTask(ctx, id)?.state === "running", codex: alive(codex) };
     expect(taskStop(ctx, id)?.stopPending?.reason).toBe("user");
     serve = await door(h, nativeHost);
