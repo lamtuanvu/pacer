@@ -23,7 +23,7 @@ import { realRun } from "./helpers";
 import { startRun, readRun } from "../src/supervisor/run";
 import { eligibility } from "./fixtures/eligibility";
 import { defaultHooks } from "../src/classify/hooks";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, readPid, waitPid } from "./helpers";
 
 function fixture() {
   const home = mkdtempSync(join(tmpdir(), "pacer-direct-current-"));
@@ -72,8 +72,8 @@ async function orphanAgent(ctx: ReturnType<typeof fakeCtx>, dir: string, cwd: st
   let child: number | undefined;
   try {
     chmodSync(dir, 0o700);
-    await waitFor("the agent's child record and signal traps", () => existsSync(join(dir, "child")) && existsSync(ready));
-    child = Number(readFileSync(join(dir, "child"), "utf8"));
+    await waitFor("the agent's child record and signal traps", () => readPid(join(dir, "child")) !== undefined && existsSync(ready));
+    child = readPid(join(dir, "child"))!;
     process.kill(launched.pid, "SIGKILL");
     // A wrapper still exiting (state E) has lost its command line but keeps its PID, which
     // orphan cleanup must treat as a reused PID; wait until it is gone or a zombie.
@@ -1272,8 +1272,7 @@ test(`live wrapper past the ${cleanupExpired ? "cleanup" : "stop request"} deadl
     if ("error" in launched) throw new Error(launched.error);
     pid = launched.pid;
     chmodSync(dir, 0o700);
-    for (let i = 0; i < 100 && !existsSync(join(dir, "child")); i++) await Bun.sleep(20);
-    const child = Number(readFileSync(join(dir, "child"), "utf8"));
+    const child = await waitPid(join(dir, "child"), 2000);
     await Bun.sleep(100);
     expect(readRun(dir).alive).toBe(true);
     expect(process.kill(child, 0)).toBe(true);

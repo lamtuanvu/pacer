@@ -1,12 +1,12 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { serviceCli } from "../src/service/cli";
 import { plist, servicePath, type ServiceDeps } from "../src/service";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { processIdentity } from "../src/update/desktop/process-identity";
 import { terminalChildBelongsToHost } from "../src/service/running-work";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, tmpDir, waitPid } from "./helpers";
 
 function installed() {
   const calls: string[][] = [];
@@ -66,8 +66,7 @@ test("--stop-work signals an identity-matched executor's process group", async (
   const child = Bun.spawn(["sh", "-c", 'sleep 30 & echo $! > "$1"; wait', "sh", grandchildFile], { detached: true });
   let grandchild = 0;
   try {
-    for (let i = 0; i < 100 && !existsSync(grandchildFile); i++) await Bun.sleep(20);
-    grandchild = Number(readFileSync(grandchildFile, "utf8").trim());
+    grandchild = await waitPid(grandchildFile, 2000);
     expect(grandchild).toBeGreaterThan(1);
     const real = processIdentity(child.pid)!;
     const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 600 });

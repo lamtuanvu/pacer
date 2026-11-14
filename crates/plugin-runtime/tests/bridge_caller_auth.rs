@@ -11,7 +11,7 @@ use pacer_plugin_runtime::{
 };
 use serde_json::{Value, json};
 use std::{
-    env, fs,
+    env, fs, io,
     os::unix::fs::MetadataExt,
     path::Path,
     time::{Duration, Instant},
@@ -34,11 +34,16 @@ fn temp_home() -> tempfile::TempDir {
 /// Answers hello and reports which spec started it and its pid.
 const WHO_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='';const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'pacer-assistant',version:'1.0.0',contributes:['diagnostic']}});else if(m.method==='diagnostic.ping')send({id:m.id,result:{who:process.argv.at(-1),pid:process.pid}});}}"#;
 
+/// The owner's `BufReader` default capacity. A refused frame larger than this
+/// leaves bytes unread, so Linux reports the close as a reset on every runner.
+const OWNER_READ_BUFFER: usize = 8 * 1024;
+const PAD_BYTES: usize = 32 * 1024;
+
 fn spec(who: &str, home: &Path) -> Value {
     json!({
         "argv":["bun", "-e", WHO_CHILD, who],
         "cwd":home.display().to_string(),
-        "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+        "env":{"PATH":env::var("PATH").unwrap(),"PAD":"x".repeat(PAD_BYTES)},
     })
 }
 
@@ -101,28 +106,28 @@ async fn exchange_raw(socket: &Path, frame: &[u8]) -> Vec<Value> {
     let mut stream = BufReader::new(UnixStream::connect(socket).await.unwrap());
     // The owner may refuse and close before reading a large frame to its end.
     let _ = stream.get_mut().write_all(frame).await;
-    let mut replies = Vec::new();
-    loop {
-        let mut line = Vec::new();
-        // The owner closes a refused connection well before this timeout.
-        let read =
-            tokio::time::timeout(Duration::from_secs(15), stream.read_until(b'\n', &mut line))
-                .await
-                .unwrap();
-        if read.unwrap() == 0 {
-            return replies;
-        }
-        replies.push(serde_json::from_slice(&line).unwrap());
-    }
+    lines_until_close(&mut stream).await
 }
 
+/// Messages name the frame's method, never its text.
 async fn assert_refuses_every_frame(socket: &Path, home: &Path) {
     for frame in frames(home) {
+        let parsed = serde_json::from_slice::<Value>(&frame).ok();
+        let what = parsed.as_ref().map_or("not json", |frame| {
+            frame["method"].as_str().unwrap_or("reply")
+        });
+        if parsed.as_ref().is_some_and(|frame| {
+            frame["params"]["spawn"].is_object() || frame["params"]["argv"].is_array()
+        }) {
+            assert!(
+                frame.len() > OWNER_READ_BUFFER,
+                "{what}: {} bytes",
+                frame.len()
+            );
+        }
         let replies = exchange_raw(socket, &frame).await;
-        let text = String::from_utf8_lossy(&frame);
-        assert_eq!(replies.len(), 1, "{text} -> {replies:?}");
-        assert_eq!(replies[0]["error"]["code"], -32001, "{text} -> {replies:?}");
-        assert_eq!(replies[0]["error"]["message"], "unauthorized");
+        assert_refused(&replies, what);
+        assert_eq!(replies[0]["error"]["message"], "unauthorized", "{what}");
     }
 }
 
@@ -266,13 +271,12 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
     bytes.push(b'\n');
     bytes.extend(serde_json::to_vec(&sealed(1, home.path())).unwrap());
     bytes.push(b'\n');
+    assert!(bytes.len() > OWNER_READ_BUFFER, "{} bytes", bytes.len());
     let _ = stream.get_mut().write_all(&bytes).await;
-    line.clear();
-    stream.read_line(&mut line).await.unwrap();
-    let refused: Value = serde_json::from_str(&line).unwrap();
-    assert_eq!(refused["error"]["code"], -32001, "{refused}");
-    line.clear();
-    assert_eq!(stream.read_line(&mut line).await.unwrap(), 0, "{line}");
+    assert_refused(
+        &lines_until_close(&mut stream).await,
+        "wrong proof and a call",
+    );
     assert!(
         session
             .owner()
@@ -285,20 +289,23 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
 }
 
 /// Every line the owner sends on `stream` until it closes the connection.
+/// Linux reports a close that left our bytes unread as a reset instead of EOF,
+/// but only after every line the owner sent before closing.
 async fn lines_until_close(stream: &mut BufReader<UnixStream>) -> Vec<Value> {
     let mut lines = Vec::new();
     loop {
         let mut line = Vec::new();
         // The owner closes a refused connection well before this timeout.
         let read =
-            tokio::time::timeout(Duration::from_secs(5), stream.read_until(b'\n', &mut line))
+            tokio::time::timeout(Duration::from_secs(15), stream.read_until(b'\n', &mut line))
                 .await
-                .unwrap()
                 .unwrap();
-        if read == 0 {
-            return lines;
+        match read {
+            Ok(0) => return lines,
+            Ok(_) => lines.push(serde_json::from_slice(&line).unwrap()),
+            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => return lines,
+            Err(error) => panic!("reading the owner's replies: {error}"),
         }
-        lines.push(serde_json::from_slice(&line).unwrap());
     }
 }
 
@@ -309,8 +316,9 @@ async fn send(stream: &mut BufReader<UnixStream>, frame: &Value) {
 }
 
 fn assert_refused(replies: &[Value], what: &str) {
-    assert_eq!(replies.len(), 1, "{what}: {replies:?}");
-    assert_eq!(replies[0]["error"]["code"], -32001, "{what}: {replies:?}");
+    let errors: Vec<_> = replies.iter().map(|reply| &reply["error"]).collect();
+    assert_eq!(replies.len(), 1, "{what}: {errors:?}");
+    assert_eq!(replies[0]["error"]["code"], -32001, "{what}: {errors:?}");
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
