@@ -232,7 +232,7 @@ test("service exit terminates the owned duplex SSH process group", async () => {
       {deadlineMs:Date.now()+5000,grants:['process.spawn']});
     prepareSpawnAuthority(authority);
     await answerDuplex(authority,['ssh'],'capability.process.duplex.open',{argv,timeoutMs:1000});
-    const written=()=>{try{return /^[1-9]\\d*$/.test(readFileSync(${JSON.stringify(pidFile)},'utf8').trim());}catch{return false;}};
+    const written=()=>{try{return /^[1-9]\\d*$/.test(readFileSync(argv[1],'utf8').trim());}catch{return false;}};
     for(let i=0;i<100&&!written();i++) await Bun.sleep(10);
     process.exit(written()?0:2);
   `);
