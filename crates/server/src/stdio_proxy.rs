@@ -439,26 +439,6 @@ async fn forward_input<
                     }
                     continue;
                 }
-                if crate::native::preview_ops::needs_dispatch_parts(op.name) {
-                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut bridge = crate::native::dispatch_preview_sync::StdioBridge {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
-                    };
-                    let result = crate::native::preview_ops::dispatch_preview(
-                        &request_ctx,
-                        op.name,
-                        params,
-                        &mut bridge,
-                    )
-                    .await;
-                    if let Some(id) = request.get("id") {
-                        write_line(out, &rpc_line(id, result)?).await?;
-                    }
-                    continue;
-                }
                 if pacer_config_ops::setup_effects::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let mut effects = crate::native::setup_effects_sync::StdioEffects {
