@@ -124,9 +124,16 @@ test("provider generation retirement during fetch aborts the effect and discards
     value => { discarded.push(value); });
   void pending.catch(() => {});
   await started;
+  // The host's periodic generation validation observes the flip within one watch
+  // tick and aborts the active fetch. Wait on the effect's abort event rather
+  // than a wall-clock bound: the tick is a fixed 100ms interval that heavy CI
+  // load can delay, so a hard clock short-circuit is the race here.
+  const effectAborted = new Promise<void>(resolve => {
+    if (effectSignal!.aborted) return resolve();
+    effectSignal!.addEventListener("abort", () => resolve(), { once: true });
+  });
   f.retireProvider();
-  const until = Date.now() + 500;
-  while (!effectSignal!.aborted && Date.now() < until) await Bun.sleep(10);
+  await effectAborted;
   expect(effectSignal!.aborted).toBe(true);
   finish(result);
   await expect(pending).rejects.toBeDefined();
