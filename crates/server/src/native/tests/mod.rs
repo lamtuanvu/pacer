@@ -110,6 +110,8 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.models",
         "dispatch.refresh",
         "dispatch.enforcement.consent",
+        "dispatch.preview",
+        "dispatch.explain",
         "insights.summary",
         "discovery.set",
         "discovery.respond",
@@ -133,8 +135,6 @@ fn forward_override_removes_only_selected_native_ops() {
         assert!(registry(name).get(name).is_none(), "{name}");
     }
     for name in [
-        "dispatch.explain",
-        "dispatch.preview",
         "dispatch.enforcement",
         "dispatch.enforcement.probe",
         "dispatch.enforcement.denied",

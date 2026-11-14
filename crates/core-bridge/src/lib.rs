@@ -2,6 +2,7 @@
 pub mod config_host_sync;
 pub mod config_sync;
 pub mod core_bridge_sync;
+pub mod dispatch_parts_sync;
 pub mod host_mut_sync;
 pub mod host_read_sync;
 pub mod msg_write_sync;

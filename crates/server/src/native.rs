@@ -14,6 +14,7 @@ use pacer_config_ops::executor_setup_ops;
 pub(crate) use pacer_core_bridge::config_host_sync;
 pub(crate) use pacer_core_bridge::config_sync;
 pub(crate) use pacer_core_bridge::core_bridge_sync;
+pub(crate) use pacer_core_bridge::dispatch_parts_sync;
 use pacer_discovery_ops::{discovery_ops, network_ops};
 use pacer_dispatch_ops::dependency_writes;
 use pacer_dispatch_ops::dispatch_ops;
@@ -21,6 +22,9 @@ use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
+pub(crate) use pacer_dispatch_ops::preview_ops;
+pub(crate) mod dispatch_preview_sync;
+pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
 use pacer_dispatch_ops::tier_targets_ops;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
@@ -772,6 +776,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.enforcement.consent",
         call: planning_ops::dispatch_enforcement_consent,
+    },
+    NativeOp {
+        name: "dispatch.preview",
+        call: preview_ops::preview_stub,
+    },
+    NativeOp {
+        name: "dispatch.explain",
+        call: preview_ops::preview_stub,
     },
     NativeOp {
         name: "insights.summary",

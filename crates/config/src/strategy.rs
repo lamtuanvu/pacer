@@ -139,7 +139,8 @@ fn provider_name(id: &str) -> String {
         }
     }
 }
-fn display_name(id: &str) -> String {
+/// `displayName(id)` (`src/render/accounts.ts`) for a well-formed runner id.
+pub fn display_name(id: &str) -> String {
     let (agent, account) = id.split_once('#').map_or((id, None), |(a, b)| (a, Some(b)));
     if agent == "opencode" {
         return account.map_or_else(|| provider_name(agent), provider_name);
