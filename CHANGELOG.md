@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Security
+
+- Harden TypeScript strategy, project policy and integration writes with atomic private-file replacement. Preserve existing shared directory permissions and integration rollback owner modes; create missing directories with 0700 and tighten only explicitly owned pacer state directories.
+
 ### Added
 
 - A **Model matrix** page under Settings → Dispatcher (`#/settings/models`) shows every model each executor can run from its provider listing and declared models: turn models on or off, rate their size (Small / Medium / Frontier, or back to Unrated), add a model by ID when the listing is unknown, and suggest on/off and sizes from provider price and tool facts. **Save matrix** writes only the executors whose models or default changed in one revision-checked `runner.models.set_many` edit, preserving each declared model's strengths, tools and context. The planner executor is read-only here.
