@@ -1258,6 +1258,7 @@ mod tests {
     use serde_json::{Value, json};
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn hello_reports_the_package_version_in_typescript_key_order() {
         let package: Value = serde_json::from_str(include_str!("../../../package.json")).unwrap();
         let keys = |body: &Value| {
