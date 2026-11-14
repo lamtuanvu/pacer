@@ -18,13 +18,17 @@ const runners = z.array(z.string().min(1).max(256)).max(512);
  *   read-only.
  * - `dispatch.enforcement-exclusions`: native-control enforcement for each runner in `repo`. `cached: true` is
  *   explain's read-only `enforcementExclusionCached`; `false` is preview's `enforcementExclusion`, which may run
- *   `--version` and fills the version cache.
+ *   `--version` and fills the version cache. A `draft` is read only, so it requires `cached: true`.
  */
 const params = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("dispatch.executor-guards"), runners, draft: draftSchema.optional() }).strict(),
   z.object({ kind: z.literal("dispatch.enforcement-exclusions"), repo: z.string().min(1).max(4096), runners,
-    cached: z.boolean(), draft: draftSchema.optional() }).strict(),
+    cached: z.boolean(), draft: draftSchema.optional() }).strict()
+    .refine(p => !p.draft || p.cached, { path: ["draft"], message: "requires cached: true" }),
 ]);
+
+/** The largest request either route accepts: an explain's draft (64 KiB) and the strategy's runner ids. */
+export const DISPATCH_PARTS_MAX = 256 * 1024;
 
 function draft(ctx: Ctx, input: z.output<typeof draftSchema>) {
   try { return draftStrategy(ctx, input); }

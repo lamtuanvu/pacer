@@ -27,6 +27,14 @@ fn map_body(value: &Value) -> Result<Value, CoreError> {
 }
 
 pub async fn http(target: Option<(u16, String)>, params: Value) -> Result<Value, CoreError> {
+    http_within(DEADLINE, target, params).await
+}
+
+async fn http_within(
+    deadline: Duration,
+    target: Option<(u16, String)>,
+    params: Value,
+) -> Result<Value, CoreError> {
     use axum::body::Body;
     use http_body_util::{BodyExt, Limited};
     use hyper_util::{
@@ -57,12 +65,23 @@ pub async fn http(target: Option<(u16, String)>, params: Value) -> Result<Value,
             .map_err(|_| unavailable("invalid dispatch parts response"))?;
         map_body(&value)
     };
-    tokio::time::timeout(DEADLINE, run)
+    tokio::time::timeout(deadline, run)
         .await
         .map_err(|_| unavailable("dispatch parts bridge timed out"))?
 }
 
 pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
+    core: &mut W,
+    prefix: &str,
+    key: &str,
+    params: Value,
+    replies: &mut tokio::sync::mpsc::UnboundedReceiver<Value>,
+) -> Result<Value, CoreError> {
+    stdio_within(DEADLINE, core, prefix, key, params, replies).await
+}
+
+async fn stdio_within<W: tokio::io::AsyncWrite + Unpin>(
+    deadline: Duration,
     core: &mut W,
     prefix: &str,
     key: &str,
@@ -91,7 +110,7 @@ pub async fn stdio<W: tokio::io::AsyncWrite + Unpin>(
     core.flush()
         .await
         .map_err(|_| unavailable("dispatch parts channel closed"))?;
-    tokio::time::timeout(DEADLINE, receive(replies, &id))
+    tokio::time::timeout(deadline, receive(replies, &id))
         .await
         .map_err(|_| unavailable("dispatch parts bridge timed out"))?
 }
@@ -114,7 +133,7 @@ async fn receive(
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::unwrap_used)]
+    #![allow(clippy::unwrap_used, clippy::expect_used)]
     use super::*;
     use serde_json::json;
 
@@ -148,6 +167,55 @@ mod tests {
             receive(&mut rx, &id).await.unwrap_err().code,
             Code::InvalidInput
         );
+    }
+
+    #[tokio::test]
+    async fn a_core_that_never_answers_times_out_and_leaves_nothing_open() {
+        use tokio::io::AsyncReadExt;
+        assert_eq!(DEADLINE, Duration::from_secs(30));
+        let short = Duration::from_millis(200);
+        let guard = Duration::from_secs(5);
+
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let port = listener.local_addr().unwrap().port();
+        let core = tokio::spawn(async move {
+            let (mut socket, _) = listener.accept().await.unwrap();
+            let (mut request, mut buf) = (Vec::new(), [0u8; 4096]);
+            // Read until the client closes the connection, never answering.
+            while let Ok(n @ 1..) = socket.read(&mut buf).await {
+                request.extend_from_slice(&buf[..n]);
+            }
+            String::from_utf8(request).unwrap()
+        });
+        let params = json!({"kind": "dispatch.executor-guards", "runners": []});
+        let call = http_within(short, Some((port, "t".into())), params.clone());
+        let error = tokio::time::timeout(guard, call)
+            .await
+            .expect("the bridge waits past its deadline")
+            .unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (Code::Unavailable, "dispatch parts bridge timed out")
+        );
+        let request = tokio::time::timeout(guard, core)
+            .await
+            .expect("the connection stays open after the deadline")
+            .unwrap();
+        assert!(request.starts_with("POST /_internal/dispatch-parts "));
+
+        let (tx, mut rx) = tokio::sync::mpsc::unbounded_channel();
+        let mut sink = Vec::new();
+        let call = stdio_within(short, &mut sink, "p", "k", params, &mut rx);
+        let error = tokio::time::timeout(guard, call)
+            .await
+            .expect("the bridge waits past its deadline")
+            .unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str()),
+            (Code::Unavailable, "dispatch parts bridge timed out")
+        );
+        assert_eq!(sink.iter().filter(|b| **b == b'\n').count(), 1);
+        drop(tx);
     }
 
     #[tokio::test]

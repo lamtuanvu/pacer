@@ -69,7 +69,8 @@ export async function runStdio(
             throw new CoreError("unknown_op", "unknown operation");
           }
           const { key: _key, ...params } = r.params as Record<string, unknown>;
-          const { dispatchPartsFor } = await import("./dispatch-parts-bridge");
+          const { dispatchPartsFor, DISPATCH_PARTS_MAX } = await import("./dispatch-parts-bridge");
+          if (Buffer.byteLength(line) > DISPATCH_PARTS_MAX) throw new CoreError("too_large", "request exceeds 256 KiB");
           result = await dispatchPartsFor(getCtx(), params);
           break;
         }

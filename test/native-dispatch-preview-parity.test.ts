@@ -8,6 +8,7 @@ import { loadStrategy } from "../src/config/strategy";
 import { pause } from "../src/core/pause";
 import { dispatchSettingsHash } from "../src/dispatch/learning";
 import { dispatchDatabase } from "../src/dispatch/store";
+import { orcaWorktreeName } from "../src/exec/orca/names";
 import { createTask, updateTask } from "../src/tasks/store";
 import type { Ctx } from "../src/types";
 import { fakeCtx, withLoginIndicators } from "./helpers";
@@ -106,6 +107,17 @@ const reviews = (ctx: Ctx) => {
   }
   db.close();
 };
+const TASK = "t-20261114-000000-abcd";
+/** The slot the session holds, as a preview ("Cursor busy (1/1)") and an explanation word it. */
+const SESSION_SLOT = /Cursor (is )?busy \(1\/1/;
+/** A `starting` cursor session: it holds a slot, and only Core probes agent sessions. */
+const agentSession = (createdAt: number) => (ctx: Ctx) => {
+  const db = new Database(join(ctx.pacerHome, "state", "tasks.db"));
+  db.run("CREATE TABLE IF NOT EXISTS agent_sessions (id TEXT PRIMARY KEY, task TEXT NOT NULL, request_id TEXT NOT NULL UNIQUE, payload TEXT NOT NULL, record TEXT NOT NULL)");
+  const record = { id: "s1", task_id: TASK, ordinal: 1, executor: "cursor", request: "r", cwd: APP, createdAt, rev: 1, attempt: 1, state: "starting", attempts: [] };
+  db.query("INSERT INTO agent_sessions VALUES (?,?,?,?,?)").run("s1", TASK, "r1", "{}", JSON.stringify(record));
+  db.close();
+};
 const hostSeen = (at: number) => (ctx: Ctx) => {
   mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "cache", "hosts.json"), JSON.stringify({ devbox: { alias: "devbox", reachable: true, at, failures: 0 } }));
@@ -184,6 +196,9 @@ function scenarios(): Case[] {
   add("host runner with cached reachability forwards", seed({ strategy: REMOTE, registered: true, setup: hostSeen(NOW - 10) }), P,
     goal({ delegationEnforcement: "cooperative" }), { forwarded: true });
   add("work-grant caller on explain forwards", home, E, explain(), { forwarded: true, env: { PACER_WORK_GRANT: "grant" } });
+  const sessions = seed({ strategy: LADDER, registered: true, setup: agentSession(NOW - 10) });
+  add("a live agent session keeps preview forwarded", sessions, P, goal({ kind: "debug", delegationEnforcement: "cooperative" }), { forwarded: true });
+  add("a live agent session keeps explain forwarded", sessions, E, explain({ delegationEnforcement: "cooperative" }), { forwarded: true });
   add("unloadable strategy forwards", seed({ strategy: "planner: [\n" }), P, goal(), { forwarded: true });
   add("conversation explain forwards", home, E, goal({ kind: "debug", interactionMode: "conversation" }), { forwarded: true });
   add("input only TypeScript describes forwards", home, P, goal({ requirements: { tools: ["shell"] } }), { forwarded: true });
@@ -308,6 +323,8 @@ test("Rust previews and explains ladder dispatch like TypeScript", async () => {
   ]) expect(text).toContain(fragment);
   // Every forwarded case still has a TypeScript answer.
   cases.forEach((c, i) => { if (c.forwarded) expect(`${c.name}: ${JSON.stringify(expected[i].reply).slice(0, 10)}`).toMatch(/: \{"(result|error)"/); });
+  // Core counts the live session's slot.
+  cases.forEach((c, i) => { if (c.name.startsWith("a live agent session")) expect(`${c.name}: ${JSON.stringify(expected[i].reply)}`).toMatch(SESSION_SLOT); });
 }, 300_000);
 
 // Front door: native answers against forced forwarding on twin homes.
@@ -335,8 +352,8 @@ const normalize = (text: string, dir: string) => text.replaceAll(dir, "<home>")
   .replace(/(\\?"(?:requestId|observationRevision|inputHash|revision)\\?":\s*\\?")[0-9a-f]+/g, "$1<id>");
 
 /** Lockstep JSON-RPC: Core answers forwarded requests concurrently, so each waits for the one before. */
-async function stdio(dir: string, steps: Step[], forward: boolean) {
-  const child = spawnPinned([front!, "api", "--stdio"], { cwd: dir, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: env(dir, closedPort(), forward) });
+async function stdio(dir: string, steps: Step[], forward: boolean, cwd = dir) {
+  const child = spawnPinned([front!, "api", "--stdio"], { cwd, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: env(dir, closedPort(), forward) });
   const stderr = new Response(child.stderr).text();
   try {
     const reader = child.stdout.getReader();
@@ -369,9 +386,9 @@ async function stdio(dir: string, steps: Step[], forward: boolean) {
   }
 }
 
-async function serve(dir: string, forward: boolean) {
+async function serve(dir: string, forward: boolean, cwd = dir) {
   const port = closedPort();
-  const child = spawnPinned([front!, "serve", "--port", port], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: env(dir, port, forward) });
+  const child = spawnPinned([front!, "serve", "--port", port], { cwd, stdin: "ignore", stdout: "ignore", stderr: "pipe", env: env(dir, port, forward) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", up = false;
@@ -398,8 +415,8 @@ async function serve(dir: string, forward: boolean) {
   };
 }
 
-async function http(dir: string, steps: Step[], forward: boolean) {
-  const server = await serve(dir, forward);
+async function http(dir: string, steps: Step[], forward: boolean, cwd = dir) {
+  const server = await serve(dir, forward, cwd);
   const replies: string[] = [];
   try { for (const step of steps) replies.push(await server.post(step.op, step.params)); }
   catch (error) { await server.markers(); throw error; }
@@ -407,8 +424,8 @@ async function http(dir: string, steps: Step[], forward: boolean) {
 }
 
 /** `pacer mcp` (the TypeScript MCP server) reaching the front door's HTTP service. */
-async function mcp(dir: string, steps: Step[], forward: boolean) {
-  const server = await serve(dir, forward);
+async function mcp(dir: string, steps: Step[], forward: boolean, cwd = dir) {
+  const server = await serve(dir, forward, cwd);
   const replies: string[] = [];
   try {
     await server.post(...WARM);
@@ -445,13 +462,13 @@ async function mcp(dir: string, steps: Step[], forward: boolean) {
 }
 
 
-/** `seed` builds the home under `<dir>/.pacer` with executables in `<dir>/bin`. */
-async function compare(transport: "stdio" | "http" | "mcp", s: Seed, list: Step[], bin = BIN) {
+/** `seed` builds the home under `<dir>/.pacer` with executables in `<dir>/bin`; the front door runs in `<dir>/<cwd>`. */
+async function compare(transport: "stdio" | "http" | "mcp", s: Seed, list: Step[], bin = BIN, cwd = "") {
   const steps = transport === "mcp" ? list : [{ op: WARM[0], params: WARM[1], native: false }, ...list];
   const ctx = seed(s, home => join(home, ".pacer"));
   cpSync(bin, join(ctx.home, "bin"), { recursive: true });
   const twins = ["native", "forward"].map(side => { const dir = fresh(`pacer-preview-${transport}-${side}-`); cpSync(ctx.home, dir, { recursive: true }); return dir; });
-  const [native, forwarded] = await Promise.all(twins.map((dir, i) => ({ stdio, http, mcp })[transport](dir, steps, i === 1)));
+  const [native, forwarded] = await Promise.all(twins.map((dir, i) => ({ stdio, http, mcp })[transport](dir, steps, i === 1, join(dir, cwd))));
   steps.forEach((step, i) => expect(`${step.op} ${JSON.stringify(step.params)}: ${native!.replies[i]}`).toBe(`${step.op} ${JSON.stringify(step.params)}: ${forwarded!.replies[i]}`));
   expect(native!.markers).toEqual(steps.flatMap((step, i) => step.native ? [transport === "stdio" ? `native ${step.op} ${i + 2}` : `native ${step.op}`] : []));
   expect(forwarded!.markers).toEqual([]);
@@ -501,6 +518,27 @@ for (const transport of ["stdio", "http"] as const) {
         { op: P, params: goal({ delegationEnforcement: "cooperative" }), native: false },
         { op: E, params: explain(), native: false },
       ]);
+    }
+  }, 180_000);
+}
+
+for (const transport of ["stdio", "http"] as const) {
+  test.skipIf(!front)(`${transport}: a live agent session keeps preview and explain forwarded`, async () => {
+    const replies = await compare(transport, { strategy: LADDER, registered: true, setup: agentSession(Date.now() / 1000) }, [
+      { op: P, params: goal({ kind: "debug", delegationEnforcement: "cooperative" }), native: false },
+      { op: E, params: explain({ delegationEnforcement: "cooperative" }), native: false },
+    ]);
+    for (const reply of replies) expect(reply).toMatch(SESSION_SLOT);
+  }, 180_000);
+
+  test.skipIf(!front)(`${transport}: an explain from an executor session stays forwarded`, async () => {
+    const provider = Object.keys(loadStrategy(seed({ strategy: LADDER })).providers)[0]!;
+    for (const cwd of [`.pacer/worktrees/app/${TASK}`, `orca/workspaces/acme/pacer-${TASK}-${orcaWorktreeName(provider)}`]) {
+      const replies = await compare(transport, { strategy: LADDER, registered: true, setup: ctx => { mkdirSync(join(ctx.home, cwd), { recursive: true }); } }, [
+        { op: E, params: explain({ delegationEnforcement: "cooperative" }), native: false },
+        { op: E, params: goal({ kind: "debug" }), native: false },
+      ], BIN, cwd);
+      for (const reply of replies) expect(`${cwd}: ${reply}`).toContain("Route explanations are not available to executor sessions");
     }
   }, 180_000);
 }

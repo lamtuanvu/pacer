@@ -120,6 +120,39 @@ test("malformed params are invalid_input and name no other operation", async () 
   expect(draft.message).toBe("Invalid strategy draft");
 });
 
+test("a draft is read only: enforcement for a draft requires cached: true", async () => {
+  const { ctx, repo } = fixture();
+  const params = { kind: "dispatch.enforcement-exclusions", repo, runners: RUNNERS, draft: { from: "default" } };
+  expect(JSON.parse(await stdio(ctx, { key: KEY, ...params, cached: false })).error)
+    .toEqual({ code: -32602, message: "draft: requires cached: true", data: { code: "invalid_input" } });
+  expect(await result(ctx, { ...params, cached: true })).toHaveLength(RUNNERS.length);
+});
+
+test("both routes refuse a request over 256 KiB", async () => {
+  const { ctx } = fixture();
+  // Unknown keys are invalid_input, so a request at the limit is parsed and refused by the schema.
+  const padded = (size: number) => {
+    const body = JSON.stringify({ ...guards, pad: "" });
+    return JSON.stringify({ ...guards, pad: "x".repeat(size - body.length) });
+  };
+  const max = 256 * 1024;
+  await withServer(ctx, async post => {
+    expect(JSON.parse((await post(padded(max))).text).error.code).toBe("invalid_input");
+    const refused = { status: 413, text: JSON.stringify({ error: { code: "too_large", message: "body exceeds 256 KiB" } }) };
+    expect(await post(padded(max + 1))).toEqual(refused);
+    // Without a declared length the route stops reading at the limit.
+    const chunks = [padded(max + 1).slice(0, max), padded(max + 1).slice(max)];
+    const stream = new ReadableStream({ pull(c) { const next = chunks.shift(); if (next === undefined) c.close(); else c.enqueue(new TextEncoder().encode(next)); } });
+    expect(await post(stream as unknown as string)).toEqual(refused);
+  });
+  const line = (size: number) => {
+    const frame = (pad: string) => JSON.stringify({ jsonrpc: "2.0", id: 1, method: "_internal.dispatch.parts", params: { key: KEY, ...guards, pad } });
+    return { key: KEY, ...guards, pad: "x".repeat(size - frame("").length) };
+  };
+  expect(JSON.parse(await stdio(ctx, line(max))).error.data.code).toBe("invalid_input");
+  expect(JSON.parse(await stdio(ctx, line(max + 1))).error).toEqual({ code: -32000, message: "request exceeds 256 KiB", data: { code: "too_large" } });
+}, 30000);
+
 test("executor guards are executorExclusion and the classifier check, read-only", async () => {
   const { ctx } = fixture();
   blockExecutor(ctx, "codex");
