@@ -401,12 +401,14 @@ async function connectClaude(door: Door) {
 }
 const integrationLines = (stderr: string) => stderr.split("\n").filter(line => line.startsWith("pacer: integration")).join("\n");
 
-const RECONCILE_COMMIT_MS = 20000;
+const RECONCILE_COMMIT_MS = 60000;
 
 /**
  * Startup reconcile commits through the install journal: it writes install-transaction.json, then the integration
  * files, then install-manifest.json, and removes the journal last. A restored file can precede its manifest record.
  * Call after a file the commit writes has appeared, so an absent journal means the commit has finished.
+ * The whole path runs after a fresh front-door start that boots its bundled core, so keep 60s: a single
+ * mode here can sit at or past 20s on a loaded runner before the manifest changes.
  */
 async function reconcileCommitted(h: Home, manifestBefore: string) {
   const journal = join(h.state, "install-transaction.json"), manifest = join(h.state, "install-manifest.json");
@@ -428,12 +430,12 @@ const startupReconcile: Scenario = async (door, h, observe, restart) => {
   observe("manifest after reconnect", storeBytes(h, "install-manifest.json"));
   const reconnected = readFileSync(join(h.state, "install-manifest.json"), "utf8");
   await restart(() => unlinkSync(join(h.home, ".claude", "rules", "pacer.md")));
-  observe("restored rules file", await poll(async () => fileText(h, ".claude/rules/pacer.md"), text => text !== "<absent>", 20000));
+  observe("restored rules file", await poll(async () => fileText(h, ".claude/rules/pacer.md"), text => text !== "<absent>", 60000));
   await reconcileCommitted(h, reconnected);
   observe("integration files after refresh", fileTree(h, ".claude"));
   observe("manifest after refresh", storeBytes(h, "install-manifest.json"));
   await restart(() => writeFileSync(join(h.home, ".claude", "skills", "pacer", "SKILL.md"), "edited by hand\n"));
-  observe("conflict warning", await poll(async () => integrationLines(door.stderr()), text => text !== "", 20000));
+  observe("conflict warning", await poll(async () => integrationLines(door.stderr()), text => text !== "", 60000));
   observe("integration files after conflict", fileTree(h, ".claude"));
 };
 
