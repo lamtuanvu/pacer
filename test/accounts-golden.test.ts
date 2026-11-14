@@ -28,7 +28,7 @@ function stubConfigBroker(ctx: ReturnType<typeof fakeCtx>) {
 test("account and endpoint operation results", async () => {
   const ctx = fakeCtx({now: Date.parse("2026-10-10T12:00:00.000Z") / 1000});
   stubConfigBroker(ctx);
-  ctx.env = {HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), 'accounts:\n  personal: {kind: claude}\n  external: {kind: endpoint, usage: unmetered, model: vendor/old}\nplanner: claude-code\nrouting:\n  - default: [claude-code, opencode#external]\n');
   const calls: unknown[] = [];

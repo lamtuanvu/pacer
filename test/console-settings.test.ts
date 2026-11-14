@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import {afterEach,expect,test} from 'bun:test';
 import {shutdownPlugins} from '../src/plugins';
 import {discoveryFromFetch} from './endpoint-discovery-fixtures';
@@ -29,7 +30,7 @@ async function executedArguments(h: ReturnType<typeof harness>, script: string):
  const bin=join(h.ctx.home,'fixture-bin'), receipt=join(h.ctx.home,'argv');
  mkdirSync(bin,{mode:0o700});
  writeFileSync(join(bin,'pacer'),`#!/bin/sh\nprintf '%s\\n' "$@" > "$PACER_TEST_ARGV"\n`,{mode:0o700});
- const child=Bun.spawn(['/bin/sh',script],{env:{PATH:`${bin}:/usr/bin:/bin`,PACER_TEST_ARGV:receipt},stdout:'pipe',stderr:'pipe'});
+ const child=Bun.spawn(['/bin/sh',script],{env:{...childEnv(h.ctx.home),PATH:`${bin}:/usr/bin:/bin`,PACER_TEST_ARGV:receipt},stdout:'pipe',stderr:'pipe'});
  expect(await child.exited).toBe(0);
  return readFileSync(receipt,'utf8').trim().split('\n');
 }

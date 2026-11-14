@@ -7,6 +7,7 @@ import { atomicWrite, readEvidence, saveSession, type Session } from "../scripts
 import { appDigest, cleanupOta, exactFixtureExternal, exerciseOta, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
 import { refusedOp } from "../scripts/live/proxy";
 import { refusal } from "../scripts/live/guard";
+import * as nativeOs from "../src/update/desktop/native-os";
 
 const restoreSpies: (() => void)[] = [];
 afterEach(() => { for (const restore of restoreSpies.splice(0).reverse()) restore(); });
@@ -344,6 +345,9 @@ test("driver ledger CAS preserves native transaction consumption and rejects ano
 });
 
 test("fixed cleanup diagnostic ledger binds files once without launching processes", async () => {
+  // This fixture owns no diagnostic processes; do not enumerate the user's apps.
+  const processes = spyOn(nativeOs, "enumerateNativeProcesses").mockReturnValue([]);
+  restoreSpies.push(() => processes.mockRestore());
   const { recordOtaDiagnostics, replaceOtaDiagnostics } = await import("../scripts/live/ota");
   const { createHash } = await import("node:crypto");
   const digest = (text: string) => createHash("sha256").update(text).digest("hex");

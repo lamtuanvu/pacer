@@ -56,7 +56,7 @@ function reportingRun() {
     t.state = 'running'; t.attemptStartedAt = ctx.now;
     t.run = {dir, attempt: 1, executor: 'codex', startedAt: ctx.now, mode: 'current', workdir: repo, logFile: join(dir, 'log')};
   });
-  ctx.env = {PACER_ROLE: 'executor', PACER_RUN_DIR: dir, PACER_REPORT_TOKEN: 'owned-token'};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PACER_ROLE: 'executor', PACER_RUN_DIR: dir, PACER_REPORT_TOKEN: 'owned-token'};
   return {ctx, task, dir};
 }
 const completion = (ctx: ReturnType<typeof fakeCtx>, id?: string) => reportCommand([

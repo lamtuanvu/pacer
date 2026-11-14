@@ -15,7 +15,9 @@ function fixture(platform = "darwin") {
   const calls: string[][] = [];
   const ctx = fakeCtx({ env: { PATH: "/bin:/usr/bin:/bin", PACER_BIN: "/opt/pacer" }, which: b => ["orca", "bun"].includes(b) ? `/opt/tools/${b}` : null,
     run: async argv => { calls.push(argv); return { code: 0, stdout: platform === "darwin" ? "service = {\n state = running\n pid = 456\n last exit code = 9\n}\n" : "LoadState=loaded\nActiveState=active\nSubState=running\nMainPID=456\nExecMainStatus=9\n", stderr: "" }; } });
-  return { ctx, calls, d: { ...deps, platform }, path: servicePath(ctx, platform) };
+  // The fake manager registrations below omit a port and therefore represent 4317.
+  // All manager commands and health requests in this fixture are mocked.
+  return { ctx, calls, d: { ...deps, platform, port: 4317 }, path: servicePath(ctx, platform) };
 }
 test("plist escapes XML and assembles deterministic argv, home, paths and launchd policy", () => {
   const ctx = fakeCtx({ home: '/tmp/a&b<"\'>', pacerHome: "/tmp/p&x", env: { PATH: "/bin:/bin:/usr/bin" }, which: b => b === "bun" ? "/tools/bun" : null });
@@ -320,7 +322,7 @@ test("a successful service install claims cli ownership only when unclaimed or a
 
 test("service install and uninstall defer to a desktop owner with exit code 2", async () => {
   const { ctx, d } = fixture();
-  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
   expect(await serviceCli(["install"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
   expect(await serviceCli(["uninstall"], ctx, d)).toEqual({ code: 2, out: "", err: `pacer service: ${MANAGED_BY_DESKTOP_MESSAGE}` });
   // Read-only commands stay unaffected.
@@ -338,7 +340,7 @@ test("the bundled CLI (PACER_BIN matching the recorded desktop executable) is ne
 
 test("the desktop's own bundled CLI running `service install` never claims a cli record pointing into the app bundle", async () => {
   const { ctx, d } = fixture();
-  ctx.env.PACER_BIN = "/Applications/pacer.app/Contents/Resources/pacer";
+  ctx.env.PACER_BIN = join(ctx.home, "pacer.app/Contents/Resources/pacer");
   expect(readOwner(ctx)).toBeNull(); // no record at all yet: the bug this guards against has no existing desktop record to defer to
   const result = await serviceCli(["install"], ctx, { ...d, argv: [ctx.env.PACER_BIN] });
   expect(result.code).toBe(0);
@@ -350,7 +352,7 @@ test("--release-ownership hands a desktop-owned installation back to this CLI in
   // No pre-app backup here: the handback falls back to the already-standalone command at the
   // conventional link path (never to the PACER_BIN/app-bundle path; see ownership-handback.ts).
   put(join(ctx.home, ".local/bin/pacer"), "standalone");
-  writeOwner(ctx, { owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1 });
+  writeOwner(ctx, { owner: "desktop", executable: join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
   const result = await serviceCli(["install", "--release-ownership"], ctx, d);
   expect(result.code).toBe(0);
   expect(readOwner(ctx)?.owner).toBe("cli");

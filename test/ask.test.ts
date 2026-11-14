@@ -11,7 +11,7 @@ function setup() {
   const ctx = fakeCtx();
   const task = createTask(ctx, {brief:{goal:"g",repo:gitRepo()},kind:null,requestedExecutor:null,timeoutS:60});
   updateTask(ctx,task.id,t=>{t.state="running";});
-  ctx.env = {PACER_ROLE:"executor",PACER_TASK_ID:task.id};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PACER_ROLE:"executor",PACER_TASK_ID:task.id};
   return {ctx, task};
 }
 test("ask records text verbatim and refuses a second question", async () => {

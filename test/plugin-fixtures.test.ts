@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 // test/plugin-fixtures.test.ts
 import { afterAll, expect, test } from "bun:test";
 import { spawn } from "node:child_process";
@@ -21,7 +22,7 @@ test("fixtures install as executable plugin folders named by id", () => {
 test("the good fixture answers a handshake and a ping over stdio", async () => {
   mkdirSync(root, { recursive: true });
   const dir = installFixture("good", root);
-  const child = spawn(join(dir, "main.ts"), [], { cwd: dir, env: { PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}`, HOME: process.env.HOME }, stdio: ["pipe", "pipe", "pipe"] });
+  const child = spawn(join(dir, "main.ts"), [], { cwd: dir, env: { ...childEnv(process.env.HOME!), PATH: `${dirname(process.execPath)}:${process.env.PATH ?? ""}` }, stdio: ["pipe", "pipe", "pipe"] });
   let out = "";
   child.stdout.on("data", (d: Buffer) => { out += d.toString(); });
   const manifest = { id: "fx-good", version: "1.0.0", publisher: "pacer-conformance", host: "^1", entry: "main.ts", capabilities: [{ name: "log" }, { name: "config.get" }] };

@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { mkdtempSync, rmSync, existsSync } from "node:fs";
@@ -31,7 +32,7 @@ for (const delayed of [false, true]) {
     const pacerHome = join(home, "state");
     const guard = join(import.meta.dir, "fixtures/serve-help-guard.ts");
     const child = Bun.spawn([process.execPath, "--preload", guard, "src/cli.ts", "serve", "--help"], {
-      env: { HOME: home, PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_TEST_DELAY_IMPORT: delayed ? "1" : "0", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+      env: { ...childEnv(home), PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_TEST_DELAY_IMPORT: delayed ? "1" : "0", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
       stdout: "pipe", stderr: "pipe", timeout: 10000,
     });
     try {
@@ -50,7 +51,7 @@ test("serve-help guard rejects the real service before any listener can bind", a
   const home = mkdtempSync(join(tmpdir(), "pacer-serve-help-control-"));
   const guard = join(import.meta.dir, "fixtures/serve-help-guard.ts");
   const child = Bun.spawn([process.execPath, "--preload", guard, "src/cli.ts", "serve", "--port", "0"], {
-    env: { HOME: home, PACER_HOME: join(home, "state"), PACER_NO_UPDATE_CHECK: "1", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+    env: { ...childEnv(home), PACER_HOME: join(home, "state"), PACER_NO_UPDATE_CHECK: "1", BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
     stdout: "pipe", stderr: "pipe", timeout: 10000,
   });
   try {

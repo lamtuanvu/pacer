@@ -15,6 +15,7 @@ function detectedCtx(bins: string[], models = true) {
     models: models ? [{ name: "qwen:7b" }, { name: "other" }] : [],
   }));
   return fakeCtx({
+    env: { LMS_API_SERVER_INFO_PATH: undefined },
     which: (bin) => bins.includes(bin) ? `/fake/${bin}` : null,
     run: async (argv, timeout) => {
       expect(timeout).toBe(5000);

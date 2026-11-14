@@ -1,3 +1,4 @@
+import { closedPort } from "./child-env";
 import { afterEach, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -42,7 +43,7 @@ function fakeBin(s: string, m: string, translated = "0"): string {
 
 async function runInstall(env: Record<string, string>, bin: string | null = fakeBin("Darwin", "arm64")) {
   const PATH = bin ? `${bin}:${process.env.PATH ?? "/usr/bin:/bin"}` : (process.env.PATH ?? "/usr/bin:/bin");
-  const p = Bun.spawn([SHELL, INSTALL_SH], { env: { HOME: tmpDir(), PACER_HOME: join(tmpDir(), ".pacer"), TMPDIR: tmpDir(), PATH, ...env }, stdout: "pipe", stderr: "pipe" });
+  const p = Bun.spawn([SHELL, INSTALL_SH], { env: { HOME: tmpDir(), PACER_HOME: join(tmpDir(), ".pacer"), TMPDIR: tmpDir(), PATH, ...env, PACER_PORT: String(closedPort()) }, stdout: "pipe", stderr: "pipe" });
   const [out, err, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
   return { code, out, err };
 }

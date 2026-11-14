@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { afterEach as afterUsageFixture } from "bun:test";
 import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
 afterUsageFixture(cleanupUsageFixtures);
@@ -82,7 +83,7 @@ test("signin opens Codex login with its quoted account home through the terminal
   mkdirSync(bin, {mode: 0o700});
   writeFileSync(join(bin, "codex"), `#!/bin/sh\nprintf '%s\\n' "$CODEX_HOME" "$@" > "$PACER_TEST_LOGIN"\n`, {mode: 0o700});
   const child = Bun.spawn(["/bin/sh", calls[0][3]], {
-    env: {PATH: `${bin}:/usr/bin:/bin`, PACER_TEST_LOGIN: receipt}, stdout: "pipe", stderr: "pipe",
+    env: {...childEnv(process.env.HOME!), PATH: `${bin}:/usr/bin:/bin`, PACER_TEST_LOGIN: receipt}, stdout: "pipe", stderr: "pipe",
   });
   expect(await child.exited).toBe(0);
   expect(readFileSync(receipt, "utf8").trim().split("\n")).toEqual([join(ctx.home, "codex team's home"), "login"]);

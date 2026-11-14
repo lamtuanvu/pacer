@@ -17,7 +17,7 @@ const actual = { ...processProvider };
 
 function table() {
   const result = Bun.spawnSync(
-    ["/bin/ps", "-A", "-o", "pid=,ppid=,pgid=,stat="],
+    [process.env.PACER_TEST_PS ?? "/bin/ps", "-A", "-o", "pid=,ppid=,pgid=,stat="],
     { stdout: "pipe" },
   );
   if (result.exitCode) throw Error("Cannot observe owned fixture children");
