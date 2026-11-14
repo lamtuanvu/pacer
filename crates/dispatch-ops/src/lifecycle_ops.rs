@@ -174,9 +174,7 @@ fn check(ctx: &Ctx, op: &str, params: &Value) -> Result<(), CoreError> {
     };
     authorize(ctx)?;
     let p = params_object(params)?;
-    if (matches!(op, "dispatch.submit" | "dispatch.child") && p.contains_key("options"))
-        || (op == "dispatch.child" && (p.contains_key("difficulty") || p.contains_key("model")))
-    {
+    if matches!(op, "dispatch.submit" | "dispatch.child") && p.contains_key("options") {
         return Ok(());
     }
     if inexact_number(shape, &p) {

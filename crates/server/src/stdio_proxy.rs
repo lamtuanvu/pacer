@@ -1322,3 +1322,37 @@ mod tests {
         assert!(!natively_answered_id(&json!([1])));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::natively_answered_id;
+    use serde_json::{Value, json};
+
+    #[test]
+    fn only_null_string_and_safe_integer_ids_are_answered_natively() {
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+        for id in [
+            "null",
+            "\"a\\u0001\"",
+            "0",
+            "-1",
+            "9007199254740991",
+            "-9007199254740991",
+        ] {
+            assert!(natively_answered_id(&parse(id)), "{id}");
+        }
+        for id in [
+            "9007199254740992",
+            "-9007199254740993",
+            "18446744073709551615",
+            "1e300",
+            "1.5",
+            "1.0",
+            "1e3",
+            "100000000000000000000000",
+        ] {
+            assert!(!natively_answered_id(&parse(id)), "{id}");
+        }
+        assert!(!natively_answered_id(&json!([1])));
+    }
+}
