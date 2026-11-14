@@ -5,7 +5,7 @@ import { createCallAuthority, type CallAuthority } from "../src/plugins/authorit
 import { answerSpawn, prepareSpawnAuthority } from "../src/plugins/capability-spawn";
 import { SCOPED_CAPABILITY_METHODS } from "../src/plugins/capability-protocol";
 import { prepareCredentialBindings } from "../src/plugins/credential-bindings";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, readPid } from "./helpers";
 const owners: CallAuthority[] = [], homes: string[] = [];
 afterEach(async () => { try { await Promise.all(owners.splice(0).map(owner => owner.revoke())); } finally { for (const home of homes.splice(0)) rmSync(home, { recursive: true, force: true }); } });
 function fixture(mode = "safe", options: { grants?: string[]; ref?: string; delayed?: () => Promise<string | null> } = {}) {
@@ -109,8 +109,9 @@ test("timed-out stdin child is reaped before returning", async () => {
     argv: command.argv, cwd: f.cwd, env: {}, timeoutMs: 1000, stdin: command.stdin,
   });
   expect(result).toMatchObject({ timedOut: true });
-  expect(existsSync(f.receipt)).toBe(true);
-  expect(() => process.kill(Number(readFileSync(f.receipt, "utf8")), 0)).toThrow();
+  const pid = readPid(f.receipt);
+  expect(pid).toBeGreaterThan(0);
+  expect(() => process.kill(pid!, 0)).toThrow();
 });
 for (const mode of ["stdout", "stderr"]) test(`exact injected credential reflection in ${mode} is refused before output handles`, async () => {
   const f = fixture(mode);

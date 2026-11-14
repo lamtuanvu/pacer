@@ -54,6 +54,23 @@ export function gitRepo(): string {
   return repo;
 }
 
+/** The pid a fixture wrote to `file`, or undefined while the file is missing or not yet written.
+ * Never 0: `process.kill(0, …)` signals the test runner's whole process group. */
+export function readPid(file: string): number | undefined {
+  let text: string;
+  try { text = readFileSync(file, "utf8").trim(); } catch { return undefined; }
+  return /^[1-9]\d*$/.test(text) ? Number(text) : undefined;
+}
+
+/** Wait until `file` holds a pid; fails naming the file when none appears within `ms`. */
+export async function waitPid(file: string, ms = 10000): Promise<number> {
+  for (const until = Date.now() + ms; ; await Bun.sleep(10)) {
+    const pid = readPid(file);
+    if (pid !== undefined) return pid;
+    if (Date.now() > until) throw Error(`no pid in ${file} after ${ms} ms`);
+  }
+}
+
 /** A loopback port that was free a moment ago and has nothing listening on it now. */
 export function closedPort(): number {
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });

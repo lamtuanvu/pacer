@@ -6,7 +6,7 @@ import { issueBundleStageResource, prepareBundleStageAuthority, stageBundle, res
   transferStagedBundleOwnership, resolveTransferredBundle, discardTransferredBundle } from "../src/plugins/bundle-stage";
 import { answerCapability } from "../src/plugins/host";
 import { manifestSchema } from "../src/plugins/protocol";
-import { fakeCtx, tmpDir } from "./helpers";
+import { fakeCtx, tmpDir, waitPid } from "./helpers";
 
 const owners: CallAuthority[] = [];
 afterEach(async () => { await Promise.allSettled(owners.splice(0).map(owner => owner.revoke())); });
@@ -366,9 +366,7 @@ test("revoke after leader exit never signals its retired numeric PID", async () 
   const pidFile = join(f.ctx.home, "leader.pid");
   const originalKill = process.kill;
   const until = Date.now() + 5000;
-  while (!existsSync(pidFile) && Date.now() < until) await Bun.sleep(5);
-  expect(existsSync(pidFile), "leader should have written its pid file").toBe(true);
-  const retiredPid = Number(readFileSync(pidFile, "utf8"));
+  const retiredPid = await waitPid(pidFile, 5000);
   while (Date.now() < until) {
     try { originalKill(retiredPid, 0); } catch { break; }
     await Bun.sleep(5);
