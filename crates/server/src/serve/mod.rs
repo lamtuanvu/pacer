@@ -515,6 +515,15 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     Box::pin(crate::native::account_list_sync::http(Some(target)))
                         as pacer_foundation::api::OpFuture<'_>
                 })
+            } else {
+                None
+            };
+            let mut service_effects_bridge = if pacer_install::needs_service_effects_bridge(op.name)
+            {
+                state.core.target().await.map(|target| {
+                    Box::pin(crate::native::account_list_sync::http(Some(target)))
+                        as pacer_foundation::api::OpFuture<'_>
+                })
             } else if crate::native::needs_host_effects(op.name) {
                 let request =
                     serde_json::json!({"request": {"kind": op.name, "params": params.clone()}});
