@@ -74,6 +74,24 @@ test("stopRun waits for a delayed exit receipt after the owned wrapper dies", as
   }
 });
 
+test("a receipt-requiring stop that starts after the wrapper died waits for its delayed receipt", async () => {
+  const dir = tmpDir(), dead = Bun.spawnSync(["sh", "-c", "echo $$"]).stdout.toString().trim();
+  writeFileSync(join(dir, "pid"), dead);
+  writeFileSync(join(dir, "child"), dead);
+  let polls = 0;
+  const stopped = await stopRun(dir, { graceMs: 1500, requireRecordedExit: true, sleep: async ms => {
+    if (++polls === 2) writeFileSync(join(dir, "exit"), "143");
+    await Bun.sleep(Math.min(ms, 20));
+  } });
+  expect(stopped).toEqual({ code: 143, killed: false });
+  rmSync(join(dir, "exit"));
+  await expect(stopRun(dir, { graceMs: 100, requireRecordedExit: true }))
+    .rejects.toThrow("detached run stop has no recorded exit");
+  let slept = false;
+  expect(await stopRun(dir, { graceMs: 1500, sleep: async () => { slept = true; } })).toEqual({ code: 137, killed: false });
+  expect(slept).toBe(false);
+});
+
 test("stopRun does not forge an exit after the wrapper vanishes", async () => {
   const dir = tmpDir(), script = join(dir, "run.sh");
   writeFileSync(script, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
