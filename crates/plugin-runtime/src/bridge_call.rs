@@ -313,7 +313,6 @@ struct Sealed {
     value: Result<Value, CallFailure>,
     /// The ready summary (`Value::Null` when readied without one), once known.
     hello: Option<(Value, HelloSource)>,
-    lane: Option<Arc<PluginLane>>,
     /// The call's `capability.log` lines: `(level, message)`.
     logs: Vec<(String, String)>,
 }
@@ -323,7 +322,6 @@ impl Sealed {
         Self {
             value: Err(failure),
             hello: None,
-            lane: None,
             logs: Vec::new(),
         }
     }
@@ -363,10 +361,7 @@ pub(crate) async fn call_sealed(
     sealed: SealedCall,
     core: Option<CoreForward>,
 ) -> Result<Value, (CallFailure, Vec<Value>)> {
-    let outcome = run_sealed(
-        owner, id, method, params, until, cancel, sealed, core, false,
-    )
-    .await;
+    let outcome = run_sealed(owner, id, method, params, until, cancel, sealed, core).await;
     let logs = outcome
         .logs
         .into_iter()
@@ -380,82 +375,6 @@ pub(crate) async fn call_sealed(
     Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
 
-/// The serve or stdio door's own plugin call on its local owner.
-pub struct DoorCall {
-    pub value: Result<Value, CallFailure>,
-    /// The hello summary to report to the door's Core as `ready`: set when this
-    /// call sent the hello, or when Core does not list the child as ready and no
-    /// concurrent door call that sent the hello will report it.
-    pub ready: Option<DoorReady>,
-    /// The call's `capability.log` lines: `(level, message)`, each message cut
-    /// to the plugin log's line limit.
-    pub logs: Vec<(String, String)>,
-}
-
-/// A hello summary a door call owes its Core as `ready`.
-pub struct DoorReady {
-    pub hello: Value,
-    lane: Option<Arc<PluginLane>>,
-}
-
-impl DoorReady {
-    /// Core did not record the `ready`, so the next door call on this child
-    /// that finds Core not ready reports it instead.
-    pub fn unreported(&self) {
-        if let Some(lane) = &self.lane {
-            lane.forget_door_hello();
-        }
-    }
-}
-
-/// A door-local sealed call: Core's `spawn_spec` and `call_authority` replies
-/// run through the same start, hello, admission and call-scoped session as a
-/// bridge call, with no Core-answered methods. `core_ready` is whether Core's
-/// `spawn_spec` reported the plugin `ready`. `Err` names a malformed Core seal.
-#[allow(clippy::too_many_arguments)]
-pub async fn call_door(
-    owner: &SharedOwner,
-    id: &str,
-    method: &str,
-    params: Value,
-    spawn: &Value,
-    authority: Value,
-    until: Instant,
-    core_ready: bool,
-) -> Result<DoorCall, &'static str> {
-    let sealed = SealedCall::from_params(&json!({"spawn": spawn, "authority": authority}))?
-        .ok_or("missing spawn")?;
-    let (_cancel, cancel) = watch::channel(false);
-    let outcome = run_sealed(
-        owner, id, method, params, until, &cancel, sealed, None, true,
-    )
-    .await;
-    // A child another door call helloed is that call's to report, so concurrent
-    // first calls send one `ready`.
-    let ready = outcome.hello.and_then(|(hello, source)| {
-        let report = source == HelloSource::Ran
-            || (!core_ready
-                && !outcome
-                    .lane
-                    .as_ref()
-                    .is_some_and(|lane| lane.door_helloed()));
-        (report && hello.is_object()).then(|| DoorReady {
-            hello,
-            lane: outcome.lane.clone(),
-        })
-    });
-    let logs = outcome
-        .logs
-        .into_iter()
-        .map(|(level, message)| (level, log_line(message)))
-        .collect();
-    Ok(DoorCall {
-        value: outcome.value,
-        ready,
-        logs,
-    })
-}
-
 #[allow(clippy::too_many_arguments)]
 async fn run_sealed(
     owner: &SharedOwner,
@@ -466,10 +385,9 @@ async fn run_sealed(
     cancel: &watch::Receiver<bool>,
     sealed: SealedCall,
     core: Option<CoreForward>,
-    door: bool,
 ) -> Sealed {
     match prepare_sealed(owner, id, method, until, cancel, sealed, core).await {
-        Ok(prepared) => prepared.run(id, method, params, until, cancel, door).await,
+        Ok(prepared) => prepared.run(id, method, params, until, cancel).await,
         Err(failure) => Sealed::failed(failure),
     }
 }
@@ -643,19 +561,13 @@ impl Prepared {
         params: Value,
         until: Instant,
         cancel: &watch::Receiver<bool>,
-        door: bool,
     ) -> Sealed {
         let mut hello = None;
         let value = self
-            .call(id, method, params, until, cancel, door, &mut hello)
+            .call(id, method, params, until, cancel, &mut hello)
             .await;
         let logs = self.session.lock().await.take_logs();
-        Sealed {
-            value,
-            hello,
-            lane: Some(self.lane),
-            logs,
-        }
+        Sealed { value, hello, logs }
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -666,7 +578,6 @@ impl Prepared {
         params: Value,
         until: Instant,
         cancel: &watch::Receiver<bool>,
-        door: bool,
         ready: &mut Option<(Value, HelloSource)>,
     ) -> Result<Value, CallFailure> {
         let lane = &self.lane;
@@ -728,9 +639,6 @@ impl Prepared {
                             }
                         };
                         let info = ready_info(&reply, &self.hello);
-                        if door {
-                            lane.note_door_hello();
-                        }
                         lane.mark_ready(Some(info.clone()));
                         *ready = Some((info.clone(), HelloSource::Ran));
                         info

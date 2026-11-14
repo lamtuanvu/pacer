@@ -27,10 +27,7 @@ use serde_json::Value;
 use std::{
     collections::HashMap,
     path::PathBuf,
-    sync::{
-        Arc, Weak,
-        atomic::{AtomicBool, Ordering},
-    },
+    sync::{Arc, Weak},
     time::Duration,
 };
 use thiserror::Error;
@@ -123,9 +120,6 @@ pub struct PluginLane {
     /// `Some` once the child answered `plugin.hello`, with the summary when the
     /// caller recorded one.
     ready: std::sync::Mutex<Option<Option<Value>>>,
-    /// True once a door-local call sent `plugin.hello` and reports `ready` to its Core;
-    /// cleared when that report fails.
-    door_hello: AtomicBool,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
     /// The child's observation generation and idle session.
@@ -145,7 +139,6 @@ impl PluginLane {
             gate: RwLock::new(()),
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
-            door_hello: AtomicBool::new(false),
             settled: watch::Sender::new(false),
             observation: Arc::new(LaneObservation::new(door, lane)),
         }
@@ -153,18 +146,6 @@ impl PluginLane {
 
     pub(crate) fn observation(&self) -> &Arc<LaneObservation> {
         &self.observation
-    }
-
-    pub(crate) fn note_door_hello(&self) {
-        self.door_hello.store(true, Ordering::SeqCst);
-    }
-
-    pub(crate) fn forget_door_hello(&self) {
-        self.door_hello.store(false, Ordering::SeqCst);
-    }
-
-    pub(crate) fn door_helloed(&self) -> bool {
-        self.door_hello.load(Ordering::SeqCst)
     }
 
     /// Refuse a request once [`PluginProcess::terminate`] began, so a call
