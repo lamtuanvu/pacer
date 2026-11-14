@@ -204,6 +204,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::account_stays_forwarded(&ctx, op.name, &params)
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -243,6 +244,18 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return match crate::native::task_send_ops::task_send(&ctx, params, by, &mut bridge)
                 .await
             {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::preview_ops::needs_dispatch_parts(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
+            return match result.await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
             };

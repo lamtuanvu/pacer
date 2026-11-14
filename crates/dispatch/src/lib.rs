@@ -1,5 +1,5 @@
 //! The dispatch decision library: model inventory, candidates, the decision hash,
-//! tier choice and the ladder engine (`src/dispatch/*.ts`), plus the read-only task
+//! tier choice, the ladder engine and its decision envelope (`src/dispatch/*.ts`), plus the read-only task
 //! store view and the status-cache observation adapter that previews read, learned
 //! fit, reason codes and the route explanation builders (`src/core/dispatch-explain*.ts`).
 //!
@@ -12,6 +12,7 @@
 //! (its `dispatch` section already carries the schema defaults), observations that
 //! passed [`parse_observation`], and requests built from those.
 mod candidates;
+mod decision;
 mod explain;
 mod hash;
 mod inventory;
@@ -25,6 +26,7 @@ mod status_adapter;
 mod tier_select;
 
 pub use candidates::{Built, build_candidates, meets_requirements, tier_rank};
+pub use decision::run_ladder;
 pub use explain::{Explain, LadderPreview, Ranked, build_explanation, explain_ranked};
 pub use hash::decision_hash;
 pub use inventory::{is_exact, model_inventory};

@@ -1,7 +1,7 @@
 import { beforeAll, describe, expect, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import { execFileSync } from "node:child_process";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { classifierConfig } from "../src/config/classifier";
 import { resolveRunner } from "../src/config/runner-id";
@@ -212,6 +212,27 @@ describe("learned fit", () => {
     }));
     const proposals = ladder.map(c => evaluateLadder(c.request, c.config));
     expectSame(["default steps", "task-fit only"], rust(ladder.map(c => ({ fn: "ladder", ...c }))), proposals);
+  });
+
+  // F7: native dispatch.preview reads learned fit through the read-only view; TypeScript's preview reads the
+  // writable store. Both must read the same reviews from a cleanly closed WAL store.
+  test("a cleanly closed WAL store reads the same through the read-only view and the writable store", () => {
+    const home = tmpDir();
+    // The writable store's own schema and journal mode, closed by its owner.
+    execFileSync(process.execPath, ["-e", `
+      const { dispatchDatabase } = await import(${JSON.stringify(join(root, "src/dispatch/store.ts"))});
+      const db = dispatchDatabase({ home: "/nonexistent", pacerHome: process.argv[1], now: 0, env: {} });
+      db.exec("INSERT INTO work_learning_exclusions VALUES ('/repo/excluded'); INSERT INTO work_learning_reset VALUES ('/repo/reset', ${NOW - 1000})");
+      const insert = db.query("INSERT INTO work_reviews VALUES (?,1,?,'human',?)");
+      JSON.parse(await Bun.stdin.text()).forEach((row, i) => insert.run("t" + i, ${NOW}, typeof row === "string" || typeof row === "number" ? row : JSON.stringify(row)));
+      db.close();`, home], { input: JSON.stringify(rows) });
+    for (const suffix of ["-wal", "-shm"]) rmSync(join(home, "state", `tasks.db${suffix}`), { force: true });
+    // Header bytes 18 and 19 are 2 in WAL mode.
+    expect([...readFileSync(join(home, "state", "tasks.db")).subarray(18, 20)]).toEqual([2, 2]);
+    const [native] = rust([{ fn: "learnedFit", strategy, pacerHome: home, candidates, task, now: NOW }]);
+    const writable = applyLearnedFit(fakeCtx({ pacerHome: home, now: NOW }), strategy, candidates, task.kind, task.difficulty);
+    expect(writable.filter(c => c.learnedFit).map(c => c.runner)).toEqual(["codex", "codex#b", "claude-code"]);
+    expect(native).toBe(JSON.stringify(writable));
   });
 
   test("a null review row fails in both", () => {

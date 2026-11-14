@@ -219,6 +219,22 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/dispatch-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            let params: unknown;
+            try { params = JSON.parse(await req.text()); } catch {
+              const { CoreError } = await import("../core/errors");
+              throw new CoreError("invalid_input", "params: invalid JSON");
+            }
+            const { dispatchPartsFor } = await import("../api/dispatch-parts-bridge");
+            return Response.json({ result: await dispatchPartsFor(getCtx(), params) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/session-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
