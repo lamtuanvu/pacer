@@ -219,6 +219,32 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/dispatch-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { dispatchPartsFor, DISPATCH_PARTS_MAX } = await import("../api/dispatch-parts-bridge");
+            const { CoreError } = await import("../core/errors");
+            const tooLarge = () => new CoreError("too_large", "body exceeds 256 KiB");
+            if (Number(req.headers.get("content-length")) > DISPATCH_PARTS_MAX) throw tooLarge();
+            const reader = req.body?.getReader(), decoder = new TextDecoder();
+            let text = "", bytes = 0;
+            if (reader) for (;;) {
+              const chunk = await reader.read();
+              if (chunk.done) break;
+              bytes += chunk.value.byteLength;
+              if (bytes > DISPATCH_PARTS_MAX) { await reader.cancel(); throw tooLarge(); }
+              text += decoder.decode(chunk.value, { stream: true });
+            }
+            text += decoder.decode();
+            let params: unknown;
+            try { params = JSON.parse(text); } catch { throw new CoreError("invalid_input", "params: invalid JSON"); }
+            return Response.json({ result: await dispatchPartsFor(getCtx(), params) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/session-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {

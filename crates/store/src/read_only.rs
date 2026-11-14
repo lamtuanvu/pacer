@@ -64,6 +64,9 @@ fn attempt(
     immutable: bool,
 ) -> Result<ReadOnlyConnection, ReadOnlyError> {
     let db = Connection::open_with_flags(target, flags).map_err(ReadOnlyError::Open)?;
+    // rusqlite waits up to 5 s on a locked store; Bun's reader fails at once.
+    db.busy_timeout(std::time::Duration::ZERO)
+        .map_err(ReadOnlyError::Open)?;
     db.execute_batch("PRAGMA query_only = ON")
         .map_err(ReadOnlyError::Open)?;
     let tables = read_tables(&db).map_err(ReadOnlyError::Read)?;
@@ -191,6 +194,17 @@ mod tests {
             held > 0 && held_locks(&path) == held,
             "the writer's locks were released"
         );
+    }
+
+    #[test]
+    fn a_locked_store_fails_at_once() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = seed(dir.path(), "DELETE");
+        let writer = Connection::open(&path).unwrap();
+        writer.execute_batch("BEGIN EXCLUSIVE").unwrap();
+        let started = std::time::Instant::now();
+        assert!(matches!(open_read_only(&path), Err(ReadOnlyError::Read(_))));
+        assert!(started.elapsed() < std::time::Duration::from_secs(1));
     }
 
     #[test]

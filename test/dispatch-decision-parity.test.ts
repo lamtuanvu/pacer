@@ -452,6 +452,12 @@ describe("read-only task store", () => {
       expect(expected[8]).toMatchObject({ available: false, running: [] });
       expect(expected[9]).toEqual({ error: { code: "conflict", message: "Session reservations are unreadable" } });
       expectSame(rust(cases.map(([pacerHome, strict]) => ({ fn: "readonly", pacerHome, strict, now: NOW }))), expected);
+      // #978: a locked store fails at once, as Bun's reader does, instead of waiting out a busy timeout.
+      for (const strict of [false, true]) {
+        const started = performance.now();
+        expectSame(rust([{ fn: "readonly", pacerHome: locked, strict, now: NOW }]), [expected[strict ? 9 : 8]]);
+        expect(performance.now() - started).toBeLessThan(1000);
+      }
       expect(files()).toEqual(before);
     } finally {
       writer.close();

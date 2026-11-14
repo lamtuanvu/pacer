@@ -123,6 +123,16 @@ fn identify(path: &str) -> Result<Identity, CoreError> {
 /// identity a strict caller fails and others get `repoFor(path)` marked `identityUnverified`.
 /// A registry that needs the core by the time it is re-read here is a `conflict`.
 pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
+    register(ctx, path, strict, true)
+}
+
+/// `registerRepo(ctx, path, strict, false)` for a read-only caller: the identity's `key` and
+/// shared checkout `path` (without a `label`), recording nothing.
+pub fn resolve_repo_read_only(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
+    register(ctx, path, strict, false)
+}
+
+fn register(ctx: &Ctx, path: &str, strict: bool, persist: bool) -> Result<Value, CoreError> {
     let unresolved = || {
         if strict {
             return Err(invalid("Cannot establish repository identity for project routing")
@@ -147,7 +157,7 @@ pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreE
         mut reg,
         mut aliases,
         needs_core,
-    } = Registry::read(&ctx.pacer_home, true);
+    } = Registry::read(&ctx.pacer_home, persist);
     if needs_core {
         return Err(CoreError::new(
             Code::Conflict,
@@ -157,6 +167,9 @@ pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreE
     let key = key
         .or_else(|| reg.get(&quote(&main))?.get("key")?.as_str().map(text))
         .unwrap_or_else(|| local_key(&main));
+    if !persist {
+        return Ok(json!({"key": key, "path": main}));
+    }
     reg.insert(
         quote(&main),
         quoted::from_utf8(json!({"key": key, "path": main, "lastUsed": ctx.now})),

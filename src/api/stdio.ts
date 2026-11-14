@@ -63,6 +63,17 @@ export async function runStdio(
           result = await statusBrokerPartsFor(getCtx(), params);
           break;
         }
+        case "_internal.dispatch.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { key: _key, ...params } = r.params as Record<string, unknown>;
+          const { dispatchPartsFor, DISPATCH_PARTS_MAX } = await import("./dispatch-parts-bridge");
+          if (Buffer.byteLength(line) > DISPATCH_PARTS_MAX) throw new CoreError("too_large", "request exceeds 256 KiB");
+          result = await dispatchPartsFor(getCtx(), params);
+          break;
+        }
         case "_internal.session-probe.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
