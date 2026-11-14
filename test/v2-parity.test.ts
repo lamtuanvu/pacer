@@ -8,6 +8,7 @@ import {
 } from '../src/api/v2-compat';
 import type { CompatEvent } from '../src/api/v2-compat';
 import conversions from './fixtures/protocol-v2/conversions.json';
+import pkg from '../package.json';
 
 test('v2 pure conversions retain their golden outputs without mutating inputs', () => {
   for (const { name, input, output } of conversions.params) {
@@ -89,7 +90,8 @@ for (const kind of [
   });
 }
 test('v2 hello and schemas retain the frozen operation surface and property order', async () => {
-  expect(v2Hello()).toEqual(characterization.hello.output);
+  // The surface is frozen; pacer is whatever version is being built.
+  expect(v2Hello()).toEqual({ ...characterization.hello.output, pacer: pkg.version });
   expect(JSON.stringify(v2OpJsonSchemas())).toBe(
     JSON.stringify(characterization.schemas.output),
   );
