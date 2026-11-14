@@ -45,7 +45,7 @@ pub use bridge_auth::{
     AUTH_DEADLINE, AuthError, HOST_KEY_NAME, HOST_SOCKET_KEY_ENV, METHOD_AUTH, OwnerKey,
     authenticate,
 };
-pub use bridge_call::{CallFailure, DoorCall, DoorReady, call_door, ready_info};
+pub use bridge_call::CallFailure;
 pub use bridge_listener::{
     BRIDGE_MAX_LINE_BYTES, BridgeDispatch, BridgeError, BridgeHandle, PeerAuth, ReverseBridge,
     SharedOwner, bridge_methods_are_private, serve_starts_reverse_bridge_by_default,
