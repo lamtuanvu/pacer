@@ -16,7 +16,8 @@ export type SetupHealthStepState =
   | "passed"
   | "needs_attention"
   | "failed"
-  | "timed_out";
+  | "timed_out"
+  | "not_checked";
 
 export type SetupHealthTrigger = "startup" | "update" | "manual";
 export type SetupHealthOutcome = "ok" | "warnings" | "hard_fail";
@@ -93,6 +94,7 @@ function worst(a: SetupHealthStepState, b: SetupHealthStepState): SetupHealthSte
     needs_attention: 3,
     running: 2,
     waiting: 1,
+    not_checked: 1,
     passed: 0,
   };
   return rank[a] >= rank[b] ? a : b;

@@ -145,6 +145,8 @@ export interface FixAllItem<T = unknown> {
   plan: RemedyPlan;
   title?: string;
   data?: T;
+  remedy?: Remedy;
+  progress?: string;
 }
 
 export interface FixAllPreparedItem<T = unknown> {
@@ -177,7 +179,7 @@ export interface FixAllHooks<T = unknown> {
 /** Shared batch fix: prepare -> serviceInstallLast -> one consent -> commit each -> await restart. */
 export async function runFixAll<T = unknown>(
   items: FixAllItem<T>[],
-  host: RemedyHost,
+  host: Pick<RemedyHost, "call" | "awaitRestart">,
   hooks: FixAllHooks<T> = {},
 ): Promise<FixAllResult<T>> {
   const failures: FixAllFailure<T>[] = [];
@@ -206,7 +208,8 @@ export async function runFixAll<T = unknown>(
     : undefined;
   let restarting = false;
   for (const { item, run } of ordered) {
-    hooks.onProgress?.(`${item.title ?? item.id}: ${remedyProgress({ kind: "auto", label: item.title ?? item.id, op: run.op } as Remedy)}`);
+    const progressText = item.progress ?? (item.remedy ? remedyProgress(item.remedy) : `${item.title ?? item.id}…`);
+    hooks.onProgress?.(`${item.title ?? item.id}: ${progressText}`);
     try {
       const restarts = restartsService(await commitRun(run, host.call));
       restarting ||= restarts;

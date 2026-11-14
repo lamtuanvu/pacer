@@ -433,23 +433,18 @@ export function DiagnosticsSection() {
   async function fixAll(rows: DiagnosticFixRow[]) {
     if (busy || running || !rows.length) return;
     setBusy(true); setError(undefined); setProgress("Checking what will change…");
-    const fixAllHost: RemedyHost = {
+    const fixAllHost: Pick<RemedyHost, "call" | "awaitRestart"> = {
       call,
-      confirm: async () => true,
-      review: async () => true,
-      delegate: async () => false,
-      open: () => {},
       awaitRestart: async (before) => { await awaitRestart(before); },
-      reportUndo: () => {},
     };
     try {
-      const items = rows.map(row => ({ id: row.check.name, plan: row.plan as RemedyPlan, title: settingsText(row.title), data: row }));
+      const items = rows.map(row => ({ id: row.check.name, plan: row.plan as RemedyPlan, title: settingsText(row.title), data: row, remedy: row.remedy }));
       const result = await runFixAll(items, fixAllHost, {
         confirmAll: requests => ask(FIX_ALL, requests),
         onPrepareFailure: (item, failure) => outcome(item.data!.check.name, { phase: "error", message: errorText(failure) }),
         onProgress: setProgress,
         onItemsStart: ordered => {
-          for (const { item } of ordered) outcome(item.data!.check.name, { phase: "running", text: remedyProgress(item.data!.remedy!) });
+          for (const { item } of ordered) outcome(item.data!.check.name, { phase: "running", text: remedyProgress(item.remedy ?? item.data!.remedy!) });
         },
         onItemCommit: (item, restarts) => outcome(item.data!.check.name, { phase: "running", text: restarts ? "Waiting for pacer to restart…" : "Rechecking…" }),
         onItemFailure: (item, failure) => outcome(item.data!.check.name, { phase: "error", message: errorText(failure) }),

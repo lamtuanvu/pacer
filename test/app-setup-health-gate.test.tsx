@@ -34,7 +34,7 @@ test("setup.health rejection maps to a hard_fail gate that stays until Continue"
   expect(report.outcome).toBe("hard_fail");
   expect(report.steps.find(s => s.id === "service")?.state).toBe("failed");
   expect(report.steps.find(s => s.id === "service")?.detail).toContain("could not finish");
-  expect(report.steps.find(s => s.id !== "service")?.state).toBe("waiting");
+  expect(report.steps.find(s => s.id !== "service")?.state).toBe("not_checked");
   expect(report.repairs).toEqual([]);
   const html = renderToString(
     <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} />,

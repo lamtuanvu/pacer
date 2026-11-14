@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { remedyPlan } from "../../../../src/view-model/diagnostics";
 import type { SetupHealthRepair, SetupHealthReport } from "../../../../src/view-model/setup-health";
 import type { BrowserApi } from "../../data/api";
-import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, runFixAll, servicePid, type RemedyHost } from "../../data/remedies";
+import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, runFixAll, servicePid, type ConsentRequest, type RemedyHost } from "../../data/remedies";
 import { remedies } from "../../../../src/install/doctor-remedy";
 import { platform } from "../../platform";
 import { useDialogs } from "../../ds/useDialogs";
@@ -34,7 +34,7 @@ export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] =
     attentionCount: 1,
     steps: pending.steps.map(step => ({
       ...step,
-      state: step.id === "service" ? "failed" : "waiting",
+      state: step.id === "service" ? "failed" : "not_checked",
       detail: step.id === "service" ? detail : undefined,
     })),
     repairs: [],
@@ -228,11 +228,11 @@ export function SetupHealthGate({
         setRepairError(undefined);
         setFixAllProgress("Checking what will change…");
         const host = gateRemedyHost(api, dialogs.confirm);
-        const items = autoRepairs.map(r => ({ id: r.check ?? r.label, plan: remedyPlan(r.remedy!)!, title: r.label, data: r }));
-        const confirmAll = async (requests: any) => {
-          const message = requests.map((req: { message: string; files: string[] }) => `${req.message}${req.files.length ? `\n\n${req.files.join("\n")}` : ""}`).join("\n\n");
-          const files = requests.flatMap((req: { files: string[] }) => req.files);
-          return dialogs.confirm(`${message}${files.length ? `\n\n${files.join("\n")}` : ""}`, "Fix issues", "Fix");
+        const items = autoRepairs.map(r => ({ id: r.check ?? r.label, plan: remedyPlan(r.remedy!)!, title: r.label, data: r, remedy: r.remedy }));
+        const confirmAll = async (requests: ConsentRequest[]) => {
+          const message = requests.map(req => req.message).join("\n\n");
+          const files = [...new Set(requests.flatMap(req => req.files))];
+          return dialogs.confirm(`${message}${fileList(files)}`, "Fix issues", "Fix");
         };
         try {
           const result = await runFixAll(items, host, {
