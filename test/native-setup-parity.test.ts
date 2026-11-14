@@ -327,11 +327,11 @@ test.skipIf(!front)("executor.setup.candidates reports distinct probe failures i
 }, 120000);
 
 async function serve(dir: string, forward: boolean) {
-  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
-    env: { ...childEnv(dir, port), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
-      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) } });
+  const port = closedPort();
+  const child = spawnPinned([front!, "serve", "--port", String(port)], { cwd: dir, stdin: "ignore", stdout: "ignore", stderr: "pipe",
+    env: pinnedEnv({ HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: `${join(dir, "bin")}:/usr/bin:/bin`, PACER_CORE_ARGV: core,
+      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
+      ...isolated, PACER_TEST_LOCAL_SERVER_PORTS: `${models.port},${DEAD[1]}`, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, port) });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;

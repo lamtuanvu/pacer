@@ -174,14 +174,6 @@ fn added_by(
     out
 }
 
-/// A candidate object in detect.ts key order: `added`/`model` before `usage`.
-fn candidate(fields: Value, added: Map<String, Value>, usage: Value) -> Value {
-    let mut out = fields.as_object().cloned().unwrap_or_default();
-    out.extend(added);
-    out.insert("usage".into(), usage);
-    Value::Object(out)
-}
-
 /// A failed probe: its position among failures as they settled, and the message.
 type Failure = (u64, String);
 
@@ -267,12 +259,7 @@ pub(crate) async fn candidates(
             if !seen.insert(id.clone()) {
                 continue;
             }
-            let added = added_by(accounts, runners, &id, None);
-            candidates.push(candidate(
-                json!({"group":"signed_in","provider":id,"name":name}),
-                added,
-                classify(&id, &models(&catalog, &id)),
-            ));
+            candidates.push(json!({"group":"signed_in","provider":id,"name":name,"added":added_by(accounts, &id, None),"usage":classify(&id, &models(&catalog, &id))}));
         }
     }
     notes.extend(
@@ -282,8 +269,7 @@ pub(crate) async fn candidates(
     );
     for ((provider, name, url), probe) in servers.iter().zip(&probes) {
         if let Ok(Some(count)) = probe {
-            let added = added_by(accounts, runners, provider, Some(url.as_str()));
-            candidates.push(candidate(json!({"group":"local","provider":provider,"name":name,"base_url":url,"models":count}), added, json!({"usage":"unmetered","known":true})));
+            candidates.push(json!({"group":"local","provider":provider,"name":name,"base_url":url,"models":count,"added":added_by(accounts, provider, Some(url.as_str())),"usage":{"usage":"unmetered","known":true}}));
         }
     }
     if opencode {
@@ -305,27 +291,8 @@ pub(crate) async fn candidates(
 }
 
 #[cfg(test)]
-mod added_tests {
-    use super::*;
-
-    #[test]
-    fn an_account_counts_as_added_only_while_an_opencode_runner_uses_it() {
-        let accounts =
-            json!({"go": {"name": "go", "source": "opencode", "provider": "opencode-go"}});
-        let orphan = added_by(&accounts, &json!({}), "opencode-go", None);
-        assert_eq!(Value::Object(orphan), json!({"added": null}));
-        let runners = json!({"opencode#go": {"agent": "opencode", "account": "go", "model": "opencode-go/kimi-k3"}});
-        let live = added_by(&accounts, &runners, "opencode-go", None);
-        assert_eq!(
-            Value::Object(live),
-            json!({"added": "go", "model": "kimi-k3"})
-        );
-    }
-}
-
-#[cfg(test)]
 #[allow(clippy::unwrap_used)]
-mod branch_tests {
+mod tests {
     use super::*;
 
     fn urls(value: &str) -> Vec<String> {
