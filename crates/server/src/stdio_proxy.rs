@@ -14,20 +14,28 @@ use tokio::{
 };
 
 /// Generated from the TypeScript hello bodies; the parity test catches drift.
-/// The v3 body's `coreBuild` describes the running core, so it is never in the
-/// generated file: it comes from the core itself, once per connection.
+/// Two fields are never in the generated file. `pacer` changes with every
+/// release, so it is package.json's version, which the TypeScript hello reports
+/// too (`pkg.version`), even when the build was given another one. The v3
+/// body's `coreBuild` describes the running core, so it comes from the core
+/// itself, once per connection.
 fn hello_body(version: u8, core_build: Option<&Value>) -> io::Result<Value> {
     let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
-    let mut body = bodies[if version == 3 { "v3" } else { "v2" }].clone();
-    if version == 3
-        && let (Some(build), Value::Object(fields)) = (core_build, &mut body)
-    {
-        let mut ordered = serde_json::Map::new();
+    let Value::Object(fields) = &bodies[if version == 3 { "v3" } else { "v2" }] else {
+        return Err(io::Error::other("stdio_hello.json has no hello body"));
+    };
+    let mut ordered = serde_json::Map::new();
+    if let (3, Some(build)) = (version, core_build) {
         ordered.insert("coreBuild".into(), build.clone());
-        ordered.extend(std::mem::take(fields));
-        *fields = ordered;
     }
-    Ok(body)
+    for (key, value) in fields {
+        ordered.insert(key.clone(), value.clone());
+        // TypeScript sends `pacer` right after the protocol versions.
+        if key == if version == 3 { "previous" } else { "protocol" } {
+            ordered.insert("pacer".into(), env!("PACER_PACKAGE_VERSION").into());
+        }
+    }
+    Ok(Value::Object(ordered))
 }
 
 /// The core's build descriptor, read with `--pacer-component-descriptor` on first use.
@@ -1246,8 +1254,39 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
 
 #[cfg(test)]
 mod tests {
-    use super::natively_answered_id;
+    use super::{hello_body, natively_answered_id};
     use serde_json::{Value, json};
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn hello_reports_the_package_version_in_typescript_key_order() {
+        let package: Value = serde_json::from_str(include_str!("../../../package.json")).unwrap();
+        let keys = |body: &Value| {
+            body.as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let v2 = hello_body(2, None).unwrap();
+        assert_eq!(v2["pacer"], package["version"]);
+        assert_eq!(keys(&v2), ["protocol", "pacer", "ops", "events"]);
+        let build = json!({"schemaVersion": 1});
+        let v3 = hello_body(3, Some(&build)).unwrap();
+        assert_eq!(v3["pacer"], package["version"]);
+        assert_eq!(
+            keys(&v3),
+            [
+                "coreBuild",
+                "protocol",
+                "previous",
+                "pacer",
+                "ops",
+                "events"
+            ]
+        );
+        assert_eq!(keys(&hello_body(3, None).unwrap())[0], "protocol");
+    }
 
     #[test]
     fn only_null_string_and_safe_integer_ids_are_answered_natively() {
