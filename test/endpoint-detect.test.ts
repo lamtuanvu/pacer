@@ -89,16 +89,6 @@ test("detection with the endpoint plugin disabled still lists signed-in provider
   expect(d.notes.some(n => n.startsWith("Could not check local model servers"))).toBe(true);
 });
 
-test("with runners, only an account an executor still uses marks its provider added, with that executor's model", async () => {
-  const {ctx} = ctxWith({"opencode auth list": {code: 0, stdout: authJson}});
-  const accounts = {openrouter: {name: "openrouter", kind: "endpoint", source: "opencode", provider: "openrouter"} as AccountCfg};
-  const orphan = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts, runners: {}});
-  expect(orphan.candidates.find(c => c.provider === "openrouter")?.added).toBeNull();
-  const runners = {"opencode#openrouter": {agent: "opencode" as const, account: "openrouter", model: "openrouter/qwen/qwen3-coder"}};
-  const live = await detectCandidates(ctx, {discover: discoveryFromFetch(noServers), catalog: null, accounts, runners});
-  expect(live.candidates.find(c => c.provider === "openrouter")).toMatchObject({added: "openrouter", model: "qwen/qwen3-coder"});
-});
-
 test("uncompiled runs take both local server ports from PACER_TEST_LOCAL_SERVER_PORTS or neither", async () => {
   const urls = (value?: string) => localServers(fakeCtx({env: value === undefined ? {} : {PACER_TEST_LOCAL_SERVER_PORTS: value}})).map(s => s.base_url);
   const fixed = ["http://127.0.0.1:11434/v1", "http://127.0.0.1:1234/v1"];

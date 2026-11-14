@@ -18,10 +18,11 @@ export async function closedPort(): Promise<number> {
   return port;
 }
 
-/** `env` for a spawned test process, with `PACER_PORT` pinned to `port`; refuses a missing port or the real service's. */
-export function pinnedEnv<T extends Record<string, string | undefined>>(env: T, port: number): T & { PACER_PORT: string } {
-  if (!Number.isInteger(port) || port <= 0 || port > 65535 || port === REAL_SERVICE_PORT) {
-    throw new Error(`a spawned test process needs PACER_PORT pinned away from ${REAL_SERVICE_PORT}, got ${port}`);
+/** Throws unless `env` pins PACER_PORT to a decimal port other than the real service's. */
+export function assertPinnedPort(env: Record<string, string | undefined> | undefined): void {
+  const port = env?.PACER_PORT;
+  if (!port || !/^\d+$/.test(port) || Number(port) === REAL_SERVICE_PORT) {
+    throw new Error(`spawned test process needs PACER_PORT other than ${REAL_SERVICE_PORT}, got ${port ?? "none"}`);
   }
   return { ...env, PACER_PORT: String(port) };
 }
