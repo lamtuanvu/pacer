@@ -9,7 +9,7 @@ use std::sync::OnceLock;
 
 const PROTOCOL_VERSION: &str = "3.0.0";
 
-pub(crate) fn pacer_version() -> &'static str {
+fn pacer_version() -> &'static str {
     static VERSION: OnceLock<String> = OnceLock::new();
     VERSION.get_or_init(|| {
         option_env!("PACER_BUILD_VERSION")

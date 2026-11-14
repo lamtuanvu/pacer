@@ -5,11 +5,16 @@ fn main() {
     println!("cargo:rerun-if-env-changed=PACER_BUILD_VERSION");
     let package = root.join("package.json");
     println!("cargo:rerun-if-changed={}", package.display());
-    let version = std::env::var("PACER_BUILD_VERSION").ok().or_else(|| {
-        let text = fs::read_to_string(&package).ok()?;
-        let value: serde_json::Value = serde_json::from_str(&text).ok()?;
-        value.get("version")?.as_str().map(str::to_owned)
-    });
+    let package_version = fs::read_to_string(&package)
+        .ok()
+        .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
+        .and_then(|value| value.get("version")?.as_str().map(str::to_owned))
+        .unwrap_or_else(|| panic!("cannot read the version from {}", package.display()));
+    // The TypeScript core reports package.json's version in hello; so does the Rust proxy.
+    println!("cargo:rustc-env=PACER_PACKAGE_VERSION={package_version}");
+    let version = std::env::var("PACER_BUILD_VERSION")
+        .ok()
+        .or(Some(package_version));
     if let Some(version) = version {
         println!("cargo:rustc-env=PACER_BUILD_VERSION={version}");
     }
