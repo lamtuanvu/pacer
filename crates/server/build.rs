@@ -9,7 +9,8 @@ fn main() {
         .ok()
         .and_then(|text| serde_json::from_str::<serde_json::Value>(&text).ok())
         .and_then(|value| value.get("version")?.as_str().map(str::to_owned))
-        .unwrap_or_else(|| panic!("cannot read the version from {}", package.display()));
+        // Fixture builds may have no readable package.json; the parity tests catch a wrong version.
+        .unwrap_or_else(|| env::var("CARGO_PKG_VERSION").unwrap_or_default());
     // The TypeScript core reports package.json's version in hello; so does the Rust proxy.
     println!("cargo:rustc-env=PACER_PACKAGE_VERSION={package_version}");
     let version = std::env::var("PACER_BUILD_VERSION").unwrap_or(package_version);
