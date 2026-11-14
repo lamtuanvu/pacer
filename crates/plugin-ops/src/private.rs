@@ -195,6 +195,15 @@ pub(crate) fn locked<T>(
                     Err(e) if e.kind() == std::io::ErrorKind::NotFound => continue,
                     Err(e) => return Err(internal(e)),
                 };
+                // The previous holder may release the lock between our failed
+                // create and this inspection. It then unlinks the file, and a
+                // metadata read racing that unlink can observe the still-open
+                // inode with nlink 0 (no directory link). That is the benign
+                // release transient, the same as NotFound above: retry rather
+                // than treat it as an unsafe lock.
+                if m.nlink() == 0 {
+                    continue;
+                }
                 if !m.is_file()
                     || m.file_type().is_symlink()
                     || m.nlink() != 1
