@@ -254,14 +254,21 @@ test("the private plugin channel needs the sync key, hello v3 and no work grant"
   ]);
   expect(out.find(o => o.id === 1).result.entries).toBeArray();
   // Without the owner socket a relay would let Core spawn the child itself.
-  expect(out.find(o => o.id === 2).result.error).toMatchObject({ code: "plugin_unavailable", message: "owner relay requires an attached stdio connection" });
-  // The HTTP door never relays, even with the owner socket set and the plugin enabled.
+  const refusal = { code: "plugin_unavailable", message: "owner relay requires the native process owner" };
+  expect(out.find(o => o.id === 2).result.error).toMatchObject(refusal);
+  // The HTTP door relays its own calls flag-on: Core refuses a relay without the owner socket and
+  // otherwise seals the call to that socket (here nothing listens on it).
   const h = makeHome();
   try {
-    await callOp(fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH! } }), "plugin.enable", { id: "fx-ui", grant: true });
-    const ctx = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
-    const http = await pluginNativeRequest(ctx, { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} });
-    expect((http as any).error).toMatchObject({ code: "plugin_unavailable", message: "owner relay requires an attached stdio connection" });
+    const off = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH! } });
+    await callOp(off, "plugin.enable", { id: "fx-ui", grant: true });
+    const relay = { kind: "relay", id: "fx-ui", method: "diagnostic.ping", params: {} };
+    expect((await pluginNativeRequest(off, relay) as any).error).toMatchObject(refusal);
+    const socket = join(h.state, "run", "host.sock");
+    const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, PACER_HOST_SOCKET: socket } });
+    const unreachable = (await pluginNativeRequest(on, relay) as any).error;
+    expect(unreachable.code).toBe("plugin_unavailable");
+    expect(unreachable.message).toStartWith(`native process owner socket ${socket} is unreachable`);
   } finally { h.done(); }
 });
 

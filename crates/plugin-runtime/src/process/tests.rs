@@ -341,6 +341,46 @@ async fn a_child_that_exits_mid_call_fails_the_call() {
     child.terminate().await.unwrap();
 }
 
+/// Records the transport's closed flag at the moment a pending call is woken.
+struct SeesClosed {
+    closed: watch::Receiver<bool>,
+    seen: StdMutex<Option<bool>>,
+}
+
+impl std::task::Wake for SeesClosed {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        *self.seen.lock().unwrap() = Some(*self.closed.borrow());
+    }
+}
+
+#[test]
+fn a_call_woken_by_the_transport_closing_already_finds_it_closed() {
+    // The woken call asks `is_alive` to tell a crash from its own failure; a
+    // live answer reports `stdout closed` instead of waiting for the exit.
+    let shared = Shared::default();
+    let (reply, mut replied) = oneshot::channel();
+    let (requests, _received) = mpsc::channel(1);
+    let route = Route {
+        token: None,
+        reply: Some(reply),
+        requests,
+    };
+    shared.routes().calls.insert(1, route);
+    let waker = Arc::new(SeesClosed {
+        closed: shared.closed.subscribe(),
+        seen: StdMutex::new(None),
+    });
+    let woken = std::task::Waker::from(waker.clone());
+    let mut cx = std::task::Context::from_waker(&woken);
+    assert!(std::pin::Pin::new(&mut replied).poll(&mut cx).is_pending());
+    shared.close("stdout closed");
+    assert_eq!(*waker.seen.lock().unwrap(), Some(true));
+}
+
 #[tokio::test]
 async fn a_request_flood_is_refused_past_the_call_bound() {
     // 40 requests at once: the handler is slow, so the call's queue fills and

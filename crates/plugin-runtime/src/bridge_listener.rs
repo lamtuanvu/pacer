@@ -480,7 +480,9 @@ async fn handle_connection(
                 Turn::Peer(true) | Turn::Read(Ok(0) | Err(_)) => {
                     let _ = cancel.send(true);
                     drop(pending.take());
-                    work.await;
+                    // A caller that only shut down its write side still reads the
+                    // final reply for the call's logs.
+                    let _ = write_raw(reader.get_mut(), &work.await).await;
                     break None;
                 }
                 Turn::Forward((method, mut params, reply)) => {
@@ -675,7 +677,7 @@ async fn dispatch_call(
             .await
             {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err(failure) => {
+                Err((failure, logs)) => {
                     let mut data = json!({"code": failure.code});
                     if let Some(hint) = failure.hint {
                         data["hint"] = Value::String(hint);
@@ -683,7 +685,7 @@ async fn dispatch_call(
                     if failure.from_plugin {
                         data["origin"] = Value::String("plugin".into());
                     }
-                    json!({
+                    let mut reply = json!({
                         "jsonrpc": "2.0",
                         "id": id,
                         "error": {
@@ -691,7 +693,18 @@ async fn dispatch_call(
                             "message": failure.message,
                             "data": data
                         }
-                    })
+                    });
+                    // The failure must reach Core even when its logs would not fit the frame.
+                    if !logs.is_empty() {
+                        reply["error"]["data"]["logs"] = Value::Array(logs);
+                        if !serde_json::to_vec(&reply)
+                            .is_ok_and(|bytes| bytes.len() < BRIDGE_MAX_LINE_BYTES)
+                            && let Some(data) = reply["error"]["data"].as_object_mut()
+                        {
+                            data.remove("logs");
+                        }
+                    }
+                    reply
                 }
             }
         }

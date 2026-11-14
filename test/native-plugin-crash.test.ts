@@ -85,7 +85,7 @@ test("Core records a native owner's crash report as its own exit, and only with 
     const off = fakeCtx({ home: h.home, pacerHome: h.state, env });
     const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
     await callOp(off, "plugin.enable", { id: "fx-ui", grant: true });
-    const crashed = (ctx: typeof on, reason: string, relay = false) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }, { relay }) as Promise<any>;
+    const crashed = (ctx: typeof on, reason: string, stdio = false) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }, { stdio }) as Promise<any>;
     // Flag-off the registry watches its own children; a report could only be forged.
     expect((await crashed(off, "exited on SIGKILL")).error).toMatchObject({ code: "plugin_unavailable", message: "crash reports require the native process owner" });
     // A stdio Core attached to the service's `host.sock` does not own the children it would report.
@@ -224,6 +224,10 @@ test.skipIf(!front)("an attached stdio connection cannot restart a plugin the se
       expect(report.ok).toBe(false);
     }
     expect(report.error).toContain("plugin fx-ui is failing: 3 failures within a minute");
+    // The owner's refusal reaches the attached door through its Core with the hint.
+    expect(semantic(await s.call("plugin.ui.action", { ...hold, action: "refresh", requestId: "failing" }))).toMatchObject({
+      code: "plugin_unavailable", message: expect.stringContaining("plugin fx-ui is failing"), hint: "Enable the plugin through the pacer service.",
+    });
     expect(startLog(h)).toHaveLength(3);
     // Enabling through the service clears the owner's mark, and the attached door is served again.
     await service.call("plugin.enable", { id: "fx-ui", grant: true });
