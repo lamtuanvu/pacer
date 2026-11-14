@@ -14,20 +14,29 @@ use tokio::{
 };
 
 /// Generated from the TypeScript hello bodies; the parity test catches drift.
-/// The v3 body's `coreBuild` describes the running core, so it is never in the
-/// generated file: it comes from the core itself, once per connection.
+/// Two fields are never in the generated file. `pacer` is this build's version,
+/// which changes with every release. The v3 body's `coreBuild` describes the
+/// running core, so it comes from the core itself, once per connection.
 fn hello_body(version: u8, core_build: Option<&Value>) -> io::Result<Value> {
     let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
-    let mut body = bodies[if version == 3 { "v3" } else { "v2" }].clone();
-    if version == 3
-        && let (Some(build), Value::Object(fields)) = (core_build, &mut body)
-    {
-        let mut ordered = serde_json::Map::new();
+    let Value::Object(fields) = &bodies[if version == 3 { "v3" } else { "v2" }] else {
+        return Err(io::Error::other("stdio_hello.json has no hello body"));
+    };
+    let mut ordered = serde_json::Map::new();
+    if let (3, Some(build)) = (version, core_build) {
         ordered.insert("coreBuild".into(), build.clone());
-        ordered.extend(std::mem::take(fields));
-        *fields = ordered;
     }
-    Ok(body)
+    for (key, value) in fields {
+        ordered.insert(key.clone(), value.clone());
+        // TypeScript sends `pacer` right after the protocol versions.
+        if key == if version == 3 { "previous" } else { "protocol" } {
+            ordered.insert(
+                "pacer".into(),
+                crate::native::meta_ops::pacer_version().into(),
+            );
+        }
+    }
+    Ok(Value::Object(ordered))
 }
 
 /// The core's build descriptor, read with `--pacer-component-descriptor` on first use.
