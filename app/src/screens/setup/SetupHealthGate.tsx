@@ -194,13 +194,14 @@ export function SetupHealthGate({
     if (enterTimer.current) window.clearTimeout(enterTimer.current);
     setRepairing(true);
     setRepairError(undefined);
-    setFixAllProgress("Restarting the pacer service…");
+    setFixAllProgress(undefined);
     const host = gateRemedyHost(api, dialogs.confirm);
     const remedy = remedies.internal();
     const plan = remedyPlan(remedy)!;
     try {
       const run = await prepareRun(plan as Extract<typeof plan, { kind: "run" }>, host.call);
       if (run.consent && !await host.confirm(run.consent)) return;
+      setFixAllProgress("Restarting the pacer service…");
       const before = run.op === "service.install" ? await servicePid(host.call).catch(() => undefined) : undefined;
       if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.(before);
       rerunChecks();
