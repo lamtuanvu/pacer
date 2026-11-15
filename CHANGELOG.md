@@ -119,6 +119,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Pacer no longer keeps sending work to a Cursor account that is out of usage. An interactive Cursor session that hits its limit prints the error and waits at its prompt, so the attempt never ended and the limit was never recorded. Pacer now checks a quiet interactive session for the agent's own limit error (Cursor only; other agents are still checked when they exit), stops the attempt, marks the account exhausted until the reported reset ("resets in 5 days") and moves the task to the next executor. Sessions that reported a result, conversations, takeovers and sessions a person is typing in are left alone.
+
 - Executors no longer stay **Skipped** after their usage recovers. An expired manual limit mark (`pacer report-limit`) is dropped once that time passes, like a reactive cooldown mark. The Claude status-line reader reports only the windows Claude includes, and a newer reading from the same source that leaves out a window retires that source's unknown or expired value for it. A window still at or above the exhausted threshold is kept until its reset, and readings from other sources are never retired this way.
 
 - An executor check no longer fails at **CLI found** with "plugin call passed its absolute deadline" while the planner plugin starts. Agent detection allows each `planner.detect` call 20 seconds instead of 5, so the plugin's start-up and the 5-second `--version` probe both fit. `runner.check` detects only its runner's agent, and a timed-out detection names the agent ("Detecting Cursor timed out") with a hint to run the check again.

@@ -85,3 +85,12 @@ test("the session limit excerpt starts at the provider's error line", () => {
   expect(sessionLimitExcerpt("cursor", `noise\n${cursorWeekly}`)?.startsWith("Error: Weekly usage limit reached")).toBe(true);
   expect(sessionLimitExcerpt("cursor", "nothing here")).toBeNull();
 });
+
+test("live session checks use only anchored per-agent error lines", () => {
+  // Codex and Claude Code screens can show pacer's own sources and fixtures quoting their exit-output patterns.
+  expect(detectSessionLimit("codex", "  You've hit your usage limit. Try again later.")).toBe(false);
+  expect(detectSessionLimit("claude-code", "You've hit your weekly limit")).toBe(false);
+  expect(detectSessionLimit("cursor", 'expect(x).toBe("Error: Weekly usage limit reached")')).toBe(false);
+  expect(detectSessionLimit("cursor", "ActionRequiredError: You've hit your usage limit")).toBe(true);
+  expect(exhaustUntil(undefined, cfg, 1000, "resets in 0 minutes")).toBe(1000 + 21600);
+});

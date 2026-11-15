@@ -1,4 +1,4 @@
-import { activeDeadlineExpired } from "../supervisor/active-time";
+import { activeDeadlineExpired, humanDriving } from "../supervisor/active-time";
 import { EXECUTOR_ARGV_BYTES } from "../exec/launch";
 import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -440,8 +440,10 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
 }
 
 /** An interactive attempt that ended without a completion report while its screen shows the provider's limit error. */
-function sessionLimitOutcome(executor: string, dir: string, out: {exec: {code: number; timedOut: boolean}; report: string}): boolean {
-  if (out.exec.code === 0 || out.exec.timedOut) return false;
+export function sessionLimitOutcome(executor: string, dir: string, out: {exec: {code: number; timedOut: boolean}; report: string}): boolean {
+  const reported = readRun(dir).report?.status;
+  // An explicit done/failed report is authoritative, whatever the screen shows.
+  if (out.exec.code === 0 || out.exec.timedOut || reported === "done" || reported === "failed") return false;
   const excerpt = sessionLimitExcerpt(executor, sessionLimitText(dir));
   if (excerpt === null) return false;
   out.report += `\n\nUsage limit reached:\n${excerpt}`;
@@ -452,7 +454,7 @@ function sessionLimitOutcome(executor: string, dir: string, out: {exec: {code: n
  * An interactive agent that hits its plan limit prints the error and waits; nothing else ends the run. At each lease
  * renewal, stop a quiet session whose screen shows the error so the observation sees an exit and the runner fails over.
  */
-async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, expected: {attempt: number; dir: string; executor: string}): Promise<void> {
+export async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, expected: {attempt: number; dir: string; executor: string}): Promise<void> {
   if (!(error instanceof CoreError) || error.code !== "plugin_timeout") return;
   const task = readTask(ctx, id), run = task?.run;
   if (!task || task.state !== "running" || task.stopPending || !run || run.host || run.session !== "interactive" ||
@@ -460,7 +462,8 @@ async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, expected
     run.executor !== expected.executor || task.executorProvider !== "pacer-exec-direct") return;
   const state = readRun(run.dir);
   if (!state.alive || state.exit !== null || state.report?.status === "done" || state.report?.status === "failed") return;
-  if (Date.now() / 1000 - (state.lastOutputAt ?? Date.now() / 1000) < LIMIT_QUIET_S) return;
+  // A person typing in the session owns it; they can see the error themselves.
+  if (humanDriving(state, Date.now()) || Date.now() / 1000 - (state.lastOutputAt ?? Date.now() / 1000) < LIMIT_QUIET_S) return;
   if (!detectSessionLimit(run.executor, sessionLimitText(run.dir))) return;
   await stopRun(run.dir, {graceMs: 5000});
 }

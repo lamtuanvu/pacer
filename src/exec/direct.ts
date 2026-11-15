@@ -128,13 +128,13 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked" | "limit"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
+    const driving = humanDriving(s, now * 1000);
     // An interactive agent that hits its plan limit prints the error and waits; nothing ends the run on its own.
-    if (s.interactive && !run.host && !run.takeover && run.interactionMode !== "conversation"
+    if (s.interactive && !driving && !run.host && !run.takeover && run.interactionMode !== "conversation"
       && s.stdoutBytes !== limitCheckedBytes && now - (s.lastOutputAt ?? now) >= LIMIT_QUIET_S) {
       limitCheckedBytes = s.stdoutBytes;
       if (detectSessionLimit(run.executor, sessionLimitText(run.dir))) return "limit";
     }
-    const driving = humanDriving(s, now * 1000);
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
     controlled = driving;
     let changed = false;
@@ -323,7 +323,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   }
   const result = outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report);
   // An interactive agent that exits on its limit error leaves it only in the session transcript.
-  if (end.kind === "limit" || (interactive && !conversation && exec.code !== 0 && !exec.timedOut && !run.host && detectSessionLimit(cfg.id, sessionLimitText(run.dir)))) result.attempt.limitHit = true;
+  if (end.kind === "limit" || (interactive && !conversation && !completed && exec.code !== 0 && !exec.timedOut && !run.host && detectSessionLimit(cfg.id, sessionLimitText(run.dir)))) result.attempt.limitHit = true;
   return {
     ...result,
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
