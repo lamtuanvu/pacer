@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { utimesSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { CoreError } from "../src/core/errors";
 import { sessionLimitOutcome, stopAtSessionLimit } from "../src/plugins/executor-production";
@@ -12,12 +12,17 @@ const LIMIT = "Cursor Agent\n  Error: Weekly usage limit reached. It resets in 5
 const lease = new CoreError("plugin_timeout", "observation lease expired");
 
 /** A live owned interactive Cursor run whose screen has been quiet for a minute. */
-function ownedRun(screen: string, o: {executor?: string; controller?: boolean} = {}) {
+async function ownedRun(screen: string, o: {executor?: string; controller?: boolean} = {}) {
   const ctx = fakeCtx(), dir = tmpDir();
-  const started = startRun({dir, argv: ["sleep", "30"], cwd: dir, env: {PATH: process.env.PATH}});
+  // The run prints its own screen: the wrapper truncates stdout when it starts, so a screen
+  // written from outside can be wiped after the fact.
+  const started = startRun({dir, argv: ["sh", "-c", 'printf "%s" "$SCREEN"; exec sleep 30'], cwd: dir, env: {PATH: process.env.PATH, SCREEN: screen}});
   if ("error" in started) throw new Error(started.error);
+  const printed = () => existsSync(join(dir, "stdout")) && readFileSync(join(dir, "stdout"), "utf8").includes(screen.trim());
+  for (const end = Date.now() + 5000; !printed(); await Bun.sleep(10)) {
+    if (Date.now() > end) throw new Error("the run never printed its screen");
+  }
   writeFileSync(join(dir, "interactive.json"), "{}");
-  writeFileSync(join(dir, "stdout"), screen);
   if (o.controller) writeFileSync(join(dir, "session.state"), JSON.stringify({controller: "terminal"}));
   const quiet = Date.now() / 1000 - 60;
   utimesSync(join(dir, "stdout"), quiet, quiet);
@@ -28,7 +33,7 @@ function ownedRun(screen: string, o: {executor?: string; controller?: boolean} =
 }
 
 test("a lease renewal stops a quiet session that shows the provider's limit error", async () => {
-  const {ctx, id, run, expected} = ownedRun(LIMIT);
+  const {ctx, id, run, expected} = await ownedRun(LIMIT);
   await stopAtSessionLimit(ctx, id, lease, expected);
   expect(readRun(run.dir).exit).not.toBeNull();
 }, 15_000);
@@ -40,7 +45,7 @@ test("other errors, other agents, plain screens and a person driving never stop 
     ["Implemented rate limit handling; usage limit reached errors now return 429\n", lease, {}],
     [LIMIT, lease, {controller: true}],
   ] as const) {
-    const {ctx, id, run, expected} = ownedRun(screen, o);
+    const {ctx, id, run, expected} = await ownedRun(screen, o);
     try {
       await stopAtSessionLimit(ctx, id, error, expected);
       expect(readRun(run.dir).alive).toBe(true);
