@@ -224,7 +224,11 @@ pub fn refresh_notifications() {
         // Only after a real status was read does the app count as "answered"; until
         // then `notification_permission_reported()` returns None so a register at
         // connect does not report the pre-read `unsupported` placeholder.
-        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
+        if !NOTIFICATION_ANSWERED.swap(true, Ordering::SeqCst) {
+            // The records above woke the heartbeat before this flag was set; wake it
+            // again so the first answer is reported now, not one interval later.
+            NOTIFICATIONS_CHANGED.notify_one();
+        }
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .getNotificationSettingsWithCompletionHandler(&complete);
