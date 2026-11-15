@@ -449,8 +449,8 @@ function NotificationsSection({
 }) {
   const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
-  const doctor = useResource<{ checks?: { name: string; level: string; detail: string; remedy?: { label: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string } }[] }>("doctor.run", {});
-  const check = doctor.data?.checks?.find(c => c.name === "Notifications");
+  const health = useResource<NotificationCheck | undefined>("notifications.health", {});
+  const check = health.data;
   const caption = notificationCaption(check);
   const remedy = check?.remedy;
   return (
@@ -471,12 +471,15 @@ function NotificationsSection({
           />}</ImmediateSetting>
         </SettingRow>
         {platform.desktop && (
-          <DesktopBanners
-            doctorReload={doctor.reload}
-            caption={caption}
-            remedy={remedy}
-            api={api}
-          />
+          <ResourceState resource={health}>
+            <DesktopBanners
+              reload={health.reload}
+              level={check?.level}
+              caption={caption}
+              remedy={remedy}
+              api={api}
+            />
+          </ResourceState>
         )}
         <BrowserNotificationOffer level={query.data?.level ?? ""} />
       </ResourceState>
@@ -484,51 +487,64 @@ function NotificationsSection({
   );
 }
 
-function DesktopBanners({
+interface NotificationCheck {
+  level: string;
+  detail: string;
+  tested_at?: number;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string };
+}
+
+export function DesktopBanners({
   api,
-  doctorReload,
+  reload,
+  level,
   caption,
   remedy,
 }: {
-  api: BrowserApi;
-  doctorReload: () => void;
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
   caption: string;
-  remedy?: { label: string; op?: string; params?: Record<string, unknown>; url?: string };
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
 }) {
   const [busy, setBusy] = useState(false);
   const [callError, setCallError] = useState<unknown>();
-  /** Run one action, refetch the doctor so the caption follows, and disable the control while in flight. */
-  const run = async (action: () => void | Promise<void>) => {
+  const [progress, setProgress] = useState<string>();
+  /** Run one action, refetch the health read so the caption follows, and keep focus on the button while in flight. */
+  const run = async (action: () => void | Promise<void>, progressText?: string) => {
     if (busy) return;
-    setBusy(true); setCallError(undefined);
+    setBusy(true); setCallError(undefined); setProgress(progressText);
     try {
       await action();
-      doctorReload();
+      reload();
     } catch (failure) {
       setCallError(failure);
     } finally {
-      setBusy(false);
+      setBusy(false); setProgress(undefined);
     }
   };
-  return <SettingRow variant="board" label="Desktop banners" description={caption}>
+  // "Send test" is offered only when the check is ok; every other state shows the caption only.
+  const showSend = level === "ok";
+  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
     {remedy ? (
-      <Button size="sm" disabled={busy} onClick={() => void run(async () => {
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
         if (remedy.url) await openRemedyUrl(remedy.url, platform);
         else if (remedy.op) await api.call(remedy.op, remedy.params ?? {});
-      })}>{remedy.label}</Button>
-    ) : (
-      <Button size="sm" disabled={busy} onClick={() => void run(async () => {
+      }, remedy.op === "notifications.request" ? "Answer the macOS prompt…" : undefined)}>{remedy.label}</Button>
+    ) : showSend ? (
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
         await api.call("notifications.test", {});
         // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
-        window.setTimeout(doctorReload, 3000);
-      })}>Send test</Button>
-    )}
+        window.setTimeout(reload, 3000);
+      }, "Sending test banner…")}>Send test</Button>
+    ) : null}
+    {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
     {callError && <ErrorMessage error={callError}/>}
   </SettingRow>;
 }
 
 export function notificationCaption(
-  check: { level: string; detail: string; remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string } } | undefined,
+  check: NotificationCheck | undefined,
   now = Date.now(),
 ): string {
   if (!check) return "Checking…";
@@ -546,14 +562,8 @@ export function notificationCaption(
     return detail ?? "";
   }
   if (level === "info") return detail ?? "";
-  // ok
-  const match = (detail ?? "").match(/test delivered\s+(.+)$/i);
-  if (match) {
-    const date = new Date(match[1].trim());
-    if (!isNaN(date.getTime())) {
-      return `Allowed · test delivered ${ago(date.getTime() / 1000, now / 1000)}`;
-    }
-  }
+  // ok: format the structured tested_at with the shared relative-time helper (no regex on detail).
+  if (check.tested_at != null) return `Allowed · test delivered ${ago(check.tested_at, now / 1000)}`;
   if (/not tested/i.test(detail ?? "")) return "Allowed · not tested yet";
   return (detail ?? "").replace(/^Banners allowed/i, "Allowed");
 }

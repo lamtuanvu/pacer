@@ -192,17 +192,41 @@ test("the notifications step renders and its skippable repair offers Skip", () =
   expect(plain).not.toContain("Skip notifications");
 });
 
-test("a skipped notifications step reads 'Skipped' and hides the Skip button", () => {
+test("a skipped notifications step reads 'Skipped', adds no repair, and shows Run checks again", () => {
   const skipped: SetupHealthReport = {
     ...okReport(),
-    outcome: "warnings",
-    attentionCount: 1,
-    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "passed", detail: "Skipped" } : s),
-    repairs: [{ kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: { kind: "auto", label: "Allow notifications", op: "notifications.request" } }],
+    outcome: "ok",
+    attentionCount: 0,
+    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "skipped", detail: "Skipped" } : s),
+    // Skipping contributes no repair: no "Allow notifications" primary, and Run checks
+    // again / Restart stay available.
+    repairs: undefined,
   };
   const html = renderToString(
-    <SetupHealthStage report={skipped} onContinue={() => {}} onOpenDiagnostics={() => {}} onRepair={() => {}} onSkip={() => {}} />,
+    <SetupHealthStage report={skipped} onContinue={() => {}} onOpenDiagnostics={() => {}} onRerun={() => {}} onRestartService={() => {}} onRepair={() => {}} onSkip={() => {}} />,
   );
   expect(html).toContain("Skipped");
   expect(html).not.toContain("Skip notifications");
+  expect(html).not.toContain("Allow notifications");
+  expect(html).toContain("Run checks again");
+  expect(html).toContain("Restart service");
+});
+
+test("skipping notifications excludes it from fix-all but keeps it as an individual action", () => {
+  const report: SetupHealthReport = {
+    ...okReport(),
+    outcome: "warnings",
+    attentionCount: 1,
+    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "skipped", detail: "Skipped" } : s),
+    repairs: [
+      { kind: "remedy", label: "Refresh usage", check: "Usage codex", remedy: { kind: "auto", label: "Refresh usage", op: "limits.refresh", params: { account: "codex" }, consent: true } },
+      { kind: "remedy", label: "Install service", check: "Service", remedy: { kind: "auto", label: "Install service", op: "service.install" } },
+    ],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onFixAll={() => {}} onRepair={() => {}} onSkip={() => {}} />,
+  );
+  // Fix-all counts only the two automatic repairs, never notifications.request.
+  expect(html).toContain("Fix 2 issues automatically");
+  expect(html).not.toContain("Allow notifications");
 });

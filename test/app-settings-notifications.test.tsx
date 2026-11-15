@@ -47,8 +47,8 @@ test("Desktop banners caption reports an untested but allowed permission", () =>
 });
 
 test("Desktop banners caption reports a delivered test relatively", () => {
-  const delivered = new Date(Date.now() - 2 * 60_000).toISOString();
-  const caption = notificationCaption({ level: "ok", detail: `Banners allowed · test delivered ${delivered}` });
+  const tested_at = Date.now() / 1000 - 2 * 60;
+  const caption = notificationCaption({ level: "ok", detail: "Banners allowed · test delivered", tested_at });
   expect(caption).toMatch(/^Allowed · test delivered \d+m ago$/);
 });
 

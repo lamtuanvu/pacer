@@ -143,7 +143,7 @@ function gateHarness(answer = true) {
     if (op === "doctor.fix.delegate") return { task: { task_id: "t 7" } };
     return {};
   } } as unknown as Pick<BrowserApi, "call">;
-  const host = gateRemedyHost(api, async (message, title, label) => { asked.push([message, title, label]); return answer; }, url => opened.push(url));
+  const host = gateRemedyHost(api, async (message, title, label) => { asked.push([message, title, label]); return answer; }, url => { opened.push(url); });
   return { host, calls, asked, opened };
 }
 const repair = (check: string, remedy: SetupHealthRepair["remedy"]): SetupHealthRepair => ({ kind: "remedy", label: remedy!.label, check, remedy });

@@ -21,7 +21,8 @@ export interface RemedyHost {
   confirm: (request: ConsentRequest) => Promise<boolean>;
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
-  open: (url: string) => void;
+  /** Opens a remedy URL; may be async so callers await and surface a failure inline. */
+  open: (url: string) => void | Promise<void>;
   /** Waits for the pacer service that `before` named to be replaced after a call that restarts it. */
   awaitRestart?: (before: number | undefined) => Promise<void>;
   /** Called with agent.connect's undo report after a reviewed repair is applied, so the done sheet can offer Undo only when it works. */
@@ -126,7 +127,7 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
       await host.call(plan.op, plan.consent ? { ...plan.params, consent: true } : plan.params);
       return "await-return";
     case "open":
-      host.open(plan.url);
+      await host.open(plan.url);
       return "await-return";
     case "delegate":
       return await host.delegate(plan.check) ? "delegated" : "cancelled";

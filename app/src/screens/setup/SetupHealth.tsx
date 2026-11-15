@@ -17,6 +17,7 @@ const STEP_TITLES: Record<SetupHealthStep["id"], string> = {
 
 function glyph(state: SetupHealthStepState): { label: string; glyph: string; tone: "good" | "warn" | "bad" | "neutral" | "info" } {
   if (state === "passed") return { label: "Passed", glyph: "✓", tone: "good" };
+  if (state === "skipped") return { label: "Skipped", glyph: "·", tone: "neutral" };
   if (state === "failed") return { label: "Failed", glyph: "!", tone: "bad" };
   if (state === "needs_attention" || state === "timed_out") return { label: "Needs attention", glyph: "!", tone: "warn" };
   if (state === "running") return { label: "Checking", glyph: "…", tone: "info" };
@@ -99,7 +100,9 @@ export function SetupHealthStage({
 }) {
   const repairs = report.repairs ?? [];
   const primary = repairs.find(r => r.kind !== "open.diagnostics");
-  const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run");
+  // notifications.request prompts macOS interactively, so it stays an individual action and
+  // is kept out of the gate's fix-all button.
+  const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && r.remedy?.op !== "notifications.request" && remedyPlan(r.remedy)?.kind === "run");
   const showFixAll = autoRepairs.length >= 2 && !!onFixAll;
   const nonAutoRepairs = repairs.filter(r => !(r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run") && r.kind !== "open.diagnostics");
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
