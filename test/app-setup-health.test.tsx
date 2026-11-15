@@ -5,7 +5,11 @@ import {
   SetupHealthChip,
   SetupHealthStage,
 } from "../app/src/screens/setup/SetupHealth";
-import type { SetupHealthReport } from "../src/view-model/setup-health";
+import {
+  setupHealthFailureReport,
+} from "../app/src/screens/setup/SetupHealthGate";
+import type { SetupHealthReport, SetupHealthRepair } from "../src/view-model/setup-health";
+import { clickText, domText, installDom, mount, tick, unmount } from "./app-setup-health-dom";
 
 const okReport = (): SetupHealthReport => ({
   trigger: "startup",
@@ -63,4 +67,106 @@ test("Setup OK and attention chips", () => {
   const warn = renderToString(<SetupHealthChip outcome="warnings" attentionCount={2} />);
   expect(warn).toContain("2 fixes recommended");
   expect(warn).toContain("Open Diagnostics");
+});
+
+test("failure report shows error, Not checked steps, one Open Diagnostics, Run checks again and Restart service", () => {
+  const report = setupHealthFailureReport("startup", new Error("boom"));
+  const html = renderToString(
+    <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onRerun={() => {}} onRestartService={() => {}} onRepair={() => {}} />,
+  );
+  expect(html).toContain("boom");
+  expect((html.match(/data-state="not_checked"/g) ?? []).length).toBe(4);
+  expect((html.match(/Open Diagnostics/g) ?? []).length).toBe(1);
+  expect(html).toContain("Run checks again");
+  expect(html).toContain("Restart service");
+  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1);
+});
+
+test("pending report renders Waiting/Checking and never Not checked", () => {
+  const html = renderToString(<SetupHealthStage report={pendingSetupHealthReport("startup")} busy onContinue={() => {}} onOpenDiagnostics={() => {}} />);
+  expect(html).toContain("Waiting");
+  expect(html).toContain("Checking");
+  expect(html).not.toContain("Not checked");
+});
+
+test("two auto run repairs render Fix 2 issues automatically with one primary", () => {
+  const repair = (label: string): SetupHealthRepair => ({
+    kind: "remedy",
+    label,
+    check: label,
+    remedy: { kind: "auto", label, op: "limits.refresh", params: { account: "codex" }, consent: true },
+  });
+  const report: SetupHealthReport = {
+    trigger: "startup",
+    title: "Checking setup",
+    support: "Making sure agents can work through pacer.",
+    steps: [
+      { id: "service", title: "Service ready", state: "passed" },
+      { id: "detect_agents", title: "Detect agents", state: "needs_attention" },
+      { id: "integrations", title: "Integrations & hooks", state: "passed" },
+      { id: "usage_eligibility", title: "Usage & eligibility", state: "passed" },
+      { id: "ready", title: "Ready to take work", state: "needs_attention" },
+    ],
+    outcome: "warnings",
+    attentionCount: 1,
+    checkedAt: 100,
+    repairs: [repair("Fix A"), repair("Fix B")],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onFixAll={() => {}} onRepair={() => {}} />,
+  );
+  expect(html).toContain("Fix 2 issues automatically");
+  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1);
+});
+
+test("one auto run repair renders its own label and no issues automatically", () => {
+  const report: SetupHealthReport = {
+    trigger: "startup",
+    title: "Checking setup",
+    support: "Making sure agents can work through pacer.",
+    steps: [
+      { id: "service", title: "Service ready", state: "passed" },
+      { id: "detect_agents", title: "Detect agents", state: "needs_attention" },
+      { id: "integrations", title: "Integrations & hooks", state: "passed" },
+      { id: "usage_eligibility", title: "Usage & eligibility", state: "passed" },
+      { id: "ready", title: "Ready to take work", state: "needs_attention" },
+    ],
+    outcome: "warnings",
+    attentionCount: 1,
+    checkedAt: 100,
+    repairs: [{ kind: "remedy", label: "Fix one thing", check: "Fix one thing", remedy: { kind: "auto", label: "Fix one thing", op: "limits.refresh", params: { account: "codex" }, consent: true } }],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onRepair={() => {}} />,
+  );
+  expect(html).toContain("Fix one thing");
+  expect(html).not.toContain("issues automatically");
+});
+
+test("SetupHealthStage clicks run rerun and restart props (DOM)", async () => {
+  const dom = installDom();
+  try {
+    const report = setupHealthFailureReport("startup", new Error("boom"));
+    const reruns: number[] = [];
+    const restarts: number[] = [];
+    await mount(dom, (
+      <SetupHealthStage
+        report={report}
+        onContinue={() => {}}
+        onOpenDiagnostics={() => {}}
+        onRerun={() => reruns.push(1)}
+        onRestartService={() => restarts.push(1)}
+      />
+    ));
+    await tick();
+    expect(domText(dom.container)).toContain("Run checks again");
+    expect(domText(dom.container)).toContain("Restart service");
+    clickText(dom.container, "Run checks again");
+    clickText(dom.container, "Restart service");
+    expect(reruns).toHaveLength(1);
+    expect(restarts).toHaveLength(1);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
 });

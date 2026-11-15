@@ -133,6 +133,11 @@ export function secondaryPlan(remedy: Remedy): RemedyPlan | undefined {
   return url ? { kind: "open", url } : undefined;
 }
 
+/** Shared label for the gate/Diagnostics "fix all automatic repairs" button. */
+export function fixAllLabel(count: number): string {
+  return count === 1 ? "Fix 1 issue automatically" : `Fix ${count} issues automatically`;
+}
+
 /** In-place progress while a remedy runs. */
 export function remedyProgress(remedy: Pick<Remedy, "kind" | "label" | "op" | "url">): string {
   switch (remedy.op) {
@@ -282,7 +287,7 @@ export function diagnosticsPage(input: {
   const information = checks.filter(check => !isIssue(check) && !passed.includes(check));
   return {
     rows, openCount: open.length, autoLeft,
-    fixAllLabel: autoLeft.length === 1 ? "Fix 1 issue automatically" : `Fix ${autoLeft.length} issues automatically`,
+    fixAllLabel: fixAllLabel(autoLeft.length),
     headline: diagnosticsHeadline(open.length, autoLeft.length, internal.length, rows.length > 0),
     support: open.length ? "Each problem below has one fix. Pacer fixes what it safely can, shows you the changes before it touches your files, and hands the rest to an agent." : undefined,
     internal: internal.length ? internalGroup(internal) : undefined,

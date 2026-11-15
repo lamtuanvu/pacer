@@ -392,6 +392,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-health__brand{margin-bottom:var(--space-2)}
 .pc-setup-health h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
 .pc-setup-health__support{margin:0;color:var(--ink-secondary)}
+.pc-setup-health__progress{margin:var(--space-2) 0 0;color:var(--ink-secondary)}
 .pc-setup-health__steps{list-style:none;margin:var(--space-4) 0 0;padding:0;display:grid;gap:var(--space-3)}
 .pc-setup-health__steps li{display:grid;grid-template-columns:var(--size-24) minmax(0,1fr);gap:var(--space-3);align-items:start}
 .pc-setup-health__steps strong{font-weight:var(--type-body-strong-weight)}

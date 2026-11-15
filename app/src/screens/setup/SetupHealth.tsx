@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import type { SetupHealthRepair, SetupHealthReport, SetupHealthStep, SetupHealthStepState } from "../../../../src/view-model/setup-health";
+import { fixAllLabel, remedyPlan } from "../../../../src/view-model/diagnostics";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { Mark } from "../../ds/Mark";
@@ -18,6 +19,7 @@ function glyph(state: SetupHealthStepState): { label: string; glyph: string; ton
   if (state === "failed") return { label: "Failed", glyph: "!", tone: "bad" };
   if (state === "needs_attention" || state === "timed_out") return { label: "Needs attention", glyph: "!", tone: "warn" };
   if (state === "running") return { label: "Checking", glyph: "…", tone: "info" };
+  if (state === "not_checked") return { label: "Not checked", glyph: "·", tone: "neutral" };
   return { label: "Waiting", glyph: "·", tone: "neutral" };
 }
 
@@ -70,19 +72,33 @@ export function SetupHealthStage({
   onContinue,
   onOpenDiagnostics,
   onRepair,
+  onFixAll,
+  onRerun,
+  onRestartService,
   repairing = false,
   repairError,
+  repairProgress,
 }: {
   report: SetupHealthReport;
   busy?: boolean;
   onContinue: () => void;
   onOpenDiagnostics: () => void;
   onRepair?: (repair: SetupHealthRepair) => void;
+  onFixAll?: (repairs: SetupHealthRepair[]) => void;
+  onRerun?: () => void;
+  onRestartService?: () => void;
   repairing?: boolean;
   /** Why the last fix did not finish; the checks are unchanged. */
   repairError?: string;
+  /** Progress line shown while a batch fix runs. */
+  repairProgress?: string;
 }) {
-  const primary = report.repairs?.[0];
+  const repairs = report.repairs ?? [];
+  const primary = repairs.find(r => r.kind !== "open.diagnostics");
+  const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run");
+  const showFixAll = autoRepairs.length >= 2 && !!onFixAll;
+  const nonAutoRepairs = repairs.filter(r => !(r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run") && r.kind !== "open.diagnostics");
+  const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
   const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
@@ -118,10 +134,15 @@ export function SetupHealthStage({
     </Alert>}
     {done && report.outcome === "ok" && <Alert tone="success" title="Setup looks ready" announce={false} />}
     {done && repairError && <Alert tone="error" title="The fix did not finish">{repairError}</Alert>}
+    {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
-      {primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
-      {hardFail && <Button variant={primary ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}
-      {!hardFail && <Button variant={primary ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>
+      {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
+      {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
+      {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
+      {showRerun && <Button variant="primary" disabled={busy || repairing} onClick={onRerun}>Run checks again</Button>}
+      {showRerun && onRestartService && <Button disabled={busy || repairing} onClick={onRestartService}>Restart service</Button>}
+      {hardFail && <Button variant={primary || showFixAll || showRerun ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}
+      {!hardFail && <Button variant={primary || showFixAll || showRerun ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>
         {report.outcome === "ok" ? "Continue" : "Continue to pacer"}
       </Button>}
       <Button variant="ghost" disabled={busy || repairing} onClick={onOpenDiagnostics}>Open Diagnostics</Button>
