@@ -304,6 +304,16 @@ pub fn set_identity_platform_for_tests(platform: Option<&str>) {
     PLATFORM.store(value, Ordering::SeqCst);
 }
 
+/// True when the HOME that `security` sees has a login Keychain. Without one (a test or sandbox home),
+/// `security` opens a "Keychain Not Found" dialog for every new home, so files are used instead.
+fn has_login_keychain() -> bool {
+    let Some(home) = std::env::var_os("HOME").filter(|h| !h.is_empty()) else {
+        return true;
+    };
+    let dir = Path::new(&home).join("Library").join("Keychains");
+    dir.join("login.keychain-db").exists() || dir.join("login.keychain").exists()
+}
+
 /// Where machine-wide secrets live: the platform default backend and the `security` runner.
 pub struct Env<'a> {
     pub keychain: bool,
@@ -313,7 +323,7 @@ pub struct Env<'a> {
 impl Env<'static> {
     pub fn system() -> Self {
         let keychain = match PLATFORM.load(Ordering::SeqCst) {
-            PLATFORM_NATIVE => cfg!(target_os = "macos"),
+            PLATFORM_NATIVE => cfg!(target_os = "macos") && has_login_keychain(),
             value => value == PLATFORM_DARWIN,
         };
         Env {
@@ -498,9 +508,18 @@ fn salt_path(ctx: &Ctx) -> PathBuf {
     state.join("pacer").join("install-salt").join(home_tag(ctx))
 }
 
+/// The key and salt backend: the one recorded in `machine.json`, else the platform default. Both follow the
+/// record so a home whose login Keychain appears or disappears later never looks for its salt elsewhere.
+fn uses_keychain(meta: Option<&Meta>, env: &Env<'_>) -> bool {
+    match meta.and_then(|m| m.get("backend")) {
+        None | Some(Value::Null) => env.keychain,
+        backend => keychain_backend(backend),
+    }
+}
+
 /// The install salt, or None when missing. Other failures are errors, not evidence of a copy.
 fn read_salt(ctx: &Ctx, env: &Env<'_>) -> Result<Option<String>, CoreError> {
-    if !env.keychain {
+    if !uses_keychain(read_meta(ctx)?.as_ref(), env) {
         let path = salt_path(ctx);
         if !path.exists() {
             return Ok(None);
@@ -512,7 +531,7 @@ fn read_salt(ctx: &Ctx, env: &Env<'_>) -> Result<Option<String>, CoreError> {
 }
 
 fn write_salt(ctx: &Ctx, env: &Env<'_>, salt: &str) -> Result<(), CoreError> {
-    if !env.keychain {
+    if !uses_keychain(read_meta(ctx)?.as_ref(), env) {
         return write_private_file(&salt_path(ctx), format!("{salt}\n").as_bytes());
     }
     write_password(env, &salt_account(ctx), salt.as_bytes(), |printed| {
@@ -563,10 +582,7 @@ fn load_locked(ctx: &Ctx, env: &Env<'_>) -> Result<(Identity, Key), CoreError> {
     {
         meta = Some(rotate::recover(ctx, env, m.clone())?);
     }
-    let keychain = match meta.as_ref().and_then(|m| m.get("backend")) {
-        None | Some(Value::Null) => env.keychain,
-        backend => keychain_backend(backend),
-    };
+    let keychain = uses_keychain(meta.as_ref(), env);
     let key = read_private_key(ctx, env, keychain, Slot::Current)?;
     if let Some(m) = &mut meta
         && !truthy(m.get("cloneDetected"))
