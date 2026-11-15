@@ -114,9 +114,18 @@ test("doctor notifications: ok untested", () => {
   expect(c.evidence).toBe("configured");
 });
 
-test("doctor notifications: missing permission (older app) is info, not ok (C1)", () => {
+test("doctor notifications: missing permission right after register says checking (item 7)", () => {
   const ctx = fakeCtx();
   register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const c = notificationsCheck(ctx);
+  expect(c.level).toBe("info");
+  expect(c.detail).toBe("Checking notification permission…");
+});
+
+test("doctor notifications: missing permission after 10s is an older app (item 7)", () => {
+  const ctx = fakeCtx();
+  register(ctx, { kind: "desktop", version: "1", notifier: true });
+  ctx.now += 11;
   const c = notificationsCheck(ctx);
   expect(c.level).toBe("info");
   expect(c.detail).toBe("Update the pacer app to check notifications");

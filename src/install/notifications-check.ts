@@ -25,7 +25,13 @@ export function notificationsCheck(ctx: Ctx): Check {
   }
   // An older desktop that has not reported a permission at all is a version gap, not ok.
   if (desktop.notification_permission === undefined) {
-    return { name: "Notifications", level: "info", detail: "Update the pacer app to check notifications" };
+    // A desktop that registered moments ago is still checking its notification
+    // permission; report that state instead of the "out of date" warning.
+    const detail =
+      ctx.now - desktop.registeredAt < 10
+        ? "Checking notification permission…"
+        : "Update the pacer app to check notifications";
+    return { name: "Notifications", level: "info", detail };
   }
   if (desktop.notification_permission === "not_determined") {
     return { name: "Notifications", level: "warn", detail: "Notification permission not asked yet", remedy: remedies.allowNotifications() };
