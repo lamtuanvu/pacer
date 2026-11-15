@@ -17,7 +17,7 @@ const STEP_TITLES: Record<SetupHealthStep["id"], string> = {
 
 function glyph(state: SetupHealthStepState): { label: string; glyph: string; tone: "good" | "warn" | "bad" | "neutral" | "info" } {
   if (state === "passed") return { label: "Passed", glyph: "✓", tone: "good" };
-  if (state === "skipped") return { label: "Skipped", glyph: "·", tone: "neutral" };
+  if (state === "skipped") return { label: "Skipped", glyph: "–", tone: "neutral" };
   if (state === "failed") return { label: "Failed", glyph: "!", tone: "bad" };
   if (state === "needs_attention" || state === "timed_out") return { label: "Needs attention", glyph: "!", tone: "warn" };
   if (state === "running") return { label: "Checking", glyph: "…", tone: "info" };
@@ -104,6 +104,9 @@ export function SetupHealthStage({
   // is kept out of the gate's fix-all button.
   const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && r.remedy?.op !== "notifications.request" && remedyPlan(r.remedy)?.kind === "run");
   const showFixAll = autoRepairs.length >= 2 && !!onFixAll;
+  // The interactive notification repair (excluded from fix-all) stays reachable as
+  // its own secondary action next to fix-all, like individual repairs in Diagnostics.
+  const individualRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.op === "notifications.request");
   const nonAutoRepairs = repairs.filter(r => !(r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run") && r.kind !== "open.diagnostics");
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
@@ -148,6 +151,9 @@ export function SetupHealthStage({
     {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
       {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
+      {showFixAll && onRepair && individualRepairs.map(r => (
+        <Button key={`${r.kind}:${r.label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(r)}>{r.label}</Button>
+      ))}
       {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
       {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
       {showRerun && <Button variant="primary" disabled={busy || repairing} onClick={onRerun}>Run checks again</Button>}

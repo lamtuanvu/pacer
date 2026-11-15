@@ -473,6 +473,32 @@ test("SetupHealthGate Restart service: accepting consent sends service.install o
   }
 });
 
+test("SetupHealthGate Fix all: an unskipped notifications repair stays an individual Allow action next to fix-all", async () => {
+  const dom = installDom();
+  try {
+    const calls: string[] = [];
+    const notifRepair: SetupHealthRepair = { kind: "remedy", label: "Allow notifications", check: "Notifications", remedy: remedies.allowNotifications() };
+    const report = autoRunReport([...twoAutoFixes, notifRepair]);
+    const call = (async (op: string) => {
+      calls.push(op);
+      if (op === "setup.health") return calls.filter(o => o === "setup.health").length === 1 ? { ...report } : autoRunReport([]);
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Fix 2 issues automatically"));
+    expect(domText(dom.container)).toContain("Allow notifications");
+    // Allow notifications is its own action, separate from fix-all.
+    clickText(dom.container, "Allow notifications");
+    await until(() => calls.includes("notifications.request"));
+    expect(calls.filter(o => o === "notifications.request")).toHaveLength(1);
+    expect(calls.filter(o => o === "limits.refresh")).toHaveLength(0);
+    expect(calls.filter(o => o === "service.install")).toHaveLength(0);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
 test("SetupHealthGate Fix all: declining the confirmation keeps 'No changes were made.' visible and commits nothing", async () => {
   const dom = installDom();
   try {
