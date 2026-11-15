@@ -225,6 +225,15 @@ export async function runStdio(
           result = await msgEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps?.spawnRunner);
           break;
         }
+        case "_internal.host.effects": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { hostEffectsBridge } = await import("./host-effects-bridge");
+          result = await hostEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps);
+          break;
+        }
         case "_internal.task-send": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -251,6 +260,16 @@ export async function runStdio(
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
           result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
+          break;
+        }
+        case "_internal.plugins": {
+          // The front door's plugin channel: the HTTP door's `/_internal/plugins`, sealed by the sync key.
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT || protocol !== 3) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { pluginNativeRequest } = await import("../serve/plugin-native");
+          result = await pluginNativeRequest(getCtx(), (r.params as { request?: unknown }).request, { stdio: true });
           break;
         }
         case "_internal.setup.doctor": {

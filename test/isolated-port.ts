@@ -25,3 +25,9 @@ export function assertIsolatedEnv(env: Record<string, string | undefined>): void
     throw Error(`test process environment must pin PACER_PORT away from ${DEFAULT_SERVICE_PORT}, got ${env.PACER_PORT ?? "unset"}`);
   }
 }
+
+export const REAL_SERVICE_PORT = "4317";
+export function pinnedEnv<T extends Record<string, string | undefined>>(env: T): T {
+  assertIsolatedEnv(env);
+  return env;
+}
