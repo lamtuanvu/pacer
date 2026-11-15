@@ -290,7 +290,11 @@ async fn a_wrong_proof_is_refused_and_the_connection_closed() {
 
 /// Every line the owner sends on `stream` until it closes the connection.
 /// Linux reports a close that left our bytes unread as a reset instead of EOF,
-/// but only after every line the owner sent before closing.
+/// but only after every line the owner sent before closing. The refusal close
+/// may surface as any of the OS's close-equivalent error kinds; all of them
+/// count as the owner hanging up, never as a line the caller must answer. A
+/// read that stalls past the deadline is still a test failure (the owner must
+/// close a refused connection promptly), not a pass.
 async fn lines_until_close(stream: &mut BufReader<UnixStream>) -> Vec<Value> {
     let mut lines = Vec::new();
     loop {
@@ -303,10 +307,22 @@ async fn lines_until_close(stream: &mut BufReader<UnixStream>) -> Vec<Value> {
         match read {
             Ok(0) => return lines,
             Ok(_) => lines.push(serde_json::from_slice(&line).unwrap()),
-            Err(error) if error.kind() == io::ErrorKind::ConnectionReset => return lines,
+            Err(error) if is_close(&error) => return lines,
             Err(error) => panic!("reading the owner's replies: {error}"),
         }
     }
+}
+
+/// The IO error kinds Linux reports when the owner has closed the connection
+/// instead of clean EOF, depending on how much we left unread.
+fn is_close(error: &io::Error) -> bool {
+    matches!(
+        error.kind(),
+        io::ErrorKind::ConnectionReset
+            | io::ErrorKind::ConnectionAborted
+            | io::ErrorKind::BrokenPipe
+            | io::ErrorKind::UnexpectedEof
+    )
 }
 
 async fn send(stream: &mut BufReader<UnixStream>, frame: &Value) {
