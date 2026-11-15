@@ -102,7 +102,7 @@ export function SetupHealthStage({
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
-  const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
+  const live = report.steps.map(s => `${s.title}: ${s.state === "not_checked" ? "not checked" : glyph(s.state).label}`).join(". ");
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!busy && done) main.current?.focus({ preventScroll: true });
