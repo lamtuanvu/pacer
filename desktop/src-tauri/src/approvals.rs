@@ -212,7 +212,6 @@ pub fn refresh_notifications() {
         record_alerts_raw("none");
         return;
     }
-    NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
     let complete = RcBlock::new(|settings: NonNull<UNNotificationSettings>| {
         let settings = unsafe { settings.as_ref() };
         let status = settings.authorizationStatus();
@@ -222,6 +221,10 @@ pub fn refresh_notifications() {
         record_permission_raw(notification_permission_state_for_status(status.0));
         let alert_style = settings.alertStyle();
         record_alerts_raw(notification_alerts_state_for_style(alert_style.0));
+        // Only after a real status was read does the app count as "answered"; until
+        // then `notification_permission_reported()` returns None so a register at
+        // connect does not report the pre-read `unsupported` placeholder.
+        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .getNotificationSettingsWithCompletionHandler(&complete);
