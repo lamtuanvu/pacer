@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { DesktopBanners } from "../app/src/screens/settings/General";
 import type { BrowserApi } from "../app/src/data/api";
-import { clickText, domText, installDom, mount, tick, unmount } from "./app-setup-health-dom";
+import { clickText, domText, findByText, installDom, mount, tick, until, unmount } from "./app-setup-health-dom";
 
 const SETTINGS_URL = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
 
@@ -116,6 +116,61 @@ test("Send test refetches after the ack", async () => {
     await tick();
     expect(calls).toEqual(["notifications.test"]);
     // The caption-refresh also runs once immediately; the delayed refetch is `window.setTimeout`.
+    expect(reloads).toBe(1);
+  } finally { await unmountSafe(dom); }
+});
+
+test("the request remedy button is aria-disabled while its call is in flight", async () => {
+  const { dom } = base();
+  let resolveCall!: () => void;
+  const api = fakeApi(() => new Promise(resolve => { resolveCall = () => resolve({}); }));
+  try {
+    await mount(dom, <DesktopBanners api={api} reload={() => {}} level="warn" caption="Not asked yet" remedy={base().remedy()} />);
+    await tick();
+    clickText(dom.container, "Allow notifications");
+    await tick();
+    const btn = findByText(dom.container, "Allow notifications")!;
+    expect(btn.attrs["aria-disabled"]).toBe("true");
+    expect(domText(dom.container)).toContain("Answer the macOS prompt…");
+    resolveCall();
+    await tick();
+    await tick();
+    // Once the call completes the button is re-enabled (aria-disabled removed).
+    expect(btn.attrs["aria-disabled"]).toBeUndefined();
+  } finally { resolveCall?.(); await unmountSafe(dom); }
+});
+
+test("a System Settings remedy opens through the allowlisted openSystemSettings command", async () => {
+  const { dom } = base();
+  const commands: [string, unknown][] = [];
+  const previousTauri = (globalThis as { __TAURI__?: unknown }).__TAURI__;
+  (globalThis as { __TAURI__?: unknown }).__TAURI__ = { core: { invoke: async (cmd: string, args: unknown) => { commands.push([cmd, args]); return null; } } };
+  try {
+    const settingsRemedy = { kind: "user", label: "Open Notification settings", url: SETTINGS_URL };
+    await mount(dom, <DesktopBanners api={fakeApi()} reload={() => {}} level="warn" caption="Blocked in System Settings" remedy={settingsRemedy} />);
+    await tick();
+    clickText(dom.container, "Open Notification settings");
+    await until(() => commands.length > 0);
+    expect(commands).toContainEqual(["open_system_settings", { pane: "notifications" }]);
+  } finally {
+    (globalThis as { __TAURI__?: unknown }).__TAURI__ = previousTauri;
+    await unmountSafe(dom);
+  }
+});
+
+test("Send test schedules a delayed refetch that is cleared on unmount", async () => {
+  const { dom } = base();
+  const calls: string[] = [];
+  let reloads = 0;
+  const api = fakeApi((name) => { calls.push(name); return Promise.resolve({}); });
+  try {
+    await mount(dom, <DesktopBanners api={api} reload={() => { reloads++; }} level="ok" caption="Allowed · not tested yet" refetchDelay={30} />);
+    await tick();
+    clickText(dom.container, "Send test");
+    await until(() => reloads === 1); // the caption refetch runs once right after the ack
+    // Leave before the delayed refetch fires; the timer must be cleared on unmount.
+    await unmount(dom);
+    await new Promise(resolve => setTimeout(resolve, 60));
     expect(reloads).toBe(1);
   } finally { await unmountSafe(dom); }
 });

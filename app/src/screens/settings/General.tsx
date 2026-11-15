@@ -500,16 +500,21 @@ export function DesktopBanners({
   level,
   caption,
   remedy,
+  refetchDelay = 3000,
 }: {
   api: Pick<BrowserApi, "call">;
   reload: () => void;
   level?: string;
   caption: string;
   remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
+  /** After Send test, caption refresh; injectable so tests avoid real waits. */
+  refetchDelay?: number;
 }) {
   const [busy, setBusy] = useState(false);
   const [callError, setCallError] = useState<unknown>();
   const [progress, setProgress] = useState<string>();
+  const refetchTimer = useRef<number>();
+  useEffect(() => () => { if (refetchTimer.current) window.clearTimeout(refetchTimer.current); }, []);
   /** Run one action, refetch the health read so the caption follows, and keep focus on the button while in flight. */
   const run = async (action: () => void | Promise<void>, progressText?: string) => {
     if (busy) return;
@@ -535,7 +540,9 @@ export function DesktopBanners({
       <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
         await api.call("notifications.test", {});
         // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
-        window.setTimeout(reload, 3000);
+        // The timer is cleared on unmount so a leaving row never refetches behind it.
+        const timer = window.setTimeout(reload, refetchDelay);
+        refetchTimer.current = timer;
       }, "Sending test banner…")}>Send test</Button>
     ) : null}
     {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
