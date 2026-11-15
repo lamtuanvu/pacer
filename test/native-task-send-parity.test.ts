@@ -31,8 +31,8 @@ afterEach(() => {
 test("spawned processes are pinned to a closed port, never the real service's", async () => {
   expect(PORT).not.toBe(REAL_SERVICE_PORT);
   expect(pinnedEnv({ PACER_PORT: String(REAL_SERVICE_PORT) }, PORT).PACER_PORT).toBe(String(PORT));
-  expect(() => pinnedEnv({}, REAL_SERVICE_PORT)).toThrow("pinned away from 4317");
-  expect(() => pinnedEnv({}, 0)).toThrow("pinned away from 4317");
+  expect(() => pinnedEnv({}, REAL_SERVICE_PORT)).toThrow("spawned test process needs PACER_PORT other than 4317");
+  expect(() => pinnedEnv({}, 0)).toThrow("spawned test process needs PACER_PORT other than 4317");
   const probe = await fetch(`http://127.0.0.1:${PORT}/health`).then(() => "answered", () => "refused");
   expect(probe).toBe("refused");
 });

@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -62,7 +61,7 @@ function clone(home: string) {
 }
 
 const env = (home: string, extra: Record<string, string>, forward: boolean) => ({
-  ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+  HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
   PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
   ...extra, ...(forward ? { PACER_FORWARD_OPS: "msg.policy" } : {}),
 });

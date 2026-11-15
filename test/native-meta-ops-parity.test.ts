@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -13,7 +12,8 @@ async function exchange(home: string, method: string, params: unknown, forward?:
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method, params });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      ...childEnv(home),
+      HOME: home,
+      PACER_HOME: join(home, ".pacer"),
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",

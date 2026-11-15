@@ -95,6 +95,8 @@ test.skipIf(!front)("requests Core must run and work options stay with TypeScrip
     request(11, "dispatch.wait", { id: "", timeout_s: 1.5 }),
     request(12, "dispatch.review", { id: "t", accepted: true, expect_rev: 1.0000000000000002 }),
     request(13, "dispatch.submit", { goal: "g", repo: "r", acceptance_timeout_min: 1e300 }),
+    // New child fields must be validated together with the original fields by Core.
+    request(14, "dispatch.child", { difficulty: "invalid", model: 42 }),
   ];
   const routed = await exchange(ctx.home, requests, false, {}, [8]);
   expect(wire(routed)).toEqual(wire(await exchange(ctx.home, requests, true)));
