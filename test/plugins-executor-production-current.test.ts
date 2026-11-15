@@ -400,11 +400,14 @@ test("lost interactive completion reply recovers the same reported attempt", asy
     expect(recovered.exec.code).toBe(0);
     expect(recovered.report).toBe("owned done");
     expect(readFileSync(join(task.brief.repo, "launch-count"), "utf8")).toBe("x");
-  } finally { cleanup(); }
-});
+  } finally { stopLiveRun(ctx, task.id); cleanup(); }
+}, 30_000);
 
 // Integration smoke test: the host's own report watcher usually wins the race here, so this does not
 // reproduce the TERM-first ordering; test/supervisor-run.test.ts holds the regression for that.
+// The agent below ignores SIGTERM, so the host's interactive stop runs its full hardcoded 5000ms
+// grace before SIGKILL; that plus subprocess launch overhead exceeds bun's default 5000ms test
+// timeout under load, so each case sets its own budget.
 for (const status of ["done", "failed"] as const) {
   test(`interactive ${status} report retains a verified receipt when the agent ignores TERM`, async () => {
     const { ctx, task, cfg, cleanup } = fixture();
@@ -424,7 +427,7 @@ while :; do sleep 0.1; done
       expect(current.executorReportReceipt).toMatchObject({ status, exitCode: 143 });
       expect(current.executorExitReceipt?.unverified).toBeUndefined();
     } finally { stopLiveRun(ctx, task.id); cleanup(); }
-  });
+  }, 30_000);
 }
 
 test("a pending stop after interactive provider completion refuses success settlement", async () => {

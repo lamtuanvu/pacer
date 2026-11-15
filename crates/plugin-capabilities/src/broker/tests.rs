@@ -1015,7 +1015,7 @@ async fn deadline_revokes_in_flight_effect() {
         }
     }
     // Long enough that a loaded runner still starts the effect before the deadline.
-    let mut b = broker(200);
+    let mut b = broker(1000);
     assert!(matches!(
         b.handle(
             "capability.fs.read",

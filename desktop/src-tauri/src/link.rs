@@ -237,8 +237,16 @@ mod tests {
         let now = SystemTime::UNIX_EPOCH;
         fs::write(&link, "changed").unwrap();
         assert!(relink_after_takeover(&dir.0, &bundled, &identity, now).is_err());
-        fs::remove_file(&link).unwrap();
-        fs::write(&link, "other build").unwrap();
+        // Replace the file with an identical-content lookalike whose inode is
+        // guaranteed to differ. Write it to a separate path while the original
+        // inode is still allocated (so the fresh inode cannot be a reuse of
+        // it), then atomically rename it over the link. A plain
+        // remove_file + create could hand back the same inode on filesystems
+        // that eagerly reuse freed inodes (ext4), which would make the
+        // expected inode-derived rejection unreliable.
+        let replacement = dir.0.join("replacement");
+        fs::write(&replacement, "other build").unwrap();
+        fs::rename(&replacement, &link).unwrap();
         assert!(relink_after_takeover(&dir.0, &bundled, &identity, now).is_err());
         let new_identity = expected(&link);
         let backup = link.with_file_name("pacer.pre-app-19700101T000000Z");

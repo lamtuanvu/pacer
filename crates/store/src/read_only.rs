@@ -159,20 +159,55 @@ mod tests {
     }
 
     /// This process's POSIX locks on `path`, from `/proc/locks`.
+    ///
+    /// `/proc/locks` is a live `seq_file` and a single pass is not a
+    /// consistent snapshot: while a parallel `cargo test --workspace` run
+    /// has other threads adding and removing their locks, one read can
+    /// transiently omit a lock this process holds (observed on the order of
+    /// percent of reads under churn). Such transient passes only ever
+    /// *under-count* a lock that is actually present, so report the maximum
+    /// count seen across a short sampling window.
     #[cfg(target_os = "linux")]
     fn held_locks(path: &Path) -> usize {
         use std::os::unix::fs::MetadataExt;
         let inode = std::fs::metadata(path).unwrap().ino().to_string();
         let pid = std::process::id().to_string();
-        std::fs::read_to_string("/proc/locks")
-            .unwrap()
-            .lines()
-            .map(|line| line.split_whitespace().collect::<Vec<_>>())
-            .filter(|f| {
-                f.get(4) == Some(&pid.as_str())
-                    && f.get(5).and_then(|d| d.rsplit(':').next()) == Some(inode.as_str())
-            })
-            .count()
+        let read = || {
+            std::fs::read_to_string("/proc/locks")
+                .unwrap()
+                .lines()
+                .map(|line| line.split_whitespace().collect::<Vec<_>>())
+                .filter(|f| {
+                    f.get(4) == Some(&pid.as_str())
+                        && f.get(5).and_then(|d| d.rsplit(':').next()) == Some(inode.as_str())
+                })
+                .count()
+        };
+        let mut max = 0usize;
+        for _ in 0..8 {
+            std::thread::sleep(std::time::Duration::from_millis(2));
+            max = max.max(read());
+        }
+        max
+    }
+
+    /// Waits until this process's locks on `path` reach `baseline` again,
+    /// bounded by `within`. `/proc/locks` can show an in-process transient
+    /// lock (for example one added by the read-only open just before it is
+    /// dropped, or a concurrent test's) for a few tens of milliseconds
+    /// after it is gone. Sampling until the count returns to the writer's
+    /// baseline proves the writer's lock was never released, instead of
+    /// checking a single instant that intermittently catches the transient.
+    #[cfg(target_os = "linux")]
+    fn locks_settle_to(path: &Path, baseline: usize, within: std::time::Duration) -> bool {
+        let started = std::time::Instant::now();
+        while started.elapsed() < within {
+            if held_locks(path) == baseline {
+                return true;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+        false
     }
 
     #[test]
@@ -189,10 +224,15 @@ mod tests {
         assert!(!store.immutable);
         assert_eq!(count(&store), 2);
         drop(store);
+        // A single /proc/locks read can still see the read-only connection's
+        // transient in-process lock a few tens of ms after drop; wait for the
+        // count to settle back to the writer's baseline. This still fails if
+        // the read-only open actually released the writer's lock (the count
+        // then settles at 0), so the behavior it guards is unchanged.
         #[cfg(target_os = "linux")]
         assert!(
-            held > 0 && held_locks(&path) == held,
-            "the writer's locks were released"
+            held > 0 && locks_settle_to(&path, held, std::time::Duration::from_millis(500)),
+            "the writer's locks were released or a read-only lock was left behind"
         );
     }
 
