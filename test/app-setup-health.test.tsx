@@ -9,6 +9,7 @@ import {
   setupHealthFailureReport,
 } from "../app/src/screens/setup/SetupHealthGate";
 import type { SetupHealthReport, SetupHealthRepair } from "../src/view-model/setup-health";
+import { clickText, domText, installDom, mount, tick, unmount } from "./app-setup-health-dom";
 
 const okReport = (): SetupHealthReport => ({
   trigger: "startup",
@@ -140,4 +141,32 @@ test("one auto run repair renders its own label and no issues automatically", ()
   );
   expect(html).toContain("Fix one thing");
   expect(html).not.toContain("issues automatically");
+});
+
+test("SetupHealthStage clicks run rerun and restart props (DOM)", async () => {
+  const dom = installDom();
+  try {
+    const report = setupHealthFailureReport("startup", new Error("boom"));
+    const reruns: number[] = [];
+    const restarts: number[] = [];
+    await mount(dom, (
+      <SetupHealthStage
+        report={report}
+        onContinue={() => {}}
+        onOpenDiagnostics={() => {}}
+        onRerun={() => reruns.push(1)}
+        onRestartService={() => restarts.push(1)}
+      />
+    ));
+    await tick();
+    expect(domText(dom.container)).toContain("Run checks again");
+    expect(domText(dom.container)).toContain("Restart service");
+    clickText(dom.container, "Run checks again");
+    clickText(dom.container, "Restart service");
+    expect(reruns).toHaveLength(1);
+    expect(restarts).toHaveLength(1);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
 });
