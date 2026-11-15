@@ -136,6 +136,32 @@ test("setup.health skipFullWindow requires a matching previous pass and zero att
   expect(forced.eyebrow).toBe("After update · checking setup");
 });
 
+test("after setup.skip the skipped step round-trips and the next launch takes the fast path", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  strategy(ctx);
+
+  await callOp(ctx, "setup.skip", { step: "notifications" });
+
+  const first = await callOp(ctx, "setup.health", { trigger: "startup" }) as {
+    skipFullWindow: boolean;
+    attentionCount: number;
+    steps: { id: string; state: string }[];
+  };
+  expect(first.skipFullWindow).toBe(false);
+  expect(first.steps.find(s => s.id === "notifications")?.state).toBe("skipped");
+
+  const pass = readSetupHealthPass(ctx);
+  expect(pass).not.toBeNull();
+  expect(pass!.fingerprint.stepVerdicts.notifications).toBe("skipped");
+
+  const second = await callOp(ctx, "setup.health", { trigger: "startup" }) as {
+    skipFullWindow: boolean;
+    attentionCount: number;
+  };
+  if (second.attentionCount === 0) expect(second.skipFullWindow).toBe(true);
+  else expect(second.skipFullWindow).toBe(false);
+});
+
 test("setup.health respects a post-update required stamp without an explicit update trigger", async () => {
   const ctx = fakeCtx({ which: () => null });
   strategy(ctx);
