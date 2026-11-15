@@ -43,7 +43,7 @@ export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<str
   if (name === 'machine.set' || name === 'machine.rotate') throw new ApiError('not_allowed', 'PACER_ROLE=executor: renaming or rotating this machine is for the operator, not executor sessions.');
   if (name === 'discovery.set' || name === 'discovery.respond' || name === 'discovery.network.set') throw new ApiError('not_allowed', 'PACER_ROLE=executor: pairing and LAN discovery settings are for the operator, not executor sessions.');
   if (name === 'task.hand_back') throw new ApiError('not_allowed', 'PACER_ROLE=executor: handing a taken-over task back is for the person driving it.');
-  if (name.startsWith('notifications.') || name === 'setup.skip') throw new ApiError('not_allowed', 'PACER_ROLE=executor: notification prompts and the setup skip are for people, not executor sessions.');
+  if (name === 'notifications.test' || name === 'notifications.ack' || name === 'notifications.request' || name === 'notifications.health' || name === 'setup.skip') throw new ApiError('not_allowed', 'PACER_ROLE=executor: notification prompts and the setup skip are for people, not executor sessions.');
   if (name === 'agent.undo' || name === 'agent.connect' || name === 'agent.disconnect') throw new ApiError('not_allowed', 'PACER_ROLE=executor: connecting, disconnecting or undoing agent integrations rewrites real agent folders; it is for the operator, not executor sessions.');
   if (name === 'task.review') {
     if (params?.verdict === 'send_back' || params?.verdict === 'retry') throw new ApiError('not_allowed', TASK_REVIEW_VARIANTS_REFUSAL);

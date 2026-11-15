@@ -158,12 +158,16 @@ function grantedChild() {
   return { base, parent, child, plain, ctx };
 }
 
-test("executor sessions cannot run notification ops or the setup skip (item 15)", () => {
+test("executor sessions cannot run the new notification ops or the setup skip (item 15)", () => {
   const { ctx: base } = work();
   for (const name of ["notifications.test", "notifications.request", "notifications.ack", "notifications.health", "setup.skip"]) {
     expect(() => assertCallerCanInvoke(executor(base), name, {})).toThrow(
       expect.objectContaining({ code: "not_allowed", message: expect.stringContaining("executor sessions") }),
     );
+  }
+  // Only the new ops are refused; pre-existing get/set keep their prior policy.
+  for (const name of ["notifications.get", "notifications.set"]) {
+    expect(() => assertCallerCanInvoke(executor(base), name, {})).not.toThrow();
   }
   // A non-executor caller is not restricted by the policy.
   expect(() => assertCallerCanInvoke(base, "notifications.test", {})).not.toThrow();
