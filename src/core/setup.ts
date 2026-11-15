@@ -14,7 +14,7 @@ import { uninstallPlanner } from "../install/uninstall";
 import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
 import { checkSetup } from "../setup/check";
-import { withLock } from "./lock";
+import { withLock, withLockSync } from "./lock";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
@@ -172,12 +172,16 @@ export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<Serv
 
 export function skipNotificationSetup(ctx: Ctx) {
   try {
-    const file = join(ctx.pacerHome, "settings.json");
-    const settings = readJson<Record<string, unknown>>(file) ?? {};
-    const setup = (settings.setup && typeof settings.setup === "object") ? { ...(settings.setup as Record<string, unknown>) } : {};
-    setup.notifications_skipped = true;
-    writeJsonAtomic(file, { ...settings, setup });
-    return { skipped: true };
+    // Shared settings.json writes take the config lock so concurrent writers
+    // (notifications.set, setup.skip) cannot lose each other's changes.
+    return withLockSync(ctx, "config", () => {
+      const file = join(ctx.pacerHome, "settings.json");
+      const settings = readJson<Record<string, unknown>>(file) ?? {};
+      const setup = (settings.setup && typeof settings.setup === "object") ? { ...(settings.setup as Record<string, unknown>) } : {};
+      setup.notifications_skipped = true;
+      writeJsonAtomic(file, { ...settings, setup });
+      return { skipped: true };
+    });
   } catch (e) { throw toCoreError(e); }
 }
 
