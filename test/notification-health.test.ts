@@ -103,10 +103,21 @@ test("notifications.request fails unavailable with no live desktop", async () =>
 test("notifications.request polls until the permission changes during the wait", async () => {
   const ctx = fakeCtx();
   const desktop = register(ctx, { kind: "desktop", version: "1", notification_permission: "not_determined" });
-  setTimeout(() => {
-    heartbeat(ctx, desktop.client_id, { notification_permission: "authorized" });
-  }, 50);
-  const result = await callOp(ctx, "notifications.request", { wait_s: 2 }) as { client_id: string; permission: string };
+  // Injected clock: sleep advances time and, once, reports the macOS answer, so the
+  // poll observes the change without sleeping for real seconds.
+  let t = 0;
+  let changed = false;
+  const clock = {
+    now: () => t,
+    sleep: async () => {
+      t += 500;
+      if (!changed) {
+        changed = true;
+        heartbeat(ctx, desktop.client_id, { notification_permission: "authorized" });
+      }
+    },
+  };
+  const result = await requestAuthorization(ctx, { wait_s: 2 }, clock);
   expect(result.client_id).toBe(desktop.client_id);
   expect(result.permission).toBe("authorized");
 });

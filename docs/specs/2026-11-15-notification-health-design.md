@@ -36,6 +36,8 @@ The desktop reads both in `refresh_notifications()` before every heartbeat and s
 
 `ClientEntry` stores both fields, and an older value is kept while a heartbeat leaves them out. `permission_changed_at` records when either field changed, so a delivered test acked before the last change no longer reads as current. Until macOS has answered at least once (a real settings read or a request), the bundled desktop omits `notification_permission` rather than reporting `unsupported`; `unsupported` stays for unbundled and non-macOS builds. The Rust mirror (`crates/lifecycle/src/clients.rs`), the p6e goldens, the op catalog and the protocol docs are updated together. The frozen v2 surface does not change.
 
+`permission_changed_at` moves only on a change between two real states: the previous stored value and the newly reported value must both be present and neither may be the `unsupported` placeholder. A first report (previously absent), a transition from `unsupported`, or an unchanged value therefore does not stamp the marker, so an app relaunch does not reset "test delivered". TypeScript (`src/clients/registry.ts`) and Rust (`crates/lifecycle/src/clients.rs`) apply this identical rule. The bundled desktop sets its "answered" flag only inside the macOS settings-read completion, after a real status was read, so a register at connect does not report the pre-read `unsupported` placeholder.
+
 ### 2. Delivery acknowledgment and test notifications
 
 New ops:
@@ -45,11 +47,17 @@ New ops:
 | `notifications.test` | any client, CLI | Sends one `notify` event with key `test:<nonce>` to the OS presenter. Notification level and delivery ledger do not apply. Writes `{key, client_id, sent_at}` to `state/notification-health.json`, under the notifications lock and before the publish, so an ack that races the publish finds the new key. Fails with `unavailable` (hint: open the pacer app) when no desktop presenter is live. |
 | `notifications.ack` | desktop client only | `{client_id, key, delivered: boolean, error?: string}`; `client_id` must be a live desktop lease, and the one the pending test targeted when the key matches. Records `last_ok_at` or `last_error {at, message}` for any key, and `acked_at`/`delivered` when it matches the pending test. `error` is optional (`null` accepted) and control characters are stripped and capped at 512 before storage. Unknown or stale keys are ignored. |
 | `notifications.request` | any client | Sends a `control` event `{action: "notifications.request"}` targeted at the live desktop (`recipients`, unique id), which calls `requestAuthorizationWithOptions` and heartbeats the result. Waits up to `wait_s` seconds for the macOS answer; `wait_s` defaults to 20 and is capped at 25, keeping the call under the desktop's 30 s service-call timeout. |
-| `notifications.health` | any client | Cheap v3-only read returning `{ check: notificationsCheck(ctx), tested_at?: number }` without running the full doctor; the Desktop banners row and the setup doctor view use it. |
+| `notifications.health` | any client (v3-only, refused for executor sessions) | Cheap read that returns the `Check` object itself (its `tested_at` is set once the last test was acked after the last permission change) without running the full doctor; the Desktop banners row uses it. |
 
 The desktop acks every `notify` event from the `addNotificationRequest` completion handler (`mac_notifications.rs`). A failed ack is logged and never retried.
 
 `state/notification-health.json` is mode 0600, written atomically under the `notifications` lock, and bounded to a single record. Native routing stays as it is today: the Rust front door forwards these ops to TypeScript, and native `notifications.get/set` is unchanged.
+
+Executor sessions (delegated pacer work) are refused for the new ops `notifications.test`, `notifications.ack`, `notifications.request`, `notifications.health` and `setup.skip`; `notifications.get` and `notifications.set` keep their prior policy (caller-policy).
+
+#### The `control` v3 event
+
+`notifications.request` publishes a `control` entity event, and `control` is a subscribable v3 API event that plugin policy observations may subscribe to (it was added to the v3 hello event set and the generated plugin policy protocol). Its payload is `{action, recipients, client_id}` and discloses only a desktop client id, which `notify` and `client.list` already expose. Because every future `control` action becomes plugin-observable automatically, `control` payloads must stay secret-free and safe for plugin observation (no endpoint keys, credentials or machine identity).
 
 ### 3. The doctor check
 
@@ -66,7 +74,8 @@ The desktop acks every `notify` event from the `addNotificationRequest` completi
 | last test not acked within 15 s, or `last_error` newer than `last_ok_at` | warn | the desktop didn't confirm the test, or macOS rejected the banner (with its message) | auto: **Send test notification** → `notifications.test` |
 | authorized, last test acked `delivered` after the last permission change | ok | "Banners allowed · test delivered" (evidence `tested`, with a structured `tested_at`) | — |
 | authorized, never tested | ok | "Banners allowed · not tested yet" (evidence `configured`) | — |
-| live desktop with no `notification_permission` (older app) | info | "Update the pacer app to check notifications" | — |
+| live desktop with no `notification_permission` (just registered) | info | "Checking notification permission…" | — |
+| live desktop with no `notification_permission` (older app, registered ≥ 10 s ago) | info | "Update the pacer app to check notifications" | — |
 
 `remedies` gains `allowNotifications()`, `notificationSettings(caption)` and `testNotification()`. `remedyCommand` maps them to `pacer api call …` or `open …`.
 
