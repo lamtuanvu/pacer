@@ -286,7 +286,8 @@ test.skipIf(!front)("admitted account.signin requests reach the TypeScript core 
     const extra = { ...TMUX, PACER_CORE_ARGV: proxy, PACER_TEST_CORE_LOG: join(dir, "core-stdin.log") };
     const out = (await exchange(dir, sent, forward, extra, false)).map(line => ids(line, dir));
     const received = readFileSync(join(dir, "core-stdin.log"), "utf8").split("\n").filter(line => line.includes('"account.signin"'));
-    runs.push({ out, received, launches: launches(dir).split("\n").filter(Boolean).sort() });
+    const lines = launches(dir).split("\n").filter(Boolean).map(line => line.replace(/^(open -a \S+|x-terminal-emulator -e) /, "<terminal> "));
+    runs.push({ out, received, launches: lines.sort() });
   }
   expect(runs[0]).toEqual(runs[1]);
   expect(runs[0]!.received).toEqual(sent);
@@ -295,7 +296,7 @@ test.skipIf(!front)("admitted account.signin requests reach the TypeScript core 
   expect(results[0].command).toBe("CODEX_HOME='<home>/team'\\''s out' codex login");
   // The core runs the sign-ins concurrently; macOS opens whichever terminal app this machine prefers.
   const opened = (title: string) => `orca terminal create --worktree id:wt1 --title Sign in to ${title} --command <home>/.pacer/terminal/<uuid>.sh --json`;
-  expect(runs[0]!.launches.map(line => line.replace(/^(open -a \S+|x-terminal-emulator -e) /, "<terminal> "))).toEqual([
+  expect(runs[0]!.launches).toEqual([
     "<terminal> <home>/.pacer/terminal/<uuid>.sh", opened("claude"), opened("linked"), opened("work"),
     ...Array(3).fill("orca status --json"), ...Array(3).fill("orca worktree show --worktree active --json"),
     "tmux new-window <home>/.pacer/terminal/<uuid>.sh",

@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { afterAll, expect, test } from "bun:test";
 import { chmodSync, existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -70,7 +69,7 @@ function bin(dir: string, name: string, script: string) {
 async function exchange(home: string, requests: string[], forward: boolean, extra: Record<string, string> = {}, expectNative = !forward) {
   const child = spawnPinned([front!, "api", "--stdio"], {
     cwd: home,
-    env: { ...childEnv(home), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
+    env: pinnedEnv({ HOME: home, PACER_HOME: join(home, ".pacer"), PATH: `${join(home, "bin")}:/usr/bin:/bin`,
       PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
       PACER_DEBUG_NATIVE: "1", ...isolated, ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS } : {}) }, closedPort()),
     stdin: "pipe", stdout: "pipe", stderr: "pipe",

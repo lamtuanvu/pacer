@@ -81,14 +81,17 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
 
 /**
  * Replies with this home, wall-clock times, the gate's run time and the measured link
- * latency (whose level is its own threshold) replaced; everything else compares exactly.
+ * latency (whose level and the remedy a warning adds are its own threshold) replaced;
+ * everything else compares exactly.
  */
 function normalize(value: unknown, dir: string) {
   return JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME")
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
-    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"'), (_key, item) =>
-    item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail)
-      ? { ...item, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") } : item);
+    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"'), (_key, item) => {
+    if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
+    const { remedy: _remedy, ...check } = item;
+    return { ...check, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
+  });
 }
 
 const stored = (dir: string) => normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir);
