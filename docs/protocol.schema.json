@@ -3757,13 +3757,22 @@
         },
         "key": {
           "type": "string",
-          "minLength": 1
+          "minLength": 1,
+          "maxLength": 512
         },
         "delivered": {
           "type": "boolean"
         },
         "error": {
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
         }
       },
       "required": [
@@ -3778,13 +3787,18 @@
       "properties": {},
       "additionalProperties": false
     },
+    "NotificationsHealthParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
     "NotificationsRequestParams": {
       "type": "object",
       "properties": {
         "wait_s": {
           "type": "integer",
           "minimum": 0,
-          "maximum": 60
+          "maximum": 25
         }
       },
       "additionalProperties": false

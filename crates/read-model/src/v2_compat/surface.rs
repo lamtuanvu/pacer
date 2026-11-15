@@ -103,6 +103,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "notifications.test",
     "notifications.ack",
     "notifications.request",
+    "notifications.health",
     "insights.summary",
     "machine.get",
     "machine.set",

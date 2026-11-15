@@ -25,6 +25,7 @@ pub fn read(raw: &Value) -> Vec<Value> {
         let mut out = json!({"client_id":r["client_id"],"kind":r["kind"],"version":r["version"],"notifier":r["notifier"],"registeredAt":r["registeredAt"],"heartbeatAt":r["heartbeatAt"]});
         if let Some(v) = r.get("notification_permission") { out["notification_permission"] = v.clone(); }
         if let Some(v) = r.get("notification_alerts") { out["notification_alerts"] = v.clone(); }
+        if let Some(v) = r.get("permission_changed_at") { out["permission_changed_at"] = v.clone(); }
         out
     }).collect()
 }
@@ -55,11 +56,16 @@ pub fn heartbeat(
     if let Some(notifier) = notifier {
         row["notifier"] = notifier.into();
     }
+    let changed = (notification_permission.is_some() && s(&row["notification_permission"]) != notification_permission.unwrap())
+        || (notification_alerts.is_some() && s(&row["notification_alerts"]) != notification_alerts.unwrap());
     if let Some(permission) = notification_permission {
         row["notification_permission"] = permission.into();
     }
     if let Some(alerts) = notification_alerts {
         row["notification_alerts"] = alerts.into();
+    }
+    if changed {
+        row["permission_changed_at"] = now.into();
     }
     Ok(json!({"ok":true}))
 }

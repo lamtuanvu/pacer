@@ -100,6 +100,28 @@ test("register and heartbeat store notification permission and alerts", () => {
   expect(updated.notification_alerts).toBe("none");
 });
 
+test("permission_changed_at records when the permission or alert style changes (item 12)", () => {
+  const ctx = fakeCtx();
+  const d = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  let listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  // No change yet: no permission_changed_at.
+  expect(listed.permission_changed_at).toBeUndefined();
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBe(ctx.now);
+  // An unchanged permission does not move the marker.
+  ctx.now += 2;
+  heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBe(ctx.now - 2);
+  // An alert-style change moves it too.
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_alerts: "banner" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBe(ctx.now);
+});
+
 test("heartbeat notifier updates delivery eligibility in place", () => {
   const ctx = fakeCtx();
   const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });

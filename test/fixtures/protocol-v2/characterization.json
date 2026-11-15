@@ -69,6 +69,36 @@
     {
       "name": "other",
       "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "other",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
+        }
+      }
+    },
+    {
+      "name": "other",
+      "input": {
         "accepted": true
       },
       "output": {
@@ -242,6 +272,36 @@
       "output": {
         "value": {
           "capture": 1
+        }
+      }
+    },
+    {
+      "name": "task.delegate",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "task.delegate",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
         }
       }
     },
@@ -427,6 +487,30 @@
     {
       "name": "client.register",
       "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.register",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true
+        }
+      }
+    },
+    {
+      "name": "client.register",
+      "input": {
         "accepted": true
       },
       "output": {
@@ -539,6 +623,210 @@
       }
     },
     {
+      "name": "client.heartbeat",
+      "input": null,
+      "output": {
+        "value": null
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": false,
+      "output": {
+        "value": false
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": 0,
+      "output": {
+        "value": 0
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": "😀",
+      "output": {
+        "value": "😀"
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": [],
+      "output": {
+        "value": []
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": [
+        1
+      ],
+      "output": {
+        "value": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {},
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "dispatch": 1,
+        "capture": 1
+      },
+      "output": {
+        "value": {
+          "dispatch": 1,
+          "capture": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": true
+      },
+      "output": {
+        "value": {
+          "accepted": true
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": false
+      },
+      "output": {
+        "value": {
+          "accepted": false
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": true,
+        "verdict": null
+      },
+      "output": {
+        "value": {
+          "accepted": true,
+          "verdict": null
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": false,
+        "verdict": "accept"
+      },
+      "output": {
+        "value": {
+          "accepted": false,
+          "verdict": "accept"
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": null
+      },
+      "output": {
+        "value": {
+          "accepted": null
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": 0
+      },
+      "output": {
+        "value": {
+          "accepted": 0
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": 1
+      },
+      "output": {
+        "value": {
+          "accepted": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": ""
+      },
+      "output": {
+        "value": {
+          "accepted": ""
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": []
+      },
+      "output": {
+        "value": {
+          "accepted": []
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": {}
+      },
+      "output": {
+        "value": {
+          "accepted": {}
+        }
+      }
+    },
+    {
       "name": "task.review",
       "input": null,
       "output": {
@@ -601,6 +889,36 @@
         "value": {
           "dispatch": 1,
           "capture": 1
+        }
+      }
+    },
+    {
+      "name": "task.review",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "task.review",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
         }
       }
     },
@@ -16748,7 +17066,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.14.0",
+        "releaseVersion": "0.15.0",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -16756,7 +17074,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.14.0",
+      "pacer": "0.15.0",
       "ops": [
         "account.add",
         "account.adopt",
@@ -16892,6 +17210,7 @@
         "msg.wait",
         "notifications.ack",
         "notifications.get",
+        "notifications.health",
         "notifications.request",
         "notifications.set",
         "notifications.test",
@@ -17019,12 +17338,13 @@
         "liveness",
         "machine",
         "assistant",
-        "discovery.found"
+        "discovery.found",
+        "control"
       ]
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.14.0",
+      "pacer": "0.15.0",
       "ops": [
         "account.add",
         "account.adopt",
@@ -21431,13 +21751,22 @@
             },
             "key": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "maxLength": 512
             },
             "delivered": {
               "type": "boolean"
             },
             "error": {
-              "type": "string"
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ]
             }
           },
           "required": [
@@ -21457,12 +21786,27 @@
           "additionalProperties": false
         }
       },
-      "notifications.request": {
-        "description": "Request notification permission from the live desktop.",
+      "notifications.health": {
+        "description": "Cheap read of the notification check without running the full doctor.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "notifications.request": {
+        "description": "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "wait_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -27504,6 +27848,7 @@
     "notifications.test",
     "notifications.ack",
     "notifications.request",
+    "notifications.health",
     "insights.summary",
     "machine.get",
     "machine.set",

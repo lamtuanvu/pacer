@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 import { register, heartbeat } from "../src/clients/registry";
 import { callOp } from "../src/api/ops";
-import { readHealth } from "../src/core/notification-health";
+import { readHealth, requestAuthorization, REQUEST_DEFAULT_WAIT_S, REQUEST_MAX_WAIT_S } from "../src/core/notification-health";
 import type { EntityData } from "../src/link/envelope";
 
 test("notifications.test with no desktop presenter fails", async () => {
@@ -119,4 +119,65 @@ test("notifications.test with a live desktop that is not a presenter fails with 
     message: "macOS blocks pacer notifications",
     hint: "Turn on Allow notifications for pacer in System Settings › Notifications.",
   });
+});
+
+test("ack accepts the desktop's real payload with error:null (B1)", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const { key } = await callOp(ctx, "notifications.test", {}) as { key: string };
+  // The desktop serializes a successful delivery with `error: null` when no failure occurred;
+  // the schema must accept it and record the ok.
+  const result = await callOp(ctx, "notifications.ack", { client_id: desktop.client_id, key, delivered: true, error: null });
+  expect(result).toEqual({ ok: true });
+  const health = readHealth(ctx)!;
+  expect(health.delivered).toBe(true);
+  expect(health.acked_at).toBeGreaterThanOrEqual(health.sent_at!);
+});
+
+test("ack stores a control-character-free error message", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const { key } = await callOp(ctx, "notifications.test", {}) as { key: string };
+  const messy = `boom\u001b[31m x\u0000y\u0085 tail`;
+  await callOp(ctx, "notifications.ack", { client_id: desktop.client_id, key, delivered: false, error: messy });
+  const message = readHealth(ctx)!.last_error!.message;
+  // Control characters (C0/C1 including ESC) are stripped out of stored errors; spaces stay.
+  expect(message).toBe("boom[31m xy tail");
+});
+
+test("ack rejects an error longer than 512 characters at the schema", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const { key } = await callOp(ctx, "notifications.test", {}) as { key: string };
+  await expect(callOp(ctx, "notifications.ack", { client_id: desktop.client_id, key, delivered: false, error: "x".repeat(513) }))
+    .rejects.toMatchObject({ code: "invalid_input" });
+});
+
+test("ack from a different live desktop for the pending key is rejected (item 17)", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const { key } = await callOp(ctx, "notifications.test", {}) as { key: string };
+  const other = register(ctx, { kind: "desktop", version: "1", notifier: false });
+  await expect(callOp(ctx, "notifications.ack", { client_id: other.client_id, key, delivered: true }))
+    .rejects.toMatchObject({ code: "not_allowed", message: "notifications.ack client mismatch" });
+});
+
+test("request uses the injectable clock and returns the last permission at the deadline (item 17)", async () => {
+  const ctx = fakeCtx();
+  const desktop = register(ctx, { kind: "desktop", version: "1", notification_permission: "not_determined" });
+  // A clock that advances only once: the request returns the last permission after the fake
+  // wait, without sleeping for real seconds.
+  let t = 0;
+  const clock = { now: () => t++, sleep: async () => {} };
+  const result = await requestAuthorization(ctx, { wait_s: 1 }, clock);
+  expect(result.client_id).toBe(desktop.client_id);
+  expect(result.permission).toBe("not_determined");
+});
+
+test("request rejects a wait_s above 25 and defaults to 20 (item 4)", async () => {
+  const ctx = fakeCtx();
+  register(ctx, { kind: "desktop", version: "1", notifier: true });
+  await expect(callOp(ctx, "notifications.request", { wait_s: 26 })).rejects.toMatchObject({ code: "invalid_input" });
+  expect(REQUEST_DEFAULT_WAIT_S).toBe(20);
+  expect(REQUEST_MAX_WAIT_S).toBe(25);
 });

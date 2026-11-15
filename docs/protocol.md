@@ -5280,13 +5280,22 @@ Params JSON Schema:
     },
     "key": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 512
     },
     "delivered": {
       "type": "boolean"
     },
     "error": {
-      "type": "string"
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 512
+        },
+        {
+          "type": "null"
+        }
+      ]
     }
   },
   "required": [
@@ -5313,9 +5322,24 @@ Params JSON Schema:
 }
 ```
 
+### `notifications.health`
+
+Cheap read of the notification check without running the full doctor.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
 ### `notifications.request`
 
-Request notification permission from the live desktop and wait up to wait_s seconds for the macOS answer.
+Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.
 
 Params JSON Schema:
 
@@ -5327,7 +5351,7 @@ Params JSON Schema:
     "wait_s": {
       "type": "integer",
       "minimum": 0,
-      "maximum": 60
+      "maximum": 25
     }
   },
   "additionalProperties": false

@@ -299,10 +299,13 @@ describe("notifications setup step", () => {
       notificationsSkipped: true,
     });
     const step = report.steps.find(s => s.id === "notifications");
-    expect(step?.state).toBe("passed");
+    expect(step?.state).toBe("skipped");
     expect(step?.detail).toBe("Skipped");
     expect(report.outcome).toBe("ok");
     expect(report.attentionCount).toBe(0);
+    // A skipped step contributes no repair (so it never shows Allow notifications or
+    // hides Run checks again / Restart).
+    expect(report.repairs ?? []).toEqual([]);
   });
 
   test("setupHealthRepairs marks the notifications remedy as skippable", () => {
