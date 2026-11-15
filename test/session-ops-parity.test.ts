@@ -267,7 +267,7 @@ test("hook/report handoff preserves attempt credentials, terminal precedence and
 
 test("messaging handoff keeps resume turns, replay prompts, idempotency, reads and planner hooks", async () => {
   const ctx = configured();
-  ctx.env = { PACER_PLANNER_SESSION: "claude-code:s1" };
+  ctx.env = { PACER_PORT: process.env.PACER_PORT, PACER_PLANNER_SESSION: "claude-code:s1" };
   const task = createTask(ctx, { brief: { goal: "original goal", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, task.id, t => {
     t.origin = "external:claude-code:s1"; t.state = "done";

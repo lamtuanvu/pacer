@@ -7,6 +7,7 @@ import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {defaultRun} from "../src/ctx";
 import {fakeCtx} from "./helpers";
+import {closedPort} from "./child-env";
 
 let binary: string;
 function driver() {
@@ -38,6 +39,8 @@ async function compare(steps: Step[], setup: (home: string) => void, files: stri
   const ts = realpathSync(mkdtempSync(join(tmpdir(), "native-svc-ts-"))), rs = realpathSync(mkdtempSync(join(tmpdir(), "native-svc-rs-")));
   homes.push(ts, rs);
   setup(ts);
+  const port = String(closedPort());
+  steps = steps.map(step => ({...step, env: {PACER_PORT: port, ...step.env}}));
   cpSync(ts, rs, {recursive: true});
   const path = (home: string) => `${home}/bin:/usr/bin:/bin`;
   const expected: unknown[] = [];
@@ -82,7 +85,7 @@ test("native service.status matches TypeScript service-manager probes", async ()
     {op: "service.status", params: null}, {op: "service.status", params: []}, {op: "service.status", params: "x"},
     {op: "service.status", params: {extra: 1}}, status({PACER_ENFORCEMENT_TOKEN: "t"}),
   ], home => fakeServiceManager(home, "exit 1"));
-  await compare([status()], () => {});
+  await compare([status()], home => fakeServiceManager(home, "exit 1"));
 }, 600_000);
 
 const check = (params: unknown = {}, env?: Record<string, string>): Step => ({op: "update.check", params, env});

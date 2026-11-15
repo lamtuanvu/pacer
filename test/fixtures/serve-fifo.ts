@@ -15,7 +15,10 @@ try {
   mkdirSync(home); mkdirSync(worktree); mkdirSync(join(stuck, ".git"), { recursive: true });
   const fifo = Bun.spawnSync(["mkfifo", repo, join(worktree, ".git"), join(stuck, ".git", "HEAD")]);
   if (fifo.exitCode) throw Error("mkfifo failed");
-  const ctx = fakeCtx({ home, run: realRun, which: () => null });
+  const ctx = fakeCtx({ home, which: () => null, run: (argv, timeout, options) =>
+    argv[0] === "launchctl" || argv[0] === "systemctl"
+      ? Promise.resolve({ code: 1, stdout: "", stderr: "fixture service unavailable" })
+      : realRun(argv, timeout, options) });
   mkdirSync(ctx.pacerHome);
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
   writeJsonAtomic(join(ctx.pacerHome, "state", "repos.json"), Object.fromEntries([repo,worktree].map(path => [path,{path,key:`local:${path.split('/').pop()}`,lastUsed:ctx.now}])));

@@ -34,6 +34,8 @@ export function frontEnv(h: Home, forward: string, options: Options) {
     ...(options.hostSocket !== undefined ? { PACER_HOST_SOCKET: options.hostSocket } : {}),
     // Linux deep homes bind under $XDG_RUNTIME_DIR; macOS asks confstr instead.
     ...(process.env.XDG_RUNTIME_DIR !== undefined ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
+    // The preload's closed port; a caller's explicit port still wins.
+    PACER_PORT: process.env.PACER_PORT!,
     ...options.env,
   };
 }
