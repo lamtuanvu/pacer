@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { mkdir, writeFile, readFile, rm, stat } from "node:fs/promises";
 import { join } from "node:path";
@@ -23,7 +22,7 @@ test("owned real parent kill and restart recovers schema1 FILE journal without p
     {
       stdout: "pipe",
       stderr: "pipe",
-      env: { ...childEnv(ctx.home), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+      env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
     },
   );
   try {
@@ -52,7 +51,7 @@ test("owned real parent kill and restart recovers schema1 FILE journal without p
       {
         stdout: "pipe",
         stderr: "pipe",
-        env: { ...childEnv(ctx.home), BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
+        env: { BUN_RUNTIME_TRANSPILER_CACHE_PATH: "" },
       },
     );
     const [out, err, code] = await Promise.all([

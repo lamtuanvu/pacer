@@ -199,9 +199,18 @@ mod managed_action_tests {
             {"id":"failed:t","severity":"problem","actions":[{"label":"Retry","op":"dispatch.retry","params":{"id":"t","expect_rev":2,"requestId":"t.2.retry"}}]},
             {"id":"failed:u","severity":"problem","actions":[{"label":"Retry","op":"task.retry","params":{"id":"u","executor":"codex"}}]}
         ],"setup":{"items":[]},"counts":{},"executors":[],"accounts":[],"strategies":[],"seq":0});
-        let result = snapshot(&source,None);
-        assert_eq!(result["attention"][0]["actions"][0],json!({"label":"Answer","op":"ui.open","params":{"view":"task","id":"t","tab":"answer"}}));
-        assert_eq!(result["attention"][1]["actions"][0],json!({"label":"Retry","op":"ui.open","params":{"view":"task","id":"t"}}));
-        assert_eq!(result["attention"][2]["actions"][0],source["attention"][2]["actions"][0]);
+        let result = snapshot(&source, None);
+        assert_eq!(
+            result["attention"][0]["actions"][0],
+            json!({"label":"Answer","op":"ui.open","params":{"view":"task","id":"t","tab":"answer"}})
+        );
+        assert_eq!(
+            result["attention"][1]["actions"][0],
+            json!({"label":"Retry","op":"ui.open","params":{"view":"task","id":"t"}})
+        );
+        assert_eq!(
+            result["attention"][2]["actions"][0],
+            source["attention"][2]["actions"][0]
+        );
     }
 }

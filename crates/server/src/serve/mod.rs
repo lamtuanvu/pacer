@@ -260,23 +260,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
-        if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
-            crate::native::msg_write_sync::trace(op.name, None);
-            let by = crate::native::task_send_ops::caller_identity(
-                &ctx,
-                header_value(&parts.headers, "x-pacer-client").as_deref(),
-                header_value(&parts.headers, "x-pacer-client-instance").as_deref(),
-            );
-            let mut bridge = crate::native::task_send_sync::HttpBridge {
-                target: state.core.target().await,
-            };
-            return match crate::native::task_send_ops::task_send(&ctx, params, by, &mut bridge)
-                .await
-            {
-                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
-                Err(error) => native_error(error),
-            };
-        }
         if pacer_config_ops::setup_effects::uses_effects(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
             let mut effects = crate::native::setup_effects_sync::HttpEffects {
@@ -528,15 +511,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     Err(error) => return native_error(error),
                 }
             } else if crate::native::needs_account_list_bridge(op.name) {
-                state.core.target().await.map(|target| {
-                    Box::pin(crate::native::account_list_sync::http(Some(target)))
-                        as pacer_foundation::api::OpFuture<'_>
-                })
-            } else {
-                None
-            };
-            let mut service_effects_bridge = if pacer_install::needs_service_effects_bridge(op.name)
-            {
                 state.core.target().await.map(|target| {
                     Box::pin(crate::native::account_list_sync::http(Some(target)))
                         as pacer_foundation::api::OpFuture<'_>
