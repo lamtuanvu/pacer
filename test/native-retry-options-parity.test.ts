@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { afterAll, beforeAll, expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -170,7 +171,7 @@ beforeAll(async () => {
 afterAll(() => { for (const home of [isolated, ...cases.map(c => c.home)]) rmSync(home, { recursive: true, force: true }); });
 
 test("Rust retry options match TypeScript byte for byte with injected broker readings", async () => {
-  const expected = JSON.parse(await run([process.execPath, "-e", reference], JSON.stringify(cases), { PATH: process.env.PATH, TZ: process.env.TZ, HOME: isolated, PACER_HOME: join(isolated, ".pacer") }));
+  const expected = JSON.parse(await run([process.execPath, "-e", reference], JSON.stringify(cases), { PATH: process.env.PATH, TZ: process.env.TZ, ...childEnv(isolated) }));
   const probe = join(resolve(root, target), "debug", "examples", "retry_options_probe");
   const actual = (await run([probe], cases.map(c => JSON.stringify(c) + "\n").join(""))).trim().split("\n");
   expect(actual).toHaveLength(cases.length);
@@ -186,7 +187,7 @@ const core = JSON.stringify([process.execPath, join(root, "src/cli.ts")]);
 async function exchange(home: string, params: unknown, forward: boolean) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+      ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
       ...(forward ? { PACER_FORWARD_OPS: "task.retry_options" } : {}),
     },

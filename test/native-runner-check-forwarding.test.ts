@@ -18,7 +18,7 @@ function fixture() {
   const pacerHome = join(home, ".pacer");
   mkdirSync(pacerHome, { mode: 0o700 });
   writeFileSync(join(pacerHome, "strategy.yaml"), strategy(home), { mode: 0o600 });
-  const env = { HOME: home, PACER_HOME: pacerHome, PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1",
+  const env = { HOME: home, PACER_HOME: pacerHome, PACER_PORT: process.env.PACER_PORT!, PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1",
     PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", PACER_FIXTURE_DELAY_MS: String(DELAY_MS) };
   const logged = (file: string) => existsSync(join(pacerHome, file))
     ? readFileSync(join(pacerHome, file), "utf8").trim().split("\n").map(line => JSON.parse(line)) : [];

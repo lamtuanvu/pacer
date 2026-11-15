@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { existsSync, lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
@@ -134,7 +135,7 @@ if(${JSON.stringify(mode)}==="failure")try{await staging.finish(2);}catch{finish
 await authority.revoke();
 console.log(JSON.stringify({ack,errorCode,size,writes,result,finishRejected,removed:!existsSync(directory)}));
 `;
-  const child = Bun.spawn([process.execPath, "-e", script], { cwd: import.meta.dir, env: { HOME: ctx.home, PACER_HOME: ctx.pacerHome, TMPDIR: ctx.home }, stdout: "pipe", stderr: "pipe" });
+  const child = Bun.spawn([process.execPath, "-e", script], { cwd: import.meta.dir, env: { ...childEnv(ctx.home), PACER_HOME: ctx.pacerHome, TMPDIR: ctx.home }, stdout: "pipe", stderr: "pipe" });
   const [stdout, stderr, code] = await Promise.all([new Response(child.stdout).text(), new Response(child.stderr).text(), child.exited]);
   if (code !== 0) throw Error(`isolated fixture failed: ${stderr}`);
   return JSON.parse(stdout);

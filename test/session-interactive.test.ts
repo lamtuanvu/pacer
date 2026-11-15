@@ -14,7 +14,7 @@ function activeRun() {
   mkdirSync(runDir, {recursive: true});
   writeFileSync(join(runDir, "interactive.json"), JSON.stringify({reportToken: "attempt-secret"}));
   updateTask(ctx, task.id, t => {t.state = "running"; t.run = {dir: runDir, attempt: 1, executor: "codex", startedAt: 1, mode: "current", workdir: dir, logFile: join(dir, "log")};});
-  ctx.env = {PACER_RUN_DIR: runDir, PACER_REPORT_TOKEN: "attempt-secret"};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PACER_RUN_DIR: runDir, PACER_REPORT_TOKEN: "attempt-secret"};
   return {ctx, dir: runDir, task};
 }
 
@@ -157,9 +157,9 @@ test("report accepts the current attempt through a symlink and requires explicit
   ctx.env.PACER_RUN_DIR = alias;
   expect((await main(["report", "--task", task.id, "--status", "running", "--summary", "Active"], ctx)).code).toBe(0);
   expect((await main(["report", "--status", "running", "--summary", "Alias"], ctx)).code).toBe(0);
-  ctx.env = {};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,};
   expect((await main(["report", task.id, "--outcome", "done", "--summary", "No flag"], ctx)).code).toBe(2);
-  ctx.env = {PACER_ROLE: "executor"};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,PACER_ROLE: "executor"};
   expect((await main(["report", "--task", task.id, "--outcome", "done", "--summary", "No env"], ctx)).code).toBe(2);
 });
 

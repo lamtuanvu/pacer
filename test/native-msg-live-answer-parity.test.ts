@@ -63,7 +63,7 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
     }
     const send = async () => {
     const child = Bun.spawn([front!, "api", "--stdio"], { cwd: ctx.home, stdin: "pipe", stdout: "pipe", stderr: "pipe", env: {
-      HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH!, PACER_CORE_ARGV: core,
+      HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PORT: process.env.PACER_PORT!, PATH: process.env.PATH!, PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
       ...(forward ? { PACER_FORWARD_OPS: "msg.send" } : {}),
     } });

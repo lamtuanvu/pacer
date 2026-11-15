@@ -193,7 +193,7 @@ if [ "$*" = '-A -o pid=,pgid=,stat=' ]; then
     exit 9
   fi
 fi
-exec /bin/ps "$@"
+exec "\${PACER_TEST_PS:-/bin/ps}" "$@"
 `,
       { mode: 0o700 },
     );

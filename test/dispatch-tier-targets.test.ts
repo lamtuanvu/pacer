@@ -37,7 +37,7 @@ test.skipIf(!front)("native dispatch.config.get agrees with TS for tier target d
     const results = [];
     for (const forward of [false, true]) {
       const child = Bun.spawn([front!, "api", "--stdio"], {
-        env: { HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH,
+        env: { HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PORT: process.env.PACER_PORT, PATH: process.env.PATH,
           PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
           PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
           ...(forward ? { PACER_FORWARD_OPS: "dispatch.config.get" } : {}) },

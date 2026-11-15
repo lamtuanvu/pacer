@@ -47,7 +47,7 @@ test(`core main thread stays idle-cheap with ${SETTLED} settled tasks`, async ()
   const settled = new Set(build.settledIds);
   const ctx: Ctx = {
     home, pacerHome, now: Date.now() / 1000, run: gitOnly, which: () => null,
-    env: { HOME: home, PACER_HOME: pacerHome, PACER_NO_UPDATE_CHECK: "1", PACER_BACKEND: "direct", PACER_LOGIN_ENV: "off", PATH: "/usr/bin:/bin" },
+    env: { HOME: home, PACER_HOME: pacerHome, PACER_PORT: process.env.PACER_PORT, PACER_NO_UPDATE_CHECK: "1", PACER_BACKEND: "direct", PACER_LOGIN_ENV: "off", PATH: "/usr/bin:/bin" },
   };
 
   const realParse = JSON.parse;

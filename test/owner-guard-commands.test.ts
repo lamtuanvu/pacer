@@ -3,10 +3,11 @@ import { main } from "../src/cli";
 import { MANAGED_BY_DESKTOP_MESSAGE, readOwner, writeOwner } from "../src/install/owner";
 import { uninstallAll } from "../src/install/uninstall-all";
 import { fakeCtx } from "./helpers";
+import { join } from "node:path";
 
-function withDesktopOwner(executable = "/Applications/pacer.app/Contents/Resources/pacer") {
+function withDesktopOwner(executable?: string) {
   const ctx = fakeCtx({ env: { PACER_BIN: "/usr/local/bin/pacer", PACER_NO_UPDATE_CHECK: "1" } });
-  writeOwner(ctx, { owner: "desktop", executable, at: 1 });
+  writeOwner(ctx, { owner: "desktop", executable: executable ?? join(ctx.home, "pacer.app/Contents/Resources/pacer"), at: 1 });
   return ctx;
 }
 

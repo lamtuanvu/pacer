@@ -85,7 +85,7 @@ const envelopes = (home: string, lines: string[]) => lines.map(line => JSON.pars
 const withCheckout = (home: string, params: unknown) => JSON.parse(JSON.stringify(params ?? null).replaceAll("$CHECKOUT", join(home, "checkout")));
 
 function env(home: string, forward: boolean) {
-  return { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+  return { HOME: home, PACER_HOME: join(home, ".pacer"), PACER_PORT: process.env.PACER_PORT!, PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
     PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
     ...(forward ? { PACER_FORWARD_OPS: OPS.join(",") } : {}) };
 }

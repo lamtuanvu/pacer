@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import {endpointTestFromSpawn} from './fixtures/endpoint-test-fixtures';
 import {endpointDiscoveryDeps, discoveryFromFetch} from "./endpoint-discovery-fixtures";
 import {expect, test} from "bun:test";
@@ -17,7 +18,7 @@ function setup() {
     if (argv[1]==='delete-generic-password') stored=null;
     return {code:argv[1]==='find-generic-password' && !stored?44:0,stdout:argv.includes('-w')?stored ?? '':'',stderr:''};
   }});
-  ctx.env = {HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
   mkdirSync(ctx.pacerHome, {recursive:true});
   writeFileSync(join(ctx.pacerHome,"strategy.yaml"), '# preserve this\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex]\n');
   return ctx;
@@ -246,7 +247,7 @@ finally:
  if proc.poll() is None:proc.kill();proc.wait()
  os.close(master)
 `;
-  const child=Bun.spawn(['python3','-c',python,childCode],{env:{HOME:ctx.home,PACER_HOME:ctx.pacerHome,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
+  const child=Bun.spawn(['python3','-c',python,childCode],{env:{...childEnv(ctx.home),PACER_HOME:ctx.pacerHome,PATH:process.env.PATH},stdout:'pipe',stderr:'pipe'});
   const [code,err]=await Promise.all([child.exited,new Response(child.stderr).text()]);
   expect(err).toBe('');expect(code).toBe(0);
 },15000);

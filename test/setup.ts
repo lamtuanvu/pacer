@@ -1,8 +1,9 @@
 import { createTestRoot, sweepTestRoots } from "./temp-roots";
+import { closedPort } from "./child-env";
 import { afterAll, afterEach, beforeEach } from "bun:test";
-import { rmSync, realpathSync, mkdirSync, existsSync } from "node:fs";
+import { rmSync, realpathSync, mkdirSync, existsSync, writeFileSync } from "node:fs";
 import { tmpdir, userInfo } from "node:os";
-import { join, resolve, dirname, basename, delimiter } from "node:path";
+import { join, resolve, dirname, basename, delimiter, parse, sep } from "node:path";
 import { cleanupTestTmp } from "./helpers";
 import { setMachineReaders } from "../src/engine/machine";
 import { cleanupFixtureResources } from "./fixture-cleanup";
@@ -22,9 +23,15 @@ function canonical(path: string): string {
 }
 const realPacerHome = canonical(join(userInfo().homedir, ".pacer"));
 (globalThis as typeof globalThis & { pacerHomeGuard?: (path: string) => void }).pacerHomeGuard = path => {
-  const target = canonical(path);
-  if (target === realPacerHome || target.startsWith(realPacerHome + "/")) {
-    throw new Error("bun test refuses real user PACER_HOME");
+  const refuses = (target: string) => target === realPacerHome || target.startsWith(realPacerHome + "/");
+  // Resolve one component at a time so an alias is rejected before looking inside the real home.
+  const absolute = resolve(path), root = parse(absolute).root;
+  let prefix = root;
+  for (const part of absolute.slice(root.length).split(sep).filter(Boolean)) {
+    prefix = join(prefix, part);
+    if (refuses(prefix) || refuses(canonical(prefix))) {
+      throw new Error("bun test refuses real user PACER_HOME");
+    }
   }
 };
 // Compiled release tests must reuse the provisioned Rust toolchain and targets
@@ -60,6 +67,12 @@ mkdirSync(isolatedTmp, { mode: 0o700 });
 for (const key of ["TMPDIR", "TMP", "TEMP"]) process.env[key] = isolatedTmp;
 process.env.HOME = isolatedHome;
 process.env.PACER_HOME = join(isolatedHome, ".pacer");
+// Inherited children must never default to the maintainer’s running service.
+process.env.PACER_PORT = String(closedPort());
+process.env.OLLAMA_HOST = `http://127.0.0.1:${closedPort()}`;
+const lmsInfo = join(isolatedHome, "lms-server.json");
+writeFileSync(lmsInfo, JSON.stringify({ port: closedPort() }), { mode: 0o600 });
+process.env.LMS_API_SERVER_INFO_PATH = lmsInfo;
 delete process.env.PACER_ROLE;
 delete process.env.PACER_TASK_ID;
 // Bundled plugin children must run this source tree, never an installed pacer the shell points at.
