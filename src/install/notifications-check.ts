@@ -23,6 +23,10 @@ export function notificationsCheck(ctx: Ctx): Check {
   if (desktop.notification_permission === "unsupported") {
     return { name: "Notifications", level: "info", detail: "This development build can't post banners" };
   }
+  // An older desktop that has not reported a permission at all is a version gap, not ok.
+  if (desktop.notification_permission === undefined) {
+    return { name: "Notifications", level: "info", detail: "Update the pacer app to check notifications" };
+  }
   if (desktop.notification_permission === "not_determined") {
     return { name: "Notifications", level: "warn", detail: "Notification permission not asked yet", remedy: remedies.allowNotifications() };
   }
@@ -40,9 +44,13 @@ export function notificationsCheck(ctx: Ctx): Check {
       : "The desktop didn't confirm the test notification";
     return { name: "Notifications", level: "warn", detail, remedy: remedies.testNotification() };
   }
-  const tested = desktop.notification_permission === "authorized" && health?.delivered === true && !!health.acked_at && !!health.sent_at && health.acked_at >= health.sent_at;
+  // A delivered test counts only if it was acked after the last permission change.
+  const tested =
+    desktop.notification_permission === "authorized" && health?.delivered === true &&
+    !!health.acked_at && !!health.sent_at && health.acked_at >= health.sent_at &&
+    (!desktop.permission_changed_at || health.acked_at >= desktop.permission_changed_at);
   if (tested) {
-    return { name: "Notifications", level: "ok", detail: `Banners allowed · test delivered ${new Date(health!.acked_at! * 1000).toISOString()}`, evidence: "tested" };
+    return { name: "Notifications", level: "ok", detail: "Banners allowed · test delivered", evidence: "tested", tested_at: health!.acked_at };
   }
   return { name: "Notifications", level: "ok", detail: "Banners allowed · not tested yet", evidence: "configured" };
 }

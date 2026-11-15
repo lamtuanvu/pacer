@@ -76,6 +76,7 @@ import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import * as clients from "../clients/registry";
 import * as notificationHealth from "../core/notification-health";
+import { notificationsCheck } from "../install/notifications-check";
 import { publishConfigChange } from "../core/events";
 import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
@@ -380,15 +381,14 @@ export const OPS: Record<string, OpDef> = {
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
   "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: (ctx, _p, _deps) => notificationHealth.testNotification(ctx) }),
-  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1), delivered: z.boolean(), error: z.string().optional() }), handler: async (ctx, p, _deps) => {
+  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: async (ctx, p, _deps) => {
     const entry = clients.list(ctx).find(c => c.client_id === p.client_id);
     if (!entry || entry.kind !== "desktop") throw new CoreError("not_allowed", "notifications.ack requires a live desktop client");
-    const health = notificationHealth.readHealth(ctx);
-    if (health?.key && health.key === p.key && health.client_id !== p.client_id) throw new CoreError("not_allowed", "notifications.ack client mismatch");
-    return notificationHealth.ackNotification(ctx, p.key, p.delivered, p.error);
+    return notificationHealth.ackNotification(ctx, p.client_id, p.key, p.delivered, p.error);
   } }),
-  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(60).optional() }), handler: (ctx, p, _deps) => notificationHealth.requestAuthorization(ctx, { wait_s: p.wait_s }) }),
-  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: (ctx, _p, _deps) => mutation(ctx, "setup", () => setup.skipNotificationSetup(ctx)) }),
+  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(25).optional() }), handler: (ctx, p, _deps) => notificationHealth.requestAuthorization(ctx, { wait_s: p.wait_s }) }),
+  "notifications.health": op({ description: "Cheap read of the notification check without running the full doctor.", params: z.object({}), handler: (ctx, _p, _deps) => notificationsCheck(ctx) }),
+  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: (ctx, _p, _deps) => mutation(ctx, "config", () => setup.skipNotificationSetup(ctx)) }),
   "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
     handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
   "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),

@@ -147,6 +147,7 @@ export function remedyProgress(remedy: Pick<Remedy, "kind" | "label" | "op" | "u
     case "service.install": return remedy.kind === "internal" || /restart/i.test(remedy.label) ? "Restarting the pacer service…" : "Installing the pacer service…";
     case "account.signin": return "Waiting for you to sign in · rechecking when you return…";
     case "runner.block": return "Turning it off…";
+    case "notifications.request": return "Answer the macOS prompt…";
     case "doctor.fix.delegate": return "Starting a fix task…";
   }
   return remedy.url ? "Opened · rechecking when you return…" : `${remedy.label}…`;
@@ -284,7 +285,9 @@ export function diagnosticsPage(input: {
     } else if (input.baseline?.includes(name)) rows.push(fixedRow(current ?? { name, level: "ok", detail: "The check no longer reports a problem." }));
   }
   const open = rows.filter(row => !row.fixed);
-  const autoLeft = open.filter(row => row.remedy?.kind === "auto" && row.plan && !row.progress && !row.task?.open);
+  // notifications.request prompts macOS interactively, so it stays an individual action and
+  // is excluded from Diagnostics' fix-all button.
+  const autoLeft = open.filter(row => row.remedy?.kind === "auto" && row.plan && !row.progress && !row.task?.open && row.remedy?.op !== "notifications.request");
   const passed = checks.filter(check => check.level === "ok" && check.evidence !== "unverified");
   const information = checks.filter(check => !isIssue(check) && !passed.includes(check));
   return {

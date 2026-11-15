@@ -15,6 +15,7 @@ export type SetupHealthStepState =
   | "waiting"
   | "running"
   | "passed"
+  | "skipped"
   | "needs_attention"
   | "failed"
   | "timed_out"
@@ -99,6 +100,7 @@ function worst(a: SetupHealthStepState, b: SetupHealthStepState): SetupHealthSte
     needs_attention: 3,
     running: 2,
     waiting: 1,
+    skipped: 1,
     not_checked: 1,
     passed: 0,
   };
@@ -148,7 +150,7 @@ function usageState(checks: Check[], checklist?: SetupChecklist): SetupHealthSte
 }
 
 function notificationsState(checks: Check[], skipped: boolean): SetupHealthStepState {
-  if (skipped) return "passed";
+  if (skipped) return "skipped";
   const check = checks.find(c => c.name === "Notifications");
   if (!check) return "passed";
   if (check.level === "warn" || check.level === "fail") return "needs_attention";
@@ -223,12 +225,15 @@ function remedyKey(remedy: Remedy): string {
  * the app dispatches the remedy, and consent-gated operations still ask at apply time.
  * Problems without a remedy (an older doctor) only offer Diagnostics.
  */
-export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
+export function setupHealthRepairs(checks: Check[], notificationsSkipped = false): SetupHealthRepair[] {
   const repairs: SetupHealthRepair[] = [];
   const seen = new Set<string>();
   for (const check of checks) {
     const { remedy } = check;
     if ((check.level !== "warn" && check.level !== "fail") || !remedy) continue;
+    // A skipped optional step (notifications) contributes no repair, so it never
+    // shows an "Allow notifications" primary or hides Run checks again / Restart.
+    if (notificationsSkipped && check.name === "Notifications") continue;
     const key = remedyKey(remedy);
     if (seen.has(key)) continue;
     seen.add(key);
@@ -236,7 +241,7 @@ export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
       ...(check.name === "Notifications" ? { skip: true } : {}),
       ...(remedyAgent(check) ? { honesty: WIRING_HONESTY } : {}) });
   }
-  if (checks.some(c => c.level === "warn" || c.level === "fail") && repairs.length === 0) {
+  if (checks.some(c => (c.level === "warn" || c.level === "fail") && !(c.name === "Notifications" && notificationsSkipped)) && repairs.length === 0) {
     repairs.push({ kind: "open.diagnostics", label: "Open Diagnostics" });
   }
   return repairs;
@@ -282,7 +287,7 @@ export function aggregateSetupHealth(input: {
       : detailFor(id, input.checks, input.checklist, notificationsSkipped),
   }));
 
-  const repairs = setupHealthRepairs(input.checks);
+  const repairs = setupHealthRepairs(input.checks, notificationsSkipped);
 
   return {
     trigger: input.trigger,

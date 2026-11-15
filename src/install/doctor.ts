@@ -59,6 +59,8 @@ export interface Check {
   fix?: string;
   evidence?: "configured" | "tested" | "unverified";
   remedy?: Remedy;
+  /** Unix seconds when the evidence test was acknowledged; structured for relative-time captions. */
+  tested_at?: number;
 }
 
 /** Hook checks whose files agent.connect writes, so a reviewed reconnect repairs them. */

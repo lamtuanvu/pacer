@@ -26,6 +26,7 @@ const entrySchema = z.object({
   heartbeatAt: z.number(),
   notification_permission: z.enum(NOTIFICATION_PERMISSIONS).optional(),
   notification_alerts: z.enum(NOTIFICATION_ALERTS).optional(),
+  permission_changed_at: z.number().optional(),
 });
 export type ClientEntry = z.infer<typeof entrySchema>;
 
@@ -70,8 +71,12 @@ export function heartbeat(
   if (!entry) throw new CoreError("invalid_input", `unknown client "${id}"`);
   entry.heartbeatAt = ctx.now;
   if (notifier !== undefined) entry.notifier = notifier;
+  // Store when the permission or alert style changes so a test acked before the change
+  // does not read as current (permission_changed_at poles the ack's recency).
+  const changedBefore = entry.notification_permission !== permission || entry.notification_alerts !== alerts;
   if (permission !== undefined) entry.notification_permission = permission;
   if (alerts !== undefined) entry.notification_alerts = alerts;
+  if (changedBefore && (permission !== undefined || alerts !== undefined)) entry.permission_changed_at = ctx.now;
   writeJsonAtomic(path(ctx), entries);
   return { ok: true };
 }
