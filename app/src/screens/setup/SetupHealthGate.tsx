@@ -262,6 +262,7 @@ export function SetupHealthGate({
         if (enterTimer.current) window.clearTimeout(enterTimer.current);
         setRepairing(true);
         setRepairError(undefined);
+        setFixAllProgress(undefined);
         returnRecheck.current?.();
         try {
           const result = await applyRepair(repair, gateRemedyHost(api, dialogs.confirm));
