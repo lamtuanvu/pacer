@@ -1,6 +1,7 @@
 import {expect,test} from 'bun:test';
 import {bundledPluginSpawn} from '../src/plugins/index';
-import {fakeCtx} from './helpers';
+import {fakeCtx,tmpDir} from './helpers';
+import {childEnv} from './child-env';
 import {fileURLToPath} from 'node:url';
 const runtime={executable:'/fixture/bin/bun',bunVersion:'1.4.2'};
 for (const id of ['pacer-agent-session', 'pacer-usage']) {
@@ -32,7 +33,7 @@ test('bundled selector crosses the sealed spawn boundary; installed peer keeps i
  writeFileSync(join(ctx.pacerHome,'strategy.yaml'),'planner: claude-code\nproviders:\n  claude-code: {}\n');
  symlinkSync(join(import.meta.dir,'../node_modules'),join(ctx.home,'node_modules'),'dir');
  const captures:Record<string,string|undefined>[]=[];
- const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,options);}) as typeof spawn;
+ const capture=((file:string,args:string[],options:any)=>{captures.push({...options.env});return spawn(file,args,{...options,env:{...options.env,PACER_PORT:ctx.env.PACER_PORT}});}) as typeof spawn;
  const bundled=new PluginRegistry({bundled:BUNDLED,spawn:capture,spawnBundled:()=>({argv:[process.execPath,join(import.meta.dir,'../src/cli.ts'),'plugin','run','pacer-agent-session'],cwd:ctx.pacerHome,env:{PACER_CORE_ARGV:'fixed-selector',SECRET:'secret-marker'}})});
  const installed=new PluginRegistry({bundled:[],spawn:capture,spawnBundled:()=>{throw Error('installed invoked bundle launcher');}});
  try {
@@ -52,7 +53,7 @@ for (const id of ['pacer-endpoints', 'pacer-notify']) {
   const {PLUGIN_PROTOCOL_VERSION}=await import('../src/plugins/protocol');
   const bundle=BUNDLED.find(item=>item.manifest.id===id)!;
   const entry=fileURLToPath(new URL(`../plugins/${id}/index.ts`,import.meta.url));
-  const child=Bun.spawn([process.execPath,entry],{stdin:'pipe',stdout:'pipe',stderr:'pipe',env:{BUN_RUNTIME_TRANSPILER_CACHE_PATH:''},timeout:5000});
+  const child=Bun.spawn([process.execPath,entry],{stdin:'pipe',stdout:'pipe',stderr:'pipe',env:{...childEnv(tmpDir()),BUN_RUNTIME_TRANSPILER_CACHE_PATH:''},timeout:5000});
   child.stdin.write(JSON.stringify({jsonrpc:'2.0',id:1,method:'plugin.hello',params:{protocol:PLUGIN_PROTOCOL_VERSION,pacer:'0.9.0',manifest:bundle.manifest,config:{},grants:[]}})+'\n');
   child.stdin.end();
   const [code,out,err]=await Promise.all([child.exited,new Response(child.stdout).text(),new Response(child.stderr).text()]);

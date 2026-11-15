@@ -22,8 +22,8 @@
     "pacer": "src/cli.ts"
   },
   "scripts": {
-    "test": "TZ=Asia/Ho_Chi_Minh bun test --timeout 30000",
-    "test:sharded": "python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | TZ=Asia/Ho_Chi_Minh xargs bun test --timeout 30000 --jobs=4",
+    "test": "TZ=Asia/Ho_Chi_Minh bun scripts/test-sandbox.ts",
+    "test:sharded": "python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | TZ=Asia/Ho_Chi_Minh xargs bun scripts/test-sandbox.ts --jobs=4",
     "live": "bun scripts/live/cli.ts",
     "perf": "bun scripts/perf/run.ts",
     "perf:tick": "bun scripts/perf/pump-tick.ts",
@@ -41,7 +41,7 @@
     "release:homebrew": "bun scripts/release/homebrew.ts",
     "brand:render": "bun scripts/brand/render.ts",
     "app:build": "bun app/build.ts",
-    "test:e2e": "PACER_E2E=1 TZ=Asia/Ho_Chi_Minh bun test test/install-signin-delegation.test.ts"
+    "test:e2e": "PACER_E2E=1 TZ=Asia/Ho_Chi_Minh bun scripts/test-sandbox.ts test/install-signin-delegation.test.ts"
   },
   "dependencies": {
     "@modelcontextprotocol/sdk": "1.32.1",

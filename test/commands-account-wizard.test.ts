@@ -16,7 +16,7 @@ function setup() {
     if (argv[1] === "-i") stored = Buffer.from(options!.stdin!.match(/-X ([0-9a-f]+)/)![1], "hex").toString();
     return {code: argv[1] === "find-generic-password" && !stored ? 44 : 0, stdout: argv.includes("-w") ? stored ?? "" : "", stderr: ""};
   }});
-  ctx.env = {HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "accounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\nplanner: claude-code\nrouting:\n  - default: [codex]\n");
   return ctx;

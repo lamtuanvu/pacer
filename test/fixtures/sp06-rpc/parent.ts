@@ -1,3 +1,5 @@
+import { spawn, type SpawnOptions } from "node:child_process";
+import { childEnv } from "../../child-env";
 import { join } from "node:path";
 import { readFileSync, statSync } from "node:fs";
 import { withPlannerInstall } from "../../../src/plugins/planner-install";
@@ -12,7 +14,7 @@ const ctx = {
   home: home!,
   pacerHome: join(home!, ".pacer"),
   now: 1,
-  env: { HOME: home!, PACER_HOME: join(home!, ".pacer") },
+  env: childEnv(home!, Number(process.env.PACER_PORT)),
   which: () => null,
   run: async () => {
     throw Error("unadmitted command");
@@ -41,6 +43,7 @@ if (mode === "recover") {
     reentrant: false,
   };
   const registry = new PluginRegistry({
+    spawn: ((file: string, args: string[], options: SpawnOptions) => spawn(file, args, { ...options, env: { ...options.env, PACER_PORT: ctx.env.PACER_PORT } })) as unknown as typeof spawn,
     bundled: [{ manifest, main: async () => ({ handlers: {} }) }],
     spawnBundled: () => ({
       argv: [process.execPath, join(import.meta.dir, "install.ts")],
