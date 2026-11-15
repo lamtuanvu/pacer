@@ -524,3 +524,34 @@ test("SetupHealthGate Fix all: declining the confirmation keeps 'No changes were
     dom.restore();
   }
 });
+
+test("SetupHealthGate Allow notifications: the macOS prompt hint shows while waiting and clears afterwards", async () => {
+  const dom = installDom();
+  let answer: () => void = () => {};
+  try {
+    const report: SetupHealthReport = {
+      ...okReport(),
+      outcome: "warnings",
+      attentionCount: 1,
+      steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "needs_attention", detail: "Notification permission not asked yet" } : s),
+      repairs: [{ kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: remedies.allowNotifications() }],
+    };
+    const pending = new Promise<void>(resolve => { answer = resolve; });
+    const call = (async (op: string) => {
+      if (op === "setup.health") return report;
+      if (op === "notifications.request") { await pending; return { client_id: "d", permission: "not_determined" }; }
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Allow notifications"));
+    clickText(dom.container, "Allow notifications");
+    await until(() => domText(dom.container).includes("Answer the macOS prompt…"));
+    answer();
+    await until(() => !domText(dom.container).includes("Answer the macOS prompt…"));
+    expect(domText(dom.container)).toContain("Allow notifications");
+  } finally {
+    answer();
+    await unmount(dom);
+    dom.restore();
+  }
+});

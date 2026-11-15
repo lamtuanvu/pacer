@@ -288,6 +288,7 @@ export function SetupHealthGate({
           setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {
           setRepairing(false);
+          setFixAllProgress(undefined);
         }
       }}
       onSkip={async () => {
