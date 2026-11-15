@@ -385,11 +385,100 @@ test("SetupHealthGate Restart service: a rejecting op shows The fix did not fini
     expect(isDisabled(dom.container, "Run checks again")).toBe(false);
 
     clickText(dom.container, "Restart service");
+    await until(() => countForms(dom.container) === 1);
+    submitForm(dom.container); // accept the restart consent, then commit rejects
     await until(() => domText(dom.container).includes("The fix did not finish"));
     expect(domText(dom.container)).toContain("pacer service is busy");
     expect(calls.filter(o => o === "service.install")).toHaveLength(1);
     expect(isDisabled(dom.container, "Restart service")).toBe(false);
     expect(isDisabled(dom.container, "Run checks again")).toBe(false);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("SetupHealthGate Restart service: asks for consent; declining sends no service.install and keeps buttons enabled", async () => {
+  const dom = installDom();
+  try {
+    const calls: string[] = [];
+    const call = (async (op: string) => {
+      calls.push(op);
+      if (op === "setup.health") return setupHealthFailureReport("startup", new Error("boom"));
+      if (op === "snapshot.get") return { snapshot: { service: { pid: 7 } } };
+      if (op === "service.install") return { restarting: true };
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Restart service"));
+
+    clickText(dom.container, "Restart service");
+    await until(() => countForms(dom.container) === 1);
+    expect(countForms(dom.container)).toBe(1); // exactly one confirmation
+
+    clickText(dom.container, "Cancel"); // decline the restart consent
+    await until(() => countForms(dom.container) === 0);
+    expect(calls.filter(o => o === "snapshot.get")).toHaveLength(0);
+    expect(calls.filter(o => o === "service.install")).toHaveLength(0);
+    expect(calls.filter(o => o === "setup.health")).toHaveLength(1); // no rerun
+    expect(isDisabled(dom.container, "Restart service")).toBe(false);
+    expect(isDisabled(dom.container, "Run checks again")).toBe(false);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("SetupHealthGate Restart service: accepting consent sends service.install once and reruns setup.health", async () => {
+  const dom = installDom();
+  try {
+    let pid = 7;
+    const calls: string[] = [];
+    const call = (async (op: string) => {
+      calls.push(op);
+      if (op === "setup.health") return setupHealthFailureReport("startup", new Error("boom"));
+      if (op === "snapshot.get") return { snapshot: { service: { pid } } };
+      if (op === "service.install") { pid += 1; return { restarting: true }; }
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Restart service"));
+
+    clickText(dom.container, "Restart service");
+    await until(() => countForms(dom.container) === 1);
+    submitForm(dom.container); // accept the restart consent
+
+    await until(() => calls.filter(o => o === "service.install").length === 1 && calls.filter(o => o === "setup.health").length === 2);
+    expect(calls.filter(o => o === "service.install")).toHaveLength(1);
+    expect(calls.filter(o => o === "setup.health")).toHaveLength(2);
+    await tick();
+    expect(countForms(dom.container)).toBe(0);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("SetupHealthGate Fix all: declining the confirmation keeps 'No changes were made.' visible and commits nothing", async () => {
+  const dom = installDom();
+  try {
+    const calls: string[] = [];
+    const report = autoRunReport(twoAutoFixes);
+    const call = (async (op: string) => {
+      calls.push(op);
+      if (op === "setup.health") return { ...report };
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Fix 2 issues automatically"));
+
+    clickText(dom.container, "Fix 2 issues automatically");
+    await until(() => countForms(dom.container) === 1);
+    clickText(dom.container, "Cancel"); // decline the batch consent
+    await until(() => countForms(dom.container) === 0);
+    expect(domText(dom.container)).toContain("No changes were made.");
+    expect(calls.filter(o => o === "limits.refresh")).toHaveLength(0);
+    expect(calls.filter(o => o === "service.install")).toHaveLength(0);
   } finally {
     await unmount(dom);
     dom.restore();

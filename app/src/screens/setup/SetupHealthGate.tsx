@@ -200,6 +200,7 @@ export function SetupHealthGate({
     const plan = remedyPlan(remedy)!;
     try {
       const run = await prepareRun(plan as Extract<typeof plan, { kind: "run" }>, host.call);
+      if (run.consent && !await host.confirm(run.consent)) return;
       const before = run.op === "service.install" ? await servicePid(host.call).catch(() => undefined) : undefined;
       if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.(before);
       rerunChecks();
@@ -234,6 +235,7 @@ export function SetupHealthGate({
           const files = [...new Set(requests.flatMap(req => req.files))];
           return dialogs.confirm(`${message}${fileList(files)}`, "Fix issues", "Fix");
         };
+        let cancelled = false;
         try {
           const result = await runFixAll(items, host, {
             confirmAll,
@@ -241,19 +243,19 @@ export function SetupHealthGate({
             onRestartWait: () => setFixAllProgress("Waiting for pacer to restart…"),
           });
           if (result.cancelled) {
+            cancelled = true;
             setFixAllProgress("No changes were made.");
             return;
           }
           if (result.failures.length) {
             setRepairError(`Some fixes did not finish: ${result.failures.map(f => f.item.title ?? f.item.id).join(", ")}`);
           }
-          setFixAllProgress("Rerunning checks…");
           rerunChecks();
         } catch (failure) {
           setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {
           setRepairing(false);
-          setFixAllProgress(undefined);
+          if (!cancelled) setFixAllProgress(undefined);
         }
       }}
       onRepair={async repair => {
