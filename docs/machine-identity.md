@@ -38,6 +38,8 @@ Rotation is crash-safe. pacer records the pending rotation in `machine.json` and
 | macOS | login Keychain, service `pacer`, account `machine-identity/<homeTag>` | login Keychain, service `pacer`, account `machine-install-salt/<homeTag>` |
 | Other | `$PACER_HOME/identity/machine.key` (mode 0600, directory 0700) | `$XDG_STATE_HOME/pacer/install-salt/<homeTag>` (`~/.local/state` when `XDG_STATE_HOME` is unset) |
 
+On macOS, when `HOME` has no login Keychain (`~/Library/Keychains/login.keychain-db`), as in a test or sandbox home, pacer uses the files of the second row instead. Calling `security` there would open a "Keychain Not Found" dialog for each such home. An existing identity keeps the backend recorded in `machine.json` for both its key and its salt, even if a login Keychain appears later.
+
 `<homeTag>` is the first 16 hex characters of the SHA-256 of `pacer-home/v1`, a zero byte and the real path of `PACER_HOME`. Each pacer home on one machine therefore has its own Keychain items and salt, and a test or sandbox home never shares or overwrites the identity of your main home. The public id, name and revision live in `$PACER_HOME/identity/`.
 
 The private key is never returned by an operation, event or log.
