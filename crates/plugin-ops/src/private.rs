@@ -200,8 +200,16 @@ pub(crate) fn locked<T>(
                 // metadata read racing that unlink can observe the still-open
                 // inode with nlink 0 (no directory link). That is the benign
                 // release transient, the same as NotFound above: retry rather
-                // than treat it as an unsafe lock.
+                // than treat it as an unsafe lock, still bounded by the deadline
+                // in case a filesystem keeps reporting nlink 0.
                 if m.nlink() == 0 {
+                    if std::time::Instant::now() > deadline {
+                        return Err(internal(format!(
+                            "timed out waiting for {}",
+                            display_path.display()
+                        )));
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(1));
                     continue;
                 }
                 if !m.is_file()
