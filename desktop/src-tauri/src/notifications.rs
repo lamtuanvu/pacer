@@ -136,6 +136,22 @@ mod tests {
         });
         assert!(from_event(&null_recipients, "primary").unwrap().body == "Detail");
     }
+    #[test]
+    fn ack_targets_the_desktops_own_client_id_not_a_payload_copied_id() {
+        // A notify event addressed to this desktop must be acked as this desktop's own id,
+        // never the id copied out of the payload (which the service matches against the
+        // pending test's targeted client).
+        let data = json!({
+            "client_id": "payload-id",
+            "recipients": ["own", "other"],
+            "url": "/app/#/sessions/t-1",
+            "title": "Ready",
+            "body": "Detail",
+            "notify": "all"
+        });
+        let n = from_event(&data, "own").unwrap();
+        assert_eq!(n.client_id.as_deref(), Some("own"));
+    }
 }
 
 /// Service text reaches the OS notification centre: drop control characters and cap the length.

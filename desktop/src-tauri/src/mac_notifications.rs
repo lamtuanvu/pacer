@@ -291,12 +291,15 @@ fn ack_params(
     delivered: bool,
     error: Option<String>,
 ) -> serde_json::Value {
-    serde_json::json!({
-        "client_id": client_id,
-        "key": key,
-        "delivered": delivered,
-        "error": error,
-    })
+    // Omit `error` entirely when there is none: the service schema rejects `error: null`.
+    let mut value = serde_json::Map::new();
+    value.insert("client_id".into(), client_id.into());
+    value.insert("key".into(), key.into());
+    value.insert("delivered".into(), delivered.into());
+    if let Some(error) = error {
+        value.insert("error".into(), error.into());
+    }
+    serde_json::Value::Object(value)
 }
 
 fn add(request: &UNNotificationRequest, client_id: Option<String>, key: Option<String>) {
@@ -468,9 +471,10 @@ mod tests {
 
     #[test]
     fn ack_payload_carries_the_id_key_delivery_and_optional_error() {
+        // A successful delivery omits `error` entirely (the schema rejects `error: null`).
         assert_eq!(
             ack_params("client-a".into(), "test:abc".into(), true, None),
-            serde_json::json!({"client_id":"client-a","key":"test:abc","delivered":true,"error":null})
+            serde_json::json!({"client_id":"client-a","key":"test:abc","delivered":true})
         );
         assert_eq!(
             ack_params("client-b".into(), "test:def".into(), false, Some("banner rejected".into())),

@@ -1,5 +1,5 @@
 //! Request OS-owned approvals through native APIs. No shell commands or surrogate dialogs.
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -14,6 +14,9 @@ enum Permission {
 }
 static NOTIFICATIONS: AtomicU8 = AtomicU8::new(Permission::Unknown as u8);
 static NOTIFICATIONS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Whether macOS has answered the permission question at least once (a real settings read
+/// or a request completing). Before that a bundled app reports nothing for permission.
+static NOTIFICATION_ANSWERED: AtomicBool = AtomicBool::new(false);
 static NOTIFICATION_PERMISSION_STATE: std::sync::LazyLock<std::sync::Mutex<String>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(String::from("unsupported")));
 static NOTIFICATION_ALERTS_STATE: std::sync::LazyLock<std::sync::Mutex<String>> =
@@ -30,6 +33,26 @@ pub fn notification_permission_state() -> String {
         .lock()
         .map(|value| value.clone())
         .unwrap_or_else(|_| String::from("unsupported"))
+}
+
+/// The permission the desktop reports for `client.register`/`client.heartbeat`: `Some` after
+/// macOS has answered at least once (or for unbundled/non-macOS builds, which are always
+/// unsupported); `None` before the first real answer, so the service does not read
+/// "unsupported" for an app that has simply not been asked yet.
+#[cfg(target_os = "macos")]
+pub fn notification_permission_reported() -> Option<String> {
+    if NOTIFICATION_ANSWERED.load(Ordering::SeqCst) {
+        return Some(notification_permission_state());
+    }
+    if objc2_foundation::NSBundle::mainBundle().bundleIdentifier().is_none() {
+        return Some("unsupported".into());
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn notification_permission_reported() -> Option<String> {
+    Some("unsupported".into())
 }
 
 pub fn notification_alerts_state() -> String {
@@ -151,6 +174,7 @@ pub fn request_notifications() {
             granted.as_bool(),
             !error.is_null()
         );
+        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
         if let Some(error) = unsafe { error.as_ref() } {
             desktop_log!(
                 "pacer approvals: notification authorization error {}: {}",
@@ -183,10 +207,12 @@ pub fn refresh_notifications() {
     use objc2_user_notifications::{UNNotificationSettings, UNUserNotificationCenter};
     use std::ptr::NonNull;
     if NSBundle::mainBundle().bundleIdentifier().is_none() {
+        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
         record_permission_raw("unsupported");
         record_alerts_raw("none");
         return;
     }
+    NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
     let complete = RcBlock::new(|settings: NonNull<UNNotificationSettings>| {
         let settings = unsafe { settings.as_ref() };
         let status = settings.authorizationStatus();
@@ -201,6 +227,10 @@ pub fn refresh_notifications() {
         .getNotificationSettingsWithCompletionHandler(&complete);
 }
 #[cfg(all(target_os = "macos", not(feature = "ota-fixture")))]
+pub fn request_notifications_then_refresh() {
+    request_notifications();
+}
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
 pub fn request_notifications_then_refresh() {
     request_notifications();
 }

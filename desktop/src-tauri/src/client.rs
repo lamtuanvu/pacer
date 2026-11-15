@@ -1015,7 +1015,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             "client.register",
             &registration_params(
                 crate::approvals::notifications_presentable(),
-                crate::approvals::notification_permission_state(),
+                crate::approvals::notification_permission_reported(),
                 crate::approvals::notification_alerts_state(),
             ),
         )
@@ -1134,12 +1134,20 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
 /// seconds under load (background timers), and a heartbeat should outlast that before it even
 /// counts as a miss, independent of the retry tolerance below.
 const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
-fn registration_params(notifier: bool, notification_permission: String, notification_alerts: String) -> Value {
-    serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true,"notification_permission":notification_permission,"notification_alerts":notification_alerts})
+fn registration_params(notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
+    let mut value = serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true,"notification_alerts":notification_alerts});
+    if let Some(permission) = notification_permission {
+        value["notification_permission"] = permission.into();
+    }
+    value
 }
 /// Services before the heartbeat `notifier` flag ignore it, keeping the registered value.
-fn heartbeat_params(client_id: &str, notifier: bool, notification_permission: String, notification_alerts: String) -> Value {
-    serde_json::json!({"client_id":client_id,"notifier":notifier,"notification_permission":notification_permission,"notification_alerts":notification_alerts})
+fn heartbeat_params(client_id: &str, notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
+    let mut value = serde_json::json!({"client_id":client_id,"notifier":notifier,"notification_alerts":notification_alerts});
+    if let Some(permission) = notification_permission {
+        value["notification_permission"] = permission.into();
+    }
+    value
 }
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
@@ -1175,7 +1183,7 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
                 &heartbeat_params(
                     client_id,
                     crate::approvals::notifications_presentable(),
-                    crate::approvals::notification_permission_state(),
+                    crate::approvals::notification_permission_reported(),
                     crate::approvals::notification_alerts_state(),
                 ),
                 HEARTBEAT_OP_TIMEOUT,
@@ -3064,16 +3072,22 @@ mod notifier_params_tests {
     #[test]
     fn registration_and_heartbeat_carry_the_notifier_flag() {
         for notifier in [true, false] {
-            let registration = registration_params(notifier, "authorized".into(), "banner".into());
+            let registration = registration_params(notifier, Some("authorized".into()), "banner".into());
             assert_eq!(registration["kind"], "desktop");
             assert_eq!(registration["notifier"], notifier);
             assert_eq!(registration["capture"], true);
             assert_eq!(registration["notification_permission"], "authorized");
             assert_eq!(registration["notification_alerts"], "banner");
             assert_eq!(
-                heartbeat_params("client", notifier, "authorized".into(), "banner".into()),
+                heartbeat_params("client", notifier, Some("authorized".into()), "banner".into()),
                 serde_json::json!({"client_id":"client","notifier":notifier,"notification_permission":"authorized","notification_alerts":"banner"})
             );
+            // A None permission is omitted entirely (item 13): the service must not read
+            // "unsupported" for an app macOS has not answered yet.
+            let omitted = registration_params(notifier, None, "none".into());
+            assert!(!omitted.get("notification_permission").is_some());
+            let omitted_heartbeat = heartbeat_params("client", notifier, None, "none".into());
+            assert!(!omitted_heartbeat.get("notification_permission").is_some());
         }
     }
 }
