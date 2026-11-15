@@ -1,15 +1,21 @@
 # Test isolation
 
 Run `bun run test` from the checkout, optionally followed by test paths or Bun
-flags. The command pins the test timezone and, on macOS, starts the suite under
-`sandbox-exec` with outbound TCP to loopback ports 4317, 11434, 1234 and 41343 denied. The sandbox is
-inherited by descendants, including plugin processes with sealed environments.
-It performs a loopback self-check on a disposable port before starting. On other
-platforms the command runs Bun directly.
+flags. It pins the test timezone, and the preload (`test/setup.ts`) isolates
+`HOME` and `PACER_HOME`, pins `PACER_PORT` to a closed loopback port, and
+redirects the Ollama (`OLLAMA_HOST`) and LM Studio (`LMS_API_SERVER_INFO_PATH`)
+setup probes to closed ports. So no spawned pacer process can reach the
+maintainer's running service on 4317 or a local model server. Child
+environments that do not inherit the preload's environment use
+`test/child-env.ts` (`childEnv`, `pinnedEnv`, `closedPort`). Tests that run
+their own server pass its port explicitly.
 
-The preload also isolates HOME and PACER_HOME, selects non-default service ports, and redirects Ollama and LM Studio setup probes to closed ports;
-child environments that do not inherit it use `test/child-env.ts`. Tests that run
-their own server pass its port explicitly. Use the wrapper for local testing:
-`bun test` bypasses the operating-system sandbox. The macOS wrapper signs a
-non-setuid temporary copy of `ps` because macOS refuses to execute its setuid
-system copy inside a sandbox; the copy is removed when the test run exits.
+On macOS, `bun run test:sandbox` additionally runs the suite under
+`sandbox-exec` (`scripts/test-sandbox.ts`), with outbound TCP to loopback
+ports 4317, 11434, 1234 and 41343 and `launchctl` denied. The sandbox is
+inherited by descendants, including plugin processes with sealed environments,
+and it self-checks on a disposable port before starting. macOS refuses to run
+its setuid `ps` inside a sandbox, so the wrapper puts a signed non-setuid copy
+first on `PATH` and in `PACER_TEST_PS`. Remote-host fixtures whose login shell
+resets `PATH` still reach `/bin/ps`, so some remote stop tests fail under the
+sandbox on recent macOS. That's why the sandbox is opt-in, not the default.
