@@ -7,7 +7,14 @@ pub fn read(raw: &Value) -> Vec<Value> {
     let Some(rows) = raw.as_array() else {
         return vec![];
     };
-    const PERMS: [&str; 6] = ["not_determined", "denied", "authorized", "provisional", "ephemeral", "unsupported"];
+    const PERMS: [&str; 6] = [
+        "not_determined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+        "unsupported",
+    ];
     const ALERTS: [&str; 3] = ["none", "banner", "alert"];
     if !rows.iter().all(|r| {
         !s(&r["client_id"]).is_empty()
@@ -16,8 +23,10 @@ pub fn read(raw: &Value) -> Vec<Value> {
             && r["notifier"].is_boolean()
             && r["registeredAt"].is_number()
             && r["heartbeatAt"].is_number()
-            && (r.get("notification_permission").is_none() || PERMS.contains(&s(&r["notification_permission"])))
-            && (r.get("notification_alerts").is_none() || ALERTS.contains(&s(&r["notification_alerts"])))
+            && (r.get("notification_permission").is_none()
+                || PERMS.contains(&s(&r["notification_permission"])))
+            && (r.get("notification_alerts").is_none()
+                || ALERTS.contains(&s(&r["notification_alerts"])))
     }) {
         return vec![];
     }
@@ -56,8 +65,8 @@ pub fn heartbeat(
     if let Some(notifier) = notifier {
         row["notifier"] = notifier.into();
     }
-    let changed = (notification_permission.is_some() && s(&row["notification_permission"]) != notification_permission.unwrap())
-        || (notification_alerts.is_some() && s(&row["notification_alerts"]) != notification_alerts.unwrap());
+    let changed = real_change(&row["notification_permission"], notification_permission)
+        || real_change(&row["notification_alerts"], notification_alerts);
     if let Some(permission) = notification_permission {
         row["notification_permission"] = permission.into();
     }
@@ -68,6 +77,23 @@ pub fn heartbeat(
         row["permission_changed_at"] = now.into();
     }
     Ok(json!({"ok":true}))
+}
+
+/// A change between two real states counts: the previous stored value and the
+/// reported value must both be present and neither may be the `unsupported`
+/// placeholder, so a first report or an unbundled build does not stamp
+/// `permission_changed_at` and an app relaunch does not reset "test delivered".
+fn real_change(stored: &Value, provided: Option<&str>) -> bool {
+    let Some(next) = provided else {
+        return false;
+    };
+    if next == "unsupported" {
+        return false;
+    }
+    let Some(prev) = stored.as_str() else {
+        return false;
+    };
+    prev != "unsupported" && prev != next
 }
 pub fn list(rows: &[Value], now: f64) -> Vec<Value> {
     rows.iter()

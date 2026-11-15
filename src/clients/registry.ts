@@ -73,10 +73,20 @@ export function heartbeat(
   if (notifier !== undefined) entry.notifier = notifier;
   // Store when the permission or alert style changes so a test acked before the change
   // does not read as current (permission_changed_at poles the ack's recency).
-  const changedBefore = entry.notification_permission !== permission || entry.notification_alerts !== alerts;
+  // Only a change between two real states counts: a first report (previous value
+  // absent) or a transition from the placeholder `unsupported` (unbundled build)
+  // must not stamp the marker, so an app relaunch does not reset "test delivered".
+  const realPermission = (v?: string) => v !== undefined && v !== "unsupported";
+  const changed =
+    (realPermission(permission) &&
+      realPermission(entry.notification_permission) &&
+      entry.notification_permission !== permission) ||
+    (alerts !== undefined &&
+      entry.notification_alerts !== undefined &&
+      entry.notification_alerts !== alerts);
   if (permission !== undefined) entry.notification_permission = permission;
   if (alerts !== undefined) entry.notification_alerts = alerts;
-  if (changedBefore && (permission !== undefined || alerts !== undefined)) entry.permission_changed_at = ctx.now;
+  if (changed) entry.permission_changed_at = ctx.now;
   writeJsonAtomic(path(ctx), entries);
   return { ok: true };
 }

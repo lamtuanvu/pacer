@@ -100,26 +100,46 @@ test("register and heartbeat store notification permission and alerts", () => {
   expect(updated.notification_alerts).toBe("none");
 });
 
-test("permission_changed_at records when the permission or alert style changes (item 12)", () => {
+test("permission_changed_at records only real-to-real changes (item 12)", () => {
   const ctx = fakeCtx();
-  const d = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  const d = register(ctx, { kind: "desktop", version: "1", notifier: true, notification_permission: "authorized", notification_alerts: "banner" });
   let listed = list(ctx).find(c => c.client_id === d.client_id)!;
   // No change yet: no permission_changed_at.
+  expect(listed.permission_changed_at).toBeUndefined();
+  // An unchanged real permission does not move the marker (relaunch case).
+  ctx.now += 2;
+  heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBeUndefined();
+  // A real change moves it.
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_permission: "denied" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBe(ctx.now);
+  // An alert-style change (banner → none) moves it too.
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_alerts: "none" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBe(ctx.now);
+});
+
+test("permission_changed_at ignores a first report and an unsupported transition", () => {
+  const ctx = fakeCtx();
+  const d = register(ctx, { kind: "desktop", version: "1", notifier: true });
+  // First real report after an absent value: no change, no stamp.
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
+  let listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.permission_changed_at).toBeUndefined();
+  // Transition from/through the unsupported placeholder: no stamp.
+  ctx.now += 1;
+  heartbeat(ctx, d.client_id, { notification_permission: "unsupported" });
+  listed = list(ctx).find(c => c.client_id === d.client_id)!;
   expect(listed.permission_changed_at).toBeUndefined();
   ctx.now += 1;
   heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
   listed = list(ctx).find(c => c.client_id === d.client_id)!;
-  expect(listed.permission_changed_at).toBe(ctx.now);
-  // An unchanged permission does not move the marker.
-  ctx.now += 2;
-  heartbeat(ctx, d.client_id, { notification_permission: "authorized" });
-  listed = list(ctx).find(c => c.client_id === d.client_id)!;
-  expect(listed.permission_changed_at).toBe(ctx.now - 2);
-  // An alert-style change moves it too.
-  ctx.now += 1;
-  heartbeat(ctx, d.client_id, { notification_alerts: "banner" });
-  listed = list(ctx).find(c => c.client_id === d.client_id)!;
-  expect(listed.permission_changed_at).toBe(ctx.now);
+  expect(listed.permission_changed_at).toBeUndefined();
 });
 
 test("heartbeat notifier updates delivery eligibility in place", () => {
