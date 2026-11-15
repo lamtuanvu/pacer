@@ -541,6 +541,7 @@ export function DesktopBanners({
         await api.call("notifications.test", {});
         // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
         // The timer is cleared on unmount so a leaving row never refetches behind it.
+        if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
         const timer = window.setTimeout(reload, refetchDelay);
         refetchTimer.current = timer;
       }, "Sending test banner…")}>Send test</Button>

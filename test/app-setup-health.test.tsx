@@ -230,3 +230,24 @@ test("skipping notifications excludes it from fix-all but keeps it as an individ
   expect(html).toContain("Fix 2 issues automatically");
   expect(html).not.toContain("Allow notifications");
 });
+
+test("with one other automatic repair (no fix-all) Allow notifications still has its own action", () => {
+  const report: SetupHealthReport = {
+    ...okReport(),
+    outcome: "warnings",
+    attentionCount: 2,
+    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "needs_attention", detail: "Notification permission not asked yet" }
+      : s.id === "usage_eligibility" ? { ...s, state: "needs_attention" } : s),
+    repairs: [
+      { kind: "remedy", label: "Refresh usage", check: "Usage codex", remedy: { kind: "auto", label: "Refresh usage", op: "limits.refresh", params: { account: "codex" } } },
+      { kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: { kind: "auto", label: "Allow notifications", op: "notifications.request" } },
+    ],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onFixAll={() => {}} onRepair={() => {}} onSkip={() => {}} />,
+  );
+  expect(html).not.toContain("issues automatically");
+  expect(html).toContain("Refresh usage");
+  expect((html.match(/Allow notifications/g) ?? []).length).toBe(1);
+  expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1);
+});

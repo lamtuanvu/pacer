@@ -172,8 +172,8 @@ export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<Serv
 
 export function skipNotificationSetup(ctx: Ctx) {
   try {
-    // Shared settings.json writes take the config lock so concurrent writers
-    // (notifications.set, setup.skip) cannot lose each other's changes.
+    // The config lock serialises concurrent setup.skip calls. Other settings.json
+    // writers (notifications.set and level reads) do not take it yet.
     return withLockSync(ctx, "config", () => {
       const file = join(ctx.pacerHome, "settings.json");
       const settings = readJson<Record<string, unknown>>(file) ?? {};

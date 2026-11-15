@@ -105,7 +105,7 @@ export function SetupHealthStage({
   const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && r.remedy?.op !== "notifications.request" && remedyPlan(r.remedy)?.kind === "run");
   const showFixAll = autoRepairs.length >= 2 && !!onFixAll;
   // The interactive notification repair (excluded from fix-all) stays reachable as
-  // its own secondary action next to fix-all, like individual repairs in Diagnostics.
+  // its own secondary action next to fix-all or another primary repair, like individual repairs in Diagnostics.
   const individualRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.op === "notifications.request");
   const nonAutoRepairs = repairs.filter(r => !(r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run") && r.kind !== "open.diagnostics");
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
@@ -151,7 +151,7 @@ export function SetupHealthStage({
     {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
       {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
-      {showFixAll && onRepair && individualRepairs.map(r => (
+      {onRepair && individualRepairs.filter(r => showFixAll || r !== primary).map(r => (
         <Button key={`${r.kind}:${r.label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(r)}>{r.label}</Button>
       ))}
       {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
