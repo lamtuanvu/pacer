@@ -27,6 +27,16 @@ test("idle when onPoll says so", async () => {
   expect(await supervise({ io: localRunIO(dir), deadlineMs: Date.now() + 10_000, isStopped: () => false, onPoll: async () => "idle", ...fast })).toEqual({ kind: "idle", code: 143 });
 });
 
+test("limit stops an interactive run even while it waits for input", async () => {
+  let stopped = false;
+  const io = {
+    read: async () => ({pid: 123, startedAt: 1, alive: true, exit: null, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, report: {status: "needs-input" as const, summary: "", at: Date.now() / 1000}}),
+    stop: async () => {stopped = true; return {code: 143, killed: false};},
+  };
+  expect(await supervise({io, deadlineMs: Date.now() + 5000, isStopped: () => false, onPoll: async () => "limit", ...fast})).toEqual({kind: "limit", code: 143});
+  expect(stopped).toBe(true);
+});
+
 test("lost when the wrapper vanished without an exit record", async () => {
   const dir = tmpDir(); const r = startRun({ dir, argv: ["sleep", "30"], cwd: tmpDir(), env }) as { pid: number };
   process.kill(-r.pid, "SIGKILL");

@@ -39,7 +39,7 @@ import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../mess
 import { liveTick } from "../messaging/live";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
-import { detectLimit } from "./limits";
+import { LIMIT_QUIET_S, detectLimit, detectSessionLimit, sessionLimitExcerpt, sessionLimitText } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
 import { recordDefaultFolder, recordRunFolder, withDefaultFolder } from "./account-folder";
@@ -113,6 +113,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   let waitKey: string | undefined = run.waitKey;
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
+  let limitCheckedBytes = -1;
   const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
     if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
     if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
@@ -124,9 +125,15 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       });
     } catch { /* alert bookkeeping is best effort */ }
   };
-  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked"> => {
+  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked" | "limit"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
+    // An interactive agent that hits its plan limit prints the error and waits; nothing ends the run on its own.
+    if (s.interactive && !run.host && !run.takeover && run.interactionMode !== "conversation"
+      && s.stdoutBytes !== limitCheckedBytes && now - (s.lastOutputAt ?? now) >= LIMIT_QUIET_S) {
+      limitCheckedBytes = s.stdoutBytes;
+      if (detectSessionLimit(run.executor, sessionLimitText(run.dir))) return "limit";
+    }
     const driving = humanDriving(s, now * 1000);
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
     controlled = driving;
@@ -262,6 +269,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const out = readOutput(run.dir);
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
   if (end.kind === "asked") exec.code = 0;
+  if (end.kind === "limit") { exec.code ||= 1; exec.stderr += `\npacer: ${cfg.id} reported a usage limit in its session`; }
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
   if (end.kind === "lost") exec.stderr += host ? `\npacer: host ${host.alias} unreachable or wrapper missing after the contact grace period` : "\npacer: the attempt's wrapper vanished without an exit record";
   if (host && run.lastMessageFile) {
@@ -283,7 +291,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const conversation = run.interactionMode === "conversation";
   const asked = end.kind === "asked" ? readTask(ctx, task.id)?.question?.text : undefined;
   let report = interactive
-    ? completed ? signal!.summary : asked !== undefined ? `Asked: ${asked}` : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
+    ? completed ? signal!.summary : asked !== undefined ? `Asked: ${asked}` : end.kind === "limit" ? `Usage limit reached:\n${sessionLimitExcerpt(cfg.id, sessionLimitText(run.dir)) ?? ""}` : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
     : tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
   if (interactive) {
     const transcript = transcriptReport(run.dir);
@@ -313,8 +321,11 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
     result.attempt.limitHit = false;
     return {...result, takeover:true, ...(run.mode === "new" ? {worktree:run.workdir} : {})};
   }
+  const result = outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report);
+  // An interactive agent that exits on its limit error leaves it only in the session transcript.
+  if (end.kind === "limit" || (interactive && !conversation && exec.code !== 0 && !exec.timedOut && !run.host && detectSessionLimit(cfg.id, sessionLimitText(run.dir)))) result.attempt.limitHit = true;
   return {
-    ...outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report),
+    ...result,
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
   };
 }
