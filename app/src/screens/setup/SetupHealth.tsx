@@ -151,11 +151,11 @@ export function SetupHealthStage({
     {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
       {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
+      {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
       {onRepair && individualRepairs.filter(r => showFixAll || r !== primary).map(r => (
         <Button key={`${r.kind}:${r.label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(r)}>{r.label}</Button>
       ))}
       {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
-      {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
       {showRerun && <Button variant="primary" disabled={busy || repairing} onClick={onRerun}>Run checks again</Button>}
       {showRerun && onRestartService && <Button disabled={busy || repairing} onClick={onRestartService}>Restart service</Button>}
       {hardFail && <Button variant={primary || showFixAll || showRerun ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}

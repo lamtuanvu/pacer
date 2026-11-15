@@ -250,4 +250,6 @@ test("with one other automatic repair (no fix-all) Allow notifications still has
   expect(html).toContain("Refresh usage");
   expect((html.match(/Allow notifications/g) ?? []).length).toBe(1);
   expect((html.match(/pc-btn--primary/g) ?? []).length).toBe(1);
+  // The primary repair comes first in reading and tab order.
+  expect(html.indexOf("Refresh usage")).toBeLessThan(html.indexOf("Allow notifications"));
 });
