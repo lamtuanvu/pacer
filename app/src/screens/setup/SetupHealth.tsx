@@ -1,6 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import type { SetupHealthRepair, SetupHealthReport, SetupHealthStep, SetupHealthStepState } from "../../../../src/view-model/setup-health";
-import { remedyPlan } from "../../../../src/view-model/diagnostics";
+import { fixAllLabel, remedyPlan } from "../../../../src/view-model/diagnostics";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { Mark } from "../../ds/Mark";
@@ -20,7 +20,6 @@ function glyph(state: SetupHealthStepState): { label: string; glyph: string; ton
   if (state === "needs_attention" || state === "timed_out") return { label: "Needs attention", glyph: "!", tone: "warn" };
   if (state === "running") return { label: "Checking", glyph: "…", tone: "info" };
   if (state === "not_checked") return { label: "Not checked", glyph: "·", tone: "neutral" };
-  if (state === "waiting") return { label: "Waiting", glyph: "·", tone: "neutral" };
   return { label: "Waiting", glyph: "·", tone: "neutral" };
 }
 
@@ -102,7 +101,7 @@ export function SetupHealthStage({
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
-  const live = report.steps.map(s => `${s.title}: ${s.state === "not_checked" ? "not checked" : glyph(s.state).label}`).join(". ");
+  const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!busy && done) main.current?.focus({ preventScroll: true });
@@ -137,7 +136,7 @@ export function SetupHealthStage({
     {done && repairError && <Alert tone="error" title="The fix did not finish">{repairError}</Alert>}
     {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
-      {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{autoRepairs.length === 1 ? "Fix 1 issue automatically" : `Fix ${autoRepairs.length} issues automatically`}</Button>}
+      {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
       {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
       {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
       {showRerun && <Button variant="primary" disabled={busy || repairing} onClick={onRerun}>Run checks again</Button>}

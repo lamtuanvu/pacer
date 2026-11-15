@@ -171,6 +171,7 @@ export interface FixAllHooks<T = unknown> {
   confirmAll?: (requests: ConsentRequest[]) => Promise<boolean>;
   onPrepareFailure?: (item: FixAllItem<T>, error: unknown) => void;
   onProgress?: (text: string) => void;
+  onRestartWait?: () => void;
   onItemsStart?: (items: FixAllPreparedItem<T>[]) => void;
   onItemCommit?: (item: FixAllItem<T>, restarting: boolean) => void;
   onItemFailure?: (item: FixAllItem<T>, error: unknown) => void;
@@ -198,7 +199,6 @@ export async function runFixAll<T = unknown>(
   if (requests.length) {
     const ok = await (hooks.confirmAll ? hooks.confirmAll(requests) : Promise.resolve(true));
     if (!ok) {
-      hooks.onProgress?.("No changes were made.");
       return { cancelled: true, prepared, ordered, restarting: false, failures };
     }
   }
@@ -220,7 +220,7 @@ export async function runFixAll<T = unknown>(
     }
   }
   if (restarting) {
-    hooks.onProgress?.("Waiting for pacer to restart…");
+    hooks.onRestartWait?.();
     await host.awaitRestart?.(before);
   }
   return { cancelled: false, prepared, ordered, restarting, failures };

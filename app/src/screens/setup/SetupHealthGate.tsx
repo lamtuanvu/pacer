@@ -196,7 +196,7 @@ export function SetupHealthGate({
     setRepairError(undefined);
     setFixAllProgress("Restarting the pacer service…");
     const host = gateRemedyHost(api, dialogs.confirm);
-    const remedy = remedies.service("Restart service");
+    const remedy = remedies.internal();
     const plan = remedyPlan(remedy)!;
     try {
       const run = await prepareRun(plan as Extract<typeof plan, { kind: "run" }>, host.call);
@@ -238,6 +238,7 @@ export function SetupHealthGate({
           const result = await runFixAll(items, host, {
             confirmAll,
             onProgress: setFixAllProgress,
+            onRestartWait: () => setFixAllProgress("Waiting for pacer to restart…"),
           });
           if (result.cancelled) {
             setFixAllProgress("No changes were made.");

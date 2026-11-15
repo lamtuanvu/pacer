@@ -74,7 +74,7 @@ test("failure report shows error, Not checked steps, one Open Diagnostics, Run c
     <SetupHealthStage report={report} onContinue={() => {}} onOpenDiagnostics={() => {}} onRerun={() => {}} onRestartService={() => {}} onRepair={() => {}} />,
   );
   expect(html).toContain("boom");
-  expect((html.match(/Not checked/g) ?? []).length).toBe(4);
+  expect((html.match(/data-state="not_checked"/g) ?? []).length).toBe(4);
   expect((html.match(/Open Diagnostics/g) ?? []).length).toBe(1);
   expect(html).toContain("Run checks again");
   expect(html).toContain("Restart service");
