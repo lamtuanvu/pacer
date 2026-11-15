@@ -473,7 +473,9 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
   for (const port of [session.port, session.innerPort!]) {
     await expect(fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })).rejects.toThrow();
   }
-}, 10000);
+  // up() allows up to 8s for service startup alone (its internal healthy() deadline), then the
+  // surface checks and down() run after it; under CI load that exceeds the old 10s budget.
+}, 30000);
 
 test("CLI rejects incomplete or unknown harness options before touching a session", async () => {
   await expect(main(["note", "--id"])).rejects.toThrow("requires a value");

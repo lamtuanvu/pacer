@@ -356,7 +356,13 @@ async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = tokio::time::timeout(Duration::from_secs(3), response.into_body().collect())
+        // Each loop iteration spawns a fresh Bun core child and the follow
+        // triggers a durable cross-process legacy import before the done frame
+        // is emitted. That external, loader-sensitive work can exceed the old
+        // 3 s cap on a loaded CI runner; the same test already allows 10 s
+        // for the Bun child alone to reach its target (test_core). Give the
+        // import plus response comparable headroom.
+        let body = tokio::time::timeout(Duration::from_secs(15), response.into_body().collect())
             .await
             .unwrap()
             .unwrap()

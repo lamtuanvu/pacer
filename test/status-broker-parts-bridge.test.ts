@@ -59,15 +59,28 @@ async function stdio(ctx: Ctx, params: unknown, key: string | null = KEY): Promi
   return out[0]!.trimEnd();
 }
 
-/** The home once a just-started server has finished writing its own state. */
+/**
+ * The home once a just-started server has finished writing its own state.
+ * Server startup starts background plugins asynchronously (pacer-usage publishes
+ * `starting` then `ready` entities), so a single quiet poll can return during
+ * that startup and miss the later `ready` write. Require a sustained quiet
+ * window so background startup publications have fully flushed before the
+ * snapshot is taken.
+ */
 async function settled(ctx: Ctx): Promise<Record<string, string>> {
   let last = files(ctx);
-  for (;;) {
+  let quiet = 0;
+  for (let guard = 0; guard < 300; guard++) {
     await Bun.sleep(150);
     const next = files(ctx);
-    if (JSON.stringify(next) === JSON.stringify(last)) return next;
-    last = next;
+    if (JSON.stringify(next) === JSON.stringify(last)) {
+      if (++quiet >= 10) return next; // ~1.5 s of sustained quiet covers plugin startup.
+    } else {
+      quiet = 0;
+      last = next;
+    }
   }
+  throw new Error("settled: home kept changing; possible background writer");
 }
 
 type Post = (body: string | undefined, headers?: Record<string, string>) => Promise<{ status: number; text: string }>;

@@ -56,10 +56,15 @@ test("FIFO repositories leave real HTTP health and snapshot responsive", async (
   const child = Bun.spawn([process.execPath, join(import.meta.dir, "fixtures", "serve-fifo.ts")], { stdout: "pipe", stderr: "pipe" });
   let timer: ReturnType<typeof setTimeout> | undefined;
   try {
+    // The fixture's own work is bounded but not tiny: it starts a real server, then
+    // polls the snapshot up to 15s for the service.waiting marker, plus a 1.2s
+    // sleep and multiple sub-second health checks. Under CI load 25s is too tight;
+    // the child still validates its own behavior, so a larger wait only gives the
+    // genuine work room to finish without weakening any check.
     const code = await Promise.race([child.exited, new Promise<never>((_, reject) => {
-      timer = setTimeout(() => { child.kill("SIGKILL"); reject(Error("FIFO service timed out")); }, 25000);
+      timer = setTimeout(() => { child.kill("SIGKILL"); reject(Error("FIFO service timed out")); }, 70000);
     })]);
     const stderr = await new Response(child.stderr).text();
     expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
   } finally { clearTimeout(timer); child.kill(); }
-}, 30000);
+}, 90000);
