@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.15.0] - 2026-11-14
+
 ### Added
 
 - A **Model matrix** page under Settings → Dispatcher (`#/settings/models`) shows every model each executor can run from its provider listing and declared models: turn models on or off, rate their size (Small / Medium / Frontier, or back to Unrated), add a model by ID when the listing is unknown, and suggest on/off and sizes from provider price and tool facts. **Save matrix** writes only the executors whose models or default changed in one revision-checked `runner.models.set_many` edit, preserving each declared model's strengths, tools and context. The planner executor is read-only here.
