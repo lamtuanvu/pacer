@@ -17,7 +17,9 @@ beforeAll(async () => {
   ) });
   browser = await chromium.launch({ executablePath: browserPath, headless: true });
 }, 15000);
-afterAll(async () => { await browser?.close(); server?.stop(true); }, 15000);
+// Playwright's Browser.close() waits its 30s default graceful-close while Bun's event loop
+// delays the Chromium process-exit event, so teardown intermittently takes the full ~30s.
+afterAll(async () => { await browser?.close(); server?.stop(true); }, 45000);
 
 browserTest('ok setup health enters the app on its own', async () => {
   const page = await browser.newPage();
@@ -26,6 +28,9 @@ browserTest('ok setup health enters the app on its own', async () => {
     await page.getByRole('heading', { level: 1, name: 'Checking setup' }).waitFor();
     await page.waitForFunction(() => document.body.dataset.ready, undefined, { timeout: 5000 });
     expect(await page.evaluate(() => document.body.dataset.ready)).toBe('ok');
+    // Entering sets `ready` synchronously, before React has committed the gate off the page;
+    // wait for that commit so we assert the settled state, not a transition frame.
+    await page.getByRole('heading', { name: 'Checking setup' }).waitFor({ state: 'detached' });
     expect(await page.getByRole('heading', { name: 'Checking setup' }).count()).toBe(0);
   } finally { await page.close(); }
 }, 15000);

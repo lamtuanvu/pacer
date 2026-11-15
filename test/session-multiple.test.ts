@@ -341,6 +341,8 @@ import { queryRevision } from '../app/src/screens/task-shared';
 
 test('first service pump publishes agent lifecycle through durable events into client query invalidation',async()=>{
  const {ctx,task,input,deps}=fixture();
+ ctx.run=async(argv,timeout,options)=>argv[0]==='launchctl'||argv[0]==='systemctl'
+  ? {code:1,stdout:'',stderr:'fixture service unavailable'} : realRun(argv,timeout,options);
  let client={...initialState(),needsSnapshot:false,connected:true,snapshot:{seq:0,tasks:[],at:0} as any};
  const before=queryRevision(client,'session.agent.list',{});
  const a=await createAgentSession(ctx,input,deps);
@@ -446,6 +448,8 @@ test('live same-task sessions prevent primary fallback to Orca or remote and unk
 
 test('unexpected PTY exit publishes durable cross-client invalidation with all agent panels closed',async()=>{
  const {ctx,task,input,deps}=liveFixture();
+ ctx.run=async(argv,timeout,options)=>argv[0]==='launchctl'||argv[0]==='systemctl'
+  ? {code:1,stdout:'',stderr:'fixture service unavailable'} : realRun(argv,timeout,options);
  const pumpDeps={status:async()=>({generatedAt:ctx.now,strategy:'fixture',planner:'codex',mode:'normal',disabled:false,calendarPace:false,providers:[],executors:{ranked:[],excluded:[]}}) as any,tasks:()=>[],publish};
  await pumpOnce(ctx,pumpDeps);
  const a=await createAgentSession(ctx,input,{...deps,launch:async(_ctx,s)=>({argv:['/bin/sh','-c','sleep 0.5'],cwd:s.cwd,env:{...process.env,HOME:ctx.home,PACER_HOME:ctx.pacerHome,PACER_LOGIN_ENV:'off'}})});

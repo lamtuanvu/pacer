@@ -12,7 +12,7 @@ import { readdirSync } from "node:fs";
 test("detects installed CLIs and versions using only --version with a five second timeout", async () => {
   const calls: string[][] = [];
   const ctx = withVersionFixtures(fakeCtx({ which: bin => bin === "opencode" ? null : `/bin/${bin}`, run: async (argv, timeout, options) => {
-    calls.push(argv); expect(timeout).toBe(5000); expect(options?.env).toEqual({});
+    calls.push(argv); expect(timeout).toBe(5000); expect(options?.env).toEqual({ PACER_PORT: ctx.env.PACER_PORT, OLLAMA_HOST: ctx.env.OLLAMA_HOST, LMS_API_SERVER_INFO_PATH: ctx.env.LMS_API_SERVER_INFO_PATH });
     return { code: 0, stdout: argv[0] === "/bin/codex" ? "codex-cli 0.52.0\n" : "v2.4", stderr: "" };
   } }));
   const result = await detectAgents(ctx);

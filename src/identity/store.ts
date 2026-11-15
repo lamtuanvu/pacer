@@ -57,7 +57,24 @@ export function cachedIdentity(ctx: Pick<Ctx, "pacerHome">): MachineIdentity | u
 
 let testPlatform: NodeJS.Platform | undefined;
 export function setIdentityPlatformForTests(p?: NodeJS.Platform): void { testPlatform = p; }
-export function identityPlatform(p?: NodeJS.Platform): NodeJS.Platform { return p ?? testPlatform ?? process.platform; }
+
+/** True when the HOME that `security` sees has a login Keychain; assumed when HOME is unset. */
+function hasLoginKeychain(): boolean {
+  if (!process.env.HOME) return true;
+  const dir = join(process.env.HOME, "Library", "Keychains");
+  return existsSync(join(dir, "login.keychain-db")) || existsSync(join(dir, "login.keychain"));
+}
+
+/**
+ * Where a new key and the install salt go. A platform chosen by a caller or test is used as is. On macOS a HOME
+ * without a login Keychain (a test or sandbox home) uses files: `security` would open a "Keychain Not Found"
+ * dialog for each such home.
+ */
+export function identityBackend(p?: NodeJS.Platform): KeyBackend {
+  const forced = p ?? testPlatform;
+  if (forced) return keyBackend(forced);
+  return process.platform === "darwin" && !hasLoginKeychain() ? "file" : keyBackend(process.platform);
+}
 
 const metaPath = (ctx: Ctx) => join(ctx.pacerHome, IDENTITY_DIR, "machine.json");
 // Control characters; bidirectional controls U+061C, U+200E, U+200F, U+202A-U+202E, U+2066-U+2069;
@@ -107,14 +124,13 @@ export function ensureIdentity(ctx: Ctx, deps: { platform?: NodeJS.Platform } = 
 /** Load, create or recover the identity from disk, bypassing the cache. The caller holds the identity lock. */
 export async function loadIdentityLocked(ctx: Ctx, deps: { platform?: NodeJS.Platform } = {}): Promise<MachineIdentity> {
   let meta = readMeta(ctx);
-  const platform = identityPlatform(deps.platform);
-  if (meta?.pendingRotation) meta = await (await import("./rotate")).recoverRotation(ctx, meta, platform);
-  const backend = meta?.backend ?? keyBackend(platform);
+  if (meta?.pendingRotation) meta = await (await import("./rotate")).recoverRotation(ctx, meta, deps.platform);
+  const backend = meta?.backend ?? identityBackend(deps.platform);
   let privateKey = await readPrivateKey(ctx, backend);
   const { readSalt, writeSalt, saltHash } = await import("./salt");
   if (meta && !meta.cloneDetected) {
     // Check before creating anything: a copied home finds no key or salt under its own per-home tag.
-    const salt = meta.saltHash ? await readSalt(ctx, platform) : undefined;
+    const salt = meta.saltHash ? await readSalt(ctx, deps.platform) : undefined;
     const saltBad = salt !== undefined && (!salt || saltHash(salt) !== meta.saltHash);
     if (!privateKey || saltBad) {
       meta = { ...meta, cloneDetected: true, cloneDetectedAt: ctx.now };
@@ -126,7 +142,7 @@ export async function loadIdentityLocked(ctx: Ctx, deps: { platform?: NodeJS.Pla
     if (meta) (await import("./sign")).clearTransportKeys(ctx);
     privateKey = generateKeyPairSync("ed25519").privateKey;
     await writePrivateKey(ctx, backend, privateKey);
-    const salt = await writeSalt(ctx, platform);
+    const salt = await writeSalt(ctx, deps.platform);
     meta = meta
       ? { ...meta, rev: meta.rev + 1, createdAt: ctx.now, saltHash: saltHash(salt) }
       : { rev: 1, name: defaultName(), createdAt: ctx.now, backend, saltHash: saltHash(salt) };

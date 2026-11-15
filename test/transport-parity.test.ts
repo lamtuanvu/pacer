@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { createServer, type Socket } from "node:net";
@@ -82,7 +83,7 @@ test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP au
   const children: Bun.Subprocess[] = [];
   const environment = (name: string) => {
     const home = join(temporary, name); mkdirSync(home, { mode: 0o700 });
-    return { HOME: home, PACER_HOME: join(home, ".pacer"), PATH: keychainStubPath(home), LANG: "C", TZ: "Asia/Ho_Chi_Minh", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" };
+    return { ...childEnv(home), PATH: keychainStubPath(home), LANG: "C", TZ: "Asia/Ho_Chi_Minh", PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1" };
   };
   // macOS scans a freshly copied executable on first launch, which can outlast the front door's 2 s descriptor read.
   Bun.spawnSync([core, "--pacer-component-descriptor"], { env: environment("warm-core"), stdout: "ignore", stderr: "ignore", timeout: 30000 });

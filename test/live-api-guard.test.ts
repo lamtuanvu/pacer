@@ -13,9 +13,9 @@ test('generic calls retain D3/D8 refusal policy without inspecting payloads', ()
 });
 test('selected service cannot fall back when forced local or unavailable', async () => {
   const ctx = fakeCtx();
-  ctx.env = { PACER_API: 'inprocess' };
+  ctx.env = { PACER_PORT: process.env.PACER_PORT, PACER_API: 'inprocess' };
   await expect(connectClient(ctx, { protocol: 3, allowFallback: false })).rejects.toMatchObject({ code: 'not_allowed' });
-  ctx.env = {};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,};
   await expect(connectClient(ctx, { protocol: 3, allowFallback: false })).rejects.toMatchObject({ code: 'not_allowed' });
 });
 

@@ -11,7 +11,7 @@ import { fakeCtx } from "./helpers";
 const owners: CallAuthority[] = [];
 afterEach(async () => { await Promise.allSettled(owners.splice(0).map(owner => owner.revoke())); });
 
-async function fixture(timeoutMs = 1000, onValidate?: () => void | Promise<void>) {
+async function fixture(timeoutMs = 1000, onValidate?: () => void | Promise<void>, authorityMs = 5000) {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"),
@@ -23,7 +23,7 @@ async function fixture(timeoutMs = 1000, onValidate?: () => void | Promise<void>
     baseSha: "a".repeat(40), remoteBranch: `pacer/${task.id}` }; });
   const grant = issuePersistedFetch(ctx, task.id, 1, 16, timeoutMs);
   const caller = createCallAuthority(ctx, { reads: [], commands: [], stores: [] },
-    { deadlineMs: Date.now() + 5000, grants: ["hosts"] });
+    { deadlineMs: Date.now() + authorityMs, grants: ["hosts"] });
   const foreign = createCallAuthority(ctx, { reads: [], commands: [], stores: [] },
     { deadlineMs: Date.now() + 5000, grants: ["hosts"] });
   owners.push(caller, foreign);
@@ -114,7 +114,9 @@ test("caller cancellation rejects fetch and discards a late opaque result", asyn
 });
 
 test("provider generation retirement during fetch aborts the effect and discards late output", async () => {
-  const f = await fixture();
+  // The fetch timeout and caller deadline are far above any CI delay, so only the generation
+  // watch can abort the effect before the test's own timeout.
+  const f = await fixture(60_000, undefined, 120_000);
   let entered!: () => void, finish!: (value: typeof result) => void;
   const started = new Promise<void>(resolve => { entered = resolve; });
   let effectSignal: AbortSignal | undefined;
@@ -124,12 +126,19 @@ test("provider generation retirement during fetch aborts the effect and discards
     value => { discarded.push(value); });
   void pending.catch(() => {});
   await started;
+  // The host's periodic generation validation observes the flip within one watch
+  // tick and aborts the active fetch. Wait on the effect's abort event rather
+  // than a wall-clock bound: the tick is a fixed 100ms interval that heavy CI
+  // load can delay, so a hard clock short-circuit is the race here.
+  const effectAborted = new Promise<void>(resolve => {
+    if (effectSignal!.aborted) return resolve();
+    effectSignal!.addEventListener("abort", () => resolve(), { once: true });
+  });
   f.retireProvider();
-  const until = Date.now() + 500;
-  while (!effectSignal!.aborted && Date.now() < until) await Bun.sleep(10);
+  await effectAborted;
   expect(effectSignal!.aborted).toBe(true);
   finish(result);
-  await expect(pending).rejects.toBeDefined();
+  await expect(pending).rejects.toMatchObject({ code: "capability_denied" });
   expect(discarded).toEqual([result]);
 });
 

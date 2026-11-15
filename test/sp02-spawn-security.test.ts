@@ -133,7 +133,9 @@ test("timeout reaps a TERM-ignoring child and concurrent calls cannot start anot
     spawning.mockRestore();
     clock.mockRestore(); // No global mock remains installed across an await.
     await expect(answerSpawn(f.authority, ["opencode"], { argv, timeoutMs: 700 })).rejects.toMatchObject({ code: "capability_denied" });
-    const pid = await waitPid(f.executable + ".ready", 5000);
+    // OS subprocess spawn plus interpreter startup can take well over 5s on a loaded
+    // CI runner; give the readiness file real room before declaring the child bare.
+    const pid = await waitPid(f.executable + ".ready", 15000);
     expect(pid).toBeGreaterThan(1);
     expect(() => process.kill(pid, 0)).not.toThrow();
     expect(expire).toBeDefined();
