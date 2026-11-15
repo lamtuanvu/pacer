@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 // test/ci-service-survival.test.ts
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
@@ -16,7 +17,7 @@ test("CI runs the Linux restart survival check in full mode outside pull request
 
 test("without a user service manager the check reports UNVERIFIED and passes", async () => {
   const child = Bun.spawn([process.execPath, join(root, "scripts/ci/service-survival.ts")], {
-    env: { PATH: "/nonexistent", HOME: process.env.HOME, PACER_SURVIVAL_SYSTEMCTL: "/nonexistent/systemctl" }, stdout: "pipe", stderr: "pipe",
+    env: { ...childEnv(process.env.HOME!), PATH: "/nonexistent", PACER_SURVIVAL_SYSTEMCTL: "/nonexistent/systemctl" }, stdout: "pipe", stderr: "pipe",
   });
   const [code, out] = await Promise.all([child.exited, new Response(child.stdout).text()]);
   expect(code).toBe(0);

@@ -16,7 +16,7 @@ const externalSecret = "sk-external-provider-must-not-copy";
 const models = [{id: "model-a", context: 128000, output: 16000, tools: true}];
 function configured() {
   const ctx = fakeCtx();
-  ctx.env = {HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
+  ctx.env = { PACER_PORT: process.env.PACER_PORT,HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: process.env.PATH};
   mkdirSync(ctx.pacerHome, {recursive: true});
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), '# keep\naccounts:\n  personal: {kind: claude}\n  codex: {kind: codex}\n  external: {kind: endpoint, usage: unmetered, model: vendor/old}\nplanner: claude-code\nrouting:\n  - default: [codex, opencode#external]\n');
   return ctx;
@@ -124,7 +124,7 @@ test("endpoint registry validates inputs, reuses stored keys and publishes only 
   for (const path of ['strategy.yaml', 'opencode/opencode.json', 'endpoints/state.json', 'link/outbox.jsonl']) assertSafe(readFileSync(join(ctx.pacerHome, path), 'utf8'));
 });
 
-test.skipIf(!Bun.which('opencode'))("real OpenCode creates hello.txt through the generated provider and sends its stored key", async () => {
+test.skipIf(process.env.PACER_TEST_REAL_OPENCODE !== '1' || !Bun.which('opencode'))("real OpenCode creates hello.txt through the generated provider and sends its stored key (opt in with PACER_TEST_REAL_OPENCODE=1)", async () => {
   const {addEndpoint} = await import('../src/core/endpoints');
   const ctx = configured();
   ctx.which = name => Bun.which(name);

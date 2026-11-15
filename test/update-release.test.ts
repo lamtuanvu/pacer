@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
@@ -81,7 +82,7 @@ test.skipIf(!HOST)("bun run release --host compiles a working binary with the ve
   expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(file)).toBe(sha256Hex(bin));
   expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8"))).toEqual({ version: PKG_VERSION });
   expect(statSync(join(dir, file)).mode & 0o111).not.toBe(0);
-  const v = Bun.spawnSync([join(dir, file), "--version"], { env: { PATH: process.env.PATH ?? "/usr/bin:/bin", HOME: tmpDir() } });
+  const v = Bun.spawnSync([join(dir, file), "--version"], { env: { ...childEnv(tmpDir()), PATH: process.env.PATH ?? "/usr/bin:/bin" } });
   expect(v.stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
   // A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
 }, 300_000);
