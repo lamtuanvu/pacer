@@ -17,6 +17,7 @@ import { toBudget } from "../src/link/budget";
 import { OUTBOX_KEEP, OUTBOX_MAX_BYTES, OUTBOX_ROTATE_LINES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
+import pkg from "../package.json";
 import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
 import { buildExecutors } from "../src/api/read-model/capacity";
 import { loadStrategy } from "../src/config/strategy";
@@ -147,7 +148,7 @@ test("outbox conversion retains non-discovery attention, notify, and config for 
 });
 
 // Golden files are the serialized TS wire contract. Replace only process, platform,
-// temporary-home and random identifiers; preserve every other field and ordering.
+// temporary-home and random identifiers and the package version; preserve every other field and ordering.
 const golden = join(import.meta.dir, "fixtures", "read-model", "ts-golden.json");
 const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   let json = JSON.stringify(value);
@@ -157,6 +158,8 @@ const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   json = json.replace(/local:[0-9a-f]{12}/g, "local:FIXTURE");
   ids.forEach((id, i) => { json = json.replaceAll(id, `TASK_${i + 1}`); });
   json = json.replace(/m-\d{14}-[0-9a-f]{8}/g, "MESSAGE_ID");
+  // The package version changes with every release; the golden must not pin it.
+  json = json.replaceAll(JSON.stringify(pkg.version), '"PACER_VERSION"');
   const parsed = JSON.parse(json) as { snapshot?: { service?: Record<string, unknown>; machine?: Record<string, unknown>; console?: Record<string, unknown> } };
   const snapshots = Array.isArray(parsed) ? parsed : [parsed];
   for (const row of snapshots) {
