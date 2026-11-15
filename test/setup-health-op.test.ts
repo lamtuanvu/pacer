@@ -3,6 +3,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp, opNames } from "../src/api/ops";
 import { V3_ONLY_OPS } from "../src/api/v2-compat";
+import { readJson } from "../src/fsutil";
 import { markSetupHealthRequired, readSetupHealthPass, writeSetupHealthPass } from "../src/install/setup-health-store";
 import { currentVersion } from "../src/update/version";
 import type { SetupHealthFingerprint } from "../src/view-model/setup-health";
@@ -29,6 +30,7 @@ function cleanFingerprint(hashes: Record<string, string> = {}): SetupHealthFinge
       detect_agents: "passed",
       integrations: "passed",
       usage_eligibility: "passed",
+      notifications: "passed",
       ready: "passed",
     },
   };
@@ -37,6 +39,20 @@ function cleanFingerprint(hashes: Record<string, string> = {}): SetupHealthFinge
 test("setup.health is additive and v3-only", () => {
   expect(opNames()).toContain("setup.health");
   expect(V3_ONLY_OPS.has("setup.health")).toBe(true);
+});
+
+test("setup.skip is v3-only, persists the notifications skip, and rejects other steps", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  expect(opNames()).toContain("setup.skip");
+  expect(V3_ONLY_OPS.has("setup.skip")).toBe(true);
+  const skipped = await callOp(ctx, "setup.skip", { step: "notifications" }) as { skipped: boolean };
+  expect(skipped.skipped).toBe(true);
+  const settings = readJson<{ setup?: { notifications_skipped?: boolean } }>(join(ctx.pacerHome, "settings.json"));
+  expect(settings?.setup?.notifications_skipped).toBe(true);
+  // Idempotent, and only the notifications step is a valid target.
+  expect(await callOp(ctx, "setup.skip", { step: "notifications" })).toEqual({ skipped: true });
+  await expect(callOp(ctx, "setup.skip", { step: "usage_eligibility" })).rejects.toMatchObject({ code: "invalid_input" });
+  await expect(callOp(ctx, "setup.skip", {})).rejects.toMatchObject({ code: "invalid_input" });
 });
 
 test("setup.health returns ordered steps, excludes removable-volume gate checks, and records last-pass", async () => {
@@ -63,6 +79,7 @@ test("setup.health returns ordered steps, excludes removable-volume gate checks,
     "detect_agents",
     "integrations",
     "usage_eligibility",
+    "notifications",
     "ready",
   ]);
   expect(result.steps.every(s => typeof s.state === "string")).toBe(true);

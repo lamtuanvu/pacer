@@ -555,11 +555,17 @@ test('dispatch: a consent-gated sign-in asks first; desktop refuses links it can
   expect(await dispatchRemedy(remedyPlan(gated)!, accepted.host)).toBe('await-return');
   expect(accepted.calls).toEqual([['account.signin',{name:'codex',consent:true}]]);
   const opened: string[] = [];
-  const desktop = {desktop:true, openExternal:(url: string) => { opened.push(url); }};
+  const settingsCalls: string[] = [];
+  const desktop = {desktop:true, openExternal:(url: string) => { opened.push(url); }, openSystemSettings:(pane: string) => { settingsCalls.push(pane); } };
   expect(() => openRemedyUrl('x-apple.systempreferences:com.apple.preference.security', desktop)).toThrow('Open System Settings');
   openRemedyUrl('https://claude.ai/settings/billing', desktop);
+  openRemedyUrl('x-apple.systempreferences:com.apple.Notifications-Settings.extension', desktop);
+  openRemedyUrl('x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders', desktop);
   openRemedyUrl('x-apple.systempreferences:com.apple.preference.security', {...desktop, desktop:false});
   expect(opened).toEqual(['https://claude.ai/settings/billing','x-apple.systempreferences:com.apple.preference.security']);
+  expect(settingsCalls).toEqual(['notifications','privacy_files']);
+  // A desktop build without the allowlisted command surfaces the error instead of silently doing nothing.
+  expect(() => openRemedyUrl('x-apple.systempreferences:com.apple.Notifications-Settings.extension', {desktop:true, openExternal:(url: string) => { opened.push(url); }})).toThrow('System Settings is unavailable');
 });
 
 test('dispatch: user remedies sign in or open the link and recheck on return; agent remedies delegate', async () => {

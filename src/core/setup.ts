@@ -15,6 +15,7 @@ import { pacerArgv } from "../install/self";
 import { serviceBackend, type ServiceBackend } from "../service";
 import { checkSetup } from "../setup/check";
 import { withLock } from "./lock";
+import { readJson, writeJsonAtomic } from "../fsutil";
 import { loadStrategy } from "../config/strategy";
 import { accountFolder } from "../install/role";
 import { plannerPreview } from "../plugins/planner-preview";
@@ -169,6 +170,17 @@ export async function serviceInstall(ctx:Ctx, consent:boolean, backend:Pick<Serv
   }catch(e){if(e instanceof Error&&e.message.startsWith("timed out waiting for"))throw new CoreError("conflict","setup installation is already running");throw toCoreError(e);}
 }
 
+export function skipNotificationSetup(ctx: Ctx) {
+  try {
+    const file = join(ctx.pacerHome, "settings.json");
+    const settings = readJson<Record<string, unknown>>(file) ?? {};
+    const setup = (settings.setup && typeof settings.setup === "object") ? { ...(settings.setup as Record<string, unknown>) } : {};
+    setup.notifications_skipped = true;
+    writeJsonAtomic(file, { ...settings, setup });
+    return { skipped: true };
+  } catch (e) { throw toCoreError(e); }
+}
+
 export function onboardingSkip(ctx:Ctx) {
   const dir=join(ctx.pacerHome,"onboarding"),path=join(dir,"skipped"),tmp=join(dir,`.skipped-${crypto.randomUUID()}`);
   try {
@@ -225,12 +237,16 @@ export async function health(
     const checks = reportDoctor.checks.filter(c => !c.name.startsWith("Removable volume "));
     const checklist = await check(ctx, options);
     const checkedAt = ctx.now;
+    const settings = readJson<Record<string, unknown>>(join(ctx.pacerHome, "settings.json")) ?? {};
+    const setupSettings = (settings.setup && typeof settings.setup === "object") ? settings.setup as Record<string, unknown> : {};
+    const notificationsSkipped = setupSettings.notifications_skipped === true;
     const report = aggregateSetupHealth({
       checks,
       checklist,
       trigger,
       checkedAt,
       durationSeconds: (Date.now() - started) / 1000,
+      notificationsSkipped,
     });
     const version = currentVersion();
     const integrationHashes: Record<string, string> = {};

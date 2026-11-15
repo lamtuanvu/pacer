@@ -1109,6 +1109,29 @@ fn notify(app: &AppHandle, notification: notifications::Notification) {
 fn notify(app: &AppHandle, notification: notifications::Notification) {
     mac_notifications::present(app, notification);
 }
+/// The fixed System Settings URLs behind the allowlisted pane names. Anything else
+/// is rejected so the webview never sends a free-form URL to the OS settings.
+fn system_settings_url(pane: &str) -> Result<&'static str, ()> {
+    match pane {
+        "notifications" => Ok("x-apple.systempreferences:com.apple.Notifications-Settings.extension"),
+        "privacy_files" => Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders"),
+        _ => Err(()),
+    }
+}
+#[tauri::command]
+fn open_system_settings(pane: String) -> Result<(), String> {
+    let url = system_settings_url(&pane).map_err(|_| "unsupported settings pane".to_string())?;
+    #[cfg(target_os = "macos")]
+    let opener = "/usr/bin/open";
+    #[cfg(not(target_os = "macos"))]
+    let opener = "xdg-open";
+    std::process::Command::new(opener)
+        .arg(url)
+        .spawn()
+        .map_err(|e| e.to_string())?;
+    Ok(())
+}
+
 fn open_external(url: &Url) {
     #[cfg(target_os = "macos")]
     let opener = "/usr/bin/open";
@@ -1347,7 +1370,8 @@ fn main() {
             native_validation_setup,
             windowMinimize,
             windowToggleMaximize,
-            windowClose
+            windowClose,
+            open_system_settings
         ])
         .setup(move |app| {
             let handle = app.handle().clone();
@@ -1676,6 +1700,22 @@ mod manifest_tests {
                 commands.contains(&format!("\"{command}\"")),
                 "missing AppManifest command {command} for allow-{permission}"
             );
+        }
+    }
+
+    #[test]
+    fn system_settings_url_is_an_allowlist_of_two_fixed_panes() {
+        assert_eq!(
+            super::system_settings_url("notifications"),
+            Ok("x-apple.systempreferences:com.apple.Notifications-Settings.extension")
+        );
+        assert_eq!(
+            super::system_settings_url("privacy_files"),
+            Ok("x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders")
+        );
+        // Anything else is rejected, so the webview never picks a free-form URL.
+        for pane in ["", "notifications-and-sound", "privacy", "FilesAndFolders", "privacy_files?", "param"] {
+            assert_eq!(super::system_settings_url(pane), Err(()), "pane {pane:?} must be rejected");
         }
     }
 }

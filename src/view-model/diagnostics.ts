@@ -209,6 +209,7 @@ export interface DiagnosticFixRow {
   detail: string;
   technical: string;
   remedy?: Remedy;
+  caption?: string;
   plan?: RemedyPlan;
   secondary?: { label: string; plan: RemedyPlan };
   fixed: boolean;
@@ -240,6 +241,7 @@ function fixRow(check: Check, outcome: DiagnosticRowOutcome | undefined, task: D
   return {
     check, title: diagnosticTitle(check.name), tone, glyph: FIX_GLYPHS[tone], status: diagnosticLevel[check.level].label,
     ...(remedy ? { kind: remedyKindLabel[remedy.kind], remedy } : {}),
+    ...(remedy?.caption ? { caption: remedy.caption } : {}),
     detail: [sentence(diagnosticSummary(check)), remedy ? REMEDY_HINT[remedy.kind] : ""].filter(Boolean).join(" "),
     technical: technicalText(check),
     ...(plan ? { plan } : {}),

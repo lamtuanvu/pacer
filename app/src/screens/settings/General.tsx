@@ -69,13 +69,15 @@ import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { platform } from "../../platform";
+import { openRemedyUrl } from "../../data/remedies";
 import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotificationOffer, type BrowserPermission } from "../../data/service-notifier";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
 import { consentAction, plannerAgent } from "../../model/settings";
-import { Dialog, useTaskContext } from "../task-shared";
+import { Dialog, ErrorMessage, useTaskContext } from "../task-shared";
+import type { BrowserApi } from "../../data/api";
 import {
   Feedback,
   Field,
@@ -445,7 +447,12 @@ function NotificationsSection({
 }: {
   initialData?: { level: string };
 }) {
+  const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
+  const doctor = useResource<{ checks?: { name: string; level: string; detail: string; remedy?: { label: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string } }[] }>("doctor.run", {});
+  const check = doctor.data?.checks?.find(c => c.name === "Notifications");
+  const caption = notificationCaption(check);
+  const remedy = check?.remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -463,10 +470,92 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
+        {platform.desktop && (
+          <DesktopBanners
+            doctorReload={doctor.reload}
+            caption={caption}
+            remedy={remedy}
+            api={api}
+          />
+        )}
         <BrowserNotificationOffer level={query.data?.level ?? ""} />
       </ResourceState>
     </section>
   );
+}
+
+function DesktopBanners({
+  api,
+  doctorReload,
+  caption,
+  remedy,
+}: {
+  api: BrowserApi;
+  doctorReload: () => void;
+  caption: string;
+  remedy?: { label: string; op?: string; params?: Record<string, unknown>; url?: string };
+}) {
+  const [busy, setBusy] = useState(false);
+  const [callError, setCallError] = useState<unknown>();
+  /** Run one action, refetch the doctor so the caption follows, and disable the control while in flight. */
+  const run = async (action: () => void | Promise<void>) => {
+    if (busy) return;
+    setBusy(true); setCallError(undefined);
+    try {
+      await action();
+      doctorReload();
+    } catch (failure) {
+      setCallError(failure);
+    } finally {
+      setBusy(false);
+    }
+  };
+  return <SettingRow variant="board" label="Desktop banners" description={caption}>
+    {remedy ? (
+      <Button size="sm" disabled={busy} onClick={() => void run(async () => {
+        if (remedy.url) await openRemedyUrl(remedy.url, platform);
+        else if (remedy.op) await api.call(remedy.op, remedy.params ?? {});
+      })}>{remedy.label}</Button>
+    ) : (
+      <Button size="sm" disabled={busy} onClick={() => void run(async () => {
+        await api.call("notifications.test", {});
+        // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
+        window.setTimeout(doctorReload, 3000);
+      })}>Send test</Button>
+    )}
+    {callError && <ErrorMessage error={callError}/>}
+  </SettingRow>;
+}
+
+export function notificationCaption(
+  check: { level: string; detail: string; remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string } } | undefined,
+  now = Date.now(),
+): string {
+  if (!check) return "Checking…";
+  const { level, detail, remedy } = check;
+  if (level === "warn" || level === "fail") {
+    if (remedy?.op === "notifications.request") return "Not asked yet";
+    if (remedy?.url?.startsWith("x-apple.systempreferences:com.apple.Notifications-Settings")) {
+      if (remedy?.caption?.startsWith("Turn on Allow")) return "Blocked in System Settings";
+      return "Notifications arrive quietly, without banners";
+    }
+    if (remedy?.op === "notifications.test") {
+      if (/^The banner was rejected/i.test(detail ?? "")) return detail ?? "";
+      return "The desktop didn't confirm the test notification";
+    }
+    return detail ?? "";
+  }
+  if (level === "info") return detail ?? "";
+  // ok
+  const match = (detail ?? "").match(/test delivered\s+(.+)$/i);
+  if (match) {
+    const date = new Date(match[1].trim());
+    if (!isNaN(date.getTime())) {
+      return `Allowed · test delivered ${ago(date.getTime() / 1000, now / 1000)}`;
+    }
+  }
+  if (/not tested/i.test(detail ?? "")) return "Allowed · not tested yet";
+  return (detail ?? "").replace(/^Banners allowed/i, "Allowed");
 }
 function BrowserNotificationOffer({ level }: { level: string }) {
   const [permission, setPermission] = useState<BrowserPermission>(browserNotificationPermission);

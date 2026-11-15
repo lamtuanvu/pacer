@@ -29,8 +29,9 @@ export function v2Hello() {
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
-for (const op of ["setup.health"]) V3_ONLY_OPS.add(op);
+for (const op of ["setup.health", "setup.skip"]) V3_ONLY_OPS.add(op);
 for (const op of ["account.usage.check", "limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
+for (const op of ["notifications.test", "notifications.ack", "notifications.request"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
 for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
@@ -72,14 +73,14 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
  const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
- return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
+ return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
 }
 export { isDiscoveryItemId };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
@@ -93,11 +94,11 @@ export function v2Params(name:string,params:unknown):unknown {
   const {dispatch:_,difficulty:_difficulty,model:_model,...legacy}=params as Record<string,unknown>;return legacy;
  }
  if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {capture:_,...legacy}=params as Record<string,unknown>;
+  const {capture:_,notification_permission:__,notification_alerts:___,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
  if(name==='client.heartbeat'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {notifier:_,...legacy}=params as Record<string,unknown>;
+  const {notifier:_,notification_permission:__,notification_alerts:___,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
  // `q` is a protocol 3 addition; the frozen 2.x surface stays as documented
@@ -144,8 +145,12 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  delete (schemas['task.list'].params as {properties:Record<string,unknown>}).properties.q;
  const registration=schemas['client.register'].params as {properties:Record<string,unknown>};
  delete registration.properties.capture;
+ delete registration.properties.notification_permission;
+ delete registration.properties.notification_alerts;
  schemas['client.register'].description="Register a client with an optional notifier lease; heartbeat every 30 seconds.";
  delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notifier;
+ delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_permission;
+ delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_alerts;
  schemas['client.heartbeat'].description="Renew a client lease, which lapses after 45 seconds without a heartbeat.";
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";

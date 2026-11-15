@@ -20,6 +20,7 @@ const okReport = (): SetupHealthReport => ({
     { id: "detect_agents", title: "Detect agents", state: "passed" },
     { id: "integrations", title: "Integrations & hooks", state: "passed" },
     { id: "usage_eligibility", title: "Usage & eligibility", state: "passed" },
+    { id: "notifications", title: "Turn on notifications", state: "passed" },
     { id: "ready", title: "Ready to take work", state: "passed" },
   ],
   outcome: "ok",
@@ -169,4 +170,39 @@ test("SetupHealthStage clicks run rerun and restart props (DOM)", async () => {
     await unmount(dom);
     dom.restore();
   }
+});
+
+test("the notifications step renders and its skippable repair offers Skip", () => {
+  const warn: SetupHealthReport = {
+    ...okReport(),
+    outcome: "warnings",
+    attentionCount: 1,
+    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "needs_attention", detail: "Notification permission not asked yet" } : s),
+    repairs: [{ kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: { kind: "auto", label: "Allow notifications", op: "notifications.request" } }],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={warn} onContinue={() => {}} onOpenDiagnostics={() => {}} onRepair={() => {}} onSkip={() => {}} />,
+  );
+  expect(html).toContain("Turn on notifications");
+  expect(html).toContain("Notification permission not asked yet");
+  expect(html).toContain("Allow notifications");
+  expect(html).toContain("Skip notifications");
+  // No skip affordance when no optional step needs attention.
+  const plain = renderToString(<SetupHealthStage report={okReport()} onContinue={() => {}} onOpenDiagnostics={() => {}} />);
+  expect(plain).not.toContain("Skip notifications");
+});
+
+test("a skipped notifications step reads 'Skipped' and hides the Skip button", () => {
+  const skipped: SetupHealthReport = {
+    ...okReport(),
+    outcome: "warnings",
+    attentionCount: 1,
+    steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "passed", detail: "Skipped" } : s),
+    repairs: [{ kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: { kind: "auto", label: "Allow notifications", op: "notifications.request" } }],
+  };
+  const html = renderToString(
+    <SetupHealthStage report={skipped} onContinue={() => {}} onOpenDiagnostics={() => {}} onRepair={() => {}} onSkip={() => {}} />,
+  );
+  expect(html).toContain("Skipped");
+  expect(html).not.toContain("Skip notifications");
 });

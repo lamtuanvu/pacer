@@ -195,10 +195,12 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
             .unwrap()
             .retain(|id, _| !id.starts_with(&stale));
     }
+    let client_id = notification.client_id.clone();
+    let notify_key = notification.key.clone();
     let request = request(&notification, &category);
     if notification.actions.is_empty() {
         drop(registered);
-        add(&request);
+        add(&request, client_id, notify_key);
         return;
     }
     let mut actions = Vec::new();
@@ -224,7 +226,9 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
     // reading the set back orders the post after it, so the banner gets its buttons.
     center.setNotificationCategories(&categories(&registered));
     drop(registered);
-    let after = RcBlock::new(move |_: NonNull<NSSet<UNNotificationCategory>>| add(&request));
+    let ack_client = client_id.clone();
+    let ack_key = notify_key.clone();
+    let after = RcBlock::new(move |_: NonNull<NSSet<UNNotificationCategory>>| add(&request, ack_client.clone(), ack_key.clone()));
     center.getNotificationCategoriesWithCompletionHandler(&after);
 }
 
@@ -279,14 +283,48 @@ fn request(
     )
 }
 
-fn add(request: &UNNotificationRequest) {
-    let completion = RcBlock::new(|error: *mut NSError| {
-        if let Some(error) = unsafe { error.as_ref() } {
+/// Build the `notifications.ack` payload from the addNotificationRequest
+/// completion outcome. Sent exactly once; a failed ack is logged, never retried.
+fn ack_params(
+    client_id: String,
+    key: String,
+    delivered: bool,
+    error: Option<String>,
+) -> serde_json::Value {
+    serde_json::json!({
+        "client_id": client_id,
+        "key": key,
+        "delivered": delivered,
+        "error": error,
+    })
+}
+
+fn add(request: &UNNotificationRequest, client_id: Option<String>, key: Option<String>) {
+    let completion = RcBlock::new(move |error: *mut NSError| {
+        let error_ref = unsafe { error.as_ref() };
+        if let Some(error) = error_ref {
             desktop_log!(
                 "pacer notifications: delivery error {}: {}",
                 error.code(),
                 error.localizedDescription()
             );
+        }
+        let delivered = error_ref.is_none();
+        let error_message = error_ref.map(|e| e.localizedDescription().to_string());
+        if let (Some(client_id), Some(key)) = (client_id.clone(), key.clone()) {
+            let params = ack_params(client_id.clone(), key, delivered, error_message);
+            let app = APP_HANDLE.get().cloned();
+            tauri::async_runtime::spawn(async move {
+                let Some(app) = app else { return; };
+                let session = app.state::<crate::Shell>().session.lock().unwrap().clone();
+                let Some(session) = session else {
+                    desktop_log!("pacer notifications: no live session for ack");
+                    return;
+                };
+                if let Err(err) = session.op("notifications.ack", &params).await {
+                    desktop_log!("pacer notifications: ack failed: {err}");
+                }
+            });
         }
     });
     UNUserNotificationCenter::currentNotificationCenter()
@@ -426,5 +464,17 @@ mod tests {
             Some("#/sessions/t-1")
         );
         assert_eq!(route_from_user_info(&NSDictionary::dictionary()), None);
+    }
+
+    #[test]
+    fn ack_payload_carries_the_id_key_delivery_and_optional_error() {
+        assert_eq!(
+            ack_params("client-a".into(), "test:abc".into(), true, None),
+            serde_json::json!({"client_id":"client-a","key":"test:abc","delivered":true,"error":null})
+        );
+        assert_eq!(
+            ack_params("client-b".into(), "test:def".into(), false, Some("banner rejected".into())),
+            serde_json::json!({"client_id":"client-b","key":"test:def","delivered":false,"error":"banner rejected"})
+        );
     }
 }

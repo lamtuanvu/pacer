@@ -23,6 +23,7 @@ const fingerprint = (): SetupHealthFingerprint => ({
     detect_agents: "passed",
     integrations: "passed",
     usage_eligibility: "passed",
+    notifications: "passed",
     ready: "passed",
   },
 });

@@ -11,6 +11,7 @@ const STEP_TITLES: Record<SetupHealthStep["id"], string> = {
   detect_agents: "Detect agents",
   integrations: "Integrations & hooks",
   usage_eligibility: "Usage & eligibility",
+  notifications: "Turn on notifications",
   ready: "Ready to take work",
 };
 
@@ -78,6 +79,7 @@ export function SetupHealthStage({
   repairing = false,
   repairError,
   repairProgress,
+  onSkip,
 }: {
   report: SetupHealthReport;
   busy?: boolean;
@@ -92,6 +94,8 @@ export function SetupHealthStage({
   repairError?: string;
   /** Progress line shown while a batch fix runs. */
   repairProgress?: string;
+  /** Optional steps (notifications) offer Skip: remembered per install, never a hard fail. */
+  onSkip?: () => void;
 }) {
   const repairs = report.repairs ?? [];
   const primary = repairs.find(r => r.kind !== "open.diagnostics");
@@ -101,6 +105,10 @@ export function SetupHealthStage({
   const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
+  // Skip is offered only while the notifications step needs attention and has not
+  // been skipped yet (a skipped step reads 'Skipped' and shows no button).
+  const notificationsStep = report.steps.find(s => s.id === "notifications");
+  const skippable = done && notificationsStep?.state === "needs_attention" && (report.repairs?.some(r => r.skip) ?? false);
   const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -146,6 +154,7 @@ export function SetupHealthStage({
         {report.outcome === "ok" ? "Continue" : "Continue to pacer"}
       </Button>}
       <Button variant="ghost" disabled={busy || repairing} onClick={onOpenDiagnostics}>Open Diagnostics</Button>
+      {skippable && onSkip && <Button variant="ghost" disabled={busy || repairing} onClick={onSkip}>Skip notifications</Button>}
     </div>}
   </main>;
 }

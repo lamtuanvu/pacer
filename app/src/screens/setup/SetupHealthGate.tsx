@@ -113,6 +113,12 @@ export async function applyRepair(repair: SetupHealthRepair, host: RemedyHost): 
   return result === "delegated" ? "navigate" : "done";
 }
 
+/** Persist skipping the optional notifications step, then re-run the checks so it reads 'Skipped'. */
+export async function applySetupSkip(api: Pick<BrowserApi, "call">): Promise<"rerun"> {
+  await api.call("setup.skip", { step: "notifications" });
+  return "rerun";
+}
+
 /** Full-window Checking setup after service connect; skip when fingerprint is fresh. */
 export function SetupHealthGate({
   api,
@@ -277,6 +283,24 @@ export function SetupHealthGate({
           };
           if (result === "rerun") rerun();
           if (result === "rerun-on-return") returnRecheck.current = recheckOnReturn(rerun);
+        } catch (failure) {
+          setRepairError(failure instanceof Error ? failure.message : String(failure));
+        } finally {
+          setRepairing(false);
+        }
+      }}
+      onSkip={async () => {
+        if (enterTimer.current) window.clearTimeout(enterTimer.current);
+        setRepairing(true);
+        setRepairError(undefined);
+        returnRecheck.current?.();
+        try {
+          await applySetupSkip(api);
+          const rerun = () => {
+            setReport(pendingSetupHealthReport(view.trigger));
+            setPhase("checking");
+          };
+          rerun();
         } catch (failure) {
           setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {

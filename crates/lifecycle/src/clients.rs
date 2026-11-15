@@ -7,6 +7,8 @@ pub fn read(raw: &Value) -> Vec<Value> {
     let Some(rows) = raw.as_array() else {
         return vec![];
     };
+    const PERMS: [&str; 6] = ["not_determined", "denied", "authorized", "provisional", "ephemeral", "unsupported"];
+    const ALERTS: [&str; 3] = ["none", "banner", "alert"];
     if !rows.iter().all(|r| {
         !s(&r["client_id"]).is_empty()
             && KINDS.contains(&s(&r["kind"]))
@@ -14,10 +16,17 @@ pub fn read(raw: &Value) -> Vec<Value> {
             && r["notifier"].is_boolean()
             && r["registeredAt"].is_number()
             && r["heartbeatAt"].is_number()
+            && (r.get("notification_permission").is_none() || PERMS.contains(&s(&r["notification_permission"])))
+            && (r.get("notification_alerts").is_none() || ALERTS.contains(&s(&r["notification_alerts"])))
     }) {
         return vec![];
     }
-    rows.iter().map(|r|json!({"client_id":r["client_id"],"kind":r["kind"],"version":r["version"],"notifier":r["notifier"],"registeredAt":r["registeredAt"],"heartbeatAt":r["heartbeatAt"]})).collect()
+    rows.iter().map(|r| {
+        let mut out = json!({"client_id":r["client_id"],"kind":r["kind"],"version":r["version"],"notifier":r["notifier"],"registeredAt":r["registeredAt"],"heartbeatAt":r["heartbeatAt"]});
+        if let Some(v) = r.get("notification_permission") { out["notification_permission"] = v.clone(); }
+        if let Some(v) = r.get("notification_alerts") { out["notification_alerts"] = v.clone(); }
+        out
+    }).collect()
 }
 pub fn register(rows: &mut Vec<Value>, options: &Value, id: &str, now: f64) -> Value {
     rows.retain(|r| now - n(&r["heartbeatAt"]) <= 86400.0);
@@ -34,6 +43,8 @@ pub fn heartbeat(
     rows: &mut [Value],
     id: &str,
     notifier: Option<bool>,
+    notification_permission: Option<&str>,
+    notification_alerts: Option<&str>,
     now: f64,
 ) -> Result<Value, Error> {
     let row = rows
@@ -43,6 +54,12 @@ pub fn heartbeat(
     row["heartbeatAt"] = now.into();
     if let Some(notifier) = notifier {
         row["notifier"] = notifier.into();
+    }
+    if let Some(permission) = notification_permission {
+        row["notification_permission"] = permission.into();
+    }
+    if let Some(alerts) = notification_alerts {
+        row["notification_alerts"] = alerts.into();
     }
     Ok(json!({"ok":true}))
 }

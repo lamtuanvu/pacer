@@ -82,6 +82,24 @@ test("registrations persist under state and non-notifiers cannot take the lease"
   expect(activeNotifier(restored)?.client_id).toBe(a.client_id);
 });
 
+test("register and heartbeat store notification permission and alerts", () => {
+  const ctx = fakeCtx();
+  const d = register(ctx, { kind: "desktop", version: "1", notifier: true, notification_permission: "authorized", notification_alerts: "banner" });
+  const listed = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(listed.notification_permission).toBe("authorized");
+  expect(listed.notification_alerts).toBe("banner");
+  // omitted heartbeat fields keep prior values
+  expect(heartbeat(ctx, d.client_id, { notifier: true })).toEqual({ ok: true });
+  const after = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(after.notification_permission).toBe("authorized");
+  expect(after.notification_alerts).toBe("banner");
+  // provided fields update
+  heartbeat(ctx, d.client_id, { notification_permission: "denied", notification_alerts: "none" });
+  const updated = list(ctx).find(c => c.client_id === d.client_id)!;
+  expect(updated.notification_permission).toBe("denied");
+  expect(updated.notification_alerts).toBe("none");
+});
+
 test("heartbeat notifier updates delivery eligibility in place", () => {
   const ctx = fakeCtx();
   const desktop = register(ctx, { kind: "desktop", version: "1", notifier: true });

@@ -5,6 +5,7 @@ import { SetupHealthStage } from "../app/src/screens/setup/SetupHealth";
 import {
   SetupHealthGate,
   applyRepair,
+  applySetupSkip,
   commitSetupHealthLoad,
   gateRemedyHost,
   loadSetupHealthGate,
@@ -23,6 +24,7 @@ const okReport = (): SetupHealthReport & { skipFullWindow?: boolean } => ({
     { id: "detect_agents", title: "Detect agents", state: "passed" },
     { id: "integrations", title: "Integrations & hooks", state: "passed" },
     { id: "usage_eligibility", title: "Usage & eligibility", state: "passed" },
+    { id: "notifications", title: "Turn on notifications", state: "passed" },
     { id: "ready", title: "Ready to take work", state: "passed" },
   ],
   outcome: "ok",
@@ -182,6 +184,18 @@ test("gate user remedies sign in or open an allowed link and rerun when the pers
   expect(gate.calls).toEqual([["account.signin", { name: "codex" }]]);
   expect(gate.opened).toHaveLength(1);
   expect(gate.opened[0]).toStartWith("x-apple.systempreferences:");
+});
+
+test("skipping an optional setup step persists via setup.skip and reruns the checks", async () => {
+  const api = { call: async (op: string, params: unknown) => {
+    expect(op).toBe("setup.skip");
+    expect(params).toEqual({ step: "notifications" });
+    return { skipped: true };
+  } } as Pick<BrowserApi, "call">;
+  const calls: string[] = [];
+  const spy = { call: async (op: string, params: unknown) => { calls.push(op); return (api as any).call(op, params); } } as Pick<BrowserApi, "call">;
+  expect(await applySetupSkip(spy)).toBe("rerun");
+  expect(calls).toEqual(["setup.skip"]);
 });
 
 test("gate agent remedies start a fix task after confirm and open it; no remedy opens Diagnostics", async () => {

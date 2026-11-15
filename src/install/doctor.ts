@@ -11,6 +11,7 @@ import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type Strategy } from "../config/strategy";
 import { binaryFor, computeStatus, type Status } from "../engine/status";
 import { readJson } from "../fsutil";
+import { notificationsCheck } from "./notifications-check";
 import type { ActivityProfile } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx } from "../types";
@@ -45,6 +46,8 @@ export interface Remedy {
   consent?: true;
   /** `user` remedies only: https or x-apple.systempreferences: links. */
   url?: string;
+  /** Optional caption for system settings remedies. */
+  caption?: string;
   secondary?: { label: string; op?: string; params?: Record<string, unknown>; consent?: true; url?: string };
 }
 
@@ -240,6 +243,8 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     checks.push({ name: "Legacy guard", level: "warn", detail: "legacy subagent_guard.py present",
       fix: "pacer install claude-code migrates it", ...(claudeAgent ? { remedy: remedies.review(claudeAgent) } : {}) });
   }
+  // Notifications check (spec notification-health §3).
+  checks.push(notificationsCheck(ctx));
   return withRemedies(checks);
 }
 

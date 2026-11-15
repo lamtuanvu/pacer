@@ -6,12 +6,16 @@ import { readJson, writeJsonAtomic } from "../fsutil";
 import type { Ctx } from "../types";
 
 export const CLIENT_KINDS = ["app", "desktop", "orca", "tui", "status", "tray", "cli"] as const;
+export const NOTIFICATION_PERMISSIONS = ["not_determined", "denied", "authorized", "provisional", "ephemeral", "unsupported"] as const;
+export const NOTIFICATION_ALERTS = ["none", "banner", "alert"] as const;
 const LEASE_S = 30;
 const LAPSE_S = 45;
 export interface RegisterOptions {
   kind: typeof CLIENT_KINDS[number];
   version: string;
   notifier?: boolean;
+  notification_permission?: typeof NOTIFICATION_PERMISSIONS[number];
+  notification_alerts?: typeof NOTIFICATION_ALERTS[number];
 }
 const entrySchema = z.object({
   client_id: z.string().min(1),
@@ -20,6 +24,8 @@ const entrySchema = z.object({
   notifier: z.boolean(),
   registeredAt: z.number(),
   heartbeatAt: z.number(),
+  notification_permission: z.enum(NOTIFICATION_PERMISSIONS).optional(),
+  notification_alerts: z.enum(NOTIFICATION_ALERTS).optional(),
 });
 export type ClientEntry = z.infer<typeof entrySchema>;
 
@@ -40,13 +46,32 @@ export function register(ctx: Ctx, options: RegisterOptions): { client_id: strin
   return { client_id, lease_s: LEASE_S };
 }
 
-/** A boolean `notifier` replaces the stored flag so a client can stop or resume presenting. */
-export function heartbeat(ctx: Ctx, id: string, notifier?: boolean): { ok: true } {
+/** A boolean `notifier` replaces the stored flag so a client can stop or resume presenting.
+ * Optional notification fields replace the stored value when provided; omitted keeps prior. */
+export function heartbeat(
+  ctx: Ctx,
+  id: string,
+  notifierOrOptions?: boolean | { notifier?: boolean; notification_permission?: typeof NOTIFICATION_PERMISSIONS[number]; notification_alerts?: typeof NOTIFICATION_ALERTS[number] },
+  notification_permission?: typeof NOTIFICATION_PERMISSIONS[number],
+  notification_alerts?: typeof NOTIFICATION_ALERTS[number],
+): { ok: true } {
+  let notifier: boolean | undefined;
+  let permission = notification_permission;
+  let alerts = notification_alerts;
+  if (notifierOrOptions !== null && typeof notifierOrOptions === "object") {
+    notifier = notifierOrOptions.notifier;
+    if (permission === undefined) permission = notifierOrOptions.notification_permission;
+    if (alerts === undefined) alerts = notifierOrOptions.notification_alerts;
+  } else if (typeof notifierOrOptions === "boolean") {
+    notifier = notifierOrOptions;
+  }
   const entries = read(ctx);
   const entry = entries.find(entry => entry.client_id === id);
   if (!entry) throw new CoreError("invalid_input", `unknown client "${id}"`);
   entry.heartbeatAt = ctx.now;
   if (notifier !== undefined) entry.notifier = notifier;
+  if (permission !== undefined) entry.notification_permission = permission;
+  if (alerts !== undefined) entry.notification_alerts = alerts;
   writeJsonAtomic(path(ctx), entries);
   return { ok: true };
 }

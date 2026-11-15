@@ -17,6 +17,7 @@ const STEP_IDS: SetupHealthStepId[] = [
   "detect_agents",
   "integrations",
   "usage_eligibility",
+  "notifications",
   "ready",
 ];
 

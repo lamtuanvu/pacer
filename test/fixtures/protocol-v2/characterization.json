@@ -16890,8 +16890,11 @@
         "msg.read",
         "msg.send",
         "msg.wait",
+        "notifications.ack",
         "notifications.get",
+        "notifications.request",
         "notifications.set",
+        "notifications.test",
         "onboarding.skip",
         "onboarding.try",
         "plugin.disable",
@@ -16954,6 +16957,7 @@
         "setup.check",
         "setup.health",
         "setup.init",
+        "setup.skip",
         "snapshot.get",
         "strategy.build",
         "strategy.list",
@@ -18546,6 +18550,25 @@
             },
             "notifier": {
               "type": "boolean"
+            },
+            "notification_permission": {
+              "type": "string",
+              "enum": [
+                "not_determined",
+                "denied",
+                "authorized",
+                "provisional",
+                "ephemeral",
+                "unsupported"
+              ]
+            },
+            "notification_alerts": {
+              "type": "string",
+              "enum": [
+                "none",
+                "banner",
+                "alert"
+              ]
             }
           },
           "required": [
@@ -18590,6 +18613,25 @@
             },
             "capture": {
               "type": "boolean"
+            },
+            "notification_permission": {
+              "type": "string",
+              "enum": [
+                "not_determined",
+                "denied",
+                "authorized",
+                "provisional",
+                "ephemeral",
+                "unsupported"
+              ]
+            },
+            "notification_alerts": {
+              "type": "string",
+              "enum": [
+                "none",
+                "banner",
+                "alert"
+              ]
             }
           },
           "required": [
@@ -21376,8 +21418,47 @@
           "additionalProperties": false
         }
       },
+      "notifications.ack": {
+        "description": "Acknowledge a notification delivery outcome (desktop clients only).",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "client_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1
+            },
+            "delivered": {
+              "type": "boolean"
+            },
+            "error": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "client_id",
+            "key",
+            "delivered"
+          ],
+          "additionalProperties": false
+        }
+      },
       "notifications.get": {
         "description": "Current notification level.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "notifications.request": {
+        "description": "Request notification permission from the live desktop.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -21403,6 +21484,15 @@
           "required": [
             "level"
           ],
+          "additionalProperties": false
+        }
+      },
+      "notifications.test": {
+        "description": "Send a test notification to the OS presenter.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
           "additionalProperties": false
         }
       },
@@ -23241,6 +23331,23 @@
           },
           "required": [
             "planner"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "setup.skip": {
+        "description": "Skip an optional setup step.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "step": {
+              "type": "string",
+              "const": "notifications"
+            }
+          },
+          "required": [
+            "step"
           ],
           "additionalProperties": false
         }
@@ -27383,6 +27490,7 @@
     "dispatch.enforcement.consent",
     "dispatch.learning.reset",
     "setup.health",
+    "setup.skip",
     "account.usage.check",
     "limits.refresh",
     "session.draft.create",
@@ -27393,6 +27501,9 @@
     "session.resume",
     "session.attachment.prepare",
     "session.file.read",
+    "notifications.test",
+    "notifications.ack",
+    "notifications.request",
     "insights.summary",
     "machine.get",
     "machine.set",
