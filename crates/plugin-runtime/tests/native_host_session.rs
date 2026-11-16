@@ -851,7 +851,7 @@ const ORCA_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call
 async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = dial(&session);
+    let path = session.socket_path().to_path_buf();
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("plugin.js");
     fs::write(&script, ORCA_CHILD).unwrap();
@@ -902,7 +902,7 @@ async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
                         "config":{},"grants":["orca","fs.write"],"features":[]
                     },
                 },
-                "authority":{"owning":true,
+                "authority":{
                     "resources":resources,
                     "grants":grants,
                     "ttlMs":10000,
