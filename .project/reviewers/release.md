@@ -13,7 +13,7 @@ Read [constitution.md](../constitution.md), [context.md](../context.md), and [ru
 ## Checks
 
 - REL-1: the CHANGELOG section is dated and lists breaking changes. The version bump matches SemVer for its contents.
-- REL-2: the PR title is `chore: release x.y.z`, the dry run was dispatched, and the tag will equal `package.json`.
+- REL-2: releases come from a tag on one pinned commit whose `package.json` equals the tag; a `chore: release x.y.z` PR only brings that bump to `main` and gets no release dry run.
 - REL-3/5: the build matrix, smoke tests, checksums and attestations are intact. Prerelease handling is correct.
 - REL-8 (proposed): the desktop version is in sync.
 - Protocol compat windows that close in this release are actually removed.
