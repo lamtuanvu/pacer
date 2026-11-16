@@ -113,10 +113,6 @@ const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
 const NATIVE_WRITE_METHODS = ["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"];
 /** Core holds the Orca attempt session, so every Orca effect of an attempt call is answered by Core. */
 const NATIVE_ORCA_METHODS = Object.keys(ORCA_CAPABILITY_METHODS);
-/** A detached stop, inspection or remote stop grant stays in Core, which consumes it once as flag-off does. */
-const NATIVE_DETACHED_STOP_METHOD = "capability.process.stopRun";
-const NATIVE_DETACHED_INSPECT_METHOD = "capability.process.inspectRun";
-const NATIVE_REMOTE_STOP_METHOD = "capability.hosts.stopOwned";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -2406,7 +2402,7 @@ export class PluginRegistry {
       // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
       // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
       if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
-      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint, credentialBindings !== undefined);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
@@ -2549,7 +2545,7 @@ export class PluginRegistry {
     const issued = options.resources;
     if (issued?.hosts?.length)
       throw new CoreError("plugin_unavailable", `${method} needs hosts resources, which the native process owner bridge does not serve`);
-    const { orcaAttempt, orcaLive, detachedStop, detachedInspect, remoteStop } = issued ?? {};
+    const { orcaAttempt, orcaLive } = issued ?? {};
     const writes = issued?.writes?.length ? issued.writes : undefined;
     const point = method.split(".")[0]!;
     // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
@@ -2566,12 +2562,9 @@ export class PluginRegistry {
         await checkPlannerGeneration();
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
-        // Writes and the detached stop, inspection and remote stop grants are answered by Core (`coreMethods`),
-        // so the owner is never issued them (`sealProvided` carries neither).
+        // Writes are answered by Core (`coreMethods`), so the owner is never issued them.
         const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
-        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome,
-          plannerResources: lease !== undefined, credentialBindings: credentialBound,
-          ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
         // An attempt's Orca effects (the worker wait above all) run as long as the call itself.
         if (orcaAttempt && remaining !== undefined) authority.ttlMs = remaining;
         // Commands without an issued environment get the flag-off minimal environment of Core.
@@ -2586,21 +2579,11 @@ export class PluginRegistry {
         // negotiates chunkedResults and sends `$/resultChunk`; Core stages those with the
         // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
         const chunked = method === "usage.read" || effects;
-        const scopedCoreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
           ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
-          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : []),
-          ...(detachedStop ? [NATIVE_DETACHED_STOP_METHOD] : []), ...(detachedInspect ? [NATIVE_DETACHED_INSPECT_METHOD] : []),
-          ...(remoteStop ? [NATIVE_REMOTE_STOP_METHOD] : [])];
-        // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
-        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner. Core also
-        // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
-        const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
-        const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
-          "capability.identity.sign"];
-        const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
-          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}),
-          ...(detachedStop ? { detachedStop } : {}), ...(detachedInspect ? { detachedInspect } : {}),
-          ...(remoteStop ? { remoteStop } : {}) }, {
+          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : [])];
+        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
