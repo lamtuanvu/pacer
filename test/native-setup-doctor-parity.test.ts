@@ -151,7 +151,7 @@ test.skipIf(!front)("stdio doctor and health reports, errors and refusals match 
   const replies = forwarded as { result?: { checks?: unknown[]; steps?: unknown[] }; error?: { data?: { code?: string } } }[][];
   expect(replies[0]![0]!.result!.checks!.length).toBeGreaterThan(5);
   expect(replies[0]!.slice(3).map(reply => reply.error?.data?.code)).toEqual(ERRORS.map(() => "invalid_input"));
-  expect(replies[1]![0]!.result!.steps!.length).toBe(6);
+  expect(replies[1]![0]!.result!.steps!.length).toBe(5);
   expect(replies[5]!.map(reply => reply.error?.data?.code)).toEqual(["not_allowed", "not_allowed"]);
 }, 180000);
 
@@ -208,7 +208,7 @@ test.skipIf(!front)("HTTP doctor and health reports, errors and refusals match f
   const bodies = results[1]!.bodies as { status: number; body: { result?: { checks?: unknown[]; steps?: unknown[] } } }[];
   expect(bodies.slice(0, 4).map(b => b.status)).toEqual([200, 200, 200, 200]);
   expect(bodies[0]!.body.result!.checks!.length).toBeGreaterThan(5);
-  expect(bodies[2]!.body.result!.steps!.length).toBe(6);
+  expect(bodies[2]!.body.result!.steps!.length).toBe(5);
   expect(bodies.slice(4, 6).map(b => b.status)).toEqual([400, 400]);
   expect(bodies.slice(6).map(b => b.status)).toEqual([401, 401]);
 }, 180000);

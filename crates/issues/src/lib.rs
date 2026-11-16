@@ -54,7 +54,7 @@ fn internal(error: impl std::fmt::Display) -> CoreError {
 /// Inputs only the TypeScript repository reader handles, as for `repo.list`.
 pub fn issue_stays_forwarded(ctx: &Ctx, op: &str) -> bool {
     matches!(op, "issue.import" | "issue.search")
-        && pacer_repos::registry_needs_core(&ctx.pacer_home)
+        && pacer_repos::registry_needs_core(&ctx.pacer_home, false)
 }
 
 /// `authorizeWorkOperation` for callers without a work grant (the front doors forward those).

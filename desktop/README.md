@@ -226,13 +226,6 @@ delivery ledger. On macOS, up to two supplied actions become buttons: operations
 are collected with native macOS dialogs before dispatch. Notification body clicks
 and `pacer://review/<id>` / session links open the matching hash route.
 
-The desktop reports macOS notification permission and alert style with every
-register and heartbeat, and acknowledges each posted notification through
-`notifications.ack`. `pacer doctor` exposes a `Notifications` check, and
-`pacer api call notifications.test` / `notifications.request` drive the health
-flow. `open_system_settings` opens only the allowlisted Notifications or
-Privacy & Security panes.
-
 ## Shell IPC
 
 No static capabilities or plugin commands are exposed. Rust grants only the

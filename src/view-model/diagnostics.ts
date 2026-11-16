@@ -147,7 +147,6 @@ export function remedyProgress(remedy: Pick<Remedy, "kind" | "label" | "op" | "u
     case "service.install": return remedy.kind === "internal" || /restart/i.test(remedy.label) ? "Restarting the pacer service…" : "Installing the pacer service…";
     case "account.signin": return "Waiting for you to sign in · rechecking when you return…";
     case "runner.block": return "Turning it off…";
-    case "notifications.request": return "Answer the macOS prompt…";
     case "doctor.fix.delegate": return "Starting a fix task…";
   }
   return remedy.url ? "Opened · rechecking when you return…" : `${remedy.label}…`;
@@ -210,7 +209,6 @@ export interface DiagnosticFixRow {
   detail: string;
   technical: string;
   remedy?: Remedy;
-  caption?: string;
   plan?: RemedyPlan;
   secondary?: { label: string; plan: RemedyPlan };
   fixed: boolean;
@@ -242,7 +240,6 @@ function fixRow(check: Check, outcome: DiagnosticRowOutcome | undefined, task: D
   return {
     check, title: diagnosticTitle(check.name), tone, glyph: FIX_GLYPHS[tone], status: diagnosticLevel[check.level].label,
     ...(remedy ? { kind: remedyKindLabel[remedy.kind], remedy } : {}),
-    ...(remedy?.caption ? { caption: remedy.caption } : {}),
     detail: [sentence(diagnosticSummary(check)), remedy ? REMEDY_HINT[remedy.kind] : ""].filter(Boolean).join(" "),
     technical: technicalText(check),
     ...(plan ? { plan } : {}),
@@ -285,9 +282,7 @@ export function diagnosticsPage(input: {
     } else if (input.baseline?.includes(name)) rows.push(fixedRow(current ?? { name, level: "ok", detail: "The check no longer reports a problem." }));
   }
   const open = rows.filter(row => !row.fixed);
-  // notifications.request prompts macOS interactively, so it stays an individual action and
-  // is excluded from Diagnostics' fix-all button.
-  const autoLeft = open.filter(row => row.remedy?.kind === "auto" && row.plan && !row.progress && !row.task?.open && row.remedy?.op !== "notifications.request");
+  const autoLeft = open.filter(row => row.remedy?.kind === "auto" && row.plan && !row.progress && !row.task?.open);
   const passed = checks.filter(check => check.level === "ok" && check.evidence !== "unverified");
   const information = checks.filter(check => !isIssue(check) && !passed.includes(check));
   return {

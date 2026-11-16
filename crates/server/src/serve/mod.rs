@@ -131,7 +131,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         && let Some(name) = req.uri().path().strip_prefix("/v3/ops/")
         && let Some(op) = state.registry.get(name)
     {
-        let ctx = if crate::native::msg_ops::is_msg_read_op(op.name) {
+        let ctx = if crate::native::msg_ops::is_msg_caller_op(op.name) {
             let human_session = auth == auth::AuthKind::Bearer
                 && header_value(req.headers(), "x-pacer-session").is_some_and(|session| {
                     session.len() == 64
@@ -182,18 +182,29 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        // Planner install and backend readiness remain on the TypeScript path.
-        // mode.hold without until needs computeStatus for the planner reset window.
-        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
-            || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
-            || (op.name == "routing.route"
-                && crate::native::routing_route_stays_forwarded(&ctx, &params))
-            || (op.name == "task.retry_options"
-                && crate::native::task_retry_options_stays_forwarded(&ctx))
+        // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
+        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&ctx, &params))
+            || crate::native::status_residue_stays_forwarded(&ctx, op.name, &params)
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
             || crate::native::msg_stays_forwarded(op.name, &ctx)
+            || crate::native::msg_answer_stays_forwarded(op.name, &ctx, &params)
+            || crate::native::repo_registry_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::discovery_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::desktop_reconcile_stays_forwarded(op.name)
+            || crate::native::assistant_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dependencies_waive_stays_forwarded(op.name, &params)
+            || crate::native::insights_stays_forwarded(op.name, &params)
+            || crate::native::planning_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dispatch_lifecycle_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::job_strategy_setup_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::runner_attention_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::service_agent_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::account_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::host_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -207,6 +218,69 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 target: state.core.target().await,
             };
             return match crate::native::msg_writes::call(&ctx, op.name, params, &mut bridge).await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error)
+                    if error.message == crate::native::msg_writes::FORWARD_DUPLICATE_ANSWER =>
+                {
+                    let Some(target) = state.core.target().await else {
+                        return proxy::unavailable(false);
+                    };
+                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                        .await
+                }
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let by = crate::native::task_send_ops::caller_identity(
+                &ctx,
+                header_value(&parts.headers, "x-pacer-client").as_deref(),
+                header_value(&parts.headers, "x-pacer-client-instance").as_deref(),
+            );
+            let mut bridge = crate::native::task_send_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            return match crate::native::task_send_ops::task_send(&ctx, params, by, &mut bridge)
+                .await
+            {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::preview_ops::needs_dispatch_parts(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::dispatch_preview_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if pacer_config_ops::setup_effects::uses_effects(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut effects = crate::native::setup_effects_sync::HttpEffects {
+                target: state.core.target().await,
+            };
+            let app = auth == auth::AuthKind::Cookie;
+            let result =
+                pacer_config_ops::setup_effects::call(&ctx, op.name, params, app, &mut effects);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::install_apply_sync::uses_effects(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut effects = crate::native::install_apply_sync::HttpEffects {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::install_apply_sync::call(&ctx, op.name, params, &mut effects);
+            return match result.await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
             };
@@ -452,18 +526,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let mut host_effects_bridge = if crate::native::needs_host_effects_bridge(op.name) {
-                state.core.target().await.map(|target| {
-                    crate::native::host_check_clean_setup_sync::HttpHostEffects {
-                        target: Some(target),
-                    }
-                })
-            } else {
-                None
-            };
-            let host_effects_sync = host_effects_bridge
-                .as_mut()
-                .map(|b| b as &mut dyn pacer_config_ops::host_check_clean_setup_ops::HostEffects);
             let task_stop_effects = if task_stop_probe_cache.is_some() {
                 let id = params
                     .get("id")
@@ -528,32 +590,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             } else {
                 None
             };
-            let task_stop_effects = if task_stop_probe_cache.is_some() {
-                let id = params
-                    .get("id")
-                    .and_then(serde_json::Value::as_str)
-                    .unwrap_or("")
-                    .to_owned();
-                let before = task_stop_probe_cache
-                    .as_ref()
-                    .and_then(|probe| probe.get("beforeState"))
-                    .and_then(serde_json::Value::as_str)
-                    .map(str::to_owned);
-                state.core.target().await.map(|target| {
-                    let id = id.clone();
-                    let before = before.clone();
-                    Box::pin(async move {
-                        crate::native::task_stop_sync::http_effects(
-                            Some(target),
-                            &id,
-                            before.as_deref(),
-                        )
-                        .await
-                    }) as pacer_foundation::api::OpFuture<'_>
-                })
-            } else {
-                None
-            };
             call_native(
                 &request_ctx,
                 op,
@@ -570,6 +606,9 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 core_bridge_sync,
                 task_stop_probe_cache,
                 task_stop_effects,
+                task_review_probe_cache,
+                task_review_effects,
+                None,
             )
             .await
         };
@@ -765,12 +804,17 @@ pub async fn run_serve(
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
     if let Some(host) = &native_host {
         let core = core.clone();
+        let link = move || {
+            let core = core.clone();
+            async move { crate::native::plugins::http_link(&core).await }
+        };
         tokio::spawn(crate::native::plugins::deliver_crashes(
             host.crash_reports(),
-            move || {
-                let core = core.clone();
-                async move { crate::native::plugins::http_link(&core).await }
-            },
+            link.clone(),
+        ));
+        tokio::spawn(crate::native::plugins::deliver_door_requests(
+            host.door_requests(),
+            link,
         ));
     }
     let beats = Arc::new(heartbeat::Heartbeat::new());

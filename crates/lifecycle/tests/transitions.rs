@@ -62,7 +62,7 @@ fn waking_client_renews_without_changing_notifier_priority() {
     let options = json!({"kind":"desktop","version":"1","notifier":true});
     clients::register(&mut rows, &options, "first", 0.0);
     clients::register(&mut rows, &options, "second", 0.0);
-    clients::heartbeat(&mut rows, "first", None, None, None, 30.0).unwrap();
+    clients::heartbeat(&mut rows, "first", None, 30.0).unwrap();
     assert_eq!(clients::active(&rows, 45.0)["client_id"], "second");
     assert_eq!(clients::active(&rows, 45.000001)["client_id"], "first");
     assert!(clients::active(&rows, 75.000001).is_null());
@@ -72,11 +72,11 @@ fn heartbeat_notifier_updates_delivery_eligibility_in_place() {
     let mut rows = vec![];
     let options = json!({"kind":"desktop","version":"1","notifier":true});
     clients::register(&mut rows, &options, "desktop", 0.0);
-    clients::heartbeat(&mut rows, "desktop", Some(false), None, None, 1.0).unwrap();
+    clients::heartbeat(&mut rows, "desktop", Some(false), 1.0).unwrap();
     assert_eq!(clients::presenters(&rows, 1.0), json!([]));
-    clients::heartbeat(&mut rows, "desktop", None, None, None, 2.0).unwrap();
+    clients::heartbeat(&mut rows, "desktop", None, 2.0).unwrap();
     assert!(clients::active(&rows, 2.0).is_null());
-    clients::heartbeat(&mut rows, "desktop", Some(true), None, None, 3.0).unwrap();
+    clients::heartbeat(&mut rows, "desktop", Some(true), 3.0).unwrap();
     assert_eq!(
         clients::presenters(&rows, 3.0),
         json!([{"client_id":"desktop","kind":"desktop","medium":"os"}])
@@ -101,58 +101,13 @@ fn one_malformed_client_discards_entire_read_but_unknown_heartbeat_does_not_crea
     assert!(clients::read(&json!([row,{"client_id":"bad"}])).is_empty());
     let mut rows = vec![];
     assert_eq!(
-        clients::heartbeat(&mut rows, "missing", None, None, None, 1.0)
+        clients::heartbeat(&mut rows, "missing", None, 1.0)
             .unwrap_err()
             .code,
         "invalid_input"
     );
     assert!(rows.is_empty());
 }
-#[test]
-fn permission_changed_at_records_only_real_to_real_changes() {
-    let mut rows = vec![];
-    let options = json!({"kind":"desktop","version":"1","notifier":true,"notification_permission":"authorized","notification_alerts":"banner"});
-    clients::register(&mut rows, &options, "desktop", 0.0);
-    let listed = |rows: &[Value]| {
-        rows.iter()
-            .find(|r| r["client_id"] == "desktop")
-            .unwrap()
-            .clone()
-    };
-    // No change yet: no permission_changed_at.
-    assert!(listed(&rows)["permission_changed_at"].is_null());
-    // An unchanged real permission does not move the marker (relaunch case).
-    clients::heartbeat(&mut rows, "desktop", None, Some("authorized"), None, 2.0).unwrap();
-    assert!(listed(&rows)["permission_changed_at"].is_null());
-    // A real change moves it.
-    clients::heartbeat(&mut rows, "desktop", None, Some("denied"), None, 3.0).unwrap();
-    assert_eq!(listed(&rows)["permission_changed_at"], 3.0);
-    // An alert-style change (banner → none) moves it too.
-    clients::heartbeat(&mut rows, "desktop", None, None, Some("none"), 4.0).unwrap();
-    assert_eq!(listed(&rows)["permission_changed_at"], 4.0);
-}
-
-#[test]
-fn permission_changed_at_ignores_first_report_and_unsupported_transition() {
-    let mut rows = vec![];
-    let options = json!({"kind":"desktop","version":"1","notifier":true});
-    clients::register(&mut rows, &options, "desktop", 0.0);
-    let listed = |rows: &[Value]| {
-        rows.iter()
-            .find(|r| r["client_id"] == "desktop")
-            .unwrap()
-            .clone()
-    };
-    // First real report after an absent value: no change, no stamp.
-    clients::heartbeat(&mut rows, "desktop", None, Some("authorized"), None, 1.0).unwrap();
-    assert!(listed(&rows)["permission_changed_at"].is_null());
-    // Transition from/through the unsupported placeholder: no stamp.
-    clients::heartbeat(&mut rows, "desktop", None, Some("unsupported"), None, 2.0).unwrap();
-    assert!(listed(&rows)["permission_changed_at"].is_null());
-    clients::heartbeat(&mut rows, "desktop", None, Some("authorized"), None, 3.0).unwrap();
-    assert!(listed(&rows)["permission_changed_at"].is_null());
-}
-
 #[test]
 fn cancellation_settles_steps_and_cannot_be_overwritten_by_late_completion() {
     let original = job();

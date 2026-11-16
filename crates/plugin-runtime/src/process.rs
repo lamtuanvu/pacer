@@ -1,6 +1,8 @@
 //! Owned plugin child transport. Calls may overlap: a reader task routes
 //! responses by request id and plugin-to-host requests by `_meta.capabilityCall`,
-//! and a writer task keeps every frame whole. A watcher task owns the child:
+//! and a writer task keeps every frame whole. Requests sent between calls, and
+//! read-owner requests, go to the idle handler ([`PluginProcess::serve_idle`]),
+//! never to a later call. A watcher task owns the child:
 //! it alone reaps it, so a signal can never reach a reused pid, and it
 //! publishes the exit reason the TypeScript registry would record.
 
@@ -104,6 +106,29 @@ struct Routes {
     closed: Option<String>,
 }
 
+impl Routes {
+    fn idle(&mut self, request: Incoming) -> Result<bool, (Value, &'static str)> {
+        let full = (
+            request.id.clone(),
+            "too many capability requests without a call",
+        );
+        let Some(handler) = &self.idle_handler else {
+            if self.idle.len() >= QUEUED_IDLE {
+                return Err(full);
+            }
+            self.idle.push_back(request);
+            return Ok(true);
+        };
+        handler
+            .try_send(request)
+            .map(|()| false)
+            .map_err(|error| match error {
+                mpsc::error::TrySendError::Full(_) => full,
+                mpsc::error::TrySendError::Closed(request) => (request.id, "plugin process closed"),
+            })
+    }
+}
+
 struct Shared {
     routes: StdMutex<Routes>,
     idle: Notify,
@@ -139,7 +164,6 @@ impl Shared {
         routes.idle_handler = None;
         drop(routes);
         self.idle.notify_one();
-        self.closed.send_replace(true);
     }
 
     fn closed(&self) -> ProcessError {
@@ -240,6 +264,7 @@ pub struct PluginProcess {
     exit: watch::Receiver<Option<String>>,
     stopping: AtomicBool,
     tasks: [JoinHandle<()>; 3],
+    idle_task: StdMutex<Option<JoinHandle<()>>>,
 }
 
 impl Drop for PluginProcess {
@@ -255,55 +280,6 @@ impl Drop for PluginProcess {
         {
             task.abort();
         }
-    }
-}
-
-enum Stop {
-    Term,
-    Kill,
-}
-
-/// Reap the child and publish why it exited. Signals go through this task,
-/// so they reach the child only while its pid is still unreaped.
-async fn watch_child(
-    mut child: Child,
-    mut stops: mpsc::UnboundedReceiver<Stop>,
-    exit: watch::Sender<Option<String>>,
-) {
-    let status = loop {
-        tokio::select! {
-            status = child.wait() => break status,
-            Some(stop) = stops.recv() => match stop {
-                Stop::Term => {
-                    if let Some(pid) = child.id().and_then(|pid| i32::try_from(pid).ok()) {
-                        let _ = nix::sys::signal::kill(
-                            nix::unistd::Pid::from_raw(pid),
-                            nix::sys::signal::Signal::SIGTERM,
-                        );
-                    }
-                }
-                Stop::Kill => {
-                    let _ = child.start_kill();
-                }
-            },
-        }
-    };
-    exit.send_replace(Some(exit_reason(status)));
-}
-
-/// The registry's crash reason: `exited with code N` or `exited on SIGNAME`.
-fn exit_reason(status: io::Result<ExitStatus>) -> String {
-    use std::os::unix::process::ExitStatusExt;
-    let Ok(status) = status else {
-        return "exited".into();
-    };
-    match (status.code(), status.signal()) {
-        (Some(code), _) => format!("exited with code {code}"),
-        (None, Some(signal)) => match nix::sys::signal::Signal::try_from(signal) {
-            Ok(signal) => format!("exited on {}", signal.as_str()),
-            Err(_) => format!("exited on signal {signal}"),
-        },
-        (None, None) => "exited".into(),
     }
 }
 
@@ -459,6 +435,11 @@ impl PluginProcess {
         let (stops, stop_rx) = mpsc::unbounded_channel();
         let (exit_tx, exit) = watch::channel(None);
         let pid = child.id();
+        if let Some((stderr, log)) = child.stderr.take().zip(log) {
+            // Not aborted with the process: a descendant that inherited stderr
+            // can outlive the child, and the reader ends on its own.
+            tokio::spawn(copy_stderr(stderr, log, exit.clone()));
+        }
         let tasks = [
             tokio::spawn(write_frames(stdin, queued, shared.clone())),
             tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),

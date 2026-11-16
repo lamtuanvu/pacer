@@ -143,9 +143,9 @@ reason, `ready`, and `failing` after the third crash), the restarts must wait ou
 the owner's pid, and `pacer doctor` must report the live socket with that pid. The restart
 cycle then starts a serve that waits for the owner, stops the service and waits for its whole
 process group to exit, checks that the waiting serve took over `run/host.sock`, stops it, and
-starts the service again on its port. Last, it holds a `plugin.ui.render` past the 30 second
-call deadline and sends SIGTERM to the service pid alone (the plugin child shares its process
-group): the service and its plugin process must exit within the 2 second grace plus 1.5
+starts the service again on its port. Last, it holds a `plugin.ui.render` and, 1 second into
+the call's 2 second deadline, sends SIGTERM to the service pid alone (the plugin child shares
+its process group): the service and its plugin process must exit within the 2 second grace plus 1.5
 seconds, leaving no socket, sidecar or plugin process, and the service starts again.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
@@ -619,9 +619,9 @@ It also saves a
 `0.000001` planner reserve to check YAML number bytes. `runner.set` model cases
 check connection-account models and a seeded fresh OpenCode listing cache
 natively, including refusals with closest-model hints; a seeded stale listing
-must forward, and the fixture home puts a stand-in `opencode` first on `PATH`
-and compares its call log. The guarded CLI pass skips the forwarding case so the
-sandbox service never runs a real `opencode`. It compares each result and
+is listed natively through a stand-in `opencode` that the fixture home puts
+first on `PATH`, and its call log is compared. The guarded CLI pass skips that
+discovery case so the sandbox service never runs a real `opencode`. It compares each result and
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.

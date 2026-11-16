@@ -5,7 +5,7 @@ import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, readEvidence, record, removeSshControlDir, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, validateNativeFixtures, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, pacerArgv, readEvidence, record, removeSshControlDir, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, startService, stopService, up, validateNativeFixtures, validId, verifyFakeSsh, type Session } from "../scripts/live/core";
 import { controlDir, controlDirPath } from "../src/remote/ssh";
 import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
 import { resolveRepoInput } from "../src/core/repos";

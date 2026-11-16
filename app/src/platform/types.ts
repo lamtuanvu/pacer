@@ -15,7 +15,6 @@ export interface Platform {
   subscribeConnection(listener: (status: ConnectionStatus) => void): () => void;
   setConnectionStatus(status: ConnectionStatus): void;
   openExternal(url: string): void;
-  openSystemSettings?(pane: "notifications" | "privacy_files"): Promise<void> | void;
   confirm(message: string): Promise<boolean>;
   pickFiles(options?: { multiple?: boolean }): Promise<File[]>;
   pickFolder(): Promise<File[]>;

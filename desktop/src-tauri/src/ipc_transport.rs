@@ -1292,7 +1292,6 @@ mod tests {
             "allow-windowMinimize",
             "allow-windowToggleMaximize",
             "allow-windowClose",
-            "allow-open-system-settings",
             "core:window:allow-start-dragging",
             "core:window:allow-internal-toggle-maximize",
             "allow-menu-set-enabled",

@@ -46,9 +46,6 @@ export const remedies = {
   addExecutor: (account: string): Remedy => ({ kind: "user", label: `Add an executor for ${account}` }),
   service: (label: string): Remedy => ({ kind: "auto", label, op: "service.install", consent: true }),
   privacySettings: (): Remedy => ({ kind: "user", label: "Open Privacy settings", url: PRIVACY_FILES }),
-  allowNotifications: (): Remedy => ({ kind: "auto", label: "Allow notifications", op: "notifications.request" }),
-  notificationSettings: (caption: string): Remedy => ({ kind: "user", label: "Open Notification settings", url: "x-apple.systempreferences:com.apple.Notifications-Settings.extension", caption }),
-  testNotification: (): Remedy => ({ kind: "auto", label: "Send test notification", op: "notifications.test" }),
   agent: (check: string): Remedy => ({ kind: "agent", label: "Fix with agent", op: "doctor.fix.delegate", params: { check, scope: "fix" } }),
   internal: (): Remedy => ({ kind: "internal", label: "Restart pacer service", op: "service.install", consent: true }),
 };
@@ -76,9 +73,7 @@ export function remedyCommand(remedy: Remedy): string | undefined {
     case "agent.connect": return param("agent") ? `pacer install ${quote(param("agent")!)}` : undefined;
     case "runner.block": return param("id") ? `pacer executor block ${quote(param("id")!)}` : undefined;
     case "account.signin":
-    case "doctor.fix.delegate":
-    case "notifications.request":
-    case "notifications.test": return `pacer api call ${remedy.op} --params ${quote(JSON.stringify(remedy.params ?? {}))}`;
+    case "doctor.fix.delegate": return `pacer api call ${remedy.op} --params ${quote(JSON.stringify(remedy.params ?? {}))}`;
   }
   return remedy.url ? `open ${quote(remedy.url)}` : undefined;
 }
