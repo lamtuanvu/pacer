@@ -253,7 +253,7 @@ async function stdio(dir: string, steps: Step[], forward: boolean) {
   const child = Bun.spawn([front!, "api", "--stdio"], {
     cwd: dir, stdin: "pipe", stdout: "pipe", stderr: "pipe",
     env: {
-      HOME: dir, PACER_HOME: join(dir, ".pacer"), PACER_PORT: process.env.PACER_PORT!, PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1",
+      HOME: dir, PACER_HOME: join(dir, ".pacer"), PATH: "/usr/bin:/bin", PACER_CORE_ARGV: core, PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", ...(forward ? { PACER_FORWARD_OPS: OPS } : {}),
     },
   });

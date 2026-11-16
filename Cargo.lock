@@ -1927,7 +1927,6 @@ dependencies = [
  "chrono-tz",
  "pacer-config",
  "pacer-config-ops",
- "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
