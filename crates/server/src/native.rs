@@ -41,12 +41,8 @@ use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
 mod meta_ops;
-pub(crate) use pacer_config_ops::p8_bridge_ops;
-pub(crate) use pacer_core_bridge::msg_write_sync;
-pub(crate) use pacer_messaging_ops::msg_ops;
-pub(crate) use pacer_messaging_ops::msg_writes;
-pub(crate) mod host_check_clean_setup_sync;
-pub(crate) mod msg_write_sync;
+pub(crate) mod msg_ops;
+pub(crate) mod p8_bridge_ops;
 pub mod plugins;
 mod repo_ops;
 pub(crate) mod session_ops;
@@ -81,12 +77,7 @@ pub(crate) use host_check_clean_setup_ops::{
     host_stays_forwarded, needs_host_effects_bridge, uses_host_effects,
 };
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
-pub use insights_ops::insights_stays_forwarded;
-#[doc(hidden)]
-pub use machine_identity::set_identity_platform_for_tests;
-pub(crate) use msg_ops::{msg_answer_stays_forwarded, msg_stays_forwarded};
-#[doc(hidden)]
-pub use p8_bridge_ops::bridge_params as core_bridge_params;
+pub(crate) use msg_ops::msg_stays_forwarded;
 pub(crate) use p8_bridge_ops::needs_core_bridge;
 pub use pacer_account_ops::account_stays_forwarded;
 use pacer_config_ops::{project_strategy_ops, repo_registry_ops, strategy_preview_ops};
@@ -647,22 +638,6 @@ static OPS: &[NativeOp] = &[
         call: project_messaging_ops::project_messaging_remove,
     },
     NativeOp {
-        name: "project.strategy.list",
-        call: project_strategy_ops::project_strategy_list,
-    },
-    NativeOp {
-        name: "project.strategy.get",
-        call: project_strategy_ops::project_strategy_get,
-    },
-    NativeOp {
-        name: "project.strategy.set",
-        call: project_strategy_ops::project_strategy_set,
-    },
-    NativeOp {
-        name: "project.strategy.remove",
-        call: project_strategy_ops::project_strategy_remove,
-    },
-    NativeOp {
         name: "msg.inbox",
         call: msg_ops::msg_inbox,
     },
@@ -673,194 +648,6 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "msg.read",
         call: msg_ops::msg_read,
-    },
-    NativeOp {
-        name: "msg.policy",
-        call: msg_ops::msg_policy,
-    },
-    NativeOp {
-        name: "tree.status",
-        call: msg_ops::tree_status,
-    },
-    NativeOp {
-        name: "msg.send",
-        call: msg_writes::bridge_stub,
-    },
-    NativeOp {
-        name: "msg.wait",
-        call: msg_writes::bridge_stub,
-    },
-    NativeOp {
-        name: "msg.confirm",
-        call: msg_writes::bridge_stub,
-    },
-    NativeOp {
-        name: "msg.close",
-        call: msg_writes::bridge_stub,
-    },
-    NativeOp {
-        name: "dispatch.config.get",
-        call: dispatch_ops::dispatch_config_get,
-    },
-    NativeOp {
-        name: "dispatch.tierTargets.get",
-        call: tier_targets_ops::dispatch_tier_targets_get,
-    },
-    NativeOp {
-        name: "dispatch.tierTargets.set",
-        call: tier_targets_ops::dispatch_tier_targets_set,
-    },
-    NativeOp {
-        name: "dispatch.tree",
-        call: dispatch_ops::dispatch_tree,
-    },
-    NativeOp {
-        name: "dispatch.list",
-        call: dispatch_ops::dispatch_list,
-    },
-    NativeOp {
-        name: "dispatch.events",
-        call: dispatch_ops::dispatch_events,
-    },
-    NativeOp {
-        name: "dispatch.submit",
-        call: dispatch_lifecycle_ops::dispatch_submit,
-    },
-    NativeOp {
-        name: "dispatch.child",
-        call: dispatch_lifecycle_ops::dispatch_child,
-    },
-    NativeOp {
-        name: "dispatch.wait",
-        call: dispatch_lifecycle_ops::dispatch_wait,
-    },
-    NativeOp {
-        name: "dispatch.review",
-        call: dispatch_lifecycle_ops::dispatch_review,
-    },
-    NativeOp {
-        name: "dispatch.retry",
-        call: dispatch_lifecycle_ops::dispatch_retry,
-    },
-    NativeOp {
-        name: "dispatch.answer",
-        call: dispatch_lifecycle_ops::dispatch_answer,
-    },
-    NativeOp {
-        name: "dispatch.stop",
-        call: dispatch_lifecycle_ops::dispatch_stop,
-    },
-    NativeOp {
-        name: "dispatch.dependencies",
-        call: dependency_writes::dispatch_dependencies,
-    },
-    NativeOp {
-        name: "dispatch.dependencies.waive",
-        call: dependency_writes::dispatch_dependencies_waive,
-    },
-    NativeOp {
-        name: "dispatch.analytics",
-        call: learning_ops::dispatch_analytics,
-    },
-    NativeOp {
-        name: "dispatch.learning.reset",
-        call: learning_ops::dispatch_learning_reset,
-    },
-    NativeOp {
-        name: "dispatch.models",
-        call: planning_ops::dispatch_models,
-    },
-    NativeOp {
-        name: "dispatch.refresh",
-        call: planning_ops::dispatch_refresh,
-    },
-    NativeOp {
-        name: "dispatch.enforcement.consent",
-        call: planning_ops::dispatch_enforcement_consent,
-    },
-    NativeOp {
-        name: "dispatch.preview",
-        call: preview_ops::preview_stub,
-    },
-    NativeOp {
-        name: "dispatch.explain",
-        call: preview_ops::preview_stub,
-    },
-    NativeOp {
-        name: "insights.summary",
-        call: insights_ops::insights_summary,
-    },
-    NativeOp {
-        name: "discovery.set",
-        call: discovery_ops::discovery_set,
-    },
-    NativeOp {
-        name: "discovery.respond",
-        call: discovery_ops::discovery_respond,
-    },
-    NativeOp {
-        name: "discovery.list",
-        call: discovery_list,
-    },
-    NativeOp {
-        name: "discovery.network.get",
-        call: discovery_network_get,
-    },
-    NativeOp {
-        name: "discovery.network.set",
-        call: discovery_network_set,
-    },
-    NativeOp {
-        name: desktop_reconcile_ops::ops()[0].name,
-        call: desktop_reconcile_ops::ops()[0].call,
-    },
-    NativeOp {
-        name: desktop_reconcile_ops::ops()[1].name,
-        call: desktop_reconcile_ops::ops()[1].call,
-    },
-    NativeOp {
-        name: desktop_reconcile_ops::ops()[2].name,
-        call: desktop_reconcile_ops::ops()[2].call,
-    },
-    NativeOp {
-        name: "assistant.status",
-        call: assistant_ops::assistant_status,
-    },
-    NativeOp {
-        name: "assistant.settings.get",
-        call: assistant_ops::assistant_settings_get,
-    },
-    NativeOp {
-        name: "assistant.settings.set",
-        call: assistant_ops::assistant_settings_set,
-    },
-    NativeOp {
-        name: "assistant.candidates",
-        call: assistant_ops::assistant_candidates,
-    },
-    NativeOp {
-        name: "assistant.conversations",
-        call: assistant_ops::assistant_conversations,
-    },
-    NativeOp {
-        name: "assistant.conversation",
-        call: assistant_ops::assistant_conversation,
-    },
-    NativeOp {
-        name: "assistant.turn",
-        call: assistant_ops::assistant_turn,
-    },
-    NativeOp {
-        name: "assistant.delete",
-        call: assistant_ops::assistant_delete,
-    },
-    NativeOp {
-        name: "assistant.card.record",
-        call: assistant_ops::assistant_card_record,
-    },
-    NativeOp {
-        name: "assistant.card.refresh",
-        call: assistant_ops::assistant_card_refresh,
     },
     #[cfg(feature = "test-ops")]
     NativeOp {
@@ -1209,6 +996,12 @@ mod tests {
             "repo.list",
             "repo.add",
             "repo.remove",
+            "project.messaging.get",
+            "project.messaging.set",
+            "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
         ] {
             assert!(registry("").get(name).is_some(), "{name}");
             assert!(registry(name).get(name).is_none(), "{name}");
@@ -1249,6 +1042,15 @@ mod tests {
         assert!(registry("task.review").get("task.review").is_none());
         assert!(registry("").get("task.ask").is_none());
         assert!(registry("").get("limits.refresh").is_none());
+        for name in [
+            "msg.send",
+            "msg.wait",
+            "msg.confirm",
+            "msg.close",
+            "msg.policy",
+        ] {
+            assert!(registry("").get(name).is_none(), "{name}");
+        }
     }
 
     #[test]
@@ -1311,6 +1113,12 @@ mod tests {
             "repo.list",
             "repo.add",
             "repo.remove",
+            "project.messaging.get",
+            "project.messaging.set",
+            "project.messaging.remove",
+            "msg.inbox",
+            "msg.log",
+            "msg.read",
         ] {
             assert!(super::service_registry("").get(name).is_some(), "{name}");
             assert!(super::service_registry(name).get(name).is_none(), "{name}");
