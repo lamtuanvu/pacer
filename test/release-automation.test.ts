@@ -81,16 +81,10 @@ test("Each CI test shard prebuilds and supplies the task store probe binary", ()
   expect(steps[gate]!.env?.PACER_STORE_PROBE_BIN).toBe("${{ github.workspace }}/target/debug/task_store_probe");
 });
 
-test("Every release PR head gets a dry run with exact-head checkout", () => {
+test("Releases build from tags only; release branches get no pull-request dry run", () => {
   const release = load("release.yml");
-  expect(release.on.pull_request).toEqual({ branches: ["main"], types: ["opened", "synchronize", "reopened", "ready_for_review"] });
-  expect((release as any).env.DRY_RUN).toContain("github.event_name == 'pull_request'");
-  expect(release.jobs.verify!.if).toContain("github.event.pull_request.head.repo.full_name == github.repository");
-  for (const job of Object.values(release.jobs)) {
-    for (const step of job.steps.filter(s => s.uses?.startsWith("actions/checkout@"))) {
-      expect(step.with?.ref).toBe("${{ github.event.pull_request.head.sha || github.sha }}");
-    }
-  }
+  expect(Object.keys(release.on).sort()).toEqual(["push", "workflow_dispatch"]);
+  expect(release.on.push).toEqual({ tags: ["v*.*.*"] });
 });
 
 test("Required test jobs wait for release readiness", () => {
@@ -102,12 +96,12 @@ test("Required test jobs wait for release readiness", () => {
   expect(ci.jobs["release-readiness"]!.steps[0]!.run).toContain("seq 1 1400");
 });
 
-test("Release readiness fails on failed validation and succeeds only for a completed successful run", () => {
-  for (const conclusion of ["success", "failure", "cancelled", "skipped"]) {
-    const { work } = fixture("0.5.0", "release fixture");
+test("Release readiness never blocks a bookkeeping release/v* PR, even with a failed or missing dry run", () => {
+  for (const conclusion of ["success", "failure", "cancelled"]) {
+    const { work } = fixture("0.5.0", "chore: release 0.5.0");
     writeFileSync(join(work, "runs.json"), JSON.stringify([{ status: "completed", conclusion, url: "https://example.invalid/run" }]));
     const result = runStep(work, readiness, { EVENT: "pull_request", REPO: "fixture/repo", HEAD_REPO: "fixture/repo", BRANCH: "release/v0.5.0", HEAD: "fixture-head" });
-    expect(result.exitCode === 0).toBe(conclusion === "success");
+    expect(result.exitCode).toBe(0);
   }
 });
 
