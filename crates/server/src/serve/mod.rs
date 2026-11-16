@@ -625,7 +625,6 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 task_stop_effects,
                 task_review_probe_cache,
                 task_review_effects,
-                host_effects_sync,
             )
             .await
         };
