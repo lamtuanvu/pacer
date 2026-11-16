@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -58,7 +57,7 @@ function clone(home: string) {
 }
 
 const env = (home: string, extra: Record<string, string>, forward: boolean) => ({
-  ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+  HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
   PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
   ...extra, ...(forward ? { PACER_FORWARD_OPS: OPS.join(",") } : {}),
 });
@@ -154,7 +153,7 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
       expect(state(nativeHome), scenario.name).toEqual(state(forwardHome));
       expect(forwarded.markers, scenario.name).toEqual([]);
       const ops = requests.map(request => JSON.parse(request)).filter(r => OPS.includes(r.method));
-      expect(native.markers, scenario.name).toEqual(ops.filter(r => !(r.method === "msg.send" && r.params?.kind === "answer" && typeof r.params?.reply_to === "string")).map(r => `native ${r.method} ${r.id}`));
+      expect(native.markers, scenario.name).toEqual(ops.map(r => `native ${r.method} ${r.id}`));
       // A blocking wait does not hold back the requests after it.
       const order = native.lines.map(line => JSON.parse(line).id);
       expect(order.indexOf(37), scenario.name).toBeLessThan(order.indexOf(36));
@@ -184,7 +183,7 @@ test.skipIf(!front)("stdio msg.send, msg.confirm, msg.close and msg.wait match t
 async function serve(home: string, forward: boolean) {
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...env(home, {}, forward), ...childEnv(home, port) }, cwd: home, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: env(home, {}, forward), cwd: home, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;

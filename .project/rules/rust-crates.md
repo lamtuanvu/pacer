@@ -62,10 +62,8 @@ Layers from bottom (0) to top. Budgets are the planned size at the end of M3; CR
 | 3 | `pacer-sessions` (`crates/sessions`) | PTY sessions, screen, recording, terminal opening | 2,000–2,500 | `portable-pty`, `vt100` |
 | 4 | `pacer-plugin-host` (`crates/plugin-host`) | Plugin registry, frame codec, call authority, credentials, host leases, manifests, policy, observations, pairing and native writes ([ADR 0026](../../docs/decisions/0026-native-plugin-capability-crate.md)) | ≤ 6,000 | none |
 | 4 | `pacer-repos` (`crates/repos`) | Repository registry: `repos.json` and linked-checkout aliases, the per-process path probe, branch reads, git identity and registration of absolute checkout paths | ≤ 1,500 | none |
-| 4 | `pacer-models` (`crates/models`) | Runner model listings (`src/models/available.ts`): the OpenCode listing cache, endpoint connection models, closest-model suggestions and the `runner.set` model check; OpenCode model discovery from M2 wave 4 | ≤ 1,500 | none |
 | 4 | `pacer-messaging-ops` (`crates/messaging-ops`) | Native project messaging operation handlers (`msg.inbox`, `msg.log`, `msg.read`, `msg.policy`, `tree.status`, and the writes `msg.send`, `msg.confirm`, `msg.close`, `msg.wait` with their Core effects bridge) over the message store, strategy and project messaging documents | ≤ 2,000 | none |
-| 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations and settings reads over the `pacer-js-json` quoted codec | ≤ 5,000 | none |
-| 5 | `pacer-plugin-capabilities` (`crates/plugin-capabilities`) | Native capability brokers for plugin calls: the capability broker, transfers and the native read, process, HTTP, bundle, duplex, hosts, worktree, run, remote and Orca effects ([ADR 0026](../../docs/decisions/0026-native-plugin-capability-crate.md)) | ≤ 7,500 | `reqwest` |
+| 5 | `pacer-plugin-ops` (`crates/plugin-ops`) | Plugin read operations, settings reads and JSON compatibility | ≤ 5,000 | none |
 | 5 | `pacer-engine` (`crates/engine`) | Pacing, usage broker, status | 1,500–2,000 | none |
 | 5 | `pacer-install` (`crates/install`) | Setup, onboarding, agent integrations, accounts, Orca panel installer, executor guard (native today: the `agent.detect` cache read) | 3,500–4,500 | none |
 | 5 | `pacer-wasm-host` (`crates/wasm-host`) | Wasm component transport (feature `wasm`) | 800–1,200 | `wasmtime` |
