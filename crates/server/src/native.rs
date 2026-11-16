@@ -60,8 +60,11 @@ pub(crate) mod task_dismiss_ops;
 mod task_get_ops;
 pub(crate) mod task_read_sync;
 mod task_reads;
-pub(crate) mod task_stop_sync;
+mod task_review_ops;
+pub(crate) mod task_review_sync;
 mod task_stop_ops;
+pub(crate) mod task_stop_sync;
+mod task_wait_ops;
 pub(crate) mod task_wait_sync;
 mod task_wait_ops;
 

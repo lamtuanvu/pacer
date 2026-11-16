@@ -239,6 +239,38 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => return native_error(error),
             }
         }
+        let task_review_probe_cache = if op.name == "task.review" {
+            if params
+                .get("id")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|id| id.is_empty())
+            {
+                return native_error(CoreError::new(
+                    Code::InvalidInput,
+                    "id: Invalid input: expected string, received undefined",
+                ));
+            };
+            let core_target = state.core.target().await;
+            match crate::native::task_review_sync::http_probe(core_target.clone(), &params).await {
+                Ok(probe)
+                    if crate::native::task_review_sync::task_review_stays_forwarded(&probe) =>
+                {
+                    let Some(target) = core_target else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(probe) => Some(probe),
+                Err(error) => return native_error(error),
+            }
+        } else {
+            None
+        };
         let task_stop_probe_cache = if op.name == "task.stop" {
             let Some(id) = params
                 .get("id")
