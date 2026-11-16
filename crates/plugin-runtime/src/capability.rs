@@ -27,8 +27,8 @@ use pacer_plugin_capabilities::{
 };
 use pacer_plugin_host::{
     AuthorityError, BrokerError, CallAuthority, CallResources, CredentialBindings, ORCA_PROVIDER,
-    ObservationCall, OrcaAttemptResource, ParsedManifest, ProviderSnapshot, ReadContext,
-    parse_manifest,
+    ObservationCall, ObservationGeneration, OrcaAttemptResource, ParsedManifest, ProviderSnapshot,
+    ReadContext, TaskProjection, parse_manifest,
 };
 use serde_json::{Value, json};
 use std::{
