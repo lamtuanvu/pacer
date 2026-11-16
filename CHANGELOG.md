@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.15.1] - 2026-11-16
+
+### Changed
+
+- Let the session-limit run print its own screen (#1026).
+- Release a pinned commit from its tag (#1053) (release).
+
+### Fixed
+
+- Fit long release notes into the desktop update feed (#1054) (release).
+
 ## [0.15.0] - 2026-11-14
 
 ### Added
