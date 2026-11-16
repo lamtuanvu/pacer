@@ -19,8 +19,8 @@
 //! socket is replaced. Crashes the owner sees reach Core as `crashed`.
 
 use pacer_plugin_runtime::{
-    BridgeError, CrashReport, DoorRequest, HOST_SOCKET_KEY_ENV, NativeHostError, NativeHostSession,
-    SharedOwner, native_plugin_host_enabled_from_env, read_owner_pid,
+    BridgeError, CrashReport, NativeHostError, NativeHostSession, SharedOwner,
+    native_plugin_host_enabled_from_env, read_owner_pid,
 };
 use std::{
     collections::HashMap,
@@ -83,15 +83,6 @@ impl Guard {
 
     pub(super) fn crash_reports(&self) -> mpsc::UnboundedReceiver<CrashReport> {
         self.session.crash_reports()
-    }
-
-    pub(super) fn door_requests(&self) -> mpsc::UnboundedReceiver<DoorRequest> {
-        self.session.door_requests()
-    }
-
-    /// The Core child's credential pair; add it to the Core child's env only.
-    pub(super) fn core_key(&self) -> (String, String) {
-        (HOST_SOCKET_KEY_ENV.to_owned(), self.session.key().to_hex())
     }
 
     pub(super) async fn shutdown(self) {

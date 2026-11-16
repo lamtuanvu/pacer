@@ -8,15 +8,14 @@
 
 use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, OwnerKey, SpawnSpec, StartFailure,
-    TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
-    serve_starts_reverse_bridge_by_default, start_lane,
+    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, SpawnSpec, StartFailure, TERMINATE_GRACE,
+    native_plugin_host_enabled, serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
 use std::{
     env, fs,
     os::unix::fs::MetadataExt,
-    path::PathBuf,
+    path::Path,
     time::{Duration, Instant},
 };
 use tokio::{

@@ -8,13 +8,11 @@
 //! Core's own registry when the native host is off (private `call`), a
 //! [`SharedOwner`] in this process when it is on (serve, or a stdio connection
 //! with no live serve owner, ADR 0027), or the live serve owner a stdio
-//! connection attached to (plus `_host.plugin.stop`). With the host on, every
-//! door's plugin call is the private `relay`: Core runs its sealed owner call
-//! on its owner socket with the method's flag-off deadline and answers the
-//! Core-run capabilities itself, and never spawns a child. Core also keeps the
-//! bookkeeping kinds prepare/stop/changed/publish/log/crashed. A local owner
-//! starts a child no sooner than Core's sealed `nextStartAt` and its own
-//! restart floor, and an in-flight call whose child died answers
+//! connection attached to (private `relay`, plus `_host.plugin.stop`). With the
+//! host on, Core keeps the bookkeeping kinds prepare/spawn_spec/call_authority/
+//! ready/stop/changed/publish/log/crashed and never spawns a child itself. A
+//! local owner starts a child no sooner than Core's sealed `nextStartAt` and
+//! its own restart floor, and an in-flight call whose child died answers
 //! `plugin_unavailable` naming the plugin once the crash is on record.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 use crate::serve::core_child::CoreChild;
@@ -33,7 +31,10 @@ use pacer_plugin_ops::{
     public::{Entry, PublicOperations, Runtime},
 };
 use pacer_plugin_runtime::{
-    CrashReport, DoorRefusal, DoorRequest, OwnerKey, SharedOwner, StopOutcome, stop_on_owner,
+    CrashReport, SharedOwner, SpawnSpec, StartFailure, StopOutcome, call_resources_from_value,
+    crash_message, executor_context_from_value, host_snapshots_from_value,
+    observation_bootstrap_from_value, orca_context_from_value, ready_info, session_for_call,
+    session_from_hello, start_lane, stop_on_owner, worktree_context_from_value,
 };
 use serde_json::{Value, json};
 use std::{
@@ -180,41 +181,6 @@ pub(crate) async fn deliver_crashes<F, Fut>(
             let _ = pacer_plugin_ops::ipc::request(&*ipc, &body, &mut Vec::new()).await;
         }
         let _ = report.done.send(());
-    }
-}
-
-/// Answer the owner's private requests (observation events and reads, idle
-/// `capability.log` lines) from the owning door's Core, each on its own task
-/// so a slow read never holds up another lane's pump.
-pub(crate) async fn deliver_door_requests<F, Fut>(
-    mut requests: tokio::sync::mpsc::UnboundedReceiver<DoorRequest>,
-    link: F,
-) where
-    F: Fn() -> Fut + Clone + Send + 'static,
-    Fut: Future<Output = Option<CoreLink>> + Send,
-{
-    while let Some(request) = requests.recv().await {
-        let link = link.clone();
-        tokio::spawn(async move {
-            let reply = match link().await {
-                Some((ipc, _)) => {
-                    pacer_plugin_ops::ipc::request(&*ipc, &request.body, &mut Vec::new())
-                        .await
-                        .map_err(|error| DoorRefusal {
-                            code: serde_json::to_value(error.code)
-                                .ok()
-                                .and_then(|code| code.as_str().map(str::to_owned))
-                                .unwrap_or_else(|| "internal".into()),
-                            message: error.message,
-                        })
-                }
-                None => Err(DoorRefusal {
-                    code: "unavailable".into(),
-                    message: "plugin process owner is unavailable".into(),
-                }),
-            };
-            let _ = request.reply.send(reply);
-        });
     }
 }
 
@@ -416,6 +382,11 @@ fn internal(e: impl std::fmt::Display) -> CoreError {
     CoreError::new(Code::Internal, e.to_string())
 }
 
+/// A plugin method's deadline on a local owner, including any restart wait.
+const CALL_DEADLINE: Duration = Duration::from_secs(30);
+/// How long a child may take to answer `plugin.hello`, including its turn.
+const HELLO_DEADLINE: Duration = Duration::from_secs(5);
+
 impl Owner {
     async fn call_native(
         &mut self,
@@ -431,8 +402,212 @@ impl Owner {
             // requests (`secrets.resolve`, `identity.sign`, …) over its own connection.
             ProcessRpc::Local(_) | ProcessRpc::Attached(..) => "relay",
         };
-        self.request(json!({"kind":kind, "id":id, "method":method, "params":params}))
+        let spec_body = self.request(json!({"kind":"spawn_spec", "id":id})).await?;
+        let argv = spec_body["argv"]
+            .as_array()
+            .ok_or_else(|| internal("spawn_spec missing argv"))?
+            .iter()
+            .filter_map(Value::as_str)
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        if argv.is_empty() {
+            return Err(internal("spawn_spec empty argv"));
+        }
+        let cwd = spec_body["cwd"]
+            .as_str()
+            .ok_or_else(|| internal("spawn_spec missing cwd"))?;
+        let mut env = HashMap::new();
+        if let Some(object) = spec_body["env"].as_object() {
+            for (key, value) in object {
+                if let Some(text) = value.as_str() {
+                    env.insert(key.clone(), text.to_owned());
+                }
+            }
+        }
+        let hello = spec_body
+            .get("hello")
+            .cloned()
+            .ok_or_else(|| internal("spawn_spec missing hello"))?;
+        // P4d-7: Core seals call-scoped CallResources before the plugin method.
+        let authority_body = self
+            .request(json!({"kind":"call_authority", "id":id, "method":method}))
+            .await?;
+        let resources = call_resources_from_value(
+            authority_body
+                .get("resources")
+                .unwrap_or(&Value::Object(Default::default())),
+        )
+        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let grants = authority_body
+            .get("grants")
+            .and_then(Value::as_array)
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .map(str::to_owned)
+                    .collect::<Vec<_>>()
+            });
+        let ttl = authority_body
+            .get("ttlMs")
+            .and_then(Value::as_u64)
+            .filter(|ms| *ms > 0)
+            .unwrap_or(30_000);
+        let call_lifetime = Duration::from_millis(ttl);
+        let observation = observation_bootstrap_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let host_attach = host_snapshots_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let orca_context = orca_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let worktree_context = worktree_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let executor_context = executor_context_from_value(&authority_body)
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        let spec = SpawnSpec {
+            argv,
+            cwd: cwd.into(),
+            env,
+        };
+        let lane = start_lane(
+            &owner,
+            id,
+            &spec,
+            spec_body["nextStartAt"].as_u64(),
+            std::time::Instant::now() + CALL_DEADLINE,
+            None,
+        )
+        .await
+        .map_err(|error| match error {
+            StartFailure::Owner(error) => {
+                CoreError::new(Code::PluginUnavailable, error.to_string())
+            }
+            StartFailure::Crashed(text) => {
+                CoreError::new(Code::PluginUnavailable, format!("{method}: {text}"))
+            }
+            other => CoreError::new(Code::PluginTimeout, other.to_string()),
+        })?;
+        let mut session = session_for_call(
+            &hello,
+            resources,
+            grants,
+            call_lifetime,
+            observation,
+            Some(&host_attach),
+            orca_context,
+            worktree_context,
+            executor_context,
+        )
+        .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_hosts(owner.clone())
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_orca(owner.clone())
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_worktree()
             .await
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        session
+            .bind_process_owner_executor()
+            .map_err(|error| CoreError::new(Code::PluginRefused, error.to_string()))?;
+        // The owner lock only installs the session: the hello and the call run
+        // on the lane, so shutdown and other plugins never wait for this reply.
+        let session = {
+            let mut guard = owner.lock().await;
+            guard
+                .install_capability_session(id, session)
+                .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()))?;
+            guard.capability_session(id)
+        };
+        if !lane.is_ready() {
+            let expires = tokio::time::Instant::now() + HELLO_DEADLINE;
+            let hello_result = match lane.exclusive(expires).await {
+                Ok(_turn) if !lane.is_ready() => {
+                    let left = expires.saturating_duration_since(tokio::time::Instant::now());
+                    lane.request_in_turn(session.clone(), "plugin.hello", hello.clone(), left, None)
+                        .await
+                        .map(Some)
+                }
+                Ok(_) => Ok(None),
+                Err(error) => Err(error),
+            };
+            let hello_result = match hello_result {
+                Ok(reply) => reply,
+                Err(error) => {
+                    return Err(match crash_message(&lane, id, "plugin.hello").await {
+                        Some(message) => CoreError::new(Code::PluginUnavailable, message),
+                        None => CoreError::new(Code::PluginRefused, error.to_string()),
+                    });
+                }
+            };
+            if let Some(hello_result) = hello_result {
+                // Bridge calls that require a negotiated feature read it from this summary.
+                lane.mark_ready(Some(ready_info(&hello_result, &hello)));
+                let protocol = hello_result["protocol"].as_str().unwrap_or("").to_owned();
+                let mut served = vec!["diagnostic".to_owned()];
+                if let Some(points) = hello_result["contributes"].as_array() {
+                    for point in points {
+                        if let Some(name) = point.as_str()
+                            && name != "diagnostic"
+                            && !served.iter().any(|s| s == name)
+                        {
+                            served.push(name.to_owned());
+                        }
+                    }
+                }
+                self.request(json!({
+                    "kind":"ready",
+                    "id":id,
+                    "protocol":protocol,
+                    "served":served,
+                }))
+                .await?;
+            }
+        }
+        let result = lane
+            .call(session, method, params, CALL_DEADLINE, None)
+            .await
+            .map_err(|error| CoreError::new(Code::PluginUnavailable, error.to_string()));
+        // Drop call-scoped natives; keep hello-only between calls.
+        if let Ok(idle) = session_from_hello(&hello, Duration::from_secs(300)) {
+            let _ = owner.lock().await.install_capability_session(id, idle);
+        }
+        let result = match result {
+            Err(error) => match crash_message(&lane, id, method).await {
+                Some(message) => Err(CoreError::new(Code::PluginUnavailable, message)),
+                None => Err(error),
+            },
+            ok => ok,
+        };
+        self.flush_capability_logs(owner, id).await;
+        result
+    }
+
+    async fn flush_capability_logs(&mut self, owner: SharedOwner, id: &str) {
+        let logs = {
+            let guard = owner.lock().await;
+            let Some(session) = guard.capability_session(id) else {
+                return;
+            };
+            drop(guard);
+            let mut session = session.lock().await;
+            session.take_logs()
+        };
+        for (level, message) in logs {
+            let mut text = if level == "info" {
+                message
+            } else {
+                format!("[{level}] {message}")
+            };
+            if text.len() > 1000 {
+                text.truncate(1000);
+            }
+            let _ = self
+                .request(json!({"kind":"log", "id":id, "message":text}))
+                .await;
+        }
     }
 
     async fn stop_native(&mut self, id: &str) -> Result<Value, CoreError> {

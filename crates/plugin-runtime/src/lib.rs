@@ -19,9 +19,7 @@
 //! ([`probe_home_owner`]) or own children on a per-connection socket
 //! ([`NativeHostSession::start_connection`]) — ADR 0027. The owner detects
 //! crashed children, reports them to the owning door's Core and holds a
-//! restart floor ([`crash`]). A lane keeps the observation generation its
-//! plugin subscribed under, fed by the owning door's Core, and answers requests
-//! sent between calls in its own idle session (`observation`).
+//! restart floor ([`crash`]).
 
 mod bridge_auth;
 mod bridge_call;

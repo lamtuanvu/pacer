@@ -180,7 +180,6 @@ pub(crate) async fn monitor(book: Arc<CrashBook>, id: String, lane: Weak<PluginL
     let Some(lane) = lane.upgrade() else {
         return;
     };
-    lane.observation().retire();
     if !lane.process().is_stopping() {
         book.record(&id);
         book.report(&id, &reason).await;

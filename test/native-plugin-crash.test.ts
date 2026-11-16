@@ -4,7 +4,7 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { hostSocketCheck } from "../src/install/host-socket-check";
 import { pluginNativeRequest } from "../src/serve/plugin-native";
-import { fakeCtx, waitPid } from "./helpers";
+import { fakeCtx } from "./helpers";
 import { alive, front, makeHome, normalize, ownerOn, semantic, serve, spawnServe, stdio, tsOwner, type Home, type Reply } from "./native-plugin-door";
 
 // Crash reporting, restart backoff, stop escalation and one serve per home (ADR 0027, OD-7)
@@ -17,27 +17,27 @@ const hold = { plugin: "fx-ui", surface: "activity", id: "checklist", context, a
 function crashMain(h: Home, stubborn = false) {
   writeFileSync(join(h.plugin, "main.ts"), `#!/usr/bin/env bun
 import {serve,stdinLines} from '@pacer/plugin';
-import {appendFileSync,readFileSync,renameSync,writeFileSync} from 'node:fs';
+import {appendFileSync,readFileSync,writeFileSync} from 'node:fs';
 appendFileSync('starts', process.pid + ' ' + Date.now() + '\\n');
 ${stubborn ? "process.on('SIGTERM',()=>appendFileSync('sigterm',process.pid+' '+Date.now()+'\\n'));" : ""}
 const manifest=JSON.parse(readFileSync(new URL('./pacer-plugin.json',import.meta.url),'utf8'));
 await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
- if(p.action==='hold'){writeFileSync('held.tmp',String(process.pid));renameSync('held.tmp','held');await new Promise(()=>{});}
+ if(p.action==='hold'){writeFileSync('held',String(process.pid));await new Promise(()=>{});}
  return {result:'done'};
 }}});`);
 }
 
-/** `[pid, at]` for each line of a fixture log: every start, or every SIGTERM a stubborn child ignored.
- * An empty log yields no entry, never pid 0, which the tests would signal as the runner's process group. */
+/** `[pid, at]` for each line of a fixture log: every start, or every SIGTERM a stubborn child ignored. */
 const timeLog = (h: Home, name: string): [number, number][] => existsSync(join(h.plugin, name))
-  ? readFileSync(join(h.plugin, name), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number]).filter(([pid]) => pid > 0)
+  ? readFileSync(join(h.plugin, name), "utf8").trim().split("\n").map(line => line.split(" ").map(Number) as [number, number])
   : [];
 const startLog = (h: Home) => timeLog(h, "starts");
 
 /** Start a `hold` action and wait until the child holds it; returns the child's pid. */
 async function holdAction(h: Home, call: (op: string, params: unknown) => Promise<Reply>) {
   void call("plugin.ui.action", hold).catch(() => undefined);
-  return await waitPid(join(h.plugin, "held"));
+  for (let i = 0; i < 1000 && !existsSync(join(h.plugin, "held")); i++) await Bun.sleep(10);
+  return Number(readFileSync(join(h.plugin, "held"), "utf8"));
 }
 
 /** The door stopped within the grace, SIGTERM reached the child at once, and nothing of the home is left running. */
@@ -85,7 +85,7 @@ test("Core records a native owner's crash report as its own exit, and only with 
     const off = fakeCtx({ home: h.home, pacerHome: h.state, env });
     const on = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "host.sock") } });
     await callOp(off, "plugin.enable", { id: "fx-ui", grant: true });
-    const crashed = (ctx: typeof on, reason: string, stdio = false) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }, { stdio }) as Promise<any>;
+    const crashed = (ctx: typeof on, reason: string, relay = false) => pluginNativeRequest(ctx, { kind: "crashed", id: "fx-ui", reason }, { relay }) as Promise<any>;
     // Flag-off the registry watches its own children; a report could only be forged.
     expect((await crashed(off, "exited on SIGKILL")).error).toMatchObject({ code: "plugin_unavailable", message: "crash reports require the native process owner" });
     // A stdio Core attached to the service's `host.sock` does not own the children it would report.
@@ -99,8 +99,6 @@ test("Core records a native owner's crash report as its own exit, and only with 
     const owning = fakeCtx({ home: h.home, pacerHome: h.state, env: { ...env, PACER_HOST_SOCKET: join(h.state, "run", "s0123456789ab.sock") } });
     expect(fx(await crashed(owning, "exited with code 3", true))).toMatchObject({ state: "idle", restarts: 1, error: "exited with code 3" });
     const spec = (await pluginNativeRequest(on, { kind: "spawn_spec", id: "fx-ui" }) as any).value;
-    // The door reports `ready` for a child it finds ready only while Core lists it otherwise.
-    expect(spec.state).toBe("idle");
     expect(spec.nextStartAt).toBeGreaterThanOrEqual(before + 1000);
     expect(spec.nextStartAt).toBeLessThanOrEqual(Date.now() + 1000);
     expect(fx(await crashed(on, "exited on SIGKILL"))).toMatchObject({ state: "idle", restarts: 2 });
@@ -120,7 +118,8 @@ test.skipIf(!front)("a crash mid-call fails that call as plugin_unavailable nami
     try {
       await service.call("plugin.enable", { id: "fx-ui", grant: true });
       const pending = service.call("plugin.ui.action", hold);
-      process.kill(await waitPid(join(h.plugin, "held")), "SIGKILL");
+      for (let i = 0; i < 1000 && !existsSync(join(h.plugin, "held")); i++) await Bun.sleep(10);
+      process.kill(Number(readFileSync(join(h.plugin, "held"), "utf8")), "SIGKILL");
       errors[name] = semantic(await pending);
       // The next call is served by a new child once the backoff passes.
       expect((await service.call("plugin.doctor", { id: "fx-ui" })).json.result.reports[0]).toMatchObject({ ok: true, restarts: 1 });
@@ -223,10 +222,6 @@ test.skipIf(!front)("an attached stdio connection cannot restart a plugin the se
       expect(report.ok).toBe(false);
     }
     expect(report.error).toContain("plugin fx-ui is failing: 3 failures within a minute");
-    // The owner's refusal reaches the attached door through its Core with the hint.
-    expect(semantic(await s.call("plugin.ui.action", { ...hold, action: "refresh", requestId: "failing" }))).toMatchObject({
-      code: "plugin_unavailable", message: expect.stringContaining("plugin fx-ui is failing"), hint: "Enable the plugin through the pacer service.",
-    });
     expect(startLog(h)).toHaveLength(3);
     // Enabling through the service clears the owner's mark, and the attached door is served again.
     await service.call("plugin.enable", { id: "fx-ui", grant: true });
