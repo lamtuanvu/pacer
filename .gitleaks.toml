@@ -1,9 +1,6 @@
 # Gitleaks configuration for pacer
 # Use default rules with some customizations
 
-[allow]
-# Allow certain patterns that are known to be safe in this codebase
-
 [[allow]]
 description = "Test fixtures with placeholder secrets"
 paths = ["**/test/**", "**/tests/**", "**/fixtures/**"]
@@ -11,6 +8,14 @@ paths = ["**/test/**", "**/tests/**", "**/fixtures/**"]
 [[allow]]
 description = "Documentation examples"
 paths = ["**/*.md", "**/docs/**"]
+
+[[allow]]
+description = "Exclude test fixtures"
+paths = ["**/test/**", "**/tests/**", "**/fixtures/**", "**/__snapshots__/**"]
+
+[[allow]]
+description = "Exclude documentation"
+paths = ["**/*.md", "**/docs/**", "**/doc/**"]
 
 [rule]
 id = "generic-api-key"
@@ -47,12 +52,3 @@ id = "generic-secret"
 description = "Generic secret pattern"
 regex = "(?i)(secret|password|token|key)[:=]\s*[\"']?[A-Za-z0-9/+=]{20,}[\"']?"
 tags = ["secret"]
-
-# Exclude test fixtures and documentation
-[allow]
-description = "Exclude test fixtures"
-paths = ["**/test/**", "**/tests/**", "**/fixtures/**", "**/__snapshots__/**"]
-
-[allow]
-description = "Exclude documentation"
-paths = ["**/*.md", "**/docs/**", "**/doc/**"]
