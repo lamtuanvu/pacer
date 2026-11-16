@@ -103,7 +103,7 @@ async fn native_events_stream_without_core_and_honors_forward_escape() {
 }
 
 #[tokio::test]
-async fn default_event_tail_delivers_post_connect_external_append_within_750ms() {
+async fn default_event_tail_delivers_post_connect_external_append_within_bounded_tail() {
     for version in [2, 3] {
         let home = tempfile::tempdir().unwrap();
         let (port, server) = listener(home.path(), false).await;
@@ -132,9 +132,21 @@ async fn default_event_tail_delivers_post_connect_external_append_within_750ms()
             &[json!({"seq":1,"envelope":{"type":"config","data":{"area":"config","at":1000.0}}})],
         )
         .unwrap();
-        let frame = tokio::time::timeout(Duration::from_millis(750), body.frame()).await;
+        // The default fallback tail (the events route's poll interval) is 250 ms,
+        // so an external append lands on the next poll at most one interval (plus
+        // the poll itself) after it is written. The old 750 ms bound was 3 such
+        // intervals; the loaded release-gate M1 once stalled a single poll past
+        // it (GP run 43816263367, first attempt), so the bound was only barely
+        // long enough for the runtime's scheduler, not a delivery contract.
+        // This is not a product SLA - 750 ms appears nowhere in the route. Use a
+        // 12-interval window (3 s): comfortably above any scheduler stall while
+        // still failing in seconds if the tail is raised or delivery breaks.
+        let frame = tokio::time::timeout(Duration::from_secs(3), body.frame()).await;
         server.abort();
-        assert!(frame.is_ok(), "default external event exceeded 750ms");
+        assert!(
+            frame.is_ok(),
+            "default external event exceeded the bounded tail window (3 s)"
+        );
         let frame = frame.unwrap().unwrap().unwrap().into_data().unwrap();
         assert!(
             String::from_utf8(frame.to_vec())
