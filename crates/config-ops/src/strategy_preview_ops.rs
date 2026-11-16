@@ -1,10 +1,10 @@
 //! Native `strategy.preview` (`src/strategy/service.ts` `preview`). Rust applies,
-//! serializes and validates the draft, then ranks each strategy over the usage-broker
-//! rows TypeScript computed for it: the bridge runs `preview`'s two read-only
-//! `computeStatus` calls, which share one readings map, and returns `{current, draft}`
-//! parts. A base strategy `strategy_load` leaves to TypeScript forwards, as does a
-//! draft source whose YAML Bun may read differently or that Rust cannot read. A
-//! missing or schema-invalid base strategy fails natively.
+//! serializes and validates the draft, then ranks both strategies over the
+//! usage-broker rows TypeScript composed for the active strategy. Those rows are
+//! valid for the draft only while it keeps every input of a provider row, so a
+//! draft that changes one forwards, as does a base strategy `strategy_load` leaves
+//! to TypeScript and a draft source whose YAML Bun may read differently. A missing
+//! or schema-invalid base strategy fails natively.
 #![allow(clippy::result_large_err)]
 use crate::config_writes::STRATEGY_HINT;
 use pacer_config::{
@@ -37,12 +37,11 @@ pub fn strategy_preview_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let Ok(params) = crate::config_params::parse("strategy.preview", params.clone()) else {
         return false;
     };
-    // A base strategy that fails natively answers before the draft is read.
-    match crate::strategy_load::native_load(&ctx.pacer_home) {
+    let current = match crate::strategy_load::native_load(&ctx.pacer_home) {
         None => return true,
         Some(Err(_)) => return false,
-        Some(Ok(_)) => {}
-    }
+        Some(Ok(current)) => current,
+    };
     // Only a listed strategy is read; any other source fails as unknown before reading.
     let source = params["draft"]["from"].as_str().unwrap_or("default");
     let listed =
@@ -57,17 +56,12 @@ pub fn strategy_preview_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     if listed && crate::strategy_load::text_may_differ(&path) {
         return true;
     }
-    matches!(
-        preview_draft(&ctx.pacer_home, &params["draft"]),
-        DraftPreview::Unreadable
-    )
-}
-
-/// The usage-broker params `strategy.preview` sends: its draft, for `preview`'s statuses.
-pub fn broker_params(params: &Value) -> Value {
-    match params.get("draft") {
-        Some(draft) if draft.is_object() => json!({"draft": draft}),
-        _ => json!({}),
+    match preview_draft(&ctx.pacer_home, &params["draft"]) {
+        DraftPreview::Unreadable => true,
+        DraftPreview::Invalid { .. } => false,
+        DraftPreview::Valid { strategy, .. } => {
+            provider_inputs(&strategy) != provider_inputs(&current)
+        }
     }
 }
 
