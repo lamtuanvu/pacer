@@ -39,11 +39,6 @@ test("the required job and step names match CI's test matrix", () => {
   expect(test.steps.map((step: any) => step.name)).toContain(SUITE_STEP);
 });
 
-test("the recovery tagger outlasts the CI evidence wait", () => {
-  const load = (file: string) => Bun.YAML.parse(readFileSync(`.github/workflows/${file}`, "utf8")) as any;
-  expect(load("release-tag.yml").jobs.tag["timeout-minutes"]).toBeGreaterThan(load("release.yml").jobs["ci-suite"]["timeout-minutes"] + 30);
-});
-
 test("an existing passing run is reused without dispatching", async () => {
   const { ci, refs } = fake(() => [ciRun(2, "push")], { 2: suite() });
   expect((await awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).id).toBe(2);

@@ -1,17 +1,23 @@
 name: Prepare release
 
-# One click: pick the version from commit titles, open the release PR, dry-run
-# it, then let auto-merge land it. release-tag.yml tags the merge commit, and
-# the tag runs release.yml. Writes go through RELEASE_TOKEN so the PR and tag
-# trigger CI (GitHub does not run workflows for GITHUB_TOKEN pushes).
+# One click: pin one commit, bump its version, tag it. The tag starts
+# release.yml, which builds, checks CI's full suite and publishes from that
+# tag alone, so later merges to main never affect the release. The version
+# bump reaches main through a separate bookkeeping PR that the release does
+# not wait for. Writes go through RELEASE_TOKEN so the tag and PR start
+# workflows (GitHub does not run workflows for GITHUB_TOKEN pushes).
 on:
   workflow_dispatch:
     inputs:
       bump:
-        description: Version bump (auto reads feat/fix/breaking commits; empty Unreleased gets commit notes)
+        description: Version bump (auto reads feat/fix/breaking commits since the last tag)
         type: choice
         options: [auto, patch, minor, major]
         default: auto
+      commit:
+        description: Commit to release (default main's head when the run starts)
+        type: string
+        default: ''
 
 permissions: {}
 
@@ -22,13 +28,12 @@ concurrency:
 jobs:
   prepare:
     runs-on: ubuntu-24.04
-    timeout-minutes: 300
+    timeout-minutes: 30
     permissions:
       contents: read
-      pull-requests: read
-      actions: write # dispatch and watch the dry run; workflow_dispatch from GITHUB_TOKEN does start runs
     env:
       BUMP: ${{ inputs.bump }}
+      COMMIT: ${{ inputs.commit }}
       GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
     steps:
       - name: Require main and the release token
@@ -36,7 +41,7 @@ jobs:
           test "$GITHUB_REF" = refs/heads/main || { echo "::error::Run Prepare release from main"; exit 1; }
           test -n "$GH_TOKEN" || { echo "::error::Add a RELEASE_TOKEN secret (see CONTRIBUTING.md, Releasing)"; exit 1; }
       - name: Commit as the token's owner
-        # The PR is opened with the same token; one author keeps DCO sign-off and attribution consistent.
+        # One author keeps DCO sign-off and attribution consistent on the release commit and PR.
         run: |
           read -r login id name <<< "$(gh api user --jq '"\(.login) \(.id) \(.name // .login)"')"
           { echo "GIT_AUTHOR_NAME=$name"; echo "GIT_COMMITTER_NAME=$name"
@@ -44,218 +49,73 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
           fetch-depth: 0 # Version selection and generated notes read commits since the last tag.
+          fetch-tags: true
           persist-credentials: false
-      - name: Refresh main to its latest head
+      - name: Pin the commit to release
+        id: pin
         run: |
+          set -euo pipefail
           git fetch origin main --tags
-          git switch --detach origin/main
+          target=$(git rev-parse --verify "${COMMIT:-origin/main}^{commit}")
+          git merge-base --is-ancestor "$target" origin/main \
+            || { echo "::error::$target is not on main"; exit 1; }
+          git switch --detach "$target"
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "Releasing commit $target" >> "$GITHUB_STEP_SUMMARY"
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
-      - name: Resume an interrupted release
-        id: resume
-        env:
-          GH_TOKEN: ${{ github.token }}
+      - name: Pick the version
+        id: version
         run: |
           set -euo pipefail
           current=$(jq -er .version package.json)
+          # A commit that already carries an untagged version (its bump merged earlier) releases as is.
           if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
-            echo 'resumed=false' >> "$GITHUB_OUTPUT"
-            exit 0
+            version=$(bun scripts/release/next-version.ts "$BUMP")
+          else
+            version=$current
           fi
-          candidates=$(gh pr list --repo "$GITHUB_REPOSITORY" --state merged --base main --head "release/v$current" --json number,title,isCrossRepository,mergeCommit)
-          matches=$(printf '%s' "$candidates" | jq --arg title "chore: release $current" '[.[] | select(.title == $title and .isCrossRepository == false)]')
-          test "$(printf '%s' "$matches" | jq length)" = 1 \
-            || { echo "::error::Version $current has no tag and no unique merged release PR; refusing to guess"; exit 1; }
-          pr=$(printf '%s' "$matches" | jq -er '.[0].number')
-          merge=$(printf '%s' "$matches" | jq -er '.[0].mergeCommit.oid')
-          git merge-base --is-ancestor "$merge" HEAD
-          previous=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-tag.yml --limit 1 --json databaseId --jq '.[0].databaseId // 0')
-          gh workflow run release-tag.yml --repo "$GITHUB_REPOSITORY" --ref main -f pr="$pr"
-          run=""
-          for _ in $(seq 1 30); do
-            run=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release-tag.yml --branch main --event workflow_dispatch --json databaseId,displayTitle --jq "[.[] | select(.databaseId > $previous and .displayTitle == \"Recover release PR #$pr\")][0].databaseId // empty")
-            test -n "$run" && break
-            sleep 10
-          done
-          test -n "$run" || { echo '::error::Recovery did not start'; exit 1; }
-          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run"
-          echo "Resuming pacer $current from PR #$pr: $url" >> "$GITHUB_STEP_SUMMARY"
-          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
-          echo 'resumed=true' >> "$GITHUB_OUTPUT"
-          echo "Recovered pacer $current. Its tag starts publication. Run Prepare release again after publication to include later changes." >> "$GITHUB_STEP_SUMMARY"
-      - name: Find an open release PR
-        id: existing
-        if: steps.resume.outputs.resumed != 'true'
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already tagged; tags are never moved"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+          echo "bumped=$(test "$version" = "$current" && echo false || echo true)" >> "$GITHUB_OUTPUT"
+      - name: Commit the version bump on the pinned commit
+        if: steps.version.outputs.bumped == 'true'
+        env:
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          candidates=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --base main --limit 1000 --json number,title,headRefName,headRefOid,isCrossRepository,url)
-          matches=$(printf '%s' "$candidates" | jq '[.[] | select(.title | startswith("chore: release "))]')
-          count=$(printf '%s' "$matches" | jq length)
-          test "$count" -le 1 || { echo '::error::More than one release PR is open'; exit 1; }
-          if test "$count" = 0; then
-            echo 'found=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          pr=$(printf '%s' "$matches" | jq -c '.[0]')
-          version=$(printf '%s' "$pr" | jq -r '.title | capture("^chore: release (?<version>[0-9]+\\.[0-9]+\\.[0-9]+)$").version')
-          branch="release/v$version"
-          test "$(printf '%s' "$pr" | jq -r .isCrossRepository)" = false
-          test "$(printf '%s' "$pr" | jq -r .headRefName)" = "$branch"
-          head=$(printf '%s' "$pr" | jq -er .headRefOid)
-          git fetch origin "refs/heads/$branch"
-          test "$(git rev-parse FETCH_HEAD)" = "$head" || { echo '::error::Release PR head changed while resuming'; exit 1; }
-          test "$(git show "$head:package.json" | jq -er .version)" = "$version" || { echo '::error::Release PR branch version does not match its title'; exit 1; }
-          remote_tag=$(git ls-remote --tags origin "refs/tags/v$version")
-          if git rev-parse -q --verify "refs/tags/v$version" >/dev/null || test -n "$remote_tag"; then
-            echo "::error::v$version already has a tag; release PR cannot be resumed"
-            exit 1
-          fi
-          if desired=$(bun scripts/release/next-version.ts "$BUMP"); then
-            if test "$desired" != "$version"; then
-              url=$(printf '%s' "$pr" | jq -er .url)
-              gh pr close "$url" --repo "$GITHUB_REPOSITORY"
-              echo "Superseded stale $version release PR $url; current main requires $desired. The old branch is retained for review." >> "$GITHUB_STEP_SUMMARY"
-              echo 'found=false' >> "$GITHUB_OUTPUT"
-              exit 0
-            fi
-          fi
-          url=$(printf '%s' "$pr" | jq -er .url)
-          details=$(gh pr view "$url" --repo "$GITHUB_REPOSITORY" --json body,mergeable,headRefOid)
-          test "$(printf '%s' "$details" | jq -er .headRefOid)" = "$head" || { echo '::error::Release PR head changed while checking mergeability'; exit 1; }
-          base=$(git merge-base HEAD "$head")
-          if test "$base" != "$(git rev-parse HEAD)" || test "$(printf '%s' "$details" | jq -r .mergeable)" = CONFLICTING; then
-            printf '%s' "$details" | jq -e '.body | startswith("Prepared by the **Prepare release** workflow")' >/dev/null \
-              || { echo '::error::Stale release PR was edited; refusing to replace its branch'; exit 1; }
-            test "$(git rev-list --count "$base..$head")" = 1 \
-              || { echo '::error::Stale release branch has extra commits; refusing to replace it'; exit 1; }
-            test "$(git log -1 --format=%s "$head")" = "chore: release $version" \
-              || { echo '::error::Stale release branch has a different commit; refusing to replace it'; exit 1; }
-            archive="release/retired-v$version-${head:0:12}"
-            auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-            git -c "http.extraheader=$auth" push origin "$head:refs/heads/$archive"
-            gh pr close "$url" --repo "$GITHUB_REPOSITORY" --delete-branch
-            for _ in $(seq 1 15); do
-              git ls-remote --exit-code --heads origin "$branch" >/dev/null || break
-              sleep 2
-            done
-            git ls-remote --exit-code --heads origin "$branch" >/dev/null \
-              && { echo '::error::Old release branch still exists after closing its PR'; exit 1; }
-            echo "Recreating stale generated release PR $url for $version from current main. Old head preserved at $archive." >> "$GITHUB_STEP_SUMMARY"
-            echo 'found=false' >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          echo 'found=true' >> "$GITHUB_OUTPUT"
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "branch=$branch" >> "$GITHUB_OUTPUT"
-          echo "head=$head" >> "$GITHUB_OUTPUT"
-          echo "url=$(printf '%s' "$pr" | jq -er .url)" >> "$GITHUB_OUTPUT"
-          echo "Resuming release PR $(printf '%s' "$pr" | jq -r .url) at $head" >> "$GITHUB_STEP_SUMMARY"
-      - name: Pick the version
-        if: steps.existing.outputs.found != 'true' && steps.resume.outputs.resumed != 'true'
-        id: version
-        run: |
-          version=$(bun scripts/release/next-version.ts "$BUMP")
-          echo "version=$version" >> "$GITHUB_OUTPUT"
-          echo "Preparing pacer $version (authored Unreleased notes are kept; empty notes come from commits since the current tag)" >> "$GITHUB_STEP_SUMMARY"
-      - name: Refuse a release that is already in flight
-        if: steps.existing.outputs.found != 'true' && steps.resume.outputs.resumed != 'true'
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
-          if git ls-remote --exit-code --heads origin "release/v$VERSION" >/dev/null; then
-            echo "::error::Branch release/v$VERSION already exists; finish or close that release first"; exit 1
-          fi
-          open=$(gh pr list --repo "$GITHUB_REPOSITORY" --state open --search 'in:title "chore: release"' --json number --jq length)
-          test "$open" = 0 || { echo "::error::A release PR is already open"; exit 1; }
-      - name: Prepare, commit and open the release PR
-        if: steps.existing.outputs.found != 'true' && steps.resume.outputs.resumed != 'true'
-        id: pr
-        env:
-          VERSION: ${{ steps.version.outputs.version }}
-        run: |
           bun run release:prepare "$VERSION"
-          branch="release/v$VERSION"
-          git switch -c "$branch"
           git add -A
           git commit -s -m "chore: release $VERSION"
-          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
-          git -c "http.extraheader=$auth" push origin "$branch"
-          notes=$(awk -v heading="## [$VERSION]" '
-            /^## / { if (found) exit; if (index($0, heading) == 1) { found=1; next } }
-            found { print }' CHANGELOG.md)
-          body=$(printf 'Prepared by the **Prepare release** workflow (bump: `%s`).\n\nThe only UI-scoped changes are version strings, so no UI evidence manifest is needed (UI-24 version-only exemption, checked by CI).\n\nThe release dry run runs on this branch; auto-merge turns on when it passes. Merging tags `v%s` and publishes.\n\n## Changes\n%s\n' "$BUMP" "$VERSION" "$notes")
-          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "chore: release $VERSION" --body "$body")
-          echo "url=$url" >> "$GITHUB_OUTPUT"
-          echo "Release PR: $url" >> "$GITHUB_STEP_SUMMARY"
-      - name: Dry-run the release on the PR branch
-        id: dry
-        if: steps.resume.outputs.resumed != 'true'
+      - name: Tag and push
+        id: tag
         env:
-          EXISTING_BRANCH: ${{ steps.existing.outputs.branch }}
-          EXISTING_HEAD: ${{ steps.existing.outputs.head }}
           VERSION: ${{ steps.version.outputs.version }}
-          # The PR event starts Release; the job token watches it.
-          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
-          branch="${EXISTING_BRANCH:-release/v$VERSION}"
-          head="${EXISTING_HEAD:-$(git rev-parse HEAD)}"
-          run=""
-          for _ in $(seq 1 30); do
-            runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow release.yml --branch "$branch" --commit "$head" --event pull_request \
-              --limit 1 --json databaseId,headSha,status,conclusion)
-            run=$(printf '%s' "$runs" | jq -r '.[0].databaseId // empty')
-            test -n "$run" && break
-            sleep 10
-          done
-          test -n "$run" || { echo "::error::The dry run did not start"; exit 1; }
-          test "$(printf '%s' "$runs" | jq -r '.[0].headSha')" = "$head" || { echo '::error::Dry run is not for the release PR head'; exit 1; }
-          state=$(printf '%s' "$runs" | jq -r '.[0].conclusion // .[0].status')
-          if test "$state" = failure || test "$state" = cancelled || test "$state" = timed_out; then
-            gh run rerun "$run" --repo "$GITHUB_REPOSITORY"
-          fi
-          echo "Dry run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run" >> "$GITHUB_STEP_SUMMARY"
-          gh run watch "$run" --repo "$GITHUB_REPOSITORY" --interval 30 --exit-status
-      - name: Rerun failed or cancelled CI for the existing PR head
-        if: steps.existing.outputs.found == 'true'
+          test "$(jq -er .version package.json)" = "$VERSION"
+          grep -q "^## \[$VERSION\]" CHANGELOG.md || { echo "::error::CHANGELOG.md has no $VERSION section"; exit 1; }
+          release=$(git rev-parse HEAD)
+          git tag -a "v$VERSION" "$release" -m "pacer $VERSION"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          # The tag carries its own commit; main does not have to contain the bump.
+          git -c "http.extraheader=$auth" push origin "refs/tags/v$VERSION"
+          echo "release=$release" >> "$GITHUB_OUTPUT"
+          echo "Tagged v$VERSION at $release; release.yml publishes it." >> "$GITHUB_STEP_SUMMARY"
+      - name: Open the bookkeeping PR that brings the bump to main
+        if: steps.version.outputs.bumped == 'true'
         env:
-          GH_TOKEN: ${{ github.token }}
-          BRANCH: ${{ steps.existing.outputs.branch }}
-          HEAD: ${{ steps.existing.outputs.head }}
+          VERSION: ${{ steps.version.outputs.version }}
         run: |
           set -euo pipefail
-          runs=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json databaseId,headSha,status,conclusion)
-          if test "$(printf '%s' "$runs" | jq length)" = 0; then
-            echo '::error::No CI run exists for this release PR head'
-            exit 1
-          fi
-          test "$(printf '%s' "$runs" | jq -r '.[0].headSha')" = "$HEAD"
-          state=$(printf '%s' "$runs" | jq -r '.[0].conclusion // .[0].status')
-          if test "$state" = failure || test "$state" = cancelled || test "$state" = timed_out; then
-            run=$(printf '%s' "$runs" | jq -er '.[0].databaseId')
-            gh run rerun "$run" --repo "$GITHUB_REPOSITORY"
-            echo "Rerunning CI for $HEAD: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$run" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Turn on auto-merge
-        if: steps.resume.outputs.resumed != 'true'
-        env:
-          URL: ${{ steps.existing.outputs.url || steps.pr.outputs.url }}
-          EXISTING_HEAD: ${{ steps.existing.outputs.head }}
-          ACTIONS_TOKEN: ${{ github.token }}
-        run: |
-          head="${EXISTING_HEAD:-$(git rev-parse HEAD)}"
-          git fetch origin main
-          latest=$(git rev-parse origin/main)
-          if test "$(git merge-base "$head" "$latest")" != "$latest"; then
-            GH_TOKEN="$ACTIONS_TOKEN" gh workflow run release-prepare.yml --repo "$GITHUB_REPOSITORY" --ref main -f bump="$BUMP"
-            echo "Main advanced while this release validated; another Prepare run will rebuild the PR from $latest before enabling auto-merge." >> "$GITHUB_STEP_SUMMARY"
-            exit 0
-          fi
-          gh pr merge "$URL" --auto --squash --match-head-commit "$head"
-      - name: Report a failed dry run on the PR
-        if: failure() && steps.dry.outcome == 'failure'
-        env:
-          URL: ${{ steps.existing.outputs.url || steps.pr.outputs.url }}
-        run: gh pr comment "$URL" --body "The release dry run failed, so auto-merge stays off. See $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID. Fix the release branch or rerun Prepare release from main; Release validates every new head automatically. Wait for Release readiness and CI before enabling auto-merge."
+          branch="release/v$VERSION"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          git -c "http.extraheader=$auth" push origin "HEAD:refs/heads/$branch"
+          body=$(printf 'Brings the version bump of the published **v%s** tag to main. The release itself was built from the tag and does not wait for this PR.\n\nThe only UI-scoped changes are version strings, so no UI evidence manifest is needed.' "$VERSION")
+          url=$(gh pr create --repo "$GITHUB_REPOSITORY" --base main --head "$branch" --title "chore: release $VERSION" --body "$body")
+          gh pr merge "$url" --repo "$GITHUB_REPOSITORY" --auto --squash || echo "Auto-merge unavailable; merge $url by hand." >> "$GITHUB_STEP_SUMMARY"
+          echo "Bookkeeping PR: $url" >> "$GITHUB_STEP_SUMMARY"
