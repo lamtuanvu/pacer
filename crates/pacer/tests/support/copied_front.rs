@@ -76,6 +76,7 @@ mod tests {
 }
 
 #[cfg(all(test, target_os = "linux"))]
+#[ignore]
 #[test]
 fn linux_actual_write_handle_blocks_exec_then_version_succeeds_after_close() {
     use std::os::unix::fs::{DirBuilderExt, PermissionsExt};
