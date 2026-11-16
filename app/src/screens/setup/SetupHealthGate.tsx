@@ -75,7 +75,7 @@ type Confirm = (message: string, title?: string, confirmLabel?: string) => Promi
 const fileList = (files: string[]) => files.length ? `\n\n${files.join("\n")}` : "";
 
 /** The gate's side of the shared remedy dispatch: confirmations are dialogs, agent tasks open their task page. */
-export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void | Promise<void> = url => openRemedyUrl(url, platform)): RemedyHost {
+export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void = url => openRemedyUrl(url, platform)): RemedyHost {
   // One function identity per host: `servicePid` keys its single-flight read by identity,
   // so a fresh arrow per restart-wait poll would send a new `snapshot.get` every time.
   const call: RemedyHost["call"] = (op, params) => api.call(op, params);
@@ -111,12 +111,6 @@ export async function applyRepair(repair: SetupHealthRepair, host: RemedyHost): 
   if (result === "recheck") return "rerun";
   if (result === "await-return") return "rerun-on-return";
   return result === "delegated" ? "navigate" : "done";
-}
-
-/** Persist skipping the optional notifications step, then re-run the checks so it reads 'Skipped'. */
-export async function applySetupSkip(api: Pick<BrowserApi, "call">): Promise<"rerun"> {
-  await api.call("setup.skip", { step: "notifications" });
-  return "rerun";
 }
 
 /** Full-window Checking setup after service connect; skip when fingerprint is fresh. */
@@ -269,8 +263,7 @@ export function SetupHealthGate({
         if (enterTimer.current) window.clearTimeout(enterTimer.current);
         setRepairing(true);
         setRepairError(undefined);
-        // While notifications.request waits for the macOS prompt, tell the user what to do.
-        setFixAllProgress(repair.remedy?.op === "notifications.request" ? "Answer the macOS prompt…" : undefined);
+        setFixAllProgress(undefined);
         returnRecheck.current?.();
         try {
           const result = await applyRepair(repair, gateRemedyHost(api, dialogs.confirm));
@@ -284,25 +277,6 @@ export function SetupHealthGate({
           };
           if (result === "rerun") rerun();
           if (result === "rerun-on-return") returnRecheck.current = recheckOnReturn(rerun);
-        } catch (failure) {
-          setRepairError(failure instanceof Error ? failure.message : String(failure));
-        } finally {
-          setRepairing(false);
-          setFixAllProgress(undefined);
-        }
-      }}
-      onSkip={async () => {
-        if (enterTimer.current) window.clearTimeout(enterTimer.current);
-        setRepairing(true);
-        setRepairError(undefined);
-        returnRecheck.current?.();
-        try {
-          await applySetupSkip(api);
-          const rerun = () => {
-            setReport(pendingSetupHealthReport(view.trigger));
-            setPhase("checking");
-          };
-          rerun();
         } catch (failure) {
           setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {

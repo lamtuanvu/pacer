@@ -143,7 +143,7 @@ test("an Orca attempt through the native owner seals its orcaAttempt, Core answe
   expect(call.authority.resources.orcaAttempt).toEqual({taskId: on!.x.task.id, attempt: 1, providerId: "pacer-exec-orca", executor: "codex",
     session: expect.stringMatching(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/)});
   expect(call.authority.orcaContext.home).toBe(on!.x.ctx.home);
-  expect(call.coreMethods).toEqual(Object.keys(ORCA_CAPABILITY_METHODS));
+  expect(call.coreMethods).toEqual([...Object.keys(ORCA_CAPABILITY_METHODS), "capability.identity.sign"]);
   // The worker wait is bounded by the call, not by the 600 s cap on other sealed authorities.
   expect(call.authority.ttlMs).toBe(call.deadlineMs);
   expect(call.deadlineMs).toBeGreaterThan(600_000);
@@ -215,7 +215,7 @@ test("Orca live control through the native owner: inspect and stop seal orcaLive
     ["executor.sessionState", {...grant, action: "inspect"}],
     ["executor.stop", {...grant, action: "stop", why: "the task was stopped"}],
   ]);
-  expect(relay.calls.every(call => JSON.stringify(call.coreMethods) === JSON.stringify(Object.keys(ORCA_CAPABILITY_METHODS)))).toBe(true);
+  expect(relay.calls.every(call => JSON.stringify(call.coreMethods) === JSON.stringify([...Object.keys(ORCA_CAPABILITY_METHODS), "capability.identity.sign"]))).toBe(true);
   expect(relay.forwarded).toEqual(["capability.orca.sessionState", "capability.orca.stop"]);
   // The provider's own stop result, so this was not the host-closure fallback.
   expect(relay.replies[1]).toMatchObject({code: expect.any(Number), killed: expect.any(Boolean)});

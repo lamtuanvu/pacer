@@ -330,6 +330,7 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
         delete env.PACER_INTERNAL_TOKEN;
         delete env.PACER_AUTH_TOKEN;
         delete env.PACER_HOST_SOCKET;
+        delete env.PACER_HOST_SOCKET_KEY;
         delete env.CLAUDE_CONFIG_DIR;
         delete env.CODEX_HOME;
         // A default account runs strict work in the service's own folder (no login profile), as certified here.

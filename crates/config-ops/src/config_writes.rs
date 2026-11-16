@@ -176,13 +176,13 @@ pub fn legacy_dir_for_platform(ctx: &Ctx, macos: bool) -> std::path::PathBuf {
 /// `runnersConfig.set`: a string model is checked after the runner and rank
 /// refusals and before the edit; its warning follows the routing warnings.
 #[allow(clippy::result_large_err)]
-fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> {
+async fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> {
     let home = &ctx.pacer_home;
     let mut unverified = None;
     if let Some(model) = p["model"].as_str() {
         let strategy =
             load_strategy(home).map_err(|e| CoreError::new(Code::Internal, e.to_string()))?;
-        match crate::runner_ops::model_check(ctx, &strategy, id, model) {
+        match crate::runner_ops::model_check(ctx, &strategy, id, model).await {
             Validation::NotReached => {}
             Validation::Accepted(warning) => unverified = warning,
             Validation::Refused { message, hint } => {
@@ -297,7 +297,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                     result => result,
                 }
             }
-            "runner.set" => return set_runner(ctx, id, &p),
+            "runner.set" => return set_runner(ctx, id, &p).await,
             "runner.reorder" => config_writes::reorder_runners(
                 home,
                 &p["ids"]

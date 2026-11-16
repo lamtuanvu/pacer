@@ -1414,6 +1414,7 @@ version = "0.0.0"
 dependencies = [
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-store",
  "rusqlite",
  "serde_json",
  "sha2",
@@ -1428,8 +1429,10 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-dispatch",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-repos",
  "pacer-store",
  "rusqlite",
  "ryu-js",
@@ -1477,6 +1480,18 @@ dependencies = [
  "serde_json",
  "tempfile",
  "thiserror",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-install"
+version = "0.0.0"
+dependencies = [
+ "hex",
+ "pacer-foundation",
+ "serde_json",
+ "sha2",
+ "tempfile",
  "tokio",
 ]
 
@@ -1592,9 +1607,12 @@ version = "0.1.0"
 dependencies = [
  "pacer-config",
  "pacer-js-json",
+ "rand 0.9.5",
+ "rustix",
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
 ]
 
 [[package]]
@@ -1670,7 +1688,6 @@ dependencies = [
  "libc",
  "nix",
  "pacer-js-json",
- "pacer-plugin-policy-protocol",
  "pacer-plugin-protocol",
  "pacer-store",
  "rusqlite",
@@ -1756,6 +1773,8 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hmac",
  "nix",
  "pacer-plugin-capabilities",
  "pacer-plugin-host",
@@ -1828,6 +1847,7 @@ dependencies = [
  "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-install",
  "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
@@ -1906,6 +1926,7 @@ dependencies = [
  "chrono-tz",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",

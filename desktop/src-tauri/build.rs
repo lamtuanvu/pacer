@@ -119,7 +119,6 @@ fn main() {
             "windowMinimize",
             "windowToggleMaximize",
             "windowClose",
-            "open_system_settings",
         ]),
     ))
     .expect("build desktop shell");

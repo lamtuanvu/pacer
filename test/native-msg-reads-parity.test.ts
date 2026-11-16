@@ -1,3 +1,4 @@
+import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -51,7 +52,7 @@ function clone(home: string) {
 }
 
 const env = (home: string, extra: Record<string, string>, forward: boolean) => ({
-  HOME: home, PACER_HOME: join(home, ".pacer"), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
+  ...childEnv(home), PATH: process.env.PATH ?? "/usr/bin:/bin", PACER_CORE_ARGV: core,
   PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1",
   ...extra, ...(forward ? { PACER_FORWARD_OPS: FORWARD } : {}),
 });
@@ -152,7 +153,7 @@ test.skipIf(!front)("stdio msg.inbox, msg.log and msg.read match the TypeScript 
 async function serve(home: string, forward: boolean) {
   const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
   const port = reservation.port!; reservation.stop(true);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: env(home, {}, forward), cwd: home, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
+  const child = Bun.spawn([front!, "serve", "--port", String(port)], { env: { ...env(home, {}, forward), ...childEnv(home, port) }, cwd: home, stdin: "ignore", stdout: "ignore", stderr: "pipe" });
   const stderr = new Response(child.stderr).text();
   const base = `http://127.0.0.1:${port}`;
   let token = "", ready = false;

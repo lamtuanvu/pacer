@@ -8,14 +8,12 @@ export type SetupHealthStepId =
   | "detect_agents"
   | "integrations"
   | "usage_eligibility"
-  | "notifications"
   | "ready";
 
 export type SetupHealthStepState =
   | "waiting"
   | "running"
   | "passed"
-  | "skipped"
   | "needs_attention"
   | "failed"
   | "timed_out"
@@ -33,8 +31,6 @@ export type SetupHealthRepairKind = "remedy" | "open.diagnostics";
 export interface SetupHealthRepair {
   kind: SetupHealthRepairKind;
   label: string;
-  /** Offer "Skip" for optional steps such as notifications. */
-  skip?: boolean;
   /** The check the remedy fixes. */
   check?: string;
   /** Shown after file repairs until live enforcement is observed. */
@@ -80,7 +76,6 @@ const STEP_TITLES: Record<SetupHealthStepId, string> = {
   detect_agents: "Detect agents",
   integrations: "Integrations & hooks",
   usage_eligibility: "Usage & eligibility",
-  notifications: "Turn on notifications",
   ready: "Ready to take work",
 };
 
@@ -89,7 +84,6 @@ const ORDER: SetupHealthStepId[] = [
   "detect_agents",
   "integrations",
   "usage_eligibility",
-  "notifications",
   "ready",
 ];
 
@@ -100,7 +94,6 @@ function worst(a: SetupHealthStepState, b: SetupHealthStepState): SetupHealthSte
     needs_attention: 3,
     running: 2,
     waiting: 1,
-    skipped: 1,
     not_checked: 1,
     passed: 0,
   };
@@ -149,14 +142,6 @@ function usageState(checks: Check[], checklist?: SetupChecklist): SetupHealthSte
   return state;
 }
 
-function notificationsState(checks: Check[], skipped: boolean): SetupHealthStepState {
-  if (skipped) return "skipped";
-  const check = checks.find(c => c.name === "Notifications");
-  if (!check) return "passed";
-  if (check.level === "warn" || check.level === "fail") return "needs_attention";
-  return "passed";
-}
-
 function readyState(parts: SetupHealthStepState[]): SetupHealthStepState {
   if (parts.includes("failed")) return "failed";
   if (parts.some(s => s === "needs_attention" || s === "timed_out")) return "needs_attention";
@@ -164,10 +149,10 @@ function readyState(parts: SetupHealthStepState[]): SetupHealthStepState {
 }
 
 function outcomeFor(steps: SetupHealthStep[]): SetupHealthOutcome {
-  if (steps.some(s => s.state === "failed" && s.id !== "notifications" && (s.id === "service" || s.id === "ready" || s.id === "integrations"))) {
+  if (steps.some(s => s.state === "failed" && (s.id === "service" || s.id === "ready" || s.id === "integrations"))) {
     if (steps.some(s => s.id === "service" && s.state === "failed")) return "hard_fail";
   }
-  if (steps.some(s => s.state === "failed" && s.id !== "notifications")) return "hard_fail";
+  if (steps.some(s => s.state === "failed")) return "hard_fail";
   if (steps.some(s => s.state === "needs_attention" || s.state === "timed_out")) return "warnings";
   return "ok";
 }
@@ -176,7 +161,7 @@ function attentionCount(steps: SetupHealthStep[]): number {
   return steps.filter(s => s.state === "needs_attention" || s.state === "failed" || s.state === "timed_out").length;
 }
 
-function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChecklist, skipped = false): string | undefined {
+function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChecklist): string | undefined {
   if (id === "service") {
     const check = checks.find(c => c.name === "Service");
     if (check) return diagnosticSummary(check);
@@ -193,12 +178,6 @@ function detailFor(id: SetupHealthStepId, checks: Check[], checklist?: SetupChec
       (/^(Install|Skill) /.test(c.name) || c.name.startsWith("Claude ") || c.name.startsWith("Integration freshness ")),
     );
     return bad ? diagnosticSummary(bad) : undefined;
-  }
-  if (id === "notifications") {
-    if (skipped) return "Skipped";
-    const check = checks.find(c => c.name === "Notifications");
-    if (!check) return undefined;
-    return diagnosticSummary(check);
   }
   if (id === "usage_eligibility") {
     const usage = checks.find(c => (c.level === "warn" || c.level === "fail") && c.name.startsWith("Usage "));
@@ -225,23 +204,19 @@ function remedyKey(remedy: Remedy): string {
  * the app dispatches the remedy, and consent-gated operations still ask at apply time.
  * Problems without a remedy (an older doctor) only offer Diagnostics.
  */
-export function setupHealthRepairs(checks: Check[], notificationsSkipped = false): SetupHealthRepair[] {
+export function setupHealthRepairs(checks: Check[]): SetupHealthRepair[] {
   const repairs: SetupHealthRepair[] = [];
   const seen = new Set<string>();
   for (const check of checks) {
     const { remedy } = check;
     if ((check.level !== "warn" && check.level !== "fail") || !remedy) continue;
-    // A skipped optional step (notifications) contributes no repair, so it never
-    // shows an "Allow notifications" primary or hides Run checks again / Restart.
-    if (notificationsSkipped && check.name === "Notifications") continue;
     const key = remedyKey(remedy);
     if (seen.has(key)) continue;
     seen.add(key);
     repairs.push({ kind: "remedy", label: remedy.label, check: check.name, remedy,
-      ...(check.name === "Notifications" ? { skip: true } : {}),
       ...(remedyAgent(check) ? { honesty: WIRING_HONESTY } : {}) });
   }
-  if (checks.some(c => (c.level === "warn" || c.level === "fail") && !(c.name === "Notifications" && notificationsSkipped)) && repairs.length === 0) {
+  if (checks.some(c => c.level === "warn" || c.level === "fail") && repairs.length === 0) {
     repairs.push({ kind: "open.diagnostics", label: "Open Diagnostics" });
   }
   return repairs;
@@ -255,23 +230,18 @@ export function aggregateSetupHealth(input: {
   checkedAt: number;
   durationSeconds?: number;
   timedOutSteps?: SetupHealthStepId[];
-  /** Whether the optional notifications step was skipped (settings.json setup.notifications_skipped). */
-  notificationsSkipped?: boolean;
 }): SetupHealthReport {
-  const notificationsSkipped = input.notificationsSkipped === true;
   const timed = new Set(input.timedOutSteps ?? []);
   const service = serviceState(input.checks, input.checklist);
   const detect = detectAgentsState(input.checks);
   const integrations = integrationsState(input.checks);
   const usage = usageState(input.checks, input.checklist);
-  const notifications = notificationsState(input.checks, notificationsSkipped);
   const base: Record<SetupHealthStepId, SetupHealthStepState> = {
     service,
     detect_agents: detect,
     integrations,
     usage_eligibility: usage,
-    notifications,
-    ready: readyState([service, detect, integrations, usage, notifications]),
+    ready: readyState([service, detect, integrations, usage]),
   };
   for (const id of timed) {
     if (id !== "ready") base[id] = "needs_attention";
@@ -284,10 +254,10 @@ export function aggregateSetupHealth(input: {
     state: base[id],
     detail: timed.has(id)
       ? "This check timed out; review setup when you can."
-      : detailFor(id, input.checks, input.checklist, notificationsSkipped),
+      : detailFor(id, input.checks, input.checklist),
   }));
 
-  const repairs = setupHealthRepairs(input.checks, notificationsSkipped);
+  const repairs = setupHealthRepairs(input.checks);
 
   return {
     trigger: input.trigger,

@@ -29,14 +29,8 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
     }
     match name {
         "task.delegate" => Ok(object_without(value, &["dispatch"])),
-        "client.register" => Ok(object_without(
-            value,
-            &["capture", "notification_permission", "notification_alerts"],
-        )),
-        "client.heartbeat" => Ok(object_without(
-            value,
-            &["notifier", "notification_permission", "notification_alerts"],
-        )),
+        "client.register" => Ok(object_without(value, &["capture"])),
+        "client.heartbeat" => Ok(object_without(value, &["notifier"])),
         "task.review" => {
             let accepted = value.get("accepted");
             if accepted.is_some_and(|v| !v.is_boolean()) {
@@ -282,10 +276,7 @@ pub fn call_params(name: &str, value: &Value) -> Result<Value, pacer_foundation:
         );
     }
     let value = if name == "client.register" && value.is_array() {
-        object_without(
-            value,
-            &["capture", "notification_permission", "notification_alerts"],
-        )
+        object_without(value, &["capture"])
     } else {
         value.clone()
     };

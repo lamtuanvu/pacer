@@ -17,7 +17,6 @@ const STEP_IDS: SetupHealthStepId[] = [
   "detect_agents",
   "integrations",
   "usage_eligibility",
-  "notifications",
   "ready",
 ];
 
@@ -25,11 +24,9 @@ const STEP_STATES = new Set<SetupHealthStepState>([
   "waiting",
   "running",
   "passed",
-  "skipped",
   "needs_attention",
   "failed",
   "timed_out",
-  "not_checked",
 ]);
 
 export function setupHealthPath(ctx: { pacerHome: string }): string {

@@ -510,7 +510,7 @@ fn visible_state(task: &Value) -> Value {
     }
 }
 
-pub(super) fn summarize_api_task(task: &Value) -> Value {
+pub fn summarize_api_task(task: &Value) -> Value {
     let goal = task
         .pointer("/brief/goal")
         .and_then(Value::as_str)

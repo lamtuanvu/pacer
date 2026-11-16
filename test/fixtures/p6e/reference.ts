@@ -101,7 +101,7 @@ export async function reference(c: any): Promise<any> {
             a.type === "register"
               ? api.register(ctx, a.options)
               : a.type === "heartbeat"
-                ? api.heartbeat(ctx, a.id, a.notifier, a.notification_permission, a.notification_alerts)
+                ? api.heartbeat(ctx, a.id, a.notifier)
                 : a.type === "active"
                   ? api.activeNotifier(ctx)
                   : api.list(ctx),

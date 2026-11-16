@@ -93,8 +93,7 @@
             "liveness",
             "machine",
             "assistant",
-            "discovery.found",
-            "control"
+            "discovery.found"
           ]
         },
         "data": {
@@ -8895,8 +8894,7 @@
               "liveness",
               "machine",
               "assistant",
-              "discovery.found",
-              "control"
+              "discovery.found"
             ]
           }
         }

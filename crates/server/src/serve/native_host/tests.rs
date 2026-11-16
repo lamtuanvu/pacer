@@ -1,7 +1,7 @@
 #![allow(clippy::unwrap_used)]
 use super::*;
 use pacer_plugin_runtime::{
-    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, NATIVE_PLUGIN_HOST_ENABLE_ENV,
+    HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV, NATIVE_PLUGIN_HOST_ENABLE_ENV,
 };
 use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -10,8 +10,11 @@ async fn flag_off_leaves_env_and_socket_untouched() {
     let home = tempfile::tempdir().unwrap();
     let mut env = HashMap::new();
     env.insert("PACER_HOME".into(), home.path().display().to_string());
+    // A credential only ever comes from the owner this serve starts.
+    env.insert(HOST_SOCKET_KEY_ENV.into(), "ab".repeat(32));
     assert!(maybe_start(home.path(), &mut env).await.unwrap().is_none());
     assert!(!env.contains_key(HOST_SOCKET_ENV));
+    assert!(!env.contains_key(HOST_SOCKET_KEY_ENV));
     assert!(!home.path().join("run").join("host.sock").exists());
 }
 
@@ -51,9 +54,24 @@ async fn flag_on_sets_socket_env_and_cleans_up() {
         fs::symlink_metadata(&sidecar).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    // Serve's env is also the native operations' env: the key is not in it.
+    assert!(!env.contains_key(HOST_SOCKET_KEY_ENV));
+    let (name, key) = guard.core_key();
+    assert_eq!(name, HOST_SOCKET_KEY_ENV);
+    let published = home.path().join("run").join(HOST_KEY_NAME);
+    assert_eq!(fs::read_to_string(&published).unwrap().trim(), key);
+    assert_eq!(
+        fs::symlink_metadata(&published)
+            .unwrap()
+            .permissions()
+            .mode()
+            & 0o777,
+        0o600
+    );
     guard.shutdown().await;
     assert!(!Path::new(&socket).exists());
     assert!(!sidecar.exists());
+    assert!(!published.exists());
 }
 
 fn flag_on(wait_ms: u64) -> HashMap<String, String> {

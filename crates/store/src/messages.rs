@@ -9,7 +9,9 @@ use rusqlite::{
 use serde_json::{Map, Value, json};
 
 mod writes;
-pub use writes::{NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert};
+pub use writes::{
+    NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert, prior_is_answer,
+};
 
 type Result<T> = std::result::Result<T, StoreError>;
 
@@ -44,7 +46,7 @@ fn has_table(db: &Connection, name: &str) -> Result<bool> {
 }
 
 /// The value Bun's SQLite binding returns for a stored column.
-fn sql_json(value: SqlValue) -> Value {
+pub(crate) fn sql_json(value: SqlValue) -> Value {
     match value {
         SqlValue::Null => Value::Null,
         SqlValue::Integer(n) => json!(n),
@@ -133,6 +135,80 @@ pub fn mark_read(store: &mut TaskStore, to: &str, ids: &[&str], at: f64) -> Resu
     }
     tx.commit()?;
     Ok(read)
+}
+
+/// `store.countSentSince`: messages `from` sent at or after `since` seconds.
+pub fn count_sent_since(store: &mut TaskStore, from: &str, since: f64) -> Result<i64> {
+    let db = store.connection()?;
+    if !has_table(db, "messages")? {
+        return Ok(0);
+    }
+    Ok(db.query_row(
+        "SELECT COUNT(*) FROM messages WHERE sender=? AND created_at>=?",
+        rusqlite::params![from, since],
+        |r| r.get(0),
+    )?)
+}
+
+fn count(db: &Connection, table: &str, sql: &str, key: &str) -> Result<i64> {
+    if !has_table(db, table)? {
+        return Ok(0);
+    }
+    Ok(db.query_row(sql, [key], |r| r.get(0))?)
+}
+
+/// `store.pendingFor(to).length`.
+pub fn pending_count(store: &mut TaskStore, to: &str) -> Result<i64> {
+    count(
+        store.connection()?,
+        "messages",
+        "SELECT COUNT(*) FROM messages WHERE recipient=? AND status='pending'",
+        to,
+    )
+}
+
+/// `store.turnsForRoot`: turns recorded anywhere in the tree.
+pub fn turns_for_root(store: &mut TaskStore, root: &str) -> Result<i64> {
+    count(
+        store.connection()?,
+        "msg_turns",
+        "SELECT COUNT(*) FROM msg_turns WHERE root_id=?",
+        root,
+    )
+}
+
+/// The task ids of `workTree(id).nodes` in their order, or `None` for unmanaged work.
+pub fn work_tree_ids(store: &mut TaskStore, id: &str) -> Result<Option<Vec<String>>> {
+    let db = store.connection()?;
+    if !has_table(db, "work_nodes")? {
+        return Ok(None);
+    }
+    let Some(root) = db
+        .query_row(
+            "SELECT root_id FROM work_nodes WHERE task_id=?",
+            [id],
+            |r| r.get::<_, String>(0),
+        )
+        .optional()?
+    else {
+        return Ok(None);
+    };
+    let mut stmt =
+        db.prepare("SELECT task_id FROM work_nodes WHERE root_id=? ORDER BY depth,task_id")?;
+    let ids = stmt
+        .query_map([root], |r| r.get(0))?
+        .collect::<rusqlite::Result<Vec<String>>>()?;
+    Ok(Some(ids))
+}
+
+/// `getWork(id) !== null`: the task is a managed work node.
+pub fn is_work(store: &mut TaskStore, id: &str) -> Result<bool> {
+    let db = store.connection()?;
+    Ok(has_table(db, "work_nodes")?
+        && db
+            .query_row("SELECT 1 FROM work_nodes WHERE task_id=?", [id], |_| Ok(()))
+            .optional()?
+            .is_some())
 }
 
 /// `taskOf`: the task id of a `task:` participant; an empty id is no task.
@@ -265,6 +341,25 @@ mod tests {
         let row = inbox(&mut store, "task:a", false, None).unwrap();
         assert_eq!(row[0]["status"], "read");
         assert_eq!(row[0]["readAt"], json!(5));
+    }
+
+    #[test]
+    fn counts_sent_messages_from_a_time() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut empty = TaskStore::open(dir.path()).unwrap();
+        assert_eq!(count_sent_since(&mut empty, "human", 0.0).unwrap(), 0);
+        let (_dir, mut store) = store();
+        insert(&mut store, "m-1", None, "task:a", "pending");
+        insert(&mut store, "m-2", None, "task:a", "held");
+        assert_eq!(
+            count_sent_since(&mut store, "human", 1_700_000_000.5).unwrap(),
+            2
+        );
+        assert_eq!(
+            count_sent_since(&mut store, "human", 1_700_000_001.0).unwrap(),
+            0
+        );
+        assert_eq!(count_sent_since(&mut store, "task:a", 0.0).unwrap(), 0);
     }
 
     #[test]
