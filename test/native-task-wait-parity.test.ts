@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +14,8 @@ async function waitExchange(home: string, taskId: string, forward: boolean) {
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "task.wait", params: { id: taskId } });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      ...childEnv(home),
+      HOME: home,
+      PACER_HOME: join(home, ".pacer"),
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
@@ -63,7 +63,7 @@ test.skipIf(!front)("native task.wait matches TypeScript for a settled task", as
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const task = createTask(ctx, { brief: { goal: "Wait me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   updateTask(ctx, task.id, x => { x.state = "done"; });
-  const reference = await callOp(ctx, "task.wait", { id: task.id }) as { state: string };
+  const reference = await callOp(ctx, "task.wait", { id: task.id });
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-wait-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-wait-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
@@ -74,7 +74,7 @@ test.skipIf(!front)("native task.wait matches TypeScript for a settled task", as
     expect(native?.result?.state).toBe("done");
     expect(forwarded?.result?.state).toBe("done");
     expect(native?.result?.task_id).toBe(task.id);
-    expect(native?.result?.state).toBe((reference as { state: string }).state);
+    expect(native?.result?.state).toBe(reference.state);
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
