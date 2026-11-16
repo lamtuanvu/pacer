@@ -1605,12 +1605,9 @@ version = "0.1.0"
 dependencies = [
  "pacer-config",
  "pacer-js-json",
- "rand 0.9.5",
- "rustix",
  "serde_json",
  "sha2",
  "tempfile",
- "tokio",
 ]
 
 [[package]]
