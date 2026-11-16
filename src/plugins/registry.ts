@@ -1768,8 +1768,6 @@ export class PluginRegistry {
       argv: spec.argv,
       cwd: spec.cwd,
       env,
-      // The door reports `ready` for a child it finds ready only while Core still lists it otherwise.
-      state: e.state,
       // The crash backoff `start()` would sleep through; the owner waits for it instead.
       nextStartAt: e.nextStartAt,
       hello: {
