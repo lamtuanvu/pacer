@@ -1,4 +1,3 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -15,7 +14,8 @@ async function stopExchange(home: string, taskId: string, rev: number, forward: 
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "task.stop", params: { id: taskId, expect_rev: rev } });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      ...childEnv(home),
+      HOME: home,
+      PACER_HOME: join(home, ".pacer"),
       PATH: process.env.PATH ?? "/usr/bin:/bin",
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
@@ -56,19 +56,18 @@ test.skipIf(!front)("native task.stop matches TypeScript for a non-managed task"
   mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
   const task = createTask(ctx, { brief: { goal: "Stop me", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
   const rev = readTask(ctx, task.id)!.rev;
-  const reference = await callOp(ctx, "task.stop", { id: task.id, expect_rev: rev }) as { state: string };
+  const reference = await callOp(ctx, "task.stop", { id: task.id, expect_rev: rev });
   const nativeHome = mkdtempSync(join(tmpdir(), "pacer-task-stop-native-"));
   const forwardHome = mkdtempSync(join(tmpdir(), "pacer-task-stop-forward-"));
   cpSync(ctx.home, nativeHome, { recursive: true });
   cpSync(ctx.home, forwardHome, { recursive: true });
-  const reference = await callOp(ctx, "task.stop", { id: task.id, expect_rev: rev }) as { state: string };
   try {
     const native = await stopExchange(nativeHome, task.id, rev, false);
     const forwarded = await stopExchange(forwardHome, task.id, rev, true);
     expect(native?.result?.state).toBe("stopped");
     expect(forwarded?.result?.state).toBe("stopped");
     expect(native?.result?.task_id).toBe(task.id);
-    expect(native?.result?.state).toBe((reference as { state: string }).state);
+    expect(native?.result?.state).toBe(reference.state);
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

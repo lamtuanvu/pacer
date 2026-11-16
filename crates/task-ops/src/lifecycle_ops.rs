@@ -44,7 +44,7 @@ pub fn object(params: &Value) -> Result<&Map<String, Value>, CoreError> {
     })
 }
 
-pub fn require_string<'a>(
+pub(super) fn require_string<'a>(
     params: &'a Map<String, Value>,
     name: &str,
 ) -> Result<&'a str, CoreError> {
