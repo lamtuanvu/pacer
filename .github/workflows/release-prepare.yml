@@ -125,8 +125,15 @@ jobs:
           # Cut the branch from current main so it merges cleanly; the tag already holds the release.
           git fetch origin main
           git switch --detach origin/main
-          git cherry-pick "$release" \
-            || { git cherry-pick --abort; git switch --detach "$release"; echo "The bump conflicts with current main; resolve it on $branch." >> "$GITHUB_STEP_SUMMARY"; }
+          section() { awk -v heading="## [$VERSION]" '/^## / { if (found) exit; if (index($0, heading) == 1) found=1 } found { print }'; }
+          if ! git cherry-pick "$release"; then
+            git cherry-pick --abort; git switch --detach "$release"
+            echo "The bump conflicts with current main; resolve it on $branch." >> "$GITHUB_STEP_SUMMARY"
+          elif test "$(section < CHANGELOG.md)" != "$(git show "$release:CHANGELOG.md" | section)"; then
+            # A clean pick can file Unreleased entries merged after the pin under this version.
+            git switch --detach "$release"
+            echo "Main's Unreleased notes changed after the pin; move only the published entries on $branch." >> "$GITHUB_STEP_SUMMARY"
+          fi
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.extraheader=$auth" push origin "HEAD:refs/heads/$branch"
           body=$(printf 'Brings the version bump of the published **v%s** tag to main. The release itself was built from the tag and does not wait for this PR.\n\nThe only UI-scoped changes are version strings, so no UI evidence manifest is needed.' "$VERSION")
