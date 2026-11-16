@@ -22,13 +22,7 @@ use pacer_dispatch_ops::insights_ops;
 use pacer_dispatch_ops::learning_ops;
 use pacer_dispatch_ops::lifecycle_ops as dispatch_lifecycle_ops;
 use pacer_dispatch_ops::planning_ops;
-pub(crate) use pacer_dispatch_ops::preview_ops;
-pub(crate) mod dispatch_preview_sync;
-pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
-use pacer_dispatch_ops::tier_targets_ops;
-use pacer_update::desktop_reconcile_ops;
-pub(crate) mod dispatch_lifecycle_sync;
-use pacer_config_ops::engine_ops;
+mod engine_ops;
 use pacer_config_ops::host_check_clean_setup_ops;
 use pacer_config_ops::host_mut_ops;
 use pacer_config_ops::host_read_ops;
@@ -51,6 +45,8 @@ pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_core_bridge::msg_write_sync;
 pub(crate) use pacer_messaging_ops::msg_ops;
 pub(crate) use pacer_messaging_ops::msg_writes;
+pub(crate) mod host_check_clean_setup_sync;
+pub(crate) mod msg_write_sync;
 pub mod plugins;
 use pacer_config_ops::available_ops;
 use pacer_config_ops::project_messaging_ops;
@@ -89,8 +85,11 @@ pub use config_writes::config_set_stays_forwarded;
 pub use dependency_writes::dependencies_waive_stays_forwarded;
 pub use desktop_reconcile_ops::desktop_reconcile_stays_forwarded;
 pub use discovery_ops::discovery_stays_forwarded;
-pub(crate) use dispatch_lifecycle_sync::dispatch_lifecycle_stays_forwarded;
-pub(crate) use host_check_clean_setup_ops::{host_stays_forwarded, needs_host_effects};
+pub(crate) use engine_ops::mode_hold_stays_forwarded;
+#[allow(unused_imports)]
+pub(crate) use host_check_clean_setup_ops::{
+    host_stays_forwarded, needs_host_effects_bridge, uses_host_effects,
+};
 pub(crate) use host_read_ops::{needs_host_read_bridge, needs_host_read_injection};
 pub use insights_ops::insights_stays_forwarded;
 #[doc(hidden)]
@@ -380,6 +379,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "host.repo.map",
         call: host_mut_ops::host_repo_map,
+    },
+    NativeOp {
+        name: "host.check",
+        call: host_check_clean_setup_ops::host_effects_stub,
+    },
+    NativeOp {
+        name: "host.clean",
+        call: host_check_clean_setup_ops::host_effects_stub,
+    },
+    NativeOp {
+        name: "host.repo.setup",
+        call: host_check_clean_setup_ops::host_effects_stub,
     },
     NativeOp {
         name: "host.account.add",
@@ -916,7 +927,7 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    _handover_bridge: Option<&mut dyn pacer_update::handover::HandoverBridge>,
+    host_effects_sync: Option<&mut dyn pacer_config_ops::host_check_clean_setup_ops::HostEffects>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -1041,6 +1052,21 @@ pub async fn call_native(
             "host.list" => host_read_ops::host_list(ctx, params, parts).await?,
             "host.get" => host_read_ops::host_get(ctx, params, parts).await?,
             _ => unreachable!("needs_host_read_bridge"),
+        }
+    } else if host_check_clean_setup_ops::uses_host_effects(op.name) {
+        let effects = host_effects_sync.ok_or_else(|| {
+            CoreError::new(
+                pacer_foundation::api::Code::Unavailable,
+                "host effects bridge unavailable",
+            )
+        })?;
+        match op.name {
+            "host.check" => host_check_clean_setup_ops::host_check(ctx, params, effects).await?,
+            "host.clean" => host_check_clean_setup_ops::host_clean(ctx, params, effects).await?,
+            "host.repo.setup" => {
+                host_check_clean_setup_ops::host_repo_setup(ctx, params, effects).await?
+            }
+            _ => unreachable!("uses_host_effects"),
         }
     } else if needs_task_clean_bridge(op.name) {
         let clean = task_clean_sync.ok_or_else(|| {
