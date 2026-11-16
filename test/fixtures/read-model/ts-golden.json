@@ -4576,48 +4576,6 @@
           "key": "review:sample"
         }
       }
-    },
-    {
-      "type": "control",
-      "id": "discovery:sample",
-      "area": "discovery",
-      "discovery": true,
-      "v2": null
-    },
-    {
-      "type": "control",
-      "id": "discovery:sample",
-      "area": "strategy",
-      "discovery": true,
-      "v2": null
-    },
-    {
-      "type": "control",
-      "id": "discovery:sample",
-      "area": "machine",
-      "discovery": true,
-      "v2": null
-    },
-    {
-      "type": "control",
-      "id": "review:sample",
-      "area": "discovery",
-      "discovery": true,
-      "v2": null
-    },
-    {
-      "type": "control",
-      "id": "review:sample",
-      "area": "strategy",
-      "discovery": true,
-      "v2": null
-    },
-    {
-      "type": "control",
-      "id": "review:sample",
-      "area": "machine",
-      "discovery": true,
-      "v2": null
     }
   ]
 }

@@ -227,8 +227,6 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
                         body: body.into(),
                         route: "#/".into(),
                         actions: Vec::new(),
-                        key: None,
-                        client_id: None,
                     },
                 );
             }
@@ -1009,15 +1007,10 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         return Err("starting".into());
     }
-    crate::approvals::refresh_notifications();
     let registration = session
         .op(
             "client.register",
-            &registration_params(
-                crate::approvals::notifications_presentable(),
-                crate::approvals::notification_permission_reported(),
-                crate::approvals::notification_alerts_state(),
-            ),
+            &registration_params(crate::approvals::notifications_presentable()),
         )
         .await?;
     let client_id = registration["client_id"]
@@ -1134,20 +1127,12 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
 /// seconds under load (background timers), and a heartbeat should outlast that before it even
 /// counts as a miss, independent of the retry tolerance below.
 const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
-fn registration_params(notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
-    let mut value = serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true,"notification_alerts":notification_alerts});
-    if let Some(permission) = notification_permission {
-        value["notification_permission"] = permission.into();
-    }
-    value
+fn registration_params(notifier: bool) -> Value {
+    serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true})
 }
 /// Services before the heartbeat `notifier` flag ignore it, keeping the registered value.
-fn heartbeat_params(client_id: &str, notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
-    let mut value = serde_json::json!({"client_id":client_id,"notifier":notifier,"notification_alerts":notification_alerts});
-    if let Some(permission) = notification_permission {
-        value["notification_permission"] = permission.into();
-    }
-    value
+fn heartbeat_params(client_id: &str, notifier: bool) -> Value {
+    serde_json::json!({"client_id":client_id,"notifier":notifier})
 }
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
@@ -1180,12 +1165,7 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
         let result = session
             .op_timeout(
                 "client.heartbeat",
-                &heartbeat_params(
-                    client_id,
-                    crate::approvals::notifications_presentable(),
-                    crate::approvals::notification_permission_reported(),
-                    crate::approvals::notification_alerts_state(),
-                ),
+                &heartbeat_params(client_id, crate::approvals::notifications_presentable()),
                 HEARTBEAT_OP_TIMEOUT,
             )
             .await;
@@ -1227,15 +1207,6 @@ async fn reconcile_cursor(app: &AppHandle, session: &Session, home: &std::path::
     let identity=event_identity(&session.origin,home,&session.owner_identity,&process,&registration,&session.hello_identity.lock().unwrap());
     Ok(app.state::<crate::ipc_transport::Bridge>().reconcile_cursor(identity,snapshot["seq"].as_u64().unwrap_or(0)))
 }
-/// Whether a `control` entity event is addressed to this client: the recipient
-/// list includes `client_id`, or a bare `client_id` matches when no list is given.
-fn control_targets_client(value: &Value, client_id: &str) -> bool {
-    let recipients = value.get("recipients").and_then(|v| v.as_array());
-    recipients
-        .map(|list| list.iter().any(|item| item.as_str() == Some(client_id)))
-        .unwrap_or_else(|| value.get("client_id").and_then(|v| v.as_str()) == Some(client_id))
-}
-
 async fn listen(
     app: &AppHandle,
     session: &Session,
@@ -1323,16 +1294,6 @@ async fn listen(
                             crate::notifications::from_event(&data, &client_id)
                         {
                             crate::notify(app, notification);
-                        }
-                    }
-                }
-                if event.kind == "control" {
-                    if let Ok(value) = serde_json::from_str::<Value>(&event.data) {
-                        let action = value.get("action").and_then(|v| v.as_str());
-                        if action == Some("notifications.request")
-                            && control_targets_client(&value, &client_id)
-                        {
-                            crate::approvals::request_notifications_then_refresh();
                         }
                     }
                 }
@@ -3072,22 +3033,14 @@ mod notifier_params_tests {
     #[test]
     fn registration_and_heartbeat_carry_the_notifier_flag() {
         for notifier in [true, false] {
-            let registration = registration_params(notifier, Some("authorized".into()), "banner".into());
+            let registration = registration_params(notifier);
             assert_eq!(registration["kind"], "desktop");
             assert_eq!(registration["notifier"], notifier);
             assert_eq!(registration["capture"], true);
-            assert_eq!(registration["notification_permission"], "authorized");
-            assert_eq!(registration["notification_alerts"], "banner");
             assert_eq!(
-                heartbeat_params("client", notifier, Some("authorized".into()), "banner".into()),
-                serde_json::json!({"client_id":"client","notifier":notifier,"notification_permission":"authorized","notification_alerts":"banner"})
+                heartbeat_params("client", notifier),
+                serde_json::json!({"client_id":"client","notifier":notifier})
             );
-            // A None permission is omitted entirely (item 13): the service must not read
-            // "unsupported" for an app macOS has not answered yet.
-            let omitted = registration_params(notifier, None, "none".into());
-            assert!(!omitted.get("notification_permission").is_some());
-            let omitted_heartbeat = heartbeat_params("client", notifier, None, "none".into());
-            assert!(!omitted_heartbeat.get("notification_permission").is_some());
         }
     }
 }
@@ -3118,26 +3071,5 @@ mod event_identity_tests {
             event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&serde_json::json!("new registration"),&Value::Null),
             event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&Value::Null,&serde_json::json!("new hello")),
         ] {assert_ne!(identity,changed);}
-    }
-}
-
-#[cfg(test)]
-mod control_targeting_tests {
-    use super::*;
-
-    #[test]
-    fn control_event_targets_only_the_desktop_that_owns_the_notify_request() {
-        // The service sends recipients; this client must act only when its id is listed.
-        let mine = serde_json::json!({"action":"notifications.request","recipients":["other","me"],"client_id":"other"});
-        assert!(control_targets_client(&mine, "me"));
-        assert!(!control_targets_client(&mine, "other-plus")); // no prefix match
-        assert!(!control_targets_client(&mine, "them"));
-        // A bare client_id also targets when present (backward-compatible shape).
-        let bare = serde_json::json!({"action":"notifications.request","client_id":"only"});
-        assert!(control_targets_client(&bare, "only"));
-        assert!(!control_targets_client(&bare, "someone"));
-        // No recipient list and no client_id means untargeted.
-        let untargeted = serde_json::json!({"action":"notifications.request"});
-        assert!(!control_targets_client(&untargeted, "me"));
     }
 }

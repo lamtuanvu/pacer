@@ -15,7 +15,6 @@ export function createDesktopPlatform(host: PlatformHost): Platform {
     ...createIpcTransport(host.__TAURI__?.core),
     desktop: true,
     openExternal: url => { (host.location ?? globalThis.location)?.assign(url); },
-    openSystemSettings: async pane => { if (!invoke) throw Error('unsupported'); await invoke('open_system_settings', { pane }); },
     windowControls: native.windowControls(captured),
     readRoundedWindowSupport: () => native.readRoundedWindowSupport(captured),
     readNativeTitlebarSupport: () => native.readNativeTitlebarSupport(captured),

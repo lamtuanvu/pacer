@@ -227,6 +227,9 @@ async fn main() -> io::Result<()> {
             core_bridge_sync,
             None,
             None,
+            None,
+            None,
+            None,
         )
         .await;
         let output = match result {

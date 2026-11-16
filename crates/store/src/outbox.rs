@@ -383,7 +383,6 @@ pub fn parse_outbox_event(raw: &Value) -> Option<Value> {
                 "machine",
                 "message",
                 "liveness",
-                "control",
             ]
             .contains(&entity_kind)
             {

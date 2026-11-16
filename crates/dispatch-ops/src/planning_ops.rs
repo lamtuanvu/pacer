@@ -36,7 +36,7 @@ pub(crate) fn now(ctx: &Ctx) -> f64 {
     (ctx.now * 1000.0).floor() / 1000.0
 }
 
-fn open(ctx: &Ctx) -> Result<AdmissionState, CoreError> {
+pub(crate) fn open(ctx: &Ctx) -> Result<AdmissionState, CoreError> {
     AdmissionState::open(&ctx.pacer_home).map_err(|error| internal(error.0))
 }
 

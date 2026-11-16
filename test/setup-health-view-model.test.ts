@@ -38,7 +38,6 @@ describe("aggregateSetupHealth", () => {
       "detect_agents",
       "integrations",
       "usage_eligibility",
-      "notifications",
       "ready",
     ]);
     expect(report.steps.every(s => s.state === "passed")).toBe(true);
@@ -137,7 +136,6 @@ describe("shouldSkipFullWindow", () => {
       detect_agents: "passed",
       integrations: "passed",
       usage_eligibility: "passed",
-      notifications: "passed",
       ready: "passed",
     },
   };
@@ -242,77 +240,5 @@ describe("setupHealthRepairs", () => {
       checkedAt: 1,
     });
     expect(report.repairs).toEqual([{ kind: "remedy", label: "Review and fix", check: "Install opencode", honesty, remedy: remedies.review("opencode") }]);
-  });
-});
-
-describe("notifications setup step", () => {
-  const notif = (level: "ok" | "info" | "warn", detail: string, remedy?: Check["remedy"]): Check => ({
-    name: "Notifications",
-    level,
-    detail,
-    ...(remedy ? { remedy } : {}),
-  });
-
-  test("a warn maps to needs_attention and a warnings outcome, never hard_fail", () => {
-    const report = aggregateSetupHealth({
-      checks: [notif("warn", "Notification permission not asked yet", remedies.allowNotifications()), { name: "Service", level: "ok", detail: "ok" }],
-      checklist: checklist(),
-      trigger: "startup",
-      checkedAt: 1,
-    });
-    const step = report.steps.find(s => s.id === "notifications");
-    expect(step?.state).toBe("needs_attention");
-    expect(report.outcome).toBe("warnings");
-    expect(report.repairs).toEqual([
-      { kind: "remedy", label: remedies.allowNotifications()!.label, check: "Notifications", skip: true, remedy: remedies.allowNotifications() },
-    ]);
-  });
-
-  test("a passed or informational check passes the step", () => {
-    for (const level of ["ok", "info"] as const) {
-      const report = aggregateSetupHealth({
-        checks: [
-          notif(level, level === "ok" ? "Banners allowed · not tested yet" : "Notifications are off"),
-          { name: "Binary codec", level: "ok", detail: "ok" },
-          { name: "Usage codec", level: "ok", detail: "OK" },
-        ],
-        checklist: checklist(),
-        trigger: "startup",
-        checkedAt: 1,
-      });
-      expect(report.steps.find(s => s.id === "notifications")?.state).toBe("passed");
-      expect(report.outcome).toBe("ok");
-    }
-  });
-
-  test("a skipped step reads 'Skipped', stays passed, and clears the outcome", () => {
-    const report = aggregateSetupHealth({
-      checks: [
-        notif("warn", "Notification permission not asked yet", remedies.allowNotifications()),
-        { name: "Service", level: "ok", detail: "ok" },
-        { name: "Binary codec", level: "ok", detail: "ok" },
-        { name: "Usage codec", level: "ok", detail: "OK" },
-      ],
-      checklist: checklist(),
-      trigger: "startup",
-      checkedAt: 1,
-      notificationsSkipped: true,
-    });
-    const step = report.steps.find(s => s.id === "notifications");
-    expect(step?.state).toBe("skipped");
-    expect(step?.detail).toBe("Skipped");
-    expect(report.outcome).toBe("ok");
-    expect(report.attentionCount).toBe(0);
-    // A skipped step contributes no repair (so it never shows Allow notifications or
-    // hides Run checks again / Restart).
-    expect(report.repairs ?? []).toEqual([]);
-  });
-
-  test("setupHealthRepairs marks the notifications remedy as skippable", () => {
-    expect(setupHealthRepairs([notif("warn", "Notification permission not asked yet", remedies.allowNotifications())])).toEqual([
-      { kind: "remedy", label: remedies.allowNotifications()!.label, check: "Notifications", skip: true, remedy: remedies.allowNotifications() },
-    ]);
-    // Other warn checks stay non-skippable.
-    expect(setupHealthRepairs([notif("warn", "Notifications are blocked in System Settings", remedies.notificationSettings("Open"))]).some(r => r.skip)).toBe(true);
   });
 });

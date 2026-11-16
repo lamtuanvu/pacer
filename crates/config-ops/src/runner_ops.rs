@@ -18,7 +18,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     fsutil::write_private,
 };
-use pacer_models::{Validation, validate_runner_model};
+use pacer_models::{Validation, model_check_needs_core, validate_runner_model};
 use serde_json::{Map, Value, json};
 
 #[cfg(test)]
@@ -483,19 +483,20 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     fine.then_some(p)
 }
 
-/// The `runner.set` model check. A legacy strategy is migrated by TypeScript
-/// before the check, so its runners are listed there.
-pub(crate) fn model_check(ctx: &Ctx, strategy: &Value, id: &str, model: &str) -> Validation {
+/// The `runner.set` model check, which may run OpenCode discovery. A legacy
+/// strategy is migrated by TypeScript before the check, so its runners are
+/// listed there.
+pub(crate) async fn model_check(ctx: &Ctx, strategy: &Value, id: &str, model: &str) -> Validation {
     if strategy["legacy"] == true {
         return Validation::NeedsCore;
     }
-    validate_runner_model(&ctx.pacer_home, ctx.now, strategy, id, model)
+    validate_runner_model(&ctx.pacer_home, ctx.now, strategy, id, model).await
 }
 
 /// `runner.set` with a string `model` in otherwise valid params forwards only
-/// where TypeScript alone lists the runner's models: an OpenCode provider
-/// without a fresh listing cache (`opencode models`), a cache shape only
-/// TypeScript reproduces, a legacy strategy, or a strategy that does not load.
+/// where TypeScript alone lists the runner's models: discovery the front door
+/// cannot run as Core does, a cache or catalog shape only TypeScript
+/// reproduces, a legacy strategy, or a strategy that does not load.
 pub fn runner_set_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     if !params["model"].is_string() {
         return false;
@@ -503,12 +504,13 @@ pub fn runner_set_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
     let Ok(p) = crate::config_params::parse("runner.set", params.clone()) else {
         return false;
     };
-    let Some(model) = p["model"].as_str() else {
+    if !p["model"].is_string() {
         return false;
-    };
+    }
     load_strategy(&ctx.pacer_home).map_or(true, |strategy| {
         let id = p["id"].as_str().unwrap_or("");
-        model_check(ctx, &strategy, id, model) == Validation::NeedsCore
+        strategy["legacy"] == true
+            || model_check_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
     })
 }
 

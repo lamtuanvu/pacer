@@ -20,6 +20,7 @@ export function taskReviewProbe(ctx: Ctx, id: string, params: TaskReviewProbePar
   const verdict = typeof params.verdict === "string" ? params.verdict : "";
   if (verdict === "send_back" || verdict === "retry") return { forward: true as const, reason: "verdict" };
   if (getWork(ctx, id)) return { forward: true as const, reason: "managed work" };
+  if (verdict === "accept" && readTask(ctx, id)?.diagnosticCheck) return { forward: true as const, reason: "diagnostic recheck" };
   if (agentChecksPending(ctx, id) || activeAgentSessions(ctx).some(s => s.task_id === id)) {
     return { forward: true as const, reason: "agent session" };
   }

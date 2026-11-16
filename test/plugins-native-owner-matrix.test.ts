@@ -169,8 +169,12 @@ const STATUS_AGES = /observed \d+[smhd] ago|\(pace \d+%, \d+ active-h left\)/g;
 function maskClockValues(text: string) {
   return text.replace(CLOCK_KEYS, '"$1":"<clock>"').replace(BACKUP_STAMP, "pacer-bak-<clock>").replace(STATUS_AGES, "<age>");
 }
+/** Eligibility reasons cite evidence facts by the same clock-hashed ids; mask each, keeping the count. */
+const EVIDENCE_REFS = /"evidenceIds":\[([^\]]*)\]/g;
+
 function maskProcessAndRecordIds(text: string) {
-  return text.replace(IDENTITY_KEYS, '"$1":"<id>"').replace(GENERATED_IDS, '"id":"<id>"');
+  return text.replace(IDENTITY_KEYS, '"$1":"<id>"').replace(GENERATED_IDS, '"id":"<id>"')
+    .replace(EVIDENCE_REFS, (_, refs: string) => `"evidenceIds":[${refs.replace(/"[0-9a-f]{24}"/g, '"<id>"')}]`);
 }
 /** Normalized reply text: the same envelope bytes once clock values and generated ids are masked. */
 function replyText(h: Home, reply: Reply) {

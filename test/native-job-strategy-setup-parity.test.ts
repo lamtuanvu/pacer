@@ -229,26 +229,6 @@ test.skipIf(!front)("strategy.preview without a loadable current strategy matche
   expect(await exchange(dir, cases, false, {}, false)).toEqual(await exchange(dir, cases, true));
 }, 120000);
 
-test.skipIf(!front)("strategy.preview without a loadable current strategy matches forced forwarding", async () => {
-  const dir = home(), path = join(dir, ".pacer", "strategy.yaml");
-  const cases = requests([["strategy.preview", { draft: { from: "default", set: { "pacing.order": ["codex"] } } }], ["strategy.preview", { draft: { from: "default" } }]]);
-  const current = (text: string | null) => { rmSync(path, { recursive: true, force: true }); if (text !== null) writeFileSync(path, text); };
-  for (const text of [null, "planner: nobody\n", "- a\n- b\n", `${STRATEGY}terminal: {open: "x {cmd} '"}\n`]) {
-    current(text);
-    const native = await exchange(dir, cases, false);
-    expect(native, String(text)).toEqual(await exchange(dir, cases, true));
-    expect(JSON.parse(native[0]!).error.data).toEqual({ code: "invalid_input", hint: "Use strategy.list to choose a strategy and strategy.preview to validate a draft." });
-  }
-  // YAML syntax and read errors carry the runtime's own text.
-  for (const text of ["planner: [\n", ""]) {
-    current(text);
-    expect(await exchange(dir, cases, false, {}, false), text).toEqual(await exchange(dir, cases, true));
-  }
-  current(null);
-  mkdirSync(path);
-  expect(await exchange(dir, cases, false, {}, false)).toEqual(await exchange(dir, cases, true));
-}, 120000);
-
 test.skipIf(!front)("executor.setup.models from a fresh catalog and executor.setup.connect match forced forwarding", async () => {
   const dir = home();
   const cases: [string, unknown][] = [
