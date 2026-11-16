@@ -89,6 +89,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "dispatch.enforcement.consent",
     "dispatch.learning.reset",
     "setup.health",
+    "setup.skip",
     "account.usage.check",
     "limits.refresh",
     "session.draft.create",
@@ -99,6 +100,10 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "session.resume",
     "session.attachment.prepare",
     "session.file.read",
+    "notifications.test",
+    "notifications.ack",
+    "notifications.request",
+    "notifications.health",
     "insights.summary",
     "machine.get",
     "machine.set",
@@ -199,7 +204,11 @@ pub fn op_schemas(input: &Value) -> Value {
         ("task.delegate", "dispatch"),
         ("task.list", "q"),
         ("client.register", "capture"),
+        ("client.register", "notification_permission"),
+        ("client.register", "notification_alerts"),
         ("client.heartbeat", "notifier"),
+        ("client.heartbeat", "notification_permission"),
+        ("client.heartbeat", "notification_alerts"),
     ] {
         if let Some(map) = out[op]["params"]["properties"].as_object_mut() {
             map.shift_remove(field);

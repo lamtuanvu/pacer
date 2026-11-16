@@ -3790,6 +3790,25 @@ impl<'de> ::serde::Deserialize<'de> for AttentionSnoozeParamsId {
 ///      "maxLength": 128,
 ///      "minLength": 1
 ///    },
+///    "notification_alerts": {
+///      "type": "string",
+///      "enum": [
+///        "none",
+///        "banner",
+///        "alert"
+///      ]
+///    },
+///    "notification_permission": {
+///      "type": "string",
+///      "enum": [
+///        "not_determined",
+///        "denied",
+///        "authorized",
+///        "provisional",
+///        "ephemeral",
+///        "unsupported"
+///      ]
+///    },
 ///    "notifier": {
 ///      "type": "boolean"
 ///    }
@@ -3802,6 +3821,10 @@ impl<'de> ::serde::Deserialize<'de> for AttentionSnoozeParamsId {
 #[serde(deny_unknown_fields)]
 pub struct ClientHeartbeatParams {
     pub client_id: ClientHeartbeatParamsClientId,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notification_alerts: ::std::option::Option<ClientHeartbeatParamsNotificationAlerts>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notification_permission: ::std::option::Option<ClientHeartbeatParamsNotificationPermission>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub notifier: ::std::option::Option<bool>,
 }
@@ -3861,6 +3884,153 @@ impl<'de> ::serde::Deserialize<'de> for ClientHeartbeatParamsClientId {
             })
     }
 }
+///`ClientHeartbeatParamsNotificationAlerts`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "none",
+///    "banner",
+///    "alert"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ClientHeartbeatParamsNotificationAlerts {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "banner")]
+    Banner,
+    #[serde(rename = "alert")]
+    Alert,
+}
+impl ::std::convert::From<&Self> for ClientHeartbeatParamsNotificationAlerts {
+    fn from(value: &ClientHeartbeatParamsNotificationAlerts) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ClientHeartbeatParamsNotificationAlerts {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::None => f.write_str("none"),
+            Self::Banner => f.write_str("banner"),
+            Self::Alert => f.write_str("alert"),
+        }
+    }
+}
+impl ::std::str::FromStr for ClientHeartbeatParamsNotificationAlerts {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "none" => Ok(Self::None),
+            "banner" => Ok(Self::Banner),
+            "alert" => Ok(Self::Alert),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ClientHeartbeatParamsNotificationAlerts {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ClientHeartbeatParamsNotificationPermission`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "not_determined",
+///    "denied",
+///    "authorized",
+///    "provisional",
+///    "ephemeral",
+///    "unsupported"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ClientHeartbeatParamsNotificationPermission {
+    #[serde(rename = "not_determined")]
+    NotDetermined,
+    #[serde(rename = "denied")]
+    Denied,
+    #[serde(rename = "authorized")]
+    Authorized,
+    #[serde(rename = "provisional")]
+    Provisional,
+    #[serde(rename = "ephemeral")]
+    Ephemeral,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+}
+impl ::std::convert::From<&Self> for ClientHeartbeatParamsNotificationPermission {
+    fn from(value: &ClientHeartbeatParamsNotificationPermission) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ClientHeartbeatParamsNotificationPermission {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::NotDetermined => f.write_str("not_determined"),
+            Self::Denied => f.write_str("denied"),
+            Self::Authorized => f.write_str("authorized"),
+            Self::Provisional => f.write_str("provisional"),
+            Self::Ephemeral => f.write_str("ephemeral"),
+            Self::Unsupported => f.write_str("unsupported"),
+        }
+    }
+}
+impl ::std::str::FromStr for ClientHeartbeatParamsNotificationPermission {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "not_determined" => Ok(Self::NotDetermined),
+            "denied" => Ok(Self::Denied),
+            "authorized" => Ok(Self::Authorized),
+            "provisional" => Ok(Self::Provisional),
+            "ephemeral" => Ok(Self::Ephemeral),
+            "unsupported" => Ok(Self::Unsupported),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ClientHeartbeatParamsNotificationPermission {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`ClientListParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -3907,6 +4077,25 @@ impl ::std::default::Default for ClientListParams {
 ///        "cli"
 ///      ]
 ///    },
+///    "notification_alerts": {
+///      "type": "string",
+///      "enum": [
+///        "none",
+///        "banner",
+///        "alert"
+///      ]
+///    },
+///    "notification_permission": {
+///      "type": "string",
+///      "enum": [
+///        "not_determined",
+///        "denied",
+///        "authorized",
+///        "provisional",
+///        "ephemeral",
+///        "unsupported"
+///      ]
+///    },
 ///    "notifier": {
 ///      "type": "boolean"
 ///    },
@@ -3925,6 +4114,10 @@ pub struct ClientRegisterParams {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub capture: ::std::option::Option<bool>,
     pub kind: ClientRegisterParamsKind,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notification_alerts: ::std::option::Option<ClientRegisterParamsNotificationAlerts>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub notification_permission: ::std::option::Option<ClientRegisterParamsNotificationPermission>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub notifier: ::std::option::Option<bool>,
     pub version: ClientRegisterParamsVersion,
@@ -4010,6 +4203,153 @@ impl ::std::str::FromStr for ClientRegisterParamsKind {
     }
 }
 impl ::std::convert::TryFrom<&str> for ClientRegisterParamsKind {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ClientRegisterParamsNotificationAlerts`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "none",
+///    "banner",
+///    "alert"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ClientRegisterParamsNotificationAlerts {
+    #[serde(rename = "none")]
+    None,
+    #[serde(rename = "banner")]
+    Banner,
+    #[serde(rename = "alert")]
+    Alert,
+}
+impl ::std::convert::From<&Self> for ClientRegisterParamsNotificationAlerts {
+    fn from(value: &ClientRegisterParamsNotificationAlerts) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ClientRegisterParamsNotificationAlerts {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::None => f.write_str("none"),
+            Self::Banner => f.write_str("banner"),
+            Self::Alert => f.write_str("alert"),
+        }
+    }
+}
+impl ::std::str::FromStr for ClientRegisterParamsNotificationAlerts {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "none" => Ok(Self::None),
+            "banner" => Ok(Self::Banner),
+            "alert" => Ok(Self::Alert),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ClientRegisterParamsNotificationAlerts {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`ClientRegisterParamsNotificationPermission`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "not_determined",
+///    "denied",
+///    "authorized",
+///    "provisional",
+///    "ephemeral",
+///    "unsupported"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum ClientRegisterParamsNotificationPermission {
+    #[serde(rename = "not_determined")]
+    NotDetermined,
+    #[serde(rename = "denied")]
+    Denied,
+    #[serde(rename = "authorized")]
+    Authorized,
+    #[serde(rename = "provisional")]
+    Provisional,
+    #[serde(rename = "ephemeral")]
+    Ephemeral,
+    #[serde(rename = "unsupported")]
+    Unsupported,
+}
+impl ::std::convert::From<&Self> for ClientRegisterParamsNotificationPermission {
+    fn from(value: &ClientRegisterParamsNotificationPermission) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for ClientRegisterParamsNotificationPermission {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::NotDetermined => f.write_str("not_determined"),
+            Self::Denied => f.write_str("denied"),
+            Self::Authorized => f.write_str("authorized"),
+            Self::Provisional => f.write_str("provisional"),
+            Self::Ephemeral => f.write_str("ephemeral"),
+            Self::Unsupported => f.write_str("unsupported"),
+        }
+    }
+}
+impl ::std::str::FromStr for ClientRegisterParamsNotificationPermission {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "not_determined" => Ok(Self::NotDetermined),
+            "denied" => Ok(Self::Denied),
+            "authorized" => Ok(Self::Authorized),
+            "provisional" => Ok(Self::Provisional),
+            "ephemeral" => Ok(Self::Ephemeral),
+            "unsupported" => Ok(Self::Unsupported),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for ClientRegisterParamsNotificationPermission {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
@@ -7285,6 +7625,221 @@ impl ::std::default::Default for ModeReleaseParams {
         Self {}
     }
 }
+///`NotificationsAckParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "client_id",
+///    "delivered",
+///    "key"
+///  ],
+///  "properties": {
+///    "client_id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "delivered": {
+///      "type": "boolean"
+///    },
+///    "error": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "maxLength": 512
+///        },
+///        {
+///          "type": "null"
+///        }
+///      ]
+///    },
+///    "key": {
+///      "type": "string",
+///      "maxLength": 512,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationsAckParams {
+    pub client_id: NotificationsAckParamsClientId,
+    pub delivered: bool,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub error: ::std::option::Option<NotificationsAckParamsError>,
+    pub key: NotificationsAckParamsKey,
+}
+///`NotificationsAckParamsClientId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct NotificationsAckParamsClientId(::std::string::String);
+impl ::std::ops::Deref for NotificationsAckParamsClientId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<NotificationsAckParamsClientId> for ::std::string::String {
+    fn from(value: NotificationsAckParamsClientId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for NotificationsAckParamsClientId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for NotificationsAckParamsClientId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for NotificationsAckParamsClientId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`NotificationsAckParamsError`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 512
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct NotificationsAckParamsError(::std::string::String);
+impl ::std::ops::Deref for NotificationsAckParamsError {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<NotificationsAckParamsError> for ::std::string::String {
+    fn from(value: NotificationsAckParamsError) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for NotificationsAckParamsError {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 512usize {
+            return Err("longer than 512 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for NotificationsAckParamsError {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for NotificationsAckParamsError {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`NotificationsAckParamsKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 512,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct NotificationsAckParamsKey(::std::string::String);
+impl ::std::ops::Deref for NotificationsAckParamsKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<NotificationsAckParamsKey> for ::std::string::String {
+    fn from(value: NotificationsAckParamsKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for NotificationsAckParamsKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 512usize {
+            return Err("longer than 512 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for NotificationsAckParamsKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for NotificationsAckParamsKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`NotificationsGetParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -7302,6 +7857,56 @@ pub struct NotificationsGetParams {}
 impl ::std::default::Default for NotificationsGetParams {
     fn default() -> Self {
         Self {}
+    }
+}
+///`NotificationsHealthParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationsHealthParams {}
+impl ::std::default::Default for NotificationsHealthParams {
+    fn default() -> Self {
+        Self {}
+    }
+}
+///`NotificationsRequestParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "wait_s": {
+///      "type": "integer",
+///      "maximum": 25.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationsRequestParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub wait_s: ::std::option::Option<i64>,
+}
+impl ::std::default::Default for NotificationsRequestParams {
+    fn default() -> Self {
+        Self {
+            wait_s: Default::default(),
+        }
     }
 }
 ///`NotificationsSetParams`
@@ -7397,6 +8002,25 @@ impl ::std::convert::TryFrom<&str> for NotificationsSetParamsLevel {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
+    }
+}
+///`NotificationsTestParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct NotificationsTestParams {}
+impl ::std::default::Default for NotificationsTestParams {
+    fn default() -> Self {
+        Self {}
     }
 }
 ///`OnboardingSkipParams`
@@ -12773,6 +13397,31 @@ impl<'de> ::serde::Deserialize<'de> for SetupInitParamsPlanner {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
     }
+}
+///`SetupSkipParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "step"
+///  ],
+///  "properties": {
+///    "step": {
+///      "type": "string",
+///      "const": "notifications"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct SetupSkipParams {
+    pub step: ::std::string::String,
 }
 ///`SnapshotGetParams`
 ///

@@ -285,6 +285,7 @@ export function cases() {
     'other',
     'task.delegate',
     'client.register',
+    'client.heartbeat',
     'task.review',
   ]) {
     for (const input of [
@@ -296,6 +297,8 @@ export function cases() {
       [1],
       {},
       { dispatch: 1, capture: 1 },
+      { capture: 1, notification_permission: 'authorized', notification_alerts: 'banner' },
+      { notifier: true, notification_permission: 'not_determined', notification_alerts: 'none' },
       { accepted: true },
       { accepted: false },
       { accepted: true, verdict: null },

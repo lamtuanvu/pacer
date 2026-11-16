@@ -66,7 +66,8 @@ pub mod error {
 ///          "liveness",
 ///          "machine",
 ///          "assistant",
-///          "discovery.found"
+///          "discovery.found",
+///          "control"
 ///        ]
 ///      },
 ///      "maxItems": 32,
@@ -112,7 +113,8 @@ pub struct CapabilityEventsSubscribeParams {
 ///    "liveness",
 ///    "machine",
 ///    "assistant",
-///    "discovery.found"
+///    "discovery.found",
+///    "control"
 ///  ]
 ///}
 /// ```
@@ -174,6 +176,8 @@ pub enum CapabilityEventsSubscribeParamsTypesItem {
     Assistant,
     #[serde(rename = "discovery.found")]
     DiscoveryFound,
+    #[serde(rename = "control")]
+    Control,
 }
 impl ::std::convert::From<&Self> for CapabilityEventsSubscribeParamsTypesItem {
     fn from(value: &CapabilityEventsSubscribeParamsTypesItem) -> Self {
@@ -205,6 +209,7 @@ impl ::std::fmt::Display for CapabilityEventsSubscribeParamsTypesItem {
             Self::Machine => f.write_str("machine"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
+            Self::Control => f.write_str("control"),
         }
     }
 }
@@ -234,6 +239,7 @@ impl ::std::str::FromStr for CapabilityEventsSubscribeParamsTypesItem {
             "machine" => Ok(Self::Machine),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),
+            "control" => Ok(Self::Control),
             _ => Err("invalid value".into()),
         }
     }
@@ -2922,7 +2928,8 @@ impl<'de> ::serde::Deserialize<'de> for PolicyBeforeResultReason {
 ///        "liveness",
 ///        "machine",
 ///        "assistant",
-///        "discovery.found"
+///        "discovery.found",
+///        "control"
 ///      ]
 ///    }
 ///  },
@@ -3044,7 +3051,8 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Pol
 ///    "liveness",
 ///    "machine",
 ///    "assistant",
-///    "discovery.found"
+///    "discovery.found",
+///    "control"
 ///  ]
 ///}
 /// ```
@@ -3106,6 +3114,8 @@ pub enum PolicyEventType {
     Assistant,
     #[serde(rename = "discovery.found")]
     DiscoveryFound,
+    #[serde(rename = "control")]
+    Control,
 }
 impl ::std::convert::From<&Self> for PolicyEventType {
     fn from(value: &PolicyEventType) -> Self {
@@ -3137,6 +3147,7 @@ impl ::std::fmt::Display for PolicyEventType {
             Self::Machine => f.write_str("machine"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
+            Self::Control => f.write_str("control"),
         }
     }
 }
@@ -3166,6 +3177,7 @@ impl ::std::str::FromStr for PolicyEventType {
             "machine" => Ok(Self::Machine),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),
+            "control" => Ok(Self::Control),
             _ => Err("invalid value".into()),
         }
     }
