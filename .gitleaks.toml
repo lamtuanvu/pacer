@@ -46,9 +46,3 @@ id = "slack-token"
 description = "Slack Token"
 regex = 'xox[baprs]-[A-Za-z0-9-]{10,48}'
 tags = ["key", "slack"]
-
-[[rule]]
-id = "generic-secret"
-description = "Generic secret pattern"
-regex = '(?i)(secret|password|token|key)[:=]\\s*["\']?[A-Za-z0-9/+=]{20,}["\']?'
-tags = ["secret"]
