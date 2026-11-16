@@ -8,6 +8,9 @@ use rusqlite::{
 };
 use serde_json::{Map, Value, json};
 
+mod writes;
+pub use writes::{NewMessage, by_request, confirm_held, ensure_schema, fingerprint, get, insert};
+
 type Result<T> = std::result::Result<T, StoreError>;
 
 const MAX_DEPTH: usize = 64;
