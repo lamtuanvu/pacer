@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Notification health (Parts A and B): `client.register` and `client.heartbeat` carry optional `notification_permission` and `notification_alerts`, and the registry records `permission_changed_at` whenever either changes between two real states (not on a first report, an `unsupported` transition, or an unchanged value, so an app relaunch does not reset a delivered test); new ops `notifications.test`, `notifications.ack` (desktop clients only; must match the targeted desktop's `client_id`, and omits `error` on success), `notifications.request` (waits up to `wait_s`, default and maximum 20/25 s, under the desktop's 30 s service-call timeout; publishes a `control` v3 event that plugins may observe) and the cheap read `notifications.health` (v3 only); a `Notifications` doctor check with ordered state table and remedies `allowNotifications()`, `notificationSettings(caption)` and `testNotification()`, with a structured `tested_at` on the ok detail; `setup.skip` skips the optional setup step (stored in `settings.json` under the config lock); the Notifications remedy stays out of Setup and Diagnostics fix-all; executor sessions cannot run the new `notifications.test/ack/request/health` ops or `setup.skip` (`notifications.get` and `notifications.set` keep their prior policy); desktop reports raw permission/alert state (omitting the permission until macOS has answered a real settings read) and acks every posted notification, opens System Settings via `open_system_settings`, setup gains a "Turn on notifications" step (renderable as Skipped) and Settings shows a Desktop banners row. State is stored in `state/notification-health.json`.
+
 ## [0.15.0] - 2026-11-14
 
 ### Added

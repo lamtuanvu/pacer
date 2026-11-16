@@ -95,6 +95,7 @@ function FixRow({ row, busy, consent, onRemedy }: { row: DiagnosticFixRow; busy:
     {task && <span className="pc-diagnostic-row__state" data-tone={task.tone}>{task.label}</span>}
     {row.progress && <span className="pc-diagnostic-caption">{row.progress}</span>}
     {offered && <Button size="sm" aria-disabled={locked || undefined} onClick={remedy(row.plan!)}>{row.remedy!.label}<span className="sr-only"> for {title}</span></Button>}
+    {row.caption && <span className="pc-diagnostic-caption">{row.caption}</span>}
     {offered && row.secondary && <Button size="sm" variant="ghost" aria-disabled={locked || undefined} onClick={remedy(row.secondary.plan, true)}>{row.secondary.label}<span className="sr-only"> for {title}</span></Button>}
     {taskLink}
   </>;

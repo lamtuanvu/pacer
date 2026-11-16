@@ -5,6 +5,7 @@ import { SetupHealthStage } from "../app/src/screens/setup/SetupHealth";
 import {
   SetupHealthGate,
   applyRepair,
+  applySetupSkip,
   commitSetupHealthLoad,
   gateRemedyHost,
   loadSetupHealthGate,
@@ -23,6 +24,7 @@ const okReport = (): SetupHealthReport & { skipFullWindow?: boolean } => ({
     { id: "detect_agents", title: "Detect agents", state: "passed" },
     { id: "integrations", title: "Integrations & hooks", state: "passed" },
     { id: "usage_eligibility", title: "Usage & eligibility", state: "passed" },
+    { id: "notifications", title: "Turn on notifications", state: "passed" },
     { id: "ready", title: "Ready to take work", state: "passed" },
   ],
   outcome: "ok",
@@ -141,7 +143,7 @@ function gateHarness(answer = true) {
     if (op === "doctor.fix.delegate") return { task: { task_id: "t 7" } };
     return {};
   } } as unknown as Pick<BrowserApi, "call">;
-  const host = gateRemedyHost(api, async (message, title, label) => { asked.push([message, title, label]); return answer; }, url => opened.push(url));
+  const host = gateRemedyHost(api, async (message, title, label) => { asked.push([message, title, label]); return answer; }, url => { opened.push(url); });
   return { host, calls, asked, opened };
 }
 const repair = (check: string, remedy: SetupHealthRepair["remedy"]): SetupHealthRepair => ({ kind: "remedy", label: remedy!.label, check, remedy });
@@ -182,6 +184,18 @@ test("gate user remedies sign in or open an allowed link and rerun when the pers
   expect(gate.calls).toEqual([["account.signin", { name: "codex" }]]);
   expect(gate.opened).toHaveLength(1);
   expect(gate.opened[0]).toStartWith("x-apple.systempreferences:");
+});
+
+test("skipping an optional setup step persists via setup.skip and reruns the checks", async () => {
+  const api = { call: async (op: string, params: unknown) => {
+    expect(op).toBe("setup.skip");
+    expect(params).toEqual({ step: "notifications" });
+    return { skipped: true };
+  } } as Pick<BrowserApi, "call">;
+  const calls: string[] = [];
+  const spy = { call: async (op: string, params: unknown) => { calls.push(op); return (api as any).call(op, params); } } as Pick<BrowserApi, "call">;
+  expect(await applySetupSkip(spy)).toBe("rerun");
+  expect(calls).toEqual(["setup.skip"]);
 });
 
 test("gate agent remedies start a fix task after confirm and open it; no remedy opens Diagnostics", async () => {
@@ -459,6 +473,32 @@ test("SetupHealthGate Restart service: accepting consent sends service.install o
   }
 });
 
+test("SetupHealthGate Fix all: an unskipped notifications repair stays an individual Allow action next to fix-all", async () => {
+  const dom = installDom();
+  try {
+    const calls: string[] = [];
+    const notifRepair: SetupHealthRepair = { kind: "remedy", label: "Allow notifications", check: "Notifications", remedy: remedies.allowNotifications() };
+    const report = autoRunReport([...twoAutoFixes, notifRepair]);
+    const call = (async (op: string) => {
+      calls.push(op);
+      if (op === "setup.health") return calls.filter(o => o === "setup.health").length === 1 ? { ...report } : autoRunReport([]);
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Fix 2 issues automatically"));
+    expect(domText(dom.container)).toContain("Allow notifications");
+    // Allow notifications is its own action, separate from fix-all.
+    clickText(dom.container, "Allow notifications");
+    await until(() => calls.includes("notifications.request"));
+    expect(calls.filter(o => o === "notifications.request")).toHaveLength(1);
+    expect(calls.filter(o => o === "limits.refresh")).toHaveLength(0);
+    expect(calls.filter(o => o === "service.install")).toHaveLength(0);
+  } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
 test("SetupHealthGate Fix all: declining the confirmation keeps 'No changes were made.' visible and commits nothing", async () => {
   const dom = installDom();
   try {
@@ -480,6 +520,37 @@ test("SetupHealthGate Fix all: declining the confirmation keeps 'No changes were
     expect(calls.filter(o => o === "limits.refresh")).toHaveLength(0);
     expect(calls.filter(o => o === "service.install")).toHaveLength(0);
   } finally {
+    await unmount(dom);
+    dom.restore();
+  }
+});
+
+test("SetupHealthGate Allow notifications: the macOS prompt hint shows while waiting and clears afterwards", async () => {
+  const dom = installDom();
+  let answer: () => void = () => {};
+  try {
+    const report: SetupHealthReport = {
+      ...okReport(),
+      outcome: "warnings",
+      attentionCount: 1,
+      steps: okReport().steps.map(s => s.id === "notifications" ? { ...s, state: "needs_attention", detail: "Notification permission not asked yet" } : s),
+      repairs: [{ kind: "remedy", label: "Allow notifications", check: "Notifications", skip: true, remedy: remedies.allowNotifications() }],
+    };
+    const pending = new Promise<void>(resolve => { answer = resolve; });
+    const call = (async (op: string) => {
+      if (op === "setup.health") return report;
+      if (op === "notifications.request") { await pending; return { client_id: "d", permission: "not_determined" }; }
+      return {};
+    }) as BrowserApi["call"];
+    await mount(dom, <SetupHealthGate api={{ call } as unknown as BrowserApi} connected enabled onReady={() => {}} />);
+    await until(() => domText(dom.container).includes("Allow notifications"));
+    clickText(dom.container, "Allow notifications");
+    await until(() => domText(dom.container).includes("Answer the macOS prompt…"));
+    answer();
+    await until(() => !domText(dom.container).includes("Answer the macOS prompt…"));
+    expect(domText(dom.container)).toContain("Allow notifications");
+  } finally {
+    answer();
     await unmount(dom);
     dom.restore();
   }

@@ -2016,7 +2016,8 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "liveness",
         "machine",
         "assistant",
-        "discovery.found"
+        "discovery.found",
+        "control"
       ]
     },
     "data": {
@@ -10904,7 +10905,8 @@ Params:
           "liveness",
           "machine",
           "assistant",
-          "discovery.found"
+          "discovery.found",
+          "control"
         ]
       }
     }
