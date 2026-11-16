@@ -48,36 +48,26 @@ pub(crate) use pacer_messaging_ops::msg_writes;
 pub(crate) mod host_check_clean_setup_sync;
 pub(crate) mod msg_write_sync;
 pub mod plugins;
-use pacer_config_ops::available_ops;
-use pacer_config_ops::project_messaging_ops;
-use pacer_config_ops::repo_ops;
-use pacer_config_ops::runner_check_ops;
-use pacer_config_ops::runner_models_ops;
-use pacer_config_ops::runner_ops;
-pub(crate) use pacer_core_bridge::session_sync;
-pub(crate) use pacer_core_bridge::setup_effects_sync;
-pub(crate) use pacer_task_ops::session_ops;
-pub(crate) mod setup_doctor_sync;
-use pacer_config_ops::setup_ops;
-pub(crate) use pacer_core_bridge::snapshot_sync;
-pub(crate) use pacer_core_bridge::status_sync;
-pub(crate) use pacer_core_bridge::task_clean_sync;
-pub(crate) use pacer_core_bridge::task_read_sync;
-pub(crate) use pacer_core_bridge::task_review_sync;
-use pacer_task_ops::snapshot_get_ops;
-pub(crate) use pacer_task_ops::status_ops;
-use pacer_task_ops::task_diff_ops;
-pub(crate) use pacer_task_ops::task_dismiss_ops;
-use pacer_task_ops::task_get_ops;
-use pacer_task_ops::task_reads;
-use pacer_task_ops::task_review_ops;
-pub(crate) use pacer_task_ops::task_send_ops;
-pub(crate) mod task_send_sync;
-pub(crate) use pacer_core_bridge::task_stop_sync;
-pub(crate) use pacer_core_bridge::task_wait_sync;
-use pacer_task_ops::task_stop_ops;
-use pacer_task_ops::task_wait_ops;
-use pacer_update::apply;
+mod repo_ops;
+pub(crate) mod session_ops;
+pub(crate) mod session_sync;
+mod setup_ops;
+mod snapshot_get_ops;
+pub(crate) mod snapshot_sync;
+pub(crate) mod status_ops;
+pub(crate) mod status_sync;
+pub(crate) mod task_clean_sync;
+mod task_diff_ops;
+pub(crate) mod task_dismiss_ops;
+mod task_get_ops;
+pub(crate) mod task_read_sync;
+mod task_reads;
+mod task_review_ops;
+pub(crate) mod task_review_sync;
+mod task_stop_ops;
+pub(crate) mod task_stop_sync;
+mod task_wait_ops;
+pub(crate) mod task_wait_sync;
 
 pub use assistant_ops::assistant_stays_forwarded;
 pub(crate) use config_get_ops::needs_config_host_bridge;
@@ -927,7 +917,6 @@ pub async fn call_native(
     task_stop_effects: Option<pacer_foundation::api::OpFuture<'_>>,
     task_review_probe: Option<Value>,
     task_review_effects: Option<pacer_foundation::api::OpFuture<'_>>,
-    host_effects_sync: Option<&mut dyn pacer_config_ops::host_check_clean_setup_ops::HostEffects>,
 ) -> Result<Value, CoreError> {
     let mut host_read_bridge = host_read_sync;
     if std::env::var("PACER_DEBUG_NATIVE").as_deref() == Ok("1") {
@@ -1113,14 +1102,6 @@ pub async fn call_native(
             "task.review" => task_review_ops::task_review(ctx, params, probe, effects).await?,
             _ => unreachable!("needs_task_review_bridge"),
         }
-    } else if needs_account_list_bridge(op.name) {
-        let parts = core_bridge_sync.ok_or_else(|| {
-            CoreError::new(
-                pacer_foundation::api::Code::Unavailable,
-                "account list bridge unavailable",
-            )
-        })?;
-        account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
         let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
@@ -1170,4 +1151,185 @@ pub async fn call_native(
 }
 
 #[cfg(test)]
-mod tests;
+mod tests {
+    use super::registry;
+
+    #[test]
+    fn forward_override_removes_only_selected_native_ops() {
+        for name in [
+            "strategy.list",
+            "strategy.show",
+            "strategy.use",
+            "strategy.save",
+            "strategy.remove",
+            "routing.get",
+            "routing.set",
+            "runner.set",
+            "runner.reorder",
+            "runner.remove",
+            "runner.settings.get",
+            "runner.settings.save",
+            "notifications.get",
+            "notifications.set",
+            "config.get",
+            "config.set",
+            "host.suggest",
+            "host.list",
+            "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
+            "host.account.add",
+            "delegation.pause",
+            "delegation.resume",
+            "mode.hold",
+            "mode.release",
+            "limits.report",
+            "limits.check",
+            "routing.status",
+            "routing.route",
+            "task.request_review",
+            "task.stop",
+            "task.review",
+            "task.dismiss",
+            "task.diff",
+            "task.list",
+            "task.get",
+            "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
+        ] {
+            assert!(registry("").get(name).is_some(), "{name}");
+            assert!(registry(name).get(name).is_none(), "{name}");
+        }
+        assert!(registry("").get("config.get").is_some());
+        assert!(registry("config.get").get("config.get").is_none());
+        assert!(registry("").get("activity.list").is_some());
+        // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
+        assert!(registry("").get("plugin.install").is_none());
+        assert!(registry("plugin.install").get("plugin.install").is_none());
+        assert!(registry("").get("task.log").is_some());
+        assert!(registry("").get("task.prune").is_some());
+        assert!(registry("").get("task.restore").is_some());
+        assert!(registry("activity.list").get("activity.list").is_none());
+        assert!(registry("activity.list").get("task.log").is_some());
+        assert!(registry("task.prune").get("task.prune").is_none());
+        assert!(registry("task.prune").get("task.restore").is_some());
+        assert!(registry("*").names().is_empty());
+        assert!(registry("").get("task.dismiss").is_some());
+        assert!(registry("task.dismiss").get("task.dismiss").is_none());
+        assert!(registry("").get("task.diff").is_some());
+        assert!(registry("task.diff").get("task.diff").is_none());
+        assert!(registry("task.list").get("task.list").is_none());
+        assert!(registry("task.get").get("task.get").is_none());
+        assert!(registry("task.list").get("task.get").is_some());
+        assert!(registry("snapshot.get").get("snapshot.get").is_none());
+        assert!(registry("snapshot.get").get("task.list").is_some());
+        assert!(registry("").get("task.delegate").is_none());
+        assert!(registry("").get("task.stop").is_some());
+        assert!(registry("task.stop").get("task.stop").is_none());
+        assert!(registry("").get("task.answer").is_none());
+        assert!(registry("").get("task.wait").is_some());
+        assert!(registry("task.wait").get("task.wait").is_none());
+        assert!(registry("").get("task.retry").is_none());
+        assert!(registry("").get("task.retry_all").is_none());
+        assert!(registry("").get("task.retry_options").is_none());
+        assert!(registry("").get("task.review").is_some());
+        assert!(registry("task.review").get("task.review").is_none());
+        assert!(registry("").get("task.ask").is_none());
+        assert!(registry("").get("limits.refresh").is_none());
+    }
+
+    #[test]
+    fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
+        for name in super::plugins::registered_names() {
+            assert!(super::service_registry("").get(name).is_some(), "{name}");
+            assert!(super::service_registry(name).get(name).is_none(), "{name}");
+            assert!(registry("").get(name).is_none(), "stdio {name}");
+        }
+        for name in [
+            "strategy.list",
+            "strategy.show",
+            "strategy.use",
+            "strategy.save",
+            "strategy.remove",
+            "routing.get",
+            "routing.set",
+            "runner.set",
+            "runner.reorder",
+            "runner.remove",
+            "runner.settings.get",
+            "runner.settings.save",
+            "notifications.get",
+            "notifications.set",
+            "config.get",
+            "config.set",
+            "host.suggest",
+            "host.list",
+            "host.get",
+            "host.add",
+            "host.set",
+            "host.remove",
+            "host.repo.map",
+            "host.account.add",
+            "delegation.pause",
+            "delegation.resume",
+            "mode.hold",
+            "mode.release",
+            "limits.report",
+            "limits.check",
+            "routing.status",
+            "routing.route",
+            "task.request_review",
+            "task.stop",
+            "task.review",
+            "task.dismiss",
+            "task.diff",
+            "task.list",
+            "task.get",
+            "snapshot.get",
+            "version.get",
+            "api.list",
+            "api.describe",
+            "machine.get",
+            "machine.set",
+            "machine.rotate",
+            "files.search",
+            "setup.check",
+            "onboarding.skip",
+            "repo.list",
+            "repo.add",
+            "repo.remove",
+        ] {
+            assert!(super::service_registry("").get(name).is_some(), "{name}");
+            assert!(super::service_registry(name).get(name).is_none(), "{name}");
+        }
+        assert!(super::service_registry("").get("config.get").is_some());
+        assert!(
+            super::service_registry("config.get")
+                .get("config.get")
+                .is_none()
+        );
+        // P4d-4: retired install is native HTTP refuse; stdio stays TypeScript.
+        assert!(super::service_registry("").get("plugin.install").is_some());
+        assert!(
+            super::service_registry("plugin.install")
+                .get("plugin.install")
+                .is_none()
+        );
+        assert!(registry("").get("plugin.install").is_none());
+        assert!(super::service_registry("*").names().is_empty());
+        assert!(registry("").get("plugin.list").is_none());
+    }
+}
