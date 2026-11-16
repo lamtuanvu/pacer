@@ -1430,7 +1430,6 @@ dependencies = [
  "pacer-dispatch",
  "pacer-foundation",
  "pacer-lifecycle",
- "pacer-repos",
  "pacer-store",
  "rusqlite",
  "ryu-js",
@@ -1683,6 +1682,7 @@ dependencies = [
  "libc",
  "nix",
  "pacer-js-json",
+ "pacer-plugin-policy-protocol",
  "pacer-plugin-protocol",
  "pacer-store",
  "rusqlite",
@@ -1768,8 +1768,6 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
- "getrandom 0.4.3",
- "hmac",
  "nix",
  "pacer-plugin-capabilities",
  "pacer-plugin-host",

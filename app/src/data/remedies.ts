@@ -21,7 +21,8 @@ export interface RemedyHost {
   confirm: (request: ConsentRequest) => Promise<boolean>;
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
-  open: (url: string) => void;
+  /** Opens a remedy URL; may be async so callers await and surface a failure inline. */
+  open: (url: string) => void | Promise<void>;
   /** Waits for the pacer service that `before` named to be replaced after a call that restarts it. */
   awaitRestart?: (before: number | undefined) => Promise<void>;
   /** Called with agent.connect's undo report after a reviewed repair is applied, so the done sheet can offer Undo only when it works. */
@@ -126,7 +127,7 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
       await host.call(plan.op, plan.consent ? { ...plan.params, consent: true } : plan.params);
       return "await-return";
     case "open":
-      host.open(plan.url);
+      await host.open(plan.url);
       return "await-return";
     case "delegate":
       return await host.delegate(plan.check) ? "delegated" : "cancelled";
@@ -226,9 +227,23 @@ export async function runFixAll<T = unknown>(
   return { cancelled: false, prepared, ordered, restarting, failures };
 }
 
-/** The desktop shell opens only https links from service pages, so a System Settings pane must be opened by hand there. */
-export function openRemedyUrl(url: string, target: Pick<Platform, "desktop" | "openExternal">): void {
-  if (target.desktop && !url.startsWith("https://"))
-    throw new Error("The desktop app can only open web links. Open System Settings › Privacy & Security yourself, then run the checks again.");
+const NOTIFICATIONS_SETTINGS_URL = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+const PRIVACY_FILES_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
+
+/** The desktop shell opens https links directly; the two known System Settings panes go through the allowlisted Tauri command. */
+export function openRemedyUrl(url: string, target: Pick<Platform, "desktop" | "openExternal" | "openSystemSettings">): void | Promise<void> {
+  if (target.desktop) {
+    if (url === NOTIFICATIONS_SETTINGS_URL || url === PRIVACY_FILES_SETTINGS_URL) {
+      if (!target.openSystemSettings) {
+        throw new Error("System Settings is unavailable from this desktop build. Open it yourself, then run the checks again.");
+      }
+      const pane = url === NOTIFICATIONS_SETTINGS_URL ? "notifications" : "privacy_files";
+      // The caller may await the returned promise to surface a rejection inline.
+      return Promise.resolve(target.openSystemSettings(pane));
+    }
+    if (!url.startsWith("https://")) {
+      throw new Error("The desktop app can only open web links. Open System Settings › Privacy & Security yourself, then run the checks again.");
+    }
+  }
   target.openExternal(url);
 }

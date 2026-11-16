@@ -98,6 +98,25 @@ fn retention_gaps_filtered_events_and_last_cursor_keep_replay_semantics() {
     assert_eq!(b["last"], 50);
 }
 #[test]
+fn control_entity_events_reach_v3_but_not_v2() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    append_outbox(
+        &ctx,
+        &[json!({"seq":1,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"control","id":"notifications.request:abc","value":{"action":"notifications.request","recipients":["desktop-1"],"client_id":"desktop-1"}}}})],
+    )
+    .unwrap();
+    let v3 = events_since(&ctx, 0.0, 3, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let events = array(&v3["events"]);
+    assert_eq!(events.len(), 1);
+    assert_eq!(events[0]["type"], "control");
+    assert_eq!(events[0]["data"]["action"], "notifications.request");
+    assert_eq!(events[0]["data"]["recipients"][0], "desktop-1");
+    // v3-only: a v2 replay must keep control out (like other v3-only additions).
+    let v2 = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    assert!(array(&v2["events"]).is_empty());
+}
+#[test]
 fn oversized_entries_keep_the_ts_writer_retention_quirk() {
     let (_dir, ctx) = ctx();
     let padding = "x".repeat(pacer_store::outbox::OUTBOX_MAX_BYTES as usize);

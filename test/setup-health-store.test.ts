@@ -23,6 +23,7 @@ const fingerprint = (): SetupHealthFingerprint => ({
     detect_agents: "passed",
     integrations: "passed",
     usage_eligibility: "passed",
+    notifications: "passed",
     ready: "passed",
   },
 });
@@ -46,6 +47,34 @@ describe("setup-health-store", () => {
       trigger: "startup",
       outcome: "ok",
       durationSeconds: 1.5,
+    });
+  });
+
+  test("round-trips a last-pass record with a skipped notifications step", () => {
+    const root = createTestRoot("pacer-test-");
+    mkdirSync(join(root, ".pacer"), { mode: 0o700 });
+    const ctx = { pacerHome: join(root, ".pacer") };
+    const skipped: SetupHealthFingerprint = {
+      ...fingerprint(),
+      stepVerdicts: {
+        service: "passed",
+        detect_agents: "passed",
+        integrations: "passed",
+        usage_eligibility: "passed",
+        notifications: "skipped",
+        ready: "passed",
+      },
+    };
+    writeSetupHealthPass(ctx, {
+      fingerprint: skipped,
+      trigger: "startup",
+      outcome: "ok",
+    });
+    expect(readSetupHealthPass(ctx)).toEqual({
+      schema: 1,
+      fingerprint: skipped,
+      trigger: "startup",
+      outcome: "ok",
     });
   });
 

@@ -42,6 +42,8 @@ pub fn clients(c: &Value) -> Value {
                 &mut rows,
                 s(&action["id"]),
                 action["notifier"].as_bool(),
+                action["notification_permission"].as_str(),
+                action["notification_alerts"].as_str(),
                 time,
             ) {
                 Ok(result) => {
