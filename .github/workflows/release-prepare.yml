@@ -71,11 +71,19 @@ jobs:
         run: |
           set -euo pipefail
           current=$(jq -er .version package.json)
+          # The newest stable tag anywhere, not just on this commit's history.
+          latest=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -- - | head -n 1 || true)
           # A commit that already carries an untagged version (its bump merged earlier) releases as is.
           if git rev-parse -q --verify "refs/tags/v$current" >/dev/null; then
+            # A newer release whose bookkeeping PR hasn't reached main yet would be computed from an old base.
+            test -z "$latest" || test "$latest" = "v$current" \
+              || { echo "::error::$latest is newer than this commit's v$current; merge its chore: release PR into main first"; exit 1; }
             version=$(bun scripts/release/next-version.ts "$BUMP")
           else
             version=$current
+          fi
+          if test -n "$latest" && test "$(printf '%s\n%s\n' "${latest#v}" "$version" | sort -V | tail -n 1)" != "$version"; then
+            echo "::error::v$version would sort below the newest release $latest"; exit 1
           fi
           if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
             echo "::error::v$version is already tagged; tags are never moved"; exit 1
@@ -113,6 +121,12 @@ jobs:
         run: |
           set -euo pipefail
           branch="release/v$VERSION"
+          release=$(git rev-parse HEAD)
+          # Cut the branch from current main so it merges cleanly; the tag already holds the release.
+          git fetch origin main
+          git switch --detach origin/main
+          git cherry-pick "$release" \
+            || { git cherry-pick --abort; git switch --detach "$release"; echo "The bump conflicts with current main; resolve it on $branch." >> "$GITHUB_STEP_SUMMARY"; }
           auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
           git -c "http.extraheader=$auth" push origin "HEAD:refs/heads/$branch"
           body=$(printf 'Brings the version bump of the published **v%s** tag to main. The release itself was built from the tag and does not wait for this PR.\n\nThe only UI-scoped changes are version strings, so no UI evidence manifest is needed.' "$VERSION")

@@ -53,7 +53,7 @@ Keep `CHANGELOG.md` Unreleased up to date in each PR when you can. To release, o
 - `auto` (default) reads the commit titles since the last tag: a breaking change (`feat!:` or any `type!:`) bumps the minor version during 0.x and the major version from 1.0; `feat` bumps the minor version; `fix`, `perf` and `revert` bump the patch version. `docs`, `test`, `chore`, `ci` and similar titles alone don't release anything.
 - `patch`, `minor` or `major` forces that bump when commits exist, even if their titles do not select an automatic release.
 
-Prepare keeps authored Unreleased notes as written. If Unreleased is empty, it builds notes from commit titles since the current version tag, groups them under Keep a Changelog headings, and redacts email addresses and local machine paths. Review these generated notes in the release (and its bookkeeping PR); commit titles may lack context that a hand-written entry would provide. With no commits since the tag, Prepare stops without creating empty release notes.
+Prepare keeps authored Unreleased notes as written. If Unreleased is empty, it builds notes from commit titles since the current version tag, groups them under Keep a Changelog headings, and redacts email addresses and local machine paths. Generated notes are published with the tag; there is no release PR to review them in first. Write the notes in Unreleased beforehand if they need care, or edit the GitHub release afterwards; commit titles may lack context that a hand-written entry would provide. With no commits since the tag, Prepare stops without creating empty release notes.
 
 The workflow then does the rest, all on one commit:
 
@@ -84,7 +84,7 @@ Renew it before it expires; Prepare release fails with a clear error without it.
 
 ### Interrupted releases
 
-A tag is the whole release. If publication fails, fix the cause (often a flaky job), then rerun the failed jobs of the **Release** run for that tag; tags are never moved. If the tagged commit itself is broken, release a new version from a fixed commit. If Prepare stops before pushing the tag, just run it again.
+A tag is the whole release. If publication fails, fix the cause (often a flaky job), then rerun the failed jobs of the **Release** run for that tag; tags are never moved. If the tagged commit itself is broken, release a new version from a fixed commit. If Prepare stops before pushing the tag, just run it again. If the tag was pushed but the bookkeeping PR wasn't opened, don't rerun Prepare (the tag exists). Cherry-pick the tagged `chore: release` commit onto `main` in an ordinary PR instead.
 
 ### Manual fallback
 

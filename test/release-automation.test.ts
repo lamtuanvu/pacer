@@ -183,3 +183,23 @@ test("Prepare tags the pinned commit and pushes only the tag, leaving main alone
   writeFileSync(join(other, "CHANGELOG.md"), "# Changelog\n\n## [Unreleased]\n");
   expect(runStep(other, prepareStep("Tag and push"), { VERSION: "0.15.0" }).exitCode).not.toBe(0);
 });
+
+test("Prepare refuses to compute a version below a newer release whose bump hasn't reached main", () => {
+  const { origin, work, sha } = fixture("0.15.0", "chore: release 0.15.0");
+  git(work, "tag", "-a", "v0.15.0", sha, "-m", "pacer 0.15.0");
+  // 0.15.1 was released from a later commit; its bookkeeping PR is still open, so main says 0.15.0.
+  const other = join(tmpDir(), "other");
+  git(work, "clone", "--quiet", origin, other);
+  writeFileSync(join(other, "package.json"), JSON.stringify({ version: "0.15.1" })); git(other, "commit", "--quiet", "-am", "chore: release 0.15.1");
+  git(other, "tag", "-a", "v0.15.1", "-m", "pacer 0.15.1"); git(other, "push", "--quiet", "origin", "refs/tags/v0.15.1");
+  git(work, "fetch", "--quiet", "origin", "--tags");
+  writeFileSync(join(work, "next-version.txt"), "0.16.0\n");
+  const refused = runStep(work, prepareStep("Pick the version"));
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stdout.toString()).toContain("v0.15.1 is newer than this commit's v0.15.0");
+  // An untagged version that would sort below the newest release is refused too.
+  const { work: below } = fixture("0.15.0", "chore: release 0.15.0");
+  git(below, "fetch", "--quiet", origin, "refs/tags/v0.15.1:refs/tags/v0.15.1");
+  expect(runStep(below, prepareStep("Pick the version")).stdout.toString()).toContain("would sort below the newest release v0.15.1");
+});
+

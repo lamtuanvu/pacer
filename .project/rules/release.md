@@ -1,6 +1,6 @@
 # Release and distribution rules
 
-Applies to: the `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `.github/workflows/release-prepare.yml`, `.github/workflows/release-tag.yml`, `.github/workflows/desktop.yml`, `npm/**`, the Homebrew formula and the desktop app version.
+Applies to: the `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `.github/workflows/release-prepare.yml`, `.github/workflows/desktop.yml`, `npm/**`, the Homebrew formula and the desktop app version.
 Out of scope: day-to-day feature changes, apart from adding CHANGELOG Unreleased entries.
 Owner: @lamtuanvu
 Canonical sources: [CONTRIBUTING.md § Releasing](../../CONTRIBUTING.md), [docs/distribution.md](../../docs/distribution.md), `.github/workflows/release.yml`, [SECURITY.md](../../SECURITY.md)
