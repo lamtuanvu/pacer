@@ -157,7 +157,7 @@ fn register(ctx: &Ctx, path: &str, strict: bool, persist: bool) -> Result<Value,
         mut reg,
         mut aliases,
         needs_core,
-    } = Registry::read(&ctx.pacer_home, persist);
+    } = Registry::read(&ctx.pacer_home, true);
     if needs_core {
         return Err(CoreError::new(
             Code::Conflict,

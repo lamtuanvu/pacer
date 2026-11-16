@@ -182,9 +182,14 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             }
             Err(_) => return native_error(CoreError::new(Code::InvalidInput, "body is not JSON")),
         };
-        // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
-        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&ctx, &params))
-            || crate::native::status_residue_stays_forwarded(&ctx, op.name, &params)
+        // Planner install and backend readiness remain on the TypeScript path.
+        // mode.hold without until needs computeStatus for the planner reset window.
+        if (op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
+            || (op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
+            || (op.name == "routing.route"
+                && crate::native::routing_route_stays_forwarded(&ctx, &params))
+            || (op.name == "task.retry_options"
+                && crate::native::task_retry_options_stays_forwarded(&ctx))
             || (op.name == "repo.remove"
                 && crate::native::repo_remove_stays_forwarded(&ctx, &params))
             || crate::native::project_messaging_stays_forwarded(&ctx, op.name, &params)
@@ -804,17 +809,12 @@ pub async fn run_serve(
     let core = Arc::new(core_child::CoreChild::spawn(core, env));
     if let Some(host) = &native_host {
         let core = core.clone();
-        let link = move || {
-            let core = core.clone();
-            async move { crate::native::plugins::http_link(&core).await }
-        };
         tokio::spawn(crate::native::plugins::deliver_crashes(
             host.crash_reports(),
-            link.clone(),
-        ));
-        tokio::spawn(crate::native::plugins::deliver_door_requests(
-            host.door_requests(),
-            link,
+            move || {
+                let core = core.clone();
+                async move { crate::native::plugins::http_link(&core).await }
+            },
         ));
     }
     let beats = Arc::new(heartbeat::Heartbeat::new());

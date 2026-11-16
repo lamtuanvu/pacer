@@ -18,7 +18,6 @@
 
 use crate::capability::PluginCapabilitySession;
 use crate::crash::{self, CrashBook, CrashReport};
-use crate::observation::{DoorRequest, DoorSlot, LaneObservation};
 use crate::orca_attach::SharedOrcaBridge;
 use crate::plugin_log::PluginLog;
 use crate::process::PluginProcess;
@@ -26,7 +25,6 @@ use pacer_plugin_host::{PluginState, ProcessError, Registry, SpawnSpec};
 use serde_json::Value;
 use std::{
     collections::HashMap,
-    path::PathBuf,
     sync::{Arc, Weak},
     time::Duration,
 };
@@ -60,9 +58,6 @@ pub enum OwnerError {
     Failing(String),
     #[error("the plugin owner is shutting down")]
     Closing,
-    /// The child was asked to stop: no new request reaches it.
-    #[error("the plugin is stopping")]
-    Stopping,
 }
 
 impl From<ProcessError> for OwnerError {
@@ -122,14 +117,6 @@ pub struct PluginLane {
     ready: std::sync::Mutex<Option<Option<Value>>>,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
-    /// The child's observation generation and idle session.
-    observation: Arc<LaneObservation>,
-}
-
-impl Drop for PluginLane {
-    fn drop(&mut self) {
-        self.observation.retire();
-    }
 }
 
 impl PluginLane {
@@ -140,21 +127,7 @@ impl PluginLane {
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
             settled: watch::Sender::new(false),
-            observation: Arc::new(LaneObservation::new(door, lane)),
         }
-    }
-
-    pub(crate) fn observation(&self) -> &Arc<LaneObservation> {
-        &self.observation
-    }
-
-    /// Refuse a request once [`PluginProcess::terminate`] began, so a call
-    /// queued behind a stop never writes to the child.
-    pub(crate) fn admit(&self) -> Result<(), OwnerError> {
-        if self.process.is_stopping() {
-            return Err(OwnerError::Stopping);
-        }
-        Ok(())
     }
 
     pub(crate) fn settle(&self) {
@@ -225,7 +198,6 @@ impl PluginLane {
     ) -> Result<Value, OwnerError> {
         let expires = Instant::now() + deadline;
         let _turn = self.exclusive(expires).await?;
-        self.admit()?;
         let left = expires.saturating_duration_since(Instant::now());
         self.request_in_turn(session, method, params, left, cancel)
             .await
@@ -265,8 +237,6 @@ impl PluginLane {
 #[derive(Default)]
 pub(crate) struct LaneRoster {
     state: std::sync::Mutex<RosterState>,
-    /// Where every lane's observation generation reaches the owning door's Core.
-    door: Arc<DoorSlot>,
 }
 
 #[derive(Default)]
@@ -297,9 +267,7 @@ impl LaneRoster {
         if state.closing {
             return Err(OwnerError::Closing);
         }
-        let process = start()?;
-        let lane =
-            Arc::new_cyclic(|lane| PluginLane::new(process, lane.clone(), self.door.clone()));
+        let lane = Arc::new(PluginLane::new(start()?));
         state.lanes.retain(|lane| lane.strong_count() > 0);
         state.lanes.push(Arc::downgrade(&lane));
         Ok(lane)
@@ -309,22 +277,11 @@ impl LaneRoster {
     pub(crate) fn close(&self) -> Vec<Arc<PluginLane>> {
         let mut state = self.state();
         state.closing = true;
-        let lanes: Vec<_> = state
+        state
             .lanes
             .drain(..)
             .filter_map(|lane| lane.upgrade())
-            .collect();
-        drop(state);
-        self.door.set(None);
-        for lane in &lanes {
-            lane.observation().retire();
-        }
-        lanes
-    }
-
-    /// Send every lane's observation requests to `sink` (the owning door's Core).
-    pub(crate) fn set_door(&self, sink: Option<mpsc::UnboundedSender<DoorRequest>>) {
-        self.door.set(sink);
+            .collect()
     }
 }
 
@@ -342,8 +299,6 @@ pub struct ProcessOwner {
     crashes: Arc<CrashBook>,
     /// No child starts once teardown began ([`Self::close`]).
     roster: Arc<LaneRoster>,
-    /// `$PACER_HOME/logs/plugins`: children started here log stderr there.
-    log_dir: Option<PathBuf>,
 }
 
 impl ProcessOwner {
@@ -356,13 +311,7 @@ impl ProcessOwner {
             sessions: HashMap::new(),
             crashes: Arc::default(),
             roster: Arc::default(),
-            log_dir: None,
         }
-    }
-
-    /// Append the stderr of children started from now on to `<dir>/<id>.log`.
-    pub fn set_log_dir(&mut self, dir: PathBuf) {
-        self.log_dir = Some(dir);
     }
 
     /// Production serve constructor: TypeScript remains the process owner.
@@ -396,12 +345,6 @@ impl ProcessOwner {
     /// Send each crash this owner sees to `sink` (the owning door's Core).
     pub fn set_crash_sink(&self, sink: mpsc::UnboundedSender<CrashReport>) {
         self.crashes.set_sink(Some(sink));
-    }
-
-    /// Send each lane's observation requests (events, task reads, idle log
-    /// lines) to `sink`, the owning door's Core.
-    pub fn set_door_sink(&self, sink: mpsc::UnboundedSender<DoorRequest>) {
-        self.roster.set_door(Some(sink));
     }
 
     /// The earliest instant this owner starts `id` again after a crash.
@@ -509,13 +452,7 @@ impl ProcessOwner {
         if self.children.contains_key(&id) {
             return Err(OwnerError::AlreadyTracked(id));
         }
-        let log = self
-            .log_dir
-            .as_deref()
-            .and_then(|dir| PluginLog::new(dir, &id));
-        let lane = self
-            .roster
-            .admit(|| Ok(PluginProcess::spawn_logged(spec, log)?))?;
+        let lane = self.roster.admit(|| Ok(PluginProcess::spawn(spec)?))?;
         self.adopt(id, lane);
         Ok(())
     }
@@ -660,9 +597,6 @@ impl ProcessOwner {
         id: &str,
     ) -> Result<(Arc<PluginLane>, Option<SharedSession>), OwnerError> {
         self.ensure_native_library()?;
-        if self.roster.is_closing() {
-            return Err(OwnerError::Closing);
-        }
         let lane = self
             .lane(id)
             .ok_or_else(|| OwnerError::UnknownPlugin(id.into()))?;

@@ -1414,7 +1414,6 @@ version = "0.0.0"
 dependencies = [
  "pacer-foundation",
  "pacer-js-json",
- "pacer-store",
  "rusqlite",
  "serde_json",
  "sha2",
@@ -1429,10 +1428,8 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-dispatch",
- "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
- "pacer-repos",
  "pacer-store",
  "rusqlite",
  "ryu-js",
@@ -1774,8 +1771,6 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
- "getrandom 0.4.3",
- "hmac",
  "nix",
  "pacer-plugin-capabilities",
  "pacer-plugin-host",
@@ -1927,7 +1922,6 @@ dependencies = [
  "chrono-tz",
  "pacer-config",
  "pacer-config-ops",
- "pacer-dispatch-ops",
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",

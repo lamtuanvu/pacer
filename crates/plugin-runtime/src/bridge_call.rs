@@ -13,7 +13,7 @@ use crate::{
     crash::{StartFailure, crash_message, start_lane},
     executor_context_from_value, host_snapshots_from_value, observation_bootstrap_from_value,
     orca_context_from_value,
-    owner::{OwnerError, PluginLane},
+    owner::OwnerError,
     session_for_call_in, worktree_context_from_value,
 };
 use pacer_plugin_host::{ProcessError, ScopeRoots, SpawnSpec};
@@ -450,45 +450,26 @@ async fn prepare_sealed(
         return Err(unavailable(REENTRANT_RESOURCES));
     }
 
-    let start = || async {
-        start_lane(
-            owner,
-            id,
-            &sealed.spec,
-            sealed.next_start_at,
-            until,
-            Some(cancel),
-        )
-        .await
-        .map_err(|error| match error {
-            StartFailure::Owner(OwnerError::Closing) => CallFailure {
-                hint: Some("Restart the pacer service.".into()),
-                ..unavailable(OwnerError::Closing)
-            },
-            StartFailure::Owner(error @ OwnerError::Failing(_)) => CallFailure {
-                hint: Some("Enable the plugin through the pacer service.".into()),
-                ..unavailable(error)
-            },
-            StartFailure::Owner(error) => unavailable(error),
-            StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
-            StartFailure::Deadline => expired(),
-            StartFailure::BeforeStartup => failure("plugin_timeout", error),
-            StartFailure::Cancelled => cancelled(),
-        })
-    };
-    let mut lane = start().await?;
-    // A child whose generation was sealed under another observation fingerprint
-    // runs the old manifest, config or grant: the registry stops it and starts
-    // a fresh one before admitting the call.
-    let sealed_generation = observation.as_ref().and_then(|o| o.generation.clone());
-    if let (Some(sealed), Some(live)) = (sealed_generation, lane.observation().generation())
-        && sealed != live
-    {
-        lane.observation().retire();
-        let _ = lane.process().terminate().await;
-        lane.wait_settled(RESTART_SETTLE).await;
-        lane = start().await?;
-    }
+    let lane = start_lane(
+        owner,
+        id,
+        &sealed.spec,
+        sealed.next_start_at,
+        until,
+        Some(cancel),
+    )
+    .await
+    .map_err(|error| match error {
+        StartFailure::Owner(OwnerError::Closing) => CallFailure {
+            hint: Some("Restart the pacer service.".into()),
+            ..unavailable(OwnerError::Closing)
+        },
+        StartFailure::Owner(error) => unavailable(error),
+        StartFailure::Crashed(text) => unavailable(format!("{method}: {text}")),
+        StartFailure::Deadline => expired(),
+        StartFailure::BeforeStartup => failure("plugin_timeout", error),
+        StartFailure::Cancelled => cancelled(),
+    })?;
     let process = ProcessContext {
         account_home: sealed.roots.account_home.clone(),
         environment: sealed.environment,
@@ -632,13 +613,13 @@ impl Prepared {
                         let reply = match reply {
                             Ok(reply) => reply,
                             Err(error) => {
-                                return Err(match crash_message(lane, id, "plugin.hello").await {
+                                return Err(match crash_message(&lane, id, "plugin.hello").await {
                                     Some(message) => unavailable(message),
-                                    None => hello_failure(error.into(), wait),
+                                    None => call_failure(error.into(), "plugin_refused"),
                                 });
                             }
                         };
-                        let info = ready_info(&reply, &self.hello);
+                        let info = ready_info(&reply, &sealed.hello);
                         lane.mark_ready(Some(info.clone()));
                         *ready = Some((info.clone(), HelloSource::Ran));
                         info
@@ -687,13 +668,16 @@ impl Prepared {
                 answer(),
             )
             .await;
-        match value {
-            Ok(value) => Ok(value),
-            Err(error) => Err(match crash_message(lane, id, method).await {
-                Some(message) => unavailable(message),
-                None => call_failure(error.into(), "plugin_unavailable"),
-            }),
-        }
+        let value = match value {
+            Ok(value) => value,
+            Err(error) => {
+                return Err(match crash_message(&lane, id, method).await {
+                    Some(message) => unavailable(message),
+                    None => call_failure(error.into(), "plugin_unavailable"),
+                });
+            }
+        };
+        Ok::<_, CallFailure>((value, hello))
     }
 }
 

@@ -8,15 +8,14 @@
 
 use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, OwnerKey, SpawnSpec, StartFailure,
-    TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
-    serve_starts_reverse_bridge_by_default, start_lane,
+    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, SpawnSpec, StartFailure, TERMINATE_GRACE,
+    native_plugin_host_enabled, serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
 use std::{
     env, fs,
     os::unix::fs::MetadataExt,
-    path::PathBuf,
+    path::Path,
     time::{Duration, Instant},
 };
 use tokio::{
@@ -851,7 +850,7 @@ const ORCA_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call
 async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = dial(&session);
+    let path = session.socket_path().to_path_buf();
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("plugin.js");
     fs::write(&script, ORCA_CHILD).unwrap();
@@ -902,7 +901,7 @@ async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
                         "config":{},"grants":["orca","fs.write"],"features":[]
                     },
                 },
-                "authority":{"owning":true,
+                "authority":{
                     "resources":resources,
                     "grants":grants,
                     "ttlMs":10000,
