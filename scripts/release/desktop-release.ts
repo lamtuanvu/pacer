@@ -13,8 +13,9 @@ export const DESKTOP_NOTES_MAX = 32768;
  */
 export function desktopNotes(notes: string, version: string): string {
   if (Buffer.byteLength(notes, "utf8") <= DESKTOP_NOTES_MAX) return notes;
-  const repo = process.env.GITHUB_REPOSITORY || "lamtuanvu/pacer", server = process.env.GITHUB_SERVER_URL || "https://github.com";
-  const tail = `\n\nThe full release notes are at ${server}/${repo}/releases/tag/v${version}.`;
+  // A fixed URL keeps the immutable manifest identical across prepare, validate and reruns.
+  const link = `The full release notes are at https://github.com/lamtuanvu/pacer/releases/tag/v${version}.`;
+  const tail = `\n\n${link}`;
   const budget = DESKTOP_NOTES_MAX - Buffer.byteLength(tail, "utf8"), lines = notes.split("\n");
   let kept = 0, size = 0, cut = 0;
   for (const [i, line] of lines.entries()) {
@@ -24,8 +25,8 @@ export function desktopNotes(notes: string, version: string): string {
     if (size > budget) break;
     kept = i + 1;
   }
-  const body = lines.slice(0, kept === lines.length ? kept : cut).join("\n").trimEnd().replace(/\n#{1,6} [^\n]*$/, "");
-  return body + tail;
+  const body = lines.slice(0, kept === lines.length ? kept : cut).join("\n").trimEnd().replace(/(?:^|\n)#{1,6} [^\n]*$/, "").trimEnd();
+  return body ? body + tail : link;
 }
 
 export async function prepareDesktopManifest(root: string, out: string, version: string, date?: string): Promise<void> {

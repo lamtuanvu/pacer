@@ -33,3 +33,17 @@ test("long release notes are cut at an entry and link to the full notes, within 
   await prepareDesktopManifest(root, out, "1.2.3", "2026-11-16T00:00:00Z");
   expect(Buffer.byteLength(JSON.parse(readFileSync(join(out, "desktop-release-1.2.3.json"), "utf8")).notes, "utf8")).toBeLessThanOrEqual(DESKTOP_NOTES_MAX);
 });
+
+test("cut desktop notes stay whole at section boundaries and with multibyte text", async () => {
+  const { DESKTOP_NOTES_MAX, desktopNotes } = await import("../scripts/release/desktop-release");
+  const wide = (i: number) => `- Mục ${i}: ${"漢🎉é".repeat(120)}`;
+  const notes = ["### Added", "", ...Array.from({ length: 40 }, (_, i) => wide(i)), "", "### Fixed", "", ...Array.from({ length: 40 }, (_, i) => wide(100 + i))].join("\n");
+  const cut = desktopNotes(notes, "1.2.3");
+  expect(Buffer.byteLength(cut, "utf8")).toBeLessThanOrEqual(DESKTOP_NOTES_MAX);
+  expect(cut).not.toMatch(/\n#{1,6} [^\n]*\n\nThe full release notes/);
+  expect(cut).not.toContain("\n\n\n");
+  expect(cut.split("\n\nThe full release notes")[0]!.split("\n").at(-1)).toMatch(/^- Mục \d+: (?:漢🎉é){120}$/);
+  // One entry larger than the whole budget leaves only the link.
+  expect(desktopNotes(`### Fixed\n\n- ${"x".repeat(DESKTOP_NOTES_MAX)}`, "1.2.3")).toBe("The full release notes are at https://github.com/lamtuanvu/pacer/releases/tag/v1.2.3.");
+});
+
