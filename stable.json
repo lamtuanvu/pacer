@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.14.0",
-  "notes": "### Added\n\n- Native operation routing in the Rust front door for authenticated v3 HTTP and accepted protocol 3 stdio sessions. The production registry starts empty; `PACER_FORWARD_OPS` can force registered operations through the TypeScript core.",
-  "pub_date": "2026-11-14T03:09:23.000Z",
+  "version": "0.15.1",
+  "notes": "### Changed\n\n- Let the session-limit run print its own screen (#1026).\n- Release a pinned commit from its tag (#1053) (release).\n\n### Fixed\n\n- Fit long release notes into the desktop update feed (#1054) (release).",
+  "pub_date": "2026-11-16T08:26:16.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.14.0/desktop-pacer-0.14.0-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2ZJYXo3dkQ0OHNoYjNaTmtldXIxdVlzR1pwbFJlellWZWtrV2JGL1hJbTZ0VnB4dkw5VlQ2M2VCTmU1ejZUS1FMeXlmM01QMUJGNE91ekNpRkdnelFjPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NjMwNTUyCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE0LjAtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTQuMAp3cXJkTXVYRmh6Ukg5MjhpZ1Rtd29QSEpHd01nQ2JuM2JGczJNY291Y3hnZ3RjNzdLR1hYR1RpYTl2SXZQaXcxSEhZNGlWc1d6UE5xRk5oN3d1VnFCQT09Cg==",
-      "sha256": "5b1ea7ce5ef8f2250646f01f83f96a044cabbd7b2f148fa1fdbb770dcec3a5aa",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.15.1/desktop-pacer-0.15.1-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1pnZnJMeHBxK3BDZDF5amx1SGQwUCs0TG9Bb2UzRGdBSHEzWmVnZkViTVRFUmhoYzhTVFRrSHBYaCtlNDNBMzF1TzNVYmpyaWFGREk1dWx5d2hLand3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0ODE5NjU5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE1LjEtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTUuMQpqRHVXTWhVZmJ0TmFlbDIvVXQ1ZFgzQVVLNEdBUlVpU2t1QnpVbGZHbEJCNTVwakU3S2xVNzJVRUMzSmcyRWhzS1VKcTZDZ3dUSHN0bzNoYlpCWFRCUT09Cg==",
+      "sha256": "479e50be113753e2380f8a7c2e2651209acfc570f034a5e15e1535c110d91ece",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.14.0/desktop-pacer-0.14.0-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1IxdGhwalVCUS96Sm5jb3o4QlNlSnBudkpXelJqbi94S3VlblpVZURQVml4cVYvMmh3dlNCUlhqMTh6RGpta1pPcW55YjFFSHlmaCtZR0M2ai8xQmdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0NjMyMDkyCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE0LjAtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNC4wCkJsQWJYNHdhR0F5SStnM1VpTWNkSjJNZEN0T0kwa3kzN1lDWWxYMHJ4K05ENXRMMngrTkVHQVdsd2x1WWRvU01pOEtVTGdtZDdadTY1NmRTb1I3ekJBPT0K",
-      "sha256": "cae626d5045490a3465c72ddfbf59981ac8da96ea722b61a2eb0337a26263dd8",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.15.1/desktop-pacer-0.15.1-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2ZDbzZMVVdNczhPYitCYXdwOVhhUDF2MVRKRmhsM0dpbXhoUlF2NTB0L1FBWVFZVWw5dVFVNHZBd0hrbDNrVEMxVS9CeXFaVkNsSXRwNkRNZ09jb0F3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0ODE5Mjk3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE1LjEtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNS4xCmRUM0xoUTIrQjRpMzRzbkZUOExUWlJvUEoyaDNvYXBtenRrNGlqbHovdkFFbmJyWEpqT0FuL2JTbC8reFFZTEV6RGhhRStFNldGVkVzMjdLZjZOMkFBPT0K",
+      "sha256": "17c851182c8c89a13970945a72a80decdf3c76c11158e6eca665ccfc11e7ddc7",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
