@@ -94,3 +94,12 @@ test("waiting is bounded by the deadline", async () => {
   const { ci } = fake(() => [ciRun(9, "push", "in_progress")], {});
   await expect(awaitCiEvidence(ci, SHA, "main", 120_000, () => {})).rejects.toThrow("Timed out");
 });
+
+test("the aggregate jobs carry the check names main's ruleset requires", () => {
+  const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
+  const aggregate = ci.jobs["test-result"];
+  const names = aggregate.strategy.matrix.os.map((os: string) => aggregate.name.replace("${{ matrix.os }}", os));
+  // Renaming the matrix label (not just the runner) leaves these required checks unreported and blocks every PR.
+  expect(names.sort()).toEqual(["Test (macos-latest)", "Test (ubuntu-latest)"]);
+});
+
