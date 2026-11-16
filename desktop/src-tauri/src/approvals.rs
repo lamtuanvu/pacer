@@ -1,5 +1,5 @@
 //! Request OS-owned approvals through native APIs. No shell commands or surrogate dialogs.
-use std::sync::atomic::{AtomicU8, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 #[repr(u8)]
@@ -14,11 +14,71 @@ enum Permission {
 }
 static NOTIFICATIONS: AtomicU8 = AtomicU8::new(Permission::Unknown as u8);
 static NOTIFICATIONS_CHANGED: tokio::sync::Notify = tokio::sync::Notify::const_new();
+/// Whether macOS has answered the permission question at least once (a real settings read
+/// or a request completing). Before that a bundled app reports nothing for permission.
+static NOTIFICATION_ANSWERED: AtomicBool = AtomicBool::new(false);
+static NOTIFICATION_PERMISSION_STATE: std::sync::LazyLock<std::sync::Mutex<String>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(String::from("unsupported")));
+static NOTIFICATION_ALERTS_STATE: std::sync::LazyLock<std::sync::Mutex<String>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(String::from("none")));
 
 /// Only an explicit OS denial opts the desktop out, so the service can fall back to its
 /// notifier plugin; an undetermined or unbundled launch keeps presenting.
 pub fn notifications_presentable() -> bool {
     NOTIFICATIONS.load(Ordering::SeqCst) != Permission::Denied as u8
+}
+
+pub fn notification_permission_state() -> String {
+    NOTIFICATION_PERMISSION_STATE
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|_| String::from("unsupported"))
+}
+
+/// The permission the desktop reports for `client.register`/`client.heartbeat`: `Some` after
+/// macOS has answered at least once (or for unbundled/non-macOS builds, which are always
+/// unsupported); `None` before the first real answer, so the service does not read
+/// "unsupported" for an app that has simply not been asked yet.
+#[cfg(target_os = "macos")]
+pub fn notification_permission_reported() -> Option<String> {
+    if NOTIFICATION_ANSWERED.load(Ordering::SeqCst) {
+        return Some(notification_permission_state());
+    }
+    if objc2_foundation::NSBundle::mainBundle().bundleIdentifier().is_none() {
+        return Some("unsupported".into());
+    }
+    None
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn notification_permission_reported() -> Option<String> {
+    Some("unsupported".into())
+}
+
+pub fn notification_alerts_state() -> String {
+    NOTIFICATION_ALERTS_STATE
+        .lock()
+        .map(|value| value.clone())
+        .unwrap_or_else(|_| String::from("none"))
+}
+
+pub fn notification_permission_state_for_status(status: isize) -> &'static str {
+    match status {
+        0 => "not_determined",
+        1 => "denied",
+        2 => "authorized",
+        3 => "provisional",
+        4 => "ephemeral",
+        _ => "not_determined",
+    }
+}
+
+pub fn notification_alerts_state_for_style(style: isize) -> &'static str {
+    match style {
+        1 => "banner",
+        2 => "alert",
+        _ => "none",
+    }
 }
 
 /// Resolves after the recorded permission changes, including a change made before the call.
@@ -35,6 +95,24 @@ fn record_notifications(permission: Permission) {
     if previous != permission as u8 {
         desktop_log!("pacer approvals: notification permission {permission:?}");
         NOTIFICATIONS_CHANGED.notify_one();
+    }
+}
+
+fn record_permission_raw(value: &str) {
+    if let Ok(mut state) = NOTIFICATION_PERMISSION_STATE.lock() {
+        if *state != value {
+            *state = value.to_string();
+            NOTIFICATIONS_CHANGED.notify_one();
+        }
+    }
+}
+
+fn record_alerts_raw(value: &str) {
+    if let Ok(mut state) = NOTIFICATION_ALERTS_STATE.lock() {
+        if *state != value {
+            *state = value.to_string();
+            NOTIFICATIONS_CHANGED.notify_one();
+        }
     }
 }
 
@@ -96,6 +174,7 @@ pub fn request_notifications() {
             granted.as_bool(),
             !error.is_null()
         );
+        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
         if let Some(error) = unsafe { error.as_ref() } {
             desktop_log!(
                 "pacer approvals: notification authorization error {}: {}",
@@ -108,6 +187,8 @@ pub fn request_notifications() {
         } else {
             Permission::Denied
         });
+        record_permission_raw(if granted.as_bool() { "authorized" } else { "denied" });
+        refresh_notifications();
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .requestAuthorizationWithOptions_completionHandler(
@@ -126,19 +207,45 @@ pub fn refresh_notifications() {
     use objc2_user_notifications::{UNNotificationSettings, UNUserNotificationCenter};
     use std::ptr::NonNull;
     if NSBundle::mainBundle().bundleIdentifier().is_none() {
+        NOTIFICATION_ANSWERED.store(true, Ordering::SeqCst);
+        record_permission_raw("unsupported");
+        record_alerts_raw("none");
         return;
     }
     let complete = RcBlock::new(|settings: NonNull<UNNotificationSettings>| {
-        let status = unsafe { settings.as_ref() }.authorizationStatus();
+        let settings = unsafe { settings.as_ref() };
+        let status = settings.authorizationStatus();
         if let Some(permission) = permission_for_status(status.0) {
             record_notifications(permission);
+        }
+        record_permission_raw(notification_permission_state_for_status(status.0));
+        let alert_style = settings.alertStyle();
+        record_alerts_raw(notification_alerts_state_for_style(alert_style.0));
+        // Only after a real status was read does the app count as "answered"; until
+        // then `notification_permission_reported()` returns None so a register at
+        // connect does not report the pre-read `unsupported` placeholder.
+        if !NOTIFICATION_ANSWERED.swap(true, Ordering::SeqCst) {
+            // The records above woke the heartbeat before this flag was set; wake it
+            // again so the first answer is reported now, not one interval later.
+            NOTIFICATIONS_CHANGED.notify_one();
         }
     });
     UNUserNotificationCenter::currentNotificationCenter()
         .getNotificationSettingsWithCompletionHandler(&complete);
 }
+#[cfg(all(target_os = "macos", not(feature = "ota-fixture")))]
+pub fn request_notifications_then_refresh() {
+    request_notifications();
+}
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+pub fn request_notifications_then_refresh() {
+    request_notifications();
+}
 #[cfg(not(all(target_os = "macos", not(feature = "ota-fixture"))))]
 pub fn refresh_notifications() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn request_notifications_then_refresh() {}
 
 #[cfg(target_os = "macos")]
 pub fn launch_at_login_enabled() -> Option<bool> {
@@ -152,8 +259,10 @@ pub fn launch_at_login_enabled() -> Option<bool> {
 mod tests {
     use super::*;
 
+    // The `NOTIFICATIONS_CHANGED` notify is a process-global, so every wake-up
+    // assertion lives in one test; pure mapping tests stay separate.
     #[tokio::test]
-    async fn only_explicit_denial_stops_presenting_and_wakes_the_heartbeat() {
+    async fn notification_state_changes_wake_the_heartbeat() {
         use std::time::Duration;
         use tokio::time::timeout;
         assert!(notifications_presentable());
@@ -161,19 +270,34 @@ mod tests {
         assert!(!notifications_presentable());
         timeout(Duration::from_secs(1), notifications_changed())
             .await
-            .expect("a change wakes the heartbeat");
+            .expect("a permission change wakes the heartbeat");
         record_notifications(Permission::Denied);
         assert!(
             timeout(Duration::from_millis(20), notifications_changed())
                 .await
                 .is_err(),
-            "an unchanged answer does not"
+            "an unchanged permission answer does not"
         );
         record_notifications(Permission::Allowed);
         assert!(notifications_presentable());
         timeout(Duration::from_secs(1), notifications_changed())
             .await
-            .expect("a change wakes the heartbeat");
+            .expect("a permission change wakes the heartbeat");
+        record_permission_raw("not_determined");
+        record_permission_raw("not_determined");
+        timeout(Duration::from_millis(20), notifications_changed())
+            .await
+            .expect("a first raw permission state change wakes the heartbeat");
+        assert!(
+            timeout(Duration::from_millis(20), notifications_changed())
+                .await
+                .is_err(),
+            "an unchanged raw permission answer does not wake it again"
+        );
+        record_alerts_raw("banner");
+        timeout(Duration::from_secs(1), notifications_changed())
+            .await
+            .expect("an alert-style change wakes the heartbeat");
     }
 
     #[test]
@@ -184,5 +308,26 @@ mod tests {
             assert_eq!(permission_for_status(status), Some(Permission::Allowed));
         }
         assert_eq!(permission_for_status(9), None);
+    }
+
+    #[test]
+    fn raw_permission_state_maps_every_authorization_status() {
+        assert_eq!(notification_permission_state_for_status(0), "not_determined");
+        assert_eq!(notification_permission_state_for_status(1), "denied");
+        assert_eq!(notification_permission_state_for_status(2), "authorized");
+        assert_eq!(notification_permission_state_for_status(3), "provisional");
+        assert_eq!(notification_permission_state_for_status(4), "ephemeral");
+        // Unknown statuses stay undetermined rather than inventing a state.
+        assert_eq!(notification_permission_state_for_status(9), "not_determined");
+        assert_eq!(notification_permission_state_for_status(-1), "not_determined");
+    }
+
+    #[test]
+    fn raw_alert_style_maps_every_style() {
+        assert_eq!(notification_alerts_state_for_style(0), "none");
+        assert_eq!(notification_alerts_state_for_style(1), "banner");
+        assert_eq!(notification_alerts_state_for_style(2), "alert");
+        // Unknown styles fall back to none (quiet, no banners).
+        assert_eq!(notification_alerts_state_for_style(9), "none");
     }
 }

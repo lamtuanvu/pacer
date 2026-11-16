@@ -1688,6 +1688,7 @@ dependencies = [
  "libc",
  "nix",
  "pacer-js-json",
+ "pacer-plugin-policy-protocol",
  "pacer-plugin-protocol",
  "pacer-store",
  "rusqlite",

@@ -37,6 +37,7 @@ pub const POLICY_EVENT_TYPES: &[&str] = &[
     "machine",
     "assistant",
     "discovery.found",
+    "control",
 ];
 pub(crate) const TASK_STATES: &[&str] = &[
     "queued",

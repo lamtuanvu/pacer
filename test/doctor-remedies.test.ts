@@ -248,3 +248,9 @@ test("pacer doctor prints each remedy's CLI equivalent where one exists", () => 
   expect(remedyCommand({ kind: "user", label: "x" })).toBeUndefined();
   expect(remedyCommand(remedies.internal())).toBe("pacer service restart");
 });
+
+test("remedyCommand covers the three notification remedies", () => {
+  expect(remedyCommand(remedies.allowNotifications())).toBe(`pacer api call notifications.request --params '{}'`);
+  expect(remedyCommand(remedies.testNotification())).toBe(`pacer api call notifications.test --params '{}'`);
+  expect(remedyCommand(remedies.notificationSettings("Choose Banners for pacer"))).toBe(`open x-apple.systempreferences:com.apple.Notifications-Settings.extension`);
+});
