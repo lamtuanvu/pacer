@@ -1,0 +1,18 @@
+# Task: independent re-review of owner parity PR C fix round 1 (REPO-10)
+
+Executor: cursor-agent (default model, medium tier); GLM is out of quota. Read-only: do not edit tracked files, commit, push or rebase. No subagents.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/parity-c, branch `fix/owner-plugin-stderr-log`, head `b5a07b1b6`. The reviewed implementation was rebased onto wave 3 PR 6's fix round (`d207bbb5b`, PR #931) as `d853bef7a`; fix round 1 is `d853bef7a..b5a07b1b6`.
+
+Inputs: review /Users/vulam/orca/workspaces/pacer/pinfish/.work/reviews/parity-c-review.md; handoff /Users/vulam/orca/workspaces/pacer/pinfish/.work/reviews/parity-c-handoff.md ("Fix round 1"); brief /Users/vulam/orca/workspaces/pacer/pinfish/.claude/feature-orchestrator/m2-parallel/ctx/fix-parity-c-r1.md. Rules: `.project/rules/{rust,rust-crates,code-and-testing,repository}.md`, `.project/reviewers/qa.md`, `.agents/skills/project-review/SKILL.md`.
+
+Verify: each review finding's status against the code. In particular the runtime change in `b5a07b1b6`: the stderr reader is no longer aborted with the process and, after the 250 ms drain, reads and discards until EOF as TypeScript does. Confirm against the TypeScript plugin log writer that this matches, that a descendant holding stderr can never block serve shutdown or stdio teardown (PR 5's 2 s guarantee), that the reader thread or task cannot leak indefinitely when a descendant keeps stderr open forever (state the bound or the TypeScript-equal behavior), and that the new test fails without the change (rerun that mutation). The ledger's transport-notes text, the dropped stale expected failure in the `plugin.list` row, and the CRATE-1 projection are accurate. CT-11 evidence names `b5a07b1b6`. The rebase onto `d207bbb5b` changed nothing unintended (`git range-diff 2951c0aeb..133370ab3 d207bbb5b..d853bef7a`; the coordinator resolved `conformance/fixtures/plugin.ts` and the ledger gate line). No machine paths or personal emails in `d207bbb5b..b5a07b1b6`; commits signed off and Conventional.
+
+Checks inside /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx-deny with a disposable short `mktemp -d` HOME under `/tmp`, `PACER_HOME=$HOME/.pacer`, real CARGO_HOME/RUSTUP_HOME, `SCCACHE_DIR=/Users/vulam/Library/Caches/Mozilla.sccache`, `TZ=Asia/Ho_Chi_Minh`, `CARGO_BUILD_JOBS=4 CARGO_INCREMENTAL=0`, /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin first on `PATH`, `env -u PACER_HOST_SOCKET`, both front doors built and copied to a temp dir (`PACER_TEST_FRONT_DOOR` from `cargo build --locked -p pacer`, `PACER_TEST_NATIVE_FRONT_DOOR` with `--features test-ops`): clippy `-D warnings` and tests for `pacer-plugin-runtime`; `bun run typecheck`; `test/plugin-conformance-native-owner.test.ts`, `test/native-plugin-ops.test.ts`, `test/native-plugin-ops-stdio.test.ts`, `test/native-plugin-crash.test.ts`; report counts. One cargo command at a time; keep memory modest.
+
+Never touch the maintainer's real pacer install, `~/.pacer`, `~/.local/bin/pacer*`, `/Applications/pacer.app`, `com.pacer.serve`. Never use ports 4317, 11434, 1234, 41343.
+
+Write /Users/vulam/orca/workspaces/pacer/pinfish/.work/reviews/parity-c-rereview.md: verdict (PASS / FAIL / UNVERIFIED) against `b5a07b1b6`, per-finding status, new findings with severity, commands and results. Report with `orca orchestration worker_done`. Always end with worker_done.
+
+
+Read and follow the brief at /Users/vulam/orca/workspaces/pacer/pinfish/.claude/feature-orchestrator/m2-parallel/ctx/rereview-parity-c.md exactly. End with orca orchestration worker_done.

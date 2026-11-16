@@ -1,0 +1,20 @@
+# Task: diagnose and fix `pacer api call executor.setup.candidates` failing over the CLI at the integration head
+
+Executor: codex. No time limit. Finish diagnosis before reporting; if the cause is introduced by this branch, implement the fix too.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/m2-integration (branch m2/integration, head 4d11aeb82, base origin/main 445241520). Read `.work/reviews/live-replay-replay-setup.md` and `.work/live/replay-setup-ok3/evidence/report.md`: in a seeded-free session with disposable HOME and the Ollama fixture (`--local-model-ports --local-model-fixture`), `bin/pacer api call executor.setup.candidates --params {}` exits 1 with `pacer api: Service request failed` (three times, also in replay-setup-reverse), while the same op over public HTTP returns 200 with the fixture models and serve.log shows `native executor.setup.candidates`. On main this op is forwarded to TypeScript; this branch made it native (commits 28ff2c65b, f4f8ab513, ab3aaea0f; `crates/config-ops/src/executor_candidates_ops.rs`, `setup_effects.rs`, `crates/core-bridge/src/setup_effects_sync.rs`).
+
+`src/commands/api.ts` masks any non-ApiError as "Service request failed", and `src/api/client.ts` has no call timeout, so the real error is hidden. Do not guess.
+
+## Steps
+1. Start one session at HEAD (`bun run live up --front-door rust --native-test-ops --local-model-ports --local-model-fixture ...`, disposable HOME and PACER_HOME, real CARGO_HOME/RUSTUP_HOME, CARGO_INCREMENTAL=0 CARGO_BUILD_JOBS=4, TZ=Asia/Ho_Chi_Minh). Check `bun run live --help` and how `.work/live/replay-setup-ok3/session.json` was started for the exact fixture flags. Do NOT wrap `bun run live up` in sbx-deny: the harness applies its own sandbox-exec for local model ports (scripts/live/core.ts:297-299) and macOS rejects nested sandboxes (a previous attempt failed exactly this way, session `candidates-diagnosis`; use a new session id such as `candidates-diag2`). sbx-deny is for ad hoc scratch commands only, and only when they do not start a sandbox themselves.
+2. Reproduce the CLI failure, then capture the underlying exception: write a small scratch script under `.work/fixtures/` that sources the session env and calls `connectClient(...)` / `client.call('executor.setup.candidates', {})` like `src/commands/api.ts`, printing the raw error, stack and elapsed ms. Also time the HTTP call and `opencode auth list --format json` under the session's HOME. Check serve.log/proxy.log at the failure time.
+3. Identify the root cause (for example: response frame size or shape over the socket transport, a connection/idle timeout in the Rust socket front door shorter than the op's latency, a bridge `discover` call failing only on the socket path, or an error object that is not an ApiError). Determine whether main forwards the op and would succeed in the same conditions (reasoning from code is fine if a main runtime run would need a cargo build; state which).
+4. If introduced by this branch: implement the smallest fix with a regression test (Rust unit/integration or TS test, whichever covers the failing layer), run the affected tests (`bun test <files>`, `cargo test -p <crate>` scoped), rebuild, and re-run the CLI call twice plus HTTP once in a fresh session; both must succeed with the fixture models. Commit signed (`git commit -s`, Conventional Commit `fix:`), do not push. If pre-existing on main, do not change code; give evidence.
+
+Rules: one live session at a time; never touch the maintainer's real pacer install, ~/.pacer, com.pacer.serve, port 4317 or model ports 11434/1234/41343; stop everything you start; no `cargo clean`; keep the tracked tree clean apart from your fix commit.
+
+Write `.work/reviews/m2-integration-candidates-cli.md`: raw error, timings, root cause with file:line, introduced vs pre-existing, fix and test (commit SHA) or why none, live re-run evidence paths and the harness report summary line. Report with orca orchestration worker_done. Always end with worker_done.
+
+
+Carry out the task described above.

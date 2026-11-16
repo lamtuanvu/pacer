@@ -1,0 +1,14 @@
+# Task: web live validation of m2/setup-doctor at its new head
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/m2-setup-doctor (branch m2/setup-doctor). Head e3c4958bc ("fix: isolate live model probe ports", harness-only, on top of 3c2183784). The fix worker's session .work/live/setup-doctor-ports passed the HTTP and port-refusal checks but left the web candidates screen UNVERIFIED because it had no browser. Earlier sessions setup-doctor-10a to 10d (at 3c2183784) show the web steps to repeat.
+
+1. Confirm HEAD is e3c4958bc and the tracked tree is clean. Do not change tracked files or commit.
+2. Read docs/testing/live-validation.md, .claude/skills/live-validate/SKILL.md if present, and the reports and session.json files of .work/live/setup-doctor-10a, -10b, -10c, -10d and setup-doctor-ports.
+3. Repeat the four candidates sessions at this head with new session ids (for example setup-doctor-11a to 11d), using the new harness port options and its macOS outbound sandbox (confirm session metadata records the sandbox and fixture-owned ports): native and forced-forward (PACER_FORWARD_OPS=*) with a fixture model server, and native and forced-forward with delayed fixture failures (settlement order). For every web check use Orca's built-in browser with a new isolated profile (orca browser / the Orca browser tools; not any other browser), following the same steps as 10a-10d: /app/auth login URL, #/settings/add-executor, dismiss the network prompt, Model endpoint (OpenCode), Continue. Record screenshots and observations in each report.
+4. Temporary HOME/PACER_HOME, non-default ports only. Never touch the maintainer's real pacer install, ~/.pacer, the com.pacer.serve service, port 4317 or the real model servers on 11434 and 1234.
+5. Resources are tight: build only what bun run live needs, with CARGO_INCREMENTAL=0, and run sessions one at a time. Run any bun test only through /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx. When done, stop every session, fixture and proxy you started, close and delete the browser profile, and delete target/.
+
+Report with orca orchestration worker_done: head, each session id with its Summary line, the web observations (failure order and notes), UNVERIFIED items, and confirmation of cleanup. Always end with worker_done.
+
+
+Carry out the live validation described above.

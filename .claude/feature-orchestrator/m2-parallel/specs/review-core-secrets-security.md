@@ -1,0 +1,23 @@
+# Task: independent security review of "Core secrets on stdin" (REPO-10)
+
+Executor: cursor-agent (default model, frontier tier: a new credential transport across Rust and TypeScript, fail-closed startup, and the #918 item 3 decision record). Read-only review: do not edit tracked files, commit, push or rebase. No subagents. Never use `git stash`. Follow /Users/vulam/orca/workspaces/pacer/pinfish/.claude/feature-orchestrator/m2-parallel/ctx/w4-common.md for the test environment, the sandbox and the sccache workaround. A QA/compat reviewer works in parallel in the same worktree; if `cargo` waits on the target-dir lock, wait.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/core-secrets, branch `fix/core-secrets-stdin`, commit `79c898d8a` on base `3275b5e35`.
+
+Inputs: handoff /Users/vulam/orca/workspaces/pacer/pinfish/.work/reviews/core-secrets-handoff.md; the original brief `.claude/feature-orchestrator/m2-parallel/ctx/core-secrets-stdin.md`; the decision analysis `.work/reviews/` (search `918-item3`); issue #973; ADR 0027 in the branch; `.project/reviewers/security.md`, `.project/rules/security.md`, `.project/rules/api.md`.
+
+Maintainer decision being implemented: #918 item 3 is closed as "executors run unsandboxed by design". Before PR7, Core's secrets (`PACER_HOST_SOCKET_KEY`, `PACER_INTERNAL_TOKEN`, `PACER_NATIVE_CONFIG_SYNC_KEY`) move from Core's environment to its stdin; the agent-session codex flags are pinned by test; docs record it; the rest is #973.
+
+Verify:
+1. No route left: none of the three secrets appears in Core's initial environment (`KERN_PROCARGS2`), in `process.env`/`ctx.env` after startup, or in any child of Core (executors, plugins, enforcement canary, history, terminal workspaces, workers), in every launch path: serve's Core child, the stdio door (owning and attaching), the signed paired native path, `serve --internal`, detached/background workers and restarts. Grep every spawn site in `src/` and `crates/` for env inheritance.
+2. Frame parsing (`src/core-secrets.ts`, `crates/server/src/core_secrets.rs`): fail closed on a missing, truncated, oversized, malformed or duplicated frame, an unknown marker or version, non-hex or wrong-length values, and extra keys. It never reads client bytes as the frame or swallows client bytes after it. It never echoes a secret into errors, logs, panics, `Debug` output or crash reports. EAGAIN/timeout handling can't hang Core forever or accept a partial frame. Fuzz or table-test edge cases in a `/tmp` copy.
+3. Ordering: the frame is written before any client byte on the stdio door. On the signed paired path no byte is read before fd 0 is authenticated. A hostile stdio client can't inject or replace a frame, and an attaching door can't receive another connection's frame.
+4. No regression of #971 (G) or #970 (H) guarantees: the owner key handshake, the unsealed-call refusal, and the worker key hand-off (`holdOwnerKey`). The removed environment fallback for `PACER_INTERNAL_TOKEN` breaks no supported path.
+5. The agent-session sandbox pin test really pins `-s workspace-write` and rejects every socket/network/config/profile/bypass flag; mutate the adapter in `/tmp` to prove it goes red.
+6. Docs: ADR 0027 (item 9, the residual, the new "Executors run unsandboxed" consequence), ADR 2026-10-20 D7, `docs/executors.md`, CHANGELOG and the ledger state what the code does and match the decision and #973. The ledger row is "closed by decision" with its history kept.
+7. Red/green: reproduce the handoff's red (secrets visible in Core's environment on `main`) and green on the head; run the handoff's test list with front doors built from `79c898d8a` (plain and `--features test-ops`); fmt, clippy `-D warnings` (with and without test-ops), typecheck. Commit signed off and Conventional; no machine paths or personal emails in tracked files. CT-11 evidence (owner off 6 PASS; owner on 11 PASS, 2 UNVERIFIED) is adequate, and the UNVERIFIED items are honest.
+
+Output: /Users/vulam/orca/workspaces/pacer/pinfish/.work/reviews/core-secrets-security-review.md with a verdict (PASS / FAIL / UNVERIFIED) against `79c898d8a`, findings with severity, and the commands run. Report with `orca orchestration worker_done`. Always end with worker_done.
+
+
+Read and follow the brief at /Users/vulam/orca/workspaces/pacer/pinfish/.claude/feature-orchestrator/m2-parallel/ctx/review-core-secrets-security.md exactly. End with orca orchestration worker_done.

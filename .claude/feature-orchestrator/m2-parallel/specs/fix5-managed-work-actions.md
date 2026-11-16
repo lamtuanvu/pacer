@@ -1,0 +1,20 @@
+# Task: close the last UI/QA evidence gaps on fix/managed-work-actions
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-managed-work-actions (branch fix/managed-work-actions). Head 08731ad0e. Read these final-head reports first:
+- .work/reviews/2026-11-10-fix-managed-work-actions-rereview4.md (project: no code findings, waiting on UI/QA)
+- .work/reviews/2026-11-10-fix-managed-work-actions-ui-review5.md (UI: UNVERIFIED, two evidence gaps)
+- .work/reviews/2026-11-10-fix-managed-work-actions-qa-review4.md (QA: UNVERIFIED, matrix does not enforce its claims)
+
+No reviewer found a product defect. Close these gaps:
+
+1. Busy announcement (UI-2/UI-24, `app/src/tray/Tray.tsx:223`, `app/src/screens/needs-you/AnswerPanel.tsx:31`). When a control turns busy ("Working…"/"Sending…"), add a polite status announcement that screen readers pick up (for example a visually hidden role="status"/aria-live="polite" region, following existing app patterns; reuse one if the app already has one). Keep aria-busy and focus behavior. Add a browser test that asserts the announcement text appears while busy and clears or changes when done, for both the tray and the answer panel, and a test that answer-panel focus stays on the control while busy.
+2. Reduced motion. Make the matrix compare motion with and without the emulated prefers-reduced-motion preference for the changed states (transition/animation durations or the app's reduced-motion mechanism) and assert reduced-motion behavior.
+3. Matrix assertions (QA advisory, required for the claims). Move the harness to `.work/fixtures/managed-ui-matrix.ts` (untracked; the old path `.work/live/managed-ui-matrix-08731ad0/check.ts` was cited but missing at the fixture path). It must FAIL, not just record, when: an expected error/reason element is missing; a measured element is clipped by the viewport or covered by the dialog footer; focus leaves the control through each relevant transition (tray and answer, busy and error); text contrast falls below WCAG AA (4.5:1 normal, 3:1 large) for the measured elements. Mutation-check each assertion (temporarily break the CSS or the focus behavior, show the matrix fails, restore) and record the mutation results.
+4. Run the affected Bun suites and the matrix only through /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx with PACER_PORT=1 and TZ=Asia/Ho_Chi_Minh. Typecheck the app. Commit signed (git commit -s, Conventional Commits). Do not push.
+5. With the tree clean at the new head, rerun the matrix to a new output directory and a fresh live session (bun run live, new session id) covering the same flows as .work/live/managed-ui-final-08731, using Orca's built-in browser with a new isolated profile. Leave the live session RUNNING when you finish (service and proxy up on its non-default port) so the independent UI reviewer can spot-check it; record its URL, port, session id and how to log in, and how to stop it.
+6. Never touch the maintainer's real pacer install, ~/.pacer, the com.pacer.serve service, port 4317 or the model ports 11434 and 1234. Temporary HOME/PACER_HOME only. Resources are tight: CARGO_INCREMENTAL=0, build only what is needed.
+
+Report with orca orchestration worker_done: new head, commits, test counts, matrix output directory and mutation results, live report path and Summary line, the running session's details, and UNVERIFIED items. Always end with worker_done.
+
+
+Carry out the task described above.

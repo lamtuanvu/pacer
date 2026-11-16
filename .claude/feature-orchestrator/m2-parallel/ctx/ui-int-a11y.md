@@ -1,0 +1,23 @@
+# Independent UI/accessibility review (final): m2/integration PR
+
+You are the independent UI/accessibility reviewer (.project/reviewers/ui-accessibility.md); you did not write this code. Do not change tracked files. Executor: codex. No time limit; complete every numbered check before reporting.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/m2-integration, head 4d11aeb82, base origin/main 445241520. Scope: the 11 files in `git diff --stat 445241520 HEAD -- app/`. Read .project/rules/ui.md and the reviewer definition.
+
+Already done (reuse, don't redo): .work/reviews/m2-integration-ui-review.md (ui:check 0 violations; 124/0 focused tests; 24-state answer/tray fixture matrix with contrast samples) and the screenshot set .work/reviews/ui-review-int/shots/ with INDEX.md (UI-18 base/head at 1440 light/dark, 375, tray 340, geometry JSON).
+
+## Checks (head session: `bun run live up --seed ui --front-door rust --native-test-ops`, ids `ui-a11y-`, Orca built-in browser, isolated profile; seed fixtures as in .work/reviews/ui-review-int/seed.jsonl)
+1. Inspect every image in shots/INDEX.md; for each base→head difference decide: intended (traceable to a diff hunk) or defect (rule ID). Check geometry JSON for overflow/clipping.
+2. Keyboard matrix, one row per control, for: Work view managed row actions, Dispatch managed actions, task detail actions, Review result actions, Needs-you answer panel (open, type, submit, Escape, close button, focus return to the opener), tray rows and actions. Record Tab order, visible :focus-visible indicator (screenshot one per screen), Enter/Space activation, Escape behavior, focus return.
+3. Live actions at head: submit a retry on a managed failed row (Work view and tray) and an answer from the answer panel; record the request/response (dispatch.retry/dispatch.answer HTTP 200) and resulting UI state. With the missing-op proxies (see the source branch's managed-missing-op session in /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-managed-work-actions/.work/live/), confirm the fallback "Open task" appears and no dead button is shown.
+4. Contrast: measure text/background and focus-ring contrast for every changed control in light and dark (computed styles), and compare with WCAG AA. Reduced motion: emulate prefers-reduced-motion and confirm changed elements have no non-essential motion.
+5. Right-panel scroll (main's rule) with the managed panel: content longer than viewport scrolls inside the panel at 1440 and 375.
+
+Maintainer exceptions (disclosed as UNVERIFIED in the PR; not by themselves grounds to withhold PASS for in-scope surfaces): desktop app, real executors, op-specific stdio beyond fixtures, PACER_FORWARD_OPS, D3/D8 effects, Updates Install, actual screen-reader speech (VO-TEMP-2026-10 waiver). Defects reproduced on base are pre-existing (cite evidence), not introduced.
+
+Rules: one live session at a time; clean tree and HEAD 4d11aeb82 before starting; no cargo; never touch the maintainer's real pacer install, ~/.pacer, com.pacer.serve, port 4317 or model ports; stop everything you start.
+
+Write .work/reviews/m2-integration-ui-review-final.md: base/head, governance version, scope and rule IDs, checks with evidence paths, keyboard matrix, contrast table, findings with severity/rule/remedy, per-surface PASS/FAIL/UNVERIFIED, overall verdict. Report with orca orchestration worker_done. Always end with worker_done.
+
+## WorkView (coordinator finding — verify, then evidence at component level)
+`app/src/screens/work/WorkView.tsx` mounts only via `TaskRoute` (app/src/screens/TaskResult.tsx:216 → LazyWork), and `TaskRoute` is exported but never routed on base 445241520 or head (`git grep -n TaskRoute <rev> -- app/src`); Screen.tsx sends `#/tasks/<id>` to LazyTrace. So the WorkView change is not reachable in the shipped app on either revision (pre-existing dead route; record as a non-blocking follow-up, not an introduced defect). Its new reason text renders when `useAction().unavailable` is set, i.e. when the service is disconnected or the session ended (app/src/screens/task-shared.tsx:121, "Reconnecting…"), not when an op is missing. Verify both claims. Then capture component-level evidence with the existing browser fixture test/fixtures/ui/work-focus-browser.tsx (see how test/*browser*.test.ts* drive it): render WorkView connected and disconnected at 1440 light/dark and 375, base vs head (base via `git stash`-free approach: a scratch detached worktree of 445241520, removed afterwards), and check the reason `<p id>` / buttons' `aria-describedby` and keyboard focus. See .work/reviews/ui-review-int/workview-attempt.md for the failed route attempt.

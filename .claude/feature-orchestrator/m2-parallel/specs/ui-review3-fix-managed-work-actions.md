@@ -1,0 +1,116 @@
+# Independent project review: fix/managed-work-actions
+
+You are the independent reviewer required by REPO-10 for this branch. You did not write this code. Review it and report; do not fix it.
+
+## Scope
+
+- Worktree: `/Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-managed-work-actions`
+- Branch: `fix/managed-work-actions`
+- Base (merge-base with origin/main): `33e584bce245764f169ead5b44ac19ae2740a589`
+- Reviewed head: `0911787631a13db623efaa9a2b1bc4302046760e`
+- Commits in scope:
+  - 091178763 fix: preserve managed attention in v2 projection
+  - 0541b623c fix: explain unavailable managed actions
+  - c0263ddba fix: gate managed attention actions by service support
+  - ab3537273 fix: route managed attention actions through dispatch
+- Raw changes: `git diff 33e584bce245764f169ead5b44ac19ae2740a589..0911787631a13db623efaa9a2b1bc4302046760e` and `git log -p 33e584bce245764f169ead5b44ac19ae2740a589..0911787631a13db623efaa9a2b1bc4302046760e`. Review every file in that diff. Changes outside it are out of scope unless the diff depends on them.
+
+## Requirements
+
+The implementation brief follows. For any earlier commit in scope that the brief does not cover, its commit message is the stated requirement; also check that what it claims (ops registered, ledger rows) is actually true in the code.
+
+---
+# Implementation task: route managed-work actions in the tray and Needs-you to dispatch.retry / dispatch.answer
+
+## Worktree and branch
+- Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-managed-work-actions
+- Branch: fix/managed-work-actions, based on origin/main (33e584bce). Work only here.
+
+## Problem (pre-existing on main, found by live validation of the m2 dispatch-ops branch)
+For managed work (tasks with `task.work`), two surfaces send the legacy ops, and Core refuses both with 403:
+- Tray / attention "Retry": `src/attention/rules.ts` (around line 47) emits `{op:"task.retry", params:{id, executor?}}` for failed/limit tasks. Core (`src/api/ops.ts` ~469) refuses managed work: "Use dispatch.retry with a requestId and revision for managed work".
+- Needs-you answer: `app/src/screens/needs-you/AnswerPanel.tsx:23` calls `task.answer` (the tray's "Answer" lands here; `src/attention/rules.ts` ~34 emits `task.answer` for questions). Core (`src/api/ops.ts` ~453) refuses: "Use dispatch.answer with a requestId and revision for managed work".
+
+## Required behaviour
+Managed work must use `dispatch.retry` / `dispatch.answer` with `expect_rev` and a stable `requestId`, exactly as the existing web screens already do on main:
+- `app/src/screens/failure/model.ts:14`, `app/src/screens/review/model.ts:78`: `dispatch.retry {id, expect_rev: task.rev, requestId: `${id}.${rev}.retry`, feedback}`.
+- `app/src/screens/workspace/Workspace.tsx:380`: `task.work ? "dispatch.answer" : "task.answer"` with `requestId: `${id}.${rev}.answer``.
+- `app/src/screens/work/WorkView.tsx` uses `workActionRequestId(...)`; reuse the shared helper rather than inventing a new id format.
+Non-managed tasks must keep using `task.retry` / `task.answer` unchanged. Check every consumer of attention actions (tray model `app/src/tray/model.ts`, the web Needs-you list, desktop, CLI/TUI if they render attention actions) and the attention item schema / protocol types, so the new op and params are allowed wherever the action is executed (feature gating such as `state.features.ops.has("dispatch.retry")` included). Consider what "Retry on <other executor>" means for managed work (dispatch.retry has no executor param); keep the label and behaviour honest. Keep any public protocol/attention schema change backwards compatible and documented per the API rules.
+
+## Tests (required)
+- Unit tests for the attention rules: managed failed/limit work yields dispatch.retry with expect_rev and the stable requestId; managed questions yield dispatch.answer; non-managed unchanged.
+- App tests for AnswerPanel (managed vs non-managed) and the tray model/action execution.
+- An end-to-end or Core-level test that executing the emitted action against real Core handlers in a disposable HOME/PACER_HOME succeeds for managed work (no 403) and is idempotent on repeat (same requestId).
+
+## Live validation (CT-11, required)
+Follow docs/testing/live-validation.md with `bun run live` in a sandbox, at your final clean head. Seed disposable managed work (failed and needs-input) with Core store calls in the sandbox home, executors replaced by refusing PATH stubs (never a real executor run; not authorized). Drive in Orca's built-in browser with an ISOLATED profile (load the guide with `orca skills get orca-cli --reference references/browser.md`): the Needs-you answer for managed work, and the tray/attention Retry and Answer path as far as it can be exercised; capture request bodies and Core responses. Record what cannot be exercised as UNVERIFIED with the reason. The desktop app and real executor runs are UNVERIFIED under the maintainer exception, backed by tests.
+
+## Governance
+Read first: AGENTS.md, .project/constitution.md, .project/context.md, .agents/skills/project-governance/SKILL.md. Applicable rules: .project/rules/repository.md, code-and-testing.md, architecture.md, api-protocol.md, security.md (and any app/UI rule files listed in .project/context.md). Conventional Commits, `git commit -s` on every commit. Do not push. Do not commit .work/. No machine-specific paths or personal emails in tracked files.
+
+## Hard safety rules
+Never touch the maintainer's real pacer install: /Applications/pacer.app, ~/.local/bin/pacer and pacer-core, ~/.pacer, the com.pacer.serve service or launchd label. Every test and every spawned process must use a disposable HOME and PACER_HOME and must not be able to reach 127.0.0.1:4317 (pin PACER_PORT to a sandbox or closed port wherever a process may contact the service). Stop everything you started.
+
+## Report
+When done, report with `orca orchestration worker_done` (outcome, commit hashes, test counts, live evidence path, session HEAD, the report's summary line, and what is UNVERIFIED). Always end with worker_done; if blocked, say what you need in worker_done.
+---
+
+## Governance context
+
+Read first: `AGENTS.md`, `.project/constitution.md`, `.project/context.md`, `.agents/skills/project-review/SKILL.md`.
+Rules that apply to these paths: `.project/rules/repository.md`, `.project/rules/code-and-testing.md`, `.project/rules/rust.md`, `.project/rules/rust-crates.md`, `.project/rules/architecture.md`, `.project/rules/api-protocol.md`, `.project/rules/security.md`.
+Reviewer definitions: `.project/reviewers/architecture.md`, `.project/reviewers/protocol-compat.md`, `.project/reviewers/qa.md`, `.project/reviewers/security.md`. Also check `.project/decisions.md` for relevant open decisions.
+
+## What to check
+
+- The change does what the requirements ask, or each deviation is justified and safe.
+- Native Rust behavior matches the TypeScript reference byte-for-byte for every case the parity claims cover (error codes, messages, refusals), and anything not native is forwarded unchanged.
+- Bridges and forwarding preserve the caller's auth, enforcement identity and timeouts; no new privilege or unauthenticated path.
+- Tests actually exercise the claims (parity tests compare against the TypeScript path, not a fixture of themselves). `docs/testing/m2-ledger.md` rows and totals match what the code registers.
+- No machine-specific paths or personal emails in tracked files; commits are signed off (DCO).
+
+You may run read-only and test commands (git, rg, cargo test, cargo clippy, cargo fmt --check, bun test for the touched tests). Do not edit tracked files, commit, push, or change branches. Never touch the real pacer install (`/Applications/pacer.app`, `~/.local/bin/pacer*`, `~/.pacer`, `com.pacer.serve`); do not run `bun run live`. If a check cannot run, record it as UNVERIFIED.
+
+## Re-review context
+
+Independent UI/ACCESSIBILITY review ONLY (.project/reviewers/ui-accessibility.md; .project/rules/ui.md incl. UI-2, UI-13, UI-18, UI-24) of branch fix/managed-work-actions at head 0911787 (base 33e584bce). Project/protocol/security review and native parity are covered by separate reviewers running in parallel: do NOT review Rust, parity, or run Rust builds or Rust-dependent tests. A previous UI reviewer stopped early without doing the checks; you must complete every item below yourself and only then write the verdict.
+
+Change: managed attention items (Needs-you and tray) answer/retry managed work; when the service does not advertise dispatch.answer the answer control is disabled with a VISIBLE reason linked via aria-describedby; when it lacks dispatch.retry the tray falls back to an 'Open task' action; after direct tray entry, Escape restores focus to main content. UI files: app/src/screens/needs-you/AnswerPanel.tsx, app/src/tray/Tray.tsx, app/src/screens/Dispatch.tsx, WorkView and related CSS/assets (see git diff --stat 33e584bce..HEAD -- app/ src/app/).
+
+Checklist (record evidence for each):
+1. Screenshots (UI-18): open every image in .work/live/managed-missing-op/visual/ and .work/live/managed-orca-final/; verify actual pixel dimensions with sips -g pixelWidth -g pixelHeight, theme, state, and that metadata names head 0911787. List any required state missing (1440 light/dark, 340 tray light/dark, 375 Needs-you light/dark, unsupported answer panel, tray fallback).
+2. Live keyboard and focus (drive it yourself in Orca's built-in browser with an isolated profile against an isolated sandbox service started with this repo's bun run live tooling: temporary PACER_HOME and HOME, non-4317 port; reuse the existing built assets, no Rust build): Tab order, Enter and Space activation, Escape, focus visibility, focus restoration after tray entry and after closing the answer panel, for supported and unsupported cases (the implementer's single-op-missing proxy approach is in .work/live/managed-missing-op/; reuse it).
+3. Contrast: measure text and non-text contrast (disabled button, reason text, focus ring, fallback action) in light and dark from computed styles in the browser (getComputedStyle) or from design tokens; report ratios against WCAG AA (4.5:1 text, 3:1 non-text; disabled controls are exempt but the reason text is not).
+4. Accessible names, roles and states: inspect the accessibility tree or DOM (aria-disabled/disabled, aria-describedby target text, button names, live region if any).
+5. Reduced motion: emulate prefers-reduced-motion and confirm no new animation.
+6. 340 px tray and 375 px Needs-you: no clipping, overflow or truncated reason text.
+7. Implementer compliance report .work/reviews/2026-11-10-managed-actions-ui-compliance.md: is it accurate against what you observed?
+Run any Bun UI tests only through /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx. Tear down every process and delete the browser profile when done. Manual VoiceOver is waived under VO-TEMP-2026-10 through 2026-11-22. Machine is under disk/memory pressure: no extra builds. Verdict PASS/FAIL with findings tagged by rule; UNVERIFIED only for an item you truly cannot perform, with the reason.
+
+Shared checks for this final review:
+- Real-install isolation (AGENTS.md): during development of a sibling branch, an unpinned test sent requests to the maintainer's real pacer service on 127.0.0.1:4317. Check every test added or changed in this branch: each spawned front door, core or CLI process must have a disposable HOME/PACER_HOME and must not be able to reach the default service port 127.0.0.1:4317 or other real-install paths (pin PACER_PORT to a sandbox or closed port wherever a process might contact the service, for example executor or work-grant callers, guard, status or setup checks). Any such path is a blocking SEC finding.
+- Live evidence must be from the reviewed head with a clean tree (check the session metadata), per the live-validation policy appended below.
+- Front-door tests: the native front-door cases skip unless PACER_TEST_NATIVE_FRONT_DOOR is set (and some need a release front door). When you run tests, set it (build the test-ops front door once if needed, in this worktree's existing target dir; disk is tight) so those cases actually run, and report their pass/skip/fail counts. Skipped cases are not evidence.
+
+- SAFETY: run every bun test / test script you execute as `/Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx <cmd>` (sandbox denying localhost:4317, with a non-setuid ps on PATH so process checks work). A test that fails only because the sandbox refused 4317 is a test-isolation finding, not a reason to run unsandboxed.
+
+## Live-validation policy
+
+Maintainer live-validation policy for the m2 batch (decided 2026-11-10):
+
+- Web app and tray: affected web screens must be exercised in the sandbox through Orca's built-in browser (load the guide with `orca skills get orca-cli --reference references/browser.md`). If it cannot be driven, record the surface UNVERIFIED with the reason.
+- Op-specific stdio (refused by the harness D3 guard), the desktop app, and the PACER_FORWARD_OPS override: MAINTAINER-SCOPED EXCEPTION. They stay UNVERIFIED in the PR "How tested" section, backed by the unit, parity and end-to-end tests that cover them; the PR records the exception explicitly. Do not treat this exception as blocking, but do check that the covering automated tests exist and really exercise those paths.
+- Operations the harness refuses by design because they change the real environment (D3/D8 guards, for example service.install, update.apply, service.handover, service.work, account.signin): MAINTAINER-SCOPED EXCEPTION on the same terms. They stay UNVERIFIED in the PR, backed by isolated end-to-end tests through the real HTTP and stdio front doors with disposable homes and safe injected effects; check those tests exist and really exercise the paths. The guard refusal itself should still be recorded as PASS evidence.
+- Real executor runs (spend subscription budget): NOT authorized. The real-executor path stays UNVERIFIED under the same exception.
+- Live evidence must be attributable to the reviewed revision: the harness session HEAD must equal the reviewed head with a clean tree.
+- Updates "Install" control (m2-service-handover, decided 2026-11-10 after re-review 2): MAINTAINER-SCOPED EXCEPTION. The live harness forces PACER_NO_UPDATE_CHECK=1 so the control never renders, and the only update-offering flow bootstraps launchd jobs. It stays UNVERIFIED in the PR with that reason, backed by the update.apply front-door end-to-end and parity tests with injected update effects.
+
+## Deliverable
+
+Write the report to `/Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-managed-work-actions/.work/reviews/2026-11-10-fix-managed-work-actions-ui-review3.md` (create the directory; `.work/` is untracked). Include: scope with base and head, reviewer identity (agent and model) and independence, governance version from the constitution, checks you actually ran with their results, checks you could not run, and findings. Each finding names its rule ID or "advisory", severity (blocking / nonblocking), file and line, evidence, impact and remedy, and says whether it was introduced by this branch or is pre-existing. End with a verdict: PASS, FAIL or UNVERIFIED. Missing evidence is never PASS.
+
+The task succeeds when the report is written, whatever the verdict. Report the verdict, the blocking findings in one line each, and the report path.
+
+
+Carry out the independent UI/accessibility review described above, complete every checklist item, and write the report.

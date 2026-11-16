@@ -1,0 +1,10 @@
+# Task: independent review of the coordinator's N3 guard change in wave 2 PR 4 (REPO-10)
+
+Executor: cursor-agent (default model), independent reviewer. A two-line guard change written by the coordinator. Read-only: do not edit tracked files, commit, push. Do not build Rust. You may run `git`, `bun run typecheck` and `bun test test/live-api-guard.test.ts test/live-harness.test.ts` inside `/Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx-deny` with a fresh `mktemp -d` `HOME`, `PACER_HOME=$HOME/.pacer`, `TZ=Asia/Ho_Chi_Minh`. Never touch the maintainer's real pacer install, `~/.pacer`, `~/.local/bin/pacer*`, `/Applications/pacer.app`, `com.pacer.serve`, or ports 4317, 11434, 1234, 41343.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/wave2-pr4. Review `git diff 593c1e7a2..cd616b0b5` against the remedy for N3 in `.work/reviews/wave2-pr4-rereview-r2.md`. Confirm: the `map` refusal now runs before the read-only admit; no admitted read-only form became refused (every admitted case in the test still passes); the new chained-spelling case is refused; tests pass; the commit is signed off by Vu Lam with a Conventional Commit subject.
+
+Write `/Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/wave2-pr4/.work/reviews/wave2-pr4-review-n3.md` with the verdict on the first line and brief evidence. Report with `orca orchestration worker_done`. Always end with worker_done.
+
+
+Read and follow the brief at /Users/vulam/orca/workspaces/pacer/pinfish/.claude/feature-orchestrator/m2-parallel/ctx/review-wave2-pr4-n3.md exactly. End with orca orchestration worker_done.

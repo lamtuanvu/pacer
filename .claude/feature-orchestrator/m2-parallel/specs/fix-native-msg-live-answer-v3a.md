@@ -1,0 +1,19 @@
+# Task: finish and commit the legacy-duplicate routing fix (v3a)
+
+Executor: codex. No time limit. Scope is ONLY item 1 below; the live fixture is a separate later task. Finish every step before reporting.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-native-msg-live-answer (branch fix/native-msg-live-answer), head e25482db2, with an UNCOMMITTED candidate in the tree (8 files: crates/messaging-ops/src/msg_ops.rs + tests, crates/server/src/serve/mod.rs, stdio_proxy.rs, crates/store/src/messages.rs, messages/writes.rs `prior_is_answer`, ledger row, test/native-msg-live-answer-parity.test.ts). Read .work/reviews/fix-native-msg-live-answer-review.md finding 1 and the "Review fixes (v2)" section of .work/reviews/fix-native-msg-live-answer-handoff.md.
+
+## Steps
+1. Review the candidate. It adds a read-only pre-routing probe: a msg.send with a request_id whose stored prior message (same sender) is an answer with reply_to forwards to Core; probe errors forward.
+2. **Race:** between the probe and the native insert, a concurrent request with the same sender+request_id could store an answer (forwarded to Core), and the native send's duplicate branch (`msg_writes.rs` around 349/508) would then act on a stored answer natively. Close it: in the native duplicate branch, if the prior is an answer with reply_to, do not deliver or record natively — either use an existing mid-handler "forward to Core" mechanism if the native op layer has one (search crates/server/src/native* and other *_ops for how a handler hands the original request to Core after starting, e.g. dispatch planning's selective forward or config writes), or return exactly what TypeScript `duplicate` (`src/messaging/send.ts:125`) would return for that case without side effects. Add a unit test for that branch.
+3. Make sure the probe reads the same database and table TypeScript uses (`src/messaging/store.ts`), handles a missing table, and uses the same sender identity as the native insert. Keep `rustfmt` style.
+4. Checks, serial, under /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx-deny with CARGO_INCREMENTAL=0, CARGO_BUILD_JOBS=4, TZ=Asia/Ho_Chi_Minh, disposable PACER_HOME (keep your real CARGO_HOME/RUSTUP_HOME so no toolchain download): cargo fmt --all --check; cargo clippy -p pacer-store -p pacer-messaging-ops -p pacer-server --all-targets -- -D warnings; cargo test -p pacer-store messages; cargo test -p pacer-messaging-ops; cargo xtask loc --check; cargo xtask deps; bun run typecheck; cargo build -p pacer --features test-ops; then with PACER_TEST_NATIVE_FRONT_DOOR=<abs target/debug/pacer>: test/native-msg-live-answer-parity.test.ts (all cases), test/native-msg-writes-parity.test.ts, other test/native-msg* files, test/messaging-live.test.ts. Save logs to .work/fixtures/v3a-*.log.
+5. Commit with `git commit -s -m "fix(messaging): forward duplicate redeliveries of stored answers to Core"` (one commit). Do not push.
+
+Never touch the maintainer's real pacer install, ~/.pacer, com.pacer.serve, port 4317 or model ports. No full suites. No live session in this task.
+
+Append a "Review fixes (v3a)" section to .work/reviews/fix-native-msg-live-answer-handoff.md: commit, race handling and why, commands with counts. Report with orca orchestration worker_done. Always end with worker_done.
+
+
+Carry out the task described above.

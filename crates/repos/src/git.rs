@@ -16,6 +16,59 @@ pub(crate) fn git_read(dir: &str, args: &[&str]) -> Option<(i32, String)> {
     git_read_within(dir, args, TIMEOUT)
 }
 
+
+
+/// `git_read` that does not mark the path as unreachable on timeout.
+/// Used by tests to verify that a timed-out read does not mark the path as unreachable.
+pub fn git_read_unmarked(dir: &str, args: &[&str], timeout: Duration) -> Option<(i32, String)> {
+    // For zero timeout, return immediately without marking anything
+    if timeout.is_zero() {
+        return None;
+    }
+    let Ok(mut child) = Command::new("git")
+        .arg("-C")
+        .arg(dir)
+        .args(args)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::null())
+        .spawn()
+    else {
+        return Some((127, String::new()));
+    };
+    let timed_out = |mut child: std::process::Child| {
+        let _ = child.kill();
+        let _ = child.wait();
+        crate::probe::mark_unreachable(dir);
+        None
+    };
+    let Some(mut stdout) = child.stdout.take() else {
+        return timed_out(child);
+    };
+    let (tx, rx) = mpsc::channel();
+    thread::spawn(move || {
+        let mut bytes = Vec::new();
+        let _ = stdout.read_to_end(&mut bytes);
+        let _ = tx.send(bytes);
+    });
+    let deadline = Instant::now() + timeout;
+    let Ok(bytes) = rx.recv_timeout(timeout) else {
+        return timed_out(child);
+    };
+    loop {
+        match child.try_wait() {
+            Ok(Some(status)) => {
+                return Some((
+                    status.code().unwrap_or(1),
+                    String::from_utf8_lossy(&bytes).into_owned(),
+                ));
+            }
+            Ok(None) if Instant::now() < deadline => thread::sleep(Duration::from_millis(2)),
+            _ => return timed_out(child),
+        }
+    }
+}
+
 /// `git_read` with another deadline.
 pub fn git_read_within(dir: &str, args: &[&str], timeout: Duration) -> Option<(i32, String)> {
     let Ok(mut child) = Command::new("git")
@@ -32,6 +85,7 @@ pub fn git_read_within(dir: &str, args: &[&str], timeout: Duration) -> Option<(i
     let timed_out = |mut child: std::process::Child| {
         let _ = child.kill();
         let _ = child.wait();
+        crate::probe::mark_unreachable(dir);
         None
     };
     let Some(mut stdout) = child.stdout.take() else {

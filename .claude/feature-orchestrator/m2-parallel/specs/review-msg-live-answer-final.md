@@ -1,0 +1,19 @@
+# Independent final-revision review: fix/native-msg-live-answer
+
+You are the independent reviewer required by REPO-10; you did not write these commits. Review and report; do not change tracked files. Executor: codex. No time limit; finish every check before reporting.
+
+Worktree: /Users/vulam/orca/workspaces/pacer/pinfish/.work/worktrees/fix-native-msg-live-answer, head efbd94852, base origin/main 445241520. Commits: e25482db2 (forward answers with reply_to), 41ea3fab0 (forward duplicate redeliveries of stored answers; concurrent-insert fallback), efbd94852 (live-harness waiting-session fixture). Read the earlier review .work/reviews/fix-native-msg-live-answer-review.md (FAIL: findings 1-3) and every section of .work/reviews/fix-native-msg-live-answer-handoff.md.
+
+## Checks
+1. Finding 1 resolved? `crates/messaging-ops/src/msg_ops.rs` probe (`prior_is_answer` in crates/store/src/messages/writes.rs): same database/table/sender identity as the native insert and as TypeScript `src/messaging/store.ts`; read-only; errors forward. The concurrent-insert fallback in both native duplicate paths: no native side effect before the forward signal; HTTP and stdio both forward the ORIGINAL request on that signal (find where the signal is handled in crates/server). Any remaining path where a stored or incoming answer with reply_to is handled natively? Compare with TypeScript `duplicate` (src/messaging/send.ts:125) for pending and already-read cases.
+2. Finding 2: assess the fixture (scripts/live/waiting-session.ts, core.ts, cli.ts, docs/testing/live-validation.md, test/live-harness.test.ts): strictly sandboxed (paths under the session PACER_HOME, process group torn down by `live down`, no real executor, no default ports, no maintainer-install paths); opt-in and non-breaking for existing sessions; evidence it produces is meaningful. Read the session report .work/live/live-msg-answer3-v3/evidence/report.md and judge whether its 5 PASS are supported by its raw evidence. Real executors are a recorded maintainer exception (UNVERIFIED, disclosed), not a blocker.
+3. Finding 3 / ledger: msg.send row accurate for the final routing; no other ledger changes needed for this PR (the "fifty-eight selective" line is pre-existing and fixed by the separate integration PR).
+4. Security: the probe opens state/tasks.db read-only; no path or SQL injection; the permissive messaging strategy exists only in the sandbox fixture.
+5. Run under /Users/vulam/orca/workspaces/pacer/pinfish/.work/sandbox-bin/sbx-deny, TZ=Asia/Ho_Chi_Minh, disposable PACER_HOME (keep real CARGO_HOME/RUSTUP_HOME), PACER_TEST_NATIVE_FRONT_DOOR=<abs target/debug/pacer> (built at 41ea3fab0 runtime; efbd94852 changes no Rust — verify with git diff --stat 41ea3fab0 efbd94852): test/native-msg-live-answer-parity.test.ts, test/native-msg-writes-parity.test.ts, other test/native-msg*, test/messaging-live.test.ts, test/live-harness.test.ts, `bun run typecheck`, `git diff --check origin/main..HEAD`; confirm Signed-off-by on all three commits and no machine paths in tracked files. You may run `cargo test -p pacer-messaging-ops` and `cargo test -p pacer-store messages` (CARGO_INCREMENTAL=0, CARGO_BUILD_JOBS=4); no other cargo, no full suites, no live session.
+
+Never touch the maintainer's real pacer install, ~/.pacer, com.pacer.serve, port 4317 or model ports. Leave the tree clean.
+
+Write .work/reviews/fix-native-msg-live-answer-review-final.md: head, per-finding resolution, per-commit assessment, commands with counts, new findings with severity/rule/evidence/remedy, verdict PASS or FAIL. Report with orca orchestration worker_done. Always end with worker_done.
+
+
+Carry out the independent review described above and write the report.
