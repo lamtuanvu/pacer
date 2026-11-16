@@ -1258,6 +1258,25 @@
         },
         "notifier": {
           "type": "boolean"
+        },
+        "notification_permission": {
+          "type": "string",
+          "enum": [
+            "not_determined",
+            "denied",
+            "authorized",
+            "provisional",
+            "ephemeral",
+            "unsupported"
+          ]
+        },
+        "notification_alerts": {
+          "type": "string",
+          "enum": [
+            "none",
+            "banner",
+            "alert"
+          ]
         }
       },
       "required": [
@@ -1294,6 +1313,25 @@
         },
         "capture": {
           "type": "boolean"
+        },
+        "notification_permission": {
+          "type": "string",
+          "enum": [
+            "not_determined",
+            "denied",
+            "authorized",
+            "provisional",
+            "ephemeral",
+            "unsupported"
+          ]
+        },
+        "notification_alerts": {
+          "type": "string",
+          "enum": [
+            "none",
+            "banner",
+            "alert"
+          ]
         }
       },
       "required": [
@@ -3709,9 +3747,60 @@
       },
       "additionalProperties": false
     },
+    "NotificationsAckParams": {
+      "type": "object",
+      "properties": {
+        "client_id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "key": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 512
+        },
+        "delivered": {
+          "type": "boolean"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "type": "string",
+              "maxLength": 512
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "client_id",
+        "key",
+        "delivered"
+      ],
+      "additionalProperties": false
+    },
     "NotificationsGetParams": {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    },
+    "NotificationsHealthParams": {
+      "type": "object",
+      "properties": {},
+      "additionalProperties": false
+    },
+    "NotificationsRequestParams": {
+      "type": "object",
+      "properties": {
+        "wait_s": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 25
+        }
+      },
       "additionalProperties": false
     },
     "NotificationsSetParams": {
@@ -3729,6 +3818,11 @@
       "required": [
         "level"
       ],
+      "additionalProperties": false
+    },
+    "NotificationsTestParams": {
+      "type": "object",
+      "properties": {},
       "additionalProperties": false
     },
     "OnboardingSkipParams": {
@@ -5317,6 +5411,19 @@
       },
       "required": [
         "planner"
+      ],
+      "additionalProperties": false
+    },
+    "SetupSkipParams": {
+      "type": "object",
+      "properties": {
+        "step": {
+          "type": "string",
+          "const": "notifications"
+        }
+      },
+      "required": [
+        "step"
       ],
       "additionalProperties": false
     },

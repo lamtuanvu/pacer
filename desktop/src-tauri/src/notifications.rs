@@ -7,6 +7,8 @@ pub struct Notification {
     pub body: String,
     pub route: String,
     pub actions: Vec<Value>,
+    pub key: Option<String>,
+    pub client_id: Option<String>,
 }
 /// Attention notifications are selected by the service's flag and preference.
 /// Notify events have already been filtered and assigned to a notifier by the service.
@@ -17,7 +19,12 @@ pub fn from_attention(item: &Value, level: &str) -> Option<Notification> {
     {
         return None;
     }
-    Some(project(item, "detail", actions::attention_route(item)))
+    let key = item
+        .get("key")
+        .or_else(|| item.get("id"))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
+    Some(project(item, "detail", actions::attention_route(item), key, None))
 }
 fn targets_client(data: &Value, client_id: &str) -> bool {
     match data.get("recipients") {
@@ -35,13 +42,26 @@ pub fn from_event(data: &Value, client_id: &str) -> Option<Notification> {
         .and_then(|url| url.strip_prefix("/app/#"))
         .and_then(|hash| logic::route(&format!("/{}", hash.trim_start_matches('/'))))
         .unwrap_or_else(|| "#/".into());
+    let key = data
+        .get("key")
+        .or_else(|| data.get("id"))
+        .or_else(|| data.get("value").and_then(|v| v.get("key")))
+        .or_else(|| data.get("value").and_then(|v| v.get("id")))
+        .and_then(|v| v.as_str())
+        .map(str::to_string);
     // Newer services may carry an attention item directly.
     if data.get("notify").is_some() {
-        return from_attention(data, "all");
+        let mut notification = from_attention(data, "all")?;
+        if notification.key.is_none() {
+            notification.key = key.clone();
+        }
+        // The ack is sent for this desktop's own client id, not one copied from the payload.
+        notification.client_id = Some(client_id.to_string());
+        return Some(notification);
     }
-    Some(project(data, "body", route))
+    Some(project(data, "body", route, key, Some(client_id.to_string())))
 }
-fn project(data: &Value, body: &str, route: String) -> Notification {
+fn project(data: &Value, body: &str, route: String, key: Option<String>, client_id: Option<String>) -> Notification {
     Notification {
         title: clean(data["title"].as_str().unwrap_or("pacer"), 120),
         body: clean(data[body].as_str().unwrap_or(""), 400),
@@ -54,6 +74,8 @@ fn project(data: &Value, body: &str, route: String) -> Notification {
             .take(2)
             .cloned()
             .collect(),
+        key,
+        client_id,
     }
 }
 #[cfg(test)]
@@ -113,6 +135,22 @@ mod tests {
             "body": "Detail"
         });
         assert!(from_event(&null_recipients, "primary").unwrap().body == "Detail");
+    }
+    #[test]
+    fn ack_targets_the_desktops_own_client_id_not_a_payload_copied_id() {
+        // A notify event addressed to this desktop must be acked as this desktop's own id,
+        // never the id copied out of the payload (which the service matches against the
+        // pending test's targeted client).
+        let data = json!({
+            "client_id": "payload-id",
+            "recipients": ["own", "other"],
+            "url": "/app/#/sessions/t-1",
+            "title": "Ready",
+            "body": "Detail",
+            "notify": "all"
+        });
+        let n = from_event(&data, "own").unwrap();
+        assert_eq!(n.client_id.as_deref(), Some("own"));
     }
 }
 

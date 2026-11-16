@@ -80,6 +80,6 @@ export interface Job {
  steps: { name: string; state: "pending" | "running" | "passed" | "failed" | "skipped"; detail?: string }[];
  startedAt: number; endedAt?: number; error?: { code: string; message: string; hint?: string };
 }
-export const ENTITY_EVENT_TYPES = ["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify", "message", "liveness"] as const;
+export const ENTITY_EVENT_TYPES = ["desktop.update", "planner", "executor", "account", "host", "repo", "counts", "attention", "job", "activity", "notify", "message", "liveness", "control"] as const;
 
 export type SnapshotV3 = ReadModelFields & Pick<LinkSnapshot, "seq" | "at" | "mode"> & { tasks: ApiTask[]; strategies: NonNullable<LinkSnapshot["strategies"]> };
