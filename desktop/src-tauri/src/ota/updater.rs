@@ -1,5 +1,6 @@
 //! Bounded release transport and authenticated complete-package validation.
 use super::{
+    trust::Channel,
     wire::{Arch, Candidate},
     OtaError,
 };
@@ -20,12 +21,66 @@ pub fn arch_name(arch: Arch) -> &'static str {
         Arch::X86_64 => "x86_64",
     }
 }
-fn stable_version(value: &str) -> Result<semver::Version, OtaError> {
+fn canonical_version(value: &str) -> Result<semver::Version, OtaError> {
     let version = semver::Version::parse(value).map_err(|_| OtaError::Invalid)?;
-    if !version.pre.is_empty() || !version.build.is_empty() || version.to_string() != value {
+    if !version.build.is_empty() || version.to_string() != value {
         return Err(OtaError::Invalid);
     }
     Ok(version)
+}
+/// `nightly.<YYYYMMDDHHmm>`: one 12-digit numeric identifier with no leading zero.
+fn is_nightly(version: &semver::Version) -> bool {
+    match version.pre.as_str().strip_prefix("nightly.") {
+        Some(stamp) => {
+            stamp.len() == 12
+                && !stamp.starts_with('0')
+                && stamp.bytes().all(|b| b.is_ascii_digit())
+        }
+        None => false,
+    }
+}
+/// The running installation: `X.Y.Z` or `X.Y.Z-nightly.N`, canonical, no build metadata.
+fn installed_version(value: &str) -> Result<semver::Version, OtaError> {
+    let version = canonical_version(value)?;
+    if version.pre.is_empty() || is_nightly(&version) {
+        Ok(version)
+    } else {
+        Err(OtaError::Invalid)
+    }
+}
+/// Each feed accepts only its own channel's versions.
+fn feed_version(channel: Channel, value: &str) -> Result<semver::Version, OtaError> {
+    let version = canonical_version(value)?;
+    let accepted = match channel {
+        Channel::Stable => version.pre.is_empty(),
+        Channel::Nightly => is_nightly(&version),
+    };
+    if accepted {
+        Ok(version)
+    } else {
+        Err(OtaError::Invalid)
+    }
+}
+/// Nightly-channel selection: the newer of two feed results. If one feed failed the other
+/// is used; if both failed, the nightly error wins.
+fn newest_of(
+    stable: Result<Option<Candidate>, OtaError>,
+    nightly: Result<Option<Candidate>, OtaError>,
+) -> Result<Option<Candidate>, OtaError> {
+    match (stable, nightly) {
+        (Ok(stable), Ok(nightly)) => Ok(match (stable, nightly) {
+            (Some(stable), Some(nightly)) => {
+                // Both versions were validated by `candidate_from_feed`.
+                let newer = semver::Version::parse(&nightly.version).ok()
+                    > semver::Version::parse(&stable.version).ok();
+                Some(if newer { nightly } else { stable })
+            }
+            (stable, nightly) => stable.or(nightly),
+        }),
+        (Ok(stable), Err(_)) => Ok(stable),
+        (Err(_), Ok(nightly)) => Ok(nightly),
+        (Err(_), Err(error)) => Err(error),
+    }
 }
 fn artifact_url(version: &str, arch: Arch) -> String {
     format!("https://github.com/lamtuanvu/pacer/releases/download/v{version}/desktop-pacer-{version}-darwin-{}.app.tar.gz", arch_name(arch))
@@ -54,6 +109,7 @@ pub fn candidate_from_feed(
     bytes: &[u8],
     current: &str,
     arch: Arch,
+    channel: Channel,
 ) -> Result<Option<Candidate>, OtaError> {
     if bytes.len() as u64 > MAX_FEED_BYTES {
         return Err(OtaError::Invalid);
@@ -62,7 +118,7 @@ pub fn candidate_from_feed(
     if feed.schema != 1 || feed.notes.len() > 32_768 {
         return Err(OtaError::Invalid);
     }
-    if stable_version(&feed.version)? <= stable_version(current)? {
+    if feed_version(channel, &feed.version)? <= installed_version(current)? {
         return Ok(None);
     }
     let platform = feed
@@ -368,7 +424,7 @@ impl NativeUpdater {
         target: super::wire::Installation,
     ) -> Result<Self, OtaError> {
         use tauri_plugin_updater::UpdaterExt;
-        let installed = stable_version(&target.version)?;
+        let installed = installed_version(&target.version)?;
         let updater = app
             .updater_builder()
             .executable_path(Path::new(&target.app_path).join("Contents/MacOS/pacer"))
@@ -397,26 +453,36 @@ impl NativeUpdater {
             .build()
             .map_err(|_| OtaError::Io)
     }
-    pub async fn check(&self) -> Result<Option<Candidate>, OtaError> {
+    /// Stable reads only the stable feed. Nightly reads both feeds and offers the newest.
+    pub async fn check(&self, channel: Channel) -> Result<Option<Candidate>, OtaError> {
+        match channel {
+            Channel::Stable => self.check_feed(Channel::Stable).await,
+            Channel::Nightly => newest_of(
+                self.check_feed(Channel::Stable).await,
+                self.check_feed(Channel::Nightly).await,
+            ),
+        }
+    }
+    async fn check_feed(&self, channel: Channel) -> Result<Option<Candidate>, OtaError> {
         if let Some(fixture) = self.trust.fixture_policy() {
             fixture.validate_live().map_err(|_| OtaError::Identity)?;
             let feed = super::platform_fs::PrivateDir::open(&fixture.root.join("feed"))?
-                .read("stable.json", MAX_FEED_BYTES)?;
-            return candidate_from_feed(&feed, &self.target.version, self.target.arch);
+                .read(channel.fixture_file(), MAX_FEED_BYTES)?;
+            return candidate_from_feed(&feed, &self.target.version, self.target.arch, channel);
         }
         let response = self
             .client()?
-            .get(super::trust::STABLE_FEED)
+            .get(channel.feed())
             .send()
             .await
             .map_err(|_| OtaError::Io)?;
         let bytes = read_response(response, MAX_FEED_BYTES, |_, _| {}).await?;
-        candidate_from_feed(&bytes, &self.target.version, self.target.arch)
+        candidate_from_feed(&bytes, &self.target.version, self.target.arch, channel)
     }
     fn restore(&self, candidate: &Candidate) -> Result<tauri_plugin_updater::Update, OtaError> {
         if candidate.arch != self.target.arch
             || candidate.url != artifact_url(&candidate.version, candidate.arch)
-            || stable_version(&candidate.version)? <= stable_version(&self.target.version)?
+            || installed_version(&candidate.version)? <= installed_version(&self.target.version)?
         {
             return Err(OtaError::Invalid);
         }
@@ -611,7 +677,8 @@ mod tests {
             candidate_from_feed(
                 &serde_json::to_vec(&feed()).unwrap(),
                 "0.2.3",
-                Arch::Aarch64
+                Arch::Aarch64,
+                Channel::Stable
             )
             .unwrap(),
             Some(candidate())
@@ -620,7 +687,8 @@ mod tests {
             candidate_from_feed(
                 &serde_json::to_vec(&feed()).unwrap(),
                 "0.2.4",
-                Arch::Aarch64
+                Arch::Aarch64,
+                Channel::Stable
             )
             .unwrap(),
             None
@@ -629,15 +697,19 @@ mod tests {
             candidate_from_feed(
                 &serde_json::to_vec(&feed()).unwrap(),
                 "0.3.0",
-                Arch::Aarch64
+                Arch::Aarch64,
+                Channel::Stable
             )
             .unwrap(),
             None
         );
-        assert!(
-            candidate_from_feed(&serde_json::to_vec(&feed()).unwrap(), "0.2.3", Arch::X86_64)
-                .is_err()
-        );
+        assert!(candidate_from_feed(
+            &serde_json::to_vec(&feed()).unwrap(),
+            "0.2.3",
+            Arch::X86_64,
+            Channel::Stable
+        )
+        .is_err());
         for (key, value) in [
             ("url", json!("https://evil.example/pacer")),
             ("bundleId", json!("other")),
@@ -652,7 +724,8 @@ mod tests {
                 candidate_from_feed(
                     &serde_json::to_vec(&value_feed).unwrap(),
                     "0.2.3",
-                    Arch::Aarch64
+                    Arch::Aarch64,
+                    Channel::Stable
                 )
                 .is_err(),
                 "{key}"
@@ -660,12 +733,119 @@ mod tests {
         }
         let mut prerelease = feed();
         prerelease["version"] = json!("0.2.4-beta.1");
-        assert!(candidate_from_feed(
-            &serde_json::to_vec(&prerelease).unwrap(),
-            "0.2.3",
-            Arch::Aarch64
-        )
-        .is_err());
+        for channel in [Channel::Stable, Channel::Nightly] {
+            assert!(candidate_from_feed(
+                &serde_json::to_vec(&prerelease).unwrap(),
+                "0.2.3",
+                Arch::Aarch64,
+                channel
+            )
+            .is_err());
+        }
+    }
+    fn feed_at(version: &str) -> Vec<u8> {
+        let mut value = feed();
+        value["version"] = json!(version);
+        value["platforms"]["darwin-aarch64"]["url"] = json!(artifact_url(version, Arch::Aarch64));
+        serde_json::to_vec(&value).unwrap()
+    }
+    fn offer(feed: &str, current: &str, channel: Channel) -> Result<Option<Candidate>, OtaError> {
+        candidate_from_feed(&feed_at(feed), current, Arch::Aarch64, channel)
+    }
+    #[test]
+    fn nightly_installed_version_can_construct_and_compare() {
+        let nightly = installed_version("0.16.0-nightly.202611170000").unwrap();
+        assert!(nightly > installed_version("0.15.1").unwrap());
+        assert!(nightly < installed_version("0.16.0").unwrap());
+        assert!(nightly < installed_version("0.16.0-nightly.202611171700").unwrap());
+        for value in [
+            "0.16.0-rc.1",
+            "0.16.0-nightly.1",
+            "0.16.0-nightly.020261117000",
+            "0.16.0-nightly.2026111700001",
+            "0.16.0-nightly.202611170000.1",
+            "0.16.0-nightly.202611170000+build",
+            "0.16.0+build",
+            "v0.16.0",
+            "00.16.0",
+        ] {
+            assert_eq!(installed_version(value), Err(OtaError::Invalid), "{value}");
+        }
+    }
+    #[test]
+    fn stable_feed_refuses_nightly_entries() {
+        assert_eq!(
+            feed_version(Channel::Stable, "0.16.0-nightly.202611170000"),
+            Err(OtaError::Invalid)
+        );
+        assert!(offer("0.16.0-nightly.202611170000", "0.15.1", Channel::Stable).is_err());
+    }
+    #[test]
+    fn nightly_feed_refuses_stable_entries() {
+        assert_eq!(
+            feed_version(Channel::Nightly, "0.16.0"),
+            Err(OtaError::Invalid)
+        );
+        assert!(offer("0.16.0", "0.15.1", Channel::Nightly).is_err());
+        assert_eq!(
+            offer("0.16.0-nightly.202611170000", "0.15.1", Channel::Nightly)
+                .unwrap()
+                .unwrap()
+                .version,
+            "0.16.0-nightly.202611170000"
+        );
+        assert_eq!(
+            offer(
+                "0.16.0-nightly.202611170000",
+                "0.16.0-nightly.202611170000",
+                Channel::Nightly
+            )
+            .unwrap(),
+            None
+        );
+    }
+    #[test]
+    fn nightly_install_is_offered_newer_stable() {
+        assert_eq!(
+            offer("0.16.0", "0.16.0-nightly.202611170000", Channel::Stable)
+                .unwrap()
+                .unwrap()
+                .version,
+            "0.16.0"
+        );
+    }
+    #[test]
+    fn nightly_install_on_stable_channel_not_offered_older_stable() {
+        assert_eq!(
+            offer("0.15.1", "0.16.0-nightly.202611170000", Channel::Stable).unwrap(),
+            None
+        );
+    }
+    #[test]
+    fn newest_of_both_feeds_wins_and_one_failure_falls_back() {
+        let stable = || offer("0.16.0", "0.15.1", Channel::Stable);
+        let nightly = || offer("0.16.0-nightly.202611170000", "0.15.1", Channel::Nightly);
+        let version =
+            |result: Result<Option<Candidate>, OtaError>| result.unwrap().unwrap().version;
+        assert_eq!(version(newest_of(stable(), nightly())), "0.16.0");
+        assert_eq!(
+            version(newest_of(
+                offer("0.15.2", "0.15.1", Channel::Stable),
+                nightly()
+            )),
+            "0.16.0-nightly.202611170000"
+        );
+        assert_eq!(
+            version(newest_of(Err(OtaError::Io), nightly())),
+            "0.16.0-nightly.202611170000"
+        );
+        assert_eq!(version(newest_of(stable(), Err(OtaError::Io))), "0.16.0");
+        assert_eq!(newest_of(Ok(None), Ok(None)), Ok(None));
+        assert_eq!(newest_of(Err(OtaError::Io), Ok(None)), Ok(None));
+        assert_eq!(
+            newest_of(Err(OtaError::Io), Err(OtaError::Invalid)),
+            Err(OtaError::Invalid)
+        );
     }
     fn package(
         extra: Option<(&str, tar::EntryType)>,
@@ -888,9 +1068,12 @@ mod tests {
         let mut value = feed();
         value["platforms"]["darwin-aarch64"]["bundleId"] =
             json!(super::super::trust::FIXTURE_IDENTIFIERS.app);
-        assert!(
-            candidate_from_feed(&serde_json::to_vec(&value).unwrap(), "0.2.3", Arch::Aarch64)
-                .is_err()
-        );
+        assert!(candidate_from_feed(
+            &serde_json::to_vec(&value).unwrap(),
+            "0.2.3",
+            Arch::Aarch64,
+            Channel::Stable
+        )
+        .is_err());
     }
 }
