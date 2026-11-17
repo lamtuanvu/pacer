@@ -660,13 +660,13 @@ export const OPS: Record<string, OpDef> = {
   "plugin.ui.visibility": op({ description: "Show or hide one plugin surface. Service state, so every client agrees. A stale expect_rev returns conflict.", params: z.object({ plugin: pluginId, surface: z.enum(["activity", "panelTab", "settings", "status"]), id: uiId, visible: z.boolean(), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.uiVisibility(ctx, p)) }),
   "plugin.settings.get": op({ description: "A plugin's settings schema (from its manifest), saved values and revision.", params: z.object({ plugin: pluginId }), handler: (ctx, p) => plugins.settingsGet(ctx, p) }),
   "plugin.settings.set": op({ description: "Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.", params: z.object({ plugin: pluginId, values: z.record(z.string(), z.json()), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.settingsSet(ctx, p)) }),
-  "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed. `managedBy` (desktop, homebrew or npm) and `managedHint` say when update.apply cannot update this installation.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
+  "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
     const manager = updateManager(ctx, defaultUpdateDeps(ctx));
     return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {}),
       ...(manager ? {managedBy: manager.by, managedHint: manager.message} : {})};
   }) }),
-  "update.apply": op({ description: "Apply pacer update as a shared job; desktop-owned, package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
+  "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };
 
 export const opNames = (): string[] => Object.keys(OPS).sort();

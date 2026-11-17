@@ -9079,7 +9079,7 @@ Params JSON Schema:
 
 ### `update.apply`
 
-Apply pacer update as a shared job; desktop-owned, package-manager and source installs are refused.
+Apply pacer update as a shared job; package-manager and source installs are refused.
 
 Params JSON Schema:
 
@@ -9094,7 +9094,7 @@ Params JSON Schema:
 
 ### `update.check`
 
-Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed. `managedBy` (desktop, homebrew or npm) and `managedHint` say when update.apply cannot update this installation.
+Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.
 
 Params JSON Schema:
 
