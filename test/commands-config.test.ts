@@ -11,11 +11,24 @@ test('get lists effective values with provenance and CLI JSON shape',async()=>{
  expect(all['pacing.policy']).toMatchObject({value:'priority',source:join(ctx.pacerHome,'strategy.yaml')});
  expect(JSON.parse((await configCmd(['get','planner','--json'],ctx)).out).value).toBe('claude-code');
 });
-for(const [key,value] of [['pacing.order','codex,claude-code'],['pacing.policy','even'],['pacing.planner_reserve','25'],['pacing.accounts','fill'],['pacing.fill_threshold','95'],['update_check','false']]) test(`set ${key} preserves comments and prints undo`,async()=>{
+for(const [key,value] of [['pacing.order','codex,claude-code'],['pacing.policy','even'],['pacing.planner_reserve','25'],['pacing.accounts','fill'],['pacing.fill_threshold','95'],['update_check','false'],['update_channel','nightly']]) test(`set ${key} preserves comments and prints undo`,async()=>{
  const ctx=commandCtx(); const r=await configCmd(['set',key,value],ctx);
  expect(r.code).toBe(0); expect(r.out).toContain(`Undo: pacer config set ${key}`);
  expect(readFileSync(join(ctx.pacerHome,'strategy.yaml'),'utf8')).toContain('# keep layout');
  expect(JSON.parse((await configCmd(['get',key,'--json'],ctx)).out).value).toEqual(key==='pacing.order'?['codex','claude-code']:key==='update_check'?false:key.includes('threshold')||key.includes('reserve')?Number(value):value);
+});
+test('update_channel defaults to stable, round-trips and refuses other channels like other enum keys',async()=>{
+ const ctx=commandCtx();
+ expect(JSON.parse((await configCmd(['get','update_channel','--json'],ctx)).out)).toEqual({value:'stable',source:'default'});
+ const set=await configCmd(['set','update_channel','nightly'],ctx);
+ expect(set.code).toBe(0); expect(set.out).toContain('Undo: pacer config set update_channel stable');
+ expect(readFileSync(join(ctx.pacerHome,'strategy.yaml'),'utf8')).toMatch(/^update_channel: nightly$/m);
+ expect(JSON.parse((await configCmd(['get','update_channel','--json'],ctx)).out).value).toBe('nightly');
+ const bad=await configCmd(['set','update_channel','beta'],ctx), backend=await configCmd(['set','execution.backend','beta'],ctx);
+ expect(bad.code).toBe(backend.code); expect(bad.err).toContain('update_channel must be stable or nightly');
+ expect(bad.err.replace('update_channel must be stable or nightly','X')).toBe(backend.err.replace('execution.backend must be orca or direct','X'));
+ writeFileSync(join(ctx.pacerHome,'strategy.yaml'),readFileSync(join(ctx.pacerHome,'strategy.yaml'),'utf8').replace('update_channel: nightly','update_channel: beta'));
+ expect(()=>loadStrategy(ctx)).toThrow('update_channel must be stable or nightly');
 });
 test('planner set moves integration to runner account and supplies undo',async()=>{
  const ctx=commandCtx(); const path=join(ctx.pacerHome,'strategy.yaml');
@@ -25,7 +38,7 @@ test('planner set moves integration to runner account and supplies undo',async()
  expect(existsSync(join(ctx.home,'.codex-team/skills/pacer/SKILL.md'))).toBe(true);
  expect(r.out).toContain('Undo: pacer config set planner claude-code');
 });
-for(const [key,value] of [['unknown','x'],['pacing.policy','bad'],['pacing.accounts','bad'],['pacing.fill_threshold','49'],['pacing.fill_threshold','101'],['pacing.planner_reserve','NaN'],['pacing.planner_reserve','100'],['pacing.order','invented'],['update_check','yes'],['planner','codex#personal']]) test(`refuses ${key}=${value} without edits`,async()=>{
+for(const [key,value] of [['unknown','x'],['pacing.policy','bad'],['pacing.accounts','bad'],['pacing.fill_threshold','49'],['pacing.fill_threshold','101'],['pacing.planner_reserve','NaN'],['pacing.planner_reserve','100'],['pacing.order','invented'],['update_check','yes'],['update_channel','beta'],['planner','codex#personal']]) test(`refuses ${key}=${value} without edits`,async()=>{
  const ctx=commandCtx(); const p=join(ctx.pacerHome,'strategy.yaml'),before=readFileSync(p,'utf8');
  expect((await configCmd(['set',key,value],ctx)).code).not.toBe(0); expect(readFileSync(p,'utf8')).toBe(before);
 });

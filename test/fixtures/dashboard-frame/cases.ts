@@ -72,6 +72,11 @@ export function corpus() {
     const update = { current: "0.3.1", latest: null, available: false, ...(reading === "current" ? { latest: "0.3.1" } : {}), ...(reading === "disabled" ? { disabled: true } : {}), ...(reading === "failed" ? { error: "Check failed" } : {}) };
     add(`upgrade-${reading}`, { screen: "settings", section: "updates", focus: "detail" }, { settings: { ...data.settings, update: { value: update } }, update: reading });
   }
+  {
+    const nightly = structuredClone(data.settings);
+    nightly.config!.value!.keys.update_channel = { value: "nightly", source: "strategy.yaml" };
+    add("upgrade-nightly-channel", { screen: "settings", section: "updates", focus: "detail" }, { settings: { ...nightly, update: { value: { current: "0.16.0-nightly.202611171700", latest: "0.16.0-nightly.202611171700", available: false } } } });
+  }
   for (const phase of ["idle", "checking", "downloading", "ready", "waiting", "reserved", "installing", "verifying", "complete", "rolling-back", "restored", "error", "recovery-failed"] as const) {
     const status: UpdateStatus = { installationId: "fixture", revision: 1, phase, transactionId: null, autoDownload: true,
       checkedAt: s.at - 30, blockers: [{ kind: "task", id: "t-0420", label: "A task is running" }], downloadedBytes: 37, totalBytes: 100,

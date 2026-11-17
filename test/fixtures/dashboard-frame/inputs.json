@@ -10225,6 +10225,308 @@
       "update": "unchecked"
     },
     {
+      "name": "upgrade-nightly-channel-120x40",
+      "width": 120,
+      "height": 40,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail"
+      },
+      "settings": {
+        "config": {
+          "value": {
+            "keys": {
+              "planner": {
+                "value": "claude-code",
+                "source": "default"
+              },
+              "pacing.policy": {
+                "value": "priority",
+                "source": "default"
+              },
+              "pacing.planner_reserve": {
+                "value": 10,
+                "source": "default"
+              },
+              "pacing.accounts": {
+                "value": "fill",
+                "source": "strategy.yaml"
+              },
+              "pacing.fill_threshold": {
+                "value": 80,
+                "source": "strategy.yaml"
+              },
+              "execution.local_max_tasks": {
+                "value": 2,
+                "source": "default"
+              },
+              "update_check": {
+                "value": true,
+                "source": "default"
+              },
+              "update_channel": {
+                "value": "nightly",
+                "source": "strategy.yaml"
+              }
+            },
+            "planners": [
+              "claude-code",
+              "codex#team"
+            ]
+          }
+        },
+        "accounts": {
+          "value": [
+            {
+              "name": "team",
+              "kind": "codex",
+              "source": "folder",
+              "executors": [
+                "codex#team@devbox"
+              ],
+              "locked": "In use by 1 executor(s)",
+              "signedIn": true
+            },
+            {
+              "name": "spare",
+              "kind": "claude",
+              "source": "folder",
+              "executors": [],
+              "signedIn": false
+            }
+          ]
+        },
+        "routing": {
+          "value": {
+            "rules": [
+              {
+                "kinds": [
+                  "tests",
+                  "docs"
+                ],
+                "executors": [
+                  "codex#team@devbox",
+                  "cursor"
+                ]
+              },
+              {
+                "executors": [
+                  "codex#team@devbox",
+                  "cursor",
+                  "agy"
+                ]
+              }
+            ],
+            "available": [
+              "codex#team@devbox",
+              "cursor",
+              "agy",
+              "local"
+            ]
+          }
+        },
+        "projects": {
+          "value": [
+            {
+              "repo": {
+                "key": "github.com/acme/api",
+                "label": "acme/api"
+              },
+              "rev": 2,
+              "executors": [
+                "codex#team@devbox"
+              ],
+              "available": [
+                {
+                  "id": "codex#team@devbox",
+                  "reference": "codex#team@devbox",
+                  "label": "Codex · team · devbox"
+                }
+              ]
+            }
+          ]
+        },
+        "strategies": {
+          "value": [
+            {
+              "name": "default",
+              "active": true,
+              "summary": "Codex first, Cursor next"
+            },
+            {
+              "name": "frugal",
+              "active": false,
+              "summary": "Local model first"
+            }
+          ]
+        },
+        "update": {
+          "value": {
+            "current": "0.16.0-nightly.202611171700",
+            "latest": "0.16.0-nightly.202611171700",
+            "available": false
+          }
+        },
+        "notifications": {
+          "value": {
+            "level": "important"
+          }
+        }
+      }
+    },
+    {
+      "name": "upgrade-nightly-channel-80x24",
+      "width": 80,
+      "height": 24,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail"
+      },
+      "settings": {
+        "config": {
+          "value": {
+            "keys": {
+              "planner": {
+                "value": "claude-code",
+                "source": "default"
+              },
+              "pacing.policy": {
+                "value": "priority",
+                "source": "default"
+              },
+              "pacing.planner_reserve": {
+                "value": 10,
+                "source": "default"
+              },
+              "pacing.accounts": {
+                "value": "fill",
+                "source": "strategy.yaml"
+              },
+              "pacing.fill_threshold": {
+                "value": 80,
+                "source": "strategy.yaml"
+              },
+              "execution.local_max_tasks": {
+                "value": 2,
+                "source": "default"
+              },
+              "update_check": {
+                "value": true,
+                "source": "default"
+              },
+              "update_channel": {
+                "value": "nightly",
+                "source": "strategy.yaml"
+              }
+            },
+            "planners": [
+              "claude-code",
+              "codex#team"
+            ]
+          }
+        },
+        "accounts": {
+          "value": [
+            {
+              "name": "team",
+              "kind": "codex",
+              "source": "folder",
+              "executors": [
+                "codex#team@devbox"
+              ],
+              "locked": "In use by 1 executor(s)",
+              "signedIn": true
+            },
+            {
+              "name": "spare",
+              "kind": "claude",
+              "source": "folder",
+              "executors": [],
+              "signedIn": false
+            }
+          ]
+        },
+        "routing": {
+          "value": {
+            "rules": [
+              {
+                "kinds": [
+                  "tests",
+                  "docs"
+                ],
+                "executors": [
+                  "codex#team@devbox",
+                  "cursor"
+                ]
+              },
+              {
+                "executors": [
+                  "codex#team@devbox",
+                  "cursor",
+                  "agy"
+                ]
+              }
+            ],
+            "available": [
+              "codex#team@devbox",
+              "cursor",
+              "agy",
+              "local"
+            ]
+          }
+        },
+        "projects": {
+          "value": [
+            {
+              "repo": {
+                "key": "github.com/acme/api",
+                "label": "acme/api"
+              },
+              "rev": 2,
+              "executors": [
+                "codex#team@devbox"
+              ],
+              "available": [
+                {
+                  "id": "codex#team@devbox",
+                  "reference": "codex#team@devbox",
+                  "label": "Codex · team · devbox"
+                }
+              ]
+            }
+          ]
+        },
+        "strategies": {
+          "value": [
+            {
+              "name": "default",
+              "active": true,
+              "summary": "Codex first, Cursor next"
+            },
+            {
+              "name": "frugal",
+              "active": false,
+              "summary": "Local model first"
+            }
+          ]
+        },
+        "update": {
+          "value": {
+            "current": "0.16.0-nightly.202611171700",
+            "latest": "0.16.0-nightly.202611171700",
+            "available": false
+          }
+        },
+        "notifications": {
+          "value": {
+            "level": "important"
+          }
+        }
+      }
+    },
+    {
       "name": "desktop-upgrade-idle-120x40",
       "width": 120,
       "height": 40,
@@ -35611,6 +35913,32 @@
       }
     },
     {
+      "name": "select-upgrade-update:channel-120x40",
+      "width": 120,
+      "height": 40,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail",
+        "selected": {
+          "settings": "update:channel"
+        }
+      }
+    },
+    {
+      "name": "select-upgrade-update:channel-80x24",
+      "width": 80,
+      "height": 24,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail",
+        "selected": {
+          "settings": "update:channel"
+        }
+      }
+    },
+    {
       "name": "select-settings-planner-setting:planner-120x40",
       "width": 120,
       "height": 40,
@@ -36439,6 +36767,32 @@
         "focus": "detail",
         "selected": {
           "settings": "update:daily"
+        }
+      }
+    },
+    {
+      "name": "select-settings-updates-update:channel-120x40",
+      "width": 120,
+      "height": 40,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail",
+        "selected": {
+          "settings": "update:channel"
+        }
+      }
+    },
+    {
+      "name": "select-settings-updates-update:channel-80x24",
+      "width": 80,
+      "height": 24,
+      "state": {
+        "screen": "settings",
+        "section": "updates",
+        "focus": "detail",
+        "selected": {
+          "settings": "update:channel"
         }
       }
     },

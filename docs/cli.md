@@ -498,6 +498,7 @@ command. Account and runner list JSON are arrays (see the accounts guide).
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
 | pacing.balance | `off` (default) or `least-loaded`; spread work across equally acceptable executors by current load |
 | update_check | `true` or `false` (default `true`) |
+| update_channel | `stable` (default) or `nightly`; which releases `pacer update`, update checks and Settings › Updates offer (see [Update checks](#update-checks)) |
 
 For example:
 
