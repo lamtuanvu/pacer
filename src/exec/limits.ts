@@ -102,7 +102,7 @@ export async function renderedScreen(dir: string): Promise<string> {
 /** Seconds a live session stays quiet before its screen is checked for a provider limit error. */
 export const LIMIT_QUIET_S = 15;
 
-function tailText(file: string, bytes: number): string {
+export function tailText(file: string, bytes: number): string {
   let fd: number;
   try { fd = openSync(file, "r"); } catch { return ""; }
   try {

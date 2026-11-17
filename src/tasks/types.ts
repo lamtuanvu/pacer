@@ -194,6 +194,8 @@ export interface RunRef {
   lastMessageFile?: string;
   waitKey?: string;
   idleAlertedAt?: number;
+  /** When the agent's screen first showed a transient provider retry banner without progress since. */
+  retryBanner?: { since: number; reason: string };
 }
 
 export interface ReviewRequest { note: string; at: number }

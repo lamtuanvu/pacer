@@ -12,11 +12,11 @@ import { attachmentDirectory } from "../attachments/store";
 import { executorExclusion } from "../executors/availability";
 import { prepareInteractive, requireCodexInteractive, cleanSummary, readReport, transcriptReport, sessionTranscript } from "../session/reports";
 import { humanDriving } from "../supervisor/active-time";
-import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync } from "node:fs";
+import { mkdirSync, existsSync, readFileSync, writeFileSync, appendFileSync, openSync, readSync, closeSync, renameSync, unlinkSync, rmSync, statSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { loadStrategy, strategyPath, type ProviderCfg } from "../config/strategy";
-import { IDLE_AFTER_S, IDLE_FAIL_S, type ExecutionCfg, validateExecution } from "../config/execution";
+import { IDLE_AFTER_S, IDLE_FAIL_S, TRANSIENT_RETRY_S, type ExecutionCfg, validateExecution } from "../config/execution";
 import { publish } from "../link/publish";
 import { pidAlive } from "../link/store";
 import { gitInfo, realpathSafe } from "../core/git";
@@ -39,7 +39,7 @@ import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../mess
 import { liveTick } from "../messaging/live";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
-import { LIMIT_QUIET_S, detectLimit, detectSessionLimit, sessionLimitExcerpt, sessionLimitText } from "./limits";
+import { LIMIT_QUIET_S, type RetryBanner, detectLimit, detectSessionLimit, renderedScreen, retryBanner, retryBannerHint, sessionLimitExcerpt, sessionLimitText, tailText } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
 import { recordDefaultFolder, recordRunFolder, withDefaultFolder } from "./account-folder";
@@ -103,10 +103,22 @@ function discoverSession(ctx: Ctx, task: TaskRecord, run: RunRef) {
   } catch { /* header may not have been written yet */ }
 }
 
+/** Seconds between replays of a run's recording while its output hints at a provider retry banner. */
+const RETRY_RENDER_S = 10;
+/** Raw recording bytes checked for a retry banner hint; a TUI redraws its banner's text within this window. */
+const RETRY_HINT_BYTES = 64 * 1024;
+const ESCAPES = /\x1b(?:\[[0-?]*[ -/]*[@-~]|\][^\x07\x1b]*(?:\x07|\x1b\\)|[@-_])/g;
+
+/** Size and modification time of a run's recording files, to recheck it only after it has grown. */
+function recordingStamp(dir: string): string {
+  return ["session.log", "session.ckpt"].map(name => { try { const st = statSync(join(dir, name)); return `${st.size}:${st.mtimeMs}`; } catch { return "-"; } }).join("/");
+}
+
 /** Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS. */
 export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
+  const transientRetry = ex.transientRetryS ?? TRANSIENT_RETRY_S;
   let files = 0, commits = 0, gitAt = 0, writtenAt = 0, alerted = run.idleAlertedAt !== undefined;
   let fingerprint: string | undefined;
   let waiting = !!run.waitKey, controlled = false;
@@ -114,18 +126,22 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
   let limitCheckedBytes = -1;
-  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
+  // The rendered retry banner is reused until the recording grows, and replayed at most every RETRY_RENDER_S.
+  let banner: RetryBanner | null = null, hinted = false, hintStamp = "", renderedAt = -Infinity, renderedStamp = "";
+  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number; retryBanner?: RunRef["retryBanner"] | null}) => {
     if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
     if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
+    if (patch.retryBanner === null) delete run.retryBanner; else if (patch.retryBanner !== undefined) run.retryBanner = patch.retryBanner;
     try {
       updateTask(ctx, task.id, t => {
         if (t.run?.dir !== run.dir) return;
         if (patch.waitKey === null) delete t.run.waitKey; else if (patch.waitKey !== undefined) t.run.waitKey = patch.waitKey;
         if (patch.idleAlertedAt !== undefined) t.run.idleAlertedAt = patch.idleAlertedAt;
+        if (patch.retryBanner === null) delete t.run.retryBanner; else if (patch.retryBanner !== undefined) t.run.retryBanner = patch.retryBanner;
       });
     } catch { /* alert bookkeeping is best effort */ }
   };
-  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked" | "limit"> => {
+  return async (s: import("../supervisor/run").RunState): Promise<"continue" | "idle" | "asked" | "limit" | "provider"> => {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
     const driving = humanDriving(s, now * 1000);
@@ -134,6 +150,19 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
       && s.stdoutBytes !== limitCheckedBytes && now - (s.lastOutputAt ?? now) >= LIMIT_QUIET_S) {
       limitCheckedBytes = s.stdoutBytes;
       if (detectSessionLimit(run.executor, sessionLimitText(run.dir))) return "limit";
+    }
+    // An agent stuck retrying its provider keeps animating its banner, so neither the quiet check nor idleness ends it.
+    const watchRetries = s.interactive && !driving && !run.host && !run.takeover && run.interactionMode !== "conversation";
+    if (watchRetries) {
+      // The plain transcript drops cursor-positioned text, so the hint reads the raw recording without its escapes.
+      const stamp = recordingStamp(run.dir);
+      if (stamp !== hintStamp) { hintStamp = stamp; hinted = retryBannerHint(run.executor, tailText(join(run.dir, "session.log"), RETRY_HINT_BYTES).replace(ESCAPES, "")); }
+      if (!hinted) banner = null;
+      else if (stamp !== renderedStamp && now - renderedAt >= RETRY_RENDER_S) {
+        renderedAt = now; renderedStamp = stamp;
+        banner = retryBanner(run.executor, await renderedScreen(run.dir));
+      }
+      if (banner?.kind === "limit") return "limit";
     }
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
     controlled = driving;
@@ -167,6 +196,12 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
           fingerprint = next;
         }
       } catch { /* git progress is best effort, including when git is unavailable */ }
+    }
+    // Progress clears a retry window; a banner that clears and returns without progress keeps it.
+    if (changed && run.retryBanner) remember({retryBanner: null});
+    if (watchRetries && banner?.kind === "transient") {
+      if (!run.retryBanner) remember({retryBanner: {since: now, reason: banner.reason}});
+      else if (now - run.retryBanner.since >= transientRetry) return "provider";
     }
     const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: Math.max(s.lastOutputAt ?? 0, s.interactive ? s.report?.at ?? 0 : 0, resumedAt) || null, files, commits, prev, host: run.host, changed }, idleAfter);
     const turnEnded = s.interactive && s.report?.status === "turn-ended";
@@ -270,6 +305,12 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const exec: ExecResult = { code: end.code, stdout: out.stdout, stderr: out.stderr, timedOut: end.kind === "timeout" };
   if (end.kind === "asked") exec.code = 0;
   if (end.kind === "limit") { exec.code ||= 1; exec.stderr += `\npacer: ${cfg.id} reported a usage limit in its session`; }
+  const retrying = end.kind === "provider" ? run.retryBanner ?? readTask(ctx, task.id)?.run?.retryBanner : undefined;
+  const retryReason = retrying?.reason ?? "unknown provider error";
+  if (end.kind === "provider") {
+    exec.code ||= 1;
+    exec.stderr += `\npacer: ${cfg.id} kept retrying a provider error for ${Math.round((Date.now() / 1000 - (retrying?.since ?? run.startedAt)) / 60)} min: ${retryReason}`;
+  }
   if (end.kind === "idle") exec.stderr += `\npacer: stopped after ${Math.round((loadExec(ctx).idleFailS ?? IDLE_FAIL_S) / 60)} min without output or file changes`;
   if (end.kind === "lost") exec.stderr += host ? `\npacer: host ${host.alias} unreachable or wrapper missing after the contact grace period` : "\npacer: the attempt's wrapper vanished without an exit record";
   if (host && run.lastMessageFile) {
@@ -291,7 +332,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const conversation = run.interactionMode === "conversation";
   const asked = end.kind === "asked" ? readTask(ctx, task.id)?.question?.text : undefined;
   let report = interactive
-    ? completed ? signal!.summary : asked !== undefined ? `Asked: ${asked}` : end.kind === "limit" ? `Usage limit reached:\n${sessionLimitExcerpt(cfg.id, sessionLimitText(run.dir)) ?? ""}` : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
+    ? completed ? signal!.summary : asked !== undefined ? `Asked: ${asked}` : end.kind === "limit" ? `Usage limit reached:\n${sessionLimitExcerpt(cfg.id, sessionLimitText(run.dir)) ?? ""}` : end.kind === "provider" ? `Provider kept retrying: ${retryReason}` : `Interactive session ${end.kind} without an explicit completion report${signal ? `\n\n${signal.summary}` : ""}`
     : tail(exec.stdout.trim() || exec.stderr.trim(), REPORT_CHARS);
   if (interactive) {
     const transcript = transcriptReport(run.dir);
@@ -324,6 +365,8 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   const result = outcome(interactive ? {...cfg, session: "interactive"} : cfg, run.startedAt, exec, run.logFile, note + report);
   // An interactive agent that exits on its limit error leaves it only in the session transcript.
   if (end.kind === "limit" || (interactive && !conversation && !completed && exec.code !== 0 && !exec.timedOut && !run.host && detectSessionLimit(cfg.id, sessionLimitText(run.dir)))) result.attempt.limitHit = true;
+  // A retry loop says nothing about the account's quota: the runner marks the executor broken and moves on.
+  if (end.kind === "provider") { result.attempt.limitHit = false; result.attempt.brokenReason = `provider retrying: ${retryReason}`; }
   return {
     ...result,
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),
