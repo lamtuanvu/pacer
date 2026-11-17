@@ -121,7 +121,7 @@ impl CrashBook {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = sink;
     }
 
-    async fn report(&self, id: &str, reason: &str) {
+    pub(crate) async fn report(&self, id: &str, reason: &str) {
         let sink = self
             .sink
             .lock()

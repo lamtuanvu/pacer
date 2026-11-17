@@ -280,13 +280,26 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
  */
 export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
   onFailedLogs?: (logs: NativeOwnerReply["logs"]) => void): Promise<NativeOwnerReply> {
-  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked, onFailedLogs && (reply => {
-    const logs = nativeOwnerReply.shape.logs.safeParse(reply.error ? reply.error.data?.logs : (reply.result as { logs?: unknown } | null)?.logs);
-    if (logs.success && logs.data.length) onFailedLogs(logs.data);
-  }));
-  if ((result as { activated?: unknown } | null)?.activated === false)
-    throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
-  const reply = nativeOwnerReply.safeParse(result);
-  if (!reply.success) throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`);
-  return reply.data;
+  let failed: z.infer<typeof rpcReply> | undefined;
+  try {
+    const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked, reply => {
+      if (reply.error) failed = reply;
+      if (!onFailedLogs) return;
+      const logs = nativeOwnerReply.shape.logs.safeParse(reply.error ? reply.error.data?.logs : (reply.result as { logs?: unknown } | null)?.logs);
+      if (logs.success && logs.data.length) onFailedLogs(logs.data);
+    });
+    if ((result as { activated?: unknown } | null)?.activated === false)
+      throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
+    const reply = nativeOwnerReply.safeParse(result);
+    if (!reply.success) throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`);
+    return reply.data;
+  } catch (error) {
+    // A failed call's reply still carries the `hello` `{protocol, served}`
+    // summary when the child answered it, so Core can restore readiness even
+    // though it gave up on the call that ran the hello.
+    const hello = failed?.error?.data?.hello;
+    if (hello && error instanceof CoreError)
+      throw new CoreError(error.code, error.message, error.hint, { ...error.data, hello });
+    throw error;
+  }
 }

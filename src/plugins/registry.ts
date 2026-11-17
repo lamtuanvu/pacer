@@ -2663,6 +2663,16 @@ export class PluginRegistry {
         };
         let reply: Awaited<ReturnType<typeof callNativeOwner>>;
         let value: unknown;
+        // A child that answered its hello tells Core `{protocol, served}` even when the
+        // call later fails (a deadline, a refused method, the owner stopping for a stop
+        // or restart), so Core restores readiness instead of staying `idle` on a child
+        // that is actually ready.
+        const markReadyFrom = (hello: { protocol?: string; served?: string[] } | null | undefined) => {
+          if (hello?.protocol && e.state !== "ready") {
+            this.nativeMarkReady(ctx, e.id, hello.protocol,
+              (hello.served ?? []).filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+          }
+        };
         try {
           if (lease) {
             lease.bind(local!, method);
@@ -2684,7 +2694,13 @@ export class PluginRegistry {
           if (logReads) await prepareFilesystemAuthority(local!);
           if (writes) await prepareWriteAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          try {
+            reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          } catch (error) {
+            // A failed call's reply still carried the `hello` when the child answered it.
+            if (error instanceof CoreError) markReadyFrom(error.data?.hello as { protocol?: string; served?: string[] } | undefined);
+            throw error;
+          }
           writeLogs(reply.logs);
           value = reply.value;
           // A child that sent its result in `$/resultChunk` pieces ends with a
@@ -2708,10 +2724,7 @@ export class PluginRegistry {
         // Re-check after the reply: a revocation racing the final reply line must still fail
         // the call before the planner install/uninstall transaction commits any write.
         if (effects) await checkPlannerGeneration();
-        if (reply.hello && e.state !== "ready") {
-          this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
-            reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
-        }
+        markReadyFrom(reply.hello);
         const def = EXTENSION_METHODS[method]!;
         if (method === "usage.read" || method.startsWith("executor.")) {
           const output = def.result.safeParse(value);

@@ -12,7 +12,9 @@ import { front, makeHome, ownerOn, serve, tsOwner, type Home, type Options } fro
 // A Core call with a long deadline gives `plugin.hello` 10 s (HELLO_DEADLINE_MS) flag-off and on the
 // native owner, and words a hello timeout the same way. Calls whose own deadline is shorter, such as
 // plugin.doctor's 5 s ping, expire as the call instead.
-// Flag-off records a hello timeout as a crash (`restarts`, backoff); the owner has no such accounting.
+// Flag-off records a hello timeout as a crash (`restarts`, backoff); the native
+// owner records the same on its crash book and reports it, so Core's `restarts`,
+// error and backoff match flag-off's.
 
 const manifest = (id: string) => manifestSchema.parse({ id, version: "1.0.0", publisher: "pacer", host: "^1.6", contributes: { diagnostic: {} }, capabilities: [], tier: "free" });
 /** Answers `plugin.hello` after `delay` ms, or never when it is `never`. */
@@ -60,6 +62,7 @@ async function doctors(options: Options, forward = ""): Promise<Record<string, D
   })));
 }
 const outcome = (seen: Record<string, Doctor>) => Object.fromEntries(Object.entries(seen).map(([id, { ok, error }]) => [id, { ok, error }]));
+const restartsOf = (seen: Record<string, Doctor>) => Object.fromEntries(Object.entries(seen).map(([id, { restarts }]) => [id, { restarts }]));
 
 test.skipIf(!front)("plugin.doctor's 5 s ping bounds the hello flag-off, and Core's doctor on the native owner matches", async () => {
   const off = await doctors(tsOwner);
@@ -68,6 +71,10 @@ test.skipIf(!front)("plugin.doctor's 5 s ping bounds the hello flag-off, and Cor
   const expired = { ok: false, error: "plugin_timeout: plugin call passed its absolute deadline" };
   expect(outcome(off)).toEqual({ "fx-slow": expired, "fx-silent": expired });
   expect(outcome(core)).toEqual(outcome(off));
+  // A hello that missed the call's deadline is recorded as a crash both flag-off
+  // and on the native owner, so Core's doctor reports `restarts` alike.
+  expect(restartsOf(off)).toEqual({ "fx-slow": { restarts: 1 }, "fx-silent": { restarts: 1 } });
+  expect(restartsOf(core)).toEqual(restartsOf(off));
 }, 90000);
 
 test.skipIf(!front)("plugin.hello gets 10 s and the same timeout text flag-off and on the native owner", async () => {

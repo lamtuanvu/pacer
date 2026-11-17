@@ -270,13 +270,10 @@ const timed = async (call: () => Promise<unknown>) => {
   const seen = await call().catch(error => error instanceof HostError ? { code: error.code, message: error.message } : Promise.reject(error));
   return { afterMs: Date.now() - started, seen };
 };
-const HELLO_CRASH = "routed: PR 7 gate row 'owner hello-timeout crash accounting': flag-off stops a child whose hello missed the call's deadline and records a crash; the owner keeps the child";
-const FAILED_READY = "routed: PR 7 gate row 'readiness after a failed first sealed call': Core loses the hello summary when its deadline ends the sealed call, so plugin.list shows idle where flag-off shows ready";
-// Flag-off records whichever of the call's deadline and the hello's own deadline fires first.
 const helloCrash = (error: string | null | undefined) =>
   error === "owning plugin call ended" || /^plugin\.hello passed its \d+ ms deadline$/.test(error ?? "") ? "<the hello missed the call's deadline>" : error;
-const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string } })[] = [
-  { name: "a 7 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: HELLO_CRASH }, async run(t) {
+const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string | null } })[] = [
+  { name: "a 7 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: null }, async run(t) {
     t.install("good", { fixture: { startDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
@@ -285,7 +282,7 @@ const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string;
     const entry = (await listed(h)).find(p => p.id === "fx-good") as { error?: string | null };
     deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { restarts: report.restarts, error: helloCrash(entry.error) } };
   } },
-  { name: "a 7 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: FAILED_READY }, async run(t) {
+  { name: "a 7 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: null }, async run(t) {
     t.install("good", { fixture: { pingDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
@@ -322,7 +319,7 @@ for (const c of DEADLINES) {
       expect(seen[label]!.afterMs, label).toBeLessThan(c.deadlineMs + 1500);
     }
   }, 120000);
-  if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host [${c.book.reason.split(":")[0]}]`, async () => {
+  if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host${c.book.reason ? ` [${c.book.reason.split(":")[0]}]` : ""}`, async () => {
     const seen = await deadlineRun(c);
     for (const { label } of doors) expect({ label, book: seen[label]!.book }).toEqual({ label, book: seen.typescript!.book });
   }, 120000);
