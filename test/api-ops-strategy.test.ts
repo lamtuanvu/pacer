@@ -98,6 +98,26 @@ test("update.apply preserves source, npm and Homebrew refusal messages without s
   }
 });
 
+test("a desktop-owned installation reports managedBy and update.apply refuses it without a job", async () => {
+  const ctx = configured(), base = join(ctx.home, "releases");
+  mkdirSync(base);
+  ctx.env.PACER_RELEASE_BASE = pathToFileURL(base).href;
+  writeFileSync(join(base, "latest.json"), JSON.stringify({version: "99.0.0"}));
+  expect(await callOp(ctx, "update.check", {})).not.toHaveProperty("managedBy");
+  writeFileSync(join(ctx.pacerHome, "owner.json"), JSON.stringify({schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1}));
+  expect(await callOp(ctx, "update.check", {force: true})).toMatchObject({available: true, managedBy: "desktop", managedHint: expect.stringContaining("managed by the pacer app")});
+  let calls = 0;
+  try {
+    await callOp(ctx, "update.apply", {}, {update: {standalone: true}, runUpdate: async () => { calls++; return {code: 0, out: "", err: ""}; }});
+    throw Error("expected refusal");
+  } catch (e) {
+    const error = toApiError(e);
+    expect(error).toMatchObject({code: "not_allowed", message: expect.stringContaining("managed by the pacer app")});
+    expect(error.hint).not.toBe(error.message);
+  }
+  expect(calls).toBe(0);
+});
+
 test("failed updates are recorded in their job", async () => {
   const ctx = configured();
   expect(await callOp(ctx, "update.apply", {}, {update: {standalone: true}, runUpdate: async (_options,d) => {

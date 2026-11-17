@@ -314,7 +314,13 @@ test('Updates identifies the service and preserves failed-check status', () => {
  expect(failed).not.toContain('Up to date');
  const available = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true}}}/>);
  expect(available).toContain('Install 0.5.0');
-
+ const desktop = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true,managedBy:'desktop',managedHint:'pacer is managed by the pacer app'}}}/>);
+ expect(desktop).toContain('Update available: 0.5.0');
+ expect(desktop).not.toContain('Install 0.5.0');
+ expect(desktop).toContain('managed by the pacer app; update it from the app\'s Settings');
+ const brew = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true,managedBy:'homebrew',managedHint:'pacer was installed with Homebrew; update with: brew upgrade pacer'}}}/>);
+ expect(brew).not.toContain('Install 0.5.0');
+ expect(brew).toContain('brew upgrade pacer');
 });
 
 test('eligible executors retain recent task failures separately from their passed check',()=>{
