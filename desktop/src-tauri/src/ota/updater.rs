@@ -82,6 +82,43 @@ fn newest_of(
         (Err(_), Err(error)) => Err(error),
     }
 }
+/// Per-feed deadline for a nightly check, well inside the service's 30 s check budget, so one
+/// stalled feed cannot hold the whole check before the other feed's result is used.
+const FEED_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(12);
+/// Stable reads only the stable feed. Nightly reads both feeds concurrently, each under
+/// `timeout`, and offers the newest (see `newest_of`).
+async fn select_feeds<F, Fut>(
+    channel: Channel,
+    timeout: std::time::Duration,
+    fetch: F,
+) -> Result<Option<Candidate>, OtaError>
+where
+    F: Fn(Channel) -> Fut,
+    Fut: std::future::Future<Output = Result<Option<Candidate>, OtaError>>,
+{
+    let bounded = |channel| {
+        let feed = fetch(channel);
+        async move {
+            tokio::time::timeout(timeout, feed)
+                .await
+                .unwrap_or(Err(OtaError::Timeout))
+        }
+    };
+    match channel {
+        Channel::Stable => fetch(Channel::Stable).await,
+        Channel::Nightly => {
+            let (stable, nightly) =
+                tokio::join!(bounded(Channel::Stable), bounded(Channel::Nightly));
+            newest_of(stable, nightly)
+        }
+    }
+}
+/// The compiled fixture root's feed file for `channel`.
+#[cfg(target_os = "macos")]
+fn read_fixture_feed(root: &Path, channel: Channel) -> Result<Vec<u8>, OtaError> {
+    super::platform_fs::PrivateDir::open(&root.join("feed"))?
+        .read(channel.fixture_file(), MAX_FEED_BYTES)
+}
 fn artifact_url(version: &str, arch: Arch) -> String {
     format!("https://github.com/lamtuanvu/pacer/releases/download/v{version}/desktop-pacer-{version}-darwin-{}.app.tar.gz", arch_name(arch))
 }
@@ -453,21 +490,14 @@ impl NativeUpdater {
             .build()
             .map_err(|_| OtaError::Io)
     }
-    /// Stable reads only the stable feed. Nightly reads both feeds and offers the newest.
+    /// Stable reads only the stable feed. Nightly reads both feeds concurrently and offers the newest.
     pub async fn check(&self, channel: Channel) -> Result<Option<Candidate>, OtaError> {
-        match channel {
-            Channel::Stable => self.check_feed(Channel::Stable).await,
-            Channel::Nightly => newest_of(
-                self.check_feed(Channel::Stable).await,
-                self.check_feed(Channel::Nightly).await,
-            ),
-        }
+        select_feeds(channel, FEED_TIMEOUT, |feed| self.check_feed(feed)).await
     }
     async fn check_feed(&self, channel: Channel) -> Result<Option<Candidate>, OtaError> {
         if let Some(fixture) = self.trust.fixture_policy() {
             fixture.validate_live().map_err(|_| OtaError::Identity)?;
-            let feed = super::platform_fs::PrivateDir::open(&fixture.root.join("feed"))?
-                .read(channel.fixture_file(), MAX_FEED_BYTES)?;
+            let feed = read_fixture_feed(&fixture.root, channel)?;
             return candidate_from_feed(&feed, &self.target.version, self.target.arch, channel);
         }
         let response = self
@@ -845,6 +875,120 @@ mod tests {
         assert_eq!(
             newest_of(Err(OtaError::Io), Err(OtaError::Invalid)),
             Err(OtaError::Invalid)
+        );
+    }
+    /// Records which feeds a check reads and serves canned results.
+    type FeedFuture = std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<Option<Candidate>, OtaError>> + Send>,
+    >;
+    fn recording_fetch<'a>(
+        reads: &'a std::sync::Mutex<Vec<Channel>>,
+        stable: &'static str,
+        nightly: &'static str,
+    ) -> impl Fn(Channel) -> FeedFuture + 'a {
+        move |channel| {
+            reads.lock().unwrap().push(channel);
+            let version = match channel {
+                Channel::Stable => stable,
+                Channel::Nightly => nightly,
+            };
+            Box::pin(async move { offer(version, "0.15.1", channel) })
+        }
+    }
+    #[tokio::test]
+    async fn stable_reads_only_the_stable_feed_and_nightly_reads_both() {
+        let reads = std::sync::Mutex::new(Vec::new());
+        let fetch = recording_fetch(&reads, "0.16.0", "0.17.0-nightly.202611170000");
+        let offered = select_feeds(Channel::Stable, FEED_TIMEOUT, &fetch).await;
+        assert_eq!(offered.unwrap().unwrap().version, "0.16.0");
+        assert_eq!(*reads.lock().unwrap(), [Channel::Stable]);
+        reads.lock().unwrap().clear();
+        let offered = select_feeds(Channel::Nightly, FEED_TIMEOUT, &fetch).await;
+        assert_eq!(
+            offered.unwrap().unwrap().version,
+            "0.17.0-nightly.202611170000"
+        );
+        let mut read = reads.lock().unwrap().clone();
+        read.sort_by_key(|c| c.fixture_file());
+        assert_eq!(read, [Channel::Nightly, Channel::Stable]);
+    }
+    #[tokio::test]
+    async fn nightly_fetches_feeds_concurrently_so_a_stalled_feed_cannot_defeat_the_fallback() {
+        // The production per-feed deadline leaves the service's 30 s check budget room for
+        // helper startup and the other feed.
+        assert!(FEED_TIMEOUT <= std::time::Duration::from_secs(15));
+        // A stalled feed never answers. The other feed's result must arrive within one
+        // per-feed deadline, not after the stalled one. A short deadline keeps the test fast.
+        let short = std::time::Duration::from_millis(200);
+        for stalled in [Channel::Stable, Channel::Nightly] {
+            let fetch = |channel: Channel| -> FeedFuture {
+                if channel == stalled {
+                    Box::pin(std::future::pending())
+                } else {
+                    let version = match channel {
+                        Channel::Stable => "0.16.0",
+                        Channel::Nightly => "0.17.0-nightly.202611170000",
+                    };
+                    // A slow but live feed: run one after the other, the two feeds would
+                    // take longer than the bound below.
+                    Box::pin(async move {
+                        tokio::time::sleep(short * 3 / 4).await;
+                        offer(version, "0.15.1", channel)
+                    })
+                }
+            };
+            let started = tokio::time::Instant::now();
+            let offered = select_feeds(Channel::Nightly, short, &fetch).await;
+            assert!(started.elapsed() < short * 3 / 2, "{stalled:?}");
+            assert!(offered.unwrap().is_some(), "{stalled:?}");
+        }
+        let both = |_| -> FeedFuture { Box::pin(std::future::pending()) };
+        let started = tokio::time::Instant::now();
+        assert_eq!(
+            select_feeds(Channel::Nightly, short, &both).await,
+            Err(OtaError::Timeout)
+        );
+        assert!(started.elapsed() < short * 3 / 2);
+    }
+    #[cfg(target_os = "macos")]
+    #[tokio::test]
+    async fn fixture_mode_reads_the_channel_feed_file() {
+        let temp = tempfile::tempdir().unwrap();
+        let root = temp.path().canonicalize().unwrap();
+        let feed_dir = super::super::platform_fs::PrivateDir::create(&root.join("feed")).unwrap();
+        feed_dir
+            .write_new("stable.json", &feed_at("0.2.4"))
+            .unwrap();
+        let fetch = |channel: Channel| {
+            let root = root.clone();
+            async move {
+                let bytes = read_fixture_feed(&root, channel)?;
+                candidate_from_feed(&bytes, "0.2.3", Arch::Aarch64, channel)
+            }
+        };
+        // Only stable.json: stable offers it, and nightly falls back to it.
+        let version =
+            |result: Result<Option<Candidate>, OtaError>| result.unwrap().unwrap().version;
+        assert_eq!(
+            version(select_feeds(Channel::Stable, FEED_TIMEOUT, &fetch).await),
+            "0.2.4"
+        );
+        assert!(read_fixture_feed(&root, Channel::Nightly).is_err());
+        assert_eq!(
+            version(select_feeds(Channel::Nightly, FEED_TIMEOUT, &fetch).await),
+            "0.2.4"
+        );
+        // With nightly.json, nightly offers the newer nightly and stable never reads it.
+        feed_dir
+            .write_new("nightly.json", &feed_at("0.3.0-nightly.202611170000"))
+            .unwrap();
+        assert_eq!(
+            version(select_feeds(Channel::Nightly, FEED_TIMEOUT, &fetch).await),
+            "0.3.0-nightly.202611170000"
+        );
+        assert_eq!(
+            version(select_feeds(Channel::Stable, FEED_TIMEOUT, &fetch).await),
+            "0.2.4"
         );
     }
     fn package(
