@@ -135,7 +135,7 @@ Probe ops are not added to the action allow-list by this spec. Whether `doctor.r
 
 **List filtering happens before limits.** A `task-list` op in task or repository scope is called with its filter pushed into its own parameters where the op supports one (an id or repo filter), so a page limit applies after filtering. Totals and counts in its result are not declared fields, so a filtered view never reveals how many out-of-scope rows exist. An op that cannot filter before its limit is refused in task and repository scope. In dispatch scope the days window is applied as today's tools apply it: through the op's own `since` parameter where it has one, and otherwise by filtering rows on a time field the contract declares (`updatedAt`, falling back to `createdAt`, as `recent()` in `tools.ts` does today).
 
-- **Days window:** see below.
+- **Days window:** applied in dispatch scope as the paragraph above describes.
 - **Orientation ops** (`guide.get`) are `global` with `inTask` and `inRepo` true, so the assistant can orient in every scope.
 - **Fail closed:** there is no empty or partial declaration: the type has no default, and an op with no `ScopeSpec` cannot be permitted.
 
