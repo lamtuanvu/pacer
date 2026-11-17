@@ -57,6 +57,9 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
   const [text, setText] = useWorkspaceState(useWorkspaceKey(undefined, "assistant"), "draft:assistant", "");
   const [notice, setNotice] = useState<string | null>(null);
   const [scopeValue, setScopeValue] = useState("dispatch");
+  const [maximized, setMaximized] = useState(false);
+  // Counts questions sent, so the log returns to the newest message even when the reader had scrolled up.
+  const [sent, setSent] = useState(0);
   const scopeButton = useRef<HTMLButtonElement>(null), turnRef = useRef<string | null>(null), abort = useRef<AbortController | null>(null), loaded = useRef(false);
   const taskId = route.name === "sessions" && route.id ? route.id : null;
   const choices: ScopeChoice[] = useMemo(() => scopeChoices({ taskId, repo, repoLabel }), [taskId, repo, repoLabel]);
@@ -90,7 +93,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     if (!asked || pending || !api || !context?.state.connected || !status?.available) return;
     setNotice(null);
     if (o.newConversation) { setTurns([]); setConversationId(undefined); }
-    setPending({ question: asked, status: "Thinking…", partial: "" });
+    setPending({ question: asked, status: "Thinking…", partial: "" }); setSent(n => n + 1);
     try {
       const started = await api.call<{ conversationId: string; turnId: string }>("assistant.ask", { ...(o.newConversation ? {} : { conversationId }), text: asked, scope, requestId: requestId() });
       setText(""); setConversationId(started.conversationId); turnRef.current = started.turnId;
@@ -138,18 +141,30 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
     });
     return () => cancelAnimationFrame(frame);
   }, [open, setup, available]);
+  const onNewTaskRef = useRef(onNewTask); onNewTaskRef.current = onNewTask;
+  // The service pushes live updates that re-render the whole app; rebuild (and re-parse) the conversation only when it changes.
+  const conversation = useMemo(() => {
+    if (!api) return null;
+    const call = <T,>(op: string, params: unknown) => api.call<T>(op, params);
+    return turns.map(turn => <TurnRows key={turn.id} turn={turn} call={call} onNewTask={goal => { saveDraft(goal, turn); onNewTaskRef.current(); }} reload={async () => {
+      const c = await api.call<{ turns: TurnView[] }>("assistant.conversation", { id: turn.conversationId }); setTurns(c.turns.filter(t => t.state !== "running"));
+    }} />);
+  }, [turns, api]);
   if (!api) return null;
   const hasCard = turns.some(t => t.cards.some(c => c.state === "pending" || c.state === "stale"));
   const account = status?.account ?? "";
   const pickerOptions = choices.map(c => ({ value: c.value, label: account ? `${c.label} · ${account}` : c.label }));
-  const call = <T,>(op: string, params: unknown) => api.call<T>(op, params);
   return <DensityContext.Provider value={narrow ? "touch" : "compact"}><div ref={layer} data-setup={setup ? "true" : "false"} data-available={available ? "true" : "false"} data-still={preferences.stillAurora ? "true" : "false"} className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
-    <AuroraSheet label="Assistant" autoScroll={available} open={open} generating={!!pending} narrow={narrow} expanded={hasCard} onClose={() => toggle(false)}
-      header={narrow ? <Button size="sm" variant="quiet" onClick={() => toggle(false)}>Close</Button> : undefined}
+    <AuroraSheet label="Assistant" autoScroll={available} followKey={sent} open={open} generating={!!pending} narrow={narrow} expanded={hasCard} maximized={maximized} onClose={() => toggle(false)}
+      restoreFocus={() => layer.current?.querySelector<HTMLElement>(".pc-aurora-launcher")}
+      covers={() => layer.current?.closest(".pc-work-wrap")?.querySelector<HTMLElement>(":scope > .pc-work")}
+      // The launcher hides while the sheet is open, so the sheet carries its own close control.
+      header={<>
+        {!narrow && <IconButton icon={maximized ? "chevron-down" : "chevron-up"} size="sm" variant="quiet" aria-label={maximized ? "Restore assistant size" : "Expand assistant"} title={maximized ? "Restore size" : "Expand to full view"} onClick={() => setMaximized(m => !m)} />}
+        <IconButton icon="close" size="sm" variant="quiet" aria-label="Close assistant" title={narrow ? undefined : `Close ${isMac() ? "⌘J" : "Ctrl J"}`} onClick={() => toggle(false)} />
+      </>}
       messages={setup ? <AssistantSetup api={api} refresh={refresh} /> : <>
-        {turns.map(turn => <TurnRows key={turn.id} turn={turn} call={call} onNewTask={goal => { saveDraft(goal, turn); onNewTask(); }} reload={async () => {
-          const c = await api.call<{ turns: TurnView[] }>("assistant.conversation", { id: turn.conversationId }); setTurns(c.turns.filter(t => t.state !== "running"));
-        }} />)}
+        {conversation}
         {pending && <>
           <div className="pc-aurora-msg">{pending.question}</div>
           <div className="pc-aurora-reply" aria-hidden="true"><AuroraAvatar /><div className="pc-aurora-reply__body">{pending.partial ? <Prose text={pending.partial} /> : <Thinking label={pending.status} />}</div></div>
@@ -166,7 +181,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
           ? <IconButton icon="end-session" size="sm" className="pc-aurora-send" variant="secondary" aria-label="Stop answer" onClick={stop} />
           : <IconButton type="submit" icon="send" size="sm" className="pc-aurora-send" variant={hasCard ? "secondary" : "primary"} aria-label="Send" aria-describedby={!available?"assistant-unavailable-reason":!context?.state.connected?"assistant-offline-reason":undefined} disabled={!context?.state.connected || !available || !text.trim()} title={!context?.state.connected ? "Reconnecting… Send when pacer reconnects." : undefined} />}
       </form>} />
-    {preferences.showButton && !(narrow && open) && <AuroraLauncher open={open} onClick={() => toggle()} className={open ? "pc-aurora-launcher--open" : undefined} shortcut={!narrow ? isMac() ? "⌘J" : "Ctrl J" : undefined} />}
+    {preferences.showButton && !open && <AuroraLauncher open={false} onClick={() => toggle()} shortcut={!narrow ? isMac() ? "⌘J" : "Ctrl J" : undefined} />}
   </div></div></DensityContext.Provider>;
 }
 
