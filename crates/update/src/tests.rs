@@ -1,8 +1,11 @@
 #![allow(clippy::unwrap_used)]
 use crate::{
     Code, apply,
-    check::{compare_versions, is_version, update_check_false},
-    feed::{latest, normalize_base, parse_latest},
+    check::{
+        compare_versions, is_nightly_version, is_version, update_channel_nightly,
+        update_check_false,
+    },
+    feed::{Channel, latest, latest_for, normalize_base, parse_cli_nightly, parse_latest},
     service::{js_number, launchd_number, systemd_fields},
     update_check,
 };
@@ -150,6 +153,141 @@ fn update_check_caches_the_feed_and_honours_the_opt_out() {
     let disabled = run(&off, json!({})).unwrap();
     assert_eq!(disabled["disabled"], true);
     assert_eq!(disabled["latest"], Value::Null);
+}
+
+#[test]
+fn nightly_versions_and_the_channel_setting_follow_the_reference_patterns() {
+    for v in ["0.16.0-nightly.202611171700", "10.0.1-nightly.999999999999"] {
+        assert!(is_nightly_version(v), "{v}");
+    }
+    for v in [
+        "0.16.0",
+        "0.16.0-nightly.02611171700",
+        "0.16.0-nightly.2026111717001",
+        "0.16.0-nightly.20261117170a",
+        "01.16.0-nightly.202611171700",
+        "0.16-nightly.202611171700",
+        "0.16.0-rc.1",
+        "0.16.0-nightly.202611171700+b",
+    ] {
+        assert!(!is_nightly_version(v), "{v}");
+    }
+    for text in [
+        "update_channel: nightly",
+        "a: 1\nupdate_channel:\t\"nightly\"  # on\r\n",
+        "update_channel: 'nightly'",
+        "update_channel:nightly#x",
+    ] {
+        assert!(update_channel_nightly(text), "{text:?}");
+    }
+    for text in [
+        "update_channel: stable",
+        " update_channel: nightly",
+        "update_channel: nightly x",
+        "update_channel: \"nightly'",
+        "x:\n  update_channel: nightly",
+        "update_channel:\n  nightly",
+    ] {
+        assert!(!update_channel_nightly(text), "{text:?}");
+    }
+    assert_eq!(
+        parse_cli_nightly(&json!({"version": "v0.16.0-nightly.202611171700"})).unwrap(),
+        "0.16.0-nightly.202611171700"
+    );
+    assert_eq!(
+        parse_cli_nightly(&json!({"version": "0.15.2"})).unwrap_err(),
+        "cli-nightly.json has no valid nightly \"version\" (got \"0.15.2\")"
+    );
+}
+
+#[test]
+fn latest_for_takes_the_newest_of_both_feeds_and_falls_back_to_the_other() {
+    let dir = tempfile::tempdir().unwrap();
+    let base = format!("file://{}", dir.path().display());
+    let write = |name: &str, body: &str| std::fs::write(dir.path().join(name), body).unwrap();
+    write("latest.json", "{\"version\":\"0.15.1\"}");
+    write(
+        "cli-nightly.json",
+        "{\"version\":\"0.16.0-nightly.202611170000\"}",
+    );
+    assert_eq!(
+        latest_for(Some(&base), Channel::Nightly).unwrap(),
+        ("0.16.0-nightly.202611170000".into(), None)
+    );
+    assert_eq!(
+        latest_for(Some(&base), Channel::Stable).unwrap(),
+        ("0.15.1".into(), None)
+    );
+    write("latest.json", "{\"version\":\"0.16.0\"}");
+    assert_eq!(
+        latest_for(Some(&base), Channel::Nightly).unwrap().0,
+        "0.16.0"
+    );
+    write("cli-nightly.json", "<html>");
+    assert_eq!(
+        latest_for(Some(&base), Channel::Nightly).unwrap(),
+        (
+            "0.16.0".into(),
+            Some("JSON Parse error: Unrecognized token '<'".into())
+        )
+    );
+    write(
+        "cli-nightly.json",
+        "{\"version\":\"0.16.0-nightly.202611170000\"}",
+    );
+    std::fs::remove_file(dir.path().join("latest.json")).unwrap();
+    let (version, error) = latest_for(Some(&base), Channel::Nightly).unwrap();
+    assert_eq!(version, "0.16.0-nightly.202611170000");
+    assert!(error.unwrap().contains("latest.json (ENOENT"));
+    write("cli-nightly.json", "");
+    assert_eq!(
+        latest_for(Some(&base), Channel::Nightly).unwrap_err(),
+        "JSON Parse error: Unexpected EOF"
+    );
+    assert!(
+        latest_for(Some("http://example.test"), Channel::Nightly)
+            .unwrap_err()
+            .starts_with("release base must start with")
+    );
+}
+
+#[test]
+fn update_check_follows_the_channel_and_drops_the_other_channels_cache() {
+    let dir = tempfile::tempdir().unwrap();
+    let feed = dir.path().join("feed");
+    std::fs::create_dir(&feed).unwrap();
+    std::fs::write(feed.join("latest.json"), "{\"version\":\"998.0.0\"}").unwrap();
+    std::fs::write(
+        feed.join("cli-nightly.json"),
+        "{\"version\":\"999.0.0-nightly.202611170000\"}",
+    )
+    .unwrap();
+    let base = format!("file://{}", feed.display());
+    let ctx = ctx(dir.path(), &[("PACER_RELEASE_BASE", &base)]);
+    std::fs::create_dir_all(&ctx.pacer_home).unwrap();
+    assert_eq!(run(&ctx, json!({})).unwrap()["latest"], "998.0.0");
+    let cache = || std::fs::read_to_string(ctx.pacer_home.join("update-check.json")).unwrap();
+    assert!(
+        cache().ends_with(",\"channel\":\"stable\"}\n"),
+        "{}",
+        cache()
+    );
+    let strategy = ctx.pacer_home.join("strategy.yaml");
+    std::fs::write(&strategy, "update_channel: nightly\n").unwrap();
+    assert_eq!(
+        run(&ctx, json!({})).unwrap()["latest"],
+        "999.0.0-nightly.202611170000"
+    );
+    assert!(
+        cache().ends_with(",\"channel\":\"nightly\"}\n"),
+        "{}",
+        cache()
+    );
+    std::fs::write(&strategy, "update_channel: stable\n").unwrap();
+    std::fs::remove_file(feed.join("latest.json")).unwrap();
+    let stable = run(&ctx, json!({})).unwrap();
+    assert_eq!(stable["latest"], Value::Null);
+    assert!(stable["error"].as_str().unwrap().contains("ENOENT"));
 }
 
 fn ctx_off(dir: &std::path::Path) -> Ctx {
