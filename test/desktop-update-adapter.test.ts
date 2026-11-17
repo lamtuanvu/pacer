@@ -12,7 +12,7 @@ const identity = { version: "1.0.0", bundleId: "dev.pacer.desktop", arch: "aarch
 const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".repeat(64), signature: "test-signature", url: "https://example.invalid/1.1.0.tar.gz", protocolMajors: [3], rollbackCompatible: true, notes: "Release" };
 const target: Installation = { id: "fixture", appPath: "/tmp/pacer-ota-fixture/pacer.app", bundleId: identity.bundleId, ownerUid: 501, arch: "aarch64", pacerHome: "/tmp/pacer-ota-fixture/state", port: 7433, serviceLabel: "com.pacer.serve", ownership: "managed", version: "1.0.0" };
 const unboundRequest = { installationId: "fixture", revision: 2, transactionId: null } as const;
-const check: AdapterRequest = { ...unboundRequest, command: "check", channel: "stable" };
+const check: AdapterRequest = { ...unboundRequest, command: "check" };
 const install: AdapterRequest = { command: "install", installationId: "fixture", revision: 2, transactionId: "tx-1", candidate, target };
 const preparation = { reservationId: "tx-1", journalSha256: "b".repeat(64) };
 function deferred<T>() { let resolve!: (v: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
@@ -70,6 +70,14 @@ test("shared private wire fixture parses and rejects unknown variants and extra 
   expect(() => parseAdapterCommand({ ...fixture.commands[0], executable: "/tmp/untrusted" })).toThrow(AdapterError);
   expect(() => parseAdapterFrame({ ...fixture.frames[0], schema: 2 })).toThrow(AdapterError);
   for (const { case: name, command } of fixture.rejectedCommands) expect(() => parseAdapterCommand(command), name).toThrow(AdapterError);
+});
+
+test("check accepts a missing channel as stable so mixed service and helper versions interoperate", () => {
+  const fixture = JSON.parse(readFileSync(join(import.meta.dir, "fixtures/desktop-update/adapter-wire.json"), "utf8"));
+  for (const { case: name, channel, command } of fixture.acceptedChecks) {
+    const parsed = parseAdapterCommand(command) as { channel?: string };
+    expect(parsed.channel ?? "stable", name).toBe(channel);
+  }
 });
 
 test("default adapter cannot spawn and preaborted requests never open a pipe", async () => {

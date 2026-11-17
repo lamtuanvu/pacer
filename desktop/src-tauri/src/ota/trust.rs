@@ -50,13 +50,18 @@ pub const STABLE_FEED: &str =
 pub const NIGHTLY_FEED: &str =
     "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/nightly.json";
 /// Update channel chosen by the service. It selects among the compiled feeds and never carries a URL.
-#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Channel {
+    /// A check without a channel, as sent by services that predate channels.
+    #[default]
     Stable,
     Nightly,
 }
 impl Channel {
+    pub fn is_stable(&self) -> bool {
+        *self == Channel::Stable
+    }
     pub const fn feed(self) -> &'static str {
         match self {
             Channel::Stable => STABLE_FEED,

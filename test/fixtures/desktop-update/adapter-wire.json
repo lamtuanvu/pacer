@@ -7,8 +7,7 @@
       "transactionId": null,
       "revision": 2,
       "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "command": "check",
-      "channel": "stable"
+      "command": "check"
     },
     {
       "schema": 1,
@@ -162,7 +161,7 @@
       }
     },
     {
-      "case": "missing channel",
+      "case": "check without channel carries an extra key",
       "command": {
         "schema": 1,
         "commandId": "command-fixture",
@@ -170,7 +169,8 @@
         "transactionId": null,
         "revision": 2,
         "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-        "command": "check"
+        "command": "check",
+        "feed": "nightly"
       }
     },
     {
@@ -197,6 +197,49 @@
         "revision": 2,
         "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
         "command": "recover",
+        "channel": "nightly"
+      }
+    }
+  ],
+  "acceptedChecks": [
+    {
+      "case": "check without channel is stable",
+      "channel": "stable",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check"
+      }
+    },
+    {
+      "case": "explicit stable channel",
+      "channel": "stable",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "stable"
+      }
+    },
+    {
+      "case": "nightly channel",
+      "channel": "nightly",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
         "channel": "nightly"
       }
     }

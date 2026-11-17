@@ -55,7 +55,7 @@ const binding = {
   transactionId: identifier.nullable(), revision: integer, nonce: hash,
 };
 const commandSchema = z.discriminatedUnion("command", [
-  z.object({ ...binding, command: z.literal("check"), transactionId: z.null(), channel: z.enum(["stable", "nightly"] as const satisfies readonly UpdateChannel[]) }).strict(),
+  z.object({ ...binding, command: z.literal("check"), transactionId: z.null(), channel: z.enum(["stable", "nightly"] as const satisfies readonly UpdateChannel[]).optional() }).strict(),
   z.object({ ...binding, command: z.literal("download"), transactionId: z.null(), candidate }).strict(),
   z.object({ ...binding, command: z.literal("install"), transactionId: identifier, candidate, target: installation }).strict(),
   z.object({ ...binding, command: z.literal("recover"), transactionId: identifier }).strict(),
@@ -77,7 +77,9 @@ const frameSchema = z.discriminatedUnion("kind", [
 const authorizationSchema = z.object({ ...binding, transactionId: identifier, kind: z.literal("authorize-install"), ...preparation }).strict();
 export type AdapterCommand = z.infer<typeof commandSchema>;
 export type AdapterRequest = { installationId: string; revision: number } & (
-  | { command: "check"; transactionId: null; channel: UpdateChannel }
+  // Missing means stable. The service sends `channel` only for nightly, so a helper from before
+  // channels (attached services are not version-locked to the app) still accepts stable checks.
+  | { command: "check"; transactionId: null; channel?: UpdateChannel }
   | { command: "download"; transactionId: null; candidate: Candidate }
   | { command: "install"; transactionId: string; candidate: Candidate; target: Installation }
   | { command: "recover" | "recover-adoption"; transactionId: string }

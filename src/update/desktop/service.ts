@@ -239,7 +239,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       active.set(request.installationId, operation);
       const input: AdapterRequest = command === "check"
         // Read on every check, so a channel change in Settings applies to the next check without a restart.
-        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, channel: updateChannel(ctx()) }
+        // Stable omits `channel`: a helper that predates channels rejects the key, and only nightly needs it.
+        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, ...(updateChannel(ctx()) === "nightly" ? { channel: "nightly" as const } : {}) }
         : { command, installationId: request.installationId, revision: value.revision, transactionId: null, candidate: value.candidate! };
       track(request.installationId, network(request.installationId, operation, input));
     }

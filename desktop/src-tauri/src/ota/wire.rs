@@ -249,7 +249,10 @@ pub enum AdapterCommand {
     Check {
         #[serde(flatten)]
         binding: Binding,
-        /// Selects among compiled feeds. Required: the helper and service ship in one bundle.
+        /// Selects among compiled feeds. Optional and omitted for stable: an attached service
+        /// is not version-locked to the app's helper, so a check without `channel` stays valid
+        /// in both directions. Only nightly needs a channel-aware helper.
+        #[serde(default, skip_serializing_if = "super::trust::Channel::is_stable")]
         channel: super::trust::Channel,
     },
     Download {
@@ -1134,6 +1137,27 @@ mod tests {
             })
             .collect();
         assert_eq!(channels, [Channel::Stable, Channel::Nightly]);
+        for accepted in adapter()["acceptedChecks"].as_array().unwrap() {
+            let command = parse_command(&bytes(&accepted["command"])).expect("accepted check");
+            let AdapterCommand::Check { channel, .. } = &command else {
+                unreachable!()
+            };
+            assert_eq!(
+                serde_json::to_value(channel).unwrap(),
+                accepted["channel"],
+                "{}",
+                accepted["case"]
+            );
+            // Stable is written without `channel`, so an older helper that predates
+            // channels still accepts every stable check.
+            let written = serde_json::to_value(&command).unwrap();
+            assert_eq!(
+                written.get("channel").is_some(),
+                *channel == Channel::Nightly,
+                "{}",
+                accepted["case"]
+            );
+        }
         assert_eq!(Channel::Stable.feed(), STABLE_FEED);
         assert_eq!(Channel::Nightly.feed(), NIGHTLY_FEED);
         assert_eq!(Channel::Stable.fixture_file(), "stable.json");
