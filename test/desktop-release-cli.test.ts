@@ -79,3 +79,18 @@ test("prepare CLI reads --notes-file and rejects malformed arguments", () => {
   expect(run("validate", dir, version, "--notes-file", notes).exitCode).toBe(1);
   expect(run("prepare", dir, version, "--notes-file", join(dir, "missing.md")).exitCode).toBe(1);
 });
+
+test("validate and publish pick the channel from the version and refuse other prereleases", () => {
+  const script = join(import.meta.dir, "..", "scripts", "release", "desktop-release.ts");
+  const dir = tmpDir();
+  const run = (...args: string[]) => Bun.spawnSync([process.execPath, script, ...args], { cwd: dir, stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH ?? "", HOME: dir } });
+  for (const action of ["validate", "publish"]) {
+    const rc = run(action, dir, "1.2.3-rc.1");
+    expect(rc.exitCode).toBe(1);
+    expect(rc.stderr.toString()).toContain("stable (X.Y.Z) or nightly");
+  }
+  // A nightly version passes the channel check and stops at the release-job guard.
+  const nightly = run("publish", dir, "0.16.0-nightly.202611171700");
+  expect(nightly.exitCode).toBe(1);
+  expect(nightly.stderr.toString()).toContain("tagged production release job");
+});

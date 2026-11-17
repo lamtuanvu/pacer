@@ -1,9 +1,9 @@
 #!/usr/bin/env bun
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildDesktopFeed, publishDesktopRelease, stableVersion } from "./desktop-feed";
+import { buildDesktopFeed, publishDesktopRelease, type DesktopChannel } from "./desktop-feed";
 import { githubDesktopPublisher } from "./desktop-publisher";
-import { isNightlyVersion } from "./nightly";
+import { releaseChannel } from "./nightly";
 
 /** The native update feed carries at most this many bytes of notes (see desktop-feed.ts). */
 export const DESKTOP_NOTES_MAX = 32768;
@@ -31,8 +31,10 @@ export function desktopNotes(notes: string, version: string): string {
 }
 
 /** Desktop releases ship stable and nightly versions; other prereleases have no desktop channel. */
-function desktopVersion(version: string): void {
-  if (!isNightlyVersion(version)) stableVersion(version);
+export function desktopChannel(version: string): DesktopChannel {
+  const channel = releaseChannel(version);
+  if (channel === "prerelease") throw Error("Desktop releases require a stable (X.Y.Z) or nightly (X.Y.Z-nightly.N) version");
+  return channel;
 }
 
 /** The CHANGELOG section for `version`, without its heading. */
@@ -46,7 +48,7 @@ function changelogNotes(root: string, version: string): string {
 
 /** Write the immutable desktop manifest. Provided `notes` (generated nightly notes) replace the CHANGELOG section. */
 export async function prepareDesktopManifest(root: string, out: string, version: string, date?: string, notes?: string): Promise<void> {
-  desktopVersion(version);
+  desktopChannel(version);
   notes = desktopNotes((notes ?? changelogNotes(root, version)).trim(), version);
   if (!date) {
     const child = Bun.spawn(["git", "show", "-s", "--format=%cI", "HEAD"], { cwd: root, stdout: "pipe", stderr: "pipe" });
@@ -64,12 +66,12 @@ if (import.meta.main) {
     const [action, dir, version, ...options] = process.argv.slice(2);
     const notesFile = action === "prepare" && options.length === 2 && options[0] === "--notes-file" ? options[1] : undefined;
     if (!["prepare", "validate", "publish"].includes(action) || !dir || !version || (options.length > 0 && !notesFile)) throw Error("usage: desktop-release.ts <prepare|validate|publish> <release-directory> <version> (prepare also takes [--notes-file <path>])");
-    if (action === "prepare") desktopVersion(version); else stableVersion(version);
+    const channel = desktopChannel(version);
     if (action === "prepare") await prepareDesktopManifest(resolve(import.meta.dir, "../.."), resolve(dir), version, undefined, notesFile === undefined ? undefined : readFileSync(notesFile, "utf8"));
-    else if (action === "validate") console.log(await buildDesktopFeed(resolve(dir), version));
+    else if (action === "validate") console.log(await buildDesktopFeed(resolve(dir), version, undefined, channel));
     else {
       if (process.env.GITHUB_ACTIONS !== "true" || process.env.GITHUB_EVENT_NAME !== "push" || process.env.GITHUB_REF !== `refs/tags/v${version}` || process.env.GITHUB_REPOSITORY !== "lamtuanvu/pacer" || process.env.PACER_DESKTOP_RELEASE_ENABLED !== "true") throw Error("Desktop publication requires an enabled tagged production release job");
-      await publishDesktopRelease(resolve(dir), version, githubDesktopPublisher(version, process.env.GH_TOKEN ?? ""));
+      await publishDesktopRelease(resolve(dir), version, githubDesktopPublisher(version, process.env.GH_TOKEN ?? "", channel), undefined, channel);
     }
   } catch (error) { console.error((error as Error).message); process.exit(1); }
 }
