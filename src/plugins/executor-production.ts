@@ -456,9 +456,11 @@ export function sessionLimitOutcome(executor: string, dir: string, out: {exec: {
  * that outlasted its window marks the executor broken. The verdict is on the task's run, so it survives a restart.
  */
 export function retryLoopOutcome(ctx: Ctx, id: string, executor: string, dir: string,
-  out: {exec: {code: number; timedOut: boolean; stderr: string}; report: string; attempt: {limitHit: boolean; brokenReason?: string}}): boolean {
+  out: {exec: {code: number; timedOut: boolean; stderr: string}; report: string; attempt: {limitHit: boolean; exitCode: number; brokenReason?: string}}): boolean {
   const banner = readTask(ctx, id)?.run, reported = readRun(dir).report?.status;
-  if (banner?.dir !== dir || !banner.retryBanner?.ended || out.exec.code === 0 || out.exec.timedOut || reported === "done" || reported === "failed") return false;
+  // An explicit done/failed report is authoritative; an agent that exits 0 on the stop still failed its attempt.
+  if (banner?.dir !== dir || !banner.retryBanner?.ended || out.exec.timedOut || reported === "done" || reported === "failed") return false;
+  if (out.exec.code === 0) out.exec.code = out.attempt.exitCode = 1;
   const {ended, reason, since} = banner.retryBanner;
   if (ended === "limit") {
     out.attempt.limitHit = true;

@@ -68,13 +68,13 @@ test("an ended session with the limit on screen is a limit outcome unless it rep
 
 const fixture = (name: string) => readFileSync(join(import.meta.dir, "fixtures", name));
 const RATE_LIMIT = "opencode-retry-ratelimit.ansi", HTTP_524 = "opencode-retry-524.ansi";
-const exited = () => ({exec: {code: 143, stdout: "", stderr: "", timedOut: false}, report: "Interactive session exited without an explicit completion report",
-  attempt: {limitHit: false} as {limitHit: boolean; brokenReason?: string}});
+const exited = (code = 143) => ({exec: {code, stdout: "", stderr: "", timedOut: false}, report: "Interactive session exited without an explicit completion report",
+  attempt: {limitHit: false, exitCode: code} as {limitHit: boolean; exitCode: number; brokenReason?: string}});
 
 /** A live owned interactive OpenCode run whose PTY recording plays a retry banner fixture; still printing (not quiet). */
-async function opencodeRun(name: string, o: {run?: Partial<RunRef>; controller?: boolean; status?: () => string} = {}) {
+async function opencodeRun(name: string, o: {run?: Partial<RunRef>; controller?: boolean; status?: () => string; argv?: string[]} = {}) {
   const ctx = fakeCtx(o.status ? {run: async () => ({code: 0, stdout: o.status!(), stderr: ""})} : {}), dir = tmpDir();
-  const started = startRun({dir, argv: ["sh", "-c", "exec sleep 30"], cwd: dir, env: {PATH: process.env.PATH}});
+  const started = startRun({dir, argv: o.argv ?? ["sh", "-c", "exec sleep 30"], cwd: dir, env: {PATH: process.env.PATH}});
   if ("error" in started) throw new Error(started.error);
   for (const end = Date.now() + 5000; !readRun(dir).alive; await Bun.sleep(10)) if (Date.now() > end) throw new Error("the run never started");
   writeFileSync(join(dir, "interactive.json"), "{}");
@@ -168,3 +168,34 @@ test("a human driving the session is never stopped", async () => {
     } finally { await r.close(); }
   }
 }, 30_000);
+
+test("an agent that exits 0 on the renewal's stop still ends as its banner verdict", async () => {
+  for (const [name, back] of [[RATE_LIMIT, 0], [HTTP_524, 10 * 60 + 1]] as const) {
+    const r = await opencodeRun(name, {argv: ["sh", "-c", "trap 'exit 0' TERM; while :; do sleep 0.1; done"]});
+    try {
+      await stopAtSessionLimit(r.ctx, r.id, lease, r.expected);
+      if (back) { backdate(r.ctx, r.id, back); await stopAtSessionLimit(r.ctx, r.id, lease, r.expected); }
+      // The wrapper records its own 143 for a stop; the agent's 0 is what a reported outcome code can carry.
+      expect(readRun(r.dir).exit).not.toBeNull();
+      const out = exited(0);
+      expect(retryLoopOutcome(r.ctx, r.id, r.run.executor, r.dir, out)).toBe(true);
+      expect(out.exec.code).toBe(1);
+      expect(out.attempt.exitCode).toBe(1);
+      if (name === RATE_LIMIT) expect(out.attempt.limitHit).toBe(true);
+      else expect(out.attempt.brokenReason).toStartWith("provider retrying: ");
+    } finally { await r.close(); }
+  }
+}, 30_000);
+
+test("an explicit completion report outranks a recorded banner verdict", async () => {
+  const r = await opencodeRun(RATE_LIMIT);
+  try {
+    await stopAtSessionLimit(r.ctx, r.id, lease, r.expected);
+    for (const status of ["done", "failed"]) {
+      writeFileSync(join(r.dir, "report.json"), JSON.stringify({status, summary: "Finished", source: "agent", at: Date.now() / 1000}));
+      const out = exited(status === "done" ? 0 : 1);
+      expect(retryLoopOutcome(r.ctx, r.id, r.run.executor, r.dir, out)).toBe(false);
+      expect(out.attempt.limitHit).toBe(false);
+    }
+  } finally { await r.close(); }
+}, 15_000);
