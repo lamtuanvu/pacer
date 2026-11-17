@@ -70,6 +70,27 @@ fn plain_and_quoted_representations_differ_on_reserved_text() {
     );
 }
 
+/// Overflow inside an object keeps the scalar contract: plain serde rejects the
+/// document, the quoted parser carries the overflow as a U+FDD0 sentinel field,
+/// the quoted writer emits JavaScript's `null`, and the plain writer keeps the
+/// sentinel text.
+#[test]
+fn overflow_fields_in_objects_keep_the_scalar_contract() {
+    let wire = r#"{"x":1e400,"y":-1e400}"#;
+    assert!(serde_json::from_str::<Value>(wire).is_err());
+
+    let value = quoted::parse(wire.as_bytes()).unwrap();
+    assert_eq!(value["x"].as_str(), Some("\u{fdd0}+Infinity"));
+    assert_eq!(value["y"].as_str(), Some("\u{fdd0}-Infinity"));
+
+    assert_eq!(quoted::stringify(&value), r#"{"x":null,"y":null}"#);
+    assert_eq!(quoted::stringify(&value), bun_stringify(wire));
+    assert_eq!(
+        stringify(&value),
+        "{\"x\":\"\u{fdd0}+Infinity\",\"y\":\"\u{fdd0}-Infinity\"}"
+    );
+}
+
 /// Two parsers with different depth contracts: `quoted::parse` signals the
 /// TypeScript fallback beyond 512 levels; `WireReply::parse` keeps any depth and
 /// withholds nodes deeper than 128 from its preview.
