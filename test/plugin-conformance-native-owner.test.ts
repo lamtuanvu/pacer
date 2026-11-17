@@ -237,7 +237,10 @@ const stdoutTransportCase: ConformanceCase = { name: "plugin log: malformed and 
   assert((await doctor(h, "fx-good")).ok, "ping ok");
   const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
   const read = () => existsSync(log) ? readFileSync(log, "utf8") : "";
-  for (const end = Date.now() + 5000; Date.now() < end && !read().includes("] dropped a line over 1 MiB\n");) await t.sleep(20);
+  // The malformed note is a separate blocking-append task on the Rust doors, so it can land
+  // after the drop note: wait for both before the one read.
+  const both = () => { const text = read(); return text.includes("] dropped a line over 1 MiB\n") && text.includes("ignored a malformed JSON line on stdout"); };
+  for (const end = Date.now() + 5000; Date.now() < end && !both();) await t.sleep(20);
   transportLines = read().split("\n")
     .filter(line => line.includes("malformed JSON line on stdout") || line.includes("dropped a line over 1 MiB"))
     .map(line => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z /, "<time> "));
