@@ -270,6 +270,8 @@ const timed = async (call: () => Promise<unknown>) => {
   const seen = await call().catch(error => error instanceof HostError ? { code: error.code, message: error.message } : Promise.reject(error));
   return { afterMs: Date.now() - started, seen };
 };
+// Flag-off records whichever of the call's deadline and the hello's own deadline fires first, so the
+// crash's error is either wording; both mean the hello missed the call's deadline.
 const helloCrash = (error: string | null | undefined) =>
   error === "owning plugin call ended" || /^plugin\.hello passed its \d+ ms deadline$/.test(error ?? "") ? "<the hello missed the call's deadline>" : error;
 const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string | null } })[] = [

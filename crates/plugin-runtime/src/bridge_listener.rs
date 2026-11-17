@@ -677,7 +677,8 @@ async fn dispatch_call(
             .await
             {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err((failure, hello, logs)) => {
+                Err(failed) => {
+                    let (failure, hello, logs) = *failed;
                     let mut data = json!({"code": failure.code});
                     if let Some(hint) = failure.hint {
                         data["hint"] = Value::String(hint);

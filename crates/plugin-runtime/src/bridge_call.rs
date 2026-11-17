@@ -361,7 +361,7 @@ pub(crate) async fn call_sealed(
     cancel: &watch::Receiver<bool>,
     sealed: SealedCall,
     core: Option<CoreForward>,
-) -> Result<Value, (CallFailure, Value, Vec<Value>)> {
+) -> Result<Value, Box<(CallFailure, Value, Vec<Value>)>> {
     let outcome = run_sealed(owner, id, method, params, until, cancel, sealed, core).await;
     let logs = outcome
         .logs
@@ -371,7 +371,7 @@ pub(crate) async fn call_sealed(
     let hello = outcome.hello.map_or(Value::Null, |(hello, _)| hello);
     let value = match outcome.value {
         Ok(value) => value,
-        Err(failure) => return Err((failure, hello, logs)),
+        Err(failure) => return Err(Box::new((failure, hello, logs))),
     };
     Ok(json!({"value": value, "hello": hello, "logs": logs}))
 }
@@ -638,22 +638,13 @@ impl Prepared {
                             Ok(reply) => reply,
                             Err(error) => {
                                 return Err(match crash_message(lane, id, "plugin.hello").await {
-                                    Some(message) => unavailable(message),
+                                    Some(message) => {
+                                        // A crash failure carries no hello.
+                                        *ready = None;
+                                        unavailable(message)
+                                    }
                                     None => {
-                                        // The child lived on but did not answer the hello in
-                                        // time: mirror flag-off (which stops the child and
-                                        // records the crash) so the owner's book and Core's
-                                        // `restarts` match. Stopping the lane makes the
-                                        // monitor skip its own record, so exactly one crash
-                                        // lands here.
-                                        let _ = lane.process().terminate().await;
-                                        let reason = format!(
-                                            "plugin.hello passed its {} ms deadline",
-                                            wait.as_millis()
-                                        );
-                                        self.crash_book.record(id);
-                                        lane.settle();
-                                        self.crash_book.report(id, &reason).await;
+                                        self.stop_unanswered(lane, id, wait).await;
                                         hello_failure(error.into(), wait)
                                     }
                                 });
@@ -711,10 +702,52 @@ impl Prepared {
         match value {
             Ok(value) => Ok(value),
             Err(error) => Err(match crash_message(lane, id, method).await {
-                Some(message) => unavailable(message),
+                Some(message) => {
+                    // The child died after it answered the hello: the crash path
+                    // already set Core's state, so the failure must not carry a
+                    // hello that would mark the dead child ready again.
+                    *ready = None;
+                    unavailable(message)
+                }
                 None => call_failure(error.into(), "plugin_unavailable"),
             }),
         }
+    }
+}
+
+/// Settles a lane when dropped, so a call abandoned mid-report never leaves
+/// [`crate::ProcessOwner::ensure`] waiting on a lane nobody will settle.
+struct SettleOnDrop<'a>(&'a PluginLane);
+
+impl Drop for SettleOnDrop<'_> {
+    fn drop(&mut self) {
+        self.0.settle();
+    }
+}
+
+impl Prepared {
+    /// The child lived on but did not answer the hello within `wait`: mirror
+    /// flag-off, whose `start()` catch in `src/plugins/registry.ts` stops the
+    /// child and calls `recordCrash` unconditionally (even when a stop raced the
+    /// hello), so the owner's book and Core's `restarts` match.
+    ///
+    /// The exit is claimed before the stop: if the child died on its own in the
+    /// instant after `crash_message` saw it alive, the monitor has (or will)
+    /// claim it first and records it with its exit reason, otherwise the monitor
+    /// sees the claim and leaves the record, report and settle to this call.
+    /// Exactly one crash lands either way. As the monitor does, the crash is
+    /// recorded and reported before the lane settles, so `ensure` never
+    /// replaces the dead lane before its crash is on record.
+    async fn stop_unanswered(&self, lane: &PluginLane, id: &str, wait: Duration) {
+        if !lane.claim_exit() {
+            let _ = lane.process().terminate().await;
+            return;
+        }
+        let _settle = SettleOnDrop(lane);
+        self.crash_book.record(id);
+        let _ = lane.process().terminate().await;
+        let reason = format!("plugin.hello passed its {} ms deadline", wait.as_millis());
+        self.crash_book.report(id, &reason).await;
     }
 }
 

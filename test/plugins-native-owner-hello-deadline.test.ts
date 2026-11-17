@@ -93,3 +93,34 @@ test.skipIf(!front)("plugin.hello gets 10 s and the same timeout text flag-off a
     expect(afterMs, mode).toBeLessThan(15000);
   }
 }, 90000);
+
+type Listed = { state: string; error: string | null };
+
+/** `plugin.doctor` for a child that answers its hello and then dies during the ping, and the entry `plugin.list` shows after. */
+async function crashedCall(options: Options, forward = ""): Promise<{ doctor: Doctor; listed: Listed }> {
+  const h = makeHome();
+  cleanups.push(() => h.done());
+  installFixture("good", join(h.state, "plugins"), { manifest: { id: "fx-crash" }, fixture: { exitOnPing: true } });
+  const service = await serve(h, forward, options);
+  cleanups.push(() => service.stop());
+  await service.call("plugin.enable", { id: "fx-crash", grant: true });
+  const { ok, error, restarts } = (await service.call("plugin.doctor", { id: "fx-crash" })).json.result.reports[0];
+  const entry = (await service.call("plugin.list", {})).json.result.plugins.find((p: { id: string }) => p.id === "fx-crash");
+  return { doctor: { ok, error, restarts }, listed: { state: entry.state, error: entry.error } };
+}
+
+test.skipIf(!front)("a child that answered its hello and dies during the call is not listed ready, flag-off and on the native owner", async () => {
+  const off = await crashedCall(tsOwner);
+  const core = await crashedCall(ownerOn, "plugin.doctor");
+  console.log(JSON.stringify({ off, core }));
+  for (const [mode, seen] of Object.entries({ off, core })) {
+    expect(seen.doctor.ok, mode).toBe(false);
+    expect(["idle", "failing"], mode).toContain(seen.listed.state);
+    expect(seen.listed.error, mode).not.toBeNull();
+  }
+  // The owner records and reports the crash before the call fails, so Core's doctor already counts it.
+  // (Flag-off's doctor can answer before its own exit handler records the crash, so its count races.)
+  expect(core.doctor.restarts).toBeGreaterThanOrEqual(1);
+  // The crash failure carries no hello, so Core keeps the crash's state instead of marking the dead child ready.
+  expect(core.listed).toEqual(off.listed);
+}, 90000);

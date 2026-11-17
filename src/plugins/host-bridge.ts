@@ -114,6 +114,8 @@ const nativeOwnerReply = z.object({
   ])).default([]),
 });
 export type NativeOwnerReply = z.infer<typeof nativeOwnerReply>;
+/** The `{protocol, served}` hello summary an owner reply (or a failed call's error data) carries. */
+export const nativeOwnerHello = nativeOwnerReply.shape.hello;
 
 const rpcReply = z.object({
   jsonrpc: z.literal("2.0"),
@@ -280,10 +282,18 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
  */
 export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
   onFailedLogs?: (logs: NativeOwnerReply["logs"]) => void): Promise<NativeOwnerReply> {
-  let failed: z.infer<typeof rpcReply> | undefined;
+  // The `hello` `{protocol, served}` the final reply carried, validated with the
+  // reply schema's own shape: an error reply's `data.hello` or, for a call that
+  // failed after the owner already sent its result (an abort or a deadline), the
+  // result's `hello`.
+  let hello: NativeOwnerReply["hello"] = null;
   try {
+    // The reply callback is always passed, even without `onFailedLogs`: an aborted
+    // call then waits up to DRAIN_MS for the owner's final reply, which is what
+    // carries the hello that restores readiness.
     const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked, reply => {
-      if (reply.error) failed = reply;
+      const carried = nativeOwnerReply.shape.hello.safeParse(reply.error ? reply.error.data?.hello : (reply.result as { hello?: unknown } | null)?.hello);
+      if (carried.success && carried.data) hello = carried.data;
       if (!onFailedLogs) return;
       const logs = nativeOwnerReply.shape.logs.safeParse(reply.error ? reply.error.data?.logs : (reply.result as { logs?: unknown } | null)?.logs);
       if (logs.success && logs.data.length) onFailedLogs(logs.data);
@@ -294,10 +304,9 @@ export async function callNativeOwner(socketPath: string, call: NativeOwnerCall,
     if (!reply.success) throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`);
     return reply.data;
   } catch (error) {
-    // A failed call's reply still carries the `hello` `{protocol, served}`
-    // summary when the child answered it, so Core can restore readiness even
-    // though it gave up on the call that ran the hello.
-    const hello = failed?.error?.data?.hello;
+    // A failed call's reply still carries the `hello` summary when the child
+    // answered it, so Core can restore readiness even though it gave up on the
+    // call that ran the hello.
     if (hello && error instanceof CoreError)
       throw new CoreError(error.code, error.message, error.hint, { ...error.data, hello });
     throw error;

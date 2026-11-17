@@ -32,7 +32,7 @@ import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { observationGeneration, sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
-import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
+import { callNativeOwner, nativeOwnerCallFits, nativeOwnerHello, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
@@ -2667,10 +2667,14 @@ export class PluginRegistry {
         // call later fails (a deadline, a refused method, the owner stopping for a stop
         // or restart), so Core restores readiness instead of staying `idle` on a child
         // that is actually ready.
-        const markReadyFrom = (hello: { protocol?: string; served?: string[] } | null | undefined) => {
-          if (hello?.protocol && e.state !== "ready") {
+        // Only an enabled plugin becomes ready, as flag-off's start() runs only for one and
+        // `nativeCrash` guards with the same set: a disabled, refused or needs_grant entry
+        // stays as it is. An empty protocol never marks ready, as flag-off refuses it
+        // (protocol major `Number("")` is not PLUGIN_PROTOCOL_MAJOR).
+        const markReadyFrom = (hello: NativeOwnerReply["hello"] | undefined) => {
+          if (hello?.protocol && ENABLED.has(e.state) && e.state !== "ready") {
             this.nativeMarkReady(ctx, e.id, hello.protocol,
-              (hello.served ?? []).filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+              hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
           }
         };
         try {
@@ -2698,7 +2702,10 @@ export class PluginRegistry {
             reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
           } catch (error) {
             // A failed call's reply still carried the `hello` when the child answered it.
-            if (error instanceof CoreError) markReadyFrom(error.data?.hello as { protocol?: string; served?: string[] } | undefined);
+            if (error instanceof CoreError) {
+              const hello = nativeOwnerHello.safeParse(error.data?.hello);
+              if (hello.success) markReadyFrom(hello.data);
+            }
             throw error;
           }
           writeLogs(reply.logs);
