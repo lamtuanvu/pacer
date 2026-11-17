@@ -86,8 +86,8 @@ Renew it before it expires; Prepare release fails with a clear error without it.
 
 Nightlies are signed prereleases of a `main` commit, published to the `nightly` channel ([distribution](docs/distribution.md#nightly-builds)). To run one by hand, open **Actions → Nightly → Run workflow** on `main`:
 
-1. Run it with `dry_run` checked first. It selects the commit, waits for CI evidence, picks the version and stamps it, but pushes no tag.
-2. Then run it again without `dry_run`. Leave `sha` empty to build `main`'s head, or enter a commit on `main`. The pushed `v<version>-nightly.<stamp>` tag runs `release.yml`.
+1. Run it with `dry_run` checked first. It selects the commit, waits for CI evidence (dispatching CI on `main` when the commit has no full-suite run), picks the version and stamps it, but pushes no tag.
+2. Then run it again without `dry_run`. Leave `sha` empty to build `main`'s head, or enter a commit on `main`. The pushed `v<version>` tag (for example `v0.16.0-nightly.202611171700`) runs `release.yml`.
 
 Nightly uses the same `RELEASE_TOKEN` as Prepare release. A nightly never adds commits to `main` and never touches `CHANGELOG.md`. A failed nightly is fixed like a failed release: rerun the failed jobs of the **Release** run for that tag, or run Nightly again for a new version. The scheduled midnight run stays off until the first manual nightly has succeeded.
 

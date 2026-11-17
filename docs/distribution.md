@@ -81,6 +81,10 @@ Tap setup:
 
 The release workflow commits `Formula/pacer.rb` to the tap’s `main` branch with a sign-off. It skips prereleases, does nothing when the formula is unchanged, and prints `skipped: HOMEBREW_TAP_TOKEN not set` while the secret is missing.
 
+## crates.io
+
+The `crates` job publishes the Rust crates to crates.io for stable versions only. Prereleases (`-rc.N`, `-beta.N` and nightlies) are not published to crates.io; before the nightly channel, regular prereleases were.
+
 ## Dry-run release validation
 
 From a checkout whose package version, app assets and changelog are prepared for the version, run:
@@ -104,6 +108,7 @@ Nightly builds are signed prereleases of a `main` commit. They use the same buil
 **Release path.** `release.yml` classifies the tag's version with `scripts/release/nightly.ts classify`. For a nightly it:
 
 - checks that the tagged commit changes only the version files;
+- checks that the tagged commit's parent is on `main`;
 - takes CI evidence for the parent `main` commit, without dispatching CI;
 - writes release notes from the commit titles since the previous nightly's parent (or the latest stable tag), instead of a CHANGELOG section;
 - publishes a GitHub prerelease that never becomes latest;
@@ -114,7 +119,7 @@ Nightly builds are signed prereleases of a `main` commit. They use the same buil
 
 **Feeds.** On the `desktop-updates` branch, `stable.json` stays stable-only. `nightly.json` is the desktop nightly feed, and `cli-nightly.json` (`{"version":"<version>"}`) is the CLI nightly feed. No feed ever moves to an older version.
 
-**Retention.** After each nightly run, a prune job deletes nightly GitHub Releases and their tags older than 14 days. It always keeps the newest 3, and never deletes a version that `nightly.json` or `cli-nightly.json` references. Once the schedule is enabled, the prune also runs weekly. npm versions are never unpublished; the `nightly` dist-tag simply moves.
+**Retention.** After each nightly run, a prune job deletes nightly GitHub Releases and their tags older than 14 days. It always keeps the newest 3, and never deletes a version that `nightly.json` or `cli-nightly.json` references. Once the schedule is enabled, the prune also runs weekly. npm versions are never unpublished; the `nightly` dist-tag simply moves. The prune lists releases, not tags, so a nightly tag whose `release.yml` failed before creating its GitHub release stays until it is deleted by hand.
 
 **Run one by hand.** Open **Actions → Nightly → Run workflow** on `main`, or run:
 
