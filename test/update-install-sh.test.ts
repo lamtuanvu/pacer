@@ -442,3 +442,12 @@ test("PACER_INSTALL_VERSION overrides the channel", async () => {
   expect(r.code).toBe(0);
   expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
 });
+
+test("PACER_INSTALL_CHANNEL=nightly ignores a malformed stable version and installs the nightly", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  writeFileSync(join(root, "latest.json"), `${JSON.stringify({ version: "99.x" })}\n`);
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(r.code).toBe(0);
+  expect(r.err).toContain("warning: could not read a version from");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body(NIGHTLY, MAC));
+});

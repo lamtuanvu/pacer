@@ -219,3 +219,51 @@ fn missing_strategy_matches_typescript_error() {
     );
     assert!(!path.exists());
 }
+
+#[test]
+fn update_channel_defaults_round_trips_and_rejects_other_channels() {
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../test/fixtures/config-settings/settings.json"
+    ))
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("strategy.yaml");
+    fs::write(&path, fixture["base"].as_str().unwrap()).unwrap();
+    let keys = |path: &std::path::Path| {
+        get_settings(path, "default", None, &json!({})).unwrap()["keys"]["update_channel"].clone()
+    };
+    assert_eq!(keys(&path), json!({"value":"stable","source":"default"}));
+    let set = set_setting(
+        &path,
+        "default",
+        "update_channel",
+        &json!("nightly"),
+        SetOptions::default(),
+    )
+    .unwrap();
+    assert_eq!(
+        (set["value"].clone(), set["previous"].clone()),
+        (json!("nightly"), json!("stable"))
+    );
+    assert_eq!(set["undo"], "pacer config set update_channel stable");
+    assert!(
+        fs::read_to_string(&path)
+            .unwrap()
+            .contains("\nupdate_channel: nightly\n")
+    );
+    assert_eq!(keys(&path)["value"], "nightly");
+    let before = fs::read_to_string(&path).unwrap();
+    let error = set_setting(
+        &path,
+        "default",
+        "update_channel",
+        &json!("beta"),
+        SetOptions::default(),
+    )
+    .unwrap_err();
+    assert_eq!(
+        (error.code, error.message.as_str()),
+        ("invalid_input", "update_channel must be stable or nightly")
+    );
+    assert_eq!(fs::read_to_string(&path).unwrap(), before);
+}

@@ -150,7 +150,10 @@ version=${PACER_INSTALL_VERSION:-}
 if [ -z "$version" ] && [ "$channel" = nightly ]; then
   # Nightly installs take the newer of both feeds; a feed that fails leaves the other.
   stable_version=$(feed_version "$latest" "$tmp/latest.json")
-  [ -n "$stable_version" ] || printf 'pacer install: warning: could not read a version from %s\n' "$latest" >&2
+  if ! printf '%s\n' "$stable_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)([-+][0-9A-Za-z.+-]+)?$'; then
+    printf 'pacer install: warning: could not read a version from %s\n' "$latest" >&2
+    stable_version=
+  fi
   nightly_version=$(feed_version "$nightly_feed" "$tmp/cli-nightly.json")
   if ! printf '%s\n' "$nightly_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-nightly\.[1-9][0-9]{11}$'; then
     printf 'pacer install: warning: no valid nightly version in %s\n' "$nightly_feed" >&2

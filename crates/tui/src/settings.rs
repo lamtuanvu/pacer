@@ -1109,7 +1109,9 @@ pub fn build(ctx: &Ctx) -> View {
                         "update:channel",
                     );
                     v.items.push(Item::new("update:channel", None, 0, &[]));
-                    hints.push("← → change".into());
+                    if ctx.supports("config.set") {
+                        hints.push("← → change".into());
+                    }
                 }
             }
             "notifications" => {
