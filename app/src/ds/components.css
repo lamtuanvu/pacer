@@ -626,7 +626,7 @@ a.pc-btn{text-decoration:none}
    fills the sheet but passes clicks through its empty part; only its children take pointer events. */
 .pc-aurora:not(.pc-aurora--narrow) .pc-aurora__column{flex:1;justify-content:flex-end;pointer-events:none}
 .pc-aurora:not(.pc-aurora--narrow) .pc-aurora__column>*{pointer-events:auto}
-.pc-aurora:not(.pc-aurora--narrow) .pc-aurora__bar{position:absolute;top:0;right:0}
+.pc-aurora:not(.pc-aurora--narrow) .pc-aurora__bar{position:absolute;top:0;right:0;padding:var(--size-2);border:1px solid var(--line);border-radius:var(--radius-full);background:var(--surface-card)}
 .pc-aurora--max .pc-aurora__column{padding-top:var(--size-40)}
 .pc-aurora--max .pc-aurora__veil{background:var(--surface-page);-webkit-mask-image:none;mask-image:none;pointer-events:auto}
 .pc-aurora--max .pc-aurora__column{flex:1;max-width:var(--size-960)}

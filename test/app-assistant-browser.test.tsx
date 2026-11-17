@@ -154,10 +154,11 @@ browserTest("assistant_sheet_fits_phone_width_with_a_visible_input_and_forced_co
     expect(await page.locator(".pc-aurora__glow").evaluate(el => getComputedStyle(el).display)).toBe("none");
     await page.emulateMedia({ forcedColors: "none" });
     // The narrow sheet has a close icon (no expand), and closing from the pill returns focus to the re-shown pill.
+    await focused(page, 'input[aria-label="Ask pacer"]');
     await page.keyboard.press("Escape");
-    await page.getByRole("button", { name: "Open assistant" }).click();
+    await page.getByRole("button", { name: "Open assistant" }).click({ timeout: 5000 });
     expect(await page.getByRole("button", { name: "Expand assistant" }).count()).toBe(0);
-    await page.getByRole("button", { name: "Close assistant" }).click();
+    await page.getByRole("button", { name: "Close assistant" }).click({ timeout: 5000 });
     await focused(page, '[aria-label="Open assistant"]');
   } finally { await browser.close(); }
 }, 20_000);
@@ -417,7 +418,8 @@ browserTest("open assistant close button stays below top bar and measured sessio
       await page.keyboard.press("Control+Backquote");
       await page.locator(".pc-dock").waitFor();
       // Model a late-mounted session header in the real shell, including a height change.
-      await page.locator("#main-content").evaluate((el,cls)=>el.insertAdjacentHTML("afterbegin",`<header class="${cls} pc-test-header" style="height:80px"><button>Take over</button></header>`),headerClass);
+      // A session bar sits at the top of main; a page header renders inside the scroll area, as Page does.
+      await page.locator(headerClass === "pc-session-bar" ? "#main-content" : "#main-content .pc-main-scroll").evaluate((el,cls)=>el.insertAdjacentHTML("afterbegin",`<header class="${cls} pc-test-header" style="height:80px"><button>Take over</button></header>`),headerClass);
       await openSheet(page);
       for (const headerHeight of [80,120]) {
         await page.locator(".pc-test-header").evaluate((el,height)=>{(el as HTMLElement).style.height=`${height}px`;},headerHeight);
@@ -449,6 +451,8 @@ browserTest("assistant_log_keeps_the_reader_on_an_older_message_until_they_send"
     await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight > el.clientHeight && el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
     expect(await atBottom()).toBe(true);
     // Scroll up to read, then cause re-renders (typing re-renders the host, as a live poll does): the log stays put.
+    // Let the sheet's own scroll event settle first, then scroll up as a reader does.
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
     await log.evaluate(el => { el.scrollTop = 40; el.dispatchEvent(new Event("scroll")); });
     await page.locator('input[aria-label="Ask pacer"]').pressSequentially("why");
     await page.waitForTimeout(100);

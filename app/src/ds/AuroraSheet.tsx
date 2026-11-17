@@ -74,9 +74,10 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
   useEffect(() => {
     pinned.current = autoScroll;
     // A status card is read from its top, once, when it replaces the conversation.
-    if (!autoScroll && log.current) log.current.scrollTop = 0;
+    if (!autoScroll && log.current) { log.current.scrollTop = 0; lastTop.current = 0; }
   }, [followKey, autoScroll]);
-  useEffect(() => { const el = log.current; if (el && pinned.current) el.scrollTop = el.scrollHeight; });
+  // Record where our own scroll lands, so the next scroll event compares the reader's move against it, not a stale value.
+  useEffect(() => { const el = log.current; if (el && pinned.current) { el.scrollTop = el.scrollHeight; lastTop.current = el.scrollTop; } });
   return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow", maximized && !narrow && "pc-aurora--max")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open} onKeyDown={event => {
     // Own Escape inside the sheet before the shell's settings-navigation shortcut.
     // Menus inside the sheet may consume it first.
