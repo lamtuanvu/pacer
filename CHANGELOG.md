@@ -4,10 +4,26 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- Settings → Updates and the TUI no longer offer a service Install that is always refused: `update.check` reports `managedBy` (`desktop`, `homebrew` or `npm`) with `managedHint` when another installer updates the installation, `update.apply` refuses a desktop-owned installation before anything else, and an error no longer repeats its hint.
+
+- A desktop whose `com.pacer.serve` runs a build the app cannot verify no longer ends up with **Automatic desktop updates are unavailable** and no way out. When you kept your own command at Welcome, Settings → Updates now reports the replaced service and offers **Review service replacement**, which opens the same confirmation page only when you ask for it; the launch-time **Use the app's service** page is unchanged for a service the app owns. Once you confirm, the app records that you chose its service, so it stops running your own command for its sign-in.
+
+- Replacing the service no longer fails because launchd still lists the job, or the old process is still exiting, a moment after `bootout`. The stop step now waits on awake time for that one job and its process to actually go away, and never signals a process it cannot prove is the inspected one. A takeover step that fails now names the step and the check that failed in `desktop.log`.
+
+- OpenCode provider retry loops are now detected while the screen animates, instead of waiting for a quiet period that a retrying screen never reaches. A rate limit moves the task to the next executor at once, as a detected usage limit does today. A transient provider error (for example HTTP 524) moves the task to the next executor after `execution.transient_retry_min` (new key, default 10 minutes) with no file change. A plugin-owned attempt stopped for a provider retry loop now moves to the next executor like a detected limit, instead of failing the task.
+
+## [0.16.0] - 2026-11-17
+
 ### Added
 
 - Notification health (Parts A and B): `client.register` and `client.heartbeat` carry optional `notification_permission` and `notification_alerts`, and the registry records `permission_changed_at` whenever either changes between two real states (not on a first report, an `unsupported` transition, or an unchanged value, so an app relaunch does not reset a delivered test); new ops `notifications.test`, `notifications.ack` (desktop clients only; must match the targeted desktop's `client_id`, and omits `error` on success), `notifications.request` (waits up to `wait_s`, default and maximum 20/25 s, under the desktop's 30 s service-call timeout; publishes a `control` v3 event that plugins may observe) and the cheap read `notifications.health` (v3 only); a `Notifications` doctor check with ordered state table and remedies `allowNotifications()`, `notificationSettings(caption)` and `testNotification()`, with a structured `tested_at` on the ok detail; `setup.skip` skips the optional setup step (stored in `settings.json` under the config lock); the Notifications remedy stays out of Setup and Diagnostics fix-all; executor sessions cannot run the new `notifications.test/ack/request/health` ops or `setup.skip` (`notifications.get` and `notifications.set` keep their prior policy); desktop reports raw permission/alert state (omitting the permission until macOS has answered a real settings read) and acks every posted notification, opens System Settings via `open_system_settings`, setup gains a "Turn on notifications" step (renderable as Skipped) and Settings shows a Desktop banners row. State is stored in `state/notification-health.json`.
 - A user-selectable notification sound: `notifications.set` accepts a new sibling `notificationSound` setting (`"pacer"` default, `"default"`, `"off"`, or one of the 14 built-in macOS sounds `"basso"`, `"blow"`, `"bottle"`, `"frog"`, `"funk"`, `"glass"`, `"hero"`, `"morse"`, `"ping"`, `"pop"`, `"purr"`, `"sosumi"`, `"submarine"`, `"tink"`), `notifications.get` returns the effective `{level, sound}` pair, and the macOS desktop plays the bundled `pacer-drop` sound (or the system default, a built-in sound from `/System/Library/Sounds`, or none) via `UNNotificationSound`, read from `settings.json` on every post so a change takes effect without a restart. `notificationSound` stays a plain sibling key; `notifications` remains a string level. Desktop banners were silent before; existing installs now play the pacer sound by default until the user picks another sound or Off. On macOS, Settings › General › Notifications shows the choice as a picker with a Send test button beside it that posts a real banner with the selected sound (or the banner remedy when notifications are not allowed). See the bundle recipe in `desktop/src-tauri/sounds/README.md`.
+
+### Fixed
+
+- While a service update restarts pacer, the app's banner says "Updating pacer…" instead of the generic "Reconnecting to pacer…", and Settings > Updates no longer keeps a stale "Service is connecting" error once the update has finished.
 
 ## [0.15.1] - 2026-11-16
 

@@ -93,4 +93,4 @@ export interface ScreenView {
 }
 
 /** The `update.check` result. */
-export interface UpdateInfo { current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean }
+export interface UpdateInfo { current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean; managedBy?: "desktop" | "homebrew" | "npm"; managedHint?: string }

@@ -48,6 +48,10 @@ pub(crate) use fixture::{fixture_attach, fixture_jobs, fixture_refresh_takeover}
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
+/// How long a pinned (takeover) bootout waits for launchd to stop listing the job
+/// after the exact process exited. Managed and adoption bootouts do not wait.
+pub(crate) const PINNED_BOOTOUT_SETTLE_MS: u64 = 15_000;
+
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct JobDefinition {
     pub label: String,
@@ -215,6 +219,23 @@ impl OwnedJob {
         program: &ProgramCheck,
     ) -> Result<Option<LoadedJob>, OtaError> {
         self.observe_with(trust, program)
+    }
+    /// The job after a pinned bootout, read again on awake time while launchd still
+    /// lists it, up to [`PINNED_BOOTOUT_SETTLE_MS`]. Observation only: the exact
+    /// process has already exited and nothing is signaled. A job still listed at the
+    /// deadline, or after a boot change, is returned for the caller to refuse.
+    async fn settle_after_bootout(
+        &self,
+        trust: &ReleaseTrust,
+        program: &ProgramCheck,
+    ) -> Result<Option<LoadedJob>, OtaError> {
+        settle_absent(
+            || self.observe_after_bootout(trust, program),
+            || native::awake_now().map_err(|_| OtaError::Identity),
+            PINNED_BOOTOUT_SETTLE_MS,
+            std::time::Duration::from_millis(50),
+        )
+        .await
     }
     pub(crate) async fn change(
         &self,
@@ -432,6 +453,12 @@ impl OwnedJob {
             if let Some(process) = &stopped_process {
                 wait_exact_exit(process).await?;
             }
+            // A replaced legacy service: launchd can list the job for a moment after
+            // it reported the bootout and the exact process exited. Wait that out;
+            // the fresh observation below still refuses a job that stays listed.
+            if matches!(program, ProgramCheck::Pinned(_)) {
+                self.settle_after_bootout(trust, program).await?;
+            }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
         // Bootout completion must use the state after exact exit and retirement,
@@ -474,6 +501,31 @@ pub(crate) async fn wait_exact_exit(expected: &ProcessIdentity) -> Result<(), Ot
             return Err(OtaError::Timeout);
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
+    }
+}
+
+/// Re-reads `observe` on awake time until it reports nothing, up to `deadline_ms`.
+/// Returns what it last saw when the deadline passes or the boot changes; it never
+/// acts on what it observes.
+async fn settle_absent<T>(
+    mut observe: impl FnMut() -> Result<Option<T>, OtaError>,
+    now: impl Fn() -> Result<native::AwakeStamp, OtaError>,
+    deadline_ms: u64,
+    poll: std::time::Duration,
+) -> Result<Option<T>, OtaError> {
+    let start = now()?;
+    loop {
+        let seen = observe()?;
+        if seen.is_none() {
+            return Ok(None);
+        }
+        let stamp = now()?;
+        if stamp.boot_id != start.boot_id
+            || native::elapsed_ms(&start, &stamp).map_err(|_| OtaError::Identity)? >= deadline_ms
+        {
+            return Ok(seen);
+        }
+        tokio::time::sleep(poll).await;
     }
 }
 impl JobDefinition {
@@ -1156,6 +1208,54 @@ async fn await_child_exit_receipt(
             return Ok(false);
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn clock(step: u64, boot: &'static str) -> impl Fn() -> Result<native::AwakeStamp, OtaError> {
+        let now = Cell::new(0u64);
+        move || {
+            now.set(now.get() + step);
+            Ok(native::AwakeStamp { boot_id: boot.into(), millis: now.get() })
+        }
+    }
+    fn run<T>(future: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(future)
+    }
+    const POLL: std::time::Duration = std::time::Duration::ZERO;
+
+    #[test]
+    fn a_job_launchd_still_lists_briefly_after_bootout_settles_to_absent() {
+        let reads = Cell::new(0u32);
+        let observe = || {
+            reads.set(reads.get() + 1);
+            Ok((reads.get() < 4).then_some("job"))
+        };
+        assert_eq!(run(settle_absent(observe, clock(100, "boot"), 15_000, POLL)), Ok(None));
+        assert_eq!(reads.get(), 4);
+    }
+
+    #[test]
+    fn a_job_still_listed_at_the_deadline_is_returned_for_refusal() {
+        assert_eq!(run(settle_absent(|| Ok(Some("job")), clock(1_000, "boot"), 15_000, POLL)), Ok(Some("job")));
+    }
+
+    #[test]
+    fn a_boot_change_or_observation_error_ends_the_wait() {
+        let boots = Cell::new(0u32);
+        let now = || {
+            boots.set(boots.get() + 1);
+            Ok(native::AwakeStamp { boot_id: if boots.get() == 1 { "a".into() } else { "b".into() }, millis: 0 })
+        };
+        assert_eq!(run(settle_absent(|| Ok(Some("job")), now, 15_000, POLL)), Ok(Some("job")));
+        assert_eq!(
+            run(settle_absent(|| Err::<Option<&str>, _>(OtaError::Identity), clock(1, "boot"), 15_000, POLL)),
+            Err(OtaError::Identity)
+        );
     }
 }
 

@@ -114,10 +114,14 @@ test.skipIf(!browserPath)("a discovery notice and the update notice stack in the
         expect(box.x).toBeGreaterThanOrEqual(0); expect(box.x + box.width).toBeLessThanOrEqual(width);
         expect(box.y).toBeGreaterThanOrEqual(0); expect(box.y + box.height).toBeLessThanOrEqual(floor);
       }
-      // Neither notice covers the Ask pacer launcher, closed or in its open-sheet position (narrow hides it while open).
+      // Neither notice covers the Ask pacer launcher, when shown (it hides while the sheet is open).
       const button = page.locator(".pc-aurora-launcher");
-      expect(await button.count()).toBe(width < 560 && launcher === "open" ? 0 : 1);
+      expect(await button.count()).toBe(launcher === "open" ? 0 : 1);
+      // An open sheet keeps its close control uncovered too.
+      const close = page.getByRole("button", { name: "Close assistant" });
+      expect(await close.count()).toBe(launcher === "open" && width >= 560 ? 1 : 0);
       if (await button.count()) for (const box of [a, b]) expect(overlaps((await button.boundingBox())!, box), `${width} ${launcher}`).toBe(false);
+      if (await close.count()) for (const box of [a, b]) expect(overlaps((await close.boundingBox())!, box), `${width} close`).toBe(false);
       // Each notice keeps its one primary action (UI-14).
       for (const notice of [found, update]) expect(await notice.locator(".pc-btn--primary").count()).toBe(1);
       // Tab through the page: every notice control is reached, and every stop is on screen and not covered.

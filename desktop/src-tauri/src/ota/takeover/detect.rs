@@ -113,6 +113,11 @@ pub fn detect_takeover(
 
 /// Offers a takeover only when every predicate holds; any other failure keeps
 /// today's behavior. `Io` is reported so the caller can retry later.
+///
+/// A consent record in either state is detected: `keep: false` offers the
+/// choice at launch as well, while `keep: true` is offered only through
+/// Settings → Updates (`logic::launch_offer` decides which). A missing or
+/// malformed record keeps today's behavior and is never offered.
 pub(crate) fn detect_with(
     config_dir: &Path,
     user_home: &Path,
@@ -125,7 +130,7 @@ pub(crate) fn detect_with(
         Err(OtaError::Io) => return Err(OtaError::Io),
         Err(_) => return Ok(None),
     };
-    if !consent.as_ref().is_some_and(|c| !c.keep) {
+    if consent.is_none() {
         return Ok(None);
     }
     let observed = match sources.observe() {
@@ -400,13 +405,13 @@ mod tests {
     }
 
     #[test]
-    fn consent_that_is_missing_kept_or_malformed_is_not_offered() {
+    fn consent_that_is_missing_or_malformed_is_not_offered() {
         let f = fixture();
         let consent = f.config.join("consent.json");
         for bad in [
-            r#"{"at":"today","keep":true,"path":false}"#,
             "{",
             r#"{"at":"today","keep":false,"path":false,"extra":1}"#,
+            r#"{"at":"today","keep":"false","path":false}"#,
         ] {
             std::fs::write(&consent, bad).unwrap();
             assert_eq!(detect(&f, &running(&f, &f.program)), Ok(None), "{bad}");
@@ -415,6 +420,30 @@ mod tests {
         assert_eq!(detect(&f, &running(&f, &f.program)), Ok(None));
         std::os::unix::fs::symlink(f.root.join("elsewhere.json"), &consent).unwrap();
         assert_eq!(detect(&f, &running(&f, &f.program)), Ok(None));
+    }
+
+    #[test]
+    fn a_kept_consent_is_detected_so_settings_can_offer_the_replacement() {
+        let f = fixture();
+        let consent = f.config.join("consent.json");
+        std::fs::write(&consent, r#"{"at":"today","keep":true,"path":false}"#).unwrap();
+        let kept = detect(&f, &running(&f, &f.program)).unwrap().unwrap();
+        // The candidate is the same one a replaced consent reports; only the
+        // launch-time offer differs, which `logic::launch_offer` decides.
+        std::fs::write(&consent, r#"{"at":"today","keep":false,"path":false}"#).unwrap();
+        let replaced = detect(&f, &running(&f, &f.program)).unwrap().unwrap();
+        assert_eq!(kept, replaced);
+        // Every other predicate still refuses a kept consent's service.
+        assert_eq!(
+            detect(
+                &f,
+                &Fake {
+                    signed: Ok(()),
+                    ..running(&f, &f.program)
+                }
+            ),
+            Ok(None)
+        );
     }
 
     #[test]
