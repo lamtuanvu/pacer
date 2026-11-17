@@ -119,6 +119,35 @@ for (const [width, height] of [[1440, 900], [1920, 1080], [390, 844], [560, 900]
   });
 }
 
+for (const [width, height] of [[1440, 900], [390, 844]] as const) for (const scheme of ["light", "dark"] as const) {
+  browserTest(`service update restart banner at ${width}×${height} ${scheme}`, async () => {
+    const page = await browser.newPage({ viewport: { width, height }, colorScheme: scheme });
+    try {
+      await page.goto(`${server.url}?state=updating`);
+      await page.locator(".pc-dispatch").waitFor();
+      await page.waitForFunction(() => document.adoptedStyleSheets.length > 0);
+      const bar = page.locator(".connection-bar");
+      expect(await bar.textContent()).toContain("Updating pacer… The service is restarting on the new version.");
+      expect(await bar.textContent()).not.toContain("Reconnecting");
+      const contrast = await bar.evaluate(n => {
+        const values = (s: string) => s.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+        let box: Element | null = n, bg = "rgba(0, 0, 0, 0)";
+        while (box && /rgba\(0, 0, 0, 0\)|transparent/.test(bg)) { bg = getComputedStyle(box).backgroundColor; box = box.parentElement; }
+        const luminance = (rgb: number[]) => rgb.map(c => { const x = c / 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }).reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i]!, 0);
+        const fgL = luminance(values(getComputedStyle(n).color)), bgL = luminance(values(bg));
+        return (Math.max(fgL, bgL) + .05) / (Math.min(fgL, bgL) + .05);
+      });
+      expect(contrast).toBeGreaterThanOrEqual(4.5);
+      const banner = await bar.boundingBox(), top = await page.locator(".pc-topbar").boundingBox();
+      expect(banner!.y).toBe(top!.y + top!.height);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (process.env.PACER_DESIGN_EVIDENCE) {
+        const dir = ".work/fixtures/states"; mkdirSync(dir, { recursive: true });
+        await page.screenshot({ path: `${dir}/updating-${width}-${scheme}.png` });
+      }
+    } finally { await page.close(); }
+  });
+}
 browserTest("DispatchHome uses detection and capability-gates sample work", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
