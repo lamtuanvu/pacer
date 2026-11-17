@@ -166,7 +166,7 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     }
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
     controlled = driving;
-    let changed = false;
+    let changed = false, progressed = false;
     if (!run.host && now - gitAt >= 30) {
       gitAt = now;
       try {
@@ -193,12 +193,14 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
         if (st.code === 0 && diff.code === 0) {
           const next = gitFingerprint(st.stdout, diff.stdout, head.code === 0 ? head.stdout.trim() : "");
           changed = fingerprint === undefined ? files > 0 || commits > 0 : next !== fingerprint;
+          progressed = fingerprint !== undefined && next !== fingerprint;
           fingerprint = next;
         }
       } catch { /* git progress is best effort, including when git is unavailable */ }
     }
-    // Progress clears a retry window; a banner that clears and returns without progress keeps it.
-    if (changed && run.retryBanner) remember({retryBanner: null});
+    // Progress clears a retry window; a banner that clears and returns without progress keeps it. Edits that were
+    // already there when this poller started are not progress, so a resumed poller keeps its persisted window.
+    if (progressed && run.retryBanner) remember({retryBanner: null});
     if (watchRetries && banner?.kind === "transient") {
       if (!run.retryBanner) remember({retryBanner: {since: now, reason: banner.reason}});
       else if (now - run.retryBanner.since >= transientRetry) return "provider";

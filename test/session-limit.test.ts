@@ -103,6 +103,17 @@ test("progress clears the window", async () => {
   } finally { await r.recording.close(); }
 });
 
+test("a resumed poller keeps the window over existing edits", async () => {
+  const t = 1_800_000_000, since = t - 10 * 60 - 1;
+  const r = await opencodeRun("opencode-retry-524.ansi", t, {retryBanner: {since, reason: "Provider request failed with HTTP 524"}});
+  updateTask(r.ctx, r.task.id, x => { x.run!.retryBanner = {since, reason: "Provider request failed with HTTP 524"}; });
+  // The worktree already has edits when the poller starts; they are not new progress.
+  r.ctx.run = async () => ({code: 0, stdout: "?? a.ts\0", stderr: ""});
+  try {
+    expect(await progressPoller(r.ctx, r.task, readTask(r.ctx, r.task.id)!.run!)(r.state(t))).toBe("provider");
+  } finally { await r.recording.close(); }
+});
+
 test("conversation mode is not ended by a banner", async () => {
   const t = 1_800_000_000;
   for (const name of ["opencode-retry-ratelimit.ansi", "opencode-retry-524.ansi"]) {
