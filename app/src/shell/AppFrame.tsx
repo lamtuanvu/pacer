@@ -43,7 +43,8 @@ export function AppFrame({ top, activity, left, main, right, dock, status, overl
         dock = next;
         if (dock) observer.observe(dock);
       }
-      const nextHeader = root.querySelector<HTMLElement>(".pc-session-bar, .pc-page-head, .pc-main-scroll .pc-page > header, .pc-main-scroll .pc-page-header");
+      // The first header that is drawn: the shell's page-head slot is display:none while it is empty.
+      const nextHeader = Array.from(root.querySelectorAll<HTMLElement>(".pc-session-bar, .pc-page-head, .pc-main-scroll .pc-page > header, .pc-main-scroll .pc-page-header")).find(el => el.getClientRects().length > 0) ?? null;
       if (nextHeader !== sessionHeader) {
         if (sessionHeader) observer.unobserve(sessionHeader);
         sessionHeader = nextHeader;

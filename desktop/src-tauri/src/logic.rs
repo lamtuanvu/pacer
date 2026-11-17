@@ -82,6 +82,40 @@ pub fn launch_gate(candidate: bool, dismissed: bool) -> LaunchGate {
     if candidate && !dismissed { LaunchGate::Takeover } else { LaunchGate::Version }
 }
 
+/// Whether the launch-time takeover page may be shown for a detected candidate.
+/// `keep: true` is the user's own choice at Welcome, so its candidate is never
+/// offered at launch: Settings → Updates is its only way in, on explicit action.
+pub fn launch_offer(keep: bool, dismissed: bool) -> bool {
+    !keep && launch_gate(true, dismissed) == LaunchGate::Takeover
+}
+
+/// A plain kebab-case word is the only thing a reason code may name; a path,
+/// a label or a PID reads as `None`.
+fn safe_reason_word(value: &str) -> Option<&str> {
+    (!value.is_empty()
+        && value.len() <= 64
+        && value
+            .bytes()
+            .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || b == b'-'))
+    .then_some(value)
+}
+
+/// Splits a public takeover reason code (`<step>:<error>` or
+/// `<step>:<error>:<predicate>`) into the step that failed and the check inside
+/// it. Only these short public names are ever logged: anything that is not a
+/// plain kebab-case word reads as `unknown`.
+pub fn takeover_failure_step(reason: &str) -> (&str, &str) {
+    let mut parts = reason.split(':');
+    let step = parts.next().unwrap_or("");
+    let error = parts.next().unwrap_or("");
+    let predicate = parts.next().unwrap_or("");
+    let step = safe_reason_word(step).unwrap_or("unknown");
+    let predicate = safe_reason_word(predicate)
+        .or_else(|| safe_reason_word(error))
+        .unwrap_or("unknown");
+    (step, predicate)
+}
+
 /// What the desktop does about unfinished takeover transactions.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum UnfinishedTakeoverNext {
@@ -2971,6 +3005,35 @@ mod desktop_connection_tests {
         assert_eq!(launch_gate(true, false), LaunchGate::Takeover);
         assert_eq!(launch_gate(true, true), LaunchGate::Version);
         assert_eq!(launch_gate(false, false), LaunchGate::Version);
+    }
+    #[test]
+    fn a_kept_consent_is_never_offered_at_launch_but_a_replaced_one_is() {
+        // keep:false keeps the launch page, unless this exact build was dismissed.
+        assert!(launch_offer(false, false));
+        assert!(!launch_offer(false, true));
+        // keep:true is offered only through Settings → Updates, never at launch.
+        assert!(!launch_offer(true, false));
+        assert!(!launch_offer(true, true));
+    }
+    #[test]
+    fn a_takeover_reason_is_read_as_its_step_and_the_check_that_failed() {
+        assert_eq!(
+            takeover_failure_step("stop-original:identity:job-still-loaded"),
+            ("stop-original", "job-still-loaded")
+        );
+        assert_eq!(
+            takeover_failure_step("stop-original:identity"),
+            ("stop-original", "identity")
+        );
+        assert_eq!(takeover_failure_step("redetect:identity"), ("redetect", "identity"));
+        // A code that names no step reports only safe public names.
+        assert_eq!(takeover_failure_step(""), ("unknown", "unknown"));
+        assert_eq!(takeover_failure_step("/tmp/pacer"), ("unknown", "unknown"));
+        // A predicate that is not a plain word falls back to the public error name.
+        assert_eq!(
+            takeover_failure_step("stop-original:identity:PID 4317"),
+            ("stop-original", "identity")
+        );
     }
     #[test]
     fn an_unfinished_takeover_blocks_service_actions_and_outcomes_are_held() {
