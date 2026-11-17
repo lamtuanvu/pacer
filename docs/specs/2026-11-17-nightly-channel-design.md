@@ -45,7 +45,7 @@ A new workflow, `.github/workflows/nightly.yml`:
 
 - **Triggers:** `schedule` at `0 17 * * *` (00:00 UTC+7, the maintainer's midnight), and `workflow_dispatch` with an optional `sha` input (default: `main` HEAD when the run starts).
 - **Skip rule:** a scheduled run exits successfully without building when the selected `main` SHA equals the parent of the newest nightly tag. A manual run always builds.
-- **CI gate:** the selected `main` SHA must have a green full CI suite on both OSes. A scheduled run waits for an in-progress CI run on that SHA, with a bounded timeout. If CI fails, the night is skipped and reported.
+- **CI gate:** the selected `main` SHA must have a green full CI suite on both OSes. A run waits for an in-progress CI run on that SHA, with a bounded timeout. Focused CI skips the full suite for some pushes, so when the SHA has no full-suite result, `nightly.yml` dispatches CI on `main`, guarded by a check that `main` still points at the SHA. If CI fails, or `main` moved, the night is skipped and reported.
 - **Tag:** compute the version, create the stamp commit, push the annotated tag with the existing release token (the same mechanism `release-prepare.yml` uses), which triggers `release.yml`.
 - **Concurrency:** one nightly at a time (`concurrency: nightly`, no cancellation of an in-progress run).
 
@@ -59,7 +59,7 @@ A new workflow, `.github/workflows/nightly.yml`:
 - **Desktop:** `desktop-build` and `desktop-publish` run for stable and nightly versions (other prereleases stay excluded). Build, sign and notarize as for stable (the signing identity and updater key are shared), validate both architectures, then compare-and-swap `nightly.json`. The real publisher accepts a GitHub prerelease only for the nightly channel.
 - **CLI feed:** compare-and-swap `cli-nightly.json`.
 - **Feed order:** both feeds advance only after every required artifact has been published and validated. A failure on any architecture leaves both feeds unchanged.
-- **Failure reporting:** a failed scheduled or manual nightly opens or updates a single issue labelled `nightly-failure`, linking the run. The next successful nightly closes it.
+- **Failure reporting:** a failure in `nightly.yml`, or in any required `release.yml` job for a nightly tag, opens or updates a single issue labelled `nightly-failure`, linking the run. The next successful nightly closes it.
 
 **Retention:** a `nightly-prune` job (after a successful publish, and weekly) deletes nightly GitHub Releases and tags older than 14 days. It always keeps the newest 3, and never deletes the version `nightly.json` or `cli-nightly.json` currently references. npm versions are not unpublished; the `nightly` dist-tag simply moves.
 
