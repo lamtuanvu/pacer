@@ -19,6 +19,7 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
         "register_repos",
         "idle_after_min",
         "idle_fail_min",
+        "transient_retry_min",
     ];
     let mut problems = Vec::new();
     if let Some(map) = raw.as_object() {
@@ -91,6 +92,7 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
     };
     let after = mins("idle_after_min", 10.);
     let fail = mins("idle_fail_min", 30.);
+    mins("transient_retry_min", 10.);
     if fail <= after {
         problems
             .push("execution.idle_fail_min must be greater than execution.idle_after_min".into());
@@ -122,5 +124,28 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
                 .collect::<Vec<_>>()
                 .join("\n")
         )))
+    }
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::validate;
+
+    fn check(yaml: &str) -> Result<(), String> {
+        validate(&crate::doc::parse_yaml_value(yaml).unwrap()).map_err(|e| e.message)
+    }
+
+    #[test]
+    fn transient_retry_min_accepts_positive_whole_minutes() {
+        assert_eq!(check("transient_retry_min: 5\n"), Ok(()));
+        assert_eq!(check("idle_after_min: 10\n"), Ok(()));
+        for bad in ["0", "-1", "2.5", "\"10\""] {
+            let message = check(&format!("transient_retry_min: {bad}\n")).unwrap_err();
+            assert!(
+                message.contains("execution.transient_retry_min must be a whole number of minutes between 1 and 1440"),
+                "{bad}: {message}"
+            );
+        }
     }
 }

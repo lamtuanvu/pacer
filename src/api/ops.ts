@@ -85,7 +85,8 @@ import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
 import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
-import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
+import { defaultUpdateDeps, installManager, runUpdate, type UpdateDeps, type UpdateManager } from "../update/update";
+import { MANAGED_BY_DESKTOP_MESSAGE, ownerRefusal } from "../install/owner";
 import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -169,14 +170,22 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
     throw new CoreError(error.code, error.message, error.hint ?? "Use strategy.list to choose a strategy and strategy.preview to validate a draft.");
   }
 }
+/** Who updates this installation when it is not `pacer update`: the desktop owner (ADR 0021) or the install method. */
+function updateManager(ctx: Ctx, update: Pick<UpdateDeps, "env" | "execPath">): UpdateManager | undefined {
+  return ownerRefusal(ctx, "update") ? {by: "desktop", message: MANAGED_BY_DESKTOP_MESSAGE} : installManager(update);
+}
+const MANAGED_UPDATE_HINT = "This installation is updated by its own installer, not by this service.";
+
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
   const update = {...defaultUpdateDeps(ctx), restartService: async (path: string) => ({restarted: await restartAfterUpdate(ctx, path)}), ...deps.update};
+  const manager = updateManager(ctx, update);
+  if (manager) throw new CoreError("not_allowed", manager.message, MANAGED_UPDATE_HINT);
   // Reuse the CLI's install-method checks without letting it replace the daemon
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
   if (!update.standalone || !preflight.err.startsWith("pacer update: this pacer runs from source")) {
     const message = preflight.err.replace(/^pacer update: /, "");
-    throw new CoreError("not_allowed", message, message);
+    throw new CoreError("not_allowed", message, update.standalone ? undefined : "Install a release build to update from this screen.");
   }
   const job=await startJob(ctx,"update.apply","pacer",["Download","Verify","Replace","Refresh integrations","Restart"],async step=>{
     const result=await (deps.runUpdate ?? runUpdate)({check:false},{...update,progress:(name,state,detail)=>{
@@ -654,7 +663,9 @@ export const OPS: Record<string, OpDef> = {
   "plugin.settings.set": op({ description: "Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.", params: z.object({ plugin: pluginId, values: z.record(z.string(), z.json()), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.settingsSet(ctx, p)) }),
   "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
-    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
+    const manager = updateManager(ctx, defaultUpdateDeps(ctx));
+    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {}),
+      ...(manager ? {managedBy: manager.by, managedHint: manager.message} : {})};
   }) }),
   "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };

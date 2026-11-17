@@ -25,7 +25,7 @@ export function useTaskContext() {
 }
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
-  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
+  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && !error.message.includes(error.hint) && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging', 'diagnostics'];

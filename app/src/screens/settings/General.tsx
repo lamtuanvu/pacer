@@ -20,7 +20,7 @@ export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
 import { PairingView } from "./Pairing";
-import { UpdatesSection } from "./Updates";
+import { UpdatesSection, type UpdateReport } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
 import { LazyModelMatrix } from "./LazyModelMatrix";
@@ -101,14 +101,7 @@ export interface SettingsData {
   routing?: RoutingRules;
   strategies?: StrategyRow[];
   notifications?: { level: string; sound: string };
-  updates?: {
-    current: string;
-    latest: string | null;
-    available: boolean;
-    error?: string;
-    disabled?: boolean;
-    checkedAt?: number;
-  };
+  updates?: UpdateReport;
 }
 /** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
 export function settingsNote(section: string | undefined): string | null {

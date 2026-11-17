@@ -305,8 +305,18 @@ async fn listener_refuses_linked_database_without_modifying_target() {
 fn legacy_json(home: &Path, id: &str, rev: serde_json::Value, state: &str, run: &Path) {
     let file = home.join("tasks").join(format!("{id}.json"));
     let temp = file.with_extension("tmp");
+    // An older binary rewrites the copy after TaskStore's write-through. On a coarse
+    // file clock (Linux CI) a rewrite in the same tick keeps the mtime SQLite recorded,
+    // both readers then trust the row and the follow never ends; make it later.
+    let prior = std::fs::metadata(&file).and_then(|m| m.modified()).ok();
     std::fs::write(&temp, serde_json::to_vec(&json!({"id":id,"rev":rev,"state":state,"createdAt":1000,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}})).unwrap()).unwrap();
-    std::fs::rename(temp, file).unwrap();
+    std::fs::rename(temp, &file).unwrap();
+    if let Some(prior) = prior
+        && std::fs::metadata(&file).unwrap().modified().unwrap() <= prior
+    {
+        let file = std::fs::File::options().write(true).open(&file).unwrap();
+        file.set_modified(prior + Duration::from_secs(1)).unwrap();
+    }
 }
 
 fn ts_read(home: &Path, id: &str) -> serde_json::Value {

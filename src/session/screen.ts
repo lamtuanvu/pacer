@@ -45,9 +45,10 @@ export class Screen {
     await new Promise<void>(resolve => this.term.write(data, resolve)); this.outputOffset += data.length;
   }
   resize(cols:number,rows:number) { this.term.resize(cols,rows); }
-  plain(): string {
+  /** Text through the cursor row, or through the viewport's last row when the cursor may be parked above content. */
+  plain(throughViewport = false): string {
     const b = this.term.buffer.active, lines: string[] = [];
-    for (let i=0; i <= b.baseY + b.cursorY; i++) {
+    for (let i=0; i <= b.baseY + (throughViewport ? this.term.rows - 1 : b.cursorY); i++) {
       const line = b.getLine(i); if (!line) continue;
       if (line.isWrapped && lines.length) lines[lines.length-1] += line.translateToString(true);
       else lines.push(line.translateToString(true));

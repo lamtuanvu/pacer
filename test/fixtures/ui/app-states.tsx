@@ -17,7 +17,7 @@ import { AppFrame } from "../../../app/src/shell/AppFrame";
 import { TopBar } from "../../../app/src/shell/TopBar";
 import { CommandTrigger } from "../../../app/src/shell/CommandTrigger";
 import { Rail } from "../../../app/src/shell/Rail";
-import { OfflineNotice } from "../../../app/src/shell/OfflineNotice";
+import { OfflineNotice, updateInProgress } from "../../../app/src/shell/OfflineNotice";
 import { useNarrow } from "../../../app/src/shell/narrow";
 import { createActionRunner } from "../../../app/src/data/actions";
 const query = { repo: null, scope: null };
@@ -28,7 +28,8 @@ const policyMode = mode === "policy-open" ? { mode: "open" as const, plugins: 0 
 const panels = !!policyMode;
 const snapshot = policyMode ? { ...snap, policy: policyMode } : mode?.startsWith("home-") ? { ...snap, tasks: [], attention: [], executors: mode === "home-first" ? snap.executors!.filter(e => e.rank === "planner") : snap.executors } : mode === "empty" || mode === "first" || mode === "sample" ? { ...snap, tasks: [], attention: [], executors: mode === "first" ? [] : snap.executors } : snap;
 const runner = createActionRunner({ call: async <T,>(op: string) => { document.body.dataset.sampleOp = op; return { task_id: "sample-task" } as T; }, waitFor: async () => true, refetch() {}, navigate() {} });
-const homeState = { ...initialState(), connected: mode !== "offline", snapshot, features: { readModel: true, ops: new Set(mode === "home-sample" ? ["agent.detect", "onboarding.try"] : ["agent.detect"]) } };
+const offline = mode === "offline" || mode === "updating";
+const homeState = { ...initialState(), connected: !offline, snapshot, features: { readModel: true, ops: new Set(mode === "home-sample" ? ["agent.detect", "onboarding.try"] : ["agent.detect"]) } };
 const homeApi = { call: async (op: string) => {
   if (op === "agent.detect") { document.body.dataset.detectOp = op; return [{ agent: "codex", found: true, version: "detected-version", path: null, install_hint: "" }]; }
   if (op === "dispatch.list") return { tasks: [], next: null };
@@ -50,14 +51,14 @@ function Fixture() {
     const stop = store.start();
     return () => { stop(); unsubscribe(); };
   }, [store]);
-  const connected = mode === "recovery" ? current.connected : mode !== "offline";
+  const connected = mode === "recovery" ? current.connected : !offline;
   const newTask = () => { location.hash = "#/tasks/new"; };
   return <TaskContext.Provider value={{ state: current, api: homeApi }}><SetupContext.Provider value={{ refresh() {}, setRunning() {}, checklist: { checkedAt: 0, ready: mode !== "home-first", complete: mode !== "home-first", items: [{ id: "connect", title: "Connect planner", required: true, status: mode === "home-first" ? "pending" : "done" }] } }}><ActionContext.Provider value={runner}><AppFrame mainClass="pc-main pc-main--canvas" narrow={narrow} top={<TopBar narrow={narrow} title="Dispatch" planner={snapshot.planner ?? null} plannerFigure={false} mode="relaxed" connected={connected} lastUpdate={snapshot.at} onDelegate={newTask} pageTitle={narrow} narrowSearch={<CommandTrigger narrow onOpen={() => { document.body.dataset.search = "open"; }} />} />}
     overlay={mode === "offline" ? <Button>Assistant service send</Button> : undefined}
     activity={<Rail narrow={narrow} route={{ name: "dispatch", query }} counts={snapshot.counts ?? null} />}
     left={panels ? <aside className="pc-side-panel pc-side-panel--left" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope" /> : undefined}
     right={panels ? <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector" /> : undefined}
-    live={!connected ? <OfflineNotice lastUpdate={Date.now() / 1000 - 60} /> : undefined}
+    live={!connected ? <OfflineNotice lastUpdate={Date.now() / 1000 - 60} updating={mode === "updating" || updateInProgress(current.jobs)} /> : undefined}
     status={!narrow ? <StatusBar snapshot={snapshot} registry={keys} /> : undefined}
     main={<>{(mode === "offline" || mode === "recovery") && <><Button onClick={() => { document.body.dataset.submitted = "yes"; }}>Direct service submit</Button><ActionButton runner={runner} id="offline-test" action={{ op: "task.retry", label: "Offline service action", params: {} }} /></>}
     {mode?.startsWith("home-") ? <DispatchHome query={query} /> : <DispatchView snapshot={snapshot} query={query} now={snapshot.at} runner={runner} connected={connected}

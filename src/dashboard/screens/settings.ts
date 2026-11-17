@@ -458,7 +458,9 @@ const updates: Build = (ctx, width) => {
   const canCheck = reading !== "disabled";
   items.push({ id: "update:check", ...(canCheck && check ? { primary: check } : {}), actions: [], keys: {} });
   rows.push(...fieldRows(field(ctx, width, "Version", [span(u.current, { bold: true }), span(`  ${state}`, { fg: u.available ? "warn" : u.error ? "bad" : "secondary" })], canCheck ? "⏎ check now" : ""), "update:check"));
-  const apply = u.available ? opAct(ctx, "Update and restart", "update.apply", {}, { confirm: { title: "Update pacer and restart the service?", yes: "Update and restart" } }) : undefined;
+  // An installation another installer updates would only be refused (update.check `managedBy`).
+  if (u.managedHint) rows.push(...fieldRows(field(ctx, width, "", [span(u.managedHint, { fg: "secondary" })])));
+  const apply = u.available && !u.managedBy ? opAct(ctx, "Update and restart", "update.apply", {}, { confirm: { title: "Update pacer and restart the service?", yes: "Update and restart" } }) : undefined;
   if (apply) {
     items.push({ id: "update:apply", primary: apply, actions: [], keys: { u: apply } });
     rows.push(...fieldRows(field(ctx, width, "", [span("Update and restart", { fg: "warn", bold: true })]), "update:apply"));
