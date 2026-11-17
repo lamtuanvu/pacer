@@ -11,12 +11,12 @@ model integration to the host (P13 keeps the host minimal) and would let model o
 
 ## Decisions
 
-- **D1. `assistant` is a plugin extension point** with one method, `assistant.respond` (plugin protocol 1.3.0). The host
+- *(Superseded by [ADR 0028](0028-assistant-backends.md).)* **D1. `assistant` is a plugin extension point** with one method, `assistant.respond` (plugin protocol 1.3.0). The host
   runs every read tool itself and calls the plugin again with the results, up to `maxToolRounds`. A returned tool call is a
   request. The plugin never calls client ops and never receives an API token, grant or session.
 - **D2. Bundled only.** Plugins are unsandboxed child processes today, so the host refuses an installed plugin whose
   manifest contributes `assistant`. This is revisited when installed plugins are sandboxed (milestone M3).
-- **D3. The backend is an endpoint account.** The bundled `pacer-assistant` talks to an OpenAI-compatible endpoint. It reads
+- *(Superseded by [ADR 0028](0028-assistant-backends.md).)* **D3. The backend is an endpoint account.** The bundled `pacer-assistant` talks to an OpenAI-compatible endpoint. It reads
   the account's key through `capability.secrets.resolve`, which the host answers only for that plugin and only for the
   endpoint account the user chose. A native agent CLI backend is not offered until an adapter proves its tool-less mode.
 - **D4. Actions are proposals.** The model can only return `propose_action` for an allowlisted op. The host validates the
