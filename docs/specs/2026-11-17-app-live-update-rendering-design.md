@@ -42,7 +42,7 @@ Non-goals:
 - **Batching:** `dispatch` applies events to the state immediately but schedules one notification for the next animation frame, with a 100 ms timer as a backstop. Embedded webviews throttle or stop `requestAnimationFrame` when the window is occluded, so whichever fires first wins, and it cancels the other. WebKit can throttle timers too in an occluded window. State stays current either way, and a `visibilitychange` or `focus` event flushes any pending notification at once. While the document is hidden, notifications go out at most once a second. Listeners run once per batch.
 - **No-op identity:** a reducer returns the *same* state object when nothing changed. This covers:
   - the waiting poll when `service.waiting` is unchanged;
-  - `notify` events, which only advance `seq` and `at` (the store already drops `liveness`). Both move to a side field that no component renders from (readers of `snapshot.seq`, such as the events cursor and the workspace prune, read the side field instead): every event advances them, so in the snapshot they would defeat every equality check;
+  - `notify` events, which only advance `seq` and `at` (the store already drops `liveness`). Both move to a side field that no component renders from (the readers of `snapshot.seq`, the store's events cursor and `WorkView`, read the side field instead): every event advances them, so in the snapshot they would defeat every equality check;
   - the `acknowledgedReviews` wrapper, which re-applies only when it changes something.
 - **Structural sharing stays as it is:** unchanged rows keep their references. This is what makes selector equality cheap.
 
