@@ -1,4 +1,5 @@
-import { lstatSync, mkdirSync, readFileSync, renameSync, rmSync, writeFileSync } from "node:fs";
+import { privateWrite } from "../private-file";
+import { lstatSync, readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 
 /** Reject redirected agent directories; macOS root aliases are platform paths. */
@@ -25,10 +26,5 @@ export function readInstallFile(path: string): string | null {
 export function writeInstallFile(path: string, text: string, ownerMode?: number): void {
   const exists = readInstallFile(path) !== null;
   const mode = ownerMode ?? (exists ? lstatSync(path).mode & 0o700 : 0o600);
-  mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
-  const tmp = `${path}.pacer-${crypto.randomUUID()}.tmp`;
-  try {
-    writeFileSync(tmp, text, { flag: "wx", mode });
-    renameSync(tmp, path);
-  } finally { rmSync(tmp, { force: true }); }
+  privateWrite(path, text, mode & 0o700);
 }
