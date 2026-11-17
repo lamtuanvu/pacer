@@ -39,6 +39,7 @@ import { claimTurnMessages, renderReplayThread, renderTurnPrompt } from "../mess
 import { liveTick } from "../messaging/live";
 import { parseOpencodeSessions } from "../session/takeover";
 import { claudeConfigFile, grantClaudeFolderTrust, projectMcpChoices, type McpChoices } from "./claude-trust";
+import { providerRetryingReason } from "./broken";
 import { LIMIT_QUIET_S, type RetryBanner, detectLimit, detectSessionLimit, renderedScreen, retryBanner, retryBannerHint, sessionLimitExcerpt, sessionLimitText, tailText } from "./limits";
 import { type ExecResult, executorEnv, execProcess } from "./process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalEnvRecord, terminalUmask, type TerminalEnv } from "./login-env";
@@ -399,7 +400,7 @@ export async function finishRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, ru
   // An interactive agent that exits on its limit error leaves it only in the session transcript.
   if (end.kind === "limit" || (interactive && !conversation && !completed && exec.code !== 0 && !exec.timedOut && !run.host && detectSessionLimit(cfg.id, sessionLimitText(run.dir)))) result.attempt.limitHit = true;
   // A retry loop says nothing about the account's quota: the runner marks the executor broken and moves on.
-  if (end.kind === "provider") { result.attempt.limitHit = false; result.attempt.brokenReason = `provider retrying: ${retryReason}`; }
+  if (end.kind === "provider") { result.attempt.limitHit = false; result.attempt.brokenReason = providerRetryingReason(retryReason); }
   return {
     ...result,
     ...(run.mode === "new" ? { worktree: run.host ? `${run.host}:${run.remoteWorktree}` : run.workdir } : {}),

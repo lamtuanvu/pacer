@@ -8,6 +8,7 @@ import { gitInfo, realpathSafe } from "../core/git";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import { TRANSIENT_RETRY_S, validateExecution } from "../config/execution";
+import { providerRetryingReason } from "../exec/broken";
 import { launchModeFor } from "../exec/launch";
 import { loadExec, outcome, rememberRetry, retryLoopVerdict, retryWatch, workFingerprint } from "../exec/direct";
 import { buildPrompt } from "../exec/prompt";
@@ -469,7 +470,7 @@ export function retryLoopOutcome(ctx: Ctx, id: string, executor: string, dir: st
   }
   const line = `pacer: ${executor} kept retrying a provider error for ${Math.round((Date.now() / 1000 - since) / 60)} min: ${reason}`;
   out.attempt.limitHit = false;
-  out.attempt.brokenReason = `provider retrying: ${reason}`;
+  out.attempt.brokenReason = providerRetryingReason(reason);
   out.exec.stderr += `\n${line}`;
   out.report += `\n\n${line}`;
   return true;
