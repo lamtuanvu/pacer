@@ -1,8 +1,8 @@
 # Assistant backends: pacer's own agent or an existing executor
 
 Date: 2026-11-17. Status: proposed, awaiting the maintainer's approval. Applies to:
-- `src/plugins/protocol.ts`, `src/plugins/ui-schema.ts` (`NOTIFICATIONS`), `src/plugins/registry.ts` (notification dispatch) and `docs/plugin-protocol*.{md,json}`
-- `src/api/ops-assistant.ts`, `src/api/caller-policy.ts`, `docs/protocol*.md`
+- `src/plugins/protocol.ts` (`CAPABILITIES`), `src/plugins/host.ts` (turn-scoped capabilities), `src/plugins/ui-schema.ts` (`NOTIFICATIONS`), `src/plugins/registry.ts` (notification dispatch) and `docs/plugin-protocol*.{md,json}`
+- `src/api/ops-assistant.ts`, `src/api/ops.ts`, `src/api/caller-policy.ts`, `src/serve/http.ts` and `src/core/work.ts` (the assistant grant), `docs/protocol*.md`
 - `src/assistant/**`, `src/mcp/**`, `app/src/screens/settings/AssistantSettings.tsx`
 - `src/config/accounts.ts` and `src/core/endpoints.ts` (`connection.api` values), with their tests
 - `plugins/assistant` and `plugins/bundled.ts` (retired), and the new bundled plugins `assistant-pacer` and `assistant-executor`
@@ -54,7 +54,7 @@ assistant.reply({
 ```
 
 - **Digest.** A host-built summary of at most 2,000 tokens, produced through the same read pipeline as the tools: counts, attention items, the pacing mode and pause state, the chosen account's cached budget, and the task or repository in scope, if any. It lets most questions be answered without a tool round.
-- **Streaming.** While a turn runs, the plugin may send `assistant.delta` notifications (`text`, or `activity` such as "Reading tasks…"). They are ephemeral, as in the always-on spec. Today `NOTIFICATIONS` (`src/plugins/ui-schema.ts`) admits only `ui.invalidate`, and the registry drops other notifications. Phase 1 adds `assistant.delta` for the `assistant` point and forwards it to the sheet's stream. A backend that cannot stream returns only the final message.
+- **Streaming.** While a turn runs, the plugin may send `assistant.delta` notifications (`text`, or `activity` such as "Reading tasks…"). They are ephemeral, as in the always-on spec. Today `NOTIFICATIONS` (`src/plugins/ui-schema.ts`) admits only `ui.invalidate`, and the registry's dispatch also returns early for a plugin without UI surfaces, which both assistant plugins are. Phase 1 adds `assistant.delta` for the `assistant` point and gives it its own dispatch branch, ahead of the UI-surface check, that forwards it to the sheet's stream. A backend that cannot stream returns only the final message.
 - **Cancellation** aborts the call. The plugin stops its model call or CLI turn and returns nothing.
 
 `assistant.respond` stays until phase 4.
@@ -70,7 +70,10 @@ Both backends reach pacer's data only through the host, on one of two paths that
 
 The function runs the assistant's read pipeline (permitted op, parameter parsing, scope, projection, redaction, size cap, `<data>` wrapping) and counts the call against `maxToolRounds`. `propose_action` goes through it too and becomes a card. A call after the turn has ended, for another `turnId`, or past `maxToolRounds` is refused.
 
-`caller-policy.ts` refuses every `assistant.*` op to executor sessions. That stays. The grant path is separate: a request authenticated by an assistant grant may call `assistant.tool` for its turn and nothing else, and the ask-mode CLI runs without `PACER_ROLE`.
+**The assistant grant is its own identity.** Today every work-grant bearer is mapped to an executor session (`src/serve/http.ts`), which `src/api/ops.ts` refuses for every `assistant.*` op and which `authorizeWorkOperation` (`src/core/work.ts`) limits to dispatch and task ops. So the assistant grant cannot be a work grant used as is, and it must never be a credential that neither gate recognizes, because that would pass both.
+- It has its own prefix. The HTTP layer maps it to an **assistant-turn identity**: not the operator, not an executor, and without `PACER_ROLE`.
+- `authorizeWorkOperation` gains a first branch for that identity: it allows `assistant.tool` only when the grant is live and the `turnId` matches, and refuses every other op. This branch fails closed: a request with an unrecognized or expired assistant grant is refused, never treated as the operator.
+- The executor refusal in `ops.ts` and `caller-policy.ts` stays as it is. It does not apply to this identity, because it is not an executor session.
 
 ### 3. `assistant-executor`: an existing executor in ask mode
 
@@ -83,7 +86,7 @@ A bundled TypeScript plugin. It runs the chosen executor account's agent CLI wit
 | Tools | Only pacer's assistant MCP server. Every built-in tool is denied, including shell, edit, write, file read, search, list and web fetch |
 | Configuration | No hooks, no other MCP servers, no project or user instruction files |
 | Working directory | A fresh, empty directory under the service's `runs/assistant/`, never a repository or worktree |
-| Environment | `PACER_HOME` set to that empty run directory, so neither the CLI nor the MCP server can find the service token or fall back to the default home. No `PACER_ROLE` and no other `PACER_*` variables. The MCP server receives only the service address and the grant |
+| Environment | `PACER_HOME` set to that empty run directory, so neither the CLI nor the MCP server resolves the service token or the default home by default. `HOME` stays real, so this is not a barrier against a CLI that ignores its configuration (§7). No `PACER_ROLE` and no other `PACER_*` variables. The MCP server receives only the service address and the grant |
 | Launch | A warm server where the CLI has one, otherwise one run per turn |
 | Continuity | The CLI's own session, returned as `session` and resumed on the next turn |
 
@@ -102,7 +105,7 @@ A bundled TypeScript plugin. It runs the chosen executor account's agent CLI wit
 A bundled Rust plugin built on the plugin SDK (`crates/plugin-sdk`) and [Rig](https://github.com/0xPlaygrounds/rig) (`rig-core`).
 
 - **Rig provides the provider clients and the tool-calling loop only.** It registers the `tools` passed in each call as Rig tools that forward to `capability.assistant.tool`. It registers no other tool, loads no MCP server and reads no instruction file.
-- **Manifest.** It contributes `assistant` and declares `secrets.resolve` (endpoint scope), `net.http` and `assistant.tool`. It has no process, file or worktree capability.
+- **Manifest.** It contributes `assistant` and declares `secrets.resolve` (endpoint scope), `net.http` and `assistant.tool`. It has no process, file or worktree capability. `assistant.tool` is a new entry in `CAPABILITIES` (`src/plugins/protocol.ts`), and joins the host's turn-scoped capabilities (`src/plugins/host.ts`) so a call outside a live turn is refused.
 - **Accounts.** Endpoint accounts with a pacer-held connection. Today `connection.api` accepts only `openai-compatible`. Adding `anthropic` and `gemini` is an additive config change, made when their Rig clients ship, with the endpoint validation tests updated.
 - **Continuity.** The plugin keeps no state. It rebuilds the conversation from `history` on every turn. Prompt caching on the stable prefix keeps that cheap. Over `maxInputTokens`, the host drops the oldest tool results and then the oldest turns, as today.
 
@@ -159,7 +162,7 @@ Accounting is otherwise unchanged: usage is recorded as assistant usage, and exe
 
 ## Phases
 
-1. **Interface:** `assistant.reply`, `assistant.delta` and its dispatch, `capability.assistant.tool`, the `assistant.tool` op with the per-turn grant, `pacer mcp --assistant`, and `backend` and `available` in settings and candidates. The existing `plugins/assistant` keeps serving `assistant.respond` for `backend: pacer`.
+1. **Interface:** `assistant.reply`, `assistant.delta` and its dispatch, `capability.assistant.tool`, the `assistant.tool` op with the assistant grant, `pacer mcp --assistant`, and `backend` and `available` in settings and candidates. Routing rule: the host calls `assistant.reply` on the plugin that serves the chosen backend and provides it, and otherwise `assistant.respond`. The existing `plugins/assistant` keeps serving `assistant.respond` for `backend: pacer`. No `backend: executor` row is offered until phase 2, and a stored `executor` setting without a serving plugin is reported as unavailable, as a missing account is today.
 2. **`assistant-executor` with opencode:** ask mode, the warm server, the self-test, sessions and the Settings rows. Opencode accounts can then answer.
 3. **`assistant-pacer` on Rig:** the Rust plugin, streaming, and the added `connection.api` values. The host sends `backend: pacer` turns to it. `plugins/assistant` stays installed but unused.
 4. **Retire** `assistant.respond`, `plugins/assistant` and the host-side model loop, under the plugin protocol's compatibility rule.
@@ -168,7 +171,7 @@ Phases 2 and 3 are independent once phase 1 lands.
 
 ## Governance
 
-- **Rules:** P1 (the service owns the assistant), P3 (no fixed planner or agent), P4 and P14 (additive protocol changes), P5 (keys by reference), P13 (backends are plugins), API-5 (the assistant grant is narrower than a work grant), CRATE-5 and CRATE-9 (`rig-core` as a dependency of a new crate, with build-timing evidence), UI-24 for the Settings change, and CT-11.
+- **Rules:** P1 (the service owns the assistant), P3 (no fixed planner or agent), P4 and P14 (additive protocol changes), P5 (keys by reference), P13 (backends are plugins), API-5 (it recognizes only task and attempt grants today; the assistant grant is a new, narrower credential, proposed through the amendment process with this change), CRATE-5 and CRATE-9 (`rig-core` as a dependency of a new crate, with build-timing evidence), UI-24 for the Settings change, and CT-11.
 - **Reviewers:** `.project/reviewers/security.md` (ask mode, grant, self-test, the trust-boundary change), `architecture.md` (extension point and backends), `protocol-compat.md` (plugin and client protocol, MCP), `ui-accessibility.md` (Settings) and `qa.md` (fixtures and live evidence).
 - **ADR:** [ADR 0028](../decisions/0028-assistant-backends.md) records the durable choices (P12, ARCH-9).
 
@@ -178,4 +181,4 @@ Phases 2 and 3 are independent once phase 1 lands.
 2. **Rig's version.** Rig is pre-1.0 and has breaking releases. Proposed: pin an exact version and upgrade deliberately, with the fake-endpoint tests as the gate.
 3. **Is the self-test enough?** Should choosing an executor backend require a one-time acknowledgement that names the residual risk in §7? Proposed: yes.
 4. **`assistant-pacer` as an executor.** Should pacer's agent later become an executor backend for light, read-only task kinds, such as classification and summaries, and for endpoint or local models without a CLI? Proposed: defer, and decide with evidence from phase 3.
-5. **The grant's mechanism.** Reuse the API-5 grant machinery with a new assistant scope, or add a separate token type? Proposed: reuse it, with a scope that authorizes only `assistant.tool` for one turn.
+5. **The grant's mechanism.** Store the assistant grant with the API-5 grant machinery, or in a separate store? Either way it is a distinct credential type with its own identity (§2). Proposed: the existing grant store with a distinct prefix and kind, and an API-5 amendment that names it.
