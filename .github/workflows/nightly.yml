@@ -121,6 +121,8 @@ jobs:
         run: |
           set -euo pipefail
           git switch --quiet --detach "$TARGET"
+          # The dispatch checkout's install may not match the selected commit's bun.lock; app:build needs it to.
+          bun install --frozen-lockfile
           bun scripts/release/nightly.ts stamp "$VERSION"
           git add -A
           git commit --quiet -s -m "chore: nightly $VERSION"

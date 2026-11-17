@@ -241,6 +241,13 @@ test("Pick the nightly version refuses a version that is already tagged on origi
   expect(taken.stdout.toString()).toContain("already tagged");
 });
 
+test("Stamp reinstalls the selected commit's dependencies before app:build runs", () => {
+  const lines = stepNamed("Stamp the nightly version").run!.split("\n").map(line => line.trim());
+  const at = (line: string) => lines.indexOf(line);
+  expect(at("bun install --frozen-lockfile")).toBeGreaterThan(at('git switch --quiet --detach "$TARGET"'));
+  expect(at("bun install --frozen-lockfile")).toBeLessThan(at('bun scripts/release/nightly.ts stamp "$VERSION"'));
+});
+
 test("Stamp commits only the version files on the selected commit, signed off, and leaves main alone", () => {
   const { origin, work, sha } = fixture();
   const head = advanceMain(work, "feat: newer");
