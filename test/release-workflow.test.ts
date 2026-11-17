@@ -228,7 +228,7 @@ function git(cwd: string, ...args: string[]): string {
   return result.stdout.toString().trim();
 }
 
-/** A repository whose main holds the stable `v0.15.1` tag and `feat: one`, with the real release scripts linked in. */
+/** A repository whose main (also pushed to a bare origin) holds the stable `v0.15.1` tag and `feat: one`, with the real release scripts linked in. */
 function nightlyRepo(): string {
   const root = tmpDir();
   symlinkSync(resolve("scripts"), join(root, "scripts"));
@@ -237,6 +237,11 @@ function nightlyRepo(): string {
   git(root, "add", "-A"); git(root, "commit", "-qm", "chore: initial"); git(root, "tag", "-a", "v0.15.1", "-m", "pacer 0.15.1");
   writeFileSync(join(root, "README.md"), "one\n");
   git(root, "add", "-A"); git(root, "commit", "-qm", "feat: one");
+  // A bare origin whose main matches, so verify can check that a nightly's parent is on origin/main.
+  const origin = join(tmpDir(), "origin.git");
+  git(root, "init", "-q", "--bare", "-b", "main", origin);
+  git(root, "remote", "add", "origin", origin);
+  git(root, "push", "-q", "origin", "main");
   return root;
 }
 
@@ -283,6 +288,17 @@ test("verify classifies the channel and checks that a nightly stamp only changes
   const refused = run(step("Classify the release channel"), sneaky, { GITHUB_OUTPUT: join(sneaky, "out") });
   expect(refused.exitCode).not.toBe(0);
   expect(refused.stderr.toString()).toContain("README.md");
+
+  // A stamp on a commit that is not on origin/main is refused, even if it changes only version files.
+  const side = nightlyRepo();
+  git(side, "switch", "-q", "-c", "side");
+  writeFileSync(join(side, "side.txt"), "side\n");
+  git(side, "add", "-A"); git(side, "commit", "-qm", "feat: side");
+  const sideParent = git(side, "rev-parse", "HEAD");
+  stamp(side, "0.16.0-nightly.202611171700");
+  const offMain = run(step("Classify the release channel"), side, { GITHUB_OUTPUT: join(side, "out") });
+  expect(offMain.exitCode).not.toBe(0);
+  expect(offMain.stdout.toString()).toContain(`::error::The nightly's parent ${sideParent} is not on main`);
 });
 
 test("nightly release notes list main's commits since the previous nightly; stable keeps the CHANGELOG", () => {

@@ -66,6 +66,10 @@ jobs:
           if test "$channel" = nightly; then
             parent=$(git rev-parse HEAD^)
             bun scripts/release/nightly.ts check-diff "$parent" HEAD
+            # A nightly builds a main commit; a stamp on any other commit is refused.
+            git fetch --quiet --no-tags origin main
+            git merge-base --is-ancestor "$parent" FETCH_HEAD \
+              || { echo "::error::The nightly's parent $parent is not on main"; exit 1; }
             echo "parent=$parent" >> "$GITHUB_OUTPUT"
           fi
       - run: bun run typecheck
