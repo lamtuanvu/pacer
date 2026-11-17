@@ -4,6 +4,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- A desktop whose `com.pacer.serve` runs a build the app cannot verify no longer ends up with **Automatic desktop updates are unavailable** and no way out. When you kept your own command at Welcome, Settings → Updates now reports the replaced service and offers **Review service replacement**, which opens the same confirmation page only when you ask for it; the launch-time **Use the app's service** page is unchanged for a service the app owns. Once you confirm, the app records that you chose its service, so it stops running your own command for its sign-in.
+
+- Replacing the service no longer fails because launchd still lists the job, or the old process is still exiting, a moment after `bootout`. The stop step now waits on awake time for that one job and its process to actually go away, and never signals a process it cannot prove is the inspected one. A takeover step that fails now names the step and the check that failed in `desktop.log`.
+
 ## [0.16.0] - 2026-11-17
 
 ### Added
