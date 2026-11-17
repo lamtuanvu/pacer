@@ -66,7 +66,9 @@ impl PluginLog {
     pub(crate) fn note_blocking(&self, note: &str) {
         let log = self.clone();
         let note = note.to_owned();
-        let _ = tokio::task::spawn_blocking(move || log.note(&note));
+        // Dropping the handle detaches the blocking task (fire and forget by design);
+        // spelled explicitly so `let_underscore_future` does not read it as dropped.
+        std::mem::drop(tokio::task::spawn_blocking(move || log.note(&note)));
     }
 
     /// Append `<ISO time> [<tag>] <line>` as `appendPluginLog` does.
