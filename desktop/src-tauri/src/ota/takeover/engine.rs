@@ -59,9 +59,13 @@ fn action_code(action: &Action) -> &'static str {
 
 fn failure(stage: &str, error: OtaError, predicate: Option<&str>) -> Failure {
     Failure {
+        // The journal accepts reasons of at most 64 bytes; a predicate that would not
+        // fit is dropped rather than failing the record of the restore.
         reason: match predicate {
-            Some(predicate) => format!("{stage}:{}:{predicate}", error_code(error)),
-            None => format!("{stage}:{}", error_code(error)),
+            Some(predicate) if stage.len() + error_code(error).len() + predicate.len() + 2 <= 64 => {
+                format!("{stage}:{}:{predicate}", error_code(error))
+            }
+            _ => format!("{stage}:{}", error_code(error)),
         },
         error,
     }
@@ -224,6 +228,16 @@ pub fn recover(store: &TakeoverStore, p: &dyn TakeoverPlatform) -> Result<State,
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_reason_too_long_for_the_journal_drops_its_predicate() {
+        let fits = super::failure("stop-original", OtaError::Identity, Some("job-still-loaded"));
+        assert_eq!(fits.reason, "stop-original:identity:job-still-loaded");
+        let long = "x".repeat(60);
+        let dropped = super::failure("stop-original", OtaError::Identity, Some(&long));
+        assert_eq!(dropped.reason, "stop-original:identity");
+        assert!(dropped.reason.len() <= 64);
+    }
     use super::*;
     use std::sync::Mutex;
 

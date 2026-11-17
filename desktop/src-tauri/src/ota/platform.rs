@@ -48,12 +48,9 @@ pub(crate) use fixture::{fixture_attach, fixture_jobs, fixture_refresh_takeover}
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
-/// launchd's removal of a job and the exit of its process are not synchronous
-/// with the call that asked for them: the job can still be listed, and the PID
-/// still alive, for about a second afterwards. Both bootout waiters poll on
-/// awake time this long before reporting the state they still see.
-pub(crate) const STOP_WAIT_MS: u64 = 15_000;
-pub(crate) const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+/// How long a pinned (takeover) bootout waits for launchd to stop listing the job
+/// after the exact process exited. Managed and adoption bootouts do not wait.
+pub(crate) const PINNED_BOOTOUT_SETTLE_MS: u64 = 15_000;
 
 #[derive(Clone, Debug, PartialEq)]
 pub(crate) struct JobDefinition {
@@ -223,6 +220,23 @@ impl OwnedJob {
     ) -> Result<Option<LoadedJob>, OtaError> {
         self.observe_with(trust, program)
     }
+    /// The job after a pinned bootout, read again on awake time while launchd still
+    /// lists it, up to [`PINNED_BOOTOUT_SETTLE_MS`]. Observation only: the exact
+    /// process has already exited and nothing is signaled. A job still listed at the
+    /// deadline, or after a boot change, is returned for the caller to refuse.
+    async fn settle_after_bootout(
+        &self,
+        trust: &ReleaseTrust,
+        program: &ProgramCheck,
+    ) -> Result<Option<LoadedJob>, OtaError> {
+        settle_absent(
+            || self.observe_after_bootout(trust, program),
+            || native::awake_now().map_err(|_| OtaError::Identity),
+            PINNED_BOOTOUT_SETTLE_MS,
+            std::time::Duration::from_millis(50),
+        )
+        .await
+    }
     pub(crate) async fn change(
         &self,
         trust: &ReleaseTrust,
@@ -283,18 +297,21 @@ impl OwnedJob {
     ) -> Result<(), OtaError> {
         let current = self.observe_with(trust, program)?;
         let stopped_process = if change == JobChange::Bootout {
-            let process = match current.as_ref().and_then(|job| job.pid) {
-                // launchd reports no process for the job: nothing is left to stop.
-                None => None,
-                // A process that exits while it is observed reads as gone; an
-                // inspection that keeps failing proves nothing and is refused.
-                Some(pid) => observed_process(pid).await?,
-            };
+            let process = current
+                .as_ref()
+                .and_then(|job| job.pid)
+                .map(|pid| {
+                    native::process_details(pid)
+                        .map_err(|_| OtaError::Identity)?
+                        .ok_or(OtaError::Identity)
+                })
+                .transpose()?;
             if let Some(expected) = expected {
-                // An absent process has already exited, so only the job is left
-                // to remove. A PID that now holds another incarnation is not the
-                // pinned process and is never stopped.
-                ensure(process.as_ref().is_none_or(|details| details.identity == *expected))?;
+                ensure(
+                    process
+                        .as_ref()
+                        .is_some_and(|details| details.identity == *expected),
+                )?;
             } else if matches!(
                 program,
                 ProgramCheck::Pinned(_) | ProgramCheck::Role(CodeRole::Cli)
@@ -355,25 +372,15 @@ impl OwnedJob {
         }
         self.check_with(trust, program)?;
         if let Some(process) = &stopped_process {
-            // launchd can clear the PID as the process exits; a PID it now
-            // reports for someone else is a different process and is refused.
-            let loaded = self.observe_with(trust, program)?.and_then(|job| job.pid);
-            ensure(loaded.is_none_or(|pid| pid == process.pid))?;
+            ensure(
+                self.observe_with(trust, program)?.and_then(|job| job.pid) == Some(process.pid),
+            )?;
             match program {
                 ProgramCheck::Role(role) => {
-                    // A process that exits, or a PID another incarnation now
-                    // holds, is the authorized process having gone: only a live
-                    // match is re-verified, and nothing is signaled.
-                    if let Some(details) = observed_process(process.pid).await? {
-                        if details.identity == *process {
-                            verify_fixture_or_release_process(
-                                trust,
-                                process,
-                                &details.executable,
-                                *role,
-                            )?;
-                        }
-                    }
+                    let details = native::process_details(process.pid)
+                        .map_err(|_| OtaError::Identity)?
+                        .ok_or(OtaError::Identity)?;
+                    verify_fixture_or_release_process(trust, process, &details.executable, *role)?;
                 }
                 ProgramCheck::Pinned(file) => {
                     if super::bootstrap_identity::inspect_legacy_executable(
@@ -446,28 +453,17 @@ impl OwnedJob {
             if let Some(process) = &stopped_process {
                 wait_exact_exit(process).await?;
             }
-            // launchd can still list the job a moment after bootout returned, so
-            // absence is polled on awake time before it is reported as removed.
-            let start = native::awake_now().map_err(|_| OtaError::Identity)?;
-            loop {
-                if copy_user_job(&self.definition.label)?.is_none() {
-                    break;
-                }
-                let now = native::awake_now().map_err(|_| OtaError::Identity)?;
-                if now.boot_id != start.boot_id
-                    || native::elapsed_ms(&start, &now).map_err(|_| OtaError::Identity)?
-                        >= STOP_WAIT_MS
-                {
-                    return Err(OtaError::Identity);
-                }
-                tokio::time::sleep(STOP_POLL).await;
-            }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
         // Bootout completion must use the state after exact exit and retirement,
         // not a manager snapshot captured immediately after launchctl returned.
         let after = if change == JobChange::Bootout {
-            self.observe_after_bootout(trust, program)?
+            match program {
+                // A replaced legacy service: launchd can list the job for a moment
+                // after it reported the bootout and the exact process exited.
+                ProgramCheck::Pinned(_) => self.settle_after_bootout(trust, program).await?,
+                ProgramCheck::Role(_) => self.observe_after_bootout(trust, program)?,
+            }
         } else {
             after
         };
@@ -489,48 +485,46 @@ impl OwnedJob {
     }
 }
 
+/// Re-reads `observe` on awake time until it reports nothing, up to `deadline_ms`.
+/// Returns what it last saw when the deadline passes or the boot changes; it never
+/// acts on what it observes.
+async fn settle_absent<T>(
+    mut observe: impl FnMut() -> Result<Option<T>, OtaError>,
+    now: impl Fn() -> Result<native::AwakeStamp, OtaError>,
+    deadline_ms: u64,
+    poll: std::time::Duration,
+) -> Result<Option<T>, OtaError> {
+    let start = now()?;
+    loop {
+        let seen = observe()?;
+        if seen.is_none() {
+            return Ok(None);
+        }
+        let stamp = now()?;
+        if stamp.boot_id != start.boot_id
+            || native::elapsed_ms(&start, &stamp).map_err(|_| OtaError::Identity)? >= deadline_ms
+        {
+            return Ok(seen);
+        }
+        tokio::time::sleep(poll).await;
+    }
+}
+
 /// Observe only. The request to exit must have been sent to the authenticated
 /// native peer. No signal is issued to a PID, including on timeout or PID reuse.
-/// A PID that answers with another incarnation, and an inspection that races the
-/// exit, are the expected process having gone; only a live match keeps waiting.
 pub(crate) async fn wait_exact_exit(expected: &ProcessIdentity) -> Result<(), OtaError> {
     let start = native::awake_now().map_err(|_| OtaError::Identity)?;
     loop {
-        match native::process_details(expected.pid) {
-            Ok(None) => return Ok(()),
-            Ok(Some(details)) if details.identity != *expected => return Ok(()),
-            Ok(Some(_)) => {}
-            Err(_) => {}
+        match native::process_details(expected.pid).map_err(|_| OtaError::Identity)? {
+            None => return Ok(()),
+            Some(details) if details.identity != *expected => return Err(OtaError::Identity),
+            Some(_) => {}
         }
         let now = native::awake_now().map_err(|_| OtaError::Identity)?;
         if native::elapsed_ms(&start, &now).map_err(|_| OtaError::Identity)? > 10_000 {
             return Err(OtaError::Timeout);
         }
         tokio::time::sleep(std::time::Duration::from_millis(25)).await;
-    }
-}
-
-/// The process a loaded job runs, read on awake time. A process that exits while
-/// it is inspected reads as gone; an inspection that keeps failing is not proof
-/// it is gone and is refused at the deadline. Nothing is signaled, and a PID that
-/// answers with another incarnation is reported as that process for the caller to
-/// refuse or to treat as the job's process having exited.
-async fn observed_process(pid: u32) -> Result<Option<native::ProcessDetails>, OtaError> {
-    let start = native::awake_now().map_err(|_| OtaError::Identity)?;
-    loop {
-        match native::process_details(pid) {
-            Ok(details) => return Ok(details),
-            Err(_) => {
-                let now = native::awake_now().map_err(|_| OtaError::Identity)?;
-                if now.boot_id != start.boot_id
-                    || native::elapsed_ms(&start, &now).map_err(|_| OtaError::Identity)?
-                        >= STOP_WAIT_MS
-                {
-                    return Err(OtaError::Identity);
-                }
-                tokio::time::sleep(STOP_POLL).await;
-            }
-        }
     }
 }
 impl JobDefinition {
@@ -1213,6 +1207,54 @@ async fn await_child_exit_receipt(
             return Ok(false);
         }
         tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+}
+
+#[cfg(test)]
+mod settle_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn clock(step: u64, boot: &'static str) -> impl Fn() -> Result<native::AwakeStamp, OtaError> {
+        let now = Cell::new(0u64);
+        move || {
+            now.set(now.get() + step);
+            Ok(native::AwakeStamp { boot_id: boot.into(), millis: now.get() })
+        }
+    }
+    fn run<T>(future: impl std::future::Future<Output = T>) -> T {
+        tokio::runtime::Builder::new_current_thread().enable_all().build().unwrap().block_on(future)
+    }
+    const POLL: std::time::Duration = std::time::Duration::ZERO;
+
+    #[test]
+    fn a_job_launchd_still_lists_briefly_after_bootout_settles_to_absent() {
+        let reads = Cell::new(0u32);
+        let observe = || {
+            reads.set(reads.get() + 1);
+            Ok((reads.get() < 4).then_some("job"))
+        };
+        assert_eq!(run(settle_absent(observe, clock(100, "boot"), 15_000, POLL)), Ok(None));
+        assert_eq!(reads.get(), 4);
+    }
+
+    #[test]
+    fn a_job_still_listed_at_the_deadline_is_returned_for_refusal() {
+        assert_eq!(run(settle_absent(|| Ok(Some("job")), clock(1_000, "boot"), 15_000, POLL)), Ok(Some("job")));
+    }
+
+    #[test]
+    fn a_boot_change_or_observation_error_ends_the_wait() {
+        let boots = Cell::new(0u32);
+        let now = || {
+            boots.set(boots.get() + 1);
+            Ok(native::AwakeStamp { boot_id: if boots.get() == 1 { "a".into() } else { "b".into() }, millis: 0 })
+        };
+        assert_eq!(run(settle_absent(|| Ok(Some("job")), now, 15_000, POLL)), Ok(Some("job")));
+        assert_eq!(
+            run(settle_absent(|| Err::<Option<&str>, _>(OtaError::Identity), clock(1, "boot"), 15_000, POLL)),
+            Err(OtaError::Identity)
+        );
     }
 }
 

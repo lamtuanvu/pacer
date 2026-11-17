@@ -418,6 +418,13 @@ fn probe_service(home: PathBuf, port: u16, snapshot: bool) -> Result<(), OtaErro
     .map_err(|_| OtaError::Unavailable)?
 }
 
+/// launchd's removal of a job and the exit of its process are not synchronous
+/// with the bootout that asked for them: the job can still be listed, and the
+/// PID still alive, for about a second afterwards. The stop step polls both on
+/// awake time this long before reporting the state it still sees.
+const STOP_WAIT_MS: u64 = 15_000;
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
 /// Whether the pinned process is still running at `pid`. A PID that now holds
 /// another incarnation is the pinned process having exited, and an inspection
 /// that races the exit cannot prove it is gone, so both keep the wait going.
@@ -567,8 +574,8 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                 || self.awake_now(),
                 || platform::copy_user_job(&label).map(|job| job.is_some()),
                 || Ok(pinned_process_alive(pid, &pinned)),
-                crate::ota::platform::STOP_WAIT_MS,
-                crate::ota::platform::STOP_POLL,
+                STOP_WAIT_MS,
+                STOP_POLL,
             )
         } else {
             // The job is already gone, so nothing is left to boot out; only the
@@ -578,8 +585,8 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
                 || self.awake_now(),
                 || Ok(false),
                 || Ok(pinned_process_alive(pid, &pinned)),
-                crate::ota::platform::STOP_WAIT_MS,
-                crate::ota::platform::STOP_POLL,
+                STOP_WAIT_MS,
+                STOP_POLL,
             )
         };
         stopped.map_err(|(predicate, error)| {

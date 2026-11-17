@@ -66,7 +66,8 @@ interrupted: that choice is offered only in **Settings → Updates**, which
 reports that automatic updates are unavailable for a service the app cannot
 verify and offers **Review service replacement**. The confirmation page, **Not
 now** and the transaction below are the same; the service changes only when you
-confirm it there.
+confirm it there. A committed replacement also records that you chose the app's
+service, so the desktop stops running your own command for its own calls.
 
 **Settings → Updates** explains that the service was replaced and offers
 **Review service replacement**, which opens the same confirmation page, also

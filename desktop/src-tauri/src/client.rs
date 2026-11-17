@@ -213,6 +213,20 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
         let status = process.wait().map_err(|e| e.to_string())?;
         final_state.ok_or_else(|| format!("Takeover helper stopped without a final state ({status})"))
     }).await.map_err(|e| e.to_string())??;
+    if result == "committed" {
+        // The user explicitly moved the service to the app, so "Keep mine" no longer
+        // describes this installation; the desktop stops running the replaced build
+        // for its own CLI calls (ADR 0011).
+        if let Ok(config) = app.path().app_config_dir() {
+            if let Ok(Some(consent)) = pacer_desktop::ota::takeover::detect::read_consent(&config) {
+                if consent.keep {
+                    if let Err(error) = write_consent(&config, consent.path, false) {
+                        desktop_log!("pacer lifecycle: takeover could not record the app's service as chosen: {error}");
+                    }
+                }
+            }
+        }
+    }
     if result == "committed" && relink {
         if let Err(error) = link::relink_after_takeover(&user_home, &bundled_binary().ok_or("Bundled command missing")?, &view.candidate.identity, std::time::SystemTime::now()) {
             crate::set_takeover_progress(app, serde_json::json!({"state":"committed","error":"relink"}));
