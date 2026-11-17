@@ -36,6 +36,16 @@ test("staging requires the desktop marker in the shell and refuses it anywhere e
   await expect(stageDesktopPackage(marked.root, marked.dir, "aarch64", { run: marked.run })).rejects.toThrow("A CLI or helper carries the desktop marker");
 });
 
+test("only a fixture baseline built before the marker may stage an unmarked shell", async () => {
+  const release = fixture(), shell = join(release.app, "Contents/MacOS/pacer");
+  writeFileSync(shell, readFileSync(shell).subarray(0, 64));
+  await expect(stageDesktopPackage(release.root, release.dir, "aarch64", { run: release.run, shellPredatesMarker: true })).rejects.toThrow("Only a fixture baseline may predate the desktop marker");
+  const marked = fixture(), helper = join(marked.dir, "pacer-update-helper");
+  writeFileSync(join(marked.app, "Contents/MacOS/pacer"), readFileSync(join(marked.app, "Contents/MacOS/pacer")).subarray(0, 64));
+  writeFileSync(helper, Buffer.concat([readFileSync(helper), DESKTOP_MARKER]));
+  await expect(stageDesktopPackage(marked.root, marked.dir, "aarch64", { run: marked.run, bundleId: "dev.pacer.desktop.fixture", shellPredatesMarker: true })).rejects.toThrow("A CLI or helper carries the desktop marker");
+});
+
 test("staging creates a separate complete app with matching release metadata and all executables", async () => {
   const f = fixture();
   const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run });
