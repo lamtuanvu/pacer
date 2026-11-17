@@ -39,7 +39,7 @@ Non-goals:
 
 ### 1. The store notifies once per frame, and only for a real change
 
-- **Batching:** `dispatch` applies events to the state immediately but schedules one notification for the next animation frame, with a 100 ms timer as a backstop. Embedded webviews throttle or stop `requestAnimationFrame` when the window is occluded, so whichever fires first wins. While the document is hidden, notifications go out once a second. Listeners run once per batch.
+- **Batching:** `dispatch` applies events to the state immediately but schedules one notification for the next animation frame, with a 100 ms timer as a backstop. Embedded webviews throttle or stop `requestAnimationFrame` when the window is occluded, so whichever fires first wins, and it cancels the other. WebKit can throttle timers too in an occluded window. State stays current either way, and a `visibilitychange` or `focus` event flushes any pending notification at once. While the document is hidden, notifications go out at most once a second. Listeners run once per batch.
 - **No-op identity:** a reducer returns the *same* state object when nothing changed. This covers:
   - the waiting poll when `service.waiting` is unchanged;
   - `notify` and `liveness` events that only advance `seq` and `at`. Both move to a side field that no component renders from: every event advances them, so in the snapshot they would defeat every equality check;
@@ -50,6 +50,7 @@ Non-goals:
 
 A new `useStore(selector, equals = Object.is)` in `app/src/data/use-store.ts`:
 - it is built on `useSyncExternalStore` from `preact/compat`, which the bundle already includes (the DS imports `preact/compat`), so it adds only a few lines;
+- `preact/compat` has no selector variant, so the hook memoizes its selection. `getSnapshot` returns the previous selected value while the store state is the same object, or when the new selection is equal by `equals`. A fresh array or object from a selector therefore never causes a render loop;
 - it re-renders its component only when the selected value changed by `equals`;
 - `shallowEqual` handles arrays and objects of references;
 - `memo` from the same module is likewise free to use.
@@ -76,7 +77,7 @@ This follows UI-6: derived values that more than one surface needs (counts, atte
 ### 3. Query revisions are computed once per change
 
 `queryRevision` keeps its per-op semantics but runs once per store batch instead of once per hook per render. For example, `dispatch.list` stays keyed by `[id, state]`, so a progress tick does not refetch it.
-- The store computes each registered revision function once per batch and caches the result by snapshot identity.
+- The store computes each revision once per batch and caches it by `(op, params)`. The cache is invalidated when either the snapshot or `invalidations` changes identity. `seq` and `at` no longer move the snapshot, and some events (`message`, `plugin`, `config`) change only `invalidations`; `msg.log`, for example, must still refetch on a `message` event.
 - `useQuery` reads its revision through `useStore`.
 
 The 109 per-render `JSON.stringify` calls become one per revision kind per batch, and a query still refetches exactly when it does today.
@@ -102,10 +103,11 @@ A parent boundary cannot stop children that subscribe to the store directly, so 
 
 ### 7. Optional, protocol: waiting without polling (phase 4)
 
-The 5 s poll exists only because `service.waiting` has no event. `waiting` comes from the service's slow-I/O state, so it belongs on a service or liveness event, not on `counts`.
+The 5 s poll exists only because `service.waiting` has no event. `waiting` comes from the service's slow-I/O state, so it does not belong on `counts`. The existing `liveness` event does not fit either: it reports per-task message-broker liveness, and the app store ignores it.
 
-Sending it as an additive field lets the client drop the poll:
-- additions need no version bump under API-1;
+The proposal is a new `service` entity event carrying `waiting`, so the client can drop the poll:
+- clients that do not listen for it are unaffected, and it is listed in `hello.events`;
+- protocol-compat review decides whether a new event type counts as an addition under API-1;
 - the v2-compat mapping and Rust read-model parity (`crates/read-model`) still apply.
 
 This is separate from phases 1 to 3, which need no service change.
@@ -143,4 +145,4 @@ Each phase is one PR. Phase 1 alone should remove most idle renders and the five
 
 1. **Selector hook or signals.** `@preact/signals` gives finer-grained updates, but adds about 4 KB gzip, which would exceed UI-3 with today's headroom, and it changes the component idiom. Proposed: the selector hook on `preact/compat`'s `useSyncExternalStore` now; revisit signals only if profiling shows selector cost matters.
 2. **Hidden-document cadence.** Notify every 1 s while hidden, or not at all until the document is visible (applying events to the state either way)? Proposed: 1 s, so the tray and notices stay current.
-3. **Phase 4.** Should `waiting` go on the service event or the liveness event?
+3. **Phase 4.** Is a new `service` event type acceptable as an additive change, or does it need a protocol minor version?

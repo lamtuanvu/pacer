@@ -46,11 +46,27 @@ Non-goals:
 ```ts
 effect: "read" | "probe" | "write";
 assistant?: {
-  view: (result: unknown) => unknown;                  // projection to allow-listed fields; the only data the model sees
-  scope: { task?: string; repo?: string } | "global";  // which parameter names carry the task id / repo, or global
-  summary: string;                                     // one line for the Settings reads summary
+  fields: FieldSpec;    // declarative allow-list of result fields; the only data the model sees
+  scope: ScopeSpec;     // how the op is confined to a task or repository scope
+  summary: string;      // one line for the Settings reads summary
 };
+
+// A path into the result ("tasks[].state") and what may pass. Anything not listed is dropped.
+type FieldSpec = Record<string, "id" | "enum" | "number" | "bool" | "time" | { text: number /* max chars */ }>;
+
+type ScopeSpec =
+  | { by: "task-param"; param: string }                         // reads one task named by `param`
+  | { by: "task-list"; taskField: string; repoParam?: string }  // returns tasks; results filtered by `taskField`
+  | { by: "repo-param"; param: string }                         // reads one repository named by `param`
+  | { by: "global"; inTask: boolean; inRepo: boolean };         // not task data; whether it may run in each scope
 ```
+
+**Fields are data, not code.** One interpreter, today's `project()` generalized, applies a `FieldSpec`:
+- strings are denied unless their path is declared as `id` or `enum`, or as `text` with a length cap;
+- unknown keys are dropped;
+- arrays are walked by `[]` paths.
+
+The reviewed fixture (below) is generated from these declarations, so reviewers see exactly which fields pass. Free text that a task or agent controls (goals, briefs, agent output, titles beyond a short cap) is never declared.
 
 **`effect`** describes what the handler does, judged from its code, not its name:
 - **`read`:** no side effects beyond caches, cheap, and no live usage reads.
@@ -66,15 +82,15 @@ The field is required, so a new op cannot be added unclassified; the type check 
 
 **The assistant may call an op only if** `effect === "read"` and it has an `assistant` contract. The contract is opt-in per op. It is the reviewed allow-list, and it replaces `READ_OPS`.
 
-A generated file, `test/fixtures/assistant-permitted.json`, lists every permitted op with its view fields and scope:
+A file generated from the declarations, `test/fixtures/assistant-permitted.json`, lists every permitted op with its fields and scope:
 - a test fails when the registry and the file differ;
-- changing the file is the moment security review happens.
+- changing the file requires security review (see Governance).
 
 Safety therefore does not depend on classifying all 239 ops perfectly: only ops with a reviewed contract are reachable.
 
 **Diagnostics need cached reads.** The reads that answer "why is X down" exist today only as probes or writes. The core change adds cache-only read ops that return what pacer already recorded, without running anything:
 - `diagnostics.last`: the last doctor and setup-health results with their times;
-- `executor.health`: per-runner state from the status cache with `cacheOnly`, plus the last failure reason and time;
+- `executor.health`: per-runner state from the status cache with `cacheOnly`, plus the last failure reason. `broken.json` marks store no time and expire after 30 minutes, so the core change records the mark's time when it is written, and the op reports "no recent failure recorded" once a mark has expired;
 - `assistant.budget`: today's `budgetView`, made a real op instead of a special case in `defaultRead`.
 
 The generic path also keeps `snapshot.get`'s cached-status special case.
@@ -92,27 +108,36 @@ The generic path also keeps `snapshot.get`'s cached-status special case.
 
 `pacer_read` runs one pipeline, and every step is mandatory:
 1. Check that the op is permitted.
-2. Run caller policy (`caller-policy.ts`) as the assistant caller.
-3. Parse the parameters with `parseOpParams`, so semantic validation runs as it does for any client.
-4. Apply scope (§3).
-5. Run the handler.
-6. Apply the op's `view` projection.
-7. Redact with the existing `Redactor`.
-8. Cap the size, with an explicit truncation marker.
-9. Wrap the result in `<data>` tags.
+2. Parse the parameters with `parseOpParams`, so semantic validation runs as it does for any client.
+3. Apply scope (§3).
+4. Run the handler.
+5. Apply the op's `fields` through the projection interpreter.
+6. Redact with the existing `Redactor`.
+7. Cap the size, with an explicit truncation marker.
+8. Wrap the result in `<data>` tags.
 
-The `view` projection carries today's protection in `tools.ts`: only short, allow-listed fields reach the model, and free text that a task or agent controls (goals, briefs, agent output) stays out. The redactor remains a second layer, for secrets and the home path, not the main boundary.
+Caller policy (`caller-policy.ts`) only restricts executor sessions today and has no assistant identity, so it is not a step here: the permitted contract is the gate. The projection carries today's protection in `tools.ts`, generalized to every permitted op. The redactor remains a second layer, for secrets and the home path, not the main boundary.
+
+`pacer_find` and `pacer_describe` call `api.list` and `api.describe` internally and filter to permitted ops. Those two ops are not themselves permitted, so `pacer_read` cannot use them to list unfiltered descriptions.
 
 Probe ops are not added to the action allow-list by this spec. Whether `doctor.run` may be proposed as a card is an open decision below.
 
 ### 3. Scope is declared and fails closed
 
-Every permitted op declares in its contract how it is scoped:
-- **Task scope:** if the op declares a task parameter (`id`, `taskId`, `task`, …), the value must equal the scoped task. A list op must declare how its results are filtered to that task. An op declared `global` is refused.
-- **Repository scope:** a declared repo parameter is forced to the scoped repository, and task ids are checked with the existing `inChosenScope`. A `global` op is refused unless its contract marks it as repository-independent, as the strategy list is today.
-- **Dispatch scope:** everything permitted is allowed.
+`ScopeSpec` is a closed union, so every permitted op states exactly how it is confined:
 
-An op without a declared scope cannot be permitted, because the contract requires one. One table-driven test runs every permitted op under all three scopes with an out-of-scope id and expects a refusal.
+| `by` | Task scope | Repository scope | Dispatch scope |
+|---|---|---|---|
+| `task-param` | `param` must equal the scoped task, or refused | task must pass `inChosenScope`, or refused | allowed |
+| `task-list` | results filtered to rows whose `taskField` is the scoped task | `repoParam` forced to the scoped repository (refused if the op has none), and rows filtered by `inChosenScope` | allowed, with the days window applied |
+| `repo-param` | refused | `param` must equal the scoped repository | allowed |
+| `global` | allowed only if `inTask` | allowed only if `inRepo` | allowed |
+
+- **Days window:** in dispatch scope, ops that accept a time window get the scope's `days` forced, as today's tools do.
+- **Orientation ops** (`guide.get`) are `global` with `inTask` and `inRepo` true, so the assistant can orient in every scope.
+- **Fail closed:** there is no empty or partial declaration: the type has no default, and an op with no `ScopeSpec` cannot be permitted.
+
+One table-driven test runs every permitted op under each scope, following the table: an out-of-scope id must be refused or filtered out, and a refused combination must be refused.
 
 ### 4. Concept notes for orientation
 
@@ -133,7 +158,7 @@ The text above is a draft. Its exact wording is settled in the implementation PR
 
 Discovery costs tool rounds. `maxToolRounds` is capped at 6 by its schema (`src/assistant/types.ts:7`) and by the always-on contract (at most 6), and this spec keeps that cap. Three measures make six rounds enough:
 - **Batched calls:** up to four tool calls per round are already allowed, so the model can find, describe and read in one round.
-- **Repeat calls answered from cache:** within a conversation, a `pacer_find` or `pacer_describe` with the same arguments returns "(same as before)" instead of the full text.
+- **Repeat calls answered from cache:** within a turn, a `pacer_find` or `pacer_describe` with the same arguments returns "(same as before)" instead of the full text. If the input cap has already evicted the earlier result, the cache entry is dropped and the full text is returned again.
 - **Topic list in the prompt:** `guide.get`'s topic list is included in the first message, which saves a round.
 
 If validation shows six rounds are not enough, raising the cap is a separate amendment of the always-on contract. It is not part of this change.
@@ -150,9 +175,9 @@ If validation shows six rounds are not enough, raising the cap is a separate ame
 - **Unit tests:**
   - every op has an `effect`;
   - the permitted-list fixture matches the registry;
-  - each permitted op makes no live usage read and no process launch (spy);
+  - each permitted op makes no live usage read and no process launch (spy), and leaves the fixture `PACER_HOME` byte-identical (hash before and after);
   - scope refusals for out-of-scope ids under task and repository scope;
-  - projection drops unlisted fields, including injected free text;
+  - for each permitted op, injected free text in every string field of its fixture result is dropped unless declared, and declared `text` is capped;
   - redaction and caps apply;
   - `pacer_describe` refuses ops that are not permitted;
   - instructions inside tool data are not followed (the existing harness).
@@ -177,10 +202,12 @@ If validation shows six rounds are not enough, raising the cap is a separate ame
 ## Governance
 
 - **Rules:** API-1 (additive fields), ARCH-1/2, SEC-1 (no credential or transcript reads), and the Rust parity rules for the native catalog.
-- **Reviewers:** `.project/reviewers/security.md` (permitted list, projections, scope), `architecture.md` (registry contract), `protocol-compat.md` (`api.list`/`api.describe` fields and native parity) and `qa.md` (fixtures and live evidence). Docs review covers the guide.
+- **Reviewers:** `.project/reviewers/security.md` (permitted list, fields, scope), `architecture.md` (registry contract), `protocol-compat.md` (`api.list`/`api.describe` fields and native parity) and `qa.md` (fixtures and live evidence). Docs review covers the guide.
+- **Review gate:** the security reviewer's scope does not cover `src/assistant/**` today and its review is advisory. This spec proposes, through the constitution's amendment process, that the security reviewer's scope add `src/assistant/**` and `test/fixtures/assistant-permitted.json`, and that a change to that fixture requires a security review report in the PR, as UI-24 does for UI reports. Until the amendment is adopted, the gate is procedural.
 
 ## Open decisions
 
 1. **Probe ops as cards.** May a probe op such as `doctor.run` be proposed as an action card? This would widen the action allow-list. Proposed: yes for `doctor.run` only, as a separate reviewed addition.
 2. **Where the guide lives.** A tracked doc (proposed) or descriptions inside op metadata?
-3. **Initial permitted list.** Proposed: today's eleven reads, the three new cache-only ops, `guide.get`, `api.list` and `api.describe`. Each further op is added through its own reviewed contract.
+3. **Initial permitted list.** Proposed: today's eleven reads, the three new cache-only ops and `guide.get`. Each further op is added through its own reviewed contract.
+4. **Security gate amendment.** Adopt the reviewer-scope and fixture-review amendment above with this change, or separately?
