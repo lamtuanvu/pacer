@@ -22,7 +22,9 @@ const api = { async call(op: string, params: any) {
   if (op === "assistant.settings.set") { w.settingsCalls.push(params); w.assistantStatus = { ...w.assistantStatus, configured: true, available: true, account: params.account }; return {}; }
   if (op === "assistant.candidates") return { accounts: [{ account: "localmodel", models: [{ id: "qwen", name: "Qwen" }] }, { account: "cloud", models: [{ id: "cloud-model", name: "Cloud model" }] }] };
   if (op === "assistant.status") return w.assistantStatus;
-  if (op === "assistant.conversations") return { conversations: [] };
+  // `?history` loads a conversation long enough to scroll.
+  if (op === "assistant.conversations") return { conversations: location.search.includes("history") ? [{ id: "conv-1" }] : [] };
+  if (op === "assistant.conversation") return { turns: Array.from({ length: 12 }, (_, i) => ({ ...turn(`Question ${i}`), id: `turn-h${i}`, answer: `Answer ${i}\n${"- a line of detail\n".repeat(6)}` })) };
   if (op === "assistant.ask") { last = params.text; w.asked.push(params); return { conversationId: "conv-1", turnId: "turn-1" }; }
   if (op === "assistant.turn") return turn(last);
   if (op === "assistant.card.record") { w.recorded.push(params); return {}; }

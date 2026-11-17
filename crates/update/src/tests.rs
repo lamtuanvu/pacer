@@ -250,3 +250,47 @@ fn update_apply_refusals_and_schema_issues_never_reach_core() {
     )));
     assert!(!apply::stays_forwarded(&ctx(dir.path(), &[])));
 }
+
+#[test]
+fn update_check_forwards_installations_managed_elsewhere() {
+    let dir = tempfile::tempdir().unwrap();
+    let plain = ctx(dir.path(), &[]);
+    assert!(!crate::service_update_stays_forwarded(
+        &plain,
+        "update.check"
+    ));
+    for env in [
+        ("PACER_INSTALL_METHOD", "npm"),
+        ("HOMEBREW_PREFIX", "/opt/homebrew"),
+        (
+            "PACER_BIN",
+            "/Applications/pacer.app/Contents/Resources/pacer",
+        ),
+        ("PACER_BIN", "/Applications/Pacer.APP/contents/MacOS/pacer"),
+    ] {
+        assert!(
+            crate::service_update_stays_forwarded(&ctx(dir.path(), &[env]), "update.check"),
+            "{env:?}"
+        );
+    }
+    std::fs::create_dir_all(dir.path().join(".pacer")).unwrap();
+    let owner = dir.path().join(".pacer/owner.json");
+    std::fs::write(
+        &owner,
+        r#"{"schema":1,"owner":"cli","executable":"/x","at":1}"#,
+    )
+    .unwrap();
+    assert!(!crate::service_update_stays_forwarded(
+        &plain,
+        "update.check"
+    ));
+    std::fs::write(
+        &owner,
+        r#"{"schema":1,"owner":"desktop","executable":"/x","at":1}"#,
+    )
+    .unwrap();
+    assert!(crate::service_update_stays_forwarded(
+        &plain,
+        "update.check"
+    ));
+}

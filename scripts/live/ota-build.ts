@@ -347,7 +347,7 @@ export async function buildOtaFixtures(id: string, signerMode: "adhoc" | "cert" 
       await run(["cargo", "build", "--offline", "--locked", "--release", "--features", "ota-fixture", "--bin", "pacer-update-helper"], join(source, "desktop/src-tauri"));
       cpSync(join(targetDir, "release/bundle/macos/pacer.app"), join(release, "pacer.app"), { recursive: true });
       copyFileSync(join(targetDir, "release/pacer-update-helper"), join(release, "pacer-update-helper")); chmodSync(join(release, "pacer-update-helper"), 0o755);
-      const stage = await stageDesktopPackage(source, release, arch, { run: argv => run(argv), bundleId: "dev.pacer.desktop.fixture" }), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources");
+      const stage = await stageDesktopPackage(source, release, arch, { run: argv => run(argv), bundleId: "dev.pacer.desktop.fixture", shellPredatesMarker: index === 0 && !readFileSync(join(source, "desktop/src-tauri/src/packaging.rs"), "utf8").includes("DESKTOP_EXECUTABLE_MARKER") }), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources");
       assertFixtureBundlePlist(readFileSync(join(app, "Contents/Info.plist"), "utf8"));
       const metadataPath = join(resources, "pacer-release.json"), metadata = JSON.parse(readFileSync(metadataPath, "utf8")); metadata.fixture = true; writeFileSync(metadataPath, JSON.stringify(metadata) + "\n");
       const entitlement = join(directory, "cli-entitlements.plist"); writeFileSync(entitlement, '<plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>', { mode: 0o600 });

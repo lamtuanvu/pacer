@@ -61,14 +61,25 @@ keeps the current service and is remembered for that executable identity. A
 changed executable causes the choice to appear again. While the offer is open,
 the desktop checks the service about every 30 seconds instead of continuously.
 
+If you chose to keep your own command at Welcome, the launch is never
+interrupted: that choice is offered only in **Settings → Updates**, which
+reports that automatic updates are unavailable for a service the app cannot
+verify and offers **Review service replacement**. The confirmation page, **Not
+now** and the transaction below are the same; the service changes only when you
+confirm it there. A committed replacement also records that you chose the app's
+service, so the desktop stops running your own command for its own calls.
+
 **Settings → Updates** explains that the service was replaced and offers
 **Review service replacement**, which opens the same confirmation page, also
-after **Not now**. Settings also notes when the terminal command and the
+after **Not now**, and is the only way to reach the offer for a command you
+kept at Welcome. Settings also notes when the terminal command and the
 service run different builds.
 
 Confirming stops the inspected service job, registers the signed CLI bundled
-with the app and verifies the new service. Settings and task data stay in the
-same home; the original command file stays in place. The optional terminal
+with the app and verifies the new service. Stopping waits, on awake time, for
+that one job and its process to actually go away before anything else happens;
+no other process is ever signalled. Settings and task data stay in the same
+home; the original command file stays in place. The optional terminal
 checkbox moves that file to a timestamped `pacer.pre-app-*` backup and links
 `~/.local/bin/pacer` to the bundled CLI. If that step fails after the service
 was replaced, a notification says so; move `~/.local/bin/pacer` aside and reopen
