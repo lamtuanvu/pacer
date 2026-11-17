@@ -87,6 +87,16 @@ Draft-readiness clarification in the same proposed amendment: require current re
 
 ## Exceptions
 
+### CT11-1063 — service update restart banner, live restart deferred
+
+Granted by @lamtuanvu on 2026-11-17. The maintainer merged PR #1063 at `b6c77e3` (merge `5674e74`) with the real-restart CT-11 observation still reported as UNVERIFIED in its evidence, then told the planner to proceed with recording the exception.
+
+Scope: PR #1063 only (the "Updating pacer…" banner during an `update.apply` restart, and clearing the Settings › Updates job-poll error). The live CT-11 observation of a real `update.apply` restart of a running service may be deferred. The sandbox refuses that operation (D8), and the fix only shows when updating from a build that already contains it. Simulated end-to-end browser tests cover the store, banner, reconnect cleanup and Settings poll, and are mutation-checked. Independent code and UI/accessibility reviews passed. This entry does not convert the real restart into a tested PASS, and it waives nothing else: later edits, failed checks, DCO and other evidence stay required.
+
+Follow-up: on the first real service update from a release that contains #1063, the maintainer confirms that the banner reads "Updating pacer…" and that Settings › Updates shows no leftover "Service is connecting" error.
+
+Expiry: that first real update, or 2026-12-15, whichever comes first. It cannot authorize other changes.
+
 ### VO-TEMP-2026-10 — manual VoiceOver validation paused
 
 Granted by @lamtuanvu on 2026-10-22 through the explicit project-wide instruction to temporarily turn off the VoiceOver requirement because validation was consuming excessive time. Applies to all Pacer UI work, including Diagnostics repair. Expires on **2026-11-22**, or earlier if the maintainer reinstates it.
