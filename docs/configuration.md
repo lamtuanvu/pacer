@@ -153,7 +153,7 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 
 `execution.idle_after_min` defaults to 10: without output or file changes, the task becomes idle and emits an alert. `execution.idle_fail_min` defaults to 30: continued inactivity stops the task. Both accept whole minutes from 1 to 1440, and `idle_fail_min` must exceed `idle_after_min`.
 
-`execution.transient_retry_min` defaults to 10: an interactive OpenCode session that keeps showing a transient provider retry (for example HTTP 524) without file changes for that long ends its attempt, and the task moves to the next executor. A rate-limit retry ends the attempt at once as a usage limit. It accepts whole minutes from 1 to 1440.
+`execution.transient_retry_min` defaults to 10: an interactive OpenCode session that keeps showing a transient provider retry (for example HTTP 524) without file changes for that long ends its attempt, and the task moves to the next executor. A rate-limit retry ends the attempt at once as a usage limit. It accepts whole minutes from 1 to 1440. The window survives the banner clearing and coming back; only a file change or commit resets it.
 
 Classification defaults to deterministic `rules`. Optional adapters are `ollama` (an OpenAI-compatible chat endpoint, default `http://127.0.0.1:1234/v1`) and `jev`. Decisions are `task_kind`, `difficulty`, `guard` and `result_check`; each can set `use` and `min_confidence` (default 0.6). Errors, timeouts and low confidence fall back to rules. Keep defaults unless you intend to configure and evaluate an adapter.
 

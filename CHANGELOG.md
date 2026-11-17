@@ -12,6 +12,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - Replacing the service no longer fails because launchd still lists the job, or the old process is still exiting, a moment after `bootout`. The stop step now waits on awake time for that one job and its process to actually go away, and never signals a process it cannot prove is the inspected one. A takeover step that fails now names the step and the check that failed in `desktop.log`.
 
+- OpenCode provider retry loops are now detected while the screen animates, instead of waiting for a quiet period that a retrying screen never reaches. A rate limit moves the task to the next executor at once, as a detected usage limit does today. A transient provider error (for example HTTP 524) moves the task to the next executor after `execution.transient_retry_min` (new key, default 10 minutes) with no file change. A plugin-owned attempt stopped for a provider retry loop now moves to the next executor like a detected limit, instead of failing the task.
+
 ## [0.16.0] - 2026-11-17
 
 ### Added
