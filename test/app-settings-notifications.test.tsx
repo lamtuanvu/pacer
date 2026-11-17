@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
-import { SettingsGeneral, notificationCaption } from "../app/src/screens/settings/General";
+import { NotificationsSection, SettingsGeneral, notificationCaption } from "../app/src/screens/settings/General";
 import { TaskContext } from "../app/src/screens/task-shared";
 import { ActionContext } from "../app/src/data/action-context";
 import { initialState } from "../app/src/data/store";
@@ -84,18 +84,35 @@ function withPlatform<T>(platform: string, body: () => T): T {
   } catch (error) { restore(); throw error; }
 }
 
-test("Notification sound row renders in the macOS desktop shell and offers pacer/default/off", () => withPlatform("MacIntel", () => {
+const SOUND_LABELS = ["Pacer drop", "System default", "Off", "Basso", "Blow", "Bottle", "Frog", "Funk", "Glass", "Hero", "Morse", "Ping", "Pop", "Purr", "Sosumi", "Submarine", "Tink"];
+
+test("Notification sound picker renders in the macOS desktop shell and offers every sound", () => withPlatform("MacIntel", async () => {
+  const { options } = await import("preact");
+  let picker: { "aria-label"?: string; value?: string; options?: { value: string; label: string }[] } | undefined;
+  const old = options.vnode;
+  options.vnode = node => {
+    old?.(node);
+    const props = node.props as any;
+    if (props?.["aria-label"] === "Notification sound" && typeof props.onValueChange === "function") picker = props;
+  };
   const host = globalThis as { __TAURI__?: unknown };
   const previous = host.__TAURI__;
   try {
     host.__TAURI__ = { core: { invoke: async () => true } };
-    const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider>);
+    const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'glass' } }} /></TaskContext.Provider>);
     expect(html).toContain("Notification sound");
     expect(html).toContain("Sound played when a banner appears.");
-    for (const label of ["Pacer", "System", "Off"]) expect(html).toContain(label);
+    // The trigger is a listbox button named for the setting and shows the stored choice.
+    expect(html).toContain('aria-haspopup="listbox"');
+    expect(html).toContain('aria-label="Notification sound"');
+    expect(html).toContain("Glass");
   } finally {
     previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+    options.vnode = old;
   }
+  expect(picker?.value).toBe("glass");
+  expect(picker?.options?.map(option => option.label)).toEqual(SOUND_LABELS);
+  expect(picker?.options?.map(option => option.value)).toEqual(["pacer", "default", "off", "basso", "blow", "bottle", "frog", "funk", "glass", "hero", "morse", "ping", "pop", "purr", "sosumi", "submarine", "tink"]);
 }));
 
 test("Notification sound row is hidden in a non-macOS desktop shell", () => withPlatform("Linux x86_64", () => {
@@ -105,6 +122,7 @@ test("Notification sound row is hidden in a non-macOS desktop shell", () => with
     host.__TAURI__ = { core: { invoke: async () => true } };
     const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider>);
     expect(html).not.toContain("Notification sound");
+    expect(html).not.toContain("Pacer drop");
   } finally {
     previous ? host.__TAURI__ = previous : delete host.__TAURI__;
   }
@@ -130,7 +148,7 @@ test("the Notification sound control writes only the sound key", () => withPlatf
   options.vnode = node => {
     old?.(node);
     const props = node.props as any;
-    if (typeof props?.label === "string" && typeof props.onChange === "function" && Array.isArray(props.options)) handlers.set(props.label, props.onChange);
+    if (typeof props?.["aria-label"] === "string" && typeof props.onValueChange === "function" && Array.isArray(props.options)) handlers.set(props["aria-label"], props.onValueChange);
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: "done" }; }, result: () => ({}) } as any;
@@ -141,14 +159,67 @@ test("the Notification sound control writes only the sound key", () => withPlatf
     host.__TAURI__ = { core: { invoke: async () => true } };
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));
     mount();
-    for (const sound of ["default", "off", "pacer"]) { handlers.get("Notification sound")!(sound); await settle(); }
+    for (const sound of ["default", "glass", "off", "pacer"]) { handlers.get("Notification sound")!(sound); await settle(); }
   } finally {
     previous ? host.__TAURI__ = previous : delete host.__TAURI__;
     options.vnode = old;
   }
   expect(calls).toEqual([
     { op: "notifications.set", params: { sound: "default" } },
+    { op: "notifications.set", params: { sound: "glass" } },
     { op: "notifications.set", params: { sound: "off" } },
     { op: "notifications.set", params: { sound: "pacer" } },
   ]);
 }));
+
+/** Mount the Notifications section in the macOS desktop shell with a fake service, and return the calls it made. */
+async function mountMacSettings(health: unknown, body: (dom: import("./app-setup-health-dom").TestDom, calls: { op: string; params: unknown }[]) => Promise<void>) {
+  const { installDom, mount, unmount } = await import("./app-setup-health-dom");
+  const calls: { op: string; params: unknown }[] = [];
+  const api = { call: async (op: string, params: unknown) => { calls.push({ op, params }); return op === "notifications.health" ? health : op === "notifications.get" ? { level: "important", sound: "glass" } : {}; } } as any;
+  const host = globalThis as { __TAURI__?: unknown };
+  const previous = host.__TAURI__;
+  const dom = installDom();
+  const observer = globalThis as { ResizeObserver?: unknown; cancelAnimationFrame?: unknown };
+  const previousObserver = observer.ResizeObserver, previousCancel = observer.cancelAnimationFrame;
+  await withPlatform("MacIntel", async () => {
+    try {
+      observer.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
+      observer.cancelAnimationFrame ??= (id: number) => clearTimeout(id);
+      host.__TAURI__ = { core: { invoke: async () => true } };
+      await mount(dom, <TaskContext.Provider value={{ state: desktopState, api }}><NotificationsSection initialData={{ level: "important", sound: "glass" }} /></TaskContext.Provider>);
+      await body(dom, calls);
+    } finally {
+      await unmount(dom).catch(() => {});
+      previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+      if (previousObserver === undefined) delete observer.ResizeObserver;
+      if (previousCancel === undefined) delete observer.cancelAnimationFrame;
+      dom.restore();
+    }
+  });
+}
+
+test("Send test beside the macOS sound picker calls notifications.test and is offered once", async () => {
+  const { clickText, domText, until, tick } = await import("./app-setup-health-dom");
+  await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async (dom, calls) => {
+    await until(() => domText(dom.container).includes("Send test"));
+    expect(domText(dom.container).split("Send test").length - 1).toBe(1);
+    expect(domText(dom.container)).toContain("Allowed · not tested yet");
+    clickText(dom.container, "Send test");
+    await tick();
+    await tick();
+    expect(calls.filter(call => call.op === "notifications.test")).toEqual([{ op: "notifications.test", params: {} }]);
+    expect(calls.some(call => call.op === "notifications.set")).toBe(false);
+  });
+});
+
+test("without permission the macOS sound row shows the remedy instead of Send test", async () => {
+  const { domText, until } = await import("./app-setup-health-dom");
+  await mountMacSettings({ level: "warn", detail: "Notifications not requested", remedy: { label: "Allow notifications", op: "notifications.request" } }, async dom => {
+    await until(() => domText(dom.container).includes("Allow notifications"));
+    const text = domText(dom.container);
+    expect(text).not.toContain("Send test");
+    expect(text.split("Allow notifications").length - 1).toBe(1);
+    expect(text).toContain("Not asked yet");
+  });
+});
