@@ -335,6 +335,21 @@ const launchFailure = (executor: string, stderr: string, code = 2) => {
   out.exec.stderr = stderr;
   return out;
 };
+test("a provider retry loop moves the task to the next executor", async () => {
+  const ctx = fakeCtx({run: async () => ({code: 0, stdout: "", stderr: ""})});
+  const looping = outcomeFor("codex", 1);
+  looping.exec.stderr = "\npacer: codex kept retrying a provider error for 10 min: Provider request failed with HTTP 524";
+  looping.attempt.brokenReason = "provider retrying: Provider request failed with HTTP 524";
+  const d = deps({ codex: looping, cursor: outcomeFor("cursor", 0) });
+  const r = await runTask(ctx, newTask(ctx).id, d);
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(r.state).toBe("done");
+  expect(r.attempts.map(a => a.executor)).toEqual(["codex", "cursor"]);
+  expect(r.attempts[0].brokenReason).toBe("provider retrying: Provider request failed with HTTP 524");
+  const marks = await Bun.file(`${ctx.pacerHome}/broken.json`).json();
+  expect(marks.codex.reason).toBe("provider retrying: Provider request failed with HTTP 524");
+});
+
 test("startup usage error falls back and persists broken executor", async () => {
   const ctx = fakeCtx();
   const d = deps({ codex: launchFailure("codex", "error: unexpected argument '--sandbox' found"), cursor: outcomeFor("cursor", 0) });
