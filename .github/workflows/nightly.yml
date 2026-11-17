@@ -34,7 +34,7 @@ jobs:
     timeout-minutes: 120
     permissions:
       contents: read
-      actions: read
+      actions: write # The CI gate dispatches CI on main when the commit has no full-suite run.
       issues: write
     env:
       SHA: ${{ inputs.sha }}
@@ -83,9 +83,10 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
           CI_SHA: ${{ steps.select.outputs.target }}
+          # Waits for CI already running on the commit. A docs-only or focused push run on main skips
+          # the full suite, so without one this dispatches CI on main, which always runs the full suite.
+          # ci-evidence.ts dispatches only while main still points at the commit; if main moved, it fails.
           CI_REF: main
-          # Waits for CI already running on the commit; a nightly never starts CI itself.
-          CI_NO_DISPATCH: '1'
           CI_EVIDENCE_MINUTES: '90'
         run: bun scripts/release/ci-evidence.ts
       - name: Pick the nightly version

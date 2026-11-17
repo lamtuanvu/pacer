@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { NIGHTLY_STAMP_FILES } from "../scripts/release/nightly";
+import { SUITE_JOBS, SUITE_STEP } from "../scripts/release/ci-evidence";
 import { tmpDir } from "./helpers";
 
 interface Step { name?: string; id?: string; uses?: string; if?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> }
@@ -101,7 +102,8 @@ test("the schedule is held back until phase 7; manual dispatch takes a main comm
 test("one nightly at a time, least privilege, and the release token only where a tag is pushed", () => {
   expect(workflow.concurrency).toEqual({ group: "nightly", "cancel-in-progress": false });
   expect(workflow.permissions).toEqual({});
-  expect(nightly.permissions).toEqual({ contents: "read", actions: "read", issues: "write" });
+  // actions: write lets the CI gate dispatch CI on main when the selected commit has no full-suite evidence.
+  expect(nightly.permissions).toEqual({ contents: "read", actions: "write", issues: "write" });
   expect(nightly.env?.GH_TOKEN).toBeUndefined();
   const push = stepNamed("Tag and push");
   expect(push.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
@@ -110,7 +112,7 @@ test("one nightly at a time, least privilege, and the release token only where a
   expect(stepNamed("Report failure").env?.GH_TOKEN).toBe("${{ github.token }}");
   const gate = stepNamed("Require CI's full suite on both OSes for the commit");
   expect(gate.run).toBe("bun scripts/release/ci-evidence.ts");
-  expect(gate.env).toMatchObject({ GH_TOKEN: "${{ github.token }}", CI_SHA: "${{ steps.select.outputs.target }}", CI_NO_DISPATCH: "1", CI_EVIDENCE_MINUTES: "90" });
+  expect(gate.env).toEqual({ GH_TOKEN: "${{ github.token }}", CI_SHA: "${{ steps.select.outputs.target }}", CI_REF: "main", CI_EVIDENCE_MINUTES: "90" });
   const names = nightly.steps.map(s => s.name ?? s.uses ?? s.run);
   const order = ["Require main and the release token", "Select the main commit", "Skip unchanged", "Require CI's full suite on both OSes for the commit", "Pick the nightly version", "Commit as the token's owner", "Stamp the nightly version", "Tag and push", "Report failure"];
   expect(order.map(name => names.indexOf(name))).toEqual([...order.map(name => names.indexOf(name))].sort((a, b) => a - b));
@@ -181,6 +183,48 @@ test("Skip unchanged skips a scheduled run on the last nightly's parent, never a
   pushedNightly(work, next, "0.16.0-nightly.202611181700");
   expect(runStep(work, script, { TARGET: sha, GITHUB_EVENT_NAME: "schedule" }).exitCode).toBe(0);
   expect(outputs(work).skip).toBeUndefined();
+});
+
+/**
+ * A fake gh for ci-evidence.ts: main's head is `head`, and the only CI run on `sha` is a completed push run
+ * whose suite step was skipped (a docs-only or focused push). `workflow run` is logged, then fails so the
+ * gate stops instead of polling for the dispatched run.
+ */
+function fakeCiGh(work: string, sha: string, head: string) {
+  const log = join(work, "gh.log"), dir = join(work, "bin");
+  const jobs = SUITE_JOBS.map(name => ({ name, conclusion: "success", steps: [{ name: SUITE_STEP, conclusion: "skipped" }] }));
+  writeFileSync(join(dir, "runs.json"), JSON.stringify({ workflow_runs: [{ id: 5, event: "push", status: "completed", conclusion: "success", created_at: new Date(0).toISOString(), html_url: "run/5" }] }));
+  writeFileSync(join(dir, "jobs.json"), JSON.stringify([{ jobs }]));
+  writeFileSync(join(dir, "gh"), `#!/bin/sh
+printf '%s\\n' "$*" >> "${log}"
+case "$*" in
+  "api repos/fixture/repo/actions/workflows/ci.yml/runs?head_sha=${sha}&per_page=100") cat "${dir}/runs.json" ;;
+  "api --paginate --slurp repos/fixture/repo/actions/runs/5/jobs?filter=latest&per_page=100") cat "${dir}/jobs.json" ;;
+  "api repos/fixture/repo/commits/main --jq .sha") echo ${head} ;;
+  *) exit 1 ;;
+esac
+`, { mode: 0o755 });
+  return log;
+}
+
+test("the CI gate dispatches CI on main when main's head has no full-suite run, and fails if main moved", () => {
+  const { work, sha } = fixture();
+  const gate = stepNamed("Require CI's full suite on both OSes for the commit");
+  // The step's literal env as written, with the selected commit for CI_SHA.
+  const env = { ...Object.fromEntries(Object.entries(gate.env!).filter(([, value]) => !value.includes("${{"))), CI_SHA: sha };
+  // main still points at the commit: one dispatch of CI on main (the fake gh then stops the gate).
+  let log = fakeCiGh(work, sha, sha);
+  const dispatched = runStep(work, gate.run!, env);
+  expect(dispatched.stdout.toString()).toContain(`No usable CI run for ${sha}; dispatching CI on main`);
+  expect(readFileSync(log, "utf8").trim().split("\n").at(-1)).toBe("workflow run ci.yml --repo fixture/repo --ref main");
+  // main moved since the commit was selected: no dispatch, and a message that names both commits.
+  writeFileSync(log, "");
+  const moved = "b".repeat(40);
+  log = fakeCiGh(work, sha, moved);
+  const refused = runStep(work, gate.run!, env);
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr.toString()).toContain(`main now points at ${moved}, not ${sha}`);
+  expect(readFileSync(log, "utf8")).not.toContain("workflow run");
 });
 
 test("Pick the nightly version refuses a version that is already tagged on origin", () => {

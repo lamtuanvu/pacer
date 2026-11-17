@@ -21,7 +21,7 @@ export function fullSuitePassed(jobs: CiJob[]): boolean {
 
 export type CiEvidenceOptions = { dispatch: boolean };
 
-/** Waits for a passing full suite on `sha`. With `dispatch` off (nightlies), missing evidence fails instead of starting CI on `ref`. */
+/** Waits for a passing full suite on `sha`. With `dispatch` off (release.yml for a nightly tag), missing evidence fails instead of starting CI on `ref`. */
 export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline: number, log = console.log, options: CiEvidenceOptions = { dispatch: true }): Promise<CiRun> {
   const checked = new Set<number>();
   let dispatchedAt: number | undefined;
@@ -70,7 +70,7 @@ export function githubCi(repo: string): Ci {
 
 if (import.meta.main) {
   const { GITHUB_REPOSITORY: repo, CI_SHA: sha, CI_REF: ref } = process.env;
-  // Nightlies never dispatch CI: nightly.yml already required evidence for the main commit.
+  // release.yml never dispatches CI for a nightly tag: nightly.yml already required (or dispatched) evidence for the main commit.
   const dispatch = process.env.CI_NO_DISPATCH !== "1";
   if (!repo || !sha) throw Error("GITHUB_REPOSITORY and CI_SHA are required");
   if (dispatch && !ref) throw Error("CI_REF is required unless CI_NO_DISPATCH=1");
