@@ -23,7 +23,10 @@ use tokio::{
 const PLUGIN_LOG_MAX_BYTES: u64 = 1024 * 1024;
 /// A longer stderr line is dropped (`MAX_LINE_BYTES` in `lines.ts`).
 const MAX_STDERR_LINE: usize = 1024 * 1024;
-const DROP_NOTE: &str = "dropped a line over 1 MiB";
+/// Lines the TypeScript host writes to the plugin log on transport events
+/// (registry.ts `onStderr`, which records every note as `[stderr] <note>`).
+pub(crate) const DROP_NOTE: &str = "dropped a line over 1 MiB";
+pub(crate) const MALFORMED_NOTE: &str = "ignored a malformed JSON line on stdout";
 /// UTF-16 units of a line written (`line.slice(0, 4096)`).
 const LINE_UNITS: usize = 4096;
 /// Bytes of a line held in memory: more than 4096 UTF-16 units of any UTF-8.
@@ -50,6 +53,20 @@ impl PluginLog {
             dir: dir.to_path_buf(),
             path: dir.join(format!("{id}.log")),
         })
+    }
+
+    /// Append `<ISO time> [stderr] <note>` as the TypeScript host records a
+    /// transport note (`onStderr`, which wraps every note in `[stderr]`).
+    pub(crate) fn note(&self, note: &str) -> io::Result<()> {
+        self.append("stderr", note)
+    }
+
+    /// Append `note` off the async executor, ignoring errors, for call sites
+    /// that must not block the current task.
+    pub(crate) fn note_blocking(&self, note: &str) {
+        let log = self.clone();
+        let note = note.to_owned();
+        let _ = tokio::task::spawn_blocking(move || log.note(&note));
     }
 
     /// Append `<ISO time> [<tag>] <line>` as `appendPluginLog` does.
