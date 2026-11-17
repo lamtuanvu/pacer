@@ -25,7 +25,7 @@ The repaired registration names the bundle path directly. Later copies into `~/.
 
 Detection is read-only. It runs on every ordinary launch before the live-service version gate, because a takeover build commonly reports a different version and the version page would otherwise end the launch first. The desktop offers reclaim only when every condition holds:
 
-1. The app's `consent.json` parses strictly with `keep: false`. A missing, malformed or `keep: true` record keeps today's behavior.
+1. The app's `consent.json` parses strictly, with `keep: false` or `keep: true`. A missing or malformed record keeps today's behavior. Both records are detected; only the offer differs. `keep: false` keeps the launch-time offer before the version gate, while `keep: true` — the CLI the user chose to keep at Welcome — is never offered at launch and is reachable only through Settings → Updates, which opens the same confirmation page on explicit action.
 2. `observe_service_registration` succeeds: fixed label, allowed plist keys, `argv` of `<absolute path> serve`, `HOME`, `PACER_HOME` and port matching this desktop, user-owned regular plist that is not group- or world-writable, loaded job whose PID runs the registered program.
 3. The registered program is a regular file, not a symlink, and is not the bundled CLI. A symlinked program is never offered, even one that points at another build; the desktop keeps today's behavior for it.
 4. `inspect_registered_service` fails with an identity error.
@@ -33,11 +33,11 @@ Detection is read-only. It runs on every ordinary launch before the live-service
 
 Any other failure (foreign home or port, unexpected plist keys, ambiguous job, writable registration, unsigned or multiply-linked executable) keeps today's behavior. The service is never touched in that case.
 
-Settings → Updates gains the reason `service-takeover` through the existing `desktop_update_connection` command. It adds no paths or capabilities. Older web apps that do not recognize the reason must not be offered it; the shell returns it only when the service's web app declares support, and otherwise keeps `service-identity`.
+Settings → Updates gains the reason `service-takeover` through the existing `desktop_update_connection` command. It adds no paths or capabilities. For a `keep: true` consent it is the only way in, because the launch-time page is never shown for that consent. Older web apps that do not recognize the reason must not be offered it; the shell returns it only when the service's web app declares support, and otherwise keeps `service-identity`.
 
 ## Confirmation
 
-The confirmation is a bundled shell page, not the service's web app, because that web app is served by the unverified build. The desktop shows it on launch when detection holds and the user has not dismissed it for this exact program identity. Settings → Updates links to it through a shell action.
+The confirmation is a bundled shell page, not the service's web app, because that web app is served by the unverified build. The desktop shows it on launch when detection holds, the consent is `keep: false`, and the user has not dismissed it for this exact program identity. A `keep: true` consent is never shown at launch; Settings → Updates links to the page through a shell action for both consents, so it opens only on an explicit user action.
 
 The page shows:
 
@@ -59,7 +59,7 @@ The signed desktop starts the bundled `pacer-update-helper` in a new `--ota-take
 Its journal lives under `$PACER_HOME/desktop-updates/native/takeover/<transaction id>/` with `transaction_kind: "takeover"`, so existing readers reject it. States: `prepared → stopping → switched → verifying → committed`, or `restoring → restored | recovery-failed` from any state after `prepared`. Each effect records its intent before execution and its observed completion afterward.
 
 1. **Prepare.** Re-run detection and compare it to the authorization; any drift aborts with nothing changed. Snapshot the exact original plist bytes. A disabled override is refused, as in adoption. Copy the helper into the transaction directory and arm the recovery job (`--ota-recover-takeover <tx>`, `KeepAlive`, `RunAtLoad`).
-2. **Stop.** `bootout` that exact job. Prove job absence and that the original PID exited.
+2. **Stop.** `bootout` that exact job. Prove job absence and that the original PID exited. launchd's removal of the job and the process exit are asynchronous with the call — the front door also has a child that drains — so both are polled on awake time for up to 15 seconds before the step fails, and a PID that now holds another incarnation counts as the original process having exited. Nothing is ever signaled: only the exact job is stopped.
 3. **Switch.** Replace the registration with the managed definition: `argv` of `<bundled CLI> serve` and the environment `managed_service_action` writes (`HOME`, `PACER_HOME`, `PACER_PORT`, fixed `PATH`). Bootstrap it.
 4. **Verify.** Within the 120-second awake-time limit, require `inspect_registered_service` to succeed for a fresh process incarnation, then a native connection, desktop sign-in and a valid state read. A heartbeat or HTTP PID claim is insufficient.
 5. **Commit.** Record `committed` and retire the recovery job.
@@ -80,7 +80,7 @@ The README's source-install section warns that copying a build to `~/.local/bin/
 
 ## Out of scope
 
-- Services the app never owned (no consent record, or `keep: true`). The legacy bootstrap design covers allowlisted official releases.
+- Services the app never owned (no consent record at all). A `keep: true` record is the CLI the user chose to keep at Welcome: it is detected and offered only through Settings → Updates, never at launch. The legacy bootstrap design covers allowlisted official releases.
 - Linux and Windows.
 - Automatic reclaim without confirmation.
 
@@ -88,7 +88,8 @@ The README's source-install section warns that copying a build to `~/.local/bin/
 
 Rust TDD covers:
 
-- every detection predicate: consent missing, malformed or `keep: true`, symlink to the bundle, symlink elsewhere, regular file, foreign home or port, extra plist keys, writable plist, PID mismatch, multiply-linked executable;
+- every detection predicate: consent missing or malformed, a `keep: true` consent detected but never offered at launch, symlink to the bundle, symlink elsewhere, regular file, foreign home or port, extra plist keys, writable plist, PID mismatch, multiply-linked executable;
+- the stop step waiting out launchd's lag and the pinned process's exit on awake time, failing only at its deadline, and treating a PID that holds another incarnation as exited without ever signaling it;
 - detection running before the version gate;
 - authorization binding and drift of plist bytes, PID, incarnation and program identity;
 - helper parent verification refusing an unsigned or non-desktop parent;

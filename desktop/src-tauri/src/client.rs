@@ -905,15 +905,17 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             let config = app.path().app_config_dir().ok()?;
             let home = required_home(std::env::var_os("HOME").as_deref()).ok()?;
             let bundled = bundled_binary()?;
+            let consent = pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten();
             // While nothing changed, reuse the cached inspection instead of hashing
-            // and verifying the other build again on every reconnect.
+            // and verifying the other build again on every reconnect. Either consent
+            // choice is detected; only the launch-time offer differs.
             let cached = app.state::<Shell>().takeover.lock().unwrap().clone();
             if let Some(view) = cached {
-                if pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten().is_some_and(|consent| !consent.keep)
+                if consent.is_some()
                     && pacer_desktop::ota::control::observe_service_registration(&home, &cli.pacer_home, service_port(), &trust)
                         .is_ok_and(|observed| pacer_desktop::ota::takeover::detect::still_current(&view.candidate, &observed))
                 {
-                    return Some((view, config));
+                    return Some((view, config, consent.is_some_and(|consent| consent.keep)));
                 }
             }
             match pacer_desktop::ota::takeover::detect::detect_takeover(&config, &home, &cli.pacer_home, service_port(), &bundled, &trust) {
@@ -925,12 +927,12 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         "port":candidate.port,
                         "dataHome":candidate.home,
                     });
-                    (crate::TakeoverView { candidate, inspection }, config)
+                    (crate::TakeoverView { candidate, inspection }, config, consent.is_some_and(|consent| consent.keep))
                 }),
                 Err(error) => { desktop_log!("pacer lifecycle: takeover inspection unavailable: {error}"); None }
             }
         })();
-        if let Some((mut view, config)) = candidate {
+        if let Some((mut view, config, keep)) = candidate {
             // Identity checks are cached; the work counts are read on every pass.
             let task_count = tokio::time::timeout(Duration::from_secs(3), count_active_tasks(&session)).await.ok().flatten();
             let terminal_count = tokio::time::timeout(Duration::from_secs(2), session.op("terminal.list", &serde_json::json!({}))).await.ok().and_then(Result::ok)
@@ -942,7 +944,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             // dismissal, for example when it was opened from Settings or the restored outcome.
             let retry = app.state::<Shell>().takeover_retry.swap(false, Ordering::SeqCst);
             let reviewing = retry || app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover");
-            if reviewing || logic::launch_gate(true, dismissed) == logic::LaunchGate::Takeover {
+            if reviewing || logic::launch_offer(keep, dismissed) {
                 crate::recovery(app, "takeover");
                 return Err("takeover".into());
             }
@@ -1853,6 +1855,14 @@ fn takeover_gate(app: &AppHandle) -> Option<TakeoverHold> {
 fn show_takeover_outcome(app: &AppHandle, page: &'static str, error: Option<String>) {
     if app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == page) {
         return;
+    }
+    // The journal's reason is the only record of which check failed; name it
+    // here, in the one log the maintainer reads, without paths or identifiers.
+    if matches!(page, "takeoverRestored" | "takeoverFailed") {
+        if let Some(reason) = error.as_deref() {
+            let (step, predicate) = logic::takeover_failure_step(reason);
+            desktop_log!("pacer lifecycle: takeover step {step} failed: {predicate}");
+        }
     }
     desktop_log!("pacer lifecycle: holding takeover page {page}; service actions wait for the transaction");
     let mut detail = logic::diagnosis(page, None);
