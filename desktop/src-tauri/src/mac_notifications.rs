@@ -51,8 +51,8 @@ fn launch_id() -> &'static str {
 }
 
 /// Built-in macOS sounds as `(setting id, file name)`. The file lives in
-/// `/System/Library/Sounds/`. Whether `UNNotificationSound::soundNamed` finds
-/// these there is verified live, not assumed; see the PR's How tested section.
+/// `/System/Library/Sounds/`; `UNNotificationSound::soundNamed` finds them there
+/// (live-validated on macOS: Glass and Tink banners played their own sounds).
 /// Keep the ids identical to `NOTIFICATION_SOUNDS` in `src/core/notify.ts`.
 const SYSTEM_SOUNDS: &[(&str, &str)] = &[
     ("basso", "Basso.aiff"),

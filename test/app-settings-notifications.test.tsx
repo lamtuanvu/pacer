@@ -173,7 +173,7 @@ test("the Notification sound control writes only the sound key", () => withPlatf
 }));
 
 /** Mount the Notifications section in the macOS desktop shell with a fake service, and return the calls it made. */
-async function mountMacSettings(health: unknown, body: (dom: import("./app-setup-health-dom").TestDom, calls: { op: string; params: unknown }[]) => Promise<void>) {
+async function mountMacSettings(health: unknown, body: (dom: import("./app-setup-health-dom").TestDom, calls: { op: string; params: unknown }[]) => Promise<void>, navigatorPlatform = "MacIntel") {
   const { installDom, mount, unmount } = await import("./app-setup-health-dom");
   const calls: { op: string; params: unknown }[] = [];
   const api = { call: async (op: string, params: unknown) => { calls.push({ op, params }); return op === "notifications.health" ? health : op === "notifications.get" ? { level: "important", sound: "glass" } : {}; } } as any;
@@ -182,7 +182,7 @@ async function mountMacSettings(health: unknown, body: (dom: import("./app-setup
   const dom = installDom();
   const observer = globalThis as { ResizeObserver?: unknown; cancelAnimationFrame?: unknown };
   const previousObserver = observer.ResizeObserver, previousCancel = observer.cancelAnimationFrame;
-  await withPlatform("MacIntel", async () => {
+  await withPlatform(navigatorPlatform, async () => {
     try {
       observer.ResizeObserver ??= class { observe() {} unobserve() {} disconnect() {} };
       observer.cancelAnimationFrame ??= (id: number) => clearTimeout(id);
@@ -199,11 +199,24 @@ async function mountMacSettings(health: unknown, body: (dom: import("./app-setup
   });
 }
 
+/** The setting-row label of the control whose text is `text`. */
+async function rowOf(root: Parameters<typeof import("./app-setup-health-dom").findByText>[0], text: string): Promise<string | undefined> {
+  const { findByText, nodeText } = await import("./app-setup-health-dom");
+  type Node = typeof root;
+  const hasClass = (node: Node, name: string) => (node.className ?? "").split(/\s+/).includes(name);
+  const find = (node: Node, name: string): Node | undefined => hasClass(node, name) ? node : node.childNodes.map(child => find(child, name)).find(Boolean);
+  let node: Node | null = findByText(root, text);
+  while (node && !hasClass(node, "pc-setting-row")) node = node.parentNode;
+  const label = node ? find(node, "pc-setting-row__label") : undefined;
+  return label ? nodeText(label).trim() : undefined;
+}
+
 test("Send test beside the macOS sound picker calls notifications.test and is offered once", async () => {
   const { clickText, domText, until, tick } = await import("./app-setup-health-dom");
   await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async (dom, calls) => {
     await until(() => domText(dom.container).includes("Send test"));
     expect(domText(dom.container).split("Send test").length - 1).toBe(1);
+    expect(await rowOf(dom.container, "Send test")).toBe("Notification sound");
     expect(domText(dom.container)).toContain("Allowed · not tested yet");
     clickText(dom.container, "Send test");
     await tick();
@@ -213,13 +226,23 @@ test("Send test beside the macOS sound picker calls notifications.test and is of
   });
 });
 
-test("without permission the macOS sound row shows the remedy instead of Send test", async () => {
+test("without permission the remedy stays in the Desktop banners row, not beside the sound picker", async () => {
   const { domText, until } = await import("./app-setup-health-dom");
   await mountMacSettings({ level: "warn", detail: "Notifications not requested", remedy: { label: "Allow notifications", op: "notifications.request" } }, async dom => {
     await until(() => domText(dom.container).includes("Allow notifications"));
     const text = domText(dom.container);
     expect(text).not.toContain("Send test");
     expect(text.split("Allow notifications").length - 1).toBe(1);
+    expect(await rowOf(dom.container, "Allow notifications")).toBe("Desktop banners");
     expect(text).toContain("Not asked yet");
   });
+});
+
+test("on a non-macOS desktop Send test stays in the Desktop banners row and no sound picker shows", async () => {
+  const { domText, until } = await import("./app-setup-health-dom");
+  await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async dom => {
+    await until(() => domText(dom.container).includes("Send test"));
+    expect(domText(dom.container)).not.toContain("Notification sound");
+    expect(await rowOf(dom.container, "Send test")).toBe("Desktop banners");
+  }, "Linux x86_64");
 });

@@ -162,8 +162,8 @@ mod tests {
 
     #[test]
     fn built_in_sounds_round_trip_and_the_error_lists_every_sound() {
-        let home = std::env::temp_dir().join(format!("pacer-sound-{}", std::process::id()));
-        fs::create_dir_all(&home).unwrap();
+        let dir = tempfile::tempdir().unwrap();
+        let home = dir.path().to_path_buf();
         for sound in ["glass", "submarine", "tink"] {
             assert_eq!(
                 set_sound(&home, sound).unwrap(),
@@ -180,6 +180,5 @@ mod tests {
             "notificationSound must be pacer, default, off, basso, blow, bottle, frog, funk, \
              glass, hero, morse, ping, pop, purr, sosumi, submarine or tink"
         );
-        fs::remove_dir_all(&home).unwrap();
     }
 }

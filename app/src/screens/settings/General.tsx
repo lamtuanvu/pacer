@@ -448,6 +448,9 @@ export function NotificationsSection({
   const check = health.data;
   const caption = notificationCaption(check);
   const remedy = check?.remedy;
+  // On macOS, Send test sits beside the sound picker; a permission remedy stays
+  // with the Desktop banners status it fixes.
+  const testBesidePicker = platform.macos && check?.level === "ok" && !remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -475,7 +478,7 @@ export function NotificationsSection({
                 options={SOUND_OPTIONS}
                 onValueChange={change}
               />}</ImmediateSetting>
-              {check && <BannerAction api={api} reload={health.reload} level={check.level} remedy={remedy} />}
+              {testBesidePicker && <BannerAction api={api} reload={health.reload} level="ok" />}
             </Cluster>
           </SettingRow>
         )}
@@ -487,7 +490,7 @@ export function NotificationsSection({
               caption={caption}
               remedy={remedy}
               api={api}
-              action={!platform.macos}
+              action={!testBesidePicker}
             />
           </ResourceState>
         )}
@@ -520,7 +523,7 @@ export function DesktopBanners({
   remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
   /** After Send test, caption refresh; injectable so tests avoid real waits. */
   refetchDelay?: number;
-  /** False when the action sits elsewhere (beside the macOS sound picker), so it is offered once. */
+  /** False when Send test sits beside the macOS sound picker instead, so it is offered once. */
   action?: boolean;
 }) {
   return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
