@@ -453,17 +453,18 @@ impl OwnedJob {
             if let Some(process) = &stopped_process {
                 wait_exact_exit(process).await?;
             }
+            // A replaced legacy service: launchd can list the job for a moment after
+            // it reported the bootout and the exact process exited. Wait that out;
+            // the fresh observation below still refuses a job that stays listed.
+            if matches!(program, ProgramCheck::Pinned(_)) {
+                self.settle_after_bootout(trust, program).await?;
+            }
             self.fixture_ledger(trust, &registration, "retired", None)?;
         }
         // Bootout completion must use the state after exact exit and retirement,
         // not a manager snapshot captured immediately after launchctl returned.
         let after = if change == JobChange::Bootout {
-            match program {
-                // A replaced legacy service: launchd can list the job for a moment
-                // after it reported the bootout and the exact process exited.
-                ProgramCheck::Pinned(_) => self.settle_after_bootout(trust, program).await?,
-                ProgramCheck::Role(_) => self.observe_after_bootout(trust, program)?,
-            }
+            self.observe_after_bootout(trust, program)?
         } else {
             after
         };
@@ -482,6 +483,24 @@ impl OwnedJob {
             }
             _ => Ok(()),
         }
+    }
+}
+
+/// Observe only. The request to exit must have been sent to the authenticated
+/// native peer. No signal is issued to a PID, including on timeout or PID reuse.
+pub(crate) async fn wait_exact_exit(expected: &ProcessIdentity) -> Result<(), OtaError> {
+    let start = native::awake_now().map_err(|_| OtaError::Identity)?;
+    loop {
+        match native::process_details(expected.pid).map_err(|_| OtaError::Identity)? {
+            None => return Ok(()),
+            Some(details) if details.identity != *expected => return Err(OtaError::Identity),
+            Some(_) => {}
+        }
+        let now = native::awake_now().map_err(|_| OtaError::Identity)?;
+        if native::elapsed_ms(&start, &now).map_err(|_| OtaError::Identity)? > 10_000 {
+            return Err(OtaError::Timeout);
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
 }
 
@@ -507,24 +526,6 @@ async fn settle_absent<T>(
             return Ok(seen);
         }
         tokio::time::sleep(poll).await;
-    }
-}
-
-/// Observe only. The request to exit must have been sent to the authenticated
-/// native peer. No signal is issued to a PID, including on timeout or PID reuse.
-pub(crate) async fn wait_exact_exit(expected: &ProcessIdentity) -> Result<(), OtaError> {
-    let start = native::awake_now().map_err(|_| OtaError::Identity)?;
-    loop {
-        match native::process_details(expected.pid).map_err(|_| OtaError::Identity)? {
-            None => return Ok(()),
-            Some(details) if details.identity != *expected => return Err(OtaError::Identity),
-            Some(_) => {}
-        }
-        let now = native::awake_now().map_err(|_| OtaError::Identity)?;
-        if native::elapsed_ms(&start, &now).map_err(|_| OtaError::Identity)? > 10_000 {
-            return Err(OtaError::Timeout);
-        }
-        tokio::time::sleep(std::time::Duration::from_millis(25)).await;
     }
 }
 impl JobDefinition {
