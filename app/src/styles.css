@@ -118,6 +118,10 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 html:has(.pc-app--with-status) .pc-notice-stack{bottom:var(--frame-status);max-height:calc(100dvh - var(--frame-status))}
 /* While the launcher shows, the stack also sits above it. The launcher hides while the sheet is open (the sheet has its own close). */
 html:has(.pc-app--with-status .pc-aurora-launcher) .pc-notice-stack{bottom:calc(var(--frame-status) + var(--frame-launcher));max-height:calc(100dvh - var(--frame-status) - var(--frame-launcher))}
+/* An open sheet keeps its expand and close controls at its top edge: 520 px up, or below the top bar and page header when the
+   window is short, or at the top of the work area when expanded. The stack keeps its status-bar floor and stops below them. */
+html:has(.pc-app--with-status .pc-aurora[data-state=open]) .pc-notice-stack{max-height:min(calc(var(--size-520) - var(--size-40) - var(--space-2)),calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--size-36) - var(--space-2)*2))}
+html:has(.pc-app--with-status .pc-aurora--max[data-state=open]) .pc-notice-stack{max-height:calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--space-2))}
 /* On narrow screens it clears the bottom navigation instead (no status bar there), and the launcher above it when shown.
    The narrow launcher hides while the sheet is open. */
 .pc-notice-stack--narrow{bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));max-height:calc(100dvh - max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom))))}

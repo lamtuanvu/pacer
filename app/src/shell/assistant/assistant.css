@@ -25,8 +25,5 @@
 .pc-assistant-preferences{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
 
 
-/* Expanded: the sheet fills the content area, and the page behind it is covered. */
-.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora--max{height:100%}
-.pc-aurora--max .pc-aurora__veil{background:var(--surface-page);-webkit-mask-image:none;mask-image:none}
-.pc-aurora--max .pc-aurora__column{flex:1;max-width:var(--size-960)}
-.pc-aurora--max .pc-aurora__log,.pc-aurora--max .pc-aurora__log[data-expanded=true]{flex:1;max-height:none}
+/* Expanded: the sheet covers the whole work area above the dock, page header included (the covered page is inert). */
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora--max{height:100%;max-height:calc(100% - var(--pc-dock-height, 0px))}

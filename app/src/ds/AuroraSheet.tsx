@@ -13,17 +13,18 @@ import { Kbd } from "./Kbd";
  * Open state is a prop and the sheet stays mounted, so a conversation survives closing. Opening moves focus to the
  * `[data-autofocus]` element; closing, by Escape or `onClose`, returns focus to where it was.
  */
-export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, maximized = false, autoScroll = true, followKey, restoreFocus, header, messages, suggestions, composer, logLabel = "Conversation" }: {
+export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, maximized = false, autoScroll = true, followKey, restoreFocus, covers, header, messages, suggestions, composer, logLabel = "Conversation" }: {
   label: string; open: boolean; generating?: boolean; narrow?: boolean; onClose: () => void; /** Taller conversation while an action card is pending. */ expanded?: boolean;
   /** Fill the whole content area instead of the bottom sheet height. */ maximized?: boolean; header?: ComponentChildren;
   /** Follow newly appended conversation messages; disable for setup/status cards. */ autoScroll?: boolean;
   /** Changes when the user sends a message: the log returns to the newest message even if they had scrolled up. */ followKey?: unknown;
   /** Where focus goes on close when the element that opened the sheet is gone, such as a launcher hidden while open. */ restoreFocus?: () => HTMLElement | null | undefined;
+  /** The region a maximized sheet covers; it is made inert so nothing hidden behind the sheet takes focus or clicks. */ covers?: () => HTMLElement | null | undefined;
   messages: ComponentChildren; suggestions?: ComponentChildren; composer: ComponentChildren; logLabel?: string;
 }) {
   const root = useRef<HTMLElement>(null), log = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null), was = useRef(false);
   /** Whether the log sits at its newest message. Scrolling up to read releases it; returning to the bottom pins it again. */
-  const pinned = useRef(true);
+  const pinned = useRef(true), lastTop = useRef(0);
   useEffect(() => {
     if (open === was.current) return;
     was.current = open;
@@ -60,6 +61,14 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     }
     return () => { for (const el of marked) el.inert = false; };
   }, [open, narrow]);
+  // A maximized sheet covers the page in the same way, within the region the consumer names.
+  useEffect(() => {
+    if (!open || narrow || !maximized) return;
+    const region = covers?.();
+    if (!region || region.inert) return;
+    region.inert = true;
+    return () => { region.inert = false; };
+  }, [open, narrow, maximized]);
   // Keep the newest message in view as the conversation grows, but only while the reader is already there:
   // the page behind the sheet re-renders on every poll, and that must not pull them away from an older message.
   useEffect(() => {
@@ -80,8 +89,13 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     <div className="pc-aurora__column">
       {header && <div className="pc-aurora__bar">{header}</div>}
       <div ref={log} role="log" aria-label={logLabel} aria-live="polite" aria-relevant="additions" tabIndex={0} className="pc-aurora__log" data-expanded={expanded ? "true" : "false"} onScroll={event => {
-        const el = event.currentTarget;
-        if (autoScroll) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight <= PIN_SLACK;
+        const el = event.currentTarget, up = el.scrollTop < lastTop.current - 1;
+        lastTop.current = el.scrollTop;
+        if (!autoScroll) return;
+        // The sheet only ever scrolls itself down, so only an upward scroll is the reader leaving the newest message.
+        // Content that grows before our own scroll event lands must not release the pin.
+        if (el.scrollHeight - el.scrollTop - el.clientHeight <= PIN_SLACK) pinned.current = true;
+        else if (up) pinned.current = false;
       }}>{messages}</div>
       {suggestions && <div className="pc-aurora__chips">{suggestions}</div>}
       {composer}

@@ -152,6 +152,13 @@ browserTest("assistant_sheet_fits_phone_width_with_a_visible_input_and_forced_co
     await page.keyboard.press("Meta+j");
     await page.emulateMedia({ forcedColors: "active" });
     expect(await page.locator(".pc-aurora__glow").evaluate(el => getComputedStyle(el).display)).toBe("none");
+    await page.emulateMedia({ forcedColors: "none" });
+    // The narrow sheet has a close icon (no expand), and closing from the pill returns focus to the re-shown pill.
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Open assistant" }).click();
+    expect(await page.getByRole("button", { name: "Expand assistant" }).count()).toBe(0);
+    await page.getByRole("button", { name: "Close assistant" }).click();
+    await focused(page, '[aria-label="Open assistant"]');
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -214,7 +221,7 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
   } finally { await browser.close(); }
 }, 30_000);
 
-webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_the_launcher_rises_above_it", async () => {
+webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_its_close_button_below_the_top_bar", async () => {
   const built = await build();
   const browser = await webkit.launch();
   try {
@@ -438,12 +445,24 @@ browserTest("assistant_log_keeps_the_reader_on_an_older_message_until_they_send"
     const log = page.getByRole("log", { name: "Conversation" });
     await page.getByText("Answer 11").waitFor();
     const atBottom = () => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1);
-    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight > el.clientHeight; });
+    // The log opens at the newest message once its content overflows.
+    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight > el.clientHeight && el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
     expect(await atBottom()).toBe(true);
     // Scroll up to read, then cause re-renders (typing re-renders the host, as a live poll does): the log stays put.
     await log.evaluate(el => { el.scrollTop = 40; el.dispatchEvent(new Event("scroll")); });
     await page.locator('input[aria-label="Ask pacer"]').pressSequentially("why");
+    await page.waitForTimeout(100);
     expect(await log.evaluate(el => el.scrollTop)).toBe(40);
+    // Scrolling back down to the newest message pins the log again.
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); });
+    // The sheet's own scroll can land short of the bottom when content grows first (a streaming answer); that keeps the pin.
+    await log.evaluate(el => {
+      const grow = document.createElement("div"); grow.style.height = "300px"; grow.style.flex = "none"; grow.className = "pc-test-grow"; el.append(grow);
+      el.scrollTop = el.scrollTop + 10; el.dispatchEvent(new Event("scroll"));
+    });
+    await page.locator('input[aria-label="Ask pacer"]').pressSequentially("!");
+    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
+    await log.evaluate(el => el.querySelector(".pc-test-grow")?.remove());
     // Sending returns to the newest message.
     await page.keyboard.press("Enter");
     await page.getByText("Three tasks need you.").last().waitFor();
@@ -462,14 +481,23 @@ browserTest("assistant_expands_to_the_full_content_area_and_restores", async () 
     const before = await sheet.evaluate(el => el.getBoundingClientRect().height);
     await page.getByRole("button", { name: "Expand assistant" }).click();
     const restore = page.getByRole("button", { name: "Restore assistant size" });
-    await expect(restore.getAttribute("aria-pressed")).resolves.toBe("true");
+    await restore.waitFor();
     const after = await sheet.evaluate(el => el.getBoundingClientRect().height);
     expect(after).toBeGreaterThan(before + 200);
     // The expanded sheet stops below the top bar, and its close button stays inside it.
     const [close, top, bar] = await Promise.all([page.getByRole("button", { name: "Close assistant" }).evaluate(el => el.getBoundingClientRect().top), sheet.evaluate(el => el.getBoundingClientRect().top), page.locator(".pc-topbar").evaluate(el => el.getBoundingClientRect().bottom)]);
     expect(top).toBeGreaterThanOrEqual(bar);
     expect(close).toBeGreaterThanOrEqual(top);
+    // The covered page is inert: clicks beside the column land on the sheet, and Tab never reaches the page.
+    await page.waitForFunction(() => (document.querySelector(".pc-work") as HTMLElement).inert);
+    const hit = await page.evaluate(() => { const r = document.querySelector(".pc-aurora__column")!.getBoundingClientRect(); const el = document.elementFromPoint(r.left - 40, r.top + r.height / 2); return !!el && !!el.closest(".pc-aurora"); });
+    expect(hit).toBe(true);
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".pc-work"))).toBe(false);
+    }
     await restore.click();
     expect(Math.round(await sheet.evaluate(el => el.getBoundingClientRect().height))).toBe(Math.round(before));
+    await page.waitForFunction(() => !(document.querySelector(".pc-work") as HTMLElement).inert);
   } finally { await browser.close(); }
 }, 20_000);

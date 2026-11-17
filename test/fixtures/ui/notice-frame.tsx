@@ -1,16 +1,20 @@
-import { AuroraLauncher } from "../../../app/src/ds/AuroraSheet";
+import { AuroraLauncher, AuroraSheet } from "../../../app/src/ds/AuroraSheet";
+import { IconButton } from "../../../app/src/ds/Button";
 import { Rail } from "../../../app/src/shell/Rail";
 import { resolveRoute, type Route } from "../../../app/src/router";
 
 /**
  * The shell frame the notice stack floats over, as AppFrame and AssistantHost build it: the top bar, the work area with
  * the assistant layer and its launcher, then the status bar in the wide layout or the real bottom navigation in the
- * narrow one. `?launcher=open` models an open sheet, which hides the launcher, and `?launcher=none` hides it too.
+ * narrow one. `?launcher=open` shows an open sheet with its header controls, which hides the launcher (the narrow sheet
+ * covers the screen, so narrow shows neither), and `?launcher=none` hides both.
  */
 export function NoticeFrame({ narrow }: { narrow: boolean }) {
   const launcher = new URLSearchParams(location.search).get("launcher") ?? "closed", open = launcher === "open";
-  const layer = launcher !== "none" && !open && <div className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
-    <AuroraLauncher open={false} onClick={() => {}} shortcut={narrow ? undefined : "⌘J"} />
+  const layer = launcher !== "none" && !(narrow && open) && <div className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
+    {open
+      ? <AuroraSheet label="Assistant" open onClose={() => {}} header={<IconButton icon="close" size="sm" variant="quiet" aria-label="Close assistant" />} messages={<div className="pc-aurora-msg">What needs me today?</div>} composer={<div className="pc-aurora-composer" />} />
+      : <AuroraLauncher open={false} onClick={() => {}} shortcut={narrow ? undefined : "⌘J"} />}
   </div></div>;
   return <div className={`pc-app${narrow ? " pc-app--narrow" : " pc-app--with-status"}`}>
     {!narrow && <header className="pc-topbar" />}

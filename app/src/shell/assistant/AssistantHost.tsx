@@ -154,12 +154,13 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
   const hasCard = turns.some(t => t.cards.some(c => c.state === "pending" || c.state === "stale"));
   const account = status?.account ?? "";
   const pickerOptions = choices.map(c => ({ value: c.value, label: account ? `${c.label} · ${account}` : c.label }));
-  return <DensityContext.Provider value={narrow ? "touch" : "compact"}><div ref={layer} data-setup={setup ? "true" : "false"} data-available={available ? "true" : "false"} data-still={preferences.stillAurora ? "true" : "false"} data-maximized={maximized && !narrow ? "true" : "false"} className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
+  return <DensityContext.Provider value={narrow ? "touch" : "compact"}><div ref={layer} data-setup={setup ? "true" : "false"} data-available={available ? "true" : "false"} data-still={preferences.stillAurora ? "true" : "false"} className={narrow ? "pc-aurora-layer pc-aurora-layer--narrow" : "pc-aurora-layer"}><div className="pc-assistant-positioner">
     <AuroraSheet label="Assistant" autoScroll={available} followKey={sent} open={open} generating={!!pending} narrow={narrow} expanded={hasCard} maximized={maximized} onClose={() => toggle(false)}
       restoreFocus={() => layer.current?.querySelector<HTMLElement>(".pc-aurora-launcher")}
+      covers={() => layer.current?.closest(".pc-work-wrap")?.querySelector<HTMLElement>(":scope > .pc-work")}
       // The launcher hides while the sheet is open, so the sheet carries its own close control.
       header={<>
-        {!narrow && <IconButton icon={maximized ? "chevron-down" : "chevron-up"} size="sm" variant="quiet" aria-pressed={maximized} aria-label={maximized ? "Restore assistant size" : "Expand assistant"} title={maximized ? "Restore size" : "Expand to full view"} onClick={() => setMaximized(m => !m)} />}
+        {!narrow && <IconButton icon={maximized ? "chevron-down" : "chevron-up"} size="sm" variant="quiet" aria-label={maximized ? "Restore assistant size" : "Expand assistant"} title={maximized ? "Restore size" : "Expand to full view"} onClick={() => setMaximized(m => !m)} />}
         <IconButton icon="close" size="sm" variant="quiet" aria-label="Close assistant" title={narrow ? undefined : `Close ${isMac() ? "⌘J" : "Ctrl J"}`} onClick={() => toggle(false)} />
       </>}
       messages={setup ? <AssistantSetup api={api} refresh={refresh} /> : <>

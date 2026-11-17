@@ -622,9 +622,19 @@ a.pc-btn{text-decoration:none}
 .pc-aurora__log::before{content:"";flex:1 0 0}
 .pc-aurora__log:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
 .pc-aurora--narrow .pc-aurora__log{flex:1;max-height:none}
+/* Wide: the header controls sit at the sheet's top edge, at a fixed height whatever the conversation's length. The column
+   fills the sheet but passes clicks through its empty part; only its children take pointer events. */
+.pc-aurora:not(.pc-aurora--narrow) .pc-aurora__column{flex:1;justify-content:flex-end;pointer-events:none}
+.pc-aurora:not(.pc-aurora--narrow) .pc-aurora__column>*{pointer-events:auto}
+.pc-aurora:not(.pc-aurora--narrow) .pc-aurora__bar{position:absolute;top:0;right:0}
+.pc-aurora--max .pc-aurora__column{padding-top:var(--size-40)}
+.pc-aurora--max .pc-aurora__veil{background:var(--surface-page);-webkit-mask-image:none;mask-image:none;pointer-events:auto}
+.pc-aurora--max .pc-aurora__column{flex:1;max-width:var(--size-960)}
+.pc-aurora--max .pc-aurora__log,.pc-aurora--max .pc-aurora__log[data-expanded=true]{flex:1;max-height:none}
 .pc-aurora__chips{display:flex;flex-wrap:wrap;gap:var(--space-1\.5)}
 @media (forced-colors:active){
  .pc-aurora__veil,.pc-aurora__glow{display:none}
+ .pc-aurora--max .pc-aurora__veil{display:block;background:var(--surface-page)}
  .pc-aurora__column{border:var(--stroke-icon) solid currentColor;padding:var(--space-2)}
  .pc-aurora__log{-webkit-mask-image:none;mask-image:none}
  .pc-aurora-composer:focus-within{outline:var(--stroke-focus) solid currentColor;outline-offset:var(--stroke-focus)}
