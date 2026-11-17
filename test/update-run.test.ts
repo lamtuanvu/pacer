@@ -473,3 +473,59 @@ test("update prints what kept running after the restart", async () => {
   expect(r.code).toBe(0);
   expect(r.out).toContain("restarted pacer serve\nUpdated to v0.13.1. 1 task and 1 session kept running; 0 stayed on the previous runner.");
 });
+
+const NIGHTLY = "0.3.0-nightly.202611170000";
+/** A release root with stable 0.2.0 in latest.json and a newer nightly in cli-nightly.json. */
+function channelRoot(): string {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  release(root, NIGHTLY);
+  writeFileSync(join(root, "latest.json"), `${JSON.stringify({ version: "0.2.0" })}\n`);
+  writeFileSync(join(root, "cli-nightly.json"), `${JSON.stringify({ version: NIGHTLY })}\n`);
+  return root;
+}
+
+test("pacer update on the nightly channel installs the newest nightly", async () => {
+  const root = channelRoot(), exec = installed();
+  expect(await runUpdate({ check: true }, deps(root, exec, { channel: "nightly" }))).toEqual({ code: 0, out: `update available: 0.1.0 -> ${NIGHTLY}\nrun: pacer update`, err: "" });
+  const r = await runUpdate({ check: false }, deps(root, exec, { channel: "nightly", smoke: async () => `pacer ${NIGHTLY}` }));
+  expect(r.code).toBe(0);
+  expect(r.out).toStartWith(`updated pacer 0.1.0 -> ${NIGHTLY}`);
+  expect(readFileSync(exec, "utf8")).toBe(script(NIGHTLY));
+  // The stable channel stays on stable releases, and a nightly install is not offered an older stable.
+  expect((await runUpdate({ check: true }, deps(root, exec))).out).toBe("update available: 0.1.0 -> 0.2.0\nrun: pacer update");
+  expect(await runUpdate({ check: false }, deps(root, exec, { version: NIGHTLY }))).toEqual({ code: 0, out: `pacer ${NIGHTLY} is up to date (latest release: 0.2.0)`, err: "" });
+});
+
+test("pacer update on the nightly channel falls back to stable when the nightly feed fails and says so", async () => {
+  const root = channelRoot(), exec = installed();
+  writeFileSync(join(root, "cli-nightly.json"), "<html>");
+  expect(await runUpdate({ check: true }, deps(root, exec, { channel: "nightly" }))).toEqual({ code: 0, out: "update available: 0.1.0 -> 0.2.0\nrun: pacer update\nWARNING: JSON Parse error: Unrecognized token '<'", err: "" });
+  writeFileSync(join(root, "latest.json"), "<html>");
+  expect(await runUpdate({ check: true }, deps(root, exec, { channel: "nightly" }))).toEqual({ code: 1, out: "", err: "pacer update: release metadata is not valid JSON (JSON Parse error: Unrecognized token '<')" });
+});
+
+test("--to still pins an exact version on any channel", async () => {
+  const root = channelRoot();
+  for (const channel of ["stable", "nightly"] as const) {
+    const exec = installed();
+    const r = await runUpdate({ check: false, to: "0.2.0" }, deps(root, exec, { channel, smoke: async () => "pacer 0.2.0" }));
+    expect(r.out).toStartWith("updated pacer 0.1.0 -> 0.2.0");
+    expect((await runUpdate({ check: true, to: NIGHTLY }, deps(root, exec, { channel }))).out).toBe(`update available: 0.1.0 -> ${NIGHTLY}\nrun: pacer update --to ${NIGHTLY}`);
+  }
+});
+
+test("npm install on nightly gets the @nightly hint", async () => {
+  const root = channelRoot(), exec = installed();
+  const d = deps(root, exec, { channel: "nightly", env: { PACER_INSTALL_METHOD: "npm", PACER_RELEASE_BASE: pathToFileURL(root).href } });
+  const hint = "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@nightly";
+  expect(await runUpdate({ check: false }, d)).toEqual({ code: 2, out: "", err: `pacer update: ${hint}` });
+  expect(await runUpdate({ check: true }, d)).toEqual({ code: 0, out: `update available: 0.1.0 -> ${NIGHTLY}\n${hint}`, err: "" });
+});
+
+test("default update deps follow the strategy's update_channel", () => {
+  const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
+  expect(defaultUpdateDeps(ctx).channel).toBe("stable");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "update_channel: nightly\n");
+  expect(defaultUpdateDeps(ctx).channel).toBe("nightly");
+});

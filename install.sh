@@ -5,9 +5,12 @@
 #   PACER_RELEASE_BASE     optional release root override, e.g.
 #                          file:///path/to/pacer/dist/release   or   https://host/pacer/releases
 #   PACER_INSTALL_VERSION  version to install (default: the "version" in <base>/latest.json)
+#   PACER_INSTALL_CHANNEL  stable (default) or nightly: nightly also reads cli-nightly.json
+#                          and installs the newer of it and latest.json.
+#                          PACER_INSTALL_VERSION wins over the channel.
 #   PACER_INSTALL_DIR      install directory (default: $HOME/.local/bin)
 #
-# Layout under the base: latest.json, <version>/SHA256SUMS, <version>/pacer-<os>-<arch>.
+# Layout under the base: latest.json, [cli-nightly.json,] <version>/SHA256SUMS, <version>/pacer-<os>-<arch>.
 set -eu
 
 say() { printf '%s\n' "$*"; }
@@ -66,6 +69,12 @@ sha256() {
   fi
 }
 
+channel=${PACER_INSTALL_CHANNEL:-stable}
+case $channel in
+  stable | nightly) ;;
+  *) printf 'pacer install: PACER_INSTALL_CHANNEL must be stable or nightly (got: %s)\n' "$channel" >&2; exit 2 ;;
+esac
+
 GITHUB_REPO=lamtuanvu/pacer
 base=${PACER_RELEASE_BASE:-https://github.com/$GITHUB_REPO/releases}
 case $base in
@@ -86,8 +95,10 @@ case $base in
 esac
 
 latest=$base/latest.json
+nightly_feed=$base/cli-nightly.json
 if [ -z "${PACER_RELEASE_BASE:-}" ]; then
   latest=$base/latest/download/latest.json
+  nightly_feed=https://raw.githubusercontent.com/$GITHUB_REPO/desktop-updates/cli-nightly.json
 fi
 
 s=$(uname -s)
@@ -116,8 +127,42 @@ tmp=$(mktemp -d 2>/dev/null || mktemp -d -t pacer)
 trap 'command rm -rf "$tmp"' EXIT
 trap 'exit 130' INT TERM
 
+# feed_version <url> <dest>: the feed's "version" without a leading v; empty when the feed cannot be read.
+feed_version() {
+  ( fetch "$1" "$2" ) 2>"$tmp/feed.err" || { cat "$tmp/feed.err" >&2; return 0; }
+  sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$2" | head -n 1 | sed 's/^v//'
+}
+
+# newer <a> <b>: the newer of a stable version and a nightly one, by semver precedence.
+newer() {
+  ca=${1%%[-+]*}
+  cb=${2%%[-+]*}
+  order=$(awk -v a="$ca" -v b="$cb" 'BEGIN { split(a, x, "."); split(b, y, "."); for (i = 1; i <= 3; i++) { if (x[i] + 0 > y[i] + 0) { print 1; exit } if (x[i] + 0 < y[i] + 0) { print -1; exit } } print 0 }')
+  case $order in
+    1) printf '%s\n' "$1" ;;
+    -1) printf '%s\n' "$2" ;;
+    # Equal cores: a release beats its own prerelease.
+    *) case $1 in *-*) printf '%s\n' "$2" ;; *) printf '%s\n' "$1" ;; esac ;;
+  esac
+}
+
 version=${PACER_INSTALL_VERSION:-}
-if [ -z "$version" ]; then
+if [ -z "$version" ] && [ "$channel" = nightly ]; then
+  # Nightly installs take the newer of both feeds; a feed that fails leaves the other.
+  stable_version=$(feed_version "$latest" "$tmp/latest.json")
+  [ -n "$stable_version" ] || printf 'pacer install: warning: could not read a version from %s\n' "$latest" >&2
+  nightly_version=$(feed_version "$nightly_feed" "$tmp/cli-nightly.json")
+  if ! printf '%s\n' "$nightly_version" | grep -Eq '^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)-nightly\.[1-9][0-9]{11}$'; then
+    printf 'pacer install: warning: no valid nightly version in %s\n' "$nightly_feed" >&2
+    nightly_version=
+  fi
+  if [ -n "$stable_version" ] && [ -n "$nightly_version" ]; then
+    version=$(newer "$stable_version" "$nightly_version")
+  else
+    version=${nightly_version:-$stable_version}
+  fi
+  [ -n "$version" ] || die "could not read a version from $nightly_feed or $latest"
+elif [ -z "$version" ]; then
   fetch "$latest" "$tmp/latest.json"
   version=$(sed -n 's/.*"version"[[:space:]]*:[[:space:]]*"\([^"]*\)".*/\1/p' "$tmp/latest.json" | head -n 1)
   [ -n "$version" ] || die "could not read a version from $latest"
