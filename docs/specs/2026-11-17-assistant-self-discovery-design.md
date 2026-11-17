@@ -93,7 +93,7 @@ Safety therefore does not depend on classifying all 239 ops perfectly: only ops 
 - `executor.health`: per-runner state from the status cache with `cacheOnly`, plus the last failure reason. `broken.json` marks store no time and expire after 30 minutes, so the core change records the mark's time when it is written, and the op reports "no recent failure recorded" once a mark has expired;
 - `assistant.budget`: today's `budgetView`, made a real op instead of a special case in `defaultRead`.
 
-The generic path also keeps `snapshot.get`'s cached-status special case.
+The generic path also keeps `snapshot.get`'s cached-status special case: step 4 of the pipeline (§2) runs that op through the cached-status reader instead of its plain handler. Every permitted handler runs with `readOnly: true`, as today, which suppresses the cache writes it covers.
 
 **Native parity:** the Rust catalog (`meta_ops.rs` and its op catalog) carries `effect`, and the parity tests compare both registries. `api.list` and `api.describe` return `effect` as an additive field (API-1: additions need no version bump), which also helps the CLI and MCP clients.
 
@@ -130,6 +130,8 @@ Probe ops are not added to the action allow-list by this spec. Whether `doctor.r
 |---|---|---|---|
 | `task-param` | `param` must equal the scoped task, or refused | task must pass `inChosenScope`, or refused | allowed |
 | `task-list` | results filtered to rows whose `taskField` is the scoped task | `repoParam` forced to the scoped repository (refused if the op has none), and rows filtered by `inChosenScope` | allowed, with the days window applied |
+
+**List filtering happens before limits.** A `task-list` op in task or repository scope is called with its filter pushed into its own parameters where the op supports one (an id or repo filter), so a page limit applies after filtering. Totals and counts in its result are not declared fields, so a filtered view never reveals how many out-of-scope rows exist. An op that cannot filter before its limit is refused in task and repository scope. The days window uses each op's own window parameter, as today's tools pass it; ops without one are not windowed.
 | `repo-param` | refused | `param` must equal the scoped repository | allowed |
 | `global` | allowed only if `inTask` | allowed only if `inRepo` | allowed |
 
@@ -175,7 +177,7 @@ If validation shows six rounds are not enough, raising the cap is a separate ame
 - **Unit tests:**
   - every op has an `effect`;
   - the permitted-list fixture matches the registry;
-  - each permitted op makes no live usage read and no process launch (spy), and leaves the fixture `PACER_HOME` byte-identical (hash before and after);
+  - each permitted op makes no live usage read and no process launch (spy), and leaves the fixture `PACER_HOME` byte-identical apart from declared cache files (hash before and after, with the cache paths listed in the test);
   - scope refusals for out-of-scope ids under task and repository scope;
   - for each permitted op, injected free text in every string field of its fixture result is dropped unless declared, and declared `text` is capped;
   - redaction and caps apply;
@@ -201,7 +203,7 @@ If validation shows six rounds are not enough, raising the cap is a separate ame
 
 ## Governance
 
-- **Rules:** API-1 (additive fields), ARCH-1/2, SEC-1 (no credential or transcript reads), and the Rust parity rules for the native catalog.
+- **Rules:** API-1 (additive fields), ARCH-1/2, SEC-1 (no credential reads), the always-on spec's data boundary (no transcripts or terminal output), and the Rust parity rules for the native catalog.
 - **Reviewers:** `.project/reviewers/security.md` (permitted list, fields, scope), `architecture.md` (registry contract), `protocol-compat.md` (`api.list`/`api.describe` fields and native parity) and `qa.md` (fixtures and live evidence). Docs review covers the guide.
 - **Review gate:** the security reviewer's scope does not cover `src/assistant/**` today and its review is advisory. This spec proposes, through the constitution's amendment process, that the security reviewer's scope add `src/assistant/**` and `test/fixtures/assistant-permitted.json`, and that a change to that fixture requires a security review report in the PR, as UI-24 does for UI reports. Until the amendment is adopted, the gate is procedural.
 

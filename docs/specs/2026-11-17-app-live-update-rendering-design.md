@@ -42,7 +42,7 @@ Non-goals:
 - **Batching:** `dispatch` applies events to the state immediately but schedules one notification for the next animation frame, with a 100 ms timer as a backstop. Embedded webviews throttle or stop `requestAnimationFrame` when the window is occluded, so whichever fires first wins, and it cancels the other. WebKit can throttle timers too in an occluded window. State stays current either way, and a `visibilitychange` or `focus` event flushes any pending notification at once. While the document is hidden, notifications go out at most once a second. Listeners run once per batch.
 - **No-op identity:** a reducer returns the *same* state object when nothing changed. This covers:
   - the waiting poll when `service.waiting` is unchanged;
-  - `notify` and `liveness` events that only advance `seq` and `at`. Both move to a side field that no component renders from: every event advances them, so in the snapshot they would defeat every equality check;
+  - `notify` events, which only advance `seq` and `at` (the store already drops `liveness`). Both move to a side field that no component renders from (readers of `snapshot.seq`, such as the events cursor and the workspace prune, read the side field instead): every event advances them, so in the snapshot they would defeat every equality check;
   - the `acknowledgedReviews` wrapper, which re-applies only when it changes something.
 - **Structural sharing stays as it is:** unchanged rows keep their references. This is what makes selector equality cheap.
 
@@ -77,7 +77,7 @@ This follows UI-6: derived values that more than one surface needs (counts, atte
 ### 3. Query revisions are computed once per change
 
 `queryRevision` keeps its per-op semantics but runs once per store batch instead of once per hook per render. For example, `dispatch.list` stays keyed by `[id, state]`, so a progress tick does not refetch it.
-- The store computes each revision once per batch and caches it by `(op, params)`. The cache is invalidated when either the snapshot or `invalidations` changes identity. `seq` and `at` no longer move the snapshot, and some events (`message`, `plugin`, `config`) change only `invalidations`; `msg.log`, for example, must still refetch on a `message` event.
+- The store computes each revision once per batch and caches it by `(op, params)`. The cache is invalidated when the snapshot, `invalidations` or `activity` changes identity (`task.diff` and `task.session` revisions read activity). `seq` and `at` no longer move the snapshot, and some events (`message`, `plugin`, `config`) change only `invalidations`; `msg.log`, for example, must still refetch on a `message` event.
 - `useQuery` reads its revision through `useStore`.
 
 The 109 per-render `JSON.stringify` calls become one per revision kind per batch, and a query still refetches exactly when it does today.
