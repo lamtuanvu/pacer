@@ -130,12 +130,12 @@ Probe ops are not added to the action allow-list by this spec. Whether `doctor.r
 |---|---|---|---|
 | `task-param` | `param` must equal the scoped task, or refused | task must pass `inChosenScope`, or refused | allowed |
 | `task-list` | results filtered to rows whose `taskField` is the scoped task | `repoParam` forced to the scoped repository (refused if the op has none), and rows filtered by `inChosenScope` | allowed, with the days window applied |
-
-**List filtering happens before limits.** A `task-list` op in task or repository scope is called with its filter pushed into its own parameters where the op supports one (an id or repo filter), so a page limit applies after filtering. Totals and counts in its result are not declared fields, so a filtered view never reveals how many out-of-scope rows exist. An op that cannot filter before its limit is refused in task and repository scope. The days window uses each op's own window parameter, as today's tools pass it; ops without one are not windowed.
 | `repo-param` | refused | `param` must equal the scoped repository | allowed |
 | `global` | allowed only if `inTask` | allowed only if `inRepo` | allowed |
 
-- **Days window:** in dispatch scope, ops that accept a time window get the scope's `days` forced, as today's tools do.
+**List filtering happens before limits.** A `task-list` op in task or repository scope is called with its filter pushed into its own parameters where the op supports one (an id or repo filter), so a page limit applies after filtering. Totals and counts in its result are not declared fields, so a filtered view never reveals how many out-of-scope rows exist. An op that cannot filter before its limit is refused in task and repository scope. In dispatch scope the days window is applied as today's tools apply it: through the op's own `since` parameter where it has one, and otherwise by filtering rows on a time field the contract declares (`updatedAt`, falling back to `createdAt`, as `recent()` in `tools.ts` does today).
+
+- **Days window:** see below.
 - **Orientation ops** (`guide.get`) are `global` with `inTask` and `inRepo` true, so the assistant can orient in every scope.
 - **Fail closed:** there is no empty or partial declaration: the type has no default, and an op with no `ScopeSpec` cannot be permitted.
 
