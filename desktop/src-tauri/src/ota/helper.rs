@@ -262,8 +262,8 @@ async fn run_request<R: tauri::Runtime, W: Write>(
         AdapterCommand::Adopt { .. } | AdapterCommand::RecoverAdoption { .. } => {
             Err(OtaError::Invalid)
         }
-        AdapterCommand::Check { .. } => {
-            let candidate = updater.check(super::trust::Channel::Stable).await?;
+        AdapterCommand::Check { channel, .. } => {
+            let candidate = updater.check(*channel).await?;
             let response = responses.next()?;
             responses.send(&AdapterFrame::Checked {
                 response,

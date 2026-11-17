@@ -7,7 +7,8 @@
       "transactionId": null,
       "revision": 2,
       "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
-      "command": "check"
+      "command": "check",
+      "channel": "stable"
     },
     {
       "schema": 1,
@@ -71,6 +72,16 @@
       "revision": 2,
       "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "command": "recover"
+    },
+    {
+      "schema": 1,
+      "commandId": "command-fixture",
+      "installationId": "fixture",
+      "transactionId": null,
+      "revision": 2,
+      "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "command": "check",
+      "channel": "nightly"
     }
   ],
   "continuations": [
@@ -134,6 +145,60 @@
       "sequence": 3,
       "kind": "outcome",
       "outcome": "committed"
+    }
+  ],
+  "rejectedCommands": [
+    {
+      "case": "unknown channel",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "beta"
+      }
+    },
+    {
+      "case": "missing channel",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check"
+      }
+    },
+    {
+      "case": "check carries a feed url",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "stable",
+        "url": "https://evil.example/feed.json"
+      }
+    },
+    {
+      "case": "channel on a non-check command",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": "tx-1",
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "recover",
+        "channel": "nightly"
+      }
     }
   ]
 }
