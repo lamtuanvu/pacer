@@ -39,11 +39,6 @@ test("the required job and step names match CI's test matrix", () => {
   expect(test.steps.map((step: any) => step.name)).toContain(SUITE_STEP);
 });
 
-test("the recovery tagger outlasts the CI evidence wait", () => {
-  const load = (file: string) => Bun.YAML.parse(readFileSync(`.github/workflows/${file}`, "utf8")) as any;
-  expect(load("release-tag.yml").jobs.tag["timeout-minutes"]).toBeGreaterThan(load("release.yml").jobs["ci-suite"]["timeout-minutes"] + 30);
-});
-
 test("an existing passing run is reused without dispatching", async () => {
   const { ci, refs } = fake(() => [ciRun(2, "push")], { 2: suite() });
   expect((await awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).id).toBe(2);
@@ -99,3 +94,12 @@ test("waiting is bounded by the deadline", async () => {
   const { ci } = fake(() => [ciRun(9, "push", "in_progress")], {});
   await expect(awaitCiEvidence(ci, SHA, "main", 120_000, () => {})).rejects.toThrow("Timed out");
 });
+
+test("the aggregate jobs carry the check names main's ruleset requires", () => {
+  const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
+  const aggregate = ci.jobs["test-result"];
+  const names = aggregate.strategy.matrix.os.map((os: string) => aggregate.name.replace("${{ matrix.os }}", os));
+  // Renaming the matrix label (not just the runner) leaves these required checks unreported and blocks every PR.
+  expect(names.sort()).toEqual(["Test (macos-latest)", "Test (ubuntu-latest)"]);
+});
+

@@ -143,7 +143,7 @@ def focused(paths, source_allowed=True):
         return []
     relevant = paths
     mapped = {".github/workflows/ci.yml",
-              ".github/workflows/release.yml", ".github/workflows/release-tag.yml",
+              ".github/workflows/release.yml",
               ".github/workflows/release-prepare.yml",
               "scripts/ci/changes.py"}
     if relevant and all(p in mapped for p in relevant):

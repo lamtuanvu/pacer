@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.20.0 | Updated: 2026-11-01
+Status: Amendment 0.21.0 (release from a pinned tag) proposed; amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.21.0 | Updated: 2026-11-16
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -216,3 +216,13 @@ See "Open decisions" in [decisions.md](decisions.md). In short:
 - A target release for removing `/v2`.
 - Which additional review evidence, beyond the proposed mandatory UI/QA evidence, should become required (OD-6).
 - Cleanup of stale docs and ADRs.
+
+## Amendment 0.21.0 — release from a pinned tag
+
+Proposed; adopted only by the maintainer merging this amendment PR. It replaces amendment 0.6.0's release-PR flow.
+
+- **Prepare release** pins one commit when it starts and releases exactly that commit. The version bump is a commit on top of it, or none when the pinned commit already carries an untagged version. That commit is tagged directly. No release PR has to merge before tagging, so later merges to `main` can't invalidate a release, and **Release tag** recovery is removed.
+- `release.yml` on the tag is the only build and publish path. It requires CI's full suite on both OSes for the tagged commit (dispatching CI on the tag when none exists) and publishes from the tag.
+- The version bump reaches `main` through a separate `chore: release x.y.z` bookkeeping PR. It's an ordinary PR under the usual required checks, and merging it doesn't re-tag anything.
+- Unchanged from 0.6.0: `RELEASE_TOKEN` scope, tags are never moved, a tagged version is never re-tagged, and the UI-24 version-string exemption.
+

@@ -46,6 +46,7 @@ pub fn v3_only(e: &Value) -> bool {
         "config" => d["area"] == "discovery",
         "attention" => discovery_id(&d["id"]),
         "notify" => discovery_id(&d["key"]),
+        "control" => true,
         _ => false,
     }
 }
@@ -57,6 +58,7 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         "machine",
         "message",
         "discovery.found",
+        "control",
     ]
     .contains(&text(&e["type"]))
         || e["type"] == "config" && ["machine", "discovery"].contains(&text(&e["data"]["area"]))

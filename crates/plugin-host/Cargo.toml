@@ -29,5 +29,8 @@ rusqlite = { version = "0.41", features = ["bundled"] }
 pacer-store = { path = "../store" }
 pacer-js-json = { path = "../js-json" }
 
+[dev-dependencies]
+pacer-plugin-policy-protocol = { path = "../plugin-policy-protocol" }
+
 [lints]
 workspace = true

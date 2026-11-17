@@ -6,6 +6,25 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- Notification health (Parts A and B): `client.register` and `client.heartbeat` carry optional `notification_permission` and `notification_alerts`, and the registry records `permission_changed_at` whenever either changes between two real states (not on a first report, an `unsupported` transition, or an unchanged value, so an app relaunch does not reset a delivered test); new ops `notifications.test`, `notifications.ack` (desktop clients only; must match the targeted desktop's `client_id`, and omits `error` on success), `notifications.request` (waits up to `wait_s`, default and maximum 20/25 s, under the desktop's 30 s service-call timeout; publishes a `control` v3 event that plugins may observe) and the cheap read `notifications.health` (v3 only); a `Notifications` doctor check with ordered state table and remedies `allowNotifications()`, `notificationSettings(caption)` and `testNotification()`, with a structured `tested_at` on the ok detail; `setup.skip` skips the optional setup step (stored in `settings.json` under the config lock); the Notifications remedy stays out of Setup and Diagnostics fix-all; executor sessions cannot run the new `notifications.test/ack/request/health` ops or `setup.skip` (`notifications.get` and `notifications.set` keep their prior policy); desktop reports raw permission/alert state (omitting the permission until macOS has answered a real settings read) and acks every posted notification, opens System Settings via `open_system_settings`, setup gains a "Turn on notifications" step (renderable as Skipped) and Settings shows a Desktop banners row. State is stored in `state/notification-health.json`.
+
+## [0.15.1] - 2026-11-16
+
+### Changed
+
+- Let the session-limit run print its own screen (#1026).
+- Release a pinned commit from its tag (#1053) (release).
+
+### Fixed
+
+- Fit long release notes into the desktop update feed (#1054) (release).
+
+## [0.15.0] - 2026-11-14
+
+### Added
+
+- The **Checking setup** gate can repair itself: when checks fail to run it shows the error, marks unchecked steps **Not checked** and offers **Run checks again** and **Restart service**; with two or more automatic fixes it offers **Fix N issues automatically** behind one confirmation.
+
 - A **Model matrix** page under Settings → Dispatcher (`#/settings/models`) shows every model each executor can run from its provider listing and declared models: turn models on or off, rate their size (Small / Medium / Frontier, or back to Unrated), add a model by ID when the listing is unknown, and suggest on/off and sizes from provider price and tool facts. **Save matrix** writes only the executors whose models or default changed in one revision-checked `runner.models.set_many` edit, preserving each declared model's strengths, tools and context. The planner executor is read-only here.
 
 - New ops `dispatch.tierTargets.get` and `dispatch.tierTargets.set` read and update the difficulty-to-tier mapping in the active setup in place (refusing a decreasing mapping), and `runner.models.set_many` validates and commits many executors' models in a single revision-checked edit. Model choice now saves in place into the active setup, or as a new named setup, instead of always forcing a new name.
@@ -118,6 +137,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - Record every real task change in a shared `task_changes` log in the task database, filled by SQLite triggers so changes from either runtime and from older binaries are captured without re-reading all tasks. `taskChangesSince` reads changes after a cursor and reports a gap when the cursor is outside the retained window; the daily maintenance run prunes the log to 7 days or 100,000 rows. This is the base for a background pass that processes only changed tasks.
 
 ### Fixed
+
+- Pacer stops routing to an executor whose interactive session hit its usage limit. When a quiet session shows the provider's own limit error (for example Cursor's weekly limit), the service stops it at the next observation renewal and the task fails over instead of waiting at the agent's prompt.
+
+- New machine identities stay out of the Keychain when `HOME` has no login Keychain and use the file backend, so macOS no longer shows repeated "Keychain Not Found" dialogs (for example during test runs).
+
+- The native front door reports `package.json`'s version in `hello`, matching the TypeScript core in every build.
+
+- A plugin lock caught mid-release is retried within its deadline instead of failing as unsafe.
 
 - macOS no longer shows a stream of "Keychain Not Found" dialogs while the test suite or a seeded live sandbox runs. When `HOME` has no login Keychain, the machine identity key and install salt are kept in files instead of calling `security`. This applies to both the TypeScript and Rust implementations; homes with a login Keychain are unchanged.
 

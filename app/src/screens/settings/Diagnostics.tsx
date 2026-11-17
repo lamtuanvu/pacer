@@ -8,7 +8,7 @@ import { diagnosticEvidence, diagnosticLevel, diagnosticsPage, diagnosticTitle, 
 import { displayName } from "../../../../src/view-model/format";
 import { executorLabel } from "../../../../src/view-model/words";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
-import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, serviceInstallLast, servicePid, type AgentConnectUndo, type ConsentRequest, type PreparedRun, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
+import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, runFixAll, servicePid, type AgentConnectUndo, type ConsentRequest, type RemedyHost, type PreviewFile, type RepairPreview } from "../../data/remedies";
 import { useActions } from "../../data/action-context";
 import { platform } from "../../platform";
 import { Button, ButtonLink } from "../../ds/Button";
@@ -95,6 +95,7 @@ function FixRow({ row, busy, consent, onRemedy }: { row: DiagnosticFixRow; busy:
     {task && <span className="pc-diagnostic-row__state" data-tone={task.tone}>{task.label}</span>}
     {row.progress && <span className="pc-diagnostic-caption">{row.progress}</span>}
     {offered && <Button size="sm" aria-disabled={locked || undefined} onClick={remedy(row.plan!)}>{row.remedy!.label}<span className="sr-only"> for {title}</span></Button>}
+    {row.caption && <span className="pc-diagnostic-caption">{row.caption}</span>}
     {offered && row.secondary && <Button size="sm" variant="ghost" aria-disabled={locked || undefined} onClick={remedy(row.secondary.plan, true)}>{row.secondary.label}<span className="sr-only"> for {title}</span></Button>}
     {taskLink}
   </>;
@@ -433,33 +434,29 @@ export function DiagnosticsSection() {
   async function fixAll(rows: DiagnosticFixRow[]) {
     if (busy || running || !rows.length) return;
     setBusy(true); setError(undefined); setProgress("Checking what will change…");
+    const fixAllHost: Pick<RemedyHost, "call" | "awaitRestart"> = {
+      call,
+      awaitRestart: async (before) => { await awaitRestart(before); },
+    };
     try {
-      const prepared: { row: DiagnosticFixRow; run: PreparedRun }[] = [];
-      for (const row of rows) {
-        try { prepared.push({ row, run: await prepareRun(row.plan as Extract<RemedyPlan, { kind: "run" }>, call) }); }
-        catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
-      }
-      const ordered = serviceInstallLast(prepared);
-      const requests = ordered.flatMap(item => item.run.consent ? [item.run.consent] : []);
-      if (requests.length && !await ask(FIX_ALL, requests)) { setProgress("No changes were made."); return; }
-      for (const { row } of ordered) outcome(row.check.name, { phase: "running", text: remedyProgress(row.remedy!) });
-      const before = ordered.some(item => item.run.op === "service.install") ? await currentPid() : undefined;
-      let restarting = false;
-      for (const { row, run } of ordered) {
-        setProgress(`${settingsText(row.title)}: ${remedyProgress(row.remedy!)}`);
-        try {
-          const restarts = restartsService(await commitRun(run, call));
-          restarting ||= restarts;
-          outcome(row.check.name, { phase: "running", text: restarts ? "Waiting for pacer to restart…" : "Rechecking…" });
-        }
-        catch (failure) { outcome(row.check.name, { phase: "error", message: errorText(failure) }); }
-      }
-      if (restarting) await awaitRestart(before);
+      const items = rows.map(row => ({ id: row.check.name, plan: row.plan as RemedyPlan, title: settingsText(row.title), data: row, remedy: row.remedy }));
+      const result = await runFixAll(items, fixAllHost, {
+        confirmAll: requests => ask(FIX_ALL, requests),
+        onPrepareFailure: (item, failure) => outcome(item.data!.check.name, { phase: "error", message: errorText(failure) }),
+        onProgress: setProgress,
+        onItemsStart: ordered => {
+          for (const { item } of ordered) outcome(item.data!.check.name, { phase: "running", text: remedyProgress(item.remedy ?? item.data!.remedy!) });
+        },
+        onItemCommit: (item, restarts) => outcome(item.data!.check.name, { phase: "running", text: restarts ? "Waiting for pacer to restart…" : "Rechecking…" }),
+        onItemFailure: (item, failure) => outcome(item.data!.check.name, { phase: "error", message: errorText(failure) }),
+      });
+      if (result.cancelled) { setProgress("No changes were made."); return; }
       const rechecked = await recheck();
-      for (const { row } of ordered) setOutcomes(current => {
-        if (current[row.check.name]?.phase !== "running") return current;
-        const { [row.check.name]: _running, ...rest } = current;
-        return rechecked ? { ...rest, [row.check.name]: { phase: "rechecked" } } : rest;
+      for (const { item } of result.ordered) setOutcomes(current => {
+        const name = item.data!.check.name;
+        if (current[name]?.phase !== "running") return current;
+        const { [name]: _running, ...rest } = current;
+        return rechecked ? { ...rest, [name]: { phase: "rechecked" } } : rest;
       });
       if (rechecked) setProgress("Automatic fixes finished and checks refreshed. Review any remaining issues.");
     } finally { setBusy(false); keepFocus(); }

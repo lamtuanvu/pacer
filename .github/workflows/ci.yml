@@ -58,8 +58,9 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
-          if test "$EVENT" != pull_request; then exit 0; fi
-          case "$BRANCH" in release/v*) ;; *) exit 0 ;; esac
+          # Releases are built from their tag (REL-2); a release/v* branch is only the
+          # bookkeeping PR that brings a published bump to main, so it needs no dry run.
+          exit 0
           test "$HEAD_REPO" = "$REPO" || { echo '::error::Release PR must be in this repository'; exit 1; }
           for _ in $(seq 1 1400); do
             runs=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json status,conclusion,url)
