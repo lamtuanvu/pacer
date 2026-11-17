@@ -163,6 +163,14 @@ test("notification migration and writes preserve TS object spread and numeric ke
   }
 }, 30_000);
 
+test("notification get and set agree on stored, invalid and migrated sound values", async () => {
+  for (const initial of ['{"notifications":"all","notificationSound":"off"}', '{"notifications":"all","notificationSound":"squeak"}', '{"notifications":"all","notificationSound":3}', '{"notifications":"all","notificationSound":null}', '{"notificationSound":"default"}', '{"notifications":"invalid","notificationSound":"off","other":1}']) {
+    for (const [op, params] of [["notifications.get", {}], ["notifications.set", {level:"off"}], ["notifications.set", {sound:"default"}], ["notifications.set", {level:"all", sound:"off"}]] as const) {
+      await compare(op, params, path=>writeFileSync(join(path,"settings.json"), initial, {mode:0o600}));
+    }
+  }
+}, 30_000);
+
 test("native API preserves current-strategy raw errors and edit diagnostics", async () => {
   for (const [op,params] of [["runner.set",{id:"codex"}],["runner.reorder",{ids:[]}],["routing.set",{rules:[]}] ] as const) {
     await compare(op,params,path=>writeFileSync(join(path,"strategy.yaml"),"planner: unknown\n"));

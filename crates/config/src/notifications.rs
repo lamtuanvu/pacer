@@ -49,13 +49,6 @@ fn write_level(path: &Path, level: &str) -> io::Result<()> {
     write_bytes(path, crate::notification_json::settings(path, level))
 }
 
-fn write_sound(path: &Path, sound: &str) -> io::Result<()> {
-    write_bytes(
-        path,
-        crate::notification_json::settings_with_sound(path, sound),
-    )
-}
-
 /// The effective sound, read without writing; absent or invalid means `pacer`.
 fn effective_sound(path: &Path) -> String {
     crate::notification_json::sound(path)
@@ -91,7 +84,11 @@ pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, Notifi
 /// Write only the present key(s) and return the effective `{level, sound}`.
 /// The non-written field is the effective pre-write value (level `important`,
 /// sound `pacer`), computed without a legacy migration, matching TypeScript.
-pub fn set(home: &Path, level: Option<&str>, sound: Option<&str>) -> Result<Value, NotificationError> {
+pub fn set(
+    home: &Path,
+    level: Option<&str>,
+    sound: Option<&str>,
+) -> Result<Value, NotificationError> {
     if level.is_none() && sound.is_none() {
         return Err(NotificationError::Empty);
     }
@@ -102,21 +99,22 @@ pub fn set(home: &Path, level: Option<&str>, sound: Option<&str>) -> Result<Valu
         return Err(NotificationError::InvalidSound);
     }
     let path = home.join("settings.json");
-    let level = match level {
-        Some(value) => {
-            write_level(&path, value)?;
-            value.to_owned()
-        }
-        None => effective_level_no_write(&path),
-    };
-    let sound = match sound {
-        Some(value) => {
-            write_sound(&path, value)?;
-            value.to_owned()
-        }
-        None => effective_sound(&path),
-    };
-    Ok(json!({"level":level,"sound":sound}))
+    // Effective values come from the pre-write file, as in TypeScript.
+    let result_level = level.map_or_else(|| effective_level_no_write(&path), str::to_owned);
+    let result_sound = sound.map_or_else(|| effective_sound(&path), str::to_owned);
+    let mut pairs = Vec::new();
+    if let Some(value) = level {
+        pairs.push(("notifications", value));
+    }
+    if let Some(value) = sound {
+        pairs.push(("notificationSound", value));
+    }
+    // One atomic write, so a failure never leaves only one of the two changed.
+    write_bytes(
+        &path,
+        crate::notification_json::settings_keys(&path, &pairs),
+    )?;
+    Ok(json!({"level":result_level,"sound":result_sound}))
 }
 
 pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {

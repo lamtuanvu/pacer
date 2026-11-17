@@ -17,8 +17,8 @@ use objc2_user_notifications::{
     UNMutableNotificationContent, UNNotification, UNNotificationAction,
     UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
     UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-    UNNotificationRequest, UNNotificationResponse, UNNotificationSound,
-    UNUserNotificationCenter, UNUserNotificationCenterDelegate,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter,
+    UNUserNotificationCenterDelegate,
 };
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -87,9 +87,32 @@ fn sound_for_present() -> Option<Retained<UNNotificationSound>> {
     let settings = crate::client::pacer_home().join("settings.json");
     let setting = std::fs::read(&settings)
         .ok()
-        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
-        .and_then(|value| value.get("notificationSound")?.as_str().map(str::to_owned));
+        .and_then(|bytes| sound_setting(&bytes));
     sound_choice(setting.as_deref()).sound()
+}
+
+/// The `notificationSound` string in `settings.json` bytes. The service
+/// accepts files serde_json rejects (invalid UTF-8, lone-surrogate escapes in
+/// unrelated keys), so when strict parsing fails this falls back to a scan for
+/// the top-level key, whose valid values are plain ASCII.
+fn sound_setting(bytes: &[u8]) -> Option<String> {
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) {
+        return value.get("notificationSound")?.as_str().map(str::to_owned);
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let mut found = None;
+    let mut rest = text.as_ref();
+    // The last occurrence wins, as with duplicate keys in JSON.parse.
+    while let Some(at) = rest.find("\"notificationSound\"") {
+        rest = &rest[at + "\"notificationSound\"".len()..];
+        let value = rest.trim_start().strip_prefix(':').map(str::trim_start);
+        if let Some(value) = value.and_then(|v| v.strip_prefix('"')) {
+            if let Some(end) = value.find('"') {
+                found = Some(value[..end].to_owned());
+            }
+        }
+    }
+    found
 }
 
 /// The button-id prefix that leaves the window when notification `index` is
@@ -226,6 +249,8 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
         return;
     }
     let launch = launch_id();
+    // Read before taking the registry lock: it is file I/O.
+    let sound = sound_for_present();
     // Allocating under the registry lock keeps concurrent posts from dropping a
     // newer category while registering an older one.
     let mut registered = REGISTERED.lock().unwrap();
@@ -241,7 +266,6 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
     }
     let client_id = notification.client_id.clone();
     let notify_key = notification.key.clone();
-    let sound = sound_for_present();
     let request = request(&notification, &category, sound);
     if notification.actions.is_empty() {
         drop(registered);
@@ -435,6 +459,30 @@ fn response_route(response: &UNNotificationResponse) -> Option<String> {
 mod tests {
     use super::*;
     use objc2_foundation::NSDictionary;
+
+    #[test]
+    fn sound_setting_reads_strict_and_lenient_settings() {
+        assert_eq!(
+            sound_setting(br#"{"notifications":"all","notificationSound":"off"}"#).as_deref(),
+            Some("off")
+        );
+        assert_eq!(sound_setting(br#"{"notifications":"all"}"#), None);
+        assert_eq!(sound_setting(br#"{"notificationSound":3}"#), None);
+        // serde_json rejects a lone surrogate and invalid UTF-8; the service does not.
+        assert_eq!(
+            sound_setting(br#"{"0":"\ud83d","notificationSound":"off"}"#).as_deref(),
+            Some("off")
+        );
+        assert_eq!(
+            sound_setting(b"{\"x\":\"\xff\",\"notificationSound\" : \"default\"}").as_deref(),
+            Some("default")
+        );
+        assert_eq!(sound_setting(b"not json"), None);
+        assert_eq!(
+            sound_choice(sound_setting(br#"{"0":"\ud83d","notificationSound":"off"}"#).as_deref()),
+            SoundChoice::Off
+        );
+    }
 
     #[test]
     fn category_and_action_ids_are_stable_and_unique() {

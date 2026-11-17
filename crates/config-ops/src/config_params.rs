@@ -277,10 +277,7 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
                 false,
             ),
         ]),
-        "notifications.set" => object(vec![
-            ("level", Level, true),
-            ("sound", Sound, true),
-        ]),
+        "notifications.set" => object(vec![("level", Level, true), ("sound", Sound, true)]),
         "host.add" => object(vec![
             ("alias", id(), false),
             ("ssh", String(1, None), false),

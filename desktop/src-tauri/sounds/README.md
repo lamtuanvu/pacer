@@ -34,6 +34,7 @@ regenerate:
        return y
 
    sig = drop(250, 620, 0.05, 0.35, 12, attack=0.006)
+   sig = np.concatenate([sig, np.zeros(int(SR*0.4) - len(sig))])  # pad to 0.4 s
    sig = lowpass(sig, 2600)
    sig = sig / np.max(np.abs(sig)) * 0.18
    fade = int(SR*0.06); sig[-fade:] *= np.linspace(1, 0, fade)

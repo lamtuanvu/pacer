@@ -331,9 +331,10 @@ pub(super) fn level(path: &Path) -> Option<String> {
 pub(super) fn sound(path: &Path) -> Option<String> {
     string_value(&read(path)?, "notificationSound")
 }
-/// Serialize `settings.json` with `key` set to the string `value`, preserving
-/// every other field (including individual UTF-16 units and integer-key order).
-fn settings_key(path: &Path, key: &str, value: &str) -> Vec<u8> {
+/// Serialize `settings.json` with each `(key, value)` set to a string, in
+/// order, preserving every other field (including individual UTF-16 units and
+/// integer-key order), like TypeScript's `{...settings, key: value}`.
+pub(super) fn settings_keys(path: &Path, pairs: &[(&str, &str)]) -> Vec<u8> {
     let mut entries = match read(path) {
         Some(Json::Object(items)) => items,
         Some(Json::Array(items)) => items
@@ -353,18 +354,17 @@ fn settings_key(path: &Path, key: &str, value: &str) -> Vec<u8> {
             .collect(),
         _ => Vec::new(),
     };
-    let key = key.encode_utf16().collect::<Vec<_>>();
-    let value = Json::String(value.encode_utf16().collect());
-    if let Some((_, old)) = entries.iter_mut().find(|(k, _)| k == &key) {
-        *old = value;
-    } else {
-        entries.push((key, value));
+    for (key, value) in pairs {
+        let key = key.encode_utf16().collect::<Vec<_>>();
+        let value = Json::String(value.encode_utf16().collect());
+        if let Some((_, old)) = entries.iter_mut().find(|(k, _)| k == &key) {
+            *old = value;
+        } else {
+            entries.push((key, value));
+        }
     }
     stringify(&Json::Object(entries)).into_bytes()
 }
 pub(super) fn settings(path: &Path, level: &str) -> Vec<u8> {
-    settings_key(path, "notifications", level)
-}
-pub(super) fn settings_with_sound(path: &Path, sound: &str) -> Vec<u8> {
-    settings_key(path, "notificationSound", sound)
+    settings_keys(path, &[("notifications", level)])
 }
