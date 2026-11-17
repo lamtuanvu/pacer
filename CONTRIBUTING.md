@@ -53,16 +53,15 @@ Keep `CHANGELOG.md` Unreleased up to date in each PR when you can. To release, o
 - `auto` (default) reads the commit titles since the last tag: a breaking change (`feat!:` or any `type!:`) bumps the minor version during 0.x and the major version from 1.0; `feat` bumps the minor version; `fix`, `perf` and `revert` bump the patch version. `docs`, `test`, `chore`, `ci` and similar titles alone don't release anything.
 - `patch`, `minor` or `major` forces that bump when commits exist, even if their titles do not select an automatic release.
 
-Prepare keeps authored Unreleased notes as written. If Unreleased is empty, it builds notes from commit titles since the current version tag, groups them under Keep a Changelog headings, and redacts email addresses and local machine paths. Review these generated notes in the release PR; commit titles may lack context that a hand-written entry would provide. With no commits since the tag, Prepare stops without creating empty release notes.
+Prepare keeps authored Unreleased notes as written. If Unreleased is empty, it builds notes from commit titles since the current version tag, groups them under Keep a Changelog headings, and redacts email addresses and local machine paths. Generated notes are published with the tag; there is no release PR to review them in first. Write the notes in Unreleased beforehand if they need care, or edit the GitHub release afterwards; commit titles may lack context that a hand-written entry would provide. With no commits since the tag, Prepare stops without creating empty release notes.
 
-The workflow then does the rest:
+The workflow then does the rest, all on one commit:
 
-1. If the current version has no tag, Prepare finds its merged release PR and waits for validated recovery. Otherwise it checks for a unique open release PR on `main`. It verifies that PR's branch, exact head, version and absent tag. If current `main` selects a different version, it closes the stale PR and prepares the new version. If the generated PR is based on an older `main` commit or conflicts at the same version, it recreates the branch only when it has the original single release commit and workflow body; the old head is retained on a `release/retired-*` branch. Edited branches fail closed. A valid PR is resumed. With no open PR, `scripts/release/next-version.ts` picks the version and requires at least one commit since the tag.
-2. `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section.
-3. It commits `chore: release <version>` (DCO-signed) on `release/v<version>` and opens the PR. CI runs the full suite; the PR needs no UI evidence manifest because its only UI-scoped changes are version strings, which CI checks.
-4. Opening or updating the release PR automatically runs the release dry run on its exact head commit: every platform builds (including production-signed macOS apps when `PACER_DESKTOP_RELEASE_ENABLED=true`), npm publishes with `--dry-run` and the Homebrew formula is checked, with nothing published.
-5. Prepare waits for that head’s dry run before enabling auto-merge, with a matching-head guard. On an open PR, it reruns a failed, cancelled or timed-out dry run and then reruns failed, cancelled or timed-out CI for the same head. A previously successful dry run can be reused for that exact head. If `main` advances before auto-merge, Prepare dispatches another Prepare run to rebuild the release PR against the new head. The required platform Test checks also wait for Release readiness, so a later commit cannot reuse the earlier validation. If validation fails, fix the release branch or run Prepare again on `main`; auto-merge stays off until the exact-head dry run succeeds and required checks pass.
-6. When the PR merges, **Release tag** requires the latest dry run for the merged PR head to pass and its file tree to match the merge commit, then tags the merge commit `v<version>` and the tag runs `release.yml`, which publishes. If another commit reached `main` before the squash merge, use the recovery action below to validate the exact merge commit.
+1. It pins the commit to release: `main`'s head when the run starts, or the commit you enter (it must be on `main`). Nothing merged to `main` afterwards affects this release.
+2. It picks the version. If the pinned commit's `package.json` version has no tag yet (its bump merged earlier), that version is released as is. Otherwise `scripts/release/next-version.ts` picks the next version and requires at least one commit since the tag.
+3. For a new version, `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section. It commits `chore: release <version>` (DCO-signed) on top of the pinned commit. That commit is not pushed to `main`.
+4. It tags that commit `v<version>` and pushes only the tag. The tag runs `release.yml`, which typechecks and tests, builds every platform, requires CI's full suite on both OSes for the tagged commit (dispatching CI on the tag when none has run) and publishes. All of it runs from the tag.
+5. It opens a `chore: release <version>` bookkeeping PR from `release/v<version>` to bring the bump to `main`, with auto-merge on. It's an ordinary PR under the usual required checks. The release doesn't wait for it, and merging it tags nothing.
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.
 
@@ -74,24 +73,22 @@ Run `cargo publish --dry-run -p <crate>` for each protocol crate before publishi
 
 ### One-time setup: `RELEASE_TOKEN`
 
-GitHub doesn't run workflows for pushes and PRs made with the built-in `GITHUB_TOKEN`, so the release PR and tag use a fine-grained personal access token:
+GitHub doesn't run workflows for pushes and PRs made with the built-in `GITHUB_TOKEN`, so the release tag and bookkeeping PR use a fine-grained personal access token:
 
 1. GitHub → Settings → Developer settings → Fine-grained tokens → Generate new token.
 2. Resource owner: `lamtuanvu`; repository access: only `lamtuanvu/pacer`; pick an expiry.
 3. Repository permissions: **Contents**, **Pull requests** and **Workflows**: Read and write. Metadata stays Read.
 4. Save it as the repository secret `RELEASE_TOKEN` (Settings → Secrets and variables → Actions), or run `gh secret set RELEASE_TOKEN -R lamtuanvu/pacer` and paste it.
 
-Renew it before it expires; Prepare release and Release tag fail with a clear error without it.
+Renew it before it expires; Prepare release fails with a clear error without it.
 
 ### Interrupted releases
 
-Run **Prepare release** again on `main` to resume an open release PR after failed or cancelled validation. Prepare also resumes a uniquely identified merged release whose current version has no tag. That invocation finishes the merged version; after publication, run Prepare again to include subsequent changes. Missing or ambiguous release PRs fail closed. For explicit manual recovery, open **Actions → Release tag → Run workflow** on `main` and enter the merged release PR number (for example, `288` for `0.8.1`). Recovery verifies that it is a same-repository release PR merged into main, selects main's head when validation starts (it must contain the merge, with no newer release or version change after it), creates a dedicated `release/recovery-v<version>-<SHA prefix>` branch at that commit, and runs fresh full release validation there. It tags that same commit only after the validation succeeds. Commits merged to main while validation runs are not included and do not block the tag.
-
-A recovery branch pointing at another commit, failed dry run, existing tag or a validated commit no longer on main stops recovery. Recovery never overwrites a branch. If the tag already exists but publication failed, rerun the failed **Release** publishing workflow instead; tags are never moved. Repeating **Prepare release** cannot repair a tagged release whose publication failed.
+A tag is the whole release. If publication fails, fix the cause (often a flaky job), then rerun the failed jobs of the **Release** run for that tag; tags are never moved. If the tagged commit itself is broken, release a new version from a fixed commit. If Prepare stops before pushing the tag, just run it again. If the tag was pushed but the bookkeeping PR wasn't opened, don't rerun Prepare (the tag exists). Cherry-pick the tagged `chore: release` commit onto `main` in an ordinary PR instead.
 
 ### Manual fallback
 
-Without the token, release by hand: `bun run release:prepare <x.y.z>`, a DCO-signed PR from `release/v<x.y.z>` titled `chore: release x.y.z`, `gh workflow run release.yml --ref release/v<x.y.z> -f version=<x.y.z> -f dry_run=true`, then after merging tag the merge commit with `git tag -a vX.Y.Z -m "pacer X.Y.Z"` and `git push origin vX.Y.Z`. If you merge a `chore: release` PR by hand while the token is set, Release tag tags it only after these same dry-run and tree checks pass. A dispatch of `release.yml` with `dry_run=false` is rejected; tags are the only release trigger.
+Without the token, release by hand. On a commit of `main` whose `package.json` holds an untagged version with a CHANGELOG section (run `bun run release:prepare <x.y.z>` and commit it on top otherwise), run `git tag -a vX.Y.Z -m "pacer X.Y.Z"` and `git push origin vX.Y.Z`. Bring a bump commit to `main` with an ordinary PR afterwards. To check a build without publishing, use `gh workflow run release.yml --ref <branch> -f version=<x.y.z> -f dry_run=true`. A dispatch with `dry_run=false` is rejected; tags are the only release trigger.
 
 The tag must match `v` plus the package version. The release workflow verifies the tag, typechecks and tests, then builds macOS and Linux binaries for arm64 and x64 on their respective runners. Each runner smoke-tests its native binary. The publish job writes SHA256SUMS, manifest.json and latest.json, attests all four binaries, extracts the version's changelog notes, and uploads the seven flat assets to GitHub Releases. Workflow artifacts expire after one day. Stable releases become latest; versions containing `-` are marked prerelease and do not become latest.
 

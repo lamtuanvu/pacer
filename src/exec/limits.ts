@@ -1,8 +1,9 @@
-import { closeSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readFileSync, readSync } from "node:fs";
 import { join } from "node:path";
 import { parseRunnerId } from "../config/runner-id";
 import type { ProviderCfg } from "../config/strategy";
 import type { ProviderStatus } from "../engine/rank";
+import { replayRecording } from "../session/recording";
 import type { ExecResult } from "./process";
 
 const GENERIC: RegExp[] = [
@@ -62,10 +63,46 @@ export function sessionLimitExcerpt(providerId: string, text: string): string | 
   return at < 0 ? null : lines.slice(at).join("\n").trim().slice(0, 1000);
 }
 
+export type RetryBanner = { kind: "limit" | "transient"; reason: string; attempt: number; delayS: number };
+
+/** An agent's own provider retry line on its rendered screen, anchored at the line start so quoted source never counts. */
+const RETRY_BANNER: Record<string, RegExp> = {
+  opencode: /^\s*⚠\s*Retrying in (\d+)s\s*·\s*attempt (\d+)\s*·\s*(\S.*?)\s*$/,
+};
+const SERVER_ERROR = /\b(?:HTTP|status)\s*5\d\d\b/i;
+const retryPattern = (agent: string) => RETRY_BANNER[parseRunnerId(agent)?.agent ?? agent];
+
+/** The latest provider retry banner on a rendered screen; server errors and provider overload stay transient. */
+export function retryBanner(agent: string, screen: string): RetryBanner | null {
+  const re = retryPattern(agent);
+  if (!re) return null;
+  const lines = screen.split(/\r?\n/);
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const m = re.exec(lines[i]);
+    if (!m) continue;
+    const reason = m[3], transient = SERVER_ERROR.test(reason) || TRANSIENT_PROVIDER_PATTERNS.some(p => p.test(reason));
+    return { kind: !transient && GENERIC.some(p => p.test(reason)) ? "limit" : "transient", reason, attempt: Number(m[2]), delayS: Number(m[1]) };
+  }
+  return null;
+}
+
+/** Cheap check on the raw PTY tail, whose cursor-positioned diffs garble text, that a render may show a retry banner. */
+export function retryBannerHint(agent: string, rawTail: string): boolean {
+  return retryPattern(agent) !== undefined && /attempt\s*\d/.test(rawTail) && /Retry|in\s*\d+s/.test(rawTail);
+}
+
+/** The run's current screen as plain text, last 60 lines, replayed from the latest checkpoint; "" without a recording. */
+export async function renderedScreen(dir: string): Promise<string> {
+  if (!["session.log", "session.log.1", "session.ckpt"].some(name => existsSync(join(dir, name)))) return "";
+  let screen;
+  try { screen = await replayRecording(dir); } catch { return ""; }
+  try { return screen.plain(true).replace(/(?:\n[ \t]*)+$/, "").split("\n").slice(-60).join("\n"); } finally { screen.dispose(); }
+}
+
 /** Seconds a live session stays quiet before its screen is checked for a provider limit error. */
 export const LIMIT_QUIET_S = 15;
 
-function tailText(file: string, bytes: number): string {
+export function tailText(file: string, bytes: number): string {
   let fd: number;
   try { fd = openSync(file, "r"); } catch { return ""; }
   try {

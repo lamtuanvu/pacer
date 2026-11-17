@@ -224,6 +224,30 @@ fn readonly_store_reads_rows_and_strict_mode_refuses_garbage() {
 }
 
 #[test]
+fn readonly_store_reads_a_cleanly_closed_wal_store_without_creating_files() {
+    let dir = tempfile::tempdir().unwrap();
+    let state = dir.path().join("state");
+    std::fs::create_dir_all(&state).unwrap();
+    let db = rusqlite::Connection::open(state.join("tasks.db")).unwrap();
+    db.execute_batch(
+        "PRAGMA journal_mode=WAL; CREATE TABLE tasks(id TEXT, state TEXT, record TEXT);
+         INSERT INTO tasks VALUES('a','running','{\"id\":\"a\"}');",
+    )
+    .unwrap();
+    drop(db);
+    for strict in [false, true] {
+        let store = ReadOnlyStore::open(dir.path(), strict).unwrap();
+        assert!(store.available() && store.immutable());
+        assert_eq!(store.running_tasks().unwrap(), vec![json!({"id": "a"})]);
+    }
+    let files: Vec<_> = std::fs::read_dir(&state)
+        .unwrap()
+        .map(|e| e.unwrap().file_name())
+        .collect();
+    assert_eq!(files, ["tasks.db"]);
+}
+
+#[test]
 fn status_adapter_marks_unsupported_methods_and_expired_readings() {
     let status = json!({"generatedAt": 1000, "providers": [{"id": "codex", "installed": true,
         "usage": "metered", "windows": [{"name": "5h", "usedPct": 40, "resetsAt": 1000 + 7200, "stale": false}]}],
@@ -393,4 +417,56 @@ fn learned_fit_needs_enabled_learning_and_enough_recent_reviews() {
     strategy["dispatch"]["learning"]["minSamples"] = json!(1);
     let off = apply_learned_fit(&strategy, vec![candidate], &task, 1000.0, &store).unwrap();
     assert!(off[0].get("learnedFit").is_none());
+}
+
+#[test]
+fn run_ladder_refuses_what_run_decision_refuses_and_times_out() {
+    let config = json!({"timeoutMs": 1000, "onNoMatch": "queue", "steps": [], "comfortablePct": 20,
+        "reservePct": 0, "tierTargets": {"simple": "small", "standard": "medium", "complex": "frontier"}});
+    let candidate = |id: &str| {
+        json!({"runner": "codex", "account": "codex", "executor": "codex", "id": id,
+        "binding": {"kind": "exact", "id": "m"}, "actualModel": null, "tier": "medium", "strengths": [],
+        "provenance": "declared", "poolIds": [], "headroom": null, "burn": null, "cost": null, "capacityKnown": false})
+    };
+    let request = |candidates: Value| {
+        json!({"schemaVersion": 1, "requestId": "r", "now": 10.0, "deadline": 11.0,
+        "task": {"kind": null, "requirements": {}, "preferences": {"models": [], "strengths": []}, "provenance": "request"},
+        "candidates": candidates, "observations": [], "observationRevision": "o", "strategyHash": "s", "config": config})
+    };
+    let message = |r: Result<Value, _>| {
+        r.map_err(|e: pacer_foundation::api::CoreError| e.message)
+            .unwrap_err()
+    };
+    assert_eq!(
+        message(run_ladder(
+            request(json!([candidate("a"), candidate("a")])),
+            || 10.0
+        )),
+        "Duplicate candidate IDs"
+    );
+    let mut extra = candidate("a");
+    extra["unknown"] = json!(1);
+    assert_eq!(
+        message(run_ladder(request(json!([extra])), || 10.0)),
+        "Invalid decision request"
+    );
+    let mut huge = request(json!([]));
+    huge["requestId"] = json!("x".repeat(256 * 1024));
+    assert_eq!(
+        message(run_ladder(huge, || 10.0)),
+        "Decision input exceeds 256 KiB"
+    );
+    let done = run_ladder(request(json!([candidate("a")])), || 10.0).unwrap();
+    assert_eq!(
+        (
+            done["validation"].clone(),
+            done["recommendedAction"].clone()
+        ),
+        (json!("valid"), json!("queue"))
+    );
+    let late = run_ladder(request(json!([candidate("a")])), || 11.0).unwrap();
+    assert_eq!(
+        (late["validation"].clone(), late["proposal"].clone()),
+        (json!("timeout"), Value::Null)
+    );
 }

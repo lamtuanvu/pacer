@@ -1161,15 +1161,20 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
     // The core child's env fixes who owns plugin processes for this connection.
     let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
+    crate::core_process::record_stdio(&env, &host_socket);
     let (link, frames) = PluginLink::new(&sync_id, &sync_key);
-    if let Some(reports) = ownership.crash_reports() {
+    if let Some((reports, requests)) = ownership.crash_reports().zip(ownership.door_requests()) {
         let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
+        let core = move || {
+            let ipc = ipc.clone();
+            async move { Some((ipc, String::new())) }
+        };
         tokio::spawn(crate::native::plugins::deliver_crashes(
             reports,
-            move || {
-                let ipc = ipc.clone();
-                async move { Some((ipc, String::new())) }
-            },
+            core.clone(),
+        ));
+        tokio::spawn(crate::native::plugins::deliver_door_requests(
+            requests, core,
         ));
     }
     let mut plugins = Plugins {

@@ -15,6 +15,12 @@ pub trait TakeoverPlatform {
     fn launch_original(&self, m: &TakeoverManifest) -> Result<(), OtaError>;
     fn verify_original(&self, m: &TakeoverManifest, deadline: AwakeStamp) -> Result<(), OtaError>;
     fn retire_recovery(&self, m: &TakeoverManifest) -> Result<(), OtaError>;
+    /// The named check that made the step just performed fail, for example
+    /// `job-still-loaded`. Taken once, so a later failure never reports a
+    /// check from an earlier step. Only short public words: no paths or PIDs.
+    fn take_failure_predicate(&self) -> Option<&'static str> {
+        None
+    }
 }
 
 fn deadline(p: &dyn TakeoverPlatform) -> Result<AwakeStamp, OtaError> {
@@ -51,23 +57,33 @@ fn action_code(action: &Action) -> &'static str {
     }
 }
 
-fn failure(stage: &str, error: OtaError) -> Failure {
+fn failure(stage: &str, error: OtaError, predicate: Option<&str>) -> Failure {
     Failure {
-        reason: format!("{stage}:{}", error_code(error)),
+        // The journal accepts reasons of at most 64 bytes; a predicate that would not
+        // fit is dropped rather than failing the record of the restore.
+        reason: match predicate {
+            Some(predicate) if stage.len() + error_code(error).len() + predicate.len() + 2 <= 64 => {
+                format!("{stage}:{}:{predicate}", error_code(error))
+            }
+            _ => format!("{stage}:{}", error_code(error)),
+        },
         error,
     }
 }
 
 fn journal_failure(error: OtaError) -> Failure {
-    failure("journal", error)
+    failure("journal", error, None)
 }
 
 fn effect(
     store: &TakeoverStore,
     action: Action,
+    p: &dyn TakeoverPlatform,
     perform: impl FnOnce() -> Result<(), OtaError>,
 ) -> Result<(), Failure> {
     store.intend(action.clone()).map_err(journal_failure)?;
+    // A named check belongs to the step that reports it, never to a later one.
+    let _ = p.take_failure_predicate();
     let result = perform();
     // The call returned, so its outcome is observed. A crash inside the call
     // leaves an uncompleted intent and is handled conservatively by recover.
@@ -77,7 +93,13 @@ fn effect(
         StepOutcome::Failed
     };
     store.complete(&action, outcome).map_err(journal_failure)?;
-    result.map_err(|error| failure(action_code(&action), error))
+    result.map_err(|error| {
+        failure(
+            action_code(&action),
+            error,
+            p.take_failure_predicate(),
+        )
+    })
 }
 
 fn restore(
@@ -93,11 +115,14 @@ fn restore(
     }
     let m = store.manifest();
     let result: Result<(), Failure> = (|| {
-        effect(store, Action::RestoreRegistration, || {
-            p.restore_registration(m)
-        })?;
-        effect(store, Action::LaunchOriginal, || p.launch_original(m))?;
-        effect(store, Action::Verify, || p.verify_original(m, deadline(p)?))?;
+        effect(
+            store,
+            Action::RestoreRegistration,
+            p,
+            || p.restore_registration(m),
+        )?;
+        effect(store, Action::LaunchOriginal, p, || p.launch_original(m))?;
+        effect(store, Action::Verify, p, || p.verify_original(m, deadline(p)?))?;
         Ok(())
     })();
     let state = match result {
@@ -129,29 +154,33 @@ pub fn execute_with_progress(
     let m = store.manifest();
     if let Err(error) = p.redetect(m) {
         // Nothing was changed: finish without effects, so no transaction is left open.
-        store.transition_with(State::Restored, Some(&failure("redetect", error).reason))?;
+        let predicate = p.take_failure_predicate();
+        store.transition_with(
+            State::Restored,
+            Some(&failure("redetect", error, predicate).reason),
+        )?;
         progress(State::Restored);
         return Ok(State::Restored);
     }
-    if let Err(failed) = effect(store, Action::ArmRecovery, || p.arm_recovery(m)) {
+    if let Err(failed) = effect(store, Action::ArmRecovery, p, || p.arm_recovery(m)) {
         // A failed arm may have partially loaded the recovery job.
         return restore(store, p, progress, Some(&failed.reason)).or(Err(failed.error));
     }
     let outcome: Result<State, Failure> = (|| {
         store.transition(State::Stopping).map_err(journal_failure)?;
         progress(State::Stopping);
-        effect(store, Action::StopOriginal, || p.stop_original(m))?;
+        effect(store, Action::StopOriginal, p, || p.stop_original(m))?;
         store.transition(State::Switched).map_err(journal_failure)?;
         progress(State::Switched);
-        effect(store, Action::SwitchRegistration, || {
+        effect(store, Action::SwitchRegistration, p, || {
             p.switch_registration(m)
         })?;
-        effect(store, Action::LaunchManaged, || p.launch_managed(m))?;
+        effect(store, Action::LaunchManaged, p, || p.launch_managed(m))?;
         store
             .transition(State::Verifying)
             .map_err(journal_failure)?;
         progress(State::Verifying);
-        effect(store, Action::Verify, || p.verify_managed(m, deadline(p)?))?;
+        effect(store, Action::Verify, p, || p.verify_managed(m, deadline(p)?))?;
         store
             .transition(State::Committed)
             .map_err(journal_failure)?;
@@ -199,6 +228,16 @@ pub fn recover(store: &TakeoverStore, p: &dyn TakeoverPlatform) -> Result<State,
 
 #[cfg(test)]
 mod tests {
+
+    #[test]
+    fn a_reason_too_long_for_the_journal_drops_its_predicate() {
+        let fits = super::failure("stop-original", OtaError::Identity, Some("job-still-loaded"));
+        assert_eq!(fits.reason, "stop-original:identity:job-still-loaded");
+        let long = "x".repeat(60);
+        let dropped = super::failure("stop-original", OtaError::Identity, Some(&long));
+        assert_eq!(dropped.reason, "stop-original:identity");
+        assert!(dropped.reason.len() <= 64);
+    }
     use super::*;
     use std::sync::Mutex;
 
@@ -206,6 +245,8 @@ mod tests {
         calls: Mutex<Vec<&'static str>>,
         managed_registration: Mutex<bool>,
         fail: Option<&'static str>,
+        predicate: Option<&'static str>,
+        taken: Mutex<Option<&'static str>>,
     }
     impl Fake {
         fn new(fail: Option<&'static str>) -> Self {
@@ -213,11 +254,19 @@ mod tests {
                 calls: Mutex::new(vec![]),
                 managed_registration: Mutex::new(false),
                 fail,
+                predicate: None,
+                taken: Mutex::new(None),
             }
+        }
+        /// The named check this platform reports when `fail` happens.
+        fn named(mut self, predicate: &'static str) -> Self {
+            self.predicate = Some(predicate);
+            self
         }
         fn call(&self, name: &'static str) -> Result<(), OtaError> {
             self.calls.lock().unwrap().push(name);
             if self.fail == Some(name) {
+                *self.taken.lock().unwrap() = self.predicate;
                 Err(OtaError::Identity)
             } else {
                 if name == "switch" {
@@ -268,6 +317,9 @@ mod tests {
         }
         fn retire_recovery(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
             self.call("retire")
+        }
+        fn take_failure_predicate(&self) -> Option<&'static str> {
+            self.taken.lock().unwrap().take()
         }
     }
     fn fixture() -> (tempfile::TempDir, TakeoverStore) {
@@ -367,6 +419,35 @@ mod tests {
             ]));
             assert!(!fake.managed_registration(), "{fail}");
         }
+    }
+    #[test]
+    fn a_failed_step_names_the_check_that_failed_and_takes_it_once() {
+        let (_temp, store) = fixture();
+        let fake = Fake::new(Some("stop")).named("job-still-loaded");
+        assert_eq!(execute(&store, &fake), Ok(State::Restored));
+        let journal = store.journal().unwrap();
+        assert_eq!(
+            journal.error.as_deref(),
+            Some("stop-original:identity:job-still-loaded")
+        );
+        // The step name is the first segment, so the shell's reason copy is unchanged.
+        assert!(journal.error.as_deref().unwrap().starts_with("stop-original:"));
+        // A named check is taken once; a step that names none reports none.
+        let fake = Fake::new(Some("stop")).named("process-still-running");
+        assert_eq!(fake.call("stop"), Err(OtaError::Identity));
+        assert_eq!(fake.take_failure_predicate(), Some("process-still-running"));
+        assert_eq!(fake.take_failure_predicate(), None);
+        assert_eq!(Fake::new(None).take_failure_predicate(), None);
+        // A step that fails without a named check keeps the two-part reason.
+        let (_temp, store) = fixture();
+        assert_eq!(
+            execute(&store, &Fake::new(Some("switch"))),
+            Ok(State::Restored)
+        );
+        assert_eq!(
+            store.journal().unwrap().error.as_deref(),
+            Some("switch-registration:identity")
+        );
     }
     #[test]
     fn restoration_failure_keeps_recovery_state() {

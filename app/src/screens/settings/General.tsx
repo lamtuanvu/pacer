@@ -20,7 +20,7 @@ export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
 import { PairingView } from "./Pairing";
-import { UpdatesSection } from "./Updates";
+import { UpdatesSection, type UpdateReport } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
 import { LazyModelMatrix } from "./LazyModelMatrix";
@@ -69,13 +69,15 @@ import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { platform } from "../../platform";
+import { openRemedyUrl } from "../../data/remedies";
 import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotificationOffer, type BrowserPermission } from "../../data/service-notifier";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
 import { consentAction, plannerAgent } from "../../model/settings";
-import { Dialog, useTaskContext } from "../task-shared";
+import { Dialog, ErrorMessage, useTaskContext } from "../task-shared";
+import type { BrowserApi } from "../../data/api";
 import {
   Feedback,
   Field,
@@ -99,14 +101,7 @@ export interface SettingsData {
   routing?: RoutingRules;
   strategies?: StrategyRow[];
   notifications?: { level: string };
-  updates?: {
-    current: string;
-    latest: string | null;
-    available: boolean;
-    error?: string;
-    disabled?: boolean;
-    checkedAt?: number;
-  };
+  updates?: UpdateReport;
 }
 /** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
 export function settingsNote(section: string | undefined): string | null {
@@ -445,7 +440,12 @@ function NotificationsSection({
 }: {
   initialData?: { level: string };
 }) {
+  const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
+  const health = useResource<NotificationCheck | undefined>("notifications.health", {});
+  const check = health.data;
+  const caption = notificationCaption(check);
+  const remedy = check?.remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -463,10 +463,110 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
+        {platform.desktop && (
+          <ResourceState resource={health}>
+            <DesktopBanners
+              reload={health.reload}
+              level={check?.level}
+              caption={caption}
+              remedy={remedy}
+              api={api}
+            />
+          </ResourceState>
+        )}
         <BrowserNotificationOffer level={query.data?.level ?? ""} />
       </ResourceState>
     </section>
   );
+}
+
+interface NotificationCheck {
+  level: string;
+  detail: string;
+  tested_at?: number;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string };
+}
+
+export function DesktopBanners({
+  api,
+  reload,
+  level,
+  caption,
+  remedy,
+  refetchDelay = 3000,
+}: {
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
+  caption: string;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
+  /** After Send test, caption refresh; injectable so tests avoid real waits. */
+  refetchDelay?: number;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [callError, setCallError] = useState<unknown>();
+  const [progress, setProgress] = useState<string>();
+  const refetchTimer = useRef<number>();
+  useEffect(() => () => { if (refetchTimer.current) window.clearTimeout(refetchTimer.current); }, []);
+  /** Run one action, refetch the health read so the caption follows, and keep focus on the button while in flight. */
+  const run = async (action: () => void | Promise<void>, progressText?: string) => {
+    if (busy) return;
+    setBusy(true); setCallError(undefined); setProgress(progressText);
+    try {
+      await action();
+      reload();
+    } catch (failure) {
+      setCallError(failure);
+    } finally {
+      setBusy(false); setProgress(undefined);
+    }
+  };
+  // "Send test" is offered only when the check is ok; every other state shows the caption only.
+  const showSend = level === "ok";
+  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+    {remedy ? (
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
+        if (remedy.url) await openRemedyUrl(remedy.url, platform);
+        else if (remedy.op) await api.call(remedy.op, remedy.params ?? {});
+      }, remedy.op === "notifications.request" ? "Answer the macOS prompt…" : undefined)}>{remedy.label}</Button>
+    ) : showSend ? (
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
+        await api.call("notifications.test", {});
+        // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
+        // The timer is cleared on unmount so a leaving row never refetches behind it.
+        if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
+        const timer = window.setTimeout(reload, refetchDelay);
+        refetchTimer.current = timer;
+      }, "Sending test banner…")}>Send test</Button>
+    ) : null}
+    {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
+    {callError && <ErrorMessage error={callError}/>}
+  </SettingRow>;
+}
+
+export function notificationCaption(
+  check: NotificationCheck | undefined,
+  now = Date.now(),
+): string {
+  if (!check) return "Checking…";
+  const { level, detail, remedy } = check;
+  if (level === "warn" || level === "fail") {
+    if (remedy?.op === "notifications.request") return "Not asked yet";
+    if (remedy?.url?.startsWith("x-apple.systempreferences:com.apple.Notifications-Settings")) {
+      if (remedy?.caption?.startsWith("Turn on Allow")) return "Blocked in System Settings";
+      return "Notifications arrive quietly, without banners";
+    }
+    if (remedy?.op === "notifications.test") {
+      if (/^The banner was rejected/i.test(detail ?? "")) return detail ?? "";
+      return "The desktop didn't confirm the test notification";
+    }
+    return detail ?? "";
+  }
+  if (level === "info") return detail ?? "";
+  // ok: format the structured tested_at with the shared relative-time helper (no regex on detail).
+  if (check.tested_at != null) return `Allowed · test delivered ${ago(check.tested_at, now / 1000)}`;
+  if (/not tested/i.test(detail ?? "")) return "Allowed · not tested yet";
+  return (detail ?? "").replace(/^Banners allowed/i, "Allowed");
 }
 function BrowserNotificationOffer({ level }: { level: string }) {
   const [permission, setPermission] = useState<BrowserPermission>(browserNotificationPermission);

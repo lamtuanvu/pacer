@@ -129,7 +129,8 @@ to serve's Core.
   to own, both owners run until that connection ends; serve is never blocked by it, and the
   next connection attaches.
 - An attached connection whose serve exits gets `plugin_unavailable` with the hint "Restart the
-  pacer service." until it reconnects.
+  pacer service." until it reconnects. One whose serve restarted gets the reconnect hint of
+  item 9.
 - Crash counts, restart counts and a child's lifecycle state stay in each Core's memory. The
   owner reports each crash of a child it did not stop to the Core of the door that owns it, with
   the private `crashed` request kind, and Core records it as the TypeScript owner records an
@@ -143,8 +144,10 @@ to serve's Core.
   than the owning door, or a failing one at all. A native `plugin.enable` through the owning
   door clears the floor. An enable through an attached connection, or forwarded to TypeScript
   (`PACER_FORWARD_OPS`), clears only that Core's state, so the owner keeps its floor and its
-  failing mark (known limit). A report that reaches the owning door while its Core restarts is
-  dropped, not retried; that crash counts only toward the owner's floor.
+  failing mark (known limit). A restart of the owning door's Core child does the same: the new
+  Core starts with no crash state, while the owner keeps refusing a failing plugin until a native
+  `plugin.enable` through that door. A report that reaches the owning door while its Core
+  restarts is dropped, not retried; that crash counts only toward the owner's floor.
 - Serve shutdown and an owning connection's end (EOF or SIGTERM) stop accepting new starts and
   send each child SIGTERM at once and SIGKILL 2 seconds later, before the socket is removed. A
   plugin call in flight does not delay this: the owner reaches its children through a lane
@@ -182,6 +185,70 @@ to serve's Core.
   with that pid and a stale one as replaced at the next start. A hung owner that keeps its
   socket live keeps a new serve from starting until it is stopped; launchd keeps retrying the
   service, so a restart converges once the old process exits.
+- **Owning calls.** Core seals into each `call_authority` whether TypeScript would give the call a
+  call authority (`owning`, the registry's `needsAuthority`) and whether an installed plugin
+  granted `net.http` may use a declared `*` host scope (`explicitWildcardGrant`). It issues no
+  path or host from the manifest. Outside an owning call the owner refuses every scoped
+  capability with TypeScript's `scoped capability requires an active owning call`. A missing or
+  malformed seal grants neither (maintainer decision Q4 on the refusal text).
+- **The assistant's endpoint key crosses the owner (maintainer decision Q1).** Core answers
+  `capability.secrets.resolve` itself when the plugin declares it, and `capability.identity.sign`
+  on every call it makes, so an undeclared signing request is refused and audited in Core as
+  flag-off does. The owner forwards the request on the bridge connection of the call that issued
+  it, and Core runs its flag-off check (`assistantSecret` admits only `pacer-assistant` and its
+  chosen endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key
+  and the audit in Core). The resolved key crosses only that connection (0600 socket, same user)
+  and the child's stdin, as the reply to the child's own request. The owner keeps nothing and
+  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused.
+  Item 9 closes the residual risk of this decision (#918). Before it, a same-user process could
+  reach the resolved key or a signature: it could put its own process in the assistant's or a
+  signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
+  stand in for the socket, and Core then answered that process. Now a peer without the key
+  cannot start, stop or call into a lane, and Core sends nothing to an owner that cannot prove
+  the key. The accepted residual is a same-user process that reads `run/host.key`, reads Core's
+  initial environment through the operating system's process inspection, or replaces a socket
+  in `run/` or in the per-user directory of item 5. Such a process can also relay without
+  learning the key: it accepts Core's connection on the replaced path, dials the real owner and
+  passes the handshake lines through, so both sides verify, and it then sees and can alter the
+  session. Any such process could already read the same secrets: the Keychain items have no
+  access list, and file and environment keys are readable by the same user. Follow-ups:
+  - hand Core the key on stdin instead of its environment (in progress before default-on);
+  - #918 item 3 closed by maintainer decision: executors run unsandboxed by design, so there is
+    no executor sandbox profile to deny `run/`. The deferred hardening (binding a sealed call to
+    its spawn spec, owner-side spawn-spec validation, a `pacer doctor` warning for agent
+    configurations that allow Unix sockets, and a pacer-applied profile if pacer offers confined
+    executors) is #973;
+  - a peer check: the door hands Core the owner's pid and Core verifies it on each connection,
+    since the relay outlasts the other two.
+- **The doors' own plugin calls go through Core.** A door's `plugin.doctor` ping and its
+  `plugin.ui.render`, `plugin.ui.action` and settings-check calls are the private `relay`, so
+  Core seals them as it seals its own calls: it answers `secrets.resolve` and `identity.sign`
+  on them as above, writes their log lines, and gives each method its flag-off deadline
+  (`diagnostic.ping` 5 s, which also bounds the hello, `ui.render` 2 s, `ui.action` 10 s,
+  `ui.settings.validate` 2 s). The owner returns a failed call's log lines with its error, and
+  when Core's deadline or a revocation ends a call that was already sent, Core shuts its write
+  side and waits up to 1 s for that reply, so the lines are kept as flag-off keeps them. A call
+  ended before the owner's handshake completes was never sent and fails at once. Core records
+  the hello only from a successful call, so a plugin whose first call fails stays `idle` until a
+  later call succeeds. The door no longer builds a sealed call of its own. A door whose Core is restarting
+  refuses the operation as it does flag-off.
+  Core makes each relayed call on its own owner connection and proves the owner's key there
+  (item 9), as for its other calls: it refuses `relay` without an owner socket, and fails the
+  call with `plugin_unavailable` before it connects when it holds no key. A door proves the
+  key itself only for an attached connection's `_host.plugin.stop` frames; serve's door and an
+  owning stdio connection run the owner and stop their lanes in process. No door call reaches
+  a plugin any other way: the owner refuses a connection without the key and an unsealed
+  `_host.plugin.call`.
+- **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
+  orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
+  `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants
+  into `call_authority`. When it issues one, it seals `capability.process.stopRun`,
+  `capability.process.inspectRun` or `capability.hosts.stopOwned` as a Core method of that call,
+  and answers the plugin's request on the call's bridge connection with its flag-off broker. The
+  grant is therefore consumed once and bound to its task, attempt, run directory and wrapper pid
+  exactly as flag-off, with the same refusal codes and texts. The owner forwards an unsealed
+  request to none of them, so a plugin cannot stop or inspect a run its call was not issued.
+  The flag-on remote stop then needs the SSH host runner, which the owner does not serve yet.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.

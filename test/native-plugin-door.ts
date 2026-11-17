@@ -34,6 +34,8 @@ export function frontEnv(h: Home, forward: string, options: Options) {
     ...(options.hostSocket !== undefined ? { PACER_HOST_SOCKET: options.hostSocket } : {}),
     // Linux deep homes bind under $XDG_RUNTIME_DIR; macOS asks confstr instead.
     ...(process.env.XDG_RUNTIME_DIR !== undefined ? { XDG_RUNTIME_DIR: process.env.XDG_RUNTIME_DIR } : {}),
+    // The preload's closed port; a caller's explicit port still wins.
+    PACER_PORT: process.env.PACER_PORT!,
     ...options.env,
   };
 }
@@ -169,11 +171,13 @@ export function semantic(reply: Reply) {
   return { code: http ? error.code : error.data?.code, message: error.message, ...(hint ? { hint } : {}) };
 }
 
-// A plugin child records whether it inherited the private key, and every start.
+// A plugin child records whether it inherited the private keys (the owner's credential in
+// its environment or argv), and every start.
 export const recordingMain = `#!/usr/bin/env bun
 import {appendFileSync,writeFileSync} from 'node:fs';
 appendFileSync('starts', process.pid + '\\n');
 writeFileSync('inherited-key', process.env.PACER_NATIVE_CONFIG_SYNC_KEY ?? 'absent');
+writeFileSync('inherited-owner-key', process.env.PACER_HOST_SOCKET_KEY ?? (process.argv.some(arg => /[0-9a-f]{64}/.test(arg)) ? 'argv' : 'absent'));
 // @ts-ignore: installFixture copies the shared plugin.ts beside this entry point.
 await import('./plugin');
 `;

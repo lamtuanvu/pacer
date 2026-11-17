@@ -1,3 +1,4 @@
+import { restartingUpdate } from "../model/update-job";
 import { platform } from "../platform";
 import { parseEnvelope, reduce, type LinkSnapshot } from "../../../src/link/envelope";
 import type { ApiEvent } from "../../../src/api/protocol";
@@ -98,13 +99,17 @@ function reduceReadModel(state: StoreState, snapshot: SnapshotV2, type: EventTyp
     default: return state;
   }
 }
+/** Reaching pacer again means a restarting update has finished; its closing job event can predate the fresh snapshot. */
+export function withoutRestartedUpdates(jobs: Record<string, Job>): Record<string, Job> {
+  return Object.values(jobs).some(restartingUpdate) ? Object.fromEntries(Object.entries(jobs).filter(([, job]) => !restartingUpdate(job))) : jobs;
+}
 export function reduceStore(state: StoreState, action: StoreAction): StoreState {
   switch (action.type) {
     case "waiting": return state.snapshot?.service ? { ...state, snapshot: { ...state.snapshot, service: { ...state.snapshot.service, waiting: action.waiting } } } : state;
     case "snapshot": return { ...state, snapshot: action.snapshot as SnapshotV2, needsSnapshot: false };
     case "disconnected": return { ...state, connected: false };
-    case "connected": return { ...state, connected: true };
-    case "reconnected": return { ...state, connected: true, connectionRevision: state.connectionRevision + 1 };
+    case "connected": return { ...state, connected: true, jobs: withoutRestartedUpdates(state.jobs) };
+    case "reconnected": return { ...state, connected: true, connectionRevision: state.connectionRevision + 1, jobs: withoutRestartedUpdates(state.jobs) };
     case "session-ended": return { ...state, sessionEnded: true, connected: false, connectionRevision: state.connectionRevision + 1 };
     case "hello": {
       const d = action.hello.desktopBuildDiagnostic;

@@ -1829,6 +1829,25 @@ Params JSON Schema:
     },
     "notifier": {
       "type": "boolean"
+    },
+    "notification_permission": {
+      "type": "string",
+      "enum": [
+        "not_determined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+        "unsupported"
+      ]
+    },
+    "notification_alerts": {
+      "type": "string",
+      "enum": [
+        "none",
+        "banner",
+        "alert"
+      ]
     }
   },
   "required": [
@@ -1885,6 +1904,25 @@ Params JSON Schema:
     },
     "capture": {
       "type": "boolean"
+    },
+    "notification_permission": {
+      "type": "string",
+      "enum": [
+        "not_determined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+        "unsupported"
+      ]
+    },
+    "notification_alerts": {
+      "type": "string",
+      "enum": [
+        "none",
+        "banner",
+        "alert"
+      ]
     }
   },
   "required": [
@@ -5224,6 +5262,51 @@ Params JSON Schema:
 }
 ```
 
+### `notifications.ack`
+
+Acknowledge a notification delivery outcome (desktop clients only).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "delivered": {
+      "type": "boolean"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 512
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "client_id",
+    "key",
+    "delivered"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `notifications.get`
 
 Current notification level.
@@ -5235,6 +5318,42 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `notifications.health`
+
+Cheap read of the notification check without running the full doctor.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `notifications.request`
+
+Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "wait_s": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 25
+    }
+  },
   "additionalProperties": false
 }
 ```
@@ -5262,6 +5381,21 @@ Params JSON Schema:
   "required": [
     "level"
   ],
+  "additionalProperties": false
+}
+```
+
+### `notifications.test`
+
+Send a test notification to the OS presenter.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```
@@ -7472,6 +7606,29 @@ Params JSON Schema:
   },
   "required": [
     "planner"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `setup.skip`
+
+Skip an optional setup step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "step": {
+      "type": "string",
+      "const": "notifications"
+    }
+  },
+  "required": [
+    "step"
   ],
   "additionalProperties": false
 }

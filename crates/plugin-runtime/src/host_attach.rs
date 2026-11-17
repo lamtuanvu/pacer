@@ -1,6 +1,6 @@
 //! Host provider attach for flag-on [`crate::ProcessOwner`] (P4d-9).
 
-use crate::SharedOwner;
+use crate::{OwnerError, SharedOwner};
 use pacer_plugin_capabilities::{HostProvider, NativeHosts};
 use pacer_plugin_host::{BrokerError, ProviderSnapshot};
 use serde_json::Value;

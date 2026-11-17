@@ -75,6 +75,8 @@ import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import * as clients from "../clients/registry";
+import * as notificationHealth from "../core/notification-health";
+import { notificationsCheck } from "../install/notifications-check";
 import { publishConfigChange } from "../core/events";
 import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
@@ -83,7 +85,8 @@ import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
 import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
-import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
+import { defaultUpdateDeps, installManager, runUpdate, type UpdateDeps, type UpdateManager } from "../update/update";
+import { MANAGED_BY_DESKTOP_MESSAGE, ownerRefusal } from "../install/owner";
 import { currentVersion } from "../update/version";
 import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
@@ -166,14 +169,22 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
     throw new CoreError(error.code, error.message, error.hint ?? "Use strategy.list to choose a strategy and strategy.preview to validate a draft.");
   }
 }
+/** Who updates this installation when it is not `pacer update`: the desktop owner (ADR 0021) or the install method. */
+function updateManager(ctx: Ctx, update: Pick<UpdateDeps, "env" | "execPath">): UpdateManager | undefined {
+  return ownerRefusal(ctx, "update") ? {by: "desktop", message: MANAGED_BY_DESKTOP_MESSAGE} : installManager(update);
+}
+const MANAGED_UPDATE_HINT = "This installation is updated by its own installer, not by this service.";
+
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
   const update = {...defaultUpdateDeps(ctx), restartService: async (path: string) => ({restarted: await restartAfterUpdate(ctx, path)}), ...deps.update};
+  const manager = updateManager(ctx, update);
+  if (manager) throw new CoreError("not_allowed", manager.message, MANAGED_UPDATE_HINT);
   // Reuse the CLI's install-method checks without letting it replace the daemon
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
   if (!update.standalone || !preflight.err.startsWith("pacer update: this pacer runs from source")) {
     const message = preflight.err.replace(/^pacer update: /, "");
-    throw new CoreError("not_allowed", message, message);
+    throw new CoreError("not_allowed", message, update.standalone ? undefined : "Install a release build to update from this screen.");
   }
   const job=await startJob(ctx,"update.apply","pacer",["Download","Verify","Replace","Refresh integrations","Restart"],async step=>{
     const result=await (deps.runUpdate ?? runUpdate)({check:false},{...update,progress:(name,state,detail)=>{
@@ -304,6 +315,8 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({
       kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1),
       notifier: z.boolean().optional(), capture: z.boolean().optional(),
+      notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(),
+      notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional(),
     }).refine(p => !p.capture || p.kind === "desktop", { path: ["capture"], message: "Only desktop clients can enroll a capture worker" }),
     handler: (ctx, { capture, ...options }) => {
       const registration = clients.register(ctx, options);
@@ -312,7 +325,7 @@ export const OPS: Record<string, OpDef> = {
         : registration;
     },
   }),
-  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p.notifier) }),
+  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional(), notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(), notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),
@@ -376,6 +389,15 @@ export const OPS: Record<string, OpDef> = {
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
   "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
   "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: (ctx, _p, _deps) => notificationHealth.testNotification(ctx) }),
+  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: async (ctx, p, _deps) => {
+    const entry = clients.list(ctx).find(c => c.client_id === p.client_id);
+    if (!entry || entry.kind !== "desktop") throw new CoreError("not_allowed", "notifications.ack requires a live desktop client");
+    return notificationHealth.ackNotification(ctx, p.client_id, p.key, p.delivered, p.error);
+  } }),
+  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(25).optional() }), handler: (ctx, p, _deps) => notificationHealth.requestAuthorization(ctx, { wait_s: p.wait_s }) }),
+  "notifications.health": op({ description: "Cheap read of the notification check without running the full doctor.", params: z.object({}), handler: (ctx, _p, _deps) => notificationsCheck(ctx) }),
+  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: (ctx, _p, _deps) => mutation(ctx, "config", () => setup.skipNotificationSetup(ctx)) }),
   "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
     handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
   "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),
@@ -640,7 +662,9 @@ export const OPS: Record<string, OpDef> = {
   "plugin.settings.set": op({ description: "Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.", params: z.object({ plugin: pluginId, values: z.record(z.string(), z.json()), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.settingsSet(ctx, p)) }),
   "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
-    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
+    const manager = updateManager(ctx, defaultUpdateDeps(ctx));
+    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {}),
+      ...(manager ? {managedBy: manager.by, managedHint: manager.message} : {})};
   }) }),
   "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };
