@@ -1002,6 +1002,17 @@ mod tests {
         metadata_change: Option<(&str, serde_json::Value)>,
         shim: Option<(u32, u32)>,
     ) -> Vec<u8> {
+        package_at("0.2.4", extra, metadata_change, shim)
+    }
+    /// `version` goes into release metadata and both plist version keys, as the Tauri bundler
+    /// writes them: CLI 2.12.3 copies `tauri.conf.json > version` verbatim into
+    /// CFBundleShortVersionString and CFBundleVersion (no `bundle > macOS > bundleVersion` set).
+    fn package_at(
+        version: &str,
+        extra: Option<(&str, tar::EntryType)>,
+        metadata_change: Option<(&str, serde_json::Value)>,
+        shim: Option<(u32, u32)>,
+    ) -> Vec<u8> {
         let mut archive = tar::Builder::new(Vec::new());
         let mut add = |path: &str, bytes: &[u8], kind: tar::EntryType| {
             let mut header = tar::Header::new_gnu();
@@ -1037,7 +1048,7 @@ mod tests {
                 tar::EntryType::Regular,
             );
         }
-        let mut metadata = json!({"schema":1,"version":"0.2.4","arch":"aarch64","bundleId":"dev.pacer.desktop","protocolMajors":[3],"admissionProtocol":1,"rollbackCompatible":true,"nativeTransportAbi":1,"fixture":cfg!(feature="ota-fixture")});
+        let mut metadata = json!({"schema":1,"version":version,"arch":"aarch64","bundleId":"dev.pacer.desktop","protocolMajors":[3],"admissionProtocol":1,"rollbackCompatible":true,"nativeTransportAbi":1,"fixture":cfg!(feature="ota-fixture")});
         if let Some((key, value)) = metadata_change {
             metadata[key] = value;
         }
@@ -1046,7 +1057,14 @@ mod tests {
             &serde_json::to_vec(&metadata).unwrap(),
             tar::EntryType::Regular,
         );
-        add("pacer.app/Contents/Info.plist",br#"<plist version="1.0"><dict><key>CFBundleExecutable</key><string>pacer</string><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string><key>CFBundleVersion</key><string>0.2.4</string><key>CFBundleShortVersionString</key><string>0.2.4</string></dict></plist>"#,tar::EntryType::Regular);
+        let info = format!(
+            r#"<plist version="1.0"><dict><key>CFBundleExecutable</key><string>pacer</string><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string><key>CFBundleVersion</key><string>{version}</string><key>CFBundleShortVersionString</key><string>{version}</string></dict></plist>"#
+        );
+        add(
+            "pacer.app/Contents/Info.plist",
+            info.as_bytes(),
+            tar::EntryType::Regular,
+        );
         if let Some((path, kind)) = extra {
             if path == "pacer.app/Contents/Resources/pacer-core" && kind.is_file() {
                 binary[12..16].copy_from_slice(&2u32.to_le_bytes());
@@ -1096,6 +1114,28 @@ mod tests {
             )
             .is_err());
         }
+    }
+    #[test]
+    fn nightly_package_with_bundler_plist_versions_passes_verification() {
+        let nightly = "0.17.0-nightly.202611171700";
+        let mut candidate = candidate();
+        candidate.version = nightly.into();
+        candidate.url = artifact_url(nightly, Arch::Aarch64);
+        let dir = tempfile::tempdir().unwrap();
+        extract_package(
+            &package_at(nightly, None, None, Some((0x0100_000c, 6))),
+            dir.path(),
+            &candidate,
+        )
+        .unwrap();
+        // A plist that disagrees with the signed candidate still fails closed.
+        let dir = tempfile::tempdir().unwrap();
+        assert!(extract_package(
+            &package_at("0.17.0", None, None, Some((0x0100_000c, 6))),
+            dir.path(),
+            &candidate
+        )
+        .is_err());
     }
     #[test]
     fn complete_package_metadata_is_checked_before_any_candidate_execution() {
