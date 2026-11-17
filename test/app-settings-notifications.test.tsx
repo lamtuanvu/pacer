@@ -1,5 +1,10 @@
 import { expect, test } from "bun:test";
-import { notificationCaption } from "../app/src/screens/settings/General";
+import { renderToString } from "preact-render-to-string";
+import { SettingsGeneral, notificationCaption } from "../app/src/screens/settings/General";
+import { TaskContext } from "../app/src/screens/task-shared";
+import { ActionContext } from "../app/src/data/action-context";
+import { initialState } from "../app/src/data/store";
+import { settings } from "./fixtures/ui/settings";
 
 /**
  * The Settings › Notifications "Desktop banners" row shows live state in its
@@ -61,4 +66,64 @@ test("Desktop banners caption passes informational states through", () => {
 
 test("Desktop banners caption shows a checking placeholder before the doctor answers", () => {
   expect(notificationCaption(undefined)).toBe("Checking…");
+});
+
+/** Drive the App preferences board as if it lived in the desktop (tauri) shell. */
+const desktopState = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
+
+test("Notification sound row renders only in the desktop shell and offers pacer/default/off", () => {
+  const host = globalThis as { __TAURI__?: unknown };
+  const previous = host.__TAURI__;
+  try {
+    host.__TAURI__ = { core: { invoke: async () => true } };
+    const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider>);
+    expect(html).toContain("Notification sound");
+    expect(html).toContain("Sound played when a banner appears.");
+    for (const label of ["Pacer", "System", "Off"]) expect(html).toContain(label);
+  } finally {
+    previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+  }
+});
+
+test("Notification sound row is hidden in the browser shell", () => {
+  const host = globalThis as { __TAURI__?: unknown };
+  const previous = host.__TAURI__;
+  try {
+    delete host.__TAURI__;
+    const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider>);
+    expect(html).not.toContain("Notification sound");
+    expect(html).not.toContain("Pacer");
+  } finally {
+    previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+  }
+});
+
+test("the Notification sound control writes only the sound key", async () => {
+  const { options } = await import("preact");
+  const handlers = new Map<string, (value: string) => void>();
+  const old = options.vnode;
+  options.vnode = node => {
+    old?.(node);
+    const props = node.props as any;
+    if (typeof props?.label === "string" && typeof props.onChange === "function" && Array.isArray(props.options)) handlers.set(props.label, props.onChange);
+  };
+  const calls: unknown[] = [];
+  const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: "done" }; }, result: () => ({}) } as any;
+  const host = globalThis as { __TAURI__?: unknown };
+  const previous = host.__TAURI__;
+  const mount = () => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: desktopState, api: {call: async (op: string, params: unknown) => { calls.push({ op, params }); return {}; }} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider></ActionContext.Provider>);
+  try {
+    host.__TAURI__ = { core: { invoke: async () => true } };
+    const settle = () => new Promise(resolve => setTimeout(resolve, 0));
+    mount();
+    for (const sound of ["default", "off", "pacer"]) { handlers.get("Notification sound")!(sound); await settle(); }
+  } finally {
+    previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+    options.vnode = old;
+  }
+  expect(calls).toEqual([
+    { op: "notifications.set", params: { sound: "default" } },
+    { op: "notifications.set", params: { sound: "off" } },
+    { op: "notifications.set", params: { sound: "pacer" } },
+  ]);
 });

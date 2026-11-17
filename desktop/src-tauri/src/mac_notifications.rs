@@ -17,8 +17,8 @@ use objc2_user_notifications::{
     UNMutableNotificationContent, UNNotification, UNNotificationAction,
     UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
     UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-    UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
-    UNUserNotificationCenterDelegate,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSound,
+    UNUserNotificationCenter, UNUserNotificationCenterDelegate,
 };
 use std::ptr::NonNull;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -48,6 +48,48 @@ fn launch_id() -> &'static str {
             .unwrap_or_default();
         format!("{started:x}{:x}", std::process::id())
     })
+}
+
+/// Which notification sound to play, derived from the `notificationSound`
+/// setting ("pacer" default, "default", "off"). Absent or invalid means
+/// "pacer".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SoundChoice {
+    Pacer,
+    Default,
+    Off,
+}
+
+fn sound_choice(setting: Option<&str>) -> SoundChoice {
+    match setting {
+        Some("default") => SoundChoice::Default,
+        Some("off") => SoundChoice::Off,
+        _ => SoundChoice::Pacer,
+    }
+}
+
+impl SoundChoice {
+    fn sound(self) -> Option<Retained<UNNotificationSound>> {
+        match self {
+            SoundChoice::Pacer => Some(UNNotificationSound::soundNamed(&NSString::from_str(
+                "pacer-drop.caf",
+            ))),
+            SoundChoice::Default => Some(UNNotificationSound::defaultSound()),
+            SoundChoice::Off => None,
+        }
+    }
+}
+
+/// The notification sound to play, read from `$PACER_HOME/settings.json` at
+/// every post so a settings change takes effect without a restart. The
+/// `notifications` level stays a plain sibling string key.
+fn sound_for_present() -> Option<Retained<UNNotificationSound>> {
+    let settings = crate::client::pacer_home().join("settings.json");
+    let setting = std::fs::read(&settings)
+        .ok()
+        .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+        .and_then(|value| value.get("notificationSound")?.as_str().map(str::to_owned));
+    sound_choice(setting.as_deref()).sound()
 }
 
 /// The button-id prefix that leaves the window when notification `index` is
@@ -124,8 +166,9 @@ define_class!(
     // SAFETY: UNUserNotificationCenterDelegate has no safety requirements; the
     // completion handlers below are always called exactly once.
     unsafe impl UNUserNotificationCenterDelegate for CenterDelegate {
-        /// Present the banner and the list row with no sound even while pacer is
-        /// the frontmost app (the default would suppress banners).
+        /// Present the banner and the list row even while pacer is the frontmost
+        /// app (the default would suppress banners). Include `Sound` so the
+        /// sound set on the content (if any) plays while pacer is focused.
         #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
         fn will_present(
             &self,
@@ -133,8 +176,9 @@ define_class!(
             _notification: &UNNotification,
             completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
         ) {
-            let options =
-                UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List;
+            let options = UNNotificationPresentationOptions::Banner
+                | UNNotificationPresentationOptions::List
+                | UNNotificationPresentationOptions::Sound;
             completion.call((options,));
         }
 
@@ -197,7 +241,8 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
     }
     let client_id = notification.client_id.clone();
     let notify_key = notification.key.clone();
-    let request = request(&notification, &category);
+    let sound = sound_for_present();
+    let request = request(&notification, &category, sound);
     if notification.actions.is_empty() {
         drop(registered);
         add(&request, client_id, notify_key);
@@ -263,10 +308,14 @@ fn categories(registered: &[Category]) -> Retained<NSSet<UNNotificationCategory>
 fn request(
     notification: &crate::notifications::Notification,
     category: &str,
+    sound: Option<Retained<UNNotificationSound>>,
 ) -> Retained<UNNotificationRequest> {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(&notification.title));
     content.setBody(&NSString::from_str(&notification.body));
+    if let Some(sound) = sound {
+        content.setSound(Some(&sound));
+    }
     if !notification.route.is_empty() {
         // SAFETY: the dictionary is NSString-keyed with a plist value.
         unsafe { content.setUserInfo(&route_user_info(&notification.route)) };
@@ -480,5 +529,16 @@ mod tests {
             ack_params("client-b".into(), "test:def".into(), false, Some("banner rejected".into())),
             serde_json::json!({"client_id":"client-b","key":"test:def","delivered":false,"error":"banner rejected"})
         );
+    }
+
+    #[test]
+    fn sound_choice_falls_back_to_pacer_and_resolves_each_option() {
+        // Absent or invalid values mean the bundled pacer sound.
+        assert_eq!(sound_choice(None), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("pacer")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("squeak")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("default")), SoundChoice::Default);
+        assert_eq!(sound_choice(Some("off")), SoundChoice::Off);
     }
 }

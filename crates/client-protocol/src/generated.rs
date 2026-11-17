@@ -7916,9 +7916,6 @@ impl ::std::default::Default for NotificationsRequestParams {
 /// ```json
 ///{
 ///  "type": "object",
-///  "required": [
-///    "level"
-///  ],
 ///  "properties": {
 ///    "level": {
 ///      "type": "string",
@@ -7926,6 +7923,14 @@ impl ::std::default::Default for NotificationsRequestParams {
 ///        "off",
 ///        "important",
 ///        "all"
+///      ]
+///    },
+///    "sound": {
+///      "type": "string",
+///      "enum": [
+///        "pacer",
+///        "default",
+///        "off"
 ///      ]
 ///    }
 ///  },
@@ -7936,7 +7941,18 @@ impl ::std::default::Default for NotificationsRequestParams {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct NotificationsSetParams {
-    pub level: NotificationsSetParamsLevel,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub level: ::std::option::Option<NotificationsSetParamsLevel>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub sound: ::std::option::Option<NotificationsSetParamsSound>,
+}
+impl ::std::default::Default for NotificationsSetParams {
+    fn default() -> Self {
+        Self {
+            level: Default::default(),
+            sound: Default::default(),
+        }
+    }
 }
 ///`NotificationsSetParamsLevel`
 ///
@@ -7999,6 +8015,72 @@ impl ::std::str::FromStr for NotificationsSetParamsLevel {
     }
 }
 impl ::std::convert::TryFrom<&str> for NotificationsSetParamsLevel {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`NotificationsSetParamsSound`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "pacer",
+///    "default",
+///    "off"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum NotificationsSetParamsSound {
+    #[serde(rename = "pacer")]
+    Pacer,
+    #[serde(rename = "default")]
+    Default,
+    #[serde(rename = "off")]
+    Off,
+}
+impl ::std::convert::From<&Self> for NotificationsSetParamsSound {
+    fn from(value: &NotificationsSetParamsSound) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for NotificationsSetParamsSound {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pacer => f.write_str("pacer"),
+            Self::Default => f.write_str("default"),
+            Self::Off => f.write_str("off"),
+        }
+    }
+}
+impl ::std::str::FromStr for NotificationsSetParamsSound {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pacer" => Ok(Self::Pacer),
+            "default" => Ok(Self::Default),
+            "off" => Ok(Self::Off),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for NotificationsSetParamsSound {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()

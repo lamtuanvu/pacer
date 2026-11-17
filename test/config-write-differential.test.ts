@@ -72,9 +72,20 @@ test("seeded routing, runner order and notification writes match TS bytes and re
     expect(result(rsRemoved, rsHome)).toEqual(result({ ok: true, value: tsRemoved }, tsHome));
     expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
     const level = ["off", "important", "all"][rand() % 3]!;
+    const sound = ["pacer", "default", "off"][rand() % 3]!;
     const tsLevel = notify.setLevel(ctx, level as notify.NotificationLevel);
     const rsLevel = rust(binary, { op: "notifications.set", home: rsHome, level });
     expect(rsLevel).toEqual({ ok: true, value: tsLevel });
+    expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
+    const tsSound = notify.setSound(ctx, sound as notify.NotificationSound);
+    const rsSound = rust(binary, { op: "notifications.set", home: rsHome, sound });
+    expect(rsSound).toEqual({ ok: true, value: tsSound });
+    expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
+    const tsBoth = notify.setNotifications(ctx, { level: level as notify.NotificationLevel, sound: sound as notify.NotificationSound });
+    const rsBoth = rust(binary, { op: "notifications.set", home: rsHome, level, sound });
+    expect(rsBoth).toEqual({ ok: true, value: tsBoth });
     expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
     expect(statSync(join(rsHome, "settings.json")).mode & 0o777).toBe(0o600);
   }
@@ -111,7 +122,7 @@ test("notification writes preserve lone surrogate JSON with TS byte parity", () 
       const actual = rust(binary, op === "get"
         ? { op: "notifications.get", home: rsHome, legacyPluginData: join(rsHome, "missing") }
         : { op: "notifications.set", home: rsHome, level: "all" });
-      expect(actual).toEqual({ ok: true, value: { level: op === "get" ? "important" : "all" } });
+      expect(actual).toEqual({ ok: true, value: { level: op === "get" ? "important" : "all", sound: "pacer" } });
       expect(readFileSync(join(rsHome, "settings.json"))).toEqual(readFileSync(join(tsHome, "settings.json")));
     }
   }

@@ -82,10 +82,13 @@ test("retired plugin install refuses and notifications round-trip", async () => 
   const ctx = await configured();
   expect(await error(callOp(ctx, "plugin.install", {}))).toMatchObject({ code: "not_allowed", hint: expect.stringContaining("pacer plugin uninstall") });
   expect(existsSync(join(ctx.pacerHome, "orca-plugin"))).toBe(false);
-  expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "important" });
-  expect(await callOp(ctx, "notifications.set", { level: "all" })).toEqual({ level: "all" });
-  expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "all" });
+  expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "important", sound: "pacer" });
+  expect(await callOp(ctx, "notifications.set", { level: "all" })).toEqual({ level: "all", sound: "pacer" });
+  expect(await callOp(ctx, "notifications.set", { sound: "default" })).toEqual({ level: "all", sound: "default" });
+  expect(await callOp(ctx, "notifications.set", { level: "all", sound: "off" })).toEqual({ level: "all", sound: "off" });
+  expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "all", sound: "off" });
   expect((await error(callOp(ctx, "notifications.set", { level: "bad" }))).code).toBe("invalid_input");
+  expect((await error(callOp(ctx, "notifications.set", { sound: "squeak" }))).code).toBe("invalid_input");
 });
 
 test("version.get, service.status and hello describe the additive capabilities", async () => {

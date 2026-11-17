@@ -140,6 +140,7 @@ const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
 const level = z.enum(["off", "important", "all"]);
+const sound = z.enum(["pacer", "default", "off"]);
 export const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
 const endpointModel = z.object({id: z.string().min(1), name: z.string().optional(), context: z.number().int().positive(), output: z.number().int().positive(), tools: z.boolean()});
 const endpointFields = {
@@ -378,8 +379,8 @@ export const OPS: Record<string, OpDef> = {
     return { ...base, ...configHostParts(ctx) };
   } }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
-  "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
-  "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "notifications.get": op({ description: "Current notification level and sound.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
+  "notifications.set": op({ description: "Set notification level (off, important, all) and/or sound (pacer, default, off); only present fields are written.", params: z.object({level: level.optional(), sound: sound.optional()}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setNotifications(ctx, {level: p.level, sound: p.sound})) }),
   "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: (ctx, _p, _deps) => notificationHealth.testNotification(ctx) }),
   "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: async (ctx, p, _deps) => {
     const entry = clients.list(ctx).find(c => c.client_id === p.client_id);

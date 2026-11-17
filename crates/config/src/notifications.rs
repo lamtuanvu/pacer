@@ -9,6 +9,8 @@ use std::{fs, io, path::Path};
 pub enum NotificationError {
     #[error("notifications must be off, important or all")]
     InvalidLevel,
+    #[error("notificationSound must be pacer, default or off")]
+    InvalidSound,
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -17,8 +19,11 @@ fn valid(level: &str) -> bool {
     matches!(level, "off" | "important" | "all")
 }
 
-fn write_settings(path: &Path, level: &str) -> io::Result<()> {
-    let bytes = crate::notification_json::settings(path, level);
+fn valid_sound(sound: &str) -> bool {
+    matches!(sound, "pacer" | "default" | "off")
+}
+
+fn write_bytes(path: &Path, bytes: Vec<u8>) -> io::Result<()> {
     let parent = path
         .parent()
         .ok_or_else(|| io::Error::other("settings has no parent"))?;
@@ -38,26 +43,81 @@ fn write_settings(path: &Path, level: &str) -> io::Result<()> {
     result
 }
 
+fn write_level(path: &Path, level: &str) -> io::Result<()> {
+    write_bytes(path, crate::notification_json::settings(path, level))
+}
+
+fn write_sound(path: &Path, sound: &str) -> io::Result<()> {
+    write_bytes(
+        path,
+        crate::notification_json::settings_with_sound(path, sound),
+    )
+}
+
+/// The effective sound, read without writing; absent or invalid means `pacer`.
+fn effective_sound(path: &Path) -> String {
+    crate::notification_json::sound(path)
+        .filter(|v| valid_sound(v))
+        .unwrap_or_else(|| "pacer".into())
+}
+
+/// The effective level read only (no legacy migration, no write), as TypeScript
+/// reports for a `set` whose level was not part of the request.
+fn effective_level_no_write(path: &Path) -> String {
+    crate::notification_json::level(path)
+        .filter(|v| valid(v))
+        .unwrap_or_else(|| "important".into())
+}
+
 /// Read the effective level; an absent or invalid primary level is copied from
 /// the legacy plugin setting, or initialized to `important`, as in TypeScript.
+/// The sound is computed read-only (default `pacer`); it never writes.
 pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, NotificationError> {
     let path = home.join("settings.json");
+    let sound = effective_sound(&path);
     if let Some(level) = crate::notification_json::level(&path).filter(|v| valid(v)) {
-        return Ok(json!({"level":level}));
+        return Ok(json!({"level":level,"sound":sound}));
     }
     let legacy = legacy_plugin_data.join("settings.json");
     let level = crate::notification_json::level(&legacy)
         .filter(|v| valid(v))
         .unwrap_or_else(|| "important".into());
-    write_settings(&path, &level)?;
-    Ok(json!({"level":level}))
+    write_level(&path, &level)?;
+    Ok(json!({"level":level,"sound":sound}))
+}
+
+/// Write only the present key(s) and return the effective `{level, sound}`.
+/// The non-written field is the effective pre-write value (level `important`,
+/// sound `pacer`), computed without a legacy migration, matching TypeScript.
+pub fn set(home: &Path, level: Option<&str>, sound: Option<&str>) -> Result<Value, NotificationError> {
+    if level.is_some_and(|v| !valid(v)) {
+        return Err(NotificationError::InvalidLevel);
+    }
+    if sound.is_some_and(|v| !valid_sound(v)) {
+        return Err(NotificationError::InvalidSound);
+    }
+    let path = home.join("settings.json");
+    let level = match level {
+        Some(value) => {
+            write_level(&path, value)?;
+            value.to_owned()
+        }
+        None => effective_level_no_write(&path),
+    };
+    let sound = match sound {
+        Some(value) => {
+            write_sound(&path, value)?;
+            value.to_owned()
+        }
+        None => effective_sound(&path),
+    };
+    Ok(json!({"level":level,"sound":sound}))
 }
 
 pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {
-    if !valid(level) {
-        return Err(NotificationError::InvalidLevel);
-    }
-    let path = home.join("settings.json");
-    write_settings(&path, level)?;
-    Ok(json!({"level":level}))
+    set(home, Some(level), None)
+}
+
+pub fn set_sound(home: &Path, sound: &str) -> Result<Value, NotificationError> {
+    set(home, None, Some(sound))
 }

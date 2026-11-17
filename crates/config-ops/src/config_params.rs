@@ -10,6 +10,7 @@ enum Schema {
     /// Inclusive min/max with Zod `.min(n).max(m)` messages (`>=` / `<=`).
     IntegerBounds(f64, f64),
     Level,
+    Sound,
     HostSession,
     Json,
     Array(Box<Schema>),
@@ -91,6 +92,15 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
                 .is_some_and(|v| ["off", "important", "all"].contains(&v))
             {
                 issue("Invalid option: expected one of \"off\"|\"important\"|\"all\"".into());
+            }
+            return value.cloned().unwrap_or(Value::Null);
+        }
+        Schema::Sound => {
+            if !value
+                .and_then(Value::as_str)
+                .is_some_and(|v| ["pacer", "default", "off"].contains(&v))
+            {
+                issue("Invalid option: expected one of \"pacer\"|\"default\"|\"off\"".into());
             }
             return value.cloned().unwrap_or(Value::Null);
         }
@@ -267,7 +277,10 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
                 false,
             ),
         ]),
-        "notifications.set" => object(vec![("level", Level, false)]),
+        "notifications.set" => object(vec![
+            ("level", Level, true),
+            ("sound", Sound, true),
+        ]),
         "host.add" => object(vec![
             ("alias", id(), false),
             ("ssh", String(1, None), false),

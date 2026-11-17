@@ -100,7 +100,7 @@ export interface SettingsData {
   accounts?: Account[];
   routing?: RoutingRules;
   strategies?: StrategyRow[];
-  notifications?: { level: string };
+  notifications?: { level: string; sound: string };
   updates?: {
     current: string;
     latest: string | null;
@@ -445,7 +445,7 @@ function PlannerConsent({
 function NotificationsSection({
   initialData,
 }: {
-  initialData?: { level: string };
+  initialData?: { level: string; sound: string };
 }) {
   const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
@@ -470,6 +470,21 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
+        {platform.desktop && (
+          <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
+            <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <Segment
+              variant="board" label="Notification sound"
+              value={value}
+              disabled={busy}
+              options={[
+                { value: "pacer", label: "Pacer" },
+                { value: "default", label: "System" },
+                { value: "off", label: "Off" },
+              ]}
+              onChange={change}
+            />}</ImmediateSetting>
+          </SettingRow>
+        )}
         {platform.desktop && (
           <ResourceState resource={health}>
             <DesktopBanners

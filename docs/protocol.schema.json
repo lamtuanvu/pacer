@@ -3813,11 +3813,16 @@
             "important",
             "all"
           ]
+        },
+        "sound": {
+          "type": "string",
+          "enum": [
+            "pacer",
+            "default",
+            "off"
+          ]
         }
       },
-      "required": [
-        "level"
-      ],
       "additionalProperties": false
     },
     "NotificationsTestParams": {

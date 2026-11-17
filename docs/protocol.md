@@ -5309,7 +5309,7 @@ Params JSON Schema:
 
 ### `notifications.get`
 
-Current notification level.
+Current notification level and sound.
 
 Params JSON Schema:
 
@@ -5360,7 +5360,7 @@ Params JSON Schema:
 
 ### `notifications.set`
 
-Set notifications to off, important or all.
+Set notification level (off, important, all) and/or sound (pacer, default, off); only present fields are written.
 
 Params JSON Schema:
 
@@ -5376,11 +5376,16 @@ Params JSON Schema:
         "important",
         "all"
       ]
+    },
+    "sound": {
+      "type": "string",
+      "enum": [
+        "pacer",
+        "default",
+        "off"
+      ]
     }
   },
-  "required": [
-    "level"
-  ],
   "additionalProperties": false
 }
 ```
