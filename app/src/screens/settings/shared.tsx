@@ -92,9 +92,11 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
  const {api,state}=useTaskContext(),[busy,setBusy]=useState(false),[error,setError]=useState<unknown>(),[result,setResult]=useState<OperationResult>();const pending=useRef(false);
  const jobId=result?.jobId, eventJob=jobId?state.jobs[jobId]:undefined;
  const job=latestJob(eventJob,result?.job);
- const completed=useRef<string>();
- useEffect(()=>{if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
- const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active)setResult(r=>r?{...r,job:current}:r);}catch(e){if(active)setError(e);}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state]);
+ const completed=useRef<string>();const pollFailed=useRef(false);
+ useEffect(()=>{if(job&&job.state!=='running'&&pollFailed.current){pollFailed.current=false;setError(undefined);}if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
+ // A job that restarts the service (update.apply) is unreachable for a while; poll again once pacer is back, and clear a failed poll when one succeeds.
+ if(!state.connected)return;
+ const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active){setResult(r=>r?{...r,job:current}:r);if(pollFailed.current){pollFailed.current=false;setError(undefined);}}}catch(e){if(active){pollFailed.current=true;setError(e);}}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state,state.connected]);
  useEffect(()=>{if(job&&job.state!=='running'&&completed.current!==job.id){completed.current=job.id;if(options.notifyJob!==false)notifications?.notify({key:`job:${job.id}`,tone:job.state==='passed'?'success':'error',title:job.state==='passed'?'Check completed':'Check needs attention',message:job.error?.message ? settingsText(job.error.message) : undefined});onDone?.();}},[job]);
  async function run(op:string,params:unknown,done?:(data:any)=>void) {
   if(pending.current)return;pending.current=true;setBusy(true);setError(undefined);setResult(undefined);
