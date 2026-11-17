@@ -47,6 +47,30 @@ pub const NATIVE_SHIM_ID: &str = IDENTIFIERS.native_shim;
 pub const HELPER_ID: &str = IDENTIFIERS.helper;
 pub const STABLE_FEED: &str =
     "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
+pub const NIGHTLY_FEED: &str =
+    "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/nightly.json";
+/// Update channel chosen by the service. It selects among the compiled feeds and never carries a URL.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Deserialize, serde::Serialize)]
+#[serde(rename_all = "lowercase")]
+pub enum Channel {
+    Stable,
+    Nightly,
+}
+impl Channel {
+    pub const fn feed(self) -> &'static str {
+        match self {
+            Channel::Stable => STABLE_FEED,
+            Channel::Nightly => NIGHTLY_FEED,
+        }
+    }
+    /// File name under the compiled fixture root's `feed` directory.
+    pub const fn fixture_file(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable.json",
+            Channel::Nightly => "nightly.json",
+        }
+    }
+}
 /// Public build diagnostics, also checked before a staged bundle is production-signed.
 pub fn build_identity() -> serde_json::Value {
     use sha2::{Digest, Sha256};

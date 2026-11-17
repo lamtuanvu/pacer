@@ -11,7 +11,8 @@ import type { Candidate, Installation } from "../src/update/desktop/types";
 const identity = { version: "1.0.0", bundleId: "dev.pacer.desktop", arch: "aarch64" as const };
 const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".repeat(64), signature: "test-signature", url: "https://example.invalid/1.1.0.tar.gz", protocolMajors: [3], rollbackCompatible: true, notes: "Release" };
 const target: Installation = { id: "fixture", appPath: "/tmp/pacer-ota-fixture/pacer.app", bundleId: identity.bundleId, ownerUid: 501, arch: "aarch64", pacerHome: "/tmp/pacer-ota-fixture/state", port: 7433, serviceLabel: "com.pacer.serve", ownership: "managed", version: "1.0.0" };
-const check: AdapterRequest = { command: "check", installationId: "fixture", revision: 2, transactionId: null };
+const unboundRequest = { installationId: "fixture", revision: 2, transactionId: null } as const;
+const check: AdapterRequest = { ...unboundRequest, command: "check", channel: "stable" };
 const install: AdapterRequest = { command: "install", installationId: "fixture", revision: 2, transactionId: "tx-1", candidate, target };
 const preparation = { reservationId: "tx-1", journalSha256: "b".repeat(64) };
 function deferred<T>() { let resolve!: (v: T) => void; const promise = new Promise<T>(r => { resolve = r; }); return { promise, resolve }; }
@@ -68,6 +69,7 @@ test("shared private wire fixture parses and rejects unknown variants and extra 
   expect(() => parseAdapterCommand({ ...fixture.commands[0], command: "execute-shell" })).toThrow(AdapterError);
   expect(() => parseAdapterCommand({ ...fixture.commands[0], executable: "/tmp/untrusted" })).toThrow(AdapterError);
   expect(() => parseAdapterFrame({ ...fixture.frames[0], schema: 2 })).toThrow(AdapterError);
+  for (const { case: name, command } of fixture.rejectedCommands) expect(() => parseAdapterCommand(command), name).toThrow(AdapterError);
 });
 
 test("default adapter cannot spawn and preaborted requests never open a pipe", async () => {
@@ -102,7 +104,7 @@ test("invalid binding, version, sequence and ordering fail without leaking diagn
 test("download progress is monotonic and completion must match every selected candidate field", async () => {
   for (const mode of ["valid", "decrease", "exceeds", "changed-total", "candidate", "partial"]) {
     const h = harness(), progress: number[] = [];
-    const promise = runAdapterCommand(h.factory, { ...check, command: "download", candidate }, { onProgress: frame => progress.push(frame.downloadedBytes) });
+    const promise = runAdapterCommand(h.factory, { ...unboundRequest, command: "download", candidate }, { onProgress: frame => progress.push(frame.downloadedBytes) });
     const command = await h.opened; hello(h, command);
     h.send(command, { kind: "progress", downloadedBytes: 5, totalBytes: 10 }, 1);
     if (mode === "decrease") h.send(command, { kind: "progress", downloadedBytes: 4, totalBytes: 10 }, 2);
@@ -250,7 +252,7 @@ test("late pipe acquisition after cancellation cleans up without dispatching a c
 });
 
 test("download stalls and unsupported install capability fail before handoff", async () => {
-  const h = harness(), promise = runAdapterCommand(h.factory, { ...check, command: "download", candidate }, { timeoutMs: 1000, noProgressTimeoutMs: 5 });
+  const h = harness(), promise = runAdapterCommand(h.factory, { ...unboundRequest, command: "download", candidate }, { timeoutMs: 1000, noProgressTimeoutMs: 5 });
   const command = await h.opened; hello(h, command); await fails(promise, "timeout");
   const unavailable: VerifiedPipeFactory = { capabilities: new Set(["check"]), open: async () => { throw Error("must not open"); } };
   await fails(runAdapterCommand(unavailable, install, { authorizeInstall: async () => true }), "unavailable");

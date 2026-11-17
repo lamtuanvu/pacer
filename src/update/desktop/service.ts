@@ -237,7 +237,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const operation: Active = { controller: new AbortController(), previous, phase: command === "check" ? "checking" : "downloading", transactionId: null };
       active.set(request.installationId, operation);
       const input: AdapterRequest = command === "check"
-        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null }
+        // Task 6.3 replaces this constant with updateChannel(ctx()) from src/update/channel.ts.
+        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, channel: "stable" }
         : { command, installationId: request.installationId, revision: value.revision, transactionId: null, candidate: value.candidate! };
       track(request.installationId, network(request.installationId, operation, input));
     }
