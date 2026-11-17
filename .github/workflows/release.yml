@@ -668,5 +668,6 @@ jobs:
           path: |
             dist/desktop-feed-fixture/report.json
             dist/desktop-feed-fixture/stable.json
+            dist/desktop-feed-fixture/nightly.json
           if-no-files-found: error
           retention-days: 7
