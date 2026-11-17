@@ -6,6 +6,8 @@ export const LAUNCH_MODES = ["interactive", "headless"] as const;
 export type LaunchMode = (typeof LAUNCH_MODES)[number];
 export const IDLE_AFTER_S = 600;
 export const IDLE_FAIL_S = 1800;
+/** Seconds an agent may keep retrying a transient provider error without progress before its attempt ends. */
+export const TRANSIENT_RETRY_S = 600;
 export type ExecBackend = (typeof EXEC_BACKENDS)[number];
 export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
@@ -29,11 +31,12 @@ export interface ExecutionCfg {
   autoClean?: boolean;
   idleAfterS?: number;
   idleFailS?: number;
+  transientRetryS?: number;
 }
 
 export const DEFAULT_EXECUTION: ExecutionCfg = { autoClean: true, localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["auto_clean", "local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min"];
+const KEYS = ["auto_clean", "local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min", "transient_retry_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -104,7 +107,7 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     }
     return v;
   };
-  const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min");
+  const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min"), transientRetry = mins("transient_retry_min");
   if ((idleFail ?? IDLE_FAIL_S / 60) <= (idleAfter ?? IDLE_AFTER_S / 60)) p.push("execution.idle_fail_min must be greater than execution.idle_after_min");
   if (raw.launch_mode !== undefined && !(LAUNCH_MODES as readonly unknown[]).includes(raw.launch_mode)) p.push("execution.launch_mode must be interactive or headless");
   if (raw.session !== undefined && raw.session !== "pty" && raw.session !== "pipe") p.push("execution.session must be pipe or pty");
@@ -123,5 +126,6 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     ...(registerRepos !== undefined ? { registerRepos: registerRepos as boolean } : {}),
     ...(idleAfter !== undefined ? { idleAfterS: idleAfter * 60 } : {}),
     ...(idleFail !== undefined ? { idleFailS: idleFail * 60 } : {}),
+    ...(transientRetry !== undefined ? { transientRetryS: transientRetry * 60 } : {}),
   };
 }
