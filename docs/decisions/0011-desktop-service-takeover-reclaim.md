@@ -12,13 +12,15 @@ ADR 0001 says an attached or unverifiable job is never removed, and the legacy b
 
 When the app's consent record shows the user chose the app's service, and the registered service now runs an unverifiable executable, the desktop may stop that one exact job and move its registration to the bundled signed CLI. It does this only after explicit user confirmation that names both executables and states that running work may be interrupted.
 
+A consent record that keeps the user's own command (`keep: true`) is detected on the same terms, because an unverifiable local build there otherwise leaves desktop OTA permanently unavailable with no way out. Its offer is never shown at launch: Settings → Updates reports the unavailable updates and offers **Review service replacement**, so the same confirmation page opens only on an explicit user action. A missing consent record is still out of scope.
+
 The change is a separate native transaction (`transaction_kind: "takeover"`), driven by the signed desktop through the bundled update helper, which verifies its parent is the signed desktop. It has its own journal and independent recovery job. The adoption engine and its authority chain are unchanged, because they require a signed source service. Before commit, failure restores the exact original registration; the restore proof is the original program's captured file and code identity plus a service answer, since an unverifiable build has no native channel. The source build is never executed by the desktop, deleted, overwritten or granted native-session or OTA authority. The repaired registration names the bundle path, not the terminal link. The confirmation is a bundled shell page, because the service's web app is served by the unverified build.
 
 ## Consequences
 
 User confirmation replaces the admission proof for this one case, so a running task in the old build can be interrupted. The confirmation lists the work the old service reports and labels it as best effort.
 
-Services the app never owned are unaffected: ADR 0001 and the legacy bootstrap design still apply to them. Copying builds into `~/.local/bin` no longer moves the service once the registration names the bundle path.
+Services with no consent record are unaffected: ADR 0001 and the legacy bootstrap design still apply to them. Copying builds into `~/.local/bin` no longer moves the service once the registration names the bundle path.
 
 ## Alternatives considered
 
