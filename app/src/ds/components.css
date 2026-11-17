@@ -660,8 +660,8 @@ a.pc-btn{text-decoration:none}
 .pc-aurora-card__result{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line)}
 .pc-aurora-scope{width:auto;max-width:var(--size-240);flex:none}
 .pc-aurora-scope .pc-choice-picker__trigger{border-radius:var(--radius-full);background:var(--surface-page);color:var(--ink-secondary);font-size:var(--type-caption-size)}
-.pc-aurora__bar{display:flex;justify-content:flex-end}
-.pc-aurora-launcher--open{bottom:calc(var(--size-520) + var(--space-5))}
+.pc-aurora__bar{display:flex;justify-content:flex-end;gap:var(--space-1)}
+
 .pc-aurora--narrow .pc-aurora__veil{background:var(--surface-page);-webkit-mask-image:none;mask-image:none;-webkit-backdrop-filter:none;backdrop-filter:none}
 .pc-aurora--narrow .pc-aurora-composer{flex-wrap:wrap}
 .pc-aurora--narrow .pc-aurora-composer .pc-input{order:-1;flex:1 1 100%}

@@ -71,9 +71,9 @@ test.skipIf(!login || !process.env.PACER_TEST_BROWSER)("frame fidelity controls 
       await page.keyboard.press(rightKeys);
       expect(await page.getByRole("button",{name:"Toggle right panel",exact:true}).getAttribute("aria-pressed")).not.toBe(before);
       await page.keyboard.press(rightKeys);
-      await page.getByRole("button",{name:"Open assistant",exact:true}).click();
-      expect(await style(page,".pc-aurora-launcher","bottom")).toBe("540px");
       expect(await style(page,".pc-aurora-launcher .pc-kbd","border-width")).toBe("0px");
+      await page.getByRole("button",{name:"Open assistant",exact:true}).click();
+      expect(await page.locator(".pc-aurora-launcher").count()).toBe(0);
       expect(await style(page,".pc-assistant-setup__intro>div","gap")).toBe("2px");
       expect(await style(page,".pc-aurora__gradient","animation-duration")).toBe("16s");
       expect(await style(page,".pc-aurora__blobs","animation-duration")).toBe("7s");

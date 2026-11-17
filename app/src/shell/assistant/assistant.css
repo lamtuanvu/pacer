@@ -4,7 +4,7 @@
 .pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-assistant-positioner{position:absolute;inset:0;bottom:auto;height:100%;pointer-events:none}
 .pc-assistant-positioner>.pc-aurora-launcher{pointer-events:auto}
 .pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher{bottom:calc(var(--pc-dock-height, 0px) + var(--size-18));right:var(--size-20);height:var(--size-40)}
-.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora{bottom:var(--pc-dock-height, 0px);max-height:calc(100% - var(--pc-dock-height, 0px) - var(--size-40) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2)*2 - var(--size-18))}
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora{bottom:var(--pc-dock-height, 0px);max-height:calc(100% - var(--pc-dock-height, 0px) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2))}
 .pc-aurora-layer[data-still=true] .pc-aurora__glow *{animation:none}
 .pc-aurora-layer[data-still=true] .pc-aurora{transition:none}
 .pc-aurora-layer[data-available=false] .pc-aurora__log{mask-image:none;-webkit-mask-image:none;max-height:calc(100dvh - var(--size-180));scrollbar-width:auto}
@@ -24,4 +24,9 @@
 
 .pc-assistant-preferences{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}
 
-.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora-launcher--open{bottom:min(calc(var(--pc-dock-height, 0px) + var(--size-520) + var(--size-20)),calc(100% - var(--size-40) - max(var(--size-36),var(--pc-assistant-header-height, 0px)) - var(--space-2)))}
+
+/* Expanded: the sheet fills the content area, and the page behind it is covered. */
+.pc-aurora-layer:not(.pc-aurora-layer--narrow) .pc-aurora--max{height:100%}
+.pc-aurora--max .pc-aurora__veil{background:var(--surface-page);-webkit-mask-image:none;mask-image:none}
+.pc-aurora--max .pc-aurora__column{flex:1;max-width:var(--size-960)}
+.pc-aurora--max .pc-aurora__log,.pc-aurora--max .pc-aurora__log[data-expanded=true]{flex:1;max-height:none}

@@ -13,12 +13,17 @@ import { Kbd } from "./Kbd";
  * Open state is a prop and the sheet stays mounted, so a conversation survives closing. Opening moves focus to the
  * `[data-autofocus]` element; closing, by Escape or `onClose`, returns focus to where it was.
  */
-export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, autoScroll = true, header, messages, suggestions, composer, logLabel = "Conversation" }: {
-  label: string; open: boolean; generating?: boolean; narrow?: boolean; onClose: () => void; /** Taller conversation while an action card is pending. */ expanded?: boolean; header?: ComponentChildren;
+export function AuroraSheet({ label, open, generating = false, narrow = false, onClose, expanded = false, maximized = false, autoScroll = true, followKey, restoreFocus, header, messages, suggestions, composer, logLabel = "Conversation" }: {
+  label: string; open: boolean; generating?: boolean; narrow?: boolean; onClose: () => void; /** Taller conversation while an action card is pending. */ expanded?: boolean;
+  /** Fill the whole content area instead of the bottom sheet height. */ maximized?: boolean; header?: ComponentChildren;
   /** Follow newly appended conversation messages; disable for setup/status cards. */ autoScroll?: boolean;
+  /** Changes when the user sends a message: the log returns to the newest message even if they had scrolled up. */ followKey?: unknown;
+  /** Where focus goes on close when the element that opened the sheet is gone, such as a launcher hidden while open. */ restoreFocus?: () => HTMLElement | null | undefined;
   messages: ComponentChildren; suggestions?: ComponentChildren; composer: ComponentChildren; logLabel?: string;
 }) {
   const root = useRef<HTMLElement>(null), log = useRef<HTMLDivElement>(null), opener = useRef<HTMLElement | null>(null), was = useRef(false);
+  /** Whether the log sits at its newest message. Scrolling up to read releases it; returning to the bottom pins it again. */
+  const pinned = useRef(true);
   useEffect(() => {
     if (open === was.current) return;
     was.current = open;
@@ -27,7 +32,7 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
       opener.current = active instanceof HTMLElement && active !== document.body ? active : null;
       root.current?.querySelector<HTMLElement>("[data-autofocus]")?.focus({ preventScroll: true });
     } else {
-      const target = opener.current?.isConnected ? opener.current : null;
+      const target = opener.current?.isConnected ? opener.current : restoreFocus?.() ?? null;
       if (root.current?.contains(document.activeElement) || document.activeElement === document.body) target?.focus({ preventScroll: true });
       opener.current = null;
     }
@@ -55,9 +60,15 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     }
     return () => { for (const el of marked) el.inert = false; };
   }, [open, narrow]);
-  // Keep the newest message in view as the conversation grows.
-  useEffect(() => { const el = log.current; if (el) el.scrollTop = autoScroll ? el.scrollHeight : 0; });
-  return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open} onKeyDown={event => {
+  // Keep the newest message in view as the conversation grows, but only while the reader is already there:
+  // the page behind the sheet re-renders on every poll, and that must not pull them away from an older message.
+  useEffect(() => {
+    pinned.current = autoScroll;
+    // A status card is read from its top, once, when it replaces the conversation.
+    if (!autoScroll && log.current) log.current.scrollTop = 0;
+  }, [followKey, autoScroll]);
+  useEffect(() => { const el = log.current; if (el && pinned.current) el.scrollTop = el.scrollHeight; });
+  return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow", maximized && !narrow && "pc-aurora--max")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open} onKeyDown={event => {
     // Own Escape inside the sheet before the shell's settings-navigation shortcut.
     // Menus inside the sheet may consume it first.
     if (open && event.key === "Escape" && !event.defaultPrevented) {
@@ -68,12 +79,18 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     <div className="pc-aurora__glow" aria-hidden="true"><div className="pc-aurora__gradient" /><div className="pc-aurora__blobs"><span /><span /><span /></div></div>
     <div className="pc-aurora__column">
       {header && <div className="pc-aurora__bar">{header}</div>}
-      <div ref={log} role="log" aria-label={logLabel} aria-live="polite" aria-relevant="additions" tabIndex={0} className="pc-aurora__log" data-expanded={expanded ? "true" : "false"}>{messages}</div>
+      <div ref={log} role="log" aria-label={logLabel} aria-live="polite" aria-relevant="additions" tabIndex={0} className="pc-aurora__log" data-expanded={expanded ? "true" : "false"} onScroll={event => {
+        const el = event.currentTarget;
+        if (autoScroll) pinned.current = el.scrollHeight - el.scrollTop - el.clientHeight <= PIN_SLACK;
+      }}>{messages}</div>
       {suggestions && <div className="pc-aurora__chips">{suggestions}</div>}
       {composer}
     </div>
   </section>;
 }
+
+/** Pixels from the bottom that still count as reading the newest message (sub-pixel rounding, a stray wheel tick). */
+const PIN_SLACK = 24;
 
 /** The pill that opens the sheet. `aria-expanded` follows the sheet, and the shortcut is shown beside the name. */
 export function AuroraLauncher({ open, onClick, shortcut, controls, className }: { open: boolean; onClick: () => void; shortcut?: string; controls?: string; className?: string }) {
