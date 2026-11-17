@@ -17,7 +17,7 @@ import { AppFrame } from "../../../app/src/shell/AppFrame";
 import { TopBar } from "../../../app/src/shell/TopBar";
 import { CommandTrigger } from "../../../app/src/shell/CommandTrigger";
 import { Rail } from "../../../app/src/shell/Rail";
-import { OfflineNotice } from "../../../app/src/shell/OfflineNotice";
+import { OfflineNotice, updateInProgress } from "../../../app/src/shell/OfflineNotice";
 import { useNarrow } from "../../../app/src/shell/narrow";
 import { createActionRunner } from "../../../app/src/data/actions";
 const query = { repo: null, scope: null };
@@ -58,7 +58,7 @@ function Fixture() {
     activity={<Rail narrow={narrow} route={{ name: "dispatch", query }} counts={snapshot.counts ?? null} />}
     left={panels ? <aside className="pc-side-panel pc-side-panel--left" style={{ flexBasis: "calc(var(--size-240) + var(--space-2))", width: "calc(var(--size-240) + var(--space-2))" }} aria-label="Scope" /> : undefined}
     right={panels ? <aside className="pc-side-panel pc-side-panel--right" aria-label="Inspector" /> : undefined}
-    live={!connected ? <OfflineNotice lastUpdate={Date.now() / 1000 - 60} updating={mode === "updating"} /> : undefined}
+    live={!connected ? <OfflineNotice lastUpdate={Date.now() / 1000 - 60} updating={mode === "updating" || updateInProgress(current.jobs)} /> : undefined}
     status={!narrow ? <StatusBar snapshot={snapshot} registry={keys} /> : undefined}
     main={<>{(mode === "offline" || mode === "recovery") && <><Button onClick={() => { document.body.dataset.submitted = "yes"; }}>Direct service submit</Button><ActionButton runner={runner} id="offline-test" action={{ op: "task.retry", label: "Offline service action", params: {} }} /></>}
     {mode?.startsWith("home-") ? <DispatchHome query={query} /> : <DispatchView snapshot={snapshot} query={query} now={snapshot.at} runner={runner} connected={connected}

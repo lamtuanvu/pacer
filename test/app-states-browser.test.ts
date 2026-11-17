@@ -22,7 +22,7 @@ beforeAll(async () => {
         if (eventFailures-- > 0) return new Response("Bad Gateway", { status: 502 });
         return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; controller.enqueue(new TextEncoder().encode(": connected\n\n")); }, cancel() { stream = undefined; } }), { headers: { "Content-Type": "text/event-stream" } });
       }
-      if (path === "/v3/hello") return Response.json({ pacer: "test", protocol: "3.0.0", ops: [], events: ["attention"] });
+      if (path === "/v3/hello") return Response.json({ pacer: "test", protocol: "3.0.0", ops: [], events: ["attention", "job"] });
       if (path.startsWith("/v3/ops/")) return Response.json({ result: {} });
       if (path === "/v3/snapshot") return Response.json({ seq: 120, snapshot: await Bun.file("test/fixtures/ui/snapshot.json").json() });
     }
@@ -191,6 +191,36 @@ browserTest("HTTP 502 during restart retries and removes the offline banner on r
   } finally { outage = false; eventFailures = 0; await page.close(); }
 });
 
+
+browserTest("a service update's own restart shows the updating banner, and later drops do not", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const ready = () => page.waitForResponse(response => new URL(response.url()).pathname === "/v3/events" && response.status() === 200);
+  const job = { id: "update-1", kind: "update.apply", target: "pacer", state: "running", startedAt: 1, steps: [{ name: "Replace", state: "passed" }, { name: "Restart", state: "running" }] };
+  try {
+    const first = ready();
+    await page.goto(`${server.url}?state=recovery`);
+    await first;
+    await page.waitForFunction(() => !document.querySelector(".connection-bar"));
+    stream!.enqueue(new TextEncoder().encode(`id: 121\nevent: job\ndata: ${JSON.stringify(job)}\n\n`));
+    await page.waitForTimeout(200);
+    // The service goes down for its restart.
+    outage = true;
+    stream!.close(); stream = undefined;
+    const bar = page.locator(".connection-bar");
+    await bar.waitFor();
+    expect(await bar.textContent()).toContain("Updating pacer…");
+    // The new service never sends the job's closing event; reaching it is enough.
+    const back = ready();
+    outage = false;
+    await back;
+    await page.waitForFunction(() => !document.querySelector(".connection-bar"), undefined, { timeout: 15000 });
+    // A later, unrelated drop is an ordinary reconnect.
+    outage = true;
+    stream!.close(); stream = undefined;
+    await bar.waitFor();
+    expect(await bar.textContent()).toContain("Reconnecting to pacer…");
+  } finally { outage = false; eventFailures = 0; await page.close(); }
+});
 
 browserTest("Layout gates its separate UI API client and reenables it on reconnect", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
