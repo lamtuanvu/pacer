@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { isVersion } from "../../src/update/version";
+import { compareVersions, isVersion } from "../../src/update/version";
 import { desktopNotes } from "./desktop-release";
 import { bumpCargoVersion, bumpJsonVersion } from "./prepare";
 
@@ -94,7 +94,89 @@ function unexpectedChanges(root: string, parent: string, tag: string): string[] 
   return git(root, ["diff", "-z", "--name-only", parent, tag]).split("\0").filter(path => path && !allowed.has(path));
 }
 
-const USAGE = "usage: nightly.ts version [--at <iso>] | stamp <version> | notes <version> <from-ref> <to-ref> | classify <version> | check-diff <parent> <tag>";
+export type NightlyRelease = { tag: string; createdAt: Date };
+
+/**
+ * Nightly tags to delete: everything except the newest `keepMin` by version, tags created within
+ * `keepDays` of `now`, and tags a feed references. Non-nightly tags are never returned.
+ */
+export function prunable(nightlies: NightlyRelease[], referenced: Set<string>, now: Date, keepDays = 14, keepMin = 3): string[] {
+  const cutoff = now.getTime() - keepDays * 86_400_000;
+  return nightlies
+    .filter(release => release.tag.startsWith("v") && isNightlyVersion(release.tag.slice(1)))
+    .sort((a, b) => compareVersions(b.tag.slice(1), a.tag.slice(1)))
+    .filter((release, index) => index >= keepMin && release.createdAt.getTime() < cutoff && !referenced.has(release.tag))
+    .map(release => release.tag);
+}
+
+/** The nightly feeds on `desktop-updates` (DESKTOP_FEED_FILE.nightly and CLI_NIGHTLY_FEED_FILE; both import this module). */
+export const NIGHTLY_FEED_FILES: readonly string[] = Object.freeze(["nightly.json", "cli-nightly.json"]);
+
+export interface NightlyPruneClient {
+  releases(): Promise<NightlyRelease[]>;
+  /** The version a feed file references, or null when the feed does not exist yet. */
+  feedVersion(file: string): Promise<string | null>;
+  deleteRelease(tag: string): Promise<void>;
+}
+
+/** Delete old nightly releases and their tags. Every feed is read before anything is deleted. */
+export async function pruneNightlies(client: NightlyPruneClient, now: Date, keepDays: number, keepMin: number, log = console.log): Promise<string[]> {
+  const referenced = new Set<string>();
+  for (const file of NIGHTLY_FEED_FILES) {
+    const version = await client.feedVersion(file);
+    if (version !== null) referenced.add(`v${version}`);
+  }
+  const doomed = prunable(await client.releases(), referenced, now, keepDays, keepMin);
+  for (const tag of doomed) {
+    log(`deleting nightly ${tag}`);
+    await client.deleteRelease(tag);
+  }
+  if (doomed.length === 0) log("no nightly to prune");
+  return doomed;
+}
+
+function gh(args: string[]): { code: number; stdout: string; stderr: string } {
+  const result = Bun.spawnSync(["gh", ...args], { stdout: "pipe", stderr: "pipe" });
+  return { code: result.exitCode, stdout: result.stdout.toString(), stderr: result.stderr.toString() };
+}
+
+function ghOk(args: string[]): string {
+  const result = gh(args);
+  if (result.code !== 0) throw new Error(`gh ${args.join(" ")}: ${result.stderr.trim()}`);
+  return result.stdout;
+}
+
+export function githubPruneClient(repo: string): NightlyPruneClient {
+  return {
+    releases: async () => (JSON.parse(ghOk(["release", "list", "--repo", repo, "--limit", "1000", "--json", "tagName,createdAt"])) as { tagName: string; createdAt: string }[])
+      .map(release => ({ tag: release.tagName, createdAt: new Date(release.createdAt) })),
+    feedVersion: async file => {
+      const result = gh(["api", "-H", "Accept: application/vnd.github.raw+json", `repos/${repo}/contents/${file}?ref=desktop-updates`]);
+      if (result.code !== 0) {
+        if (/HTTP 404/.test(result.stderr)) return null;
+        throw new Error(`reading ${file} from desktop-updates: ${result.stderr.trim()}`);
+      }
+      const version = (JSON.parse(result.stdout) as { version?: unknown }).version;
+      if (typeof version !== "string") throw new Error(`${file} on desktop-updates has no version`);
+      return version;
+    },
+    deleteRelease: async tag => { ghOk(["release", "delete", tag, "--repo", repo, "--yes", "--cleanup-tag"]); },
+  };
+}
+
+function pruneOptions(args: string[]): { keepDays: number; keepMin: number } {
+  const options = { keepDays: 14, keepMin: 3 };
+  for (let i = 0; i < args.length; i += 2) {
+    const value = Number(args[i + 1]);
+    if (args[i + 1] === undefined || !Number.isInteger(value) || value < 0) throw new Error(`${args[i]} needs a whole number`);
+    if (args[i] === "--keep-days") options.keepDays = value;
+    else if (args[i] === "--keep-min") options.keepMin = value;
+    else throw new Error(USAGE);
+  }
+  return options;
+}
+
+const USAGE = "usage: nightly.ts version [--at <iso>] | stamp <version> | notes <version> <from-ref> <to-ref> | classify <version> | check-diff <parent> <tag> | prune [--keep-days <n>] [--keep-min <n>]";
 
 if (import.meta.main) {
   try {
@@ -116,6 +198,11 @@ if (import.meta.main) {
     } else if (command === "check-diff" && args.length === 2) {
       const unexpected = unexpectedChanges(root, args[0]!, args[1]!);
       if (unexpected.length > 0) throw new Error(`the nightly stamp commit changes files outside the version files: ${unexpected.join(", ")}`);
+    } else if (command === "prune") {
+      const { keepDays, keepMin } = pruneOptions(args);
+      const repo = process.env.GITHUB_REPOSITORY;
+      if (!repo) throw new Error("GITHUB_REPOSITORY is required");
+      await pruneNightlies(githubPruneClient(repo), new Date(), keepDays, keepMin);
     } else {
       throw new Error(USAGE);
     }

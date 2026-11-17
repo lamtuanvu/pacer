@@ -1,7 +1,9 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { NIGHTLY_STAMP_FILES, isNightlyVersion, nightlyNotes, nightlyVersion, releaseChannel, stampNightly } from "../scripts/release/nightly";
+import { CLI_NIGHTLY_FEED_FILE } from "../scripts/release/cli-feed";
+import { DESKTOP_FEED_FILE } from "../scripts/release/desktop-feed";
+import { NIGHTLY_FEED_FILES, NIGHTLY_STAMP_FILES, isNightlyVersion, nightlyNotes, nightlyVersion, prunable, pruneNightlies, releaseChannel, stampNightly, type NightlyPruneClient } from "../scripts/release/nightly";
 import { compareVersions } from "../src/update/version";
 import { tmpDir } from "./helpers";
 
@@ -141,4 +143,54 @@ test("CLI version, classify, notes and check-diff work against a repository", ()
   expect(bad.stderr).toContain("README.md");
 
   expect(cli(root, "bogus").code).toBe(1);
+});
+
+const DAY = 86_400_000;
+const NOW = new Date("2026-12-31T17:00:00Z");
+/** Nightly `v0.16.0-nightly.<stamp>` created `days` before NOW. */
+function nightlyAt(days: number) {
+  const createdAt = new Date(NOW.getTime() - days * DAY);
+  return { tag: `v${nightlyVersion("0.15.1", createdAt)}`, createdAt };
+}
+
+test("prune keeps the newest three even when old, recent ones and referenced ones", () => {
+  const old = [40, 35, 30, 25, 20].map(nightlyAt);
+  // Input order does not matter: the newest are picked by version, and the result lists newest first.
+  expect(prunable([...old].reverse(), new Set(), NOW)).toEqual([old[1]!.tag, old[0]!.tag]);
+  expect(prunable(old, new Set([old[0]!.tag]), NOW)).toEqual([old[1]!.tag]);
+  const mixed = [30, 20, 13, 5, 1, 0].map(nightlyAt);
+  expect(prunable(mixed, new Set(), NOW)).toEqual([mixed[1]!.tag, mixed[0]!.tag]);
+  expect(prunable(mixed, new Set(), NOW, 14, 0)).toEqual([mixed[1]!.tag, mixed[0]!.tag]);
+  expect(prunable(mixed, new Set(), NOW, 3, 2)).toEqual([mixed[3]!.tag, mixed[2]!.tag, mixed[1]!.tag, mixed[0]!.tag]);
+  expect(prunable([], new Set(), NOW)).toEqual([]);
+});
+
+test("prune never selects a stable or other prerelease tag", () => {
+  const old = new Date(NOW.getTime() - 100 * DAY);
+  const tags = [{ tag: "v0.15.1", createdAt: old }, { tag: "v0.16.0-rc.1", createdAt: old }, { tag: "v0.16.0-nightly.1", createdAt: old }];
+  expect(prunable(tags, new Set(), NOW, 14, 0)).toEqual([]);
+});
+
+test("prune reads both nightly feeds and deletes only unreferenced old nightlies", async () => {
+  expect([...NIGHTLY_FEED_FILES]).toEqual([DESKTOP_FEED_FILE.nightly, CLI_NIGHTLY_FEED_FILE]);
+  const releases = [60, 50, 40, 30, 20, 10].map(nightlyAt);
+  const deleted: string[] = [];
+  const client: NightlyPruneClient = {
+    releases: async () => releases,
+    feedVersion: async file => file === "nightly.json" ? releases[0]!.tag.slice(1) : file === "cli-nightly.json" ? null : "unexpected",
+    deleteRelease: async tag => { deleted.push(tag); },
+  };
+  expect(await pruneNightlies(client, NOW, 14, 3, () => {})).toEqual([releases[2]!.tag, releases[1]!.tag]);
+  expect(deleted).toEqual([releases[2]!.tag, releases[1]!.tag]);
+  // A feed that cannot be read stops the prune before anything is deleted.
+  deleted.length = 0;
+  client.feedVersion = async () => { throw new Error("HTTP 500"); };
+  await expect(pruneNightlies(client, NOW, 14, 3, () => {})).rejects.toThrow("HTTP 500");
+  expect(deleted).toEqual([]);
+});
+
+test("CLI prune validates its options", () => {
+  const root = tmpDir();
+  expect(cli(root, "prune", "--keep-days", "x").code).toBe(1);
+  expect(cli(root, "prune", "--bogus", "1").code).toBe(1);
 });
