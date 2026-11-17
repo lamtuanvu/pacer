@@ -40,7 +40,7 @@ export function prepareChangelog(text: string, version: string, date: string): s
 }
 
 // Replace only the top-level version string so the hand-formatted config keeps its layout.
-function bumpJsonVersion(text: string, version: string): string {
+export function bumpJsonVersion(text: string, version: string): string {
   const result = text.replace(/("version"\s*:\s*")[^"]*(")/, `$1${version}$2`);
   const before = JSON.parse(text), after = JSON.parse(result);
   if (after.version !== version || JSON.stringify({ ...after, version: before.version }) !== JSON.stringify(before)) {
@@ -49,7 +49,7 @@ function bumpJsonVersion(text: string, version: string): string {
   return result;
 }
 
-function bumpCargoVersion(text: string, version: string, lockfile: boolean): string {
+export function bumpCargoVersion(text: string, version: string, lockfile: boolean): string {
   let matches = 0;
   const result = text.split(/(?=^\[)/m).map(section => {
     const isPackage = lockfile
