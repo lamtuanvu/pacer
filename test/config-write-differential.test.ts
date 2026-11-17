@@ -72,7 +72,7 @@ test("seeded routing, runner order and notification writes match TS bytes and re
     expect(result(rsRemoved, rsHome)).toEqual(result({ ok: true, value: tsRemoved }, tsHome));
     expect(readFileSync(join(rsHome, "strategy.yaml"), "utf8")).toBe(readFileSync(join(tsHome, "strategy.yaml"), "utf8"));
     const level = ["off", "important", "all"][rand() % 3]!;
-    const sound = ["pacer", "default", "off"][rand() % 3]!;
+    const sound = notify.NOTIFICATION_SOUNDS[rand() % notify.NOTIFICATION_SOUNDS.length]!;
     const tsLevel = notify.setLevel(ctx, level as notify.NotificationLevel);
     const rsLevel = rust(binary, { op: "notifications.set", home: rsHome, level });
     expect(rsLevel).toEqual({ ok: true, value: tsLevel });
@@ -383,6 +383,15 @@ test("save refusals and notification migration match TS errors and bytes", () =>
   let tsError = "";
   try { notify.setLevel(ctx, "bad" as notify.NotificationLevel); } catch (error) { tsError = (error as Error).message; }
   expect(rust(binary, { op: "notifications.set", home: rsHome, level: "bad" })).toEqual({ ok: false, error: tsError });
+  let tsSoundError = "";
+  try { notify.setSound(ctx, "squeak" as notify.NotificationSound); } catch (error) { tsSoundError = (error as Error).message; }
+  expect(tsSoundError).toBe(`notificationSound must be pacer, default, off, ${notify.MACOS_SOUNDS.join(", ").replace(/, tink$/, " or tink")}`);
+  expect(rust(binary, { op: "notifications.set", home: rsHome, sound: "squeak" })).toEqual({ ok: false, error: tsSoundError });
+  for (const sound of ["glass", "tink"] as const) {
+    expect(rust(binary, { op: "notifications.set", home: rsHome, sound })).toEqual({ ok: true, value: notify.setSound(ctx, sound) });
+    expect(readFileSync(join(rsHome, "settings.json"), "utf8")).toBe(readFileSync(join(tsHome, "settings.json"), "utf8"));
+    expect(rust(binary, { op: "notifications.get", home: rsHome, legacyPluginData: legacyRs })).toEqual({ ok: true, value: notify.getLevel(ctx) });
+  }
   let tsEmpty = "";
   try { notify.setNotifications(ctx, {}); } catch (error) { tsEmpty = (error as Error).message; }
   expect(tsEmpty).toBe("provide level or sound");

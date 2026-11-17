@@ -9,7 +9,7 @@ use std::{fs, io, path::Path};
 pub enum NotificationError {
     #[error("notifications must be off, important or all")]
     InvalidLevel,
-    #[error("notificationSound must be pacer, default or off")]
+    #[error("notificationSound must be {}", sound_words())]
     InvalidSound,
     #[error("provide level or sound")]
     Empty,
@@ -21,8 +21,39 @@ fn valid(level: &str) -> bool {
     matches!(level, "off" | "important" | "all")
 }
 
+/// Every `notificationSound` value: `pacer` (bundled), `default` (system),
+/// `off`, then the built-in macOS sounds (`/System/Library/Sounds/<Capitalized>.aiff`).
+/// Keep identical to TypeScript `NOTIFICATION_SOUNDS` in `src/core/notify.ts`.
+pub const SOUNDS: &[&str] = &[
+    "pacer",
+    "default",
+    "off",
+    "basso",
+    "blow",
+    "bottle",
+    "frog",
+    "funk",
+    "glass",
+    "hero",
+    "morse",
+    "ping",
+    "pop",
+    "purr",
+    "sosumi",
+    "submarine",
+    "tink",
+];
+
+/// "pacer, default, … or tink", as in the TypeScript error message.
+fn sound_words() -> String {
+    match SOUNDS.split_last() {
+        Some((last, rest)) => format!("{} or {last}", rest.join(", ")),
+        None => String::new(),
+    }
+}
+
 fn valid_sound(sound: &str) -> bool {
-    matches!(sound, "pacer" | "default" | "off")
+    SOUNDS.contains(&sound)
 }
 
 fn write_bytes(path: &Path, bytes: Vec<u8>) -> io::Result<()> {
@@ -123,4 +154,32 @@ pub fn set_level(home: &Path, level: &str) -> Result<Value, NotificationError> {
 
 pub fn set_sound(home: &Path, sound: &str) -> Result<Value, NotificationError> {
     set(home, None, Some(sound))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn built_in_sounds_round_trip_and_the_error_lists_every_sound() {
+        let home = std::env::temp_dir().join(format!("pacer-sound-{}", std::process::id()));
+        fs::create_dir_all(&home).unwrap();
+        for sound in ["glass", "submarine", "tink"] {
+            assert_eq!(
+                set_sound(&home, sound).unwrap(),
+                json!({"level":"important","sound":sound})
+            );
+            assert_eq!(
+                get_level(&home, &home.join("none")).unwrap()["sound"],
+                sound
+            );
+        }
+        let error = set_sound(&home, "Glass").unwrap_err().to_string();
+        assert_eq!(
+            error,
+            "notificationSound must be pacer, default, off, basso, blow, bottle, frog, funk, \
+             glass, hero, morse, ping, pop, purr, sosumi, submarine or tink"
+        );
+        fs::remove_dir_all(&home).unwrap();
+    }
 }

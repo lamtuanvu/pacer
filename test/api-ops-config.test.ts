@@ -87,6 +87,8 @@ test("retired plugin install refuses and notifications round-trip", async () => 
   expect(await callOp(ctx, "notifications.set", { sound: "default" })).toEqual({ level: "all", sound: "default" });
   expect(await callOp(ctx, "notifications.set", { level: "all", sound: "off" })).toEqual({ level: "all", sound: "off" });
   expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "all", sound: "off" });
+  expect(await callOp(ctx, "notifications.set", { sound: "submarine" })).toEqual({ level: "all", sound: "submarine" });
+  expect(await callOp(ctx, "notifications.get", {})).toEqual({ level: "all", sound: "submarine" });
   expect((await error(callOp(ctx, "notifications.set", { level: "bad" }))).code).toBe("invalid_input");
   expect((await error(callOp(ctx, "notifications.set", { sound: "squeak" }))).code).toBe("invalid_input");
 });
