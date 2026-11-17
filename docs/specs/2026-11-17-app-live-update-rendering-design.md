@@ -10,14 +10,14 @@ Builds on:
 
 The app stays current by applying the service's SSE events to one store, and that part works. What it costs on every change is out of proportion:
 
-1. **Every change re-renders the whole app.** `main.tsx:73` copies the store into root state on every notification, and `TaskContext.Provider` gets a new `{ state, api }` object each time (`main.tsx:144`). About 105 `useTaskContext` call sites in 64 files then re-render. No component is memoized, and there are no selectors.
+1. **Every change re-renders the whole app.** `main.tsx:73` copies the store into root state on every notification, and `TaskContext.Provider` gets a new `{ state, api }` object each time (`main.tsx:144`). About 97 `useTaskContext` call sites in 63 files then re-render. No component is memoized, and there are no selectors.
 2. **Hidden views render too.** Up to five retained detail views (`DETAIL_VIEW_CAP`, `workspace/view-host.tsx:2`) stay mounted and re-render on every change. `hidden` and `inert` hide them but do not stop the work.
 3. **Unchanged data still produces new state.**
    - The 5 s "waiting" poll fetches a whole snapshot and always returns a new state (`store.ts:103,176,270`).
    - Once any review has been accepted, every event, including a no-op, is wrapped in a new state object (`store.ts:163`).
-   - An idle app therefore re-renders everything at least every 5 s, and the tray, which shares the store, does the same.
+   - An idle app therefore re-renders everything at least every 5 s. The tray, which runs its own instance of the same store, does the same.
 4. **Each render does per-hook work.** About 109 `useQuery`/`useResource` hooks each `JSON.stringify` up to 200 tasks to compute a revision on every render (`task-shared.tsx:40-44`). `Prose` re-parses markdown on every render, and Dispatch filters and sorts tasks inline.
-5. **Clocks re-render whole subtrees.** The top bar and Dispatch tick every second (`TopBar.tsx:55`, `Dispatch.tsx:282`), so a relative time like "updated 3s ago" re-renders everything above it.
+5. **Clocks re-render whole subtrees.** The top bar and Dispatch tick every second (`TopBar.tsx:55`, `screens/dispatch/Dispatch.tsx:280`), so a relative time like "updated 3s ago" re-renders everything above it.
 6. **Event volume grows with the work.** The service sends up to one `task` event per running task per second (`src/link/pump.ts:336`). The client applies each one synchronously with no batching, so ten running tasks mean ten whole-app renders a second.
 
 Users notice this as a sluggish app during busy periods. It also caused the assistant scroll bug: an unrelated re-render scrolled the chat log.
@@ -39,18 +39,20 @@ Non-goals:
 
 ### 1. The store notifies once per frame, and only for a real change
 
-- **Batching:** `dispatch` applies events to the state immediately but schedules notification with `requestAnimationFrame`. While the document is hidden, it uses a 1 s timer, because rAF does not fire. Listeners run once per batch.
+- **Batching:** `dispatch` applies events to the state immediately but schedules one notification for the next animation frame, with a 100 ms timer as a backstop. Embedded webviews throttle or stop `requestAnimationFrame` when the window is occluded, so whichever fires first wins. While the document is hidden, notifications go out once a second. Listeners run once per batch.
 - **No-op identity:** a reducer returns the *same* state object when nothing changed. This covers:
   - the waiting poll when `service.waiting` is unchanged;
-  - `notify` and `liveness` events that only advance `seq`; `seq` moves to a side field that the root does not render from;
+  - `notify` and `liveness` events that only advance `seq` and `at`. Both move to a side field that no component renders from: every event advances them, so in the snapshot they would defeat every equality check;
   - the `acknowledgedReviews` wrapper, which re-applies only when it changes something.
 - **Structural sharing stays as it is:** unchanged rows keep their references. This is what makes selector equality cheap.
 
 ### 2. Components read slices with a selector hook
 
-A new `useStore(selector, equals = Object.is)` in `app/src/data/use-store.ts`, about 30 lines and with no dependency:
-- it subscribes to the store, runs the selector after each batch, and calls `setState` only when the result changed by `equals`;
-- `shallowEqual` handles arrays and objects of references.
+A new `useStore(selector, equals = Object.is)` in `app/src/data/use-store.ts`:
+- it is built on `useSyncExternalStore` from `preact/compat`, which the bundle already includes (the DS imports `preact/compat`), so it adds only a few lines;
+- it re-renders its component only when the selected value changed by `equals`;
+- `shallowEqual` handles arrays and objects of references;
+- `memo` from the same module is likewise free to use.
 
 `TaskContext` then carries `{ api, store }`: stable values, and no state.
 
@@ -73,11 +75,17 @@ This follows UI-6: derived values that more than one surface needs (counts, atte
 
 ### 3. Query revisions are computed once per change
 
-`queryRevision` moves out of the hooks. The store keeps a revision counter per area: `tasks`, `invalidations[key]` and the existing counters. A reducer bumps a counter only when that area changed. `useQuery` subscribes to its area's counter with `useStore`, so the 109 per-render `JSON.stringify` calls disappear, and a query refetches exactly when its area moves.
+`queryRevision` keeps its per-op semantics but runs once per store batch instead of once per hook per render. For example, `dispatch.list` stays keyed by `[id, state]`, so a progress tick does not refetch it.
+- The store computes each registered revision function once per batch and caches the result by snapshot identity.
+- `useQuery` reads its revision through `useStore`.
+
+The 109 per-render `JSON.stringify` calls become one per revision kind per batch, and a query still refetches exactly when it does today.
 
 ### 4. Hidden views pause
 
-`view-host` wraps each retained view in a `Freeze` boundary. While the view is hidden, it returns the last rendered vnode, so Preact skips the subtree. Its selectors still record changes, and the view renders once when it is shown again. Focus and scroll restoration (`capturePosition`) stay as they are.
+`view-host` wraps each retained view in a `Freeze` boundary. While the view is hidden, it returns the last rendered vnode, so Preact skips the subtree.
+
+A parent boundary cannot stop children that subscribe to the store directly, so `Freeze` also provides a `FrozenContext`. While frozen, `useStore` keeps returning its last value and records that the view is stale, and the view renders once when it is shown again. Focus and scroll restoration (`capturePosition`) stay as they are.
 
 ### 5. Clocks live in leaves
 
@@ -94,7 +102,13 @@ This follows UI-6: derived values that more than one surface needs (counts, atte
 
 ### 7. Optional, protocol: waiting without polling (phase 4)
 
-The 5 s poll exists only because `service.waiting` has no event. An additive `waiting` field on the existing `counts` event would let the client drop the poll. That is a minor protocol change under API-2, with a v2-compat mapping and Rust read-model parity (`crates/read-model`). It is separate from phases 1 to 3, which need no service change.
+The 5 s poll exists only because `service.waiting` has no event. `waiting` comes from the service's slow-I/O state, so it belongs on a service or liveness event, not on `counts`.
+
+Sending it as an additive field lets the client drop the poll:
+- additions need no version bump under API-1;
+- the v2-compat mapping and Rust read-model parity (`crates/read-model`) still apply.
+
+This is separate from phases 1 to 3, which need no service change.
 
 ## Measurement and validation
 
@@ -106,6 +120,7 @@ The 5 s poll exists only because `service.waiting` has no event. An additive `wa
 - **Baseline:** record the same counts on `main` before phase 1, and report both sets of numbers in each PR.
 - **Live validation:** run CT-11 live validation on a seeded sandbox, with real SSE traffic. Record renders per second while tasks run, and check that the screens (Dispatch, Tasks, a session, Settings, the assistant, the tray) still update with the correct data.
 - **Size:** UI-3 is checked on every phase. The hook, `Freeze`, `useNow` and `RelativeTime` together should cost under 1 KB gzip.
+- **Desktop webview:** run the batching checks in WebKit (`PACER_TEST_WEBKIT=1`) as well as Chromium, including an occluded or hidden window.
 
 ## Phases
 
@@ -114,18 +129,18 @@ The 5 s poll exists only because `service.waiting` has no event. An additive `wa
 | 1 | Store batching and no-op identity (§1); clocks in leaves and paused polls (§5); `Prose` memo (§6); render probe and budget test with the baseline | Low: no component API change |
 | 2 | `useStore`, `TaskContext` without state, migrating the shell, Dispatch, Tasks, Trace and the assistant (§2); query revisions (§3) | Medium: stale-data bugs if a selector reads too little. Tests compare rendered output before and after |
 | 3 | `Freeze` for hidden views (§4); migrating Workspace, Session, Settings and the tray | Medium: focus and scroll restore paths |
-| 4 | Optional `counts.waiting` event field and removal of the poll (§7) | Protocol: minor bump, v2 and Rust parity |
+| 4 | Optional `waiting` event field and removal of the poll (§7) | Protocol: additive field (API-1), v2 and Rust parity |
 
 Each phase is one PR. Phase 1 alone should remove most idle renders and the five-second whole-app render.
 
 ## Governance
 
-- **Rules:** UI-3 (budgets), UI-6 (shared view model), UI-20 (DS components receive props and never import the store), ARCH-1/2, and API-2 for phase 4.
-- **Reviewers:** `performance-reviewer` and `ui-reviewer` on every phase, plus `api-protocol` review for phase 4.
+- **Rules:** UI-3 (budgets), UI-6 (shared view model), UI-20 (DS components receive props and never import the store), ARCH-1/2, and API-1 for phase 4.
+- **Reviewers:** `.project/reviewers/ui-accessibility.md` and `qa.md` on every phase, with render-count evidence for performance, plus `protocol-compat.md` for phase 4.
 - **No ADR is needed** unless phase 4 is accepted. The selector hook is an app-internal convention, recorded in the app README.
 
 ## Open decisions
 
-1. **Selector hook or signals.** `@preact/signals` gives finer-grained updates, but adds about 4 KB gzip, which would exceed UI-3 with today's headroom, and it changes the component idiom. Proposed: the selector hook now; revisit signals only if profiling shows selector cost matters.
+1. **Selector hook or signals.** `@preact/signals` gives finer-grained updates, but adds about 4 KB gzip, which would exceed UI-3 with today's headroom, and it changes the component idiom. Proposed: the selector hook on `preact/compat`'s `useSyncExternalStore` now; revisit signals only if profiling shows selector cost matters.
 2. **Hidden-document cadence.** Notify every 1 s while hidden, or not at all until the document is visible (applying events to the state either way)? Proposed: 1 s, so the tray and notices stay current.
-3. **Phase 4.** Is an additive `counts.waiting` field acceptable in the next minor protocol release?
+3. **Phase 4.** Should `waiting` go on the service event or the liveness event?
