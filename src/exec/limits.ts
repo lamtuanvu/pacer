@@ -96,7 +96,7 @@ export async function renderedScreen(dir: string): Promise<string> {
   if (!["session.log", "session.log.1", "session.ckpt"].some(name => existsSync(join(dir, name)))) return "";
   let screen;
   try { screen = await replayRecording(dir); } catch { return ""; }
-  try { return screen.plain().split("\n").slice(-60).join("\n"); } finally { screen.dispose(); }
+  try { return screen.plain(true).replace(/(?:\n[ \t]*)+$/, "").split("\n").slice(-60).join("\n"); } finally { screen.dispose(); }
 }
 
 /** Seconds a live session stays quiet before its screen is checked for a provider limit error. */

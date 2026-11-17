@@ -14,7 +14,7 @@ async function rendered(name: string): Promise<string> {
 
 test("renders the 524 banner as transient", async () => {
   expect(retryBanner("opencode", await rendered("opencode-retry-524.ansi")))
-    .toEqual({ kind: "transient", attempt: 3, delayS: 120, reason: expect.stringContaining("HTTP 524") });
+    .toEqual({ kind: "transient", attempt: 2, delayS: 120, reason: expect.stringContaining("HTTP 524") });
 });
 
 test("renders the rate-limit banner as limit", async () => {
@@ -52,4 +52,12 @@ test("renderedScreen replays the run's recording", async () => {
   const text = await renderedScreen(dir);
   expect(text.split("\n").length).toBeLessThanOrEqual(60);
   expect(retryBanner("opencode", text)).toMatchObject({ kind: "limit", attempt: 6, delayS: 900 });
+});
+
+test("renderedScreen keeps a banner below a parked cursor", async () => {
+  const dir = tmpDir(), recording = new Recording(dir);
+  await recording.output(Buffer.from("\x1b[2J\x1b[1;1H working\x1b[40;1H     ⚠ Retrying in 120s · attempt 2 · Provider request failed with HTTP 524\x1b[1;1H"));
+  expect(retryBanner("opencode", recording.plain())).toBeNull();
+  await recording.close();
+  expect(retryBanner("opencode", await renderedScreen(dir))).toMatchObject({ kind: "transient", attempt: 2, delayS: 120 });
 });
