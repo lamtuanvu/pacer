@@ -7,9 +7,9 @@ import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
-import { validateExecution } from "../config/execution";
+import { TRANSIENT_RETRY_S, validateExecution } from "../config/execution";
 import { launchModeFor } from "../exec/launch";
-import { outcome } from "../exec/direct";
+import { loadExec, outcome, rememberRetry, retryLoopVerdict, retryWatch, workFingerprint } from "../exec/direct";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
 import { readRun, stopRun } from "../supervisor/run";
@@ -203,7 +203,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       if (last) out.report = last;
     }
     out.attempt.limitHit = detectLimit(cfg.id, out.exec);
-  } else if (sessionLimitOutcome(cfg.id, dir, out)) out.attempt.limitHit = true;
+  } else if (!retryLoopOutcome(ctx, task.id, cfg.id, dir, out) && sessionLimitOutcome(cfg.id, dir, out)) out.attempt.limitHit = true;
   out.report = plan.note + out.report;
   const durable = inspectOwnedExecutorRun(ctx, task.id, attempt), latest = readTask(ctx, task.id);
   const report = interactive ? readRun(durable.dir).report : null;
@@ -421,7 +421,8 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     out.attempt.startedAt !== run.startedAt || out.attempt.log !== run.logFile ||
     (run.mode === "new" ? out.worktree !== run.workdir : out.worktree !== undefined))
     throw new CoreError("conflict", "executor resume outcome does not match the persisted wrapper");
-  if (run.session === "interactive" && !validCompletion && sessionLimitOutcome(cfg.id, run.dir, out)) out.attempt.limitHit = true;
+  if (run.session === "interactive" && !validCompletion && !retryLoopOutcome(ctx, task.id, cfg.id, run.dir, out) &&
+    sessionLimitOutcome(cfg.id, run.dir, out)) out.attempt.limitHit = true;
   withTaskLock(ctx, task.id, () => {
     const latest = readTask(ctx, task.id);
     if (!latest || latest.state !== "running" || latest.executorProvider !== providerId ||
@@ -451,8 +452,31 @@ export function sessionLimitOutcome(executor: string, dir: string, out: {exec: {
 }
 
 /**
+ * An attempt a lease renewal stopped on its provider retry banner: a rate-limit banner is a limit, a transient one
+ * that outlasted its window marks the executor broken. The verdict is on the task's run, so it survives a restart.
+ */
+export function retryLoopOutcome(ctx: Ctx, id: string, executor: string, dir: string,
+  out: {exec: {code: number; timedOut: boolean; stderr: string}; report: string; attempt: {limitHit: boolean; brokenReason?: string}}): boolean {
+  const banner = readTask(ctx, id)?.run, reported = readRun(dir).report?.status;
+  if (banner?.dir !== dir || !banner.retryBanner?.ended || out.exec.code === 0 || out.exec.timedOut || reported === "done" || reported === "failed") return false;
+  const {ended, reason, since} = banner.retryBanner;
+  if (ended === "limit") {
+    out.attempt.limitHit = true;
+    out.report += `\n\nUsage limit reached:\n${reason}`;
+    return true;
+  }
+  const line = `pacer: ${executor} kept retrying a provider error for ${Math.round((Date.now() / 1000 - since) / 60)} min: ${reason}`;
+  out.attempt.limitHit = false;
+  out.attempt.brokenReason = `provider retrying: ${reason}`;
+  out.exec.stderr += `\n${line}`;
+  out.report += `\n\n${line}`;
+  return true;
+}
+
+/**
  * An interactive agent that hits its plan limit prints the error and waits; nothing else ends the run. At each lease
- * renewal, stop a quiet session whose screen shows the error so the observation sees an exit and the runner fails over.
+ * renewal, stop a quiet session whose screen shows the error, or one stuck on a provider retry banner, so the
+ * observation sees an exit and the runner fails over.
  */
 export async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, expected: {attempt: number; dir: string; executor: string}): Promise<void> {
   if (!(error instanceof CoreError) || error.code !== "plugin_timeout") return;
@@ -463,7 +487,15 @@ export async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, e
   const state = readRun(run.dir);
   if (!state.alive || state.exit !== null || state.report?.status === "done" || state.report?.status === "failed") return;
   // A person typing in the session owns it; they can see the error themselves.
-  if (humanDriving(state, Date.now()) || Date.now() / 1000 - (state.lastOutputAt ?? Date.now() / 1000) < LIMIT_QUIET_S) return;
+  if (humanDriving(state, Date.now())) return;
+  const now = Date.now() / 1000, watch = retryWatch(), windowS = loadExec(ctx).transientRetryS ?? TRANSIENT_RETRY_S;
+  const verdict = await retryLoopVerdict(ctx, id, run, now, {watch, watching: true, windowS, fingerprint: () => workFingerprint(ctx, run.workdir).catch(() => undefined)});
+  if (verdict) {
+    rememberRetry(ctx, id, run, {...run.retryBanner, since: run.retryBanner?.since ?? now, reason: verdict === "limit" ? watch.banner!.reason : run.retryBanner!.reason, ended: verdict});
+    await stopRun(run.dir, {graceMs: 5000});
+    return;
+  }
+  if (now - (state.lastOutputAt ?? now) < LIMIT_QUIET_S) return;
   if (!detectSessionLimit(run.executor, sessionLimitText(run.dir))) return;
   await stopRun(run.dir, {graceMs: 5000});
 }

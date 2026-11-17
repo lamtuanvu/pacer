@@ -73,7 +73,7 @@ export function outcome(cfg: ProviderCfg, startedAt: number, exec: ExecResult, l
 
 export const runDir = (ctx: Ctx, taskId: string, attempt: number) => join(ctx.pacerHome, "runs", taskId, String(attempt));
 
-function loadExec(ctx: Ctx): ExecutionCfg {
+export function loadExec(ctx: Ctx): ExecutionCfg {
   try { return validateExecution(loadStrategy(ctx).execution); } catch { return validateExecution(undefined); }
 }
 
@@ -114,6 +114,59 @@ function recordingStamp(dir: string): string {
   return ["session.log", "session.ckpt"].map(name => { try { const st = statSync(join(dir, name)); return `${st.size}:${st.mtimeMs}`; } catch { return "-"; } }).join("/");
 }
 
+/** The worktree's git fingerprint from its status, HEAD and diff, or undefined when git cannot read it. */
+export async function workFingerprint(ctx: Ctx, workdir: string, status?: {code: number; stdout: string}): Promise<string | undefined> {
+  const st = status ?? await ctx.run(["git", "-C", workdir, "status", "--porcelain=v1", "-z"], 15_000);
+  const head = await ctx.run(["git", "-C", workdir, "rev-parse", "--verify", "-q", "HEAD"], 15_000);
+  const diff = await ctx.run(["git", "-C", workdir, "diff", "HEAD"], 15_000);
+  return st.code === 0 && diff.code === 0 ? gitFingerprint(st.stdout, diff.stdout, head.code === 0 ? head.stdout.trim() : "") : undefined;
+}
+
+/** Persist a run's retry window on the task's run; null clears it. */
+export function rememberRetry(ctx: Ctx, taskId: string, run: RunRef, value: RunRef["retryBanner"] | null): void {
+  if (value === null) delete run.retryBanner; else run.retryBanner = value;
+  try {
+    updateTask(ctx, taskId, t => { if (t.run?.dir === run.dir) { if (value === null) delete t.run.retryBanner; else t.run.retryBanner = value; } });
+  } catch { /* retry bookkeeping is best effort */ }
+}
+
+/** The rendered retry banner, reused until the recording grows and replayed at most every RETRY_RENDER_S. */
+export interface RetryWatch { banner: RetryBanner | null; hinted: boolean; hintStamp: string; renderedAt: number; renderedStamp: string }
+export const retryWatch = (): RetryWatch => ({banner: null, hinted: false, hintStamp: "", renderedAt: -Infinity, renderedStamp: ""});
+
+/**
+ * An agent stuck retrying its provider keeps animating its banner, so neither the quiet check nor idleness ends it:
+ * "limit" for a rate-limit banner, "provider" once a transient one outlasts `windowS` without progress. Progress clears
+ * the window, whether or not the run is `watching`; a banner that clears and returns without progress keeps it. The
+ * caller passes `progressed`, or `fingerprint` to compare the worktree with the one persisted when the window opened.
+ */
+export async function retryLoopVerdict(ctx: Ctx, taskId: string, run: RunRef, now: number, o: {watch: RetryWatch; watching: boolean; windowS: number;
+  progressed?: boolean; fingerprint?: () => Promise<string | undefined>}): Promise<"limit" | "provider" | null> {
+  const w = o.watch;
+  if (o.watching) {
+    // The plain transcript drops cursor-positioned text, so the hint reads the raw recording without its escapes.
+    const stamp = recordingStamp(run.dir);
+    if (stamp !== w.hintStamp) { w.hintStamp = stamp; w.hinted = retryBannerHint(run.executor, tailText(join(run.dir, "session.log"), RETRY_HINT_BYTES).replace(ESCAPES, "")); }
+    if (!w.hinted) w.banner = null;
+    else if (stamp !== w.renderedStamp && now - w.renderedAt >= RETRY_RENDER_S) {
+      w.renderedAt = now; w.renderedStamp = stamp;
+      w.banner = retryBanner(run.executor, await renderedScreen(run.dir));
+    }
+    if (w.banner?.kind === "limit") return "limit";
+  }
+  let progressed = o.progressed ?? false, fingerprint: string | undefined;
+  if (o.fingerprint && run.retryBanner?.fingerprint !== undefined) {
+    fingerprint = await o.fingerprint();
+    progressed ||= fingerprint !== undefined && fingerprint !== run.retryBanner.fingerprint;
+  }
+  if (progressed && run.retryBanner) rememberRetry(ctx, taskId, run, null);
+  if (!o.watching || w.banner?.kind !== "transient") return null;
+  if (run.retryBanner) return now - run.retryBanner.since >= o.windowS ? "provider" : null;
+  if (o.fingerprint) fingerprint ??= await o.fingerprint();
+  rememberRetry(ctx, taskId, run, {since: now, reason: w.banner.reason, ...(fingerprint === undefined ? {} : {fingerprint})});
+  return null;
+}
+
 /** Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS. */
 export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
@@ -126,18 +179,15 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
   let limitCheckedBytes = -1;
-  // The rendered retry banner is reused until the recording grows, and replayed at most every RETRY_RENDER_S.
-  let banner: RetryBanner | null = null, hinted = false, hintStamp = "", renderedAt = -Infinity, renderedStamp = "";
-  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number; retryBanner?: RunRef["retryBanner"] | null}) => {
+  const watch = retryWatch();
+  const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
     if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
     if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
-    if (patch.retryBanner === null) delete run.retryBanner; else if (patch.retryBanner !== undefined) run.retryBanner = patch.retryBanner;
     try {
       updateTask(ctx, task.id, t => {
         if (t.run?.dir !== run.dir) return;
         if (patch.waitKey === null) delete t.run.waitKey; else if (patch.waitKey !== undefined) t.run.waitKey = patch.waitKey;
         if (patch.idleAlertedAt !== undefined) t.run.idleAlertedAt = patch.idleAlertedAt;
-        if (patch.retryBanner === null) delete t.run.retryBanner; else if (patch.retryBanner !== undefined) t.run.retryBanner = patch.retryBanner;
       });
     } catch { /* alert bookkeeping is best effort */ }
   };
@@ -145,24 +195,11 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
     const now = Date.now() / 1000;
     discoverSession(ctx, task, run);
     const driving = humanDriving(s, now * 1000);
+    const watching = !!s.interactive && !driving && !run.host && !run.takeover && run.interactionMode !== "conversation";
     // An interactive agent that hits its plan limit prints the error and waits; nothing ends the run on its own.
-    if (s.interactive && !driving && !run.host && !run.takeover && run.interactionMode !== "conversation"
-      && s.stdoutBytes !== limitCheckedBytes && now - (s.lastOutputAt ?? now) >= LIMIT_QUIET_S) {
+    if (watching && s.stdoutBytes !== limitCheckedBytes && now - (s.lastOutputAt ?? now) >= LIMIT_QUIET_S) {
       limitCheckedBytes = s.stdoutBytes;
       if (detectSessionLimit(run.executor, sessionLimitText(run.dir))) return "limit";
-    }
-    // An agent stuck retrying its provider keeps animating its banner, so neither the quiet check nor idleness ends it.
-    const watchRetries = s.interactive && !driving && !run.host && !run.takeover && run.interactionMode !== "conversation";
-    if (watchRetries) {
-      // The plain transcript drops cursor-positioned text, so the hint reads the raw recording without its escapes.
-      const stamp = recordingStamp(run.dir);
-      if (stamp !== hintStamp) { hintStamp = stamp; hinted = retryBannerHint(run.executor, tailText(join(run.dir, "session.log"), RETRY_HINT_BYTES).replace(ESCAPES, "")); }
-      if (!hinted) banner = null;
-      else if (stamp !== renderedStamp && now - renderedAt >= RETRY_RENDER_S) {
-        renderedAt = now; renderedStamp = stamp;
-        banner = retryBanner(run.executor, await renderedScreen(run.dir));
-      }
-      if (banner?.kind === "limit") return "limit";
     }
     if ((waiting && s.report?.status !== "needs-input" && s.report?.status !== "turn-ended") || (controlled && !driving)) resumedAt = now;
     controlled = driving;
@@ -188,23 +225,17 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
           const c = await ctx.run(["git", "-C", run.workdir, "rev-list", "--count", `${base}..HEAD`], 15_000);
           if (c.code === 0) commits = Number(c.stdout.trim()) || 0;
         }
-        const head = await ctx.run(["git", "-C", run.workdir, "rev-parse", "--verify", "-q", "HEAD"], 15_000);
-        const diff = await ctx.run(["git", "-C", run.workdir, "diff", "HEAD"], 15_000);
-        if (st.code === 0 && diff.code === 0) {
-          const next = gitFingerprint(st.stdout, diff.stdout, head.code === 0 ? head.stdout.trim() : "");
+        const next = st.code === 0 ? await workFingerprint(ctx, run.workdir, st) : undefined;
+        if (next !== undefined) {
           changed = fingerprint === undefined ? files > 0 || commits > 0 : next !== fingerprint;
           progressed = fingerprint !== undefined && next !== fingerprint;
           fingerprint = next;
         }
       } catch { /* git progress is best effort, including when git is unavailable */ }
     }
-    // Progress clears a retry window; a banner that clears and returns without progress keeps it. Edits that were
-    // already there when this poller started are not progress, so a resumed poller keeps its persisted window.
-    if (progressed && run.retryBanner) remember({retryBanner: null});
-    if (watchRetries && banner?.kind === "transient") {
-      if (!run.retryBanner) remember({retryBanner: {since: now, reason: banner.reason}});
-      else if (now - run.retryBanner.since >= transientRetry) return "provider";
-    }
+    // Edits that were already there when this poller started are not progress, so a resumed poller keeps its window.
+    const retrying = await retryLoopVerdict(ctx, task.id, run, now, {watch, watching, windowS: transientRetry, progressed});
+    if (retrying) return retrying;
     const p = nextProgress({ now, startedAt: run.startedAt, logBytes: s.stdoutBytes + s.stderrBytes, lastOutputAt: Math.max(s.lastOutputAt ?? 0, s.interactive ? s.report?.at ?? 0 : 0, resumedAt) || null, files, commits, prev, host: run.host, changed }, idleAfter);
     const turnEnded = s.interactive && s.report?.status === "turn-ended";
     const conversation = run.interactionMode === "conversation";

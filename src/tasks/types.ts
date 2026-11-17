@@ -194,8 +194,11 @@ export interface RunRef {
   lastMessageFile?: string;
   waitKey?: string;
   idleAlertedAt?: number;
-  /** When the agent's screen first showed a transient provider retry banner without progress since. */
-  retryBanner?: { since: number; reason: string };
+  /**
+   * When the agent's screen first showed a transient provider retry banner without progress since; `fingerprint` is the
+   * worktree's git state then (lease renewals compare it for progress), `ended` the verdict a lease renewal stopped the run on.
+   */
+  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" };
 }
 
 export interface ReviewRequest { note: string; at: number }
