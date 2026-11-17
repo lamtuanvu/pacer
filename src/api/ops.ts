@@ -183,7 +183,8 @@ async function applyUpdate(ctx: Ctx, deps: OpDeps) {
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
   if (!update.standalone || !preflight.err.startsWith("pacer update: this pacer runs from source")) {
-    throw new CoreError("not_allowed", preflight.err.replace(/^pacer update: /, ""), "Update the checkout instead, or install a release.");
+    const message = preflight.err.replace(/^pacer update: /, "");
+    throw new CoreError("not_allowed", message, update.standalone ? undefined : "Install a release build to update from this screen.");
   }
   const job=await startJob(ctx,"update.apply","pacer",["Download","Verify","Replace","Refresh integrations","Restart"],async step=>{
     const result=await (deps.runUpdate ?? runUpdate)({check:false},{...update,progress:(name,state,detail)=>{

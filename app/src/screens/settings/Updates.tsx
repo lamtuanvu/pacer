@@ -104,8 +104,10 @@ export interface UpdateReport {
 }
 
 /** The service row's note when its own Install cannot update this installation. */
-export function managedLabel(report: Pick<UpdateReport, "managedBy" | "managedHint">): string {
-  if (report.managedBy === "desktop") return "This service is managed by the pacer app; update it from the app's Settings → Updates, not here.";
+export function managedLabel(report: Pick<UpdateReport, "managedBy" | "managedHint">, desktop: boolean): string {
+  if (report.managedBy === "desktop") return desktop
+    ? "This service updates with the desktop app, not separately; use the desktop update above."
+    : "This service is managed by the pacer app; update it from the app's Settings → Updates.";
   return report.managedHint ?? "";
 }
 
@@ -165,9 +167,9 @@ function LegacyUpdatesSection({initialData, initialConfig}: {initialData?: Updat
       <DesktopUpdateConnection connection={connection}/>
       <Disclosure summary="Manual desktop update options"><DesktopVersionRow {...desktop} report={query.data}/></Disclosure>
     </>}
-    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Automatic checks are unavailable in this session" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}{query.data.managedHint ? <><br/>{managedLabel(query.data)}</> : null}</span>}>
+    <ResourceState resource={query}>{query.data && <SettingRow variant="board" label={`pacer ${query.data.current}`} description={<span role="status">{query.data.disabled ? "Automatic checks are unavailable in this session" : service.label}{query.data.error ? ` · ${query.data.error}` : ""}{query.data.managedHint ? <><br/>{managedLabel(query.data, native)}</> : null}</span>}>
       <div className="u3-actions">
-        {service.canUpdate && !query.data.managedBy && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
+        {service.canUpdate && <Button size="sm" variant="primary" busy={action.busy} onClick={async () => {
           if (await dialogs.confirm('Update the service and restart it? The desktop app is updated separately.', 'Update service', 'Update service and restart')) {
             void action.run('update.apply', {});
           }

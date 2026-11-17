@@ -49,16 +49,16 @@ fn maybe_managed_elsewhere(ctx: &Ctx) -> bool {
         .env
         .get("PACER_BIN")
         .filter(|path| !path.is_empty())
-        .map(Path::new);
+        .map(std::path::PathBuf::from);
     let exe = std::env::current_exe().ok();
-    [bin.map(Path::to_path_buf), exe]
-        .into_iter()
-        .flatten()
-        .any(|path| {
-            let real = fs::canonicalize(&path).unwrap_or(path);
-            let text = real.to_string_lossy();
-            text.contains("/Cellar/pacer/") || text.contains(".app/Contents/")
+    // Both the given and the resolved path, like `isBundledExecutable`, whose bundle match ignores case.
+    [bin, exe].into_iter().flatten().any(|path| {
+        let real = fs::canonicalize(&path).ok();
+        [Some(path), real].into_iter().flatten().any(|candidate| {
+            let text = candidate.to_string_lossy().to_lowercase();
+            text.contains("/cellar/pacer/") || text.contains(".app/contents/")
         })
+    })
 }
 
 pub fn update_check(ctx: &Ctx, params: Value) -> OpFuture<'_> {

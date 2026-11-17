@@ -1,3 +1,4 @@
+import { managedLabel } from '../app/src/screens/settings/Updates';
 import { workspaceKey, workspaceManager } from '../app/src/workspace/manager';
 import {executorLabel} from "../src/view-model/words";
 import { desktopStatus } from "./fixtures/desktop-update/status";
@@ -318,6 +319,8 @@ test('Updates identifies the service and preserves failed-check status', () => {
  expect(desktop).toContain('Update available: 0.5.0');
  expect(desktop).not.toContain('Install 0.5.0');
  expect(desktop).toContain('managed by the pacer app; update it from the app\'s Settings');
+ expect(managedLabel({managedBy:'desktop'}, true)).toContain('updates with the desktop app');
+ expect(managedLabel({managedBy:'desktop'}, true)).not.toContain('Settings → Updates');
  const brew = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true,managedBy:'homebrew',managedHint:'pacer was installed with Homebrew; update with: brew upgrade pacer'}}}/>);
  expect(brew).not.toContain('Install 0.5.0');
  expect(brew).toContain('brew upgrade pacer');
