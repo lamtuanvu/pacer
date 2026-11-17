@@ -145,3 +145,15 @@ export function desktopConnectionView(connection: { state: string; reason: strin
     ...notes,
   };
 }
+
+/** Shown beside the update channel choice. */
+export const NIGHTLY_CHANNEL_WARNING = "Nightly builds are untested daily snapshots of main.";
+/**
+ * Same rule as `isNightlyVersion` in src/update/channel.ts, kept here because that module reads the
+ * strategy file with node:fs and cannot be bundled into the app.
+ */
+const NIGHTLY_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.[1-9]\d{11}$/;
+/** A nightly install on the stable channel stays put until a newer stable release exists (no downgrade). */
+export function channelCatchUpNote(installed: string, channel: "stable" | "nightly"): string | null {
+  return channel === "stable" && NIGHTLY_VERSION.test(installed) ? "You'll move to the next stable release when it's newer than this nightly." : null;
+}

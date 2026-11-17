@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { callV2Op, v2Hello } from "../src/api/v2-compat";
 import { eventsSince, liveSnapshot } from "../src/api/events";
@@ -550,4 +551,18 @@ test("recovery owns a reserved transaction even if its discovered desktop exits"
   hold.resolve(); await f.runtime.settled();
   expect(aborted).toBe(false);
   expect(f.runtime.status("desktop").phase).toBe("complete");
+});
+test("check request carries the configured channel", async()=>{
+  const f=fixture({autoDownload:false});writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: nightly\n");
+  await f.runtime.start();await f.runtime.check(f.request("nightly"));await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="check").map(c=>(c as {channel?:string}).channel)).toEqual(["nightly"]);
+  // The channel is read on each check, so a change in Settings applies to the next one.
+  writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: stable\n");
+  await f.runtime.check(f.request("stable"));await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="check").map(c=>(c as {channel?:string}).channel)).toEqual(["nightly","stable"]);
+});
+test("channel defaults to stable when config is unreadable", async()=>{
+  const f=fixture({autoDownload:false});mkdirSync(join(f.ctx.pacerHome,"strategy.yaml"));
+  await f.runtime.start();await f.runtime.check(f.request("check"));await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="check").map(c=>(c as {channel?:string}).channel)).toEqual(["stable"]);
 });

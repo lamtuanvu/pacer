@@ -4,7 +4,8 @@ import { ImmediateSetting } from "./ImmediateSetting";
 import { useEffect, useId, useMemo, useRef, useState } from "preact/hooks";
 import { Checkbox, Disclosure, Switch } from "../../ds/Controls";
 import type { UpdateStatus } from "../../../../src/update/desktop/types";
-import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, type DesktopAction } from "../../../../src/view-model/updates";
+import { desktopUpdateView, desktopUpdateFeedback, desktopAdoptionConfirmation, updateIntent, channelCatchUpNote, NIGHTLY_CHANNEL_WARNING, type DesktopAction } from "../../../../src/view-model/updates";
+import { SegmentedControl } from "../../ds/Patterns";
 import { useActions } from "../../data/action-context";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { StatusPill } from "../../ds/StatusPill";
@@ -25,7 +26,7 @@ function PathText({ path }: { path: string }) {
   return <>{path.split(/(?<=\/)/).map((part, index) => <>{index > 0 && <wbr/>}{part}</>)}</>;
 }
 
-export function DesktopUpdate({ status, showIdentity = false }: { status: UpdateStatus; showIdentity?: boolean }) {
+export function DesktopUpdate({ status, showIdentity = false, initialConfig }: { status: UpdateStatus; showIdentity?: boolean; initialConfig?: ConfigData }) {
   const { state } = useTaskContext(), runner = useActions(), dialogs = useDialogs();
   const intent = useMemo(() => updateIntent(), []), pending = useRef(false), group = useRef<HTMLDivElement>(null);
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [feedback, setFeedback] = useState<{action:DesktopAction;result:UpdateStatus}>();
@@ -77,6 +78,7 @@ export function DesktopUpdate({ status, showIdentity = false }: { status: Update
     {status.releaseNotes && <Disclosure summary={`What's new in ${status.target}`}><p className="u3-release-notes">{status.releaseNotes}</p></Disclosure>}
     <div className="u3-actions">{view.action && <Button key={view.action} variant="primary" aria-disabled={unavailable} onClick={() => void run(view.action!)}>{view.primary}</Button>}{view.action !== "check" && available.actions.includes("check") && <Button aria-disabled={unavailable} onClick={() => void run("check")}>Check for updates</Button>}</div>
     {available.actions.includes("configure") ? <label className="pc-checkbox"><span>Download updates automatically <small className="u3-muted">Restart only with your permission</small></span><ImmediateSetting value={status.autoDownload} operation={value => {const request=intent(available,"configure",{autoDownload:value}); return {op:request.op!,params:request.params};}}>{(value, change, saving) => <Checkbox className="pc-checkbox__input" checked={value} disabled={busy||saving||!state.connected} onChange={event => change(event.currentTarget.checked)}/>}</ImmediateSetting></label> : status.ownership === "managed" && ["idle", "checking", "downloading", "ready", "complete", "error"].includes(status.phase) ? <p className="u3-muted">Automatic downloads are {status.autoDownload ? "on" : "off"}.</p> : null}
+    <UpdateChannel installed={status.current} initialData={initialConfig} disabled={busy} onSaved={() => { if (available.actions.includes("check")) void run("check"); }}/>
     {!state.connected && <p role="status">Reconnecting… update status may be out of date.</p>}
     <ErrorMessage error={error}/>{dialogs.dialog}
   </div>;
@@ -89,7 +91,7 @@ export function UpdatesSection({ initialData, initialConfig }: { initialData?: U
   return <>{platform.desktop && <ServiceBuildGuidance diagnostic={state.desktopBuildDiagnostic} connected={state.connected}/>} {updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>}</>;
 }
 function DesktopUpdates({ updates, serviceVersion, initialConfig }: { updates: UpdateStatus[]; serviceVersion?: string | null; initialConfig?: ConfigData }) {
-  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}<RunningWork/>{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1}/>) }<AutomaticUpdateCheck initialData={initialConfig} checkedAt={updates.reduce((last, status) => Math.max(last, status.checkedAt ?? 0), 0) || undefined}/></section>;
+  return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}<RunningWork/>{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1} initialConfig={initialConfig}/>) }<AutomaticUpdateCheck initialData={initialConfig} checkedAt={updates.reduce((last, status) => Math.max(last, status.checkedAt ?? 0), 0) || undefined}/></section>;
 }
 export interface UpdateReport {
   current: string;
@@ -188,4 +190,13 @@ function AutomaticUpdateCheck({ busy = false, initialData, checkedAt }: { busy?:
   const id = useId();
   const config = useResource<ConfigData>("config.get", {}, initialData);
   return <><SettingRow controlId={id} variant="board" label="Check automatically" description={`Once a day, in the background.${checkedAt ? ` Last checked ${time(checkedAt)}.` : ""}`}><ImmediateSetting value={config.data?.keys.update_check?.value !== false} operation={value => ({op:"config.set",params:{key:"update_check",value}})} onSaved={config.reload}>{(value, change, saving) => <label className="pc-checkbox pc-checkbox--bare"><Switch id={id} size="sm" aria-label="Check automatically" checked={value} disabled={!config.data||busy||saving} onChange={event => change(event.currentTarget.checked)}/></label>}</ImmediateSetting></SettingRow><ResourceState resource={config}><span/></ResourceState></>;
+}
+
+/** Stable or nightly releases for this desktop. A successful change asks for a check on the new channel. */
+function UpdateChannel({ installed, initialData, disabled, onSaved }: { installed: string; initialData?: ConfigData; disabled: boolean; onSaved: () => void }) {
+  const { state } = useTaskContext();
+  const config = useResource<ConfigData>("config.get", {}, initialData);
+  const channel = config.data?.keys.update_channel?.value === "nightly" ? "nightly" : "stable";
+  const note = config.data ? channelCatchUpNote(installed, channel) : null;
+  return <><SettingRow variant="board" label="Update channel" description={NIGHTLY_CHANNEL_WARNING}><ImmediateSetting value={channel} operation={value => ({op:"config.set",params:{key:"update_channel",value}})} onSaved={() => { config.reload(); onSaved(); }}>{(value, change, saving) => <SegmentedControl variant="board" label="Update channel" value={value} disabled={!config.data||disabled||saving||!state.connected} options={[{value:"stable",label:"Stable"},{value:"nightly",label:"Nightly"}]} onChange={next => change(next === "nightly" ? "nightly" : "stable")}/>}</ImmediateSetting></SettingRow>{note && <p className="u3-muted">{note}</p>}<ResourceState resource={config}><span/></ResourceState></>;
 }

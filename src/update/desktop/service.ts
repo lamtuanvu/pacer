@@ -7,6 +7,7 @@ import { CoreError } from "../../core/errors";
 import type { Ctx } from "../../types";
 import { publish } from "../../link/publish";
 import { compareVersions } from "../version";
+import { updateChannel } from "../channel";
 import * as admission from "./admission";
 import { ownProcessIdentity, sameProcess, type ProcessIdentity } from "./process-identity";
 import { AdapterError, runAdapterCommand, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
@@ -237,8 +238,8 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const operation: Active = { controller: new AbortController(), previous, phase: command === "check" ? "checking" : "downloading", transactionId: null };
       active.set(request.installationId, operation);
       const input: AdapterRequest = command === "check"
-        // Task 6.3 replaces this constant with updateChannel(ctx()) from src/update/channel.ts.
-        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, channel: "stable" }
+        // Read on every check, so a channel change in Settings applies to the next check without a restart.
+        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, channel: updateChannel(ctx()) }
         : { command, installationId: request.installationId, revision: value.revision, transactionId: null, candidate: value.candidate! };
       track(request.installationId, network(request.installationId, operation, input));
     }
