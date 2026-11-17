@@ -357,3 +357,33 @@ test("a published nightly closes every open nightly-failure issue", () => {
   expect(calls[0]).toContain("issue list --repo fixture/repo --label nightly-failure --state open");
   expect(calls.slice(1)).toEqual([7, 9].map(n => `issue close ${n} --repo fixture/repo --comment Nightly 0.16.0-nightly.202611171700 published: https://github.example/fixture/repo/actions/runs/42`));
 });
+
+test("a failed required job of a nightly tag opens or comments on the nightly-failure issue", () => {
+  const report = jobs["nightly-failure"];
+  expect(report).toBeDefined();
+  // Every job a tag push runs; desktop-fixture runs only on dispatch dry runs.
+  const required = Object.keys(jobs).filter(name => name !== "nightly-failure" && name !== "desktop-fixture");
+  expect([...report.needs!].sort()).toEqual(required.sort());
+  // verify may fail before it classifies the channel, so the tag name also identifies a nightly.
+  expect(report.if).toBe("always() && github.event_name == 'push' && (needs.verify.outputs.channel == 'nightly' || contains(github.ref_name, '-nightly.')) && contains(needs.*.result, 'failure')");
+  expect(report.permissions).toEqual({ issues: "write" });
+  const reportStep = report.steps.find(s => s.name === "Report failure")!;
+  expect(reportStep.env).toEqual({ GH_TOKEN: "${{ github.token }}" });
+  // The same open-or-comment script as nightly.yml, so both stages share one issue.
+  const nightly = Bun.YAML.parse(readFileSync(resolve(".github/workflows/nightly.yml"), "utf8")) as { jobs: Record<string, WorkflowJob> };
+  expect(reportStep.run).toBe(nightly.jobs.nightly.steps.find(s => s.name === "Report failure")!.run);
+
+  const root = tmpDir(), bin = join(root, "bin"), log = join(root, "gh.log");
+  mkdirSync(bin);
+  const env = { PATH: `${bin}:${process.env.PATH}`, GH_LOG: log, GITHUB_REPOSITORY: "fixture/repo", GITHUB_SERVER_URL: "https://github.example", GITHUB_RUN_ID: "42" };
+  const url = "https://github.example/fixture/repo/actions/runs/42";
+  writeFileSync(join(bin, "gh"), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$GH_LOG"\nif test "$1 $2" = "issue list"; then printf \'12\\n\'; fi\n', { mode: 0o755 });
+  expect(run(reportStep.run!, root, env).exitCode).toBe(0);
+  expect(readFileSync(log, "utf8").trim().split("\n")[1]).toBe(`issue comment 12 --repo fixture/repo --body Nightly failed again: ${url}`);
+  writeFileSync(log, "");
+  writeFileSync(join(bin, "gh"), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$GH_LOG"\n', { mode: 0o755 });
+  expect(run(reportStep.run!, root, env).exitCode).toBe(0);
+  const calls = readFileSync(log, "utf8").trim().split("\n");
+  expect(calls[2]).toStartWith("issue create --repo fixture/repo --title Nightly build failed --label nightly-failure --body ");
+  expect(calls[2]).toContain(url);
+});

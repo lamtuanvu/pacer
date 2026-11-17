@@ -713,6 +713,32 @@ jobs:
             gh issue close "$issue" --repo "$GITHUB_REPOSITORY" --comment "Nightly $VERSION published: $url"
           done
 
+  # A nightly tag whose release fails reports to the same issue as nightly.yml; the next published nightly closes it.
+  nightly-failure:
+    needs: [verify, build, ci-suite, desktop, publish, npm, homebrew, desktop-build, desktop-publish, crates, cli-feed]
+    # verify can fail before it classifies the channel, so the tag name also identifies a nightly.
+    if: always() && github.event_name == 'push' && (needs.verify.outputs.channel == 'nightly' || contains(github.ref_name, '-nightly.')) && contains(needs.*.result, 'failure')
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    permissions:
+      issues: write
+    steps:
+      # Keep this script identical to nightly.yml's Report failure step.
+      - name: Report failure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly-failure --state open --json number --jq '.[0].number // empty')
+          if test -n "$issue"; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "Nightly failed again: $url"
+          else
+            gh label create nightly-failure --repo "$GITHUB_REPOSITORY" --color B60205 --description "A nightly build failed" --force
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Nightly build failed" --label nightly-failure \
+              --body "The nightly build failed: $url. The next published nightly closes this issue."
+          fi
+
   desktop-fixture:
     needs: verify
     if: github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run)
