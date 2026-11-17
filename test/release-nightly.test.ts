@@ -142,6 +142,15 @@ test("CLI version, classify, notes and check-diff work against a repository", ()
   expect(bad.code).toBe(1);
   expect(bad.stderr).toContain("README.md");
 
+  // Rename detection would list only the destination; check-diff reports both paths of a moved file.
+  const before = git(root, "rev-parse", "HEAD");
+  git(root, "mv", "README.md", "MOVED.md");
+  git(root, "commit", "-qm", "docs: move");
+  const moved = cli(root, "check-diff", before, "HEAD");
+  expect(moved.code).toBe(1);
+  expect(moved.stderr).toContain("README.md");
+  expect(moved.stderr).toContain("MOVED.md");
+
   expect(cli(root, "bogus").code).toBe(1);
 });
 

@@ -91,7 +91,8 @@ function commitSubjects(root: string, from: string, to: string): string[] {
 /** Paths a stamp commit changed outside NIGHTLY_STAMP_FILES. */
 function unexpectedChanges(root: string, parent: string, tag: string): string[] {
   const allowed = new Set(NIGHTLY_STAMP_FILES);
-  return git(root, ["diff", "-z", "--name-only", parent, tag]).split("\0").filter(path => path && !allowed.has(path));
+  // --no-renames lists both paths of a moved file instead of only its destination.
+  return git(root, ["diff", "-z", "--no-renames", "--name-only", parent, tag]).split("\0").filter(path => path && !allowed.has(path));
 }
 
 export type NightlyRelease = { tag: string; createdAt: Date };
