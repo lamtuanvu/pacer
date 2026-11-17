@@ -59,7 +59,7 @@ The signed desktop starts the bundled `pacer-update-helper` in a new `--ota-take
 Its journal lives under `$PACER_HOME/desktop-updates/native/takeover/<transaction id>/` with `transaction_kind: "takeover"`, so existing readers reject it. States: `prepared → stopping → switched → verifying → committed`, or `restoring → restored | recovery-failed` from any state after `prepared`. Each effect records its intent before execution and its observed completion afterward.
 
 1. **Prepare.** Re-run detection and compare it to the authorization; any drift aborts with nothing changed. Snapshot the exact original plist bytes. A disabled override is refused, as in adoption. Copy the helper into the transaction directory and arm the recovery job (`--ota-recover-takeover <tx>`, `KeepAlive`, `RunAtLoad`).
-2. **Stop.** `bootout` that exact job. Prove job absence and that the original PID exited. launchd's removal of the job and the process exit are asynchronous with the call — the front door also has a child that drains — so both are polled on awake time for up to 15 seconds before the step fails, and a PID that now holds another incarnation counts as the original process having exited. Nothing is ever signaled: only the exact job is stopped.
+2. **Stop.** `bootout` that exact job. Prove job absence and that the original PID exited. launchd's removal of the job and the process exit are asynchronous with the call — the front door also has a child that drains — so after the exact process has exited, launchd is read again on awake time for up to 15 seconds until it no longer lists the job, before the step fails. Every check before `bootout` is unchanged, and a PID reused by another process before the exit is observed still fails the step safely. Nothing is ever signaled: only the exact job is stopped.
 3. **Switch.** Replace the registration with the managed definition: `argv` of `<bundled CLI> serve` and the environment `managed_service_action` writes (`HOME`, `PACER_HOME`, `PACER_PORT`, fixed `PATH`). Bootstrap it.
 4. **Verify.** Within the 120-second awake-time limit, require `inspect_registered_service` to succeed for a fresh process incarnation, then a native connection, desktop sign-in and a valid state read. A heartbeat or HTTP PID claim is insufficient.
 5. **Commit.** Record `committed` and retire the recovery job.
@@ -89,7 +89,7 @@ The README's source-install section warns that copying a build to `~/.local/bin/
 Rust TDD covers:
 
 - every detection predicate: consent missing or malformed, a `keep: true` consent detected but never offered at launch, symlink to the bundle, symlink elsewhere, regular file, foreign home or port, extra plist keys, writable plist, PID mismatch, multiply-linked executable;
-- the stop step waiting out launchd's lag and the pinned process's exit on awake time, failing only at its deadline, and treating a PID that holds another incarnation as exited without ever signaling it;
+- the stop step waiting out launchd's lag and the pinned process's exit on awake time, failing only at its deadline without ever signaling a process;
 - detection running before the version gate;
 - authorization binding and drift of plist bytes, PID, incarnation and program identity;
 - helper parent verification refusing an unsigned or non-desktop parent;
