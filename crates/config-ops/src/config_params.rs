@@ -333,6 +333,14 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ),
         );
     }
+    // Zod refine: runs only once the field checks pass.
+    if op == "notifications.set"
+        && issues.is_empty()
+        && params.get("level").is_none()
+        && params.get("sound").is_none()
+    {
+        issues.push("params: provide level or sound".into());
+    }
     if issues.is_empty() {
         Ok(result)
     } else {

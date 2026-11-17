@@ -71,7 +71,20 @@ test("Desktop banners caption shows a checking placeholder before the doctor ans
 /** Drive the App preferences board as if it lived in the desktop (tauri) shell. */
 const desktopState = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } } as any;
 
-test("Notification sound row renders only in the desktop shell and offers pacer/default/off", () => {
+/** Run `body` with navigator.platform pinned, so the macOS gate does not depend on the test host. */
+function withPlatform<T>(platform: string, body: () => T): T {
+  const previous = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+  Object.defineProperty(globalThis, "navigator", { value: { ...globalThis.navigator, platform }, configurable: true, writable: true });
+  const restore = () => { previous ? Object.defineProperty(globalThis, "navigator", previous) : delete (globalThis as { navigator?: unknown }).navigator; };
+  try {
+    const result = body();
+    if (result instanceof Promise) return result.finally(restore) as T;
+    restore();
+    return result;
+  } catch (error) { restore(); throw error; }
+}
+
+test("Notification sound row renders in the macOS desktop shell and offers pacer/default/off", () => withPlatform("MacIntel", () => {
   const host = globalThis as { __TAURI__?: unknown };
   const previous = host.__TAURI__;
   try {
@@ -83,7 +96,19 @@ test("Notification sound row renders only in the desktop shell and offers pacer/
   } finally {
     previous ? host.__TAURI__ = previous : delete host.__TAURI__;
   }
-});
+}));
+
+test("Notification sound row is hidden in a non-macOS desktop shell", () => withPlatform("Linux x86_64", () => {
+  const host = globalThis as { __TAURI__?: unknown };
+  const previous = host.__TAURI__;
+  try {
+    host.__TAURI__ = { core: { invoke: async () => true } };
+    const html = renderToString(<TaskContext.Provider value={{ state: desktopState, api: {} as any }}><SettingsGeneral section="app" initialData={{ ...settings, notifications: { level: 'important', sound: 'pacer' } }} /></TaskContext.Provider>);
+    expect(html).not.toContain("Notification sound");
+  } finally {
+    previous ? host.__TAURI__ = previous : delete host.__TAURI__;
+  }
+}));
 
 test("Notification sound row is hidden in the browser shell", () => {
   const host = globalThis as { __TAURI__?: unknown };
@@ -98,7 +123,7 @@ test("Notification sound row is hidden in the browser shell", () => {
   }
 });
 
-test("the Notification sound control writes only the sound key", async () => {
+test("the Notification sound control writes only the sound key", () => withPlatform("MacIntel", async () => {
   const { options } = await import("preact");
   const handlers = new Map<string, (value: string) => void>();
   const old = options.vnode;
@@ -126,4 +151,4 @@ test("the Notification sound control writes only the sound key", async () => {
     { op: "notifications.set", params: { sound: "off" } },
     { op: "notifications.set", params: { sound: "pacer" } },
   ]);
-});
+}));

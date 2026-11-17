@@ -146,7 +146,7 @@ test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue
     ...[1.5,1e20,-1e20,null,"1"].map(rank=>["runner.set",{id:"codex",rank,max_tasks:rank}] as [string,unknown]),
     ["runner.remove",{id:""}], ["runner.remove",{id:"codex\n"}],
     ["runner.reorder",{ids:[3,""]}], ["routing.set",{rules:[{kinds:null,executors:[null,""]},null]}],
-    ["notifications.set",{level:"bad"}], ["notifications.set",{sound:"bad"}], ["notifications.set",{level:"all",sound:"squeak"}], ["notifications.get",null],
+    ["notifications.set",{}], ["notifications.set",{level:"bad"}], ["notifications.set",{sound:"bad"}], ["notifications.set",{level:"all",sound:"squeak"}], ["notifications.get",null],
     ["config.set",{}], ["config.set",{key:"nope",value:1}],
     ["config.set",{key:"update_check",value:{a:1}}],
     ["config.set",{key:"pacing.policy",value:"bad"}],

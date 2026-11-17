@@ -339,6 +339,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                         e,
                         notifications::NotificationError::InvalidLevel
                             | notifications::NotificationError::InvalidSound
+                            | notifications::NotificationError::Empty
                     ) {
                         Code::InvalidInput
                     } else {

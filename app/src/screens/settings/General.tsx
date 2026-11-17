@@ -470,7 +470,7 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
-        {platform.desktop && (
+        {platform.macos && (
           <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
             <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <Segment
               variant="board" label="Notification sound"

@@ -11,6 +11,8 @@ pub enum NotificationError {
     InvalidLevel,
     #[error("notificationSound must be pacer, default or off")]
     InvalidSound,
+    #[error("provide level or sound")]
+    Empty,
     #[error(transparent)]
     Io(#[from] io::Error),
 }
@@ -90,6 +92,9 @@ pub fn get_level(home: &Path, legacy_plugin_data: &Path) -> Result<Value, Notifi
 /// The non-written field is the effective pre-write value (level `important`,
 /// sound `pacer`), computed without a legacy migration, matching TypeScript.
 pub fn set(home: &Path, level: Option<&str>, sound: Option<&str>) -> Result<Value, NotificationError> {
+    if level.is_none() && sound.is_none() {
+        return Err(NotificationError::Empty);
+    }
     if level.is_some_and(|v| !valid(v)) {
         return Err(NotificationError::InvalidLevel);
     }

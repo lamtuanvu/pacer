@@ -30,6 +30,7 @@ export function getLevel(ctx: Ctx): Notifications {
 }
 /** Write only the present key(s); the absent one keeps its effective pre-write value. */
 export function setNotifications(ctx: Ctx, {level, sound}:{level?:NotificationLevel; sound?:NotificationSound}): Notifications {
+  if (level === undefined && sound === undefined) throw new CoreError("invalid_input", "provide level or sound", "set level, sound or both");
   if (level !== undefined && !levels.includes(level)) throw new CoreError("invalid_input", "notifications must be off, important or all", `choose ${levels.join(', ')}`);
   if (sound !== undefined && !sounds.includes(sound)) throw new CoreError("invalid_input", "notificationSound must be pacer, default or off", `choose ${sounds.join(', ')}`);
   try {

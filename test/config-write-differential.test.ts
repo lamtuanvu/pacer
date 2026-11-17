@@ -383,6 +383,10 @@ test("save refusals and notification migration match TS errors and bytes", () =>
   let tsError = "";
   try { notify.setLevel(ctx, "bad" as notify.NotificationLevel); } catch (error) { tsError = (error as Error).message; }
   expect(rust(binary, { op: "notifications.set", home: rsHome, level: "bad" })).toEqual({ ok: false, error: tsError });
+  let tsEmpty = "";
+  try { notify.setNotifications(ctx, {}); } catch (error) { tsEmpty = (error as Error).message; }
+  expect(tsEmpty).toBe("provide level or sound");
+  expect(rust(binary, { op: "notifications.set", home: rsHome })).toEqual({ ok: false, error: tsEmpty });
 });
 
 test("strategy save reason uses the JavaScript trim character set", () => {
