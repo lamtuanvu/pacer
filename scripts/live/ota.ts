@@ -89,7 +89,11 @@ export function reserveOtaBuild(id: string, arch: "aarch64" | "x86_64", updaterK
   return readOtaRecord(id, options);
 }
 /** Internal builder boundary. Call only after identities, signatures and archive verification. */
-export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffer }, options: OtaOptions = {}): void {
+/** Feed file names the native fixture updater reads (`Channel::fixture_file` in desktop/src-tauri/src/ota/trust.rs). */
+export const FIXTURE_FEED_FILES = { stable: "stable.json", nightly: "nightly.json" } as const;
+export type FixtureChannel = keyof typeof FIXTURE_FEED_FILES;
+export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffer }, options: OtaOptions = {}, channel: FixtureChannel = "stable"): void {
+  if (!Object.hasOwn(FIXTURE_FEED_FILES, channel)) throw Error("Unknown fixture feed channel");
   const session = sessionFor(id, options), state = readOtaRecord(id, options);
   if (state.phase !== "building" || !state.nativeFixture || state.registrations.some(item => item.state !== "reserved")) throw Error("Fixture build is not available for finalization");
   unchanged(state, options);
@@ -114,7 +118,7 @@ export function finishOtaBuild(id: string, files: { archive: Buffer; feed: Buffe
     state.external.push({ path, sha256: createHash("sha256").update(readFileSync(path)).digest("hex") });
   }
   syncDirectory(join(state.root, "external"));
-  const entries = [[join(state.root, "feed"), "stable.json", files.feed], [join(state.root, "artifacts"), `desktop-pacer-0.2.4-darwin-${state.nativeFixture.arch}.app.tar.gz`, files.archive]] as const;
+  const entries = [[join(state.root, "feed"), FIXTURE_FEED_FILES[channel], files.feed], [join(state.root, "artifacts"), `desktop-pacer-0.2.4-darwin-${state.nativeFixture.arch}.app.tar.gz`, files.archive]] as const;
   for (const [directory, name, bytes] of entries) {
     mkdirSync(directory, { mode: 0o700 });
     const path = join(directory, name), fd = openSync(path, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL | constants.O_NOFOLLOW, 0o600);
@@ -307,8 +311,11 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
   }
   for (const directory of ["feed", "artifacts"]) {
     const path = join(root, directory);
-    const expected = directory === "feed" ? "stable.json" : `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`;
-    for (const asset of state.artifacts.filter(asset => asset.path.startsWith(path + "/"))) if (asset.path !== join(path, expected)) throw Error("Invalid artifact identity");
+    const recorded = state.artifacts.filter(asset => asset.path.startsWith(path + "/"));
+    // A fixture publishes one feed: the stable one, or the nightly one for channel validation.
+    const feedName = Object.values(FIXTURE_FEED_FILES).find(name => recorded.some(asset => asset.path === join(path, name))) ?? FIXTURE_FEED_FILES.stable;
+    const expected = directory === "feed" ? feedName : `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`;
+    for (const asset of recorded) if (asset.path !== join(path, expected)) throw Error("Invalid artifact identity");
     if (present(path)) {
       canonical(path); owned(path, "directory", true);
       for (const name of readdirSync(path)) {
@@ -320,7 +327,7 @@ export function readOtaRecord(id: string, options: OtaOptions = {}): OtaRecord {
     } else if (state.phase === "prepared" && state.artifacts.some(asset => asset.path.startsWith(path + "/"))) throw Error("Fixture artifact missing");
   }
   if (state.nativeFixture && state.phase === "prepared" && (state.artifacts.length !== 2 || state.artifacts.some(asset => !present(asset.path)))) throw Error("Fixture artifacts missing");
-  if (state.artifacts.some(asset => asset.path !== join(root, "feed/stable.json") && asset.path !== join(root, "artifacts", `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`)) || new Set(state.artifacts.map(asset => asset.path)).size !== state.artifacts.length) throw Error("Invalid fixture artifact ledger");
+  if (state.artifacts.some(asset => !Object.values(FIXTURE_FEED_FILES).some(name => asset.path === join(root, "feed", name)) && asset.path !== join(root, "artifacts", `desktop-pacer-0.2.4-darwin-${state.nativeFixture?.arch}.app.tar.gz`)) || new Set(state.artifacts.map(asset => asset.path)).size !== state.artifacts.length) throw Error("Invalid fixture artifact ledger");
   if (state.external.length && (!state.nativeFixture || !exactFixtureExternal(state))) throw Error("Invalid external service ledger");
   if (present(join(root, "external"))) {
     if (!state.external.length) throw Error("Unrecorded external service");

@@ -147,6 +147,28 @@ reuse with different parameters is rejected. A running service and verified
 desktop connection are required for actions. These commands are separate from
 `pacer update`, which updates standalone CLI installations.
 
+### Update channel
+
+**Settings → Updates → Update channel** chooses **Stable** (the default) or
+**Nightly**. Nightly builds are untested daily snapshots of main, signed with the
+same updater key and versioned `<next-minor>-nightly.<YYYYMMDDHHmm>` (for example
+`0.16.0-nightly.202611171700`). The choice is the `update_channel` setting, so
+`pacer config set update_channel nightly` does the same thing, and it applies to the
+standalone CLI too (see [Update checks](cli.md#update-checks)). Changing it asks
+for a new check right away.
+
+The service reads the setting on every check and passes it to the native helper.
+Feed addresses are built into the app; the setting picks between them and never
+supplies one. On stable, the helper reads only `stable.json`. On nightly it reads
+`stable.json` and `nightly.json` and offers the newer release, so a stable release
+that is newer than every nightly is still offered. If one feed can't be read, the
+other is used.
+
+Pacer never downgrades. Switching a nightly install back to stable offers nothing
+until a stable release newer than the installed nightly ships; Settings says
+"You'll move to the next stable release when it's newer than this nightly." Then
+the update proceeds as usual.
+
 ## Ownership and compatibility
 
 ADR 0021 records which one installation — the CLI or this app — owns the service, the
