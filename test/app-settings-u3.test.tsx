@@ -318,7 +318,7 @@ test('Updates identifies the service and preserves failed-check status', () => {
  const desktop = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true,managedBy:'desktop',managedHint:'pacer is managed by the pacer app'}}}/>);
  expect(desktop).toContain('Update available: 0.5.0');
  expect(desktop).not.toContain('Install 0.5.0');
- expect(desktop).toContain('managed by the pacer app; update it from the app\'s Settings');
+ expect(desktop).toContain('managed by the pacer app; update it from the app\'s Settings → App preferences → Updates');
  expect(managedLabel({managedBy:'desktop'}, true)).toContain('updates with the desktop app');
  expect(managedLabel({managedBy:'desktop'}, true)).not.toContain('Settings → Updates');
  const brew = render(<SettingsGeneral section="updates" initialData={{updates:{current:'0.3.1',latest:'0.5.0',available:true,managedBy:'homebrew',managedHint:'pacer was installed with Homebrew; update with: brew upgrade pacer'}}}/>);

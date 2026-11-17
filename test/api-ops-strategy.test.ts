@@ -91,7 +91,9 @@ test("update.apply preserves source, npm and Homebrew refusal messages without s
       await callOp(ctx, "update.apply", {}, {update, runUpdate: async () => { calls++; return {code:0,out:"",err:""}; }});
       throw Error("expected refusal");
     } catch (e) {
-      expect(toApiError(e)).toMatchObject({code: "not_allowed", message: expected.err.replace(/^pacer update: /, ""), hint: expect.any(String)});
+      const error = toApiError(e);
+      expect(error).toMatchObject({code: "not_allowed", message: expected.err.replace(/^pacer update: /, ""), hint: expect.any(String)});
+      expect(error.hint).not.toBe(error.message);
     }
     expect(calls).toBe(0);
     expect(eventsSince(ctx, 0).events).toEqual([]);
@@ -116,6 +118,22 @@ test("a desktop-owned installation reports managedBy and update.apply refuses it
     expect(error.hint).not.toBe(error.message);
   }
   expect(calls).toBe(0);
+});
+
+test("update.check reports npm, Homebrew and app-bundled installations as managed", async () => {
+  const ctx = configured(), base = join(ctx.home, "releases");
+  mkdirSync(base);
+  ctx.env.PACER_RELEASE_BASE = pathToFileURL(base).href;
+  writeFileSync(join(base, "latest.json"), JSON.stringify({version: "99.0.0"}));
+  const cellar = join(ctx.home, "Cellar/pacer/1.0.0/bin/pacer"), bundled = join(ctx.home, "pacer.app/Contents/Resources/pacer");
+  for (const path of [cellar, bundled]) { mkdirSync(join(path, ".."), {recursive: true}); writeFileSync(path, "fixture"); }
+  ctx.env.PACER_INSTALL_METHOD = "npm";
+  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "npm", managedHint: expect.stringContaining("npm install -g")});
+  delete ctx.env.PACER_INSTALL_METHOD;
+  ctx.env.PACER_BIN = cellar;
+  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "homebrew", managedHint: expect.stringContaining("brew upgrade pacer")});
+  ctx.env.PACER_BIN = bundled;
+  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "desktop", managedHint: expect.stringContaining("belongs to the desktop app")});
 });
 
 test("failed updates are recorded in their job", async () => {
