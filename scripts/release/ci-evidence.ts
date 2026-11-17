@@ -19,7 +19,10 @@ export function fullSuitePassed(jobs: CiJob[]): boolean {
   return SUITE_JOBS.every(name => jobs.some(job => job.name === name && job.conclusion === "success" && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "success")));
 }
 
-export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline: number, log = console.log): Promise<CiRun> {
+export type CiEvidenceOptions = { dispatch: boolean };
+
+/** Waits for a passing full suite on `sha`. With `dispatch` off (nightlies), missing evidence fails instead of starting CI on `ref`. */
+export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline: number, log = console.log, options: CiEvidenceOptions = { dispatch: true }): Promise<CiRun> {
   const checked = new Set<number>();
   let dispatchedAt: number | undefined;
   while (ci.now() < deadline) {
@@ -32,7 +35,9 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
     const pending = runs.filter(run => run.status !== "completed");
     for (const run of pending) checked.delete(run.id);
     if (pending.length) log(`Waiting for CI: ${pending.map(run => run.html_url).join(", ")}`);
-    else if (dispatchedAt === undefined) {
+    else if (!options.dispatch) {
+      throw Error(`no CI evidence for ${sha}: no CI run passed the full suite on both OSes, and dispatch is off`);
+    } else if (dispatchedAt === undefined) {
       const head = await ci.refSha(ref);
       if (head !== sha) throw Error(`${ref} now points at ${head}, not ${sha}; CI dispatched there would test another commit`);
       log(`No usable CI run for ${sha}; dispatching CI on ${ref}`);
@@ -65,8 +70,11 @@ export function githubCi(repo: string): Ci {
 
 if (import.meta.main) {
   const { GITHUB_REPOSITORY: repo, CI_SHA: sha, CI_REF: ref } = process.env;
-  if (!repo || !sha || !ref) throw Error("GITHUB_REPOSITORY, CI_SHA and CI_REF are required");
+  // Nightlies never dispatch CI: nightly.yml already required evidence for the main commit.
+  const dispatch = process.env.CI_NO_DISPATCH !== "1";
+  if (!repo || !sha) throw Error("GITHUB_REPOSITORY and CI_SHA are required");
+  if (dispatch && !ref) throw Error("CI_REF is required unless CI_NO_DISPATCH=1");
   const minutes = Number(process.env.CI_EVIDENCE_MINUTES ?? 140);
-  const run = await awaitCiEvidence(githubCi(repo), sha, ref, Date.now() + minutes * 60_000);
+  const run = await awaitCiEvidence(githubCi(repo), sha, ref ?? sha, Date.now() + minutes * 60_000, console.log, { dispatch });
   console.log(`CI passed the full suite on both OSes for ${sha}: ${run.html_url}`);
 }

@@ -103,3 +103,29 @@ test("the aggregate jobs carry the check names main's ruleset requires", () => {
   expect(names.sort()).toEqual(["Test (macos-latest)", "Test (ubuntu-latest)"]);
 });
 
+
+test("with dispatch off, missing evidence fails instead of dispatching", async () => {
+  const { ci, refs } = fake(() => [ciRun(5, "push")], { 5: suite("skipped") });
+  let refChecked = false;
+  ci.refSha = async () => { refChecked = true; return "b".repeat(40); };
+  await expect(awaitCiEvidence(ci, SHA, "main", 1e9, () => {}, { dispatch: false })).rejects.toThrow("no CI evidence");
+  expect(refs).toEqual([]);
+  // The ref is only consulted before a dispatch; a moved main does not matter here.
+  expect(refChecked).toBe(false);
+  const empty = fake(() => [], {});
+  await expect(awaitCiEvidence(empty.ci, SHA, "main", 1e9, () => {}, { dispatch: false })).rejects.toThrow("no CI evidence");
+  expect(empty.refs).toEqual([]);
+});
+
+test("with dispatch off, an in-progress run is still awaited", async () => {
+  const { ci, refs } = fake(tick => [ciRun(4, "push", tick < 3 ? "in_progress" : "completed")], { 4: suite() });
+  expect((await awaitCiEvidence(ci, SHA, "main", 1e9, () => {}, { dispatch: false })).id).toBe(4);
+  expect(refs).toEqual([]);
+});
+
+test("CI_NO_DISPATCH=1 turns dispatch off and makes CI_REF optional", () => {
+  const result = Bun.spawnSync([process.execPath, "scripts/release/ci-evidence.ts"], {
+    env: { ...process.env, GITHUB_REPOSITORY: "", CI_SHA: SHA, CI_REF: "", CI_NO_DISPATCH: "1" }, stdout: "pipe", stderr: "pipe" });
+  expect(result.exitCode).not.toBe(0);
+  expect(result.stderr.toString()).toContain("GITHUB_REPOSITORY and CI_SHA are required");
+});

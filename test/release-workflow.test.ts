@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
 import { createHash } from "node:crypto";
 import { join, resolve } from "node:path";
 import { tmpDir } from "./helpers";
@@ -15,6 +15,10 @@ interface WorkflowStep {
 }
 interface WorkflowJob {
   needs?: string | string[];
+  if?: string;
+  env?: Record<string, string>;
+  outputs?: Record<string, string>;
+  permissions?: Record<string, string>;
   strategy?: { matrix: { include: Record<string, string>[] } };
   steps: WorkflowStep[];
 }
@@ -145,6 +149,12 @@ test("npm publishing respects package order, skips exact published versions and 
     "view @lamtuanvu/platform@1.2.3-beta.1 version",
     "view @lamtuanvu/pacer@1.2.3-beta.1 version", "publish --dry-run --access public --tag next",
   ]);
+  writeFileSync(log, "");
+  expect(run(step("Publish npm packages in dependency order"), root, { ...env, VERSION: "0.16.0-nightly.202611171700" }).exitCode).toBe(0);
+  expect(readFileSync(log, "utf8").trim().split("\n")).toEqual([
+    "view @lamtuanvu/platform@0.16.0-nightly.202611171700 version",
+    "view @lamtuanvu/pacer@0.16.0-nightly.202611171700 version", "publish --provenance --access public --tag nightly",
+  ]);
 });
 
 test("Homebrew configuration reports missing credentials and permits credential-free dry runs", () => {
@@ -179,7 +189,12 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(evidence.if).toBeUndefined();
   expect((evidence as any)["continue-on-error"]).toBeUndefined();
   expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");
-  expect(evidence.env).toMatchObject({ CI_SHA: "${{ github.event.pull_request.head.sha || github.sha }}", CI_REF: "${{ github.head_ref || github.ref_name }}" });
+  expect(evidence.env).toMatchObject({
+    // A nightly's CI evidence belongs to the main commit under the stamp, and is never dispatched.
+    CI_SHA: "${{ needs.verify.outputs.channel == 'nightly' && needs.verify.outputs.parent || github.event.pull_request.head.sha || github.sha }}",
+    CI_REF: "${{ github.head_ref || github.ref_name }}",
+    CI_NO_DISPATCH: "${{ needs.verify.outputs.channel == 'nightly' && '1' || '' }}",
+  });
   expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
@@ -205,4 +220,140 @@ test("M1 gate failure stops the release build despite log capture", () => {
   const gate = jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
   const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
   expect(result.exitCode).not.toBe(0);
+});
+
+function git(cwd: string, ...args: string[]): string {
+  const result = Bun.spawnSync(["git", "-c", "user.name=Fixture", "-c", "user.email=fixture@example.invalid", "-c", "commit.gpgsign=false", "-c", "tag.gpgsign=false", "-c", "core.hooksPath=/dev/null", ...args], { cwd, stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw new Error(result.stderr.toString());
+  return result.stdout.toString().trim();
+}
+
+/** A repository whose main holds the stable `v0.15.1` tag and `feat: one`, with the real release scripts linked in. */
+function nightlyRepo(): string {
+  const root = tmpDir();
+  symlinkSync(resolve("scripts"), join(root, "scripts"));
+  git(root, "init", "-q", "-b", "main");
+  writeFileSync(join(root, "package.json"), '{"version":"0.15.1"}\n');
+  git(root, "add", "-A"); git(root, "commit", "-qm", "chore: initial"); git(root, "tag", "-a", "v0.15.1", "-m", "pacer 0.15.1");
+  writeFileSync(join(root, "README.md"), "one\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "feat: one");
+  return root;
+}
+
+/** A stamp commit on top of the current HEAD, tagged like nightly.yml tags it; `extra` sneaks in another file. */
+function stamp(root: string, version: string, extra = false): string {
+  git(root, "switch", "-q", "--detach");
+  writeFileSync(join(root, "package.json"), `{"version":"${version}"}\n`);
+  if (extra) writeFileSync(join(root, "README.md"), "sneaked\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", `chore: nightly ${version}`);
+  git(root, "tag", "-a", `v${version}`, "-m", `pacer ${version}`);
+  return git(root, "rev-parse", "HEAD");
+}
+
+const outputs = (file: string) => Object.fromEntries(readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(line => line.split("=", 2) as [string, string]));
+
+test("verify classifies the channel and checks that a nightly stamp only changes version files", () => {
+  const verify = jobs.verify;
+  expect(verify.outputs).toMatchObject({ channel: "${{ steps.channel.outputs.channel }}", parent: "${{ steps.channel.outputs.parent }}" });
+  // check-diff reads the stamp commit's parent.
+  expect(verify.steps.find(s => s.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"]).toBe(2);
+  const names = verify.steps.map(s => s.name ?? s.run);
+  expect(names.indexOf("Classify the release channel")).toBeGreaterThan(names.indexOf("bun install --frozen-lockfile"));
+
+  const stable = nightlyRepo(), stableOut = join(stable, "out");
+  const stableRun = run(step("Classify the release channel"), stable, { GITHUB_OUTPUT: stableOut });
+  expect(stableRun.exitCode).toBe(0);
+  expect(outputs(stableOut)).toEqual({ channel: "stable" });
+
+  const rc = nightlyRepo(), rcOut = join(rc, "out");
+  writeFileSync(join(rc, "package.json"), '{"version":"0.16.0-rc.1"}\n');
+  expect(run(step("Classify the release channel"), rc, { GITHUB_OUTPUT: rcOut }).exitCode).toBe(0);
+  expect(outputs(rcOut)).toEqual({ channel: "prerelease" });
+
+  const nightly = nightlyRepo(), nightlyOut = join(nightly, "out");
+  const parent = git(nightly, "rev-parse", "HEAD");
+  stamp(nightly, "0.16.0-nightly.202611171700");
+  const clean = run(step("Classify the release channel"), nightly, { GITHUB_OUTPUT: nightlyOut });
+  expect(clean.stderr.toString()).toBe("");
+  expect(clean.exitCode).toBe(0);
+  expect(outputs(nightlyOut)).toEqual({ channel: "nightly", parent });
+
+  const sneaky = nightlyRepo();
+  stamp(sneaky, "0.16.0-nightly.202611171700", true);
+  const refused = run(step("Classify the release channel"), sneaky, { GITHUB_OUTPUT: join(sneaky, "out") });
+  expect(refused.exitCode).not.toBe(0);
+  expect(refused.stderr.toString()).toContain("README.md");
+});
+
+test("nightly release notes list main's commits since the previous nightly; stable keeps the CHANGELOG", () => {
+  const root = nightlyRepo();
+  const first = "0.16.0-nightly.202611171700", second = "0.16.0-nightly.202611181700";
+  stamp(root, first);
+  git(root, "switch", "-q", "main");
+  writeFileSync(join(root, "README.md"), "two\n");
+  git(root, "add", "-A"); git(root, "commit", "-qm", "fix: two");
+  stamp(root, second);
+  expect(jobs.publish.env?.CHANNEL).toBe("${{ needs.verify.outputs.channel }}");
+  expect(run(step("Extract release notes"), root, { VERSION: second, CHANNEL: "nightly" }).exitCode).toBe(0);
+  const notes = readFileSync(join(root, "release-notes.md"), "utf8");
+  expect(notes).toContain(`## pacer ${second}`);
+  expect(notes).toContain("- fix: two");
+  expect(notes).not.toContain("feat: one");
+  expect(notes).not.toContain("chore: nightly");
+  expect(notes).toContain("The app is not yet signed.");
+
+  // The first nightly after a stable release starts from that stable tag.
+  git(root, "switch", "-q", "--detach", `v${first}`);
+  expect(run(step("Extract release notes"), root, { VERSION: first, CHANNEL: "nightly" }).exitCode).toBe(0);
+  const firstNotes = readFileSync(join(root, "release-notes.md"), "utf8");
+  expect(firstNotes).toContain("- feat: one");
+  expect(firstNotes).not.toContain("chore: initial");
+  expect(firstNotes).not.toContain("fix: two");
+
+  // A nightly never needs a CHANGELOG section; a stable release still does.
+  expect(run(step("Extract release notes"), root, { VERSION: "0.15.1", CHANNEL: "stable" }).exitCode).not.toBe(0);
+});
+
+test("the nightly desktop manifest uses the generated notes", () => {
+  const publish = jobs["desktop-publish"];
+  expect(publish.env?.CHANNEL).toBe("${{ needs.verify.outputs.channel }}");
+  const root = nightlyRepo(), bin = join(root, "bin"), log = join(root, "bun.log");
+  const version = "0.16.0-nightly.202611171700";
+  stamp(root, version);
+  mkdirSync(bin);
+  // Record the desktop-release call; run everything else with the real bun.
+  writeFileSync(join(bin, "bun"), `#!/bin/sh\nif test "$1" = scripts/release/desktop-release.ts; then printf '%s\\n' "$*" >> "$BUN_LOG"; exit 0; fi\nexec "${process.execPath}" "$@"\n`, { mode: 0o755 });
+  const env = { PATH: `${bin}:${process.env.PATH}`, BUN_LOG: log, VERSION: version, CHANNEL: "nightly" };
+  expect(run(step("Prepare deterministic desktop metadata"), root, env).exitCode).toBe(0);
+  expect(readFileSync(log, "utf8")).toBe(`scripts/release/desktop-release.ts prepare dist/desktop-assets ${version} --notes-file release-notes.md\n`);
+  expect(readFileSync(join(root, "release-notes.md"), "utf8")).toContain("- feat: one");
+  writeFileSync(log, "");
+  expect(run(step("Prepare deterministic desktop metadata"), root, { ...env, VERSION: "0.15.1", CHANNEL: "stable" }).exitCode).toBe(0);
+  expect(readFileSync(log, "utf8")).toBe("scripts/release/desktop-release.ts prepare dist/desktop-assets 0.15.1\n");
+});
+
+test("nightlies skip crates.io and advance the CLI feed only after the desktop feed", () => {
+  expect(jobs.crates.if).toContain("github.event_name == 'push'");
+  expect(jobs.crates.if).toContain("!contains(needs.verify.outputs.version, '-')");
+  const feed = jobs["cli-feed"];
+  expect(feed).toBeDefined();
+  expect(feed.needs).toEqual(["verify", "publish", "desktop-publish"]);
+  expect(feed.if).toBe("github.event_name == 'push' && needs.verify.outputs.channel == 'nightly' && needs.desktop-publish.result == 'success'");
+  expect(feed.permissions).toEqual({ contents: "write", issues: "write" });
+  const publish = feed.steps.find(s => s.name === "Compare-and-swap the CLI nightly feed")!;
+  expect(publish.run).toBe('bun scripts/release/cli-feed.ts publish "$VERSION"');
+  expect(publish.env?.GH_TOKEN).toBe("${{ github.token }}");
+  const names = feed.steps.map(s => s.name);
+  expect(names.indexOf("Close nightly failure issues")).toBeGreaterThan(names.indexOf("Compare-and-swap the CLI nightly feed"));
+});
+
+test("a published nightly closes every open nightly-failure issue", () => {
+  const root = tmpDir(), bin = join(root, "bin"), log = join(root, "gh.log");
+  mkdirSync(bin);
+  writeFileSync(join(bin, "gh"), '#!/bin/sh\nprintf \'%s\\n\' "$*" >> "$GH_LOG"\nif test "$1 $2" = "issue list"; then printf \'7\\n9\\n\'; fi\n', { mode: 0o755 });
+  const env = { PATH: `${bin}:${process.env.PATH}`, GH_LOG: log, VERSION: "0.16.0-nightly.202611171700", GITHUB_REPOSITORY: "fixture/repo", GITHUB_SERVER_URL: "https://github.example", GITHUB_RUN_ID: "42" };
+  expect(run(step("Close nightly failure issues"), root, env).exitCode).toBe(0);
+  const calls = readFileSync(log, "utf8").trim().split("\n");
+  expect(calls[0]).toContain("issue list --repo fixture/repo --label nightly-failure --state open");
+  expect(calls.slice(1)).toEqual([7, 9].map(n => `issue close ${n} --repo fixture/repo --comment Nightly 0.16.0-nightly.202611171700 published: https://github.example/fixture/repo/actions/runs/42`));
 });

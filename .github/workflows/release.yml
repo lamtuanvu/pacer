@@ -31,9 +31,13 @@ jobs:
       contents: read
     outputs:
       version: ${{ steps.version.outputs.version }}
+      channel: ${{ steps.channel.outputs.channel }}
+      parent: ${{ steps.channel.outputs.parent }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
+          # A nightly stamp commit is checked against its parent, the main commit it was built from.
+          fetch-depth: 2
           ref: ${{ github.event.pull_request.head.sha || github.sha }}
           persist-credentials: false
       - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -53,6 +57,17 @@ jobs:
       - id: version
         run: echo "version=$(bun -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
       - run: bun install --frozen-lockfile
+      - name: Classify the release channel
+        id: channel
+        run: |
+          version=$(bun -p 'require("./package.json").version')
+          channel=$(bun scripts/release/nightly.ts classify "$version")
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+          if test "$channel" = nightly; then
+            parent=$(git rev-parse HEAD^)
+            bun scripts/release/nightly.ts check-diff "$parent" HEAD
+            echo "parent=$parent" >> "$GITHUB_OUTPUT"
+          fi
       - run: bun run typecheck
       - name: Set up Rust
         uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
@@ -159,8 +174,10 @@ jobs:
       - name: Require CI's full suite on both OSes for this commit
         env:
           GH_TOKEN: ${{ github.token }}
-          CI_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
+          # A nightly needs CI evidence for the main commit under its stamp; nightly.yml already waited for it.
+          CI_SHA: ${{ needs.verify.outputs.channel == 'nightly' && needs.verify.outputs.parent || github.event.pull_request.head.sha || github.sha }}
           CI_REF: ${{ github.head_ref || github.ref_name }}
+          CI_NO_DISPATCH: ${{ needs.verify.outputs.channel == 'nightly' && '1' || '' }}
         run: bun scripts/release/ci-evidence.ts
 
   desktop:
@@ -270,6 +287,7 @@ jobs:
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       TAG: v${{ needs.verify.outputs.version }}
+      CHANNEL: ${{ needs.verify.outputs.channel }}
     runs-on: ubuntu-24.04
     permissions:
       contents: write
@@ -302,11 +320,19 @@ jobs:
           sha256sum pacer-*-unsigned.AppImage pacer-*-unsigned.deb >> SHA256SUMS
       - name: Extract release notes
         run: |
-          awk -v heading="## [$VERSION]" '
-            /^## / { if (found) exit; if ($0 == heading || index($0, heading " - ") == 1) { found=1; next } }
-            found { print }
-            END { if (!found) exit 1 }
-          ' CHANGELOG.md > release-notes.md
+          if test "${CHANNEL:-}" = nightly; then
+            # Commit titles on main since the previous nightly's parent (or the latest stable tag).
+            previous=$(git tag -l 'v*-nightly.*' --sort=-v:refname | awk -v current="v$VERSION" 'found { print; exit } $0 == current { found = 1 }')
+            if test -n "$previous"; then from="$previous^"; else from=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -- - | head -n 1 || true); fi
+            test -n "$from" || { echo '::error::no previous nightly or stable tag to start the notes from'; exit 1; }
+            bun scripts/release/nightly.ts notes "$VERSION" "$from" HEAD^ > release-notes.md
+          else
+            awk -v heading="## [$VERSION]" '
+              /^## / { if (found) exit; if ($0 == heading || index($0, heading " - ") == 1) { found=1; next } }
+              found { print }
+              END { if (!found) exit 1 }
+            ' CHANGELOG.md > release-notes.md
+          fi
           printf '\nThe app is not yet signed. On first open, Control-click pacer in Applications and choose Open.\n' >> release-notes.md
       - name: Preview release assets and notes
         if: env.DRY_RUN == 'true'
@@ -380,7 +406,7 @@ jobs:
       - name: Publish npm packages in dependency order
         run: |
           set -euo pipefail
-          case "$VERSION" in *-*) tag=next ;; *) tag=latest ;; esac
+          case "$VERSION" in *-nightly.*) tag=nightly ;; *-*) tag=next ;; *) tag=latest ;; esac
           while IFS= read -r package; do
             dir="$PWD/dist/npm/$package"
             name=$(bun -p 'require(process.argv[1]).name' "$dir/package.json")
@@ -474,7 +500,7 @@ jobs:
     if: >-
       (github.event_name == 'push' || (github.event_name == 'pull_request' || (github.event_name == 'workflow_dispatch' && inputs.dry_run))) &&
       vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
-      !contains(needs.verify.outputs.version, '-')
+      (needs.verify.outputs.channel == 'stable' || needs.verify.outputs.channel == 'nightly')
     environment: desktop-release
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 90
@@ -584,7 +610,7 @@ jobs:
     needs: [verify, desktop-build, publish]
     if: >-
       github.event_name == 'push' && vars.PACER_DESKTOP_RELEASE_ENABLED == 'true' &&
-      !contains(needs.verify.outputs.version, '-')
+      (needs.verify.outputs.channel == 'stable' || needs.verify.outputs.channel == 'nightly')
     environment: desktop-release
     runs-on: macos-15
     timeout-minutes: 30
@@ -592,6 +618,7 @@ jobs:
       contents: write
     env:
       VERSION: ${{ needs.verify.outputs.version }}
+      CHANNEL: ${{ needs.verify.outputs.channel }}
       PACER_OTA_PUBLIC_KEY: ${{ vars.PACER_OTA_PUBLIC_KEY }}
       PACER_APPLE_TEAM_ID: ${{ vars.PACER_APPLE_TEAM_ID }}
       PACER_SIGNING_CERT_SHA1: ${{ vars.PACER_SIGNING_CERT_SHA1 }}
@@ -612,17 +639,28 @@ jobs:
           path: dist/desktop-assets
           merge-multiple: true
       - name: Prepare deterministic desktop metadata
-        run: bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION"
+        run: |
+          if test "${CHANNEL:-}" = nightly; then
+            # The same notes as the GitHub Release; prepare cuts them to the desktop limit.
+            previous=$(git tag -l 'v*-nightly.*' --sort=-v:refname | awk -v current="v$VERSION" 'found { print; exit } $0 == current { found = 1 }')
+            if test -n "$previous"; then from="$previous^"; else from=$(git tag -l 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | grep -v -- - | head -n 1 || true); fi
+            test -n "$from" || { echo '::error::no previous nightly or stable tag to start the notes from'; exit 1; }
+            bun scripts/release/nightly.ts notes "$VERSION" "$from" HEAD^ > release-notes.md
+            bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION" --notes-file release-notes.md
+          else
+            bun scripts/release/desktop-release.ts prepare dist/desktop-assets "$VERSION"
+          fi
       - name: Verify signed architecture packages before any publication
         run: bun scripts/release/desktop-release.ts validate dist/desktop-assets "$VERSION" > dist/desktop-feed-preview.json
-      - name: Publish immutable desktop assets and compare-and-swap stable feed
+      # desktop-release.ts picks stable.json or nightly.json from the version.
+      - name: Publish immutable desktop assets and compare-and-swap the channel feed
         env:
           GH_TOKEN: ${{ github.token }}
         run: bun scripts/release/desktop-release.ts publish dist/desktop-assets "$VERSION"
 
   crates:
     needs: [verify, publish]
-    if: github.event_name == 'push'
+    if: github.event_name == 'push' && !contains(needs.verify.outputs.version, '-')
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -641,6 +679,39 @@ jobs:
         env:
           CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
         run: bun scripts/release/crates.ts --publish
+
+  # The CLI nightly feed advances only after the desktop nightly feed, so both channels move together.
+  cli-feed:
+    needs: [verify, publish, desktop-publish]
+    if: github.event_name == 'push' && needs.verify.outputs.channel == 'nightly' && needs.desktop-publish.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+      issues: write
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Compare-and-swap the CLI nightly feed
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/release/cli-feed.ts publish "$VERSION"
+      - name: Close nightly failure issues
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          for issue in $(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly-failure --state open --json number --jq '.[].number'); do
+            gh issue close "$issue" --repo "$GITHUB_REPOSITORY" --comment "Nightly $VERSION published: $url"
+          done
 
   desktop-fixture:
     needs: verify
