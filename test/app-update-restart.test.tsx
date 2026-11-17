@@ -27,7 +27,8 @@ test("reaching pacer again settles a restarting update even if its closing event
 });
 
 test("the offline notice says pacer is restarting to finish an update", () => {
-  const html = render(<OfflineNotice lastUpdate={0} updating />);
+  const html = render(<OfflineNotice lastUpdate={Date.now() / 1000 - 60} updating />);
+  expect(html).toContain("Last update");
   expect(html).toContain("Updating pacer");
   expect(html).not.toContain("Reconnecting to pacer");
   expect(render(<OfflineNotice lastUpdate={0} />)).toContain("Reconnecting to pacer");

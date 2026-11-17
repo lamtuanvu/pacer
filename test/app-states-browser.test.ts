@@ -127,7 +127,7 @@ for (const [width, height] of [[1440, 900], [390, 844]] as const) for (const sch
       await page.locator(".pc-dispatch").waitFor();
       await page.waitForFunction(() => document.adoptedStyleSheets.length > 0);
       const bar = page.locator(".connection-bar");
-      expect(await bar.textContent()).toContain("Updating pacer… The service is restarting on the new version.");
+      expect(await bar.textContent()).toContain("Updating pacer… Last update 1m ago. The service is restarting on the new version.");
       expect(await bar.textContent()).not.toContain("Reconnecting");
       const contrast = await bar.evaluate(n => {
         const values = (s: string) => s.match(/[\d.]+/g)!.slice(0, 3).map(Number);

@@ -93,7 +93,7 @@ export function useOperation(onDone?:()=>void, options: {notifySuccess?: boolean
  const jobId=result?.jobId, eventJob=jobId?state.jobs[jobId]:undefined;
  const job=latestJob(eventJob,result?.job);
  const completed=useRef<string>();const pollFailed=useRef(false);
- useEffect(()=>{if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
+ useEffect(()=>{if(job&&job.state!=='running'&&pollFailed.current){pollFailed.current=false;setError(undefined);}if(!jobId||job&&job.state!=='running')return;let active=true;let timer:ReturnType<typeof setTimeout>;
  // A job that restarts the service (update.apply) is unreachable for a while; poll again once pacer is back, and clear a failed poll when one succeeds.
  if(!state.connected)return;
  const poll=async()=>{try{const current=await api.call<Job>('job.get',{id:jobId});if(active){setResult(r=>r?{...r,job:current}:r);if(pollFailed.current){pollFailed.current=false;setError(undefined);}}}catch(e){if(active){pollFailed.current=true;setError(e);}}if(active)timer=setTimeout(poll,1500);};void poll();return()=>{active=false;clearTimeout(timer);};},[api,jobId,job?.state,state.connected]);
