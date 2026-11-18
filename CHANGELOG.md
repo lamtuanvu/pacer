@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- Default local runs (the bundled `pacer-exec-direct` path) are watched again while they run: task progress is recorded, so the idle alert and idle stop (`execution.idle_after_min` / `idle_fail_min`), needs-input alerts and live message delivery work there as on other paths.
+- A running executor that keeps producing output but makes no progress (no file change, commit or outgoing message) for `execution.no_progress_min` (new key, default 30 minutes) is pinged up to `messaging.liveness.max_nudges` times; if it still makes no progress, pacer stops it and moves the task to the next executor, and a second unresponsive attempt fails the task with `executor unresponsive`. In `strict` and `emergency` mode pacer raises a stalled item instead of pinging. Liveness pings now use per-attempt ids, so a retried attempt is pinged again, and pings left on a stopped run no longer restart the task.
+
 - Settings → Updates and the TUI no longer offer a service Install that is always refused: `update.check` reports `managedBy` (`desktop`, `homebrew` or `npm`) with `managedHint` when another installer updates the installation, `update.apply` refuses a desktop-owned installation before anything else, and an error no longer repeats its hint.
 
 - A desktop whose `com.pacer.serve` runs a build the app cannot verify no longer ends up with **Automatic desktop updates are unavailable** and no way out. When you kept your own command at Welcome, Settings → Updates now reports the replaced service and offers **Review service replacement**, which opens the same confirmation page only when you ask for it; the launch-time **Use the app's service** page is unchanged for a service the app owns. Once you confirm, the app records that you chose its service, so it stops running your own command for its sign-in.
