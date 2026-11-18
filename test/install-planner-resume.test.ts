@@ -83,12 +83,14 @@ test("executor state and secrets stay out of the resumed environment", async () 
     PACER_REPORT_TOKEN: "rep", PACER_TRANSCRIPT_REPORT: "/run/x/report", PACER_AUTH_TOKEN: "auth",
     PACER_HOST_SOCKET: "/sock", PACER_INTERNAL_TOKEN: "core-secret", PACER_HOST_SOCKET_KEY: "owner-key",
     CLAUDE_CODE_SESSION_ID: "other", CODEX_THREAD_ID: "other-thread",
+    PACER_ADMISSION_ID: "adm", PACER_ADMISSION_SIGNATURE: "sig", PACER_COMPLETION_NONCE: "nonce",
   } });
   expect(await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("resumed");
   const env = calls[0]!.env;
   for (const k of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_RUN_DIR", "PACER_REPORT_TOKEN",
     "PACER_TRANSCRIPT_REPORT", "PACER_AUTH_TOKEN", "PACER_HOST_SOCKET", "PACER_INTERNAL_TOKEN",
-    "PACER_HOST_SOCKET_KEY", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]) expect(env[k]).toBeUndefined();
+    "PACER_HOST_SOCKET_KEY", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID",
+    "PACER_ADMISSION_ID", "PACER_ADMISSION_SIGNATURE", "PACER_COMPLETION_NONCE"]) expect(env[k]).toBeUndefined();
   expect(env.PACER_PLANNER_SESSION).toBe("claude-code:a1b2");
   expect(env.PACER_PORT).toBe(ctx.env.PACER_PORT);
 });

@@ -37,9 +37,9 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
  */
 export function plannerResumeEnv(base: Record<string, string | undefined>): Record<string, string | undefined> {
   const env = withoutPlannerSession(base);
-  for (const k of Object.keys(env)) if (/_TOKEN$/.test(k)) delete env[k];
+  for (const k of Object.keys(env)) if (/_TOKEN$/.test(k) || k.startsWith("PACER_ADMISSION_")) delete env[k];
   for (const k of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_RUN_DIR", "PACER_TRANSCRIPT_REPORT",
-    "PACER_HOST_SOCKET", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]) delete env[k];
+    "PACER_HOST_SOCKET", "PACER_COMPLETION_NONCE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]) delete env[k];
   for (const name of CORE_SECRET_ENV) delete env[name];
   return env;
 }
