@@ -29,12 +29,13 @@ const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", 
 /** States in which a task is settled or waiting, so its caller still owes the next move. */
 const DECISION_STATES = ["done", "partial", "failed", "limit", "needs_input"] as const;
 /**
- * A settled task that owes its caller a verdict, an answer or a stop: no review yet, not superseded by a
- * retry, not dismissed, and started by a real caller rather than an executor subtask.
+ * A settled task that owes its planner caller a verdict, an answer or a stop: no review yet, not superseded by
+ * a retry, not dismissed, not handed to the human, and started by a planner. A human caller already gets the
+ * task's own review item, so it is never part of the caller ladder.
  */
 export function owesDecision(t: TaskRecord): boolean {
   return (DECISION_STATES as readonly string[]).includes(t.state) && !t.review && !t.retriedBy && !t.dismissed
-    && (t.origin === "human" || !!t.origin?.startsWith("external:"));
+    && !t.reviewRequest && !t.resolved && !!t.origin?.startsWith("external:");
 }
 /** Phases in which a running task is idle (its own stall), waiting on someone else, being driven, or in pacer's own acceptance run. */
 const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving", "testing"]);

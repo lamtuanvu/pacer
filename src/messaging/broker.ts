@@ -31,7 +31,9 @@ function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildS
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
   // A spinner moves lastOutputAt every tick; a no-progress stall resets only on progress.
   const moved = stall.reason === "no_progress" ? n?.lastProgressAt : task?.progress?.lastOutputAt;
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id]);
+  // A caller's ladder restarts when another of its tasks settles, so each pending decision gets wakes.
+  const pending = stall.reason === "caller_decision" ? stall.blocking : undefined;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending]);
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
@@ -74,6 +76,13 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           node, reason: stall.reason, since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now : ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
+        // A people node keeps its alert when its stall moves between unread messages and an owed decision,
+        // or when another decision joins: the wakes restart, the escalation does not.
+        const people = (r?: string) => r === "unread_external" || r === "unread_human" || r === "caller_decision";
+        if (old && changed && people(old.reason) && people(stall.reason)) {
+          if (old.reason !== stall.reason) row.since = Math.min(old.since, row.since);
+          row.stalledAt = old.stalledAt ?? row.stalledAt; row.escalatedAt = old.escalatedAt ?? row.escalatedAt;
+        }
         row.reason = stall.reason;
         const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress";
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
@@ -144,9 +153,13 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           if (!allowed) notify();
           else if (!due || row.nudges >= config.max_nudges) { if (escalate) notify(); }
           else {
-            const task = snapshot.tasks.find(n => n.task.origin === node && owesDecision(n.task))?.task;
-            const question = task ? snapshot.questions.find(m => m.taskId === task.id && m.to === node)?.id : undefined;
-            const text = task && (task.state !== "needs_input" || question) ? callerText(task, question) : null;
+            // The oldest pending decision the caller can be reached for and told about.
+            const wakeable = snapshot.tasks.map(n => n.task).filter(t => t.origin === node && owesDecision(t) && t.callerReach)
+              .sort((a, b) => (a.settledAt ?? 0) - (b.settledAt ?? 0) || a.id.localeCompare(b.id))
+              .map(t => ({ t, q: snapshot.questions.find(m => m.taskId === t.id && m.to === node)?.id }))
+              .find(({ t, q }) => t.state !== "needs_input" || q);
+            const task = wakeable?.t, question = wakeable?.q;
+            const text = task ? callerText(task, question) : null;
             const reach = task?.callerReach;
             const wake = deps.callerWake;
             const taskId = task?.id ?? "";

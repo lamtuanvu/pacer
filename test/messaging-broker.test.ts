@@ -332,10 +332,10 @@ test("strict mode escalates a no_progress stall instead of pinging it", async ()
 
 const callerMode = async () => "normal" as const;
 
-function callerTask(ctx: ReturnType<typeof fakeCtx>, origin = "external:claude-code:s1", terminalKind = "orca") {
+function callerTask(ctx: ReturnType<typeof fakeCtx>, origin = "external:claude-code:s1", terminalKind = "orca", settledAt = ctx.now) {
   const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, task.id, t => {
-    t.state = "done";
+    t.state = "done"; t.settledAt = settledAt;
     t.origin = origin;
     if (origin !== "human") {
       t.callerReach = { participant: origin, session: "s1", cwd: tmpDir(), terminal: { kind: terminalKind as "orca", handle: "term_x" }, at: ctx.now } as CallerReach;
@@ -520,4 +520,51 @@ test("strict mode never resumes", async () => {
     expect(aliveSpy).not.toHaveBeenCalled();
     expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(ctx.now);
   } finally { aliveSpy.mockRestore(); }
+});
+
+test("a task that settles later restores the wake budget", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const callerWake = async () => "sent" as const;
+  try {
+    for (const at of [0, 300, 600, 1200, 2400]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(3);
+    callerTask({ ...ctx, now: ctx.now + 2500 }, node, "orca", ctx.now + 2500);
+    await brokerTick({ ...ctx, now: ctx.now + 2500 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(0);
+    await brokerTick({ ...ctx, now: ctx.now + 2800 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("the wake names the oldest task with a reach", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  // The store stamps settledAt when a task settles, so each task settles at its own clock.
+  const at = (dt: number) => ({ ...ctx, now: ctx.now + dt });
+  const noReach = callerTask(at(-50), "external:claude-code:s1", "orca", ctx.now - 50);
+  updateTask(ctx, noReach.id, t => { delete t.callerReach; });
+  const older = callerTask(at(-40), "external:claude-code:s1", "orca", ctx.now - 40);
+  callerTask(at(-10), "external:claude-code:s1", "orca", ctx.now - 10);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, text: string) => { calls.push(text); return "sent" as const; };
+  try {
+    for (const at of [0, 300]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode, callerWake });
+    expect(calls).toEqual([expect.stringContaining(`task ${older.id} is done`)]);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("an escalation survives the switch to caller_decision and back", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.origin = node; });
+  insertMessage(ctx, { taskId: task.id, rootId: `task:${task.id}`, from: `task:${task.id}`, to: node, kind: "message", body: "fyi", replyTo: null, requestId: "fyi" });
+  await brokerTick(ctx, { mode: callerMode });
+  await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode });
+  const escalated = getLiveness(ctx, node)!;
+  expect(escalated).toMatchObject({ reason: "unread_external", escalatedAt: ctx.now + 900 });
+  updateTask(ctx, task.id, t => { t.state = "done"; t.settledAt = ctx.now + 950; });
+  await brokerTick({ ...ctx, now: ctx.now + 960 }, { mode: callerMode });
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "caller_decision", escalatedAt: escalated.escalatedAt, since: escalated.since });
 });

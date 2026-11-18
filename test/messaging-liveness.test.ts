@@ -71,8 +71,7 @@ test("a settled task owes its caller a decision", () => {
   const owed = task("t-a", { origin: "external:planner" });
   expect(analyzeLiveness(snap({ tasks: [node(owed)] }), NOW))
     .toEqual([{ node: "external:planner", reason: "caller_decision", blocking: ["task:t-a"] }]);
-  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "human" }), { parent: "human" })] }), NOW))
-    .toEqual([{ node: "human", reason: "caller_decision", blocking: ["task:t-a"] }]);
+
   // A running task, a retried task and a caller that already wrote owe nothing yet.
   expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", state: "running" }))] }), NOW)).toEqual([]);
   expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", retriedBy: "t-b" }))] }), NOW)).toEqual([]);
@@ -218,4 +217,15 @@ test("buildSnapshot reads open tasks, unread messages and unanswered questions",
   expect(s.questions.map(m => m.id)).toEqual([q.id]);
   expect(s.unread.map(m => m.kind).sort()).toEqual(["answer", "question"]);
   expect(s.retryDelivery).toBe(true);
+});
+
+test("a human-origin task does not raise caller_decision", () => {
+  // A human already gets the task's own review item; only planner callers are woken.
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "human" }), { parent: "human" })] }), NOW)).toEqual([]);
+});
+
+test("a task handed to the human does not owe the caller a decision", () => {
+  const handed = task("t-a", { origin: "external:planner", reviewRequest: { note: "please look", at: 1 } } as never);
+  const resolved = task("t-b", { origin: "external:planner", resolved: "human" } as never);
+  expect(analyzeLiveness(snap({ tasks: [node(handed), node(resolved)] }), NOW)).toEqual([]);
 });
