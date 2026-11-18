@@ -903,7 +903,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
      Executors 2 down           │ › Version                   0.3.1  Update available: 0.3.2  ⏎ check now              
      This machine               │                             Update and restart                                       
      Remote hosts 1 needs setup │   Check for updates         On  once a day, in the background                        
-     Routing                    │ 
+     Routing                    │   Update channel            ‹ Stable ›                                               
      Project strategies         │ 
      Strategies                 │ 
    ▸ Updates                    │ 
@@ -934,7 +934,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 120x40 1`] = `
                                 │ 
  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────────────
  
- ⏎ Check now  Esc sections  ? help                                                   policy: unknown · pacer 0.0.0-test"
+ ⏎ Check now  ← → change  Esc sections  ? help                                       policy: unknown · pacer 0.0.0-test"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
@@ -946,7 +946,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
  › Version                   0.3.1  Update available: 0.3.2  ⏎ check now       
                              Update and restart                                
    Check for updates         On  once a day, in the background                 
- 
+   Update channel            ‹ Stable ›                                        
  
  
  
@@ -961,7 +961,7 @@ exports[`golden frames (NO_COLOR) settings › Updates at 80x24 1`] = `
  
  ──────────────────────────────────────────────────────────────────────────────
  
- ⏎ Check now  Esc sections  ? help           policy: unknown · pacer 0.0.0-test"
+ ⏎ Check now  ← → change  Esc sections  ? help                  policy: unknown"
 `;
 
 exports[`golden frames (NO_COLOR) settings › Notifications at 120x40 1`] = `

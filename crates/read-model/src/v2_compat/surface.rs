@@ -214,6 +214,13 @@ pub fn op_schemas(input: &Value) -> Value {
             map.shift_remove(field);
         }
     }
+    // `update_channel` is a protocol 3 addition; 2.x keeps its frozen config.set keys.
+    if let Some(keys) = out
+        .pointer_mut("/config.set/params/properties/key/enum")
+        .and_then(Value::as_array_mut)
+    {
+        keys.retain(|key| key != "update_channel");
+    }
     out["task.list"]["description"] = json!(
         "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0."
     );
