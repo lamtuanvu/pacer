@@ -12,21 +12,47 @@ The selection and reason appear in the job summary.
 | Generated protocol documentation | Bun freshness/tests/typecheck/build |
 | `app/`, embedded app assets | Bun checks, browser e2e, UI policy and PR review evidence, CodeQL |
 | TUI rendering and shared view-model | Bun checks, UI policy and PR review evidence, CodeQL |
-| Audited source modifications on PRs | Mapped tests, typecheck/build, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
+| Audited source modifications on PRs | Mapped tests, build, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
 | Other `src/` core/service paths | Full Bun suite, Rust integration/conformance, install/sign-in/delegation e2e, CodeQL |
 | Rust workspace/crates/xtask/config | Rust workspace validation plus Bun conformance/build and e2e coverage |
 | TS plugins/SDK | Bun and Rust conformance, e2e, CodeQL |
 | Tests | Bun and CodeQL; fixtures, shared test helpers/setup and install e2e tests also select e2e |
 | Conformance | Bun, Rust and e2e |
 | Desktop presentation/native files | Bun parity tests and UI evidence, CodeQL; native builds remain in manual/release workflows |
-| Mapped CI and workflow files only | Focused CI/release tests, typecheck, UI source checks and host artifact smoke |
+| Mapped CI and workflow files only | Focused CI/release tests, UI source checks, build and host artifact smoke |
 | Shared inputs, other scripts or unmapped files | Full validation |
 
-Pull requests run only the OS-independent logic tests on Linux. `Test (macos-latest)`
-keeps its required name but runs on Ubuntu and skips every step except the readiness
-gate on PRs, `Rust` runs only on `ubuntu-latest`, and the OS-specific `Install, sign-in
-and delegation (macOS)` and `Linux service restart keeps running work` jobs skip.
-Main pushes, scheduled and manual runs keep the full macOS and Linux matrix and the
+General tests run on Linux and macOS-specific tests run on macOS, on pull requests,
+main pushes, scheduled and manual runs alike:
+
+- `Typecheck, UI policy and build` runs the UI source check, `bun run build` and the
+  artifact smoke test once per workflow, and the typecheck only when the full suite is
+  selected.
+- `Test (ubuntu-latest, shard N)` splits the full suite across eight Linux shards. A
+  focused or documentation-only run uses a single shard.
+- `Test (macos-latest, macOS-specific)` runs only the files that
+  `scripts/ci/macos-tests.txt` marks `only` or `mixed`, whenever the full suite is selected.
+
+`scripts/ci/shard-tests.py` packs files into shards by the durations in
+`scripts/ci/test-timings.json`; a file without a recorded duration counts as the
+median. To refresh the durations, save each Linux shard's log from a full CI run with
+`gh run view --job <job-id> --log > <dir>/shard<N>.log`, then run
+`python3 scripts/ci/extract-test-timings.py <dir> scripts/ci/test-timings.json`.
+Entries for test files split after the last refresh are estimates: the original file's
+CI time, shared out in proportion to local timings. The next refresh replaces them.
+
+Each shard builds its own Rust test binaries. With a warm cache those builds take about
+33 seconds per shard, and the shards still need the toolchain because many parity tests
+run `cargo build` themselves, so a prerequisite build job would lengthen the run.
+
+The manifest marks each file that checks for darwin. `only` files need macOS for every
+test and leave the Linux shards, `mixed` files run on both, and `linux` files only pick
+per-OS expectations and stay on Linux. `test/ci-sharding.test.ts` fails when a file that
+checks for darwin is not listed.
+
+`Rust` runs only on `ubuntu-latest` for pull requests, and the OS-specific `Install,
+sign-in and delegation (macOS)` and `Linux service restart keeps running work` jobs skip
+on pull requests. Main pushes, scheduled and manual runs add `Rust` on macOS and those
 OS-specific jobs, using the selection above.
 
 The `Linux service restart keeps running work` job runs in full mode when Bun checks are selected outside PRs. It records UNVERIFIED instead of failing when the runner has no user service manager.
@@ -36,7 +62,9 @@ Bun builds still compile the Rust front door and build fixture plugins where
 required. Native desktop validation is not replaced by the Bun checks.
 
 Existing `Test (ubuntu-latest)` and `Test (macos-latest)` names remain always-running
-gates. Both use Ubuntu for documentation-only runs and pull requests, avoiding macOS allocation.
+gates on Ubuntu. Each passes only when change detection, every selected shard, the
+build job and the macOS job passed. Release publication requires both gates and also
+checks that the Linux shards and the macOS job executed their test steps.
 Documentation changes only run their inexpensive readiness step; they do
 not set up toolchains, install dependencies or compile. That gate rejects failed
 change detection and any required failed/missing UI or release evidence. Rust/e2e
@@ -48,7 +76,7 @@ replacing a failed check for the same SHA with an untested success.
 
 Full-history Gitleaks remains unconditional. CodeQL retains full scheduled/manual
 scans; PR/push scans are selected by area. Tags and manual release/desktop jobs
-retain their complete validation. For mapped CI-only changes focused mode skips the full Bun suite, Rust checks and e2e. For mapped source changes only the full Bun suite and Linux service survival job are deferred; Rust and e2e still run. Both focused modes retain typecheck, UI source checks, builds and host artifact smoke tests. Rust clean/incremental build timings run on main
+retain their complete validation. For mapped CI-only changes focused mode skips the full Bun suite, Rust checks and e2e. For mapped source changes only the full Bun suite and Linux service survival job are deferred; Rust and e2e still run. Both focused modes retain UI source checks, builds and host artifact smoke tests; they skip the typecheck, which runs only with the full suite. Rust clean/incremental build timings run on main
 pushes affecting Rust, rather than paying for another clean build on every PR.
 No branch protection settings are changed. A classifier failure fails the existing
 Test gates; a diff that cannot be resolved falls back to full work.

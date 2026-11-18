@@ -1,10 +1,14 @@
 import { expect, test } from "bun:test";
 import { readFileSync } from "node:fs";
-import { awaitCiEvidence, fullSuitePassed, SUITE_JOBS, SUITE_STEP, type Ci, type CiJob, type CiRun } from "../scripts/release/ci-evidence";
+import { awaitCiEvidence, fullSuitePassed, GATE_JOBS, LINUX_SHARD_PREFIX, MACOS_JOB, MACOS_STEP, SUITE_STEP, type Ci, type CiJob, type CiRun } from "../scripts/release/ci-evidence";
 
 const SHA = "a".repeat(40);
-const suite = (conclusion: string | null = "success", skip?: string, job = conclusion === "skipped" ? "success" : conclusion): CiJob[] =>
-  SUITE_JOBS.filter(name => name !== skip).map(name => ({ name, conclusion: job, steps: [{ name: "Set up job", conclusion: "success" }, { name: SUITE_STEP, conclusion }] }));
+const SHARDS = [0, 1, 2].map(shard => `${LINUX_SHARD_PREFIX}${shard})`);
+const suite = (conclusion: string | null = "success", skip?: string, job = conclusion === "skipped" ? "success" : conclusion): CiJob[] => [
+  ...GATE_JOBS.map(name => ({ name, conclusion: "success" })),
+  ...SHARDS.map(name => ({ name, conclusion: job, steps: [{ name: "Set up job", conclusion: "success" }, { name: SUITE_STEP, conclusion }] })),
+  { name: MACOS_JOB, conclusion: "success", steps: [{ name: MACOS_STEP, conclusion: "success" }] },
+].filter(item => item.name !== skip);
 const ciRun = (id: number, event: string, status = "completed", created = 0): CiRun =>
   ({ id, event, status, conclusion: status === "completed" ? "success" : null, created_at: new Date(created).toISOString(), html_url: `run/${id}` });
 
@@ -22,21 +26,34 @@ function fake(script: (tick: number, dispatched: number | undefined) => CiRun[],
   return { ci, refs };
 }
 
-test("only an executed, passing suite step on all eight shards counts", () => {
-  expect(SUITE_JOBS).toHaveLength(8);
+test("only passing gates, executed Linux shards and an executed macOS job count", () => {
   expect(fullSuitePassed(suite())).toBe(true);
   expect(fullSuitePassed(suite("skipped"))).toBe(false);
   expect(fullSuitePassed(suite("failure"))).toBe(false);
-  expect(fullSuitePassed(suite("success", "Test (macos-latest, shard 3)"))).toBe(false);
   expect(fullSuitePassed(suite("success", undefined, "failure"))).toBe(false);
+  for (const missing of [...GATE_JOBS, MACOS_JOB]) expect(fullSuitePassed(suite("success", missing))).toBe(false);
+  const change = (name: string, patch: Partial<CiJob>) => suite().map(job => job.name === name ? { ...job, ...patch } : job);
+  for (const gate of GATE_JOBS) expect(fullSuitePassed(change(gate, { conclusion: "failure" }))).toBe(false);
+  expect(fullSuitePassed(change(MACOS_JOB, { conclusion: "failure" }))).toBe(false);
+  expect(fullSuitePassed(change(MACOS_JOB, { steps: [{ name: MACOS_STEP, conclusion: "skipped" }] }))).toBe(false);
 });
 
-test("the required job and step names match CI's test matrix", () => {
-  const test = (Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any).jobs.test;
-  const names = test.strategy.matrix.os.flatMap((os: string) => test.strategy.matrix.shard.map((shard: number) =>
-    test.name.replace("${{ matrix.os }}", os).replace("${{ matrix.shard }}", String(shard))));
-  expect(names.sort()).toEqual([...SUITE_JOBS].sort());
-  expect(test.steps.map((step: any) => step.name)).toContain(SUITE_STEP);
+test("the shard count can change, but a run without any Linux shard never counts", () => {
+  const others = suite().filter(job => !job.name.startsWith(LINUX_SHARD_PREFIX));
+  const shard = (index: number): CiJob => ({ name: `${LINUX_SHARD_PREFIX}${index})`, conclusion: "success", steps: [{ name: SUITE_STEP, conclusion: "success" }] });
+  for (const count of [1, 8, 16]) expect(fullSuitePassed([...others, ...Array.from({ length: count }, (_, index) => shard(index))])).toBe(true);
+  expect(fullSuitePassed(others)).toBe(false);
+  // A documentation-only run passes both gates and the single shard's job without executing the suite.
+  expect(fullSuitePassed([...others.filter(job => job.name !== MACOS_JOB), { ...shard(0), steps: [{ name: SUITE_STEP, conclusion: "skipped" }] }])).toBe(false);
+});
+
+test("the required job and step names match CI's jobs", () => {
+  const jobs = (Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any).jobs;
+  expect(jobs.test.name.replace("${{ matrix.os }}", jobs.test.strategy.matrix.os[0]).replace("${{ matrix.shard }})", "")).toBe(LINUX_SHARD_PREFIX);
+  expect(jobs.test.steps.map((step: any) => step.name)).toContain(SUITE_STEP);
+  expect(jobs["macos-tests"].name).toBe(MACOS_JOB);
+  expect(jobs["macos-tests"].steps.map((step: any) => step.name)).toContain(MACOS_STEP);
+  expect(jobs["test-result"].strategy.matrix.os.map((os: string) => jobs["test-result"].name.replace("${{ matrix.os }}", os)).sort()).toEqual([...GATE_JOBS].sort());
 });
 
 test("an existing passing run is reused without dispatching", async () => {
@@ -77,7 +94,7 @@ test("a path-filtered run leads to one dispatch on the release ref", async () =>
 
 test("a failing dispatched run fails the gate without dispatching again", async () => {
   const { ci, refs } = fake((_, d) => d === undefined ? [] : [ciRun(7, "workflow_dispatch", "completed", d)], { 7: suite("failure") });
-  await expect(awaitCiEvidence(ci, SHA, "release/recovery-v1.2.3-abc", 1e9, () => {})).rejects.toThrow("finished without a passing full suite");
+  await expect(awaitCiEvidence(ci, SHA, "release/recovery-v1.2.3-abc", 1e9, () => {})).rejects.toThrow("finished without a passing Linux suite and macOS job");
   expect(refs).toHaveLength(1);
 });
 
@@ -158,6 +175,11 @@ test("a failed full suite on the commit skips instead of dispatching another run
   const { ci, refs } = fake(() => [ciRun(12, "push"), ciRun(13, "push")], { 12: suite("skipped"), 13: suite("failure") });
   await expect(awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).rejects.toThrow("it failed (run/13); not dispatching");
   expect(refs).toEqual([]);
+  // A failed macOS-specific suite is a result too.
+  const macFailed = suite().map(job => job.name === MACOS_JOB ? { ...job, conclusion: "failure", steps: [{ name: MACOS_STEP, conclusion: "failure" }] } : job);
+  const mac = fake(() => [ciRun(16, "push")], { 16: macFailed });
+  await expect(awaitCiEvidence(mac.ci, SHA, "main", 1e9, () => {})).rejects.toThrow("it failed (run/16); not dispatching");
+  expect(mac.refs).toEqual([]);
   // A suite that never ran (path filter, or a job that failed before the suite step) is no result, so CI is dispatched.
   const unrun = fake((_, d) => d === undefined ? [ciRun(14, "push")] : [ciRun(14, "push"), ciRun(15, "workflow_dispatch", "completed", d)],
     { 14: suite("skipped", undefined, "failure"), 15: suite() });

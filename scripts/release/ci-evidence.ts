@@ -1,7 +1,12 @@
 #!/usr/bin/env bun
-// Release publication relies on CI's full suite for the exact release commit instead of rerunning it.
+// Release publication relies on CI for the exact release commit instead of rerunning it: the full suite
+// on Linux and the macOS-specific files on macOS.
 export const SUITE_STEP = "Test (full suite, sharded)";
-export const SUITE_JOBS = ["ubuntu-latest", "macos-latest"].flatMap(os => [0, 1, 2, 3].map(shard => `Test (${os}, shard ${shard})`));
+/** The required checks; they also pass on documentation-only runs, so they are not sufficient alone. */
+export const GATE_JOBS = ["Test (ubuntu-latest)", "Test (macos-latest)"];
+export const LINUX_SHARD_PREFIX = "Test (ubuntu-latest, shard ";
+export const MACOS_JOB = "Test (macos-latest, macOS-specific)";
+export const MACOS_STEP = "Test (macOS-specific files)";
 
 export type CiRun = { id: number; event: string; status: string; conclusion: string | null; created_at: string; html_url: string };
 export type CiJob = { name: string; conclusion: string | null; steps?: { name: string; conclusion: string | null }[] };
@@ -14,14 +19,20 @@ export type Ci = {
   now(): number;
 };
 
-/** Path-filtered and pull-request runs skip the suite step, so only an executed, passing step in a passing job counts. */
+const ran = (job: CiJob, step: string) => job.conclusion === "success" && job.steps?.some(item => item.name === step && item.conclusion === "success") === true;
+
+/** Both gates passed and the suite really executed: every Linux shard, however many there are, and the macOS job. */
 export function fullSuitePassed(jobs: CiJob[]): boolean {
-  return SUITE_JOBS.every(name => jobs.some(job => job.name === name && job.conclusion === "success" && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "success")));
+  const shards = jobs.filter(job => job.name.startsWith(LINUX_SHARD_PREFIX));
+  return GATE_JOBS.every(name => jobs.some(job => job.name === name && job.conclusion === "success"))
+    && shards.length > 0 && shards.every(job => ran(job, SUITE_STEP))
+    && jobs.some(job => job.name === MACOS_JOB && ran(job, MACOS_STEP));
 }
 
 /** A suite step that ran and failed is a full-suite result; a skipped or missing step (path filter, earlier failure) is not. */
 export function fullSuiteFailed(jobs: CiJob[]): boolean {
-  return jobs.some(job => SUITE_JOBS.includes(job.name) && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "failure"));
+  const failedStep = (job: CiJob, step: string) => job.steps?.some(item => item.name === step && item.conclusion === "failure") === true;
+  return jobs.some(job => (job.name.startsWith(LINUX_SHARD_PREFIX) && failedStep(job, SUITE_STEP)) || (job.name === MACOS_JOB && failedStep(job, MACOS_STEP)));
 }
 
 /** A dispatched run normally appears within seconds; past this grace, a moved ref means the dispatch tested another commit. */
@@ -41,13 +52,13 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
       const jobs = await ci.jobs(run.id);
       if (fullSuitePassed(jobs)) return run;
       if (fullSuiteFailed(jobs)) failed = run.html_url;
-      log(`CI run without a passing full suite on both OSes: ${run.html_url}`);
+      log(`CI run without a passing Linux suite and macOS job: ${run.html_url}`);
     }
     const pending = runs.filter(run => run.status !== "completed");
     for (const run of pending) checked.delete(run.id);
     if (pending.length) log(`Waiting for CI: ${pending.map(run => run.html_url).join(", ")}`);
     else if (!options.dispatch) {
-      throw Error(`no CI evidence for ${sha}: no CI run passed the full suite on both OSes, and dispatch is off`);
+      throw Error(`no CI evidence for ${sha}: no CI run passed the Linux suite and macOS job, and dispatch is off`);
     } else if (failed && dispatchedAt === undefined) {
       // A failed full suite is the answer for this commit: dispatching again would retry until it passes.
       throw Error(`CI ran the full suite on ${sha} and it failed (${failed}); not dispatching another run`);
@@ -58,7 +69,7 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
       await ci.dispatch(ref);
       dispatchedAt = ci.now();
     } else if (runs.some(run => run.event === "workflow_dispatch" && Date.parse(run.created_at) >= dispatchedAt! - 60_000)) {
-      throw Error(`Dispatched CI for ${sha} finished without a passing full suite on both OSes`);
+      throw Error(`Dispatched CI for ${sha} finished without a passing Linux suite and macOS job`);
     } else if (ci.now() - dispatchedAt >= DISPATCH_GRACE_MS) {
       // No run on the commit appeared after the dispatch: if the ref moved, the dispatch ran on another commit.
       const head = await ci.refSha(ref);
@@ -94,5 +105,5 @@ if (import.meta.main) {
   if (dispatch && !ref) throw Error("CI_REF is required unless CI_NO_DISPATCH=1");
   const minutes = Number(process.env.CI_EVIDENCE_MINUTES ?? 140);
   const run = await awaitCiEvidence(githubCi(repo), sha, ref ?? sha, Date.now() + minutes * 60_000, console.log, { dispatch });
-  console.log(`CI passed the full suite on both OSes for ${sha}: ${run.html_url}`);
+  console.log(`CI passed the Linux suite and macOS job for ${sha}: ${run.html_url}`);
 }

@@ -185,7 +185,7 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(suite.needs).toBe("verify");
   expect((suite as any).if).toBeUndefined();
   expect((suite as any).permissions).toEqual({ contents: "read", actions: "write" });
-  const evidence = suite.steps.find(s => s.name === "Require CI's full suite on both OSes for this commit")!;
+  const evidence = suite.steps.find(s => s.name === "Require CI's Linux and macOS test gates for this commit")!;
   expect(evidence.if).toBeUndefined();
   expect((evidence as any)["continue-on-error"]).toBeUndefined();
   expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");

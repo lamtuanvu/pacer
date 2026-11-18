@@ -87,17 +87,18 @@ async function exercise(forward: boolean, mode: "success" | "retry" | "ambiguous
   } finally { viewer?.destroy(); server.close(); killTree(proc.pid, "SIGKILL"); await proc.exited; }
 }
 
+/** The native and forwarded sides own separate homes, sessions and sockets, so they run side by side. */
+const bothSides = (mode?: Parameters<typeof exercise>[1]) => Promise.all([exercise(false, mode), exercise(true, mode)]);
+
 test.skipIf(!front)("native front door delivers an answer to a waiting live question like the forwarded core", async () => {
-  const native = await exercise(false);
-  const forwarded = await exercise(true);
+  const [native, forwarded] = await bothSides();
   expect(forwarded).toEqual({ first: { delivery: "live", error: undefined, duplicate: false }, second: undefined, answer: "main", typed: 1, pending: 0 });
   expect(native).toEqual(forwarded);
 }, 30000);
 
 for (const mode of ["retry", "ambiguous", "stale"] as const) {
   test.skipIf(!front)(`native front door matches forwarded ${mode} answer behavior`, async () => {
-    const native = await exercise(false, mode);
-    const forwarded = await exercise(true, mode);
+    const [native, forwarded] = await bothSides(mode);
     expect(native).toEqual(forwarded);
     if (mode === "retry") {
       expect(native.first.error).toContain("controlled from Pacer desktop");
@@ -117,8 +118,7 @@ for (const mode of ["retry", "ambiguous", "stale"] as const) {
 }
 
 for (const mode of ["legacy", "legacy-read"] as const) test.skipIf(!front)(`${mode} duplicate answer redelivery matches Core`, async () => {
-  const native = await exercise(false, mode);
-  const forwarded = await exercise(true, mode);
+  const [native, forwarded] = await bothSides(mode);
   expect(forwarded.first).toEqual({ delivery: "live", error: undefined, duplicate: true });
   expect(forwarded.answer).toBe("main");
   expect(forwarded.typed).toBe(1);

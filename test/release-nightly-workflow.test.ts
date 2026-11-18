@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { appendFileSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { NIGHTLY_STAMP_FILES } from "../scripts/release/nightly";
-import { SUITE_JOBS, SUITE_STEP } from "../scripts/release/ci-evidence";
+import { GATE_JOBS, LINUX_SHARD_PREFIX, MACOS_JOB, MACOS_STEP, SUITE_STEP } from "../scripts/release/ci-evidence";
 import { tmpDir } from "./helpers";
 
 interface Step { name?: string; id?: string; uses?: string; if?: string; run?: string; env?: Record<string, string>; with?: Record<string, unknown> }
@@ -110,11 +110,11 @@ test("one nightly at a time, least privilege, and the release token only where a
   expect(push.if).toBe("steps.skip.outputs.skip != 'true' && !inputs.dry_run");
   expect(stepNamed("Report failure").if).toBe("failure() && !inputs.dry_run");
   expect(stepNamed("Report failure").env?.GH_TOKEN).toBe("${{ github.token }}");
-  const gate = stepNamed("Require CI's full suite on both OSes for the commit");
+  const gate = stepNamed("Require CI's Linux and macOS test gates for the commit");
   expect(gate.run).toBe("bun scripts/release/ci-evidence.ts");
   expect(gate.env).toEqual({ GH_TOKEN: "${{ github.token }}", CI_SHA: "${{ steps.select.outputs.target }}", CI_REF: "main", CI_EVIDENCE_MINUTES: "90" });
   const names = nightly.steps.map(s => s.name ?? s.uses ?? s.run);
-  const order = ["Require main and the release token", "Select the main commit", "Skip unchanged", "Require CI's full suite on both OSes for the commit", "Pick the nightly version", "Commit as the token's owner", "Stamp the nightly version", "Tag and push", "Report failure"];
+  const order = ["Require main and the release token", "Select the main commit", "Skip unchanged", "Require CI's Linux and macOS test gates for the commit", "Pick the nightly version", "Commit as the token's owner", "Stamp the nightly version", "Tag and push", "Report failure"];
   expect(order.map(name => names.indexOf(name))).toEqual([...order.map(name => names.indexOf(name))].sort((a, b) => a - b));
   expect(order.every(name => names.includes(name))).toBe(true);
   // After a skip, nothing else runs.
@@ -192,7 +192,11 @@ test("Skip unchanged skips a scheduled run on the last nightly's parent, never a
  */
 function fakeCiGh(work: string, sha: string, head: string) {
   const log = join(work, "gh.log"), dir = join(work, "bin");
-  const jobs = SUITE_JOBS.map(name => ({ name, conclusion: "success", steps: [{ name: SUITE_STEP, conclusion: "skipped" }] }));
+  const jobs = [
+    ...GATE_JOBS.map(name => ({ name, conclusion: "success", steps: [] })),
+    ...[0, 1, 2, 3, 4, 5, 6, 7].map(i => ({ name: `${LINUX_SHARD_PREFIX}${i})`, conclusion: "success", steps: [{ name: SUITE_STEP, conclusion: "skipped" }] })),
+    { name: MACOS_JOB, conclusion: "success", steps: [{ name: MACOS_STEP, conclusion: "skipped" }] },
+  ];
   writeFileSync(join(dir, "runs.json"), JSON.stringify({ workflow_runs: [{ id: 5, event: "push", status: "completed", conclusion: "success", created_at: new Date(0).toISOString(), html_url: "run/5" }] }));
   writeFileSync(join(dir, "jobs.json"), JSON.stringify([{ jobs }]));
   writeFileSync(join(dir, "gh"), `#!/bin/sh
@@ -209,7 +213,7 @@ esac
 
 test("the CI gate dispatches CI on main when main's head has no full-suite run, and fails if main moved", () => {
   const { work, sha } = fixture();
-  const gate = stepNamed("Require CI's full suite on both OSes for the commit");
+  const gate = stepNamed("Require CI's Linux and macOS test gates for the commit");
   // The step's literal env as written, with the selected commit for CI_SHA.
   const env = { ...Object.fromEntries(Object.entries(gate.env!).filter(([, value]) => !value.includes("${{"))), CI_SHA: sha };
   // main still points at the commit: one dispatch of CI on main (the fake gh then stops the gate).

@@ -1,0 +1,45 @@
+# Test files that depend on macOS. Lines are `<kind> <file>`.
+#   only   every test needs macOS; the macOS job runs it and Linux shards leave it out
+#   mixed  has macOS-gated tests and general tests; both the macOS job and Linux run it
+#   linux  checks for darwin only to pick per-OS expectations; stays on Linux
+# `python3 scripts/ci/shard-tests.py --check-macos-manifest` fails when a file that
+# checks for darwin is not listed, so each new one gets classified here.
+
+only test/core-secrets-paired.test.ts
+only test/desktop-native-parent-channels.test.ts
+only test/desktop-self-signed-authority.test.ts
+only test/desktop-update-helper-channel.test.ts
+only test/desktop-update-helper-failure.test.ts
+only test/desktop-update-helper-receipt.test.ts
+only test/desktop-update-native-compiled.test.ts
+only test/live-control-native-observer.test.ts
+only test/live-control-permission-chip.test.ts
+only test/live-ota-control-resolver.test.ts
+only test/native-helper-request-timing.test.ts
+only test/native-listener-handoff.test.ts
+
+mixed test/desktop-disk-image.test.ts
+mixed test/desktop-native-paired-bootstrap.test.ts
+mixed test/desktop-update-native.test.ts
+mixed test/identity-per-home.test.ts
+mixed test/live-control-browser.test.ts
+mixed test/live-harness.test.ts
+mixed test/live-ota-build.test.ts
+mixed test/live-ota-paired-build.test.ts
+mixed test/live-ota.test.ts
+mixed test/plugins-claimed-bundle.test.ts
+mixed test/real-install-guard.test.ts
+mixed test/session-service.test.ts
+
+linux test/api-ops-config.test.ts
+linux test/api-read-model-summary.test.ts
+linux test/app-immediate-save-browser.test.tsx
+linux test/app-pacing-browser.test.ts
+linux test/app-terminal-browser.test.ts
+mixed test/commands-account-wizard.test.ts
+linux test/install-ownership-handback.test.ts
+linux test/native-dispatch.test.ts
+linux test/native-plugin-ops-stdio.test.ts
+mixed test/native-service-update-parity.test.ts
+linux test/plugins-planner-paths.test.ts
+linux test/setup-health-op.test.ts

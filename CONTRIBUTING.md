@@ -60,7 +60,7 @@ The workflow then does the rest, all on one commit:
 1. It pins the commit to release: `main`'s head when the run starts, or the commit you enter (it must be on `main`). Nothing merged to `main` afterwards affects this release.
 2. It picks the version. If the pinned commit's `package.json` version has no tag yet (its bump merged earlier), that version is released as is. Otherwise `scripts/release/next-version.ts` picks the next version and requires at least one commit since the tag.
 3. For a new version, `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section. It commits `chore: release <version>` (DCO-signed) on top of the pinned commit. That commit is not pushed to `main`.
-4. It tags that commit `v<version>` and pushes only the tag. The tag runs `release.yml`, which typechecks and tests, builds every platform, requires CI's full suite on both OSes for the tagged commit (dispatching CI on the tag when none has run) and publishes. All of it runs from the tag.
+4. It tags that commit `v<version>` and pushes only the tag. The tag runs `release.yml`, which typechecks and tests, builds every platform, requires CI's Linux full suite and macOS-specific suite for the tagged commit (dispatching CI on the tag when none has run) and publishes. All of it runs from the tag.
 5. It opens a `chore: release <version>` bookkeeping PR from `release/v<version>` to bring the bump to `main`, with auto-merge on. It's an ordinary PR under the usual required checks. The release doesn't wait for it, and merging it tags nothing.
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.

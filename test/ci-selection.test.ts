@@ -208,12 +208,13 @@ test("workflow selection retains full-history detection and full scheduled CodeQ
   expect(codeql.on.schedule.length).toBeGreaterThan(0);
   expect(codeql.jobs.analyze.if).toContain("needs.changes.result != 'success'");
   const ci = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
-  expect(ci.jobs.test["runs-on"]).toContain("|| 'ubuntu-24.04'");
-  // PRs run only Linux logic tests; required Test names stay, macOS work moves to main/schedule/dispatch.
-  const prLinuxOnly = "github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest'";
-  expect(ci.jobs.test.strategy.matrix.os).toEqual(["ubuntu-latest", "macos-latest"]);
-  expect(ci.jobs.test["runs-on"]).toContain(prLinuxOnly);
-  expect(ci.jobs.test.env.RUN_CHECKS).toContain(prLinuxOnly);
+  // General tests run on Linux shards; the required Test names stay on the aggregate job.
+  expect(ci.jobs.test["runs-on"]).toBe("ubuntu-24.04");
+  expect(ci.jobs.test.strategy.matrix.os).toEqual(["ubuntu-latest"]);
+  // Only macOS-specific files use a macOS runner, and only when the full suite is selected.
+  expect(ci.jobs["macos-tests"]["runs-on"]).toBe("macos-latest");
+  expect(ci.jobs["macos-tests"].if).toBe("${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' }}");
+  expect(ci.jobs["macos-tests"].steps.at(-1).run).toBe("bun run test:macos");
   expect(ci.jobs.rust.strategy.matrix.os).toContain("github.event_name == 'pull_request' && '[\"ubuntu-latest\"]'");
   expect(ci.jobs.rust.strategy.matrix.os).toContain("macos-latest");
   for (const job of ["e2e", "linux-service-survival"]) expect(ci.jobs[job].if).toContain("github.event_name != 'pull_request'");
