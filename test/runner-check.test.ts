@@ -48,7 +48,7 @@ function deps(): RunnerCheckDeps {
     runTestTask: async () => {},
   };
 }
-test("readiness passes all four steps and persists the last result", async () => {
+test("readiness passes all five steps and persists the last result", async () => {
   const ctx = setup();
   expect(readRunnerCheck(ctx, "codex#team")).toBeNull();
   const job = await checkRunner(ctx, "codex#team", deps());
@@ -57,6 +57,7 @@ test("readiness passes all four steps and persists the last result", async () =>
     {name: "CLI found", state: "passed", detail: "Codex on this Mac"},
     {name: "Signed in", state: "passed", detail: "Account team"},
     {name: "Usage readable", state: "passed", detail: "Weekly window · 3% used"},
+    {name: "Model offered", state: "skipped", detail: "No model list for this agent"},
     {name: "Test task", state: "passed", detail: "Write and run a one-line test in a scratch worktree"},
   ]);
   expect(readRunnerCheck(ctx, "codex#team")).toMatchObject({at: ctx.now, passed: true});
@@ -129,6 +130,19 @@ test("readiness uses real account and limits readers and the shared launcher", a
   expect(job.steps[2]).toMatchObject({state: "passed", detail: "Weekly window · 3% used"});
   expect(existsSync(repo)).toBe(false);
 });
+test("checkRunner requests only the runner's agent", async () => {
+  const ctx = setup();
+  const seen: any[] = [];
+  const d = deps();
+  d.detectAgents = async (ctx, opts) => {
+    seen.push(opts);
+    return [{ agent: "codex", found: true, version: "1.0", path: "/bin/codex", install_hint: "install codex" }];
+  };
+  await checkRunner(ctx, "codex#team", d);
+  expect(seen).toHaveLength(1);
+  expect(seen[0]).toEqual({ host: undefined, agent: "codex" });
+});
+
 test("failed shared test tasks are cleaned and secrets stay out of jobs and results", async () => {
   const ctx = setup(); ctx.env.TEST_TOKEN = "private-readiness-value";
   const d = deps(); let repo = "";
@@ -142,5 +156,5 @@ test("failed shared test tasks are cleaned and secrets stay out of jobs and resu
   const stored = JSON.stringify({job: getJob(ctx, job.id), check: readRunnerCheck(ctx, "codex#team")});
   expect(stored).not.toContain("private-readiness-value");
   expect(stored).not.toContain("private second line");
-  expect(job.steps[3].state).toBe("failed");
+  expect(job.steps[4].state).toBe("failed");
 });

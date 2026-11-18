@@ -101,3 +101,45 @@ async fn native_events_stream_without_core_and_honors_forward_escape() {
     assert_eq!(response.status(), StatusCode::BAD_GATEWAY);
     server.abort();
 }
+
+#[tokio::test]
+async fn default_event_tail_delivers_post_connect_external_append_within_750ms() {
+    for version in [2, 3] {
+        let home = tempfile::tempdir().unwrap();
+        let (port, server) = listener(home.path(), false).await;
+        let response = client()
+            .request(request(
+                port,
+                &format!("/v{version}/events"),
+                Method::GET,
+                true,
+            ))
+            .await
+            .unwrap();
+        let mut body = response.into_body();
+        let connected = body.frame().await.unwrap().unwrap().into_data().unwrap();
+        assert_eq!(connected, ": connected\n\n");
+        // Let the initial empty poll finish before bypassing the publisher wake.
+        tokio::time::sleep(Duration::from_millis(100)).await;
+        let ctx = Ctx::with(
+            home.path().into(),
+            home.path().into(),
+            Default::default(),
+            1000.0,
+        );
+        append_outbox(
+            &ctx,
+            &[json!({"seq":1,"envelope":{"type":"config","data":{"area":"config","at":1000.0}}})],
+        )
+        .unwrap();
+        let frame = tokio::time::timeout(Duration::from_millis(750), body.frame()).await;
+        server.abort();
+        assert!(frame.is_ok(), "default external event exceeded 750ms");
+        let frame = frame.unwrap().unwrap().unwrap().into_data().unwrap();
+        assert!(
+            String::from_utf8(frame.to_vec())
+                .unwrap()
+                .contains("event: config")
+        );
+    }
+}

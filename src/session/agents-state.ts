@@ -41,6 +41,43 @@ export async function taskAgentWorkspace(ctx:Ctx,task:TaskRecord):Promise<string
 }
 interface LifecycleWatch { generation:number; identity:string; sessions:StoredAgentSession[]; revision:string }
 const lifecycleWatches=new Map<string,LifecycleWatch>();
+const sessionStores=new Map<string,{key:string;db:ReadOnlyStore}>();
+/** `key` includes the ctime observed before the open. SQLite opens by pathname, so a
+ * handle stored under a key may belong to a file swapped in meanwhile; renaming that file
+ * away and restoring the original changes its ctime, so such a handle is never reused. */
+function sessionStore(ctx:Ctx,key:string):{db:ReadOnlyStore;cached:boolean} {
+ const cached=sessionStores.get(ctx.pacerHome);
+ if(cached?.key===key){
+  try{cached.db.refresh();}catch(error){dropSessionStore(ctx.pacerHome);throw error;}
+  return {db:cached.db,cached:true};
+ }
+ if(cached)dropSessionStore(ctx.pacerHome);
+ const db=openReadOnlyStore(ctx,true);
+ // An immutable fallback is valid for this snapshot but ignores a WAL created by
+ // a later writer, so retain it only for the duration of the verified read.
+ if(db.immutable)return {db,cached:false};
+ if(sessionStores.size>=32){const oldest=sessionStores.keys().next().value!;sessionStores.get(oldest)?.db.close();sessionStores.delete(oldest);}
+ sessionStores.set(ctx.pacerHome,{key,db});
+ return {db,cached:true};
+}
+function dropSessionStore(pacerHome:string):void {
+ const cached=sessionStores.get(pacerHome);
+ if(cached){sessionStores.delete(pacerHome);cached.db.close();}
+}
+/** Unpinned reads of the shared store, e.g. pending agent checks. Each statement still sees
+ * the latest commit; opening SQLite per call on the request thread waits on the
+ * process-wide VFS mutex that another thread can hold for seconds. */
+export function withSessionStore<T>(ctx:Ctx,read:(db:ReadOnlyStore)=>T):T {
+ let key='missing';
+ try{const s=statSync(join(ctx.pacerHome,'state','tasks.db'),{bigint:true});key=`${s.dev}:${s.ino}:${s.birthtimeNs}:${s.ctimeNs}`;}
+ catch(error){
+  if((error as NodeJS.ErrnoException).code!=='ENOENT')throw new CoreError('conflict','Session reservations are unavailable; retry before changing workspaces',undefined,{cause:error instanceof Error?error.message:String(error)});
+ }
+ const {db,cached}=sessionStore(ctx,key);
+ try{return read(db);}
+ catch(error){if(cached)dropSessionStore(ctx.pacerHome);throw error;}
+ finally{if(!cached)db.close();}
+}
 /** Bracket SQLite acquisition AND all reads, rather than labelling an already-open
  * handle with a later pathname stat. The pinned inode cannot be recycled while
  * we read. ctime also rejects rename-away/restore (ABA) of that file. Concurrent
@@ -62,6 +99,7 @@ function sessionSnapshotOnce<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: st
  const path = join(ctx.pacerHome, 'state', 'tasks.db');
  let fd: number | undefined;
  let db: ReadOnlyStore | undefined;
+ let cachedDb = false;
  let verify: (() => void) | undefined;
  const conflict = () => {const error = new CoreError('conflict', 'Session reservations changed during acquisition; retry before changing workspaces'); snapshotRaces.add(error); return error;};
  // Not a race: the store itself could not be opened or read. Keep the cause for diagnosis.
@@ -80,18 +118,20 @@ function sessionSnapshotOnce<T>(ctx: Ctx, read: (db: ReadOnlyStore, identity: st
    if (!current || identityOf(current) !== identityOf(pinned) || current.ctimeNs !== pinned.ctimeNs || held.ctimeNs !== pinned.ctimeNs) throw conflict();
   };
   verify();
-  db = openReadOnlyStore(ctx, true);
+  const store=sessionStore(ctx,pinned ? `${identityOf(pinned)}:${pinned.ctimeNs}` : 'missing');
+  db=store.db;cachedDb=store.cached;
   const result = read(db, pinned ? identityOf(pinned) : 'missing');
   verify();
   return result;
  } catch (error) {
   lifecycleWatches.delete(ctx.pacerHome);
+  dropSessionStore(ctx.pacerHome);
   // A read that failed because the database changed under it is the same race.
   if (!(error instanceof CoreError && snapshotRaces.has(error)) && verify) verify();
   if (error instanceof CoreError) throw error;
   throw unreadable(error);
  } finally {
-  try {db?.close();} finally {if (fd !== undefined) closeSync(fd);}
+  try {if (db && !cachedDb) db.close();} finally {if (fd !== undefined) closeSync(fd);}
  }
 }
 function lifecycleWatch(ctx: Ctx, db: ReadOnlyStore, identity: string): LifecycleWatch {
@@ -133,17 +173,14 @@ export function agentSessionsRevision(ctx:Ctx):string {
 }
 export function agentWorkspaceBusy(ctx:Ctx,path:string,exceptTask?:string):boolean {
  if(activeAgentSessions(ctx).some(s=>s.task_id!==exceptTask&&pathsOverlap(s.cwd,path)))return true;
- const db=openReadOnlyStore(ctx,true);
- try {
-  if(!db.has('agent_session_checks'))return false;
-  // Pending generations retain checkout ownership across service restarts and
-  // through acceptance/diff publication, not merely while an agent is alive.
-  return db.query<{task:string;workspace?:string}>('SELECT * FROM agent_session_checks WHERE generation>verified').some(check=>{
-   if(check.task===exceptTask)return false;
-   const task=readTask(ctx,check.task);
-   return check.workspace?pathsOverlap(check.workspace,path):!!task&&pathsOverlap(task.worktree??task.run?.workdir??task.brief.repo,path);
-  });
- }finally{db.close();}
+ // Pending generations retain checkout ownership across service restarts and
+ // through acceptance/diff publication, not merely while an agent is alive.
+ const pending=withSessionStore(ctx,db=>db.has('agent_session_checks')?db.query<{task:string;workspace?:string}>('SELECT * FROM agent_session_checks WHERE generation>verified'):[]);
+ return pending.some(check=>{
+  if(check.task===exceptTask)return false;
+  const task=readTask(ctx,check.task);
+  return check.workspace?pathsOverlap(check.workspace,path):!!task&&pathsOverlap(task.worktree??task.run?.workdir??task.brief.repo,path);
+ });
 }
 export function addAgentSessionSlots(ctx:Ctx,use:SlotUse,exceptSession?:string):SlotUse {
  for(const s of activeAgentSessions(ctx)) {

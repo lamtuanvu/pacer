@@ -1,5 +1,6 @@
 import { useEffect, useRef } from "preact/hooks";
 import type { SetupHealthRepair, SetupHealthReport, SetupHealthStep, SetupHealthStepState } from "../../../../src/view-model/setup-health";
+import { fixAllLabel, remedyPlan } from "../../../../src/view-model/diagnostics";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { Mark } from "../../ds/Mark";
@@ -10,14 +11,17 @@ const STEP_TITLES: Record<SetupHealthStep["id"], string> = {
   detect_agents: "Detect agents",
   integrations: "Integrations & hooks",
   usage_eligibility: "Usage & eligibility",
+  notifications: "Turn on notifications",
   ready: "Ready to take work",
 };
 
 function glyph(state: SetupHealthStepState): { label: string; glyph: string; tone: "good" | "warn" | "bad" | "neutral" | "info" } {
   if (state === "passed") return { label: "Passed", glyph: "✓", tone: "good" };
+  if (state === "skipped") return { label: "Skipped", glyph: "–", tone: "neutral" };
   if (state === "failed") return { label: "Failed", glyph: "!", tone: "bad" };
   if (state === "needs_attention" || state === "timed_out") return { label: "Needs attention", glyph: "!", tone: "warn" };
   if (state === "running") return { label: "Checking", glyph: "…", tone: "info" };
+  if (state === "not_checked") return { label: "Not checked", glyph: "·", tone: "neutral" };
   return { label: "Waiting", glyph: "·", tone: "neutral" };
 }
 
@@ -70,21 +74,47 @@ export function SetupHealthStage({
   onContinue,
   onOpenDiagnostics,
   onRepair,
+  onFixAll,
+  onRerun,
+  onRestartService,
   repairing = false,
   repairError,
+  repairProgress,
+  onSkip,
 }: {
   report: SetupHealthReport;
   busy?: boolean;
   onContinue: () => void;
   onOpenDiagnostics: () => void;
   onRepair?: (repair: SetupHealthRepair) => void;
+  onFixAll?: (repairs: SetupHealthRepair[]) => void;
+  onRerun?: () => void;
+  onRestartService?: () => void;
   repairing?: boolean;
   /** Why the last fix did not finish; the checks are unchanged. */
   repairError?: string;
+  /** Progress line shown while a batch fix runs. */
+  repairProgress?: string;
+  /** Optional steps (notifications) offer Skip: remembered per install, never a hard fail. */
+  onSkip?: () => void;
 }) {
-  const primary = report.repairs?.[0];
+  const repairs = report.repairs ?? [];
+  const primary = repairs.find(r => r.kind !== "open.diagnostics");
+  // notifications.request prompts macOS interactively, so it stays an individual action and
+  // is kept out of the gate's fix-all button.
+  const autoRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.kind === "auto" && r.remedy?.op !== "notifications.request" && remedyPlan(r.remedy)?.kind === "run");
+  const showFixAll = autoRepairs.length >= 2 && !!onFixAll;
+  // The interactive notification repair (excluded from fix-all) stays reachable as
+  // its own secondary action next to fix-all or another primary repair, like individual repairs in Diagnostics.
+  const individualRepairs = repairs.filter(r => r.kind === "remedy" && r.remedy?.op === "notifications.request");
+  const nonAutoRepairs = repairs.filter(r => !(r.kind === "remedy" && r.remedy?.kind === "auto" && remedyPlan(r.remedy)?.kind === "run") && r.kind !== "open.diagnostics");
+  const showRerun = !busy && !repairing && report.checkedAt > 0 && (repairs.length === 0 || repairs.every(r => r.kind === "open.diagnostics")) && !!onRerun;
   const hardFail = report.outcome === "hard_fail";
   const done = !busy && report.checkedAt > 0;
+  // Skip is offered only while the notifications step needs attention and has not
+  // been skipped yet (a skipped step reads 'Skipped' and shows no button).
+  const notificationsStep = report.steps.find(s => s.id === "notifications");
+  const skippable = done && notificationsStep?.state === "needs_attention" && (report.repairs?.some(r => r.skip) ?? false);
   const live = report.steps.map(s => `${s.title}: ${glyph(s.state).label}`).join(". ");
   const main = useRef<HTMLElement>(null);
   useEffect(() => {
@@ -118,13 +148,22 @@ export function SetupHealthStage({
     </Alert>}
     {done && report.outcome === "ok" && <Alert tone="success" title="Setup looks ready" announce={false} />}
     {done && repairError && <Alert tone="error" title="The fix did not finish">{repairError}</Alert>}
+    {repairProgress && <p role="status" aria-live="polite" className="pc-setup-health__progress">{repairProgress}</p>}
     {done && <div className="pc-setup-health__actions">
-      {primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
-      {hardFail && <Button variant={primary ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}
-      {!hardFail && <Button variant={primary ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>
+      {showFixAll && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onFixAll!(autoRepairs)}>{fixAllLabel(autoRepairs.length)}</Button>}
+      {!showFixAll && primary && onRepair && <Button variant="primary" busy={repairing} disabled={busy || repairing} onClick={() => onRepair(primary)}>{primary.label}</Button>}
+      {onRepair && individualRepairs.filter(r => showFixAll || r !== primary).map(r => (
+        <Button key={`${r.kind}:${r.label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(r)}>{r.label}</Button>
+      ))}
+      {showFixAll && nonAutoRepairs[0] && onRepair && <Button key={nonAutoRepairs[0].check ?? `${nonAutoRepairs[0].kind}:${nonAutoRepairs[0].label}`} busy={repairing} disabled={busy || repairing} onClick={() => onRepair(nonAutoRepairs[0])}>{nonAutoRepairs[0].label}</Button>}
+      {showRerun && <Button variant="primary" disabled={busy || repairing} onClick={onRerun}>Run checks again</Button>}
+      {showRerun && onRestartService && <Button disabled={busy || repairing} onClick={onRestartService}>Restart service</Button>}
+      {hardFail && <Button variant={primary || showFixAll || showRerun ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>Continue anyway</Button>}
+      {!hardFail && <Button variant={primary || showFixAll || showRerun ? undefined : "primary"} disabled={busy || repairing} onClick={onContinue}>
         {report.outcome === "ok" ? "Continue" : "Continue to pacer"}
       </Button>}
       <Button variant="ghost" disabled={busy || repairing} onClick={onOpenDiagnostics}>Open Diagnostics</Button>
+      {skippable && onSkip && <Button variant="ghost" disabled={busy || repairing} onClick={onSkip}>Skip notifications</Button>}
     </div>}
   </main>;
 }

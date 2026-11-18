@@ -25,7 +25,7 @@ export function useTaskContext() {
 }
 export function ErrorMessage({ error }: { error: unknown }) {
   if (!error) return null;
-  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && <p>{error.hint}</p>}</Alert>;
+  return <Alert tone="error" title="Something went wrong"><p>{error instanceof Error ? error.message : String(error)}</p>{error instanceof ApiError && error.hint && !error.message.includes(error.hint) && <p>{error.hint}</p>}</Alert>;
 }
 /** Task reads follow only this task, rather than unrelated snapshot traffic. */
 const CONFIG_AREAS = ['accounts', 'config', 'delegation', 'hosts', 'machine', 'mode', 'plugins', 'project-strategies', 'routing', 'runners', 'setup', 'strategy', 'update', 'discovery', 'project-messaging', 'diagnostics'];
@@ -115,7 +115,8 @@ export function useDelayedBusy(pending: boolean) {
 export function useAction() {
   const runner = useActions();
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [message, setMessage] = useState("");
-  const pending = useRef(false);
+  const pending = useRef(false), mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
   const context = useTaskContext();
   const unavailable = context && (!context.state.connected || context.state.sessionEnded) ? "Reconnecting… Service actions are available when pacer reconnects." : undefined;
   async function run<T>(op: string, params: unknown, done?: (result: T) => void) {
@@ -124,12 +125,13 @@ export function useAction() {
     try {
       const key = `operation:${op}:${JSON.stringify(params)}`;
       const outcome = await runner.run(key, {label: op, op, params: params as Record<string, unknown>});
+      if (!mounted.current) return;
       if (outcome.status === "error") { setError(new Error(outcome.message + (outcome.hint ? ` · ${outcome.hint}` : ""))); return; }
       if (outcome.status === "handled") { setMessage(outcome.message); return; }
       done?.(runner.result(key) as T); setMessage("Recorded.");
     }
-    catch (error) { setError(error); }
-    finally { pending.current = false; setBusy(false); }
+    catch (error) { if (mounted.current) setError(error); }
+    finally { pending.current = false; if (mounted.current) setBusy(false); }
   }
   return { busy, error, message, run, unavailable };
 }

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { validateStrategy } from "../src/config/strategy";
 import type { ProviderStatus } from "../src/engine/rank";
-import { detectLimit, exhaustUntil } from "../src/exec/limits";
+import { detectLimit, detectSessionLimit, exhaustUntil, sessionLimitExcerpt } from "../src/exec/limits";
 
 const r = (code: number, stdout: string, stderr = "", timedOut = false) => ({ code, stdout, stderr, timedOut });
 const cfg = validateStrategy({ planner: "claude-code", providers: { "claude-code": {}, codex: { cooldown: "6h" } } }, "/x").providers.codex;
@@ -56,4 +56,41 @@ test('past dates roll to next year and past times to next day, using local time 
  expect(exhaustUntil(undefined,cfg,now,'resets 1pm')).toBe(new Date(2026,9,20,13).getTime()/1000);
  expect(exhaustUntil(undefined,cfg,now,'resets 11:30pm')).toBe(new Date(2026,9,19,23,30).getTime()/1000);
  expect(exhaustUntil(undefined,cfg,now,'resets Oct 18 at 1pm (Asia/Saigon)')).toBe(Date.parse('2027-10-18T06:00:00Z')/1000);
+});
+
+// Cursor Agent's interactive screen after a weekly limit: it prints the error and waits at its prompt.
+const cursorWeekly = [
+  "  Error: Weekly usage limit reached. It resets in 5 days.",
+  "  Buy credits to keep going now.",
+  "  rateLimitReason: prepaid_balance_exhausted",
+  "  chatMessage: *Weekly usage limit reached. It resets in 5 days.*",
+  "",
+  "  Auto                                    Run Everything -- INSERT --",
+].join("\n");
+
+test("a live Cursor session's limit error is detected from provider-specific text only", () => {
+  expect(detectSessionLimit("cursor", cursorWeekly)).toBe(true);
+  expect(detectSessionLimit("cursor#work", "  rateLimitReason: prepaid_balance_exhausted")).toBe(true);
+  expect(detectSessionLimit("cursor", "Added rate limit middleware; usage limit reached errors now return 429")).toBe(false);
+  expect(detectSessionLimit("opencode#oc-glm", cursorWeekly)).toBe(false);
+  expect(detectLimit("cursor", r(1, cursorWeekly))).toBe(true);
+});
+
+test("exhaustUntil honours a relative reset such as 'resets in 5 days'", () => {
+  expect(exhaustUntil(undefined, cfg, 1000, cursorWeekly)).toBe(1000 + 5 * 86_400);
+  expect(exhaustUntil(undefined, cfg, 1000, "Limit reached; resets in 3 hours")).toBe(1000 + 3 * 3600);
+});
+
+test("the session limit excerpt starts at the provider's error line", () => {
+  expect(sessionLimitExcerpt("cursor", `noise\n${cursorWeekly}`)?.startsWith("Error: Weekly usage limit reached")).toBe(true);
+  expect(sessionLimitExcerpt("cursor", "nothing here")).toBeNull();
+});
+
+test("live session checks use only anchored per-agent error lines", () => {
+  // Codex and Claude Code screens can show pacer's own sources and fixtures quoting their exit-output patterns.
+  expect(detectSessionLimit("codex", "  You've hit your usage limit. Try again later.")).toBe(false);
+  expect(detectSessionLimit("claude-code", "You've hit your weekly limit")).toBe(false);
+  expect(detectSessionLimit("cursor", 'expect(x).toBe("Error: Weekly usage limit reached")')).toBe(false);
+  expect(detectSessionLimit("cursor", "ActionRequiredError: You've hit your usage limit")).toBe(true);
+  expect(exhaustUntil(undefined, cfg, 1000, "resets in 0 minutes")).toBe(1000 + 21600);
 });

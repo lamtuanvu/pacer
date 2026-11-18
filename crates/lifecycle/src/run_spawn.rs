@@ -184,7 +184,8 @@ pub fn supervisor_run_spawn_spec(
 }
 
 /// Build the launch plan after admission lease/task env pins are known.
-/// Does not touch the filesystem or spawn a process.
+/// Does not touch the filesystem or spawn a process. Like `runnerProcess`, the
+/// runner gets no `PACER_HOST_SOCKET`: it owns its plugin children (ADR 0027).
 pub fn build_run_spawn_plan(
     exec_path: &str,
     argv1: Option<&str>,
@@ -198,6 +199,7 @@ pub fn build_run_spawn_plan(
     argv.push("_run".into());
     argv.push(task_id.into());
     let mut env = base_env.clone();
+    env.remove("PACER_HOST_SOCKET");
     env.insert("HOME".into(), home.to_string_lossy().into_owned());
     env.insert(
         "PACER_HOME".into(),
@@ -275,6 +277,28 @@ mod tests {
         assert_eq!(plan.owner, RunSpawnOwner::TypeScriptCore);
         validate_run_spawn_plan(&plan, "t-20261106-000000-abcd").unwrap();
         assert!(validate_run_spawn_plan(&plan, "other").is_err());
+    }
+
+    #[test]
+    fn plan_drops_the_door_owner_socket() {
+        let base = HashMap::from([
+            ("PATH".into(), "/bin".into()),
+            (
+                "PACER_HOST_SOCKET".into(),
+                "/home/.pacer/run/s0123456789ab.sock".into(),
+            ),
+        ]);
+        let plan = build_run_spawn_plan(
+            "/bin/pacer-core",
+            None,
+            Path::new("/home"),
+            Path::new("/home/.pacer"),
+            &base,
+            "t-20261106-000000-abcd",
+            "lease-1",
+        );
+        assert!(!plan.env.contains_key("PACER_HOST_SOCKET"));
+        assert_eq!(plan.env.get("PATH").unwrap(), "/bin");
     }
 
     #[test]

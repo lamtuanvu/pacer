@@ -72,7 +72,7 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
         orca: { executor: cfg.id, model: cfg.model ?? null, timeoutMs: Math.max(1, Math.min(Math.ceil(task.timeoutS * 1000), 30 * 60 * 1000)),
           ...(task.interactive !== false ? { session: "interactive" as const } : {}) },
       }, { resources: { ...empty(), orcaAttempt: { taskId: task.id, attempt: session.attempt, providerId: ORCA_PROVIDER,
-        executor: cfg.id, session: session.id } }, onProgress: () => {}, deadlineMs: task.timeoutS * 1000 + SETUP_BUDGET_MS });
+        executor: cfg.id, session: session.id } }, deadlineMs: task.timeoutS * 1000 + SETUP_BUDGET_MS });
     } catch (error) {
       if (session.hostRefused) return refused();
       const rescued = await session.rescue(error);

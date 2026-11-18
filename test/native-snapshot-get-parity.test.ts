@@ -1,9 +1,12 @@
+import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
 import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
+import { createTask, updateTask } from "../src/tasks/store";
+import type { TaskState } from "../src/tasks/types";
 
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
@@ -14,9 +17,8 @@ async function exchange(home: string, forward: boolean) {
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "snapshot.get", params: {} });
   const child = Bun.spawn([front!, "api", "--stdio"], {
     env: {
-      HOME: home,
-      PACER_HOME: join(home, ".pacer"),
-      PATH: agentFreePath,
+      ...childEnv(home),
+      PATH: `${fakeServiceManager(home)}:${agentFreePath}`,
       PACER_CORE_ARGV: core,
       PACER_NO_UPDATE_CHECK: "1",
       PACER_NO_SELF_REPAIR: "1",
@@ -107,4 +109,36 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });
   }
+}, 120_000);
+
+test.skipIf(!front)("snapshot recent and old active selection matches forced forwarding", async () => {
+  const ctx = fakeCtx({ now: Math.floor(Date.now() / 1000), which: () => null });
+  const selected: string[] = [];
+  // [age, state, archived, variant] — variant is "open" (awaiting answer),
+  // "answered", or "dismissed" for the needs_input rows.
+  const cases: [number, string, boolean, "open" | "answered" | "dismissed"][] = [
+    [60, "done", false, "open"], [172800, "queued", false, "open"],
+    [172800, "done", false, "open"], [172800, "needs_input", false, "open"],
+    [60, "done", true, "open"], [172800, "needs_input", false, "answered"],
+    [172800, "needs_input", false, "dismissed"],
+  ];
+  for (const [age, state, archived, variant] of cases) {
+    const at = { ...ctx, now: ctx.now - age };
+    const task = createTask(at, { brief: { goal: "snapshot selection", repo: ctx.home },
+      kind: null, requestedExecutor: null, timeoutS: 60 });
+    if (archived) mkdirSync(join(ctx.pacerHome, "archive", new Date(at.now * 1000).toISOString().slice(0, 7), task.id), { recursive: true });
+    updateTask(at, task.id, row => { row.state = state as TaskState; row.archived = archived;
+      if (state === "needs_input") row.question = { text: "Which?", answer: variant === "answered" ? "postgres" : undefined, at: at.now };
+      if (variant === "dismissed") row.dismissed = true; });
+    // Only tasks that still need you must never age out, exactly like running/queued;
+    // an answered or dismissed needs_input does not.
+    const stillNeedsYou = state === "needs_input" && variant === "open";
+    if (!archived && (age < 86400 || state === "queued" || stillNeedsYou)) selected.push(task.id);
+  }
+  const native = await exchange(ctx.home, false);
+  const forwarded = await exchange(ctx.home, true);
+  expect(native.error).toBeUndefined();
+  expect(forwarded.error).toBeUndefined();
+  expect(native.result.snapshot.tasks).toEqual(forwarded.result.snapshot.tasks);
+  expect(native.result.snapshot.tasks.map((task: { id: string }) => task.id).sort()).toEqual(selected.sort());
 }, 120_000);

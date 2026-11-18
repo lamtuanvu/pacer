@@ -1,4 +1,5 @@
 use super::*;
+use rusqlite::Connection;
 use std::{fs, path::PathBuf, process::Command};
 
 fn git(cwd: &Path, args: &[&str]) -> String {

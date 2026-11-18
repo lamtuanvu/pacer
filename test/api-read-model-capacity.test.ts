@@ -85,3 +85,46 @@ test("executor rows show hard caps only; the machine row carries the guard",()=>
   expect(rows.find(e=>e.id==="codex")?.reason ?? "").not.toContain("memory pressure");
  }finally{setMachineReaders({pressure:()=>1,load:()=>({avg1:0,cores:1})});}
 });
+
+test("indexed retry capacity matches full API history, including timestamp and executor precedence", async () => {
+ const {fakeCtx,tmpDir}=await import("./helpers");
+ const {createTask,taskDatabase,capacityTaskRecords,listTasks}=await import("../src/tasks/store");
+ const {apiTasks}=await import("../src/api/read-model/tasks");
+ const {taskData}=await import("../src/link/pump");
+ const {s,st}=capacityFixture(),ctx=fakeCtx({now:200000}),repo=tmpDir();
+ const base=createTask(ctx,{brief:{repo,goal:"capacity semantics"},kind:null,requestedExecutor:null,timeoutS:60});
+ const db=taskDatabase(ctx),cutoff=ctx.now-86400;
+ const cases: Record<string,unknown>[]=[
+  {state:"running",executor:"codex"},
+  {state:"running",executor:"codex@devbox",run:{host:"devbox"}},
+  {state:"running",executor:"cursor",question:{at:ctx.now,text:"waiting"}},
+  {state:"running",executor:"cursor",question:{at:ctx.now,text:"answered",answer:null}},
+  {state:"running",executor:"codex",archived:true},
+  {state:"failed",executor:"codex",createdAt:cutoff,dismissed:true},
+  {state:"failed",executor:"cursor",result:{executor:"codex"},createdAt:cutoff},
+  {state:"failed",executor:"codex",createdAt:cutoff-1},
+  {state:"failed",executor:"codex",createdAt:cutoff,archived:true},
+  {state:"failed",executor:null,attempts:[{executor:"cursor",startedAt:cutoff,endedAt:cutoff}]},
+  {state:"failed",executor:"",requestedExecutor:"codex",createdAt:cutoff},
+  {state:"failed",requestedExecutor:"codex",createdAt:cutoff},
+  {state:"done",executor:"codex",createdAt:ctx.now},
+  // A review/write timestamp alone must not make an old failure recent.
+  {state:"failed",executor:"codex",review:{at:ctx.now}},
+  ...["attemptStartedAt","reviewRequest","stopPending","question"].map(field=>({
+   state:"failed",executor:"cursor",[field]:field==="attemptStartedAt"?cutoff:
+    field==="stopPending"?{requestedAt:cutoff}:field==="question"?{at:1,answeredAt:cutoff}:{at:cutoff},
+  })),
+ ];
+ const insert=db.query("INSERT INTO tasks(id,rev,state,created_at,updated_at,record,archived) VALUES(?,1,?,?,?,?,?)");
+ for(const [i,fields] of cases.entries()){
+  const record={...base,id:`case-${i}`,createdAt:1,...fields};
+  insert.run(record.id,record.state,record.createdAt,ctx.now,JSON.stringify(record),record.archived?1:0);
+ }
+ const full=buildExecutors(st,s,apiTasks(ctx,listTasks(ctx,Infinity)),ctx.now);
+ const selected=capacityTaskRecords(ctx);
+ const rows=buildExecutors(st,s,selected.map(t=>({...taskData(t),host:t.run?.host??null})),ctx.now);
+ expect(rows).toEqual(full);
+ expect(rows.find(r=>r.id==="codex")).toMatchObject({recentFailures:2,state:"failing",slots:{used:1}});
+ expect(rows.find(r=>r.id==="cursor")).toMatchObject({recentFailures:5,slots:{used:1}});
+ expect(selected.some(t=>t.id==="case-7"||t.id==="case-13")).toBe(false);
+});

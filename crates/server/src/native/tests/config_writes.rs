@@ -289,19 +289,6 @@ async fn strategy_list_and_show_read_named_files_without_publishing() {
     assert!(!home.join("link/outbox.jsonl").exists());
 }
 
-#[test]
-fn planner_and_backend_keys_stay_on_the_forward_path() {
-    assert!(crate::native::config_writes::config_set_stays_forwarded(
-        &json!({"key":"planner","value":"codex"})
-    ));
-    assert!(crate::native::config_writes::config_set_stays_forwarded(
-        &json!({"key":"execution.backend","value":"orca"})
-    ));
-    assert!(!crate::native::config_writes::config_set_stays_forwarded(
-        &json!({"key":"update_check","value":false})
-    ));
-}
-
 #[tokio::test]
 async fn pure_config_set_writes_publishes_and_strips_notes() {
     let dir = tempfile::tempdir().unwrap();
@@ -347,10 +334,34 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
     assert_eq!(result["value"], false);
     assert!(result.get("notes").is_none());
     assert!(dir.path().join("link/outbox.jsonl").exists());
-    let error = crate::native::call_native(
-        &ctx,
+}
+
+fn goldens_ctx(env: &[(&str, &str)]) -> (tempfile::TempDir, Ctx) {
+    let dir = tempfile::tempdir().unwrap();
+    let fixture: Value = serde_json::from_str(include_str!(
+        "../../../../../test/fixtures/config-writes-goldens.json"
+    ))
+    .unwrap();
+    std::fs::write(
+        dir.path().join("strategy.yaml"),
+        fixture["initial"].as_str().unwrap(),
+    )
+    .unwrap();
+    let env = env
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    let ctx = Ctx::with(dir.path().into(), dir.path().into(), env, 1_700_000_000.0);
+    (dir, ctx)
+}
+
+#[allow(clippy::result_large_err)]
+async fn config_set(ctx: &Ctx, params: Value) -> Result<Value, CoreError> {
+    let registry = crate::native::registry("");
+    crate::native::call_native(
+        ctx,
         registry.get("config.set").unwrap(),
-        json!({"key":"planner","value":"codex","integrations":"skip"}),
+        params,
         None,
         None,
         None,
@@ -368,8 +379,216 @@ async fn pure_config_set_writes_publishes_and_strips_notes() {
         None,
     )
     .await
-    .unwrap_err();
-    assert_eq!(error.code, Code::Unavailable);
+}
+
+fn config_events(ctx: &Ctx) -> usize {
+    std::fs::read_to_string(ctx.pacer_home.join("link/outbox.jsonl"))
+        .unwrap_or_default()
+        .lines()
+        .filter(|line| line.contains(r#""type":"config""#))
+        .count()
+}
+
+#[test]
+fn only_changed_planner_installs_and_orca_without_env_stay_forwarded() {
+    let forwarded = crate::native::config_set_stays_forwarded;
+    let (_dir, plain) = goldens_ctx(&[]);
+    assert!(forwarded(
+        &plain,
+        &json!({"key":"planner","value":"codex","integrations":"install"})
+    ));
+    assert!(forwarded(
+        &plain,
+        &json!({"key":"execution.backend","value":"orca"})
+    ));
+    for native in [
+        json!({"key":"planner","value":"claude-code","integrations":"install"}),
+        json!({"key":"planner","value":"codex","integrations":"skip"}),
+        json!({"key":"planner","value":"codex"}),
+        json!({"key":"planner","value":"Not A Runner","integrations":"install"}),
+        json!({"key":"planner","value":"codex#missing","integrations":"install"}),
+        json!({"key":"execution.backend","value":"direct"}),
+        json!({"key":"execution.backend","value":"elsewhere"}),
+        json!({"key":"update_check","value":false}),
+    ] {
+        assert!(!forwarded(&plain, &native), "{native}");
+    }
+    let (_dir, env) = goldens_ctx(&[("PACER_BACKEND", "direct")]);
+    assert!(!forwarded(
+        &env,
+        &json!({"key":"execution.backend","value":"orca"})
+    ));
+    let (_dir, executor) = goldens_ctx(&[("PACER_ROLE", "executor")]);
+    assert!(!forwarded(
+        &executor,
+        &json!({"key":"planner","value":"codex","integrations":"install"})
+    ));
+}
+
+#[tokio::test]
+async fn planner_skip_and_unchanged_install_run_natively() {
+    let (dir, ctx) = goldens_ctx(&[]);
+    let path = dir.path().join("strategy.yaml");
+    let before = std::fs::read_to_string(&path).unwrap();
+    let unchanged = config_set(
+        &ctx,
+        json!({"key":"planner","value":"claude-code","integrations":"install"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(
+        unchanged,
+        json!({"key":"planner","value":"claude-code","previous":"claude-code","diff":"","undo":"pacer config set planner claude-code"})
+    );
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), before);
+    assert_eq!(config_events(&ctx), 1);
+    let skipped = config_set(
+        &ctx,
+        json!({"key":"planner","value":"codex","integrations":"skip"}),
+    )
+    .await
+    .unwrap();
+    assert_eq!(skipped["value"], "codex");
+    assert_eq!(skipped["undo"], "pacer config set planner claude-code");
+    assert!(skipped.get("notes").is_none());
+    assert!(
+        std::fs::read_to_string(&path)
+            .unwrap()
+            .contains("planner: codex\n")
+    );
+    assert_eq!(config_events(&ctx), 2);
+}
+
+#[tokio::test]
+async fn planner_and_backend_refusals_run_natively_without_writes() {
+    let (dir, ctx) = goldens_ctx(&[]);
+    let (_executor_dir, executor) = goldens_ctx(&[("PACER_ROLE", "executor")]);
+    let before = std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap();
+    let cases = [
+        (
+            &ctx,
+            json!({"key":"planner","value":"codex"}),
+            Code::InvalidInput,
+            "planner requires an integration choice",
+            Some("integrations: \"install\" or \"skip\""),
+        ),
+        (
+            &executor,
+            json!({"key":"planner","value":"codex","integrations":"skip"}),
+            Code::NotAllowed,
+            "PACER_ROLE=executor: changing the planner with config.set connects real agent folders; run it outside a delegated task.",
+            None,
+        ),
+        (
+            &ctx,
+            json!({"key":"planner","value":"Not A Runner","integrations":"install"}),
+            Code::InvalidInput,
+            "planner requires a runner id",
+            None,
+        ),
+        (
+            &ctx,
+            json!({"key":"execution.backend","value":"elsewhere"}),
+            Code::InvalidInput,
+            "execution.backend must be orca or direct",
+            None,
+        ),
+    ];
+    for (ctx, params, code, message, hint) in cases {
+        let error = config_set(ctx, params.clone()).await.unwrap_err();
+        assert_eq!(
+            (error.code, error.message.as_str(), error.hint.as_deref()),
+            (code, message, hint),
+            "{params}"
+        );
+    }
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join("strategy.yaml")).unwrap(),
+        before
+    );
+    assert_eq!(config_events(&ctx) + config_events(&executor), 0);
+}
+
+#[tokio::test]
+async fn backend_direct_and_env_override_run_natively_with_hint() {
+    let (_dir, ctx) = goldens_ctx(&[]);
+    let direct = config_set(&ctx, json!({"key":"execution.backend","value":"direct"}))
+        .await
+        .unwrap();
+    assert_eq!(direct["value"], "direct");
+    assert!(direct.get("hint").is_none());
+    let (_dir, env) = goldens_ctx(&[("PACER_BACKEND", "direct")]);
+    let orca = config_set(&env, json!({"key":"execution.backend","value":"orca"}))
+        .await
+        .unwrap();
+    assert_eq!(orca["value"], "orca");
+    assert_eq!(
+        orca["hint"],
+        "PACER_BACKEND overrides the saved task backend setting."
+    );
+    assert!(orca.get("notes").is_none());
+    assert_eq!(config_events(&env), 1);
+}
+
+#[cfg(unix)]
+#[test]
+#[allow(clippy::result_large_err)]
+fn concurrent_edits_of_one_setting_conflict_and_release_the_key() {
+    use std::io::Write;
+    use std::os::unix::fs::OpenOptionsExt;
+    let (dir, ctx) = goldens_ctx(&[]);
+    let path = dir.path().join("strategy.yaml");
+    let yaml = std::fs::read_to_string(&path).unwrap();
+    std::fs::remove_file(&path).unwrap();
+    assert!(
+        std::process::Command::new("mkfifo")
+            .arg(&path)
+            .status()
+            .unwrap()
+            .success()
+    );
+    let run = |ctx: Ctx, value: &'static str| {
+        std::thread::spawn(move || {
+            tokio::runtime::Builder::new_current_thread()
+                .build()
+                .unwrap()
+                .block_on(config_set(
+                    &ctx,
+                    json!({"key":"pacing.policy","value":value}),
+                ))
+        })
+    };
+    // The first edit claims its key, then blocks reading the FIFO; its invalid value fails after that one read.
+    let first = run(ctx.clone(), "not-a-policy");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
+    let mut writer = loop {
+        let opened = std::fs::OpenOptions::new()
+            .write(true)
+            .custom_flags(nix::libc::O_NONBLOCK)
+            .open(&path);
+        match opened {
+            Ok(writer) => break writer,
+            Err(_) if std::time::Instant::now() < deadline && !first.is_finished() => {
+                std::thread::sleep(std::time::Duration::from_millis(5));
+            }
+            Err(error) => panic!("first edit never read the strategy: {error}"),
+        }
+    };
+    let second = run(ctx.clone(), "even").join().unwrap().unwrap_err();
+    assert_eq!(second.code, Code::Conflict);
+    assert_eq!(second.message, "This setting is already being changed");
+    assert_eq!(second.hint.as_deref(), Some("Refresh and retry."));
+    writer.write_all(yaml.as_bytes()).unwrap();
+    drop(writer);
+    let first = first.join().unwrap().unwrap_err();
+    assert_eq!(first.code, Code::InvalidInput);
+    std::fs::remove_file(&path).unwrap();
+    std::fs::write(&path, &yaml).unwrap();
+    for value in ["even", "priority"] {
+        let done = run(ctx.clone(), value).join().unwrap().unwrap();
+        assert_eq!(done["value"], value);
+    }
+    assert_eq!(config_events(&ctx), 2);
 }
 
 #[tokio::test]

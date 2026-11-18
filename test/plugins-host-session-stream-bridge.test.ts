@@ -1,11 +1,11 @@
 import { expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, mkdirSync, mkdtempSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { PluginRegistry } from "../src/plugins/registry";
 import { issueConfiguredHostSessionStream } from "../src/plugins/host-session-stream-issuer";
 import { createTask, updateTask } from "../src/tasks/store";
-import { fakeCtx, folderPlugins } from "./helpers";
+import { fakeCtx, folderPlugins, waitPid } from "./helpers";
 import { CoreError } from "../src/core/errors";
 import { SESSION_STREAM_SLOTS } from "../src/plugins/admission";
 
@@ -93,11 +93,9 @@ test("viewer cancellation retires the pinned SSH child without a direct fallback
     const controller = new AbortController();
     const stream = await registry.streamConfiguredHost(ctx,
       issueConfiguredHostSessionStream(ctx, "box", remote, local), async () => {}, controller.signal);
-    for (let i = 0; i < 100 && !existsSync(pidFile); i++) await Bun.sleep(10);
-    expect(existsSync(pidFile)).toBe(true);
+    const pid = await waitPid(pidFile, 1000);
     controller.abort();
     await expect(stream.done).rejects.toMatchObject({ code: "plugin_unavailable" });
-    const pid = Number(readFileSync(pidFile, "utf8"));
     for (let i = 0; i < 100; i++) { try { process.kill(pid, 0); } catch { break; } await Bun.sleep(10); }
     expect(() => process.kill(pid, 0)).toThrow();
   } finally { await registry.shutdown(); rmSync(home, { recursive: true, force: true }); }

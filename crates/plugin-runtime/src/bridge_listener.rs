@@ -1,33 +1,51 @@
 //! Reverse-bridge Unix listener (X1c / P4d-1 / P4d-2).
 //!
 //! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
-//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find`, and authorizes peers
-//! by Unix credentials. Default serve must not call [`ReverseBridge::bind`] or
+//! JSON-RPC for `_host.plugin.call` / `_host.plugin.find` / `_host.plugin.stop`,
+//! and authorizes peers by Unix credentials and then by the owner's
+//! per-start credential ([`crate::bridge_auth`], #918): a same-user process
+//! that cannot prove the key is refused before its first request.
+//! Sockets are bound in a verified private directory and
+//! narrowed to 0600 by path; the process umask is never changed. A stdio
+//! connection's socket may live outside the home (`connection_dir`).
+//! Default serve must not call [`ReverseBridge::bind`] or
 //! export [`crate::HOST_SOCKET_ENV`] unless flag wiring is explicitly enabled
 //! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
 //!
-//! Without a live [`SharedOwner`], call/find/spawn/stop stay dark stubs.
+//! Without a live [`SharedOwner`], call/find/stop stay dark stubs.
 //! Flag-on serve attaches the owner so handlers reach tracked
-//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A `_host.plugin.call`
-//! carrying `spawn` is a Core-sealed call (`crate::bridge_call`): the owner
-//! starts, hellos and authorizes the child before calling it.
+//! [`crate::PluginProcess`] children (P4d-2 / P4d-4). A live owner answers
+//! only Core-sealed calls (`_host.plugin.call` carrying `spawn`, see
+//! `crate::bridge_call`): the owner starts, hellos and authorizes the child
+//! from Core's spec before calling it. The unsealed call and
+//! `_host.plugin.spawn` are refused, so no caller can start a lane from its
+//! own spec for a later sealed call to reuse.
+//!
+//! An existing socket path is probed with a non-blocking connect before bind:
+//! a refused connect marks it stale and it is removed, while an accepted or
+//! still-pending connect (full backlog) is [`BridgeError::LiveSocket`]. A bind
+//! that loses a race with another owner reports `LiveSocket` as well, so serve
+//! can wait for the owner and then exit 3 (ADR 0027, OD-7).
 
+use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
+use crate::connection_dir::{
+    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+};
 use crate::host_bridge::{
-    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND,
-    METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, dark_bridge_enabled, prepare_host_run_dir,
+    HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
+    METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN, METHOD_PLUGIN_STOP, SOCKET_PATH_MAX,
+    dark_bridge_enabled, prepare_run_dir,
 };
 use crate::owner::ProcessOwner;
-use pacer_plugin_host::SpawnSpec;
 use serde_json::{Value, json};
 use std::{
-    collections::HashMap,
     fs, io,
     os::unix::{
         fs::{FileTypeExt, MetadataExt},
-        net::{UnixListener as StdUnixListener, UnixStream as StdUnixStream},
+        net::UnixListener as StdUnixListener,
     },
     path::{Path, PathBuf},
     sync::Arc,
@@ -71,6 +89,16 @@ pub enum BridgeError {
     DarkWiringDisabled,
     #[error("live reverse-bridge socket already present at {0}")]
     LiveSocket(PathBuf),
+    #[error("reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {0}")]
+    PathTooLong(PathBuf),
+    #[error(
+        "reverse-bridge socket path exceeds {SOCKET_PATH_MAX} bytes: {path}, and the private \
+         per-user directory is unusable: {reason}. Set PACER_NATIVE_PLUGIN_HOST=0 or use a \
+         shorter PACER_HOME"
+    )]
+    NoPrivateDir { path: PathBuf, reason: String },
+    #[error("reverse-bridge socket directory is not private: {0}")]
+    UntrustedDir(String),
     #[error("peer credentials unavailable")]
     PeerCredUnavailable,
     #[error("untrusted reverse-bridge caller")]
@@ -84,29 +112,27 @@ pub enum BridgeError {
 /// Peer authorization policy for accepted Unix connections.
 #[derive(Clone, Debug)]
 pub struct PeerAuth {
-    /// Only this uid may speak on the bridge. Defaults to the process uid.
+    /// Only this uid may speak on the bridge, normally the process uid.
     pub allowed_uid: u32,
+    /// The credential a connection must prove before its first request.
+    pub key: OwnerKey,
 }
 
 impl PeerAuth {
-    pub fn same_uid() -> Self {
+    pub fn same_uid(key: OwnerKey) -> Self {
         Self {
             allowed_uid: current_uid(),
+            key,
         }
     }
 
     /// Test helper: reject every real peer (allowed uid never matches).
-    pub fn deny_all_for_tests() -> Self {
+    pub fn deny_all_for_tests(key: OwnerKey) -> Self {
         let uid = current_uid();
         Self {
             allowed_uid: if uid == 0 { 1 } else { 0 },
+            key,
         }
-    }
-}
-
-impl Default for PeerAuth {
-    fn default() -> Self {
-        Self::same_uid()
     }
 }
 
@@ -118,6 +144,7 @@ pub struct ReverseBridge {
     listener: StdUnixListener,
     path: PathBuf,
     auth: PeerAuth,
+    auth_deadline: Duration,
     dispatch: BridgeDispatch,
 }
 
@@ -133,21 +160,73 @@ impl ReverseBridge {
     ///
     /// Does **not** export `PACER_HOST_SOCKET`. Callers that need Core to dial
     /// must use [`Self::dark_core_env`] under the enable flag. Starts in
-    /// [`BridgeDispatch::Stub`] until [`Self::with_live_owner`].
+    /// [`BridgeDispatch::Stub`] until [`Self::with_live_owner`]. Draws a fresh
+    /// credential; read it back through [`Self::auth`].
     pub fn bind(pacer_home: &Path) -> Result<Self, BridgeError> {
-        Self::bind_with_auth(pacer_home, PeerAuth::same_uid())
+        Self::bind_with_auth(pacer_home, PeerAuth::same_uid(OwnerKey::generate()?))
     }
 
     pub fn bind_with_auth(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
-        let path = prepare_host_run_dir(pacer_home)?;
+        Self::bind_at(pacer_home, HOST_SOCKET_NAME, auth)
+    }
+
+    /// Bind `$PACER_HOME/run/<name>` with the same 0700 directory, 0600 socket
+    /// and stale-socket rules as `host.sock`. Refuses paths longer than
+    /// [`SOCKET_PATH_MAX`] before touching the filesystem.
+    pub fn bind_at(pacer_home: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let path = pacer_home.join("run").join(name);
+        if path.as_os_str().len() > SOCKET_PATH_MAX {
+            return Err(BridgeError::PathTooLong(path));
+        }
+        let run = prepare_run_dir(pacer_home)?;
+        Self::bind_in(&run, name, auth)
+    }
+
+    /// Bind a stdio connection's socket `name`: in `run/` when the path fits,
+    /// otherwise in the private per-user directory of `connection_dir`.
+    /// Stale connection sockets in that directory are swept first.
+    pub fn bind_connection(
+        pacer_home: &Path,
+        name: &str,
+        auth: PeerAuth,
+    ) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = connection_socket_dir(pacer_home, name, uid)?;
+        sweep_stale_sockets(&dir, uid);
+        Self::bind_in(&dir, name, auth)
+    }
+
+    fn bind_in(dir: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let before = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
+        let path = dir.join(name);
         remove_stale_socket(&path)?;
-        let listener = bind_private(&path)?;
+        // Another process bound the path since the probe: it owns it now.
+        let listener = StdUnixListener::bind(&path).map_err(|error| {
+            if error.kind() == io::ErrorKind::AddrInUse {
+                BridgeError::LiveSocket(path.clone())
+            } else {
+                error.into()
+            }
+        })?;
+        if let Err(error) = seal_socket(dir, &path, &before, uid) {
+            let _ = fs::remove_file(&path);
+            return Err(error);
+        }
         Ok(Self {
             listener,
             path,
             auth,
+            auth_deadline: AUTH_DEADLINE,
             dispatch: BridgeDispatch::Stub,
         })
+    }
+
+    /// How long a connection may take to prove the key; [`AUTH_DEADLINE`]
+    /// unless a test shortens it.
+    pub fn with_auth_deadline(mut self, deadline: Duration) -> Self {
+        self.auth_deadline = deadline;
+        self
     }
 
     /// Attach a serve-owned [`ProcessOwner`] so call/find hit live children.
@@ -174,7 +253,8 @@ impl ReverseBridge {
         Ok(meta.mode() & 0o777)
     }
 
-    /// Env pairs for a Core child under explicit dark wiring only.
+    /// Env pairs for a Core child under explicit dark wiring only. Carries
+    /// the socket, not the credential: dark wiring has no Core caller.
     ///
     /// Reads [`HOST_BRIDGE_ENABLE_ENV`] from the process environment. Prefer
     /// [`Self::dark_core_env_if`] in tests so the process env stays untouched.
@@ -226,9 +306,10 @@ impl ReverseBridge {
                 accepted = listener.accept() => {
                     let (stream, _) = accepted?;
                     let auth = self.auth.clone();
+                    let deadline = self.auth_deadline;
                     let dispatch = self.dispatch.clone();
                     tokio::spawn(async move {
-                        let _ = handle_connection(stream, auth, dispatch).await;
+                        let _ = handle_connection(stream, auth, deadline, dispatch).await;
                     });
                 }
             }
@@ -249,25 +330,37 @@ impl BridgeHandle {
     }
 }
 
-fn current_uid() -> u32 {
+pub(crate) fn current_uid() -> u32 {
     nix::unistd::getuid().as_raw()
 }
 
-fn bind_private(path: &Path) -> io::Result<StdUnixListener> {
-    use nix::sys::stat::{Mode, umask};
-    static BIND: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = BIND
-        .lock()
-        .map_err(|_| io::Error::other("reverse-bridge bind lock poisoned"))?;
-    struct Restore(Mode);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            umask(self.0);
-        }
+/// Narrow a just-bound socket to 0600 by path. Only `uid` can create or
+/// replace entries in the verified private `dir`, so the path cannot have been
+/// redirected; the directory's identity and the socket's owner are rechecked.
+/// The process umask stays untouched, so concurrent threads are unaffected.
+fn seal_socket(
+    dir: &Path,
+    path: &Path,
+    before: &fs::Metadata,
+    uid: u32,
+) -> Result<(), BridgeError> {
+    use std::os::unix::fs::PermissionsExt;
+    fs::set_permissions(path, fs::Permissions::from_mode(0o600))?;
+    let socket = fs::symlink_metadata(path)?;
+    let after = check_private_dir(dir, uid).map_err(BridgeError::UntrustedDir)?;
+    if (after.dev(), after.ino()) != (before.dev(), before.ino()) {
+        return Err(BridgeError::UntrustedDir(format!(
+            "{} was replaced while binding",
+            dir.display()
+        )));
     }
-    // Restrict at creation; never chmod a pathname that could have been redirected.
-    let _mask = Restore(umask(Mode::from_bits_truncate(0o177)));
-    StdUnixListener::bind(path)
+    if !socket.file_type().is_socket() || socket.uid() != uid || socket.mode() & 0o777 != 0o600 {
+        return Err(BridgeError::UntrustedDir(format!(
+            "{} is not a private socket",
+            path.display()
+        )));
+    }
+    Ok(())
 }
 
 fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
@@ -278,13 +371,14 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
             if !meta.file_type().is_socket() {
                 return Err(io::Error::new(
                     io::ErrorKind::AlreadyExists,
-                    "host.sock path exists and is not a socket",
+                    "reverse-bridge socket path exists and is not a socket",
                 )
                 .into());
             }
-            match StdUnixStream::connect(path) {
-                Ok(_) => Err(BridgeError::LiveSocket(path.to_path_buf())),
-                Err(_) => {
+            match probe_socket(path) {
+                Probe::Live => Err(BridgeError::LiveSocket(path.to_path_buf())),
+                Probe::Missing => Ok(()),
+                Probe::Refused | Probe::Other(_) => {
                     fs::remove_file(path)?;
                     Ok(())
                 }
@@ -293,7 +387,7 @@ fn remove_stale_socket(path: &Path) -> Result<(), BridgeError> {
     }
 }
 
-fn peer_uid(stream: &UnixStream) -> Result<u32, BridgeError> {
+pub(crate) fn peer_uid(stream: &impl std::os::fd::AsFd) -> Result<u32, BridgeError> {
     #[cfg(any(target_os = "linux", target_os = "android"))]
     {
         use nix::sys::socket::{getsockopt, sockopt::PeerCredentials};
@@ -319,6 +413,7 @@ fn authorize(stream: &UnixStream, auth: &PeerAuth) -> Result<(), BridgeError> {
 async fn handle_connection(
     stream: UnixStream,
     auth: PeerAuth,
+    deadline: Duration,
     dispatch: BridgeDispatch,
 ) -> Result<(), BridgeError> {
     if let Err(error) = authorize(&stream, &auth) {
@@ -327,6 +422,15 @@ async fn handle_connection(
         return Err(error);
     }
     let mut reader = BufReader::new(stream);
+    match tokio::time::timeout(deadline, accept(&mut reader, &auth.key)).await {
+        Ok(Ok(true)) => {}
+        Ok(Ok(false)) => return Ok(()),
+        Ok(Err(error)) => return Err(error),
+        Err(_) => {
+            let _ = write_error(reader.get_mut(), Value::Null, UNAUTHORIZED, "unauthorized").await;
+            return Err(BridgeError::UntrustedCaller);
+        }
+    }
     loop {
         let mut line = Vec::new();
         let read = reader.read_until(b'\n', &mut line).await?;
@@ -376,7 +480,9 @@ async fn handle_connection(
                 Turn::Peer(true) | Turn::Read(Ok(0) | Err(_)) => {
                     let _ = cancel.send(true);
                     drop(pending.take());
-                    work.await;
+                    // A caller that only shut down its write side still reads the
+                    // final reply for the call's logs.
+                    let _ = write_raw(reader.get_mut(), &work.await).await;
                     break None;
                 }
                 Turn::Forward((method, mut params, reply)) => {
@@ -508,7 +614,6 @@ async fn response_for_line(
     match method {
         METHOD_PLUGIN_CALL => dispatch_call(id, params, dispatch, cancel, forward).await,
         METHOD_PLUGIN_FIND => dispatch_find(id, params, dispatch).await,
-        METHOD_PLUGIN_SPAWN => dispatch_spawn(id, params, dispatch).await,
         METHOD_PLUGIN_STOP => dispatch_stop(id, params, dispatch).await,
         _ => json!({
             "jsonrpc": "2.0",
@@ -547,52 +652,66 @@ async fn dispatch_call(
                 .and_then(Value::as_u64)
                 .map(Duration::from_millis)
                 .unwrap_or(DEFAULT_CALL_DEADLINE);
-            match SealedCall::from_params(&params) {
+            let sealed = match SealedCall::from_params(&params) {
                 Err(message) => return rpc_error(id, INVALID_PARAMS, message),
-                Ok(Some(sealed)) => {
-                    let until = Instant::now() + deadline;
-                    return match call_sealed(
-                        owner,
-                        plugin_id,
-                        method,
-                        call_params,
-                        until,
-                        cancel,
-                        sealed,
-                        Some(forward),
-                    )
-                    .await
-                    {
-                        Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                        Err(failure) => {
-                            let mut data = json!({"code": failure.code});
-                            if let Some(hint) = failure.hint {
-                                data["hint"] = Value::String(hint);
-                            }
-                            if failure.from_plugin {
-                                data["origin"] = Value::String("plugin".into());
-                            }
-                            json!({
-                                "jsonrpc": "2.0",
-                                "id": id,
-                                "error": {
-                                    "code": PLUGIN_UNAVAILABLE,
-                                    "message": failure.message,
-                                    "data": data
-                                }
-                            })
-                        }
-                    };
+                Ok(None) => {
+                    return rpc_error(
+                        id,
+                        INVALID_PARAMS,
+                        "call must carry Core's spawn spec and authority",
+                    );
                 }
-                Ok(None) => {}
-            }
-            let mut guard = owner.lock().await;
-            match guard
-                .call_plugin(plugin_id, method, call_params, deadline)
-                .await
+                Ok(Some(sealed)) => sealed,
+            };
+            let until = Instant::now() + deadline;
+            match call_sealed(
+                owner,
+                plugin_id,
+                method,
+                call_params,
+                until,
+                cancel,
+                sealed,
+                Some(forward),
+            )
+            .await
             {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
+                Err(failed) => {
+                    let (failure, hello, logs) = *failed;
+                    let mut data = json!({"code": failure.code});
+                    if let Some(hint) = failure.hint {
+                        data["hint"] = Value::String(hint);
+                    }
+                    if failure.from_plugin {
+                        data["origin"] = Value::String("plugin".into());
+                    }
+                    // The hello a failed call still carried lets Core restore
+                    // readiness even when it gave up on the call that ran it.
+                    if hello.is_object() {
+                        data["hello"] = hello;
+                    }
+                    let mut reply = json!({
+                        "jsonrpc": "2.0",
+                        "id": id,
+                        "error": {
+                            "code": PLUGIN_UNAVAILABLE,
+                            "message": failure.message,
+                            "data": data
+                        }
+                    });
+                    // The failure must reach Core even when its logs would not fit the frame.
+                    if !logs.is_empty() {
+                        reply["error"]["data"]["logs"] = Value::Array(logs);
+                        if !serde_json::to_vec(&reply)
+                            .is_ok_and(|bytes| bytes.len() < BRIDGE_MAX_LINE_BYTES)
+                            && let Some(data) = reply["error"]["data"].as_object_mut()
+                        {
+                            data.remove("logs");
+                        }
+                    }
+                    reply
+                }
             }
         }
     }
@@ -624,68 +743,6 @@ async fn dispatch_find(id: Value, params: Value, dispatch: &BridgeDispatch) -> V
                     "id": id,
                     "result": {"found": false, "id": plugin_id}
                 }),
-            }
-        }
-    }
-}
-
-async fn dispatch_spawn(id: Value, params: Value, dispatch: &BridgeDispatch) -> Value {
-    match dispatch {
-        BridgeDispatch::Stub => json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "result": {
-                "activated": false,
-                "reason": "native-plugin-ownership-not-activated"
-            }
-        }),
-        BridgeDispatch::Live(owner) => {
-            let Some(plugin_id) = params.get("id").and_then(Value::as_str) else {
-                return rpc_error(id, INVALID_PARAMS, "missing plugin id");
-            };
-            let Some(argv) = params.get("argv").and_then(Value::as_array).map(|items| {
-                items
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .map(str::to_owned)
-                    .collect::<Vec<_>>()
-            }) else {
-                return rpc_error(id, INVALID_PARAMS, "missing argv");
-            };
-            if argv.is_empty() {
-                return rpc_error(id, INVALID_PARAMS, "empty argv");
-            }
-            let Some(cwd) = params.get("cwd").and_then(Value::as_str) else {
-                return rpc_error(id, INVALID_PARAMS, "missing cwd");
-            };
-            let mut env = HashMap::new();
-            if let Some(object) = params.get("env").and_then(Value::as_object) {
-                for (key, value) in object {
-                    if let Some(text) = value.as_str() {
-                        env.insert(key.clone(), text.to_owned());
-                    }
-                }
-            }
-            let spec = SpawnSpec {
-                argv,
-                cwd: cwd.into(),
-                env,
-            };
-            let mut guard = owner.lock().await;
-            match guard.ensure(plugin_id, &spec) {
-                Ok(created) => {
-                    let pid = guard.find_plugin(plugin_id);
-                    json!({
-                        "jsonrpc": "2.0",
-                        "id": id,
-                        "result": {
-                            "id": plugin_id,
-                            "created": created,
-                            "pid": pid,
-                        }
-                    })
-                }
-                Err(error) => rpc_error(id, PLUGIN_UNAVAILABLE, &error.to_string()),
             }
         }
     }

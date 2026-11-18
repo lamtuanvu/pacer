@@ -1,3 +1,4 @@
+mod cost_projection;
 use pacer_foundation::{
     Ctx,
     lock::{LockError, LockOptions, with_lock},
@@ -56,6 +57,15 @@ const TERMINAL: &[&str] = &[
     "needs_input",
 ];
 
+/// A stored needs_input still needs the user only while its question is unanswered
+/// (answer null), it was not superseded by a retry, and it is not dismissed.
+/// Matches `awaits_answer` and the TypeScript `awaitsAnswer`. The leading
+/// `state = 'needs_input'` lets callers keep this indexed via `tasks_state`.
+pub(super) const AWAITS_ANSWER_SQL: &str = "state='needs_input' \
+AND json_type(record, '$.question.answer') IS NULL \
+AND json_extract(record, '$.retriedBy') IS NULL \
+AND NOT COALESCE(json_extract(record, '$.dismissed'),0)";
+
 pub fn is_task_id(id: &str) -> bool {
     let b = id.as_bytes();
     b.len() == 22
@@ -103,6 +113,18 @@ pub(crate) fn truthy(value: Option<&Value>) -> bool {
         Some(Value::String(value)) => !value.is_empty(),
         Some(Value::Bool(true) | Value::Array(_) | Value::Object(_)) => true,
     }
+}
+/// A stored needs_input task still needs the user only while its question is
+/// unanswered (no answer yet), it was not superseded by a retry, and it is not
+/// dismissed. This is the attention rule's predicate, factored so every
+/// selection (active set, snapshot window, live events) shares it; it mirrors the
+/// TypeScript `awaitsAnswer` and the SQL `AWAITS_ANSWER_SQL`.
+pub fn awaits_answer(task: &Value) -> bool {
+    task["state"] == "needs_input"
+        && task["question"].is_object()
+        && task["question"].get("answer").is_none()
+        && !truthy(task.get("retriedBy"))
+        && !truthy(task.get("dismissed"))
 }
 fn valid(task: &Value, id: &str) -> bool {
     field(task, "id") == Some(id)
@@ -194,6 +216,7 @@ fn parse_record(text: &str) -> Result<Value> {
     }
     Ok(value)
 }
+
 /// A time as the store's mtime in milliseconds, matching stat().mtimeMs.
 fn system_time_ms(time: SystemTime) -> f64 {
     let (duration, sign) = match time.duration_since(UNIX_EPOCH) {
@@ -318,6 +341,9 @@ pub(crate) fn archive_month(seconds: f64) -> Result<String> {
     Ok(format!("{year:04}-{m:02}"))
 }
 
+#[path = "task_selection.rs"]
+mod selection;
+
 #[path = "task_log_reader.rs"]
 mod log_reader;
 pub use log_reader::TaskLogReader;
@@ -383,6 +409,9 @@ pub struct TaskStore {
 #[derive(Default)]
 pub struct TaskFilter<'a> {
     pub states: Option<&'a [&'a str]>,
+    /// Also select stored needs_input tasks the user still must answer (never aged
+    /// out), via `AWAITS_ANSWER_SQL`. Keeps `tasks_state` as the driver index.
+    pub awaiting_answer: bool,
     pub updated_since: Option<f64>,
     pub created_since: Option<f64>,
     /// Repository identity; legacy records may match a resolved brief path.
@@ -394,6 +423,13 @@ pub struct TaskFilter<'a> {
     pub all: bool,
     pub before: Option<&'a str>,
     pub limit: Option<usize>,
+    /// Free-text search: every space-separated word must appear, case-insensitively,
+    /// in the task id (including its short suffix), title or goal. Folding is
+    /// ASCII-only in SQL (SQLite's lower()) and per-character Unicode lowercase on
+    /// decoded records; a word shaped like a task-id prefix (for example the full id
+    /// or a date prefix `t-2026`) is matched by the id prefix range instead, and is
+    /// not searched in titles or goals.
+    pub query: Option<&'a str>,
 }
 impl TaskStore {
     pub fn open(home: impl AsRef<Path>) -> Result<Self> {
@@ -440,6 +476,7 @@ impl TaskStore {
             )?;
             tx.commit()?;
         }
+        selection::ensure_index(&db)?;
         let inode = file_inode(&path)?;
         let mut store = Self {
             home,
@@ -688,64 +725,64 @@ impl TaskStore {
             return Ok(Vec::new());
         }
         self.refresh()?;
-        let mut clauses = Vec::new();
-        let mut bind = Vec::<SqlValue>::new();
-        if !filter.all {
-            clauses.push("archived=0".to_owned());
-        }
-        if let Some(v) = filter.settled_before {
-            clauses.push("settled_at<?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.before {
-            clauses.push("id<?".into());
-            bind.push(SqlValue::Text(v.into()));
-        }
-        if let Some(states) = filter.states {
-            clauses.push(format!("state IN ({})", vec!["?"; states.len()].join(",")));
-            bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
-        }
-        if let Some(v) = filter.updated_since {
-            clauses.push("updated_at>=?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.created_since {
-            clauses.push("created_at>=?".into());
-            bind.push(SqlValue::Real(v));
-        }
-        if let Some(v) = filter.repo {
-            let paths = filter.repo_paths.unwrap_or_default();
-            clauses.push(format!(
-                "(json_extract(record, '$.repo.key')=? OR (json_type(record, '$.repo') IS NULL OR json_type(record, '$.repo')='null') AND repo IN ({}))",
-                vec!["?"; paths.len()].join(",")
-            ));
-            bind.push(SqlValue::Text(v.into()));
-            bind.extend(paths.iter().map(|p| SqlValue::Text((*p).into())));
-        }
-        if let Some(v) = filter.executor {
-            clauses.push("COALESCE(json_extract(record, '$.result.executor'),json_extract(record, '$.executor'),json_extract(record, '$.attempts[#-1].executor'),json_extract(record, '$.requestedExecutor'))=?".into());
-            bind.push(SqlValue::Text(v.into()));
-        }
-        if let Some(states) = filter.visible_states {
-            clauses.push(format!("(CASE WHEN state='running' AND json_type(record, '$.question')='object' AND json_type(record, '$.question.answer') IS NULL THEN 'needs_input' ELSE state END) IN ({})",vec!["?"; states.len()].join(",")));
-            bind.extend(states.iter().map(|s| SqlValue::Text((*s).into())));
-        }
-        let sql = format!(
-            "SELECT record FROM tasks {} ORDER BY id DESC LIMIT ?",
-            if clauses.is_empty() {
-                String::new()
-            } else {
-                format!("WHERE {}", clauses.join(" AND "))
+        // Words SQLite cannot fold are matched on the decoded records; walk
+        // newest-first with an id cursor until `limit` records match.
+        let unicode = selection::unicode_words(filter);
+        if unicode.is_empty() {
+            let (sql, bind) = selection::query(filter);
+            let mut stmt = self.db.prepare(&sql)?;
+            let records = stmt
+                .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
+                .collect::<rusqlite::Result<Vec<_>>>()?;
+            records.into_iter().map(|s| parse_record(&s)).collect()
+        } else {
+            let mut out = Vec::new();
+            let mut cursor = filter.before.map(str::to_owned);
+            let batch = filter.limit.map_or(500, |n| n.min(500));
+            'pages: loop {
+                if filter.limit.is_some_and(|n| out.len() >= n) {
+                    break;
+                }
+                let (sql, bind) = selection::page_query(filter, cursor.as_deref(), batch);
+                let page = {
+                    let mut stmt = self.db.prepare(&sql)?;
+                    stmt.query_map(params_from_iter(bind), |r| {
+                        Ok((
+                            r.get::<_, String>(0)?,
+                            r.get::<_, Option<String>>(1).ok().flatten(),
+                            r.get::<_, Option<String>>(2).ok().flatten(),
+                        ))
+                    })?
+                    .collect::<rusqlite::Result<Vec<_>>>()?
+                };
+                if page.is_empty() {
+                    break;
+                }
+                let exhausted = page.len() < batch;
+                for (id, title, goal) in page {
+                    cursor = Some(id.clone());
+                    if filter.limit.is_some_and(|n| out.len() >= n) {
+                        break 'pages;
+                    }
+                    let id_folded = selection::fold(&id);
+                    let title_folded = selection::fold(title.as_deref().unwrap_or(""));
+                    let goal_folded = selection::fold(goal.as_deref().unwrap_or(""));
+                    if !unicode.iter().all(|w| {
+                        id_folded.contains(w) || title_folded.contains(w) || goal_folded.contains(w)
+                    }) {
+                        continue;
+                    }
+                    // Fetch the full record only for rows that pass the Unicode fold.
+                    if let Ok(Some(record)) = self.read(&id) {
+                        out.push(record);
+                    }
+                }
+                if exhausted {
+                    break;
+                }
             }
-        );
-        bind.push(filter.limit.map_or(SqlValue::Integer(-1), |n| {
-            SqlValue::Integer(i64::try_from(n).unwrap_or(i64::MAX))
-        }));
-        let mut stmt = self.db.prepare(&sql)?;
-        let records = stmt
-            .query_map(params_from_iter(bind), |r| r.get::<_, String>(0))?
-            .collect::<rusqlite::Result<Vec<_>>>()?;
-        records.into_iter().map(|s| parse_record(&s)).collect()
+            Ok(out)
+        }
     }
     /// Resolve legacy identities per distinct checkout, without decoding task history.
     pub fn legacy_repo_paths(&mut self) -> Result<Vec<String>> {
@@ -765,7 +802,9 @@ impl TaskStore {
     }
     pub fn list_active_and_recent(&mut self, updated_since: f64) -> Result<Vec<Value>> {
         self.refresh()?;
-        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running')) ORDER BY id DESC")?;
+        // A stored `needs_input` never ages out while it still awaits an answer; one
+        // that was answered, retried or dismissed is not retained by its state.
+        let mut stmt = self.db.prepare("SELECT record FROM tasks WHERE archived=0 AND (updated_at>=? OR state IN ('queued','running') OR (state='needs_input' AND json_type(record, '$.question.answer') IS NULL AND json_extract(record, '$.retriedBy') IS NULL AND NOT COALESCE(json_extract(record, '$.dismissed'),0))) ORDER BY id DESC")?;
         let records = stmt
             .query_map([updated_since], |r| r.get::<_, String>(0))?
             .collect::<rusqlite::Result<Vec<_>>>()?;

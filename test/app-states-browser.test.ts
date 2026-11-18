@@ -22,7 +22,7 @@ beforeAll(async () => {
         if (eventFailures-- > 0) return new Response("Bad Gateway", { status: 502 });
         return new Response(new ReadableStream<Uint8Array>({ start(controller) { stream = controller; controller.enqueue(new TextEncoder().encode(": connected\n\n")); }, cancel() { stream = undefined; } }), { headers: { "Content-Type": "text/event-stream" } });
       }
-      if (path === "/v3/hello") return Response.json({ pacer: "test", protocol: "3.0.0", ops: [], events: ["attention"] });
+      if (path === "/v3/hello") return Response.json({ pacer: "test", protocol: "3.0.0", ops: [], events: ["attention", "job"] });
       if (path.startsWith("/v3/ops/")) return Response.json({ result: {} });
       if (path === "/v3/snapshot") return Response.json({ seq: 120, snapshot: await Bun.file("test/fixtures/ui/snapshot.json").json() });
     }
@@ -119,6 +119,35 @@ for (const [width, height] of [[1440, 900], [1920, 1080], [390, 844], [560, 900]
   });
 }
 
+for (const [width, height] of [[1440, 900], [390, 844]] as const) for (const scheme of ["light", "dark"] as const) {
+  browserTest(`service update restart banner at ${width}×${height} ${scheme}`, async () => {
+    const page = await browser.newPage({ viewport: { width, height }, colorScheme: scheme });
+    try {
+      await page.goto(`${server.url}?state=updating`);
+      await page.locator(".pc-dispatch").waitFor();
+      await page.waitForFunction(() => document.adoptedStyleSheets.length > 0);
+      const bar = page.locator(".connection-bar");
+      expect(await bar.textContent()).toContain("Updating pacer… Last update 1m ago. The service is restarting on the new version.");
+      expect(await bar.textContent()).not.toContain("Reconnecting");
+      const contrast = await bar.evaluate(n => {
+        const values = (s: string) => s.match(/[\d.]+/g)!.slice(0, 3).map(Number);
+        let box: Element | null = n, bg = "rgba(0, 0, 0, 0)";
+        while (box && /rgba\(0, 0, 0, 0\)|transparent/.test(bg)) { bg = getComputedStyle(box).backgroundColor; box = box.parentElement; }
+        const luminance = (rgb: number[]) => rgb.map(c => { const x = c / 255; return x <= .04045 ? x / 12.92 : ((x + .055) / 1.055) ** 2.4; }).reduce((sum, x, i) => sum + x * [.2126, .7152, .0722][i]!, 0);
+        const fgL = luminance(values(getComputedStyle(n).color)), bgL = luminance(values(bg));
+        return (Math.max(fgL, bgL) + .05) / (Math.min(fgL, bgL) + .05);
+      });
+      expect(contrast).toBeGreaterThanOrEqual(4.5);
+      const banner = await bar.boundingBox(), top = await page.locator(".pc-topbar").boundingBox();
+      expect(banner!.y).toBe(top!.y + top!.height);
+      expect(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth)).toBe(true);
+      if (process.env.PACER_DESIGN_EVIDENCE) {
+        const dir = ".work/fixtures/states"; mkdirSync(dir, { recursive: true });
+        await page.screenshot({ path: `${dir}/updating-${width}-${scheme}.png` });
+      }
+    } finally { await page.close(); }
+  });
+}
 browserTest("DispatchHome uses detection and capability-gates sample work", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
   try {
@@ -162,6 +191,36 @@ browserTest("HTTP 502 during restart retries and removes the offline banner on r
   } finally { outage = false; eventFailures = 0; await page.close(); }
 });
 
+
+browserTest("a service update's own restart shows the updating banner, and later drops do not", async () => {
+  const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+  const ready = () => page.waitForResponse(response => new URL(response.url()).pathname === "/v3/events" && response.status() === 200);
+  const job = { id: "update-1", kind: "update.apply", target: "pacer", state: "running", startedAt: 1, steps: [{ name: "Replace", state: "passed" }, { name: "Restart", state: "running" }] };
+  try {
+    const first = ready();
+    await page.goto(`${server.url}?state=recovery`);
+    await first;
+    await page.waitForFunction(() => !document.querySelector(".connection-bar"));
+    stream!.enqueue(new TextEncoder().encode(`id: 121\nevent: job\ndata: ${JSON.stringify(job)}\n\n`));
+    await page.waitForTimeout(200);
+    // The service goes down for its restart.
+    outage = true;
+    stream!.close(); stream = undefined;
+    const bar = page.locator(".connection-bar");
+    await bar.waitFor();
+    expect(await bar.textContent()).toContain("Updating pacer…");
+    // The new service never sends the job's closing event; reaching it is enough.
+    const back = ready();
+    outage = false;
+    await back;
+    await page.waitForFunction(() => !document.querySelector(".connection-bar"), undefined, { timeout: 15000 });
+    // A later, unrelated drop is an ordinary reconnect.
+    outage = true;
+    stream!.close(); stream = undefined;
+    await bar.waitFor();
+    expect(await bar.textContent()).toContain("Reconnecting to pacer…");
+  } finally { outage = false; eventFailures = 0; await page.close(); }
+});
 
 browserTest("Layout gates its separate UI API client and reenables it on reconnect", async () => {
   const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });

@@ -86,9 +86,16 @@ layer = 2
 layer = 3
 [crates.pacer-plugin-host]
 layer = 4
+[crates.pacer-plugin-capabilities]
+layer = 5
 heavy = ["reqwest"]
 [crates.pacer-sqlite-proof]
 layer = 2
+[crates.pacer-mcp]
+layer = 8
+[crates.pacer-core-bridge]
+layer = 8
+heavy = ["axum", "hyper"]
 [crates.pacer-server]
 layer = 9
 heavy = ["axum", "hyper"]
@@ -108,12 +115,16 @@ heavy = ["typify", "syn"]
 [crates.pacer-engine]
 layer = 5
 [crates.pacer-plugin-runtime]
-layer = 5
+layer = 6
 [crates.pacer-read-model]
 layer = 7
 [crates.pacer-repos]
 layer = 4
+[crates.pacer-models]
+layer = 4
 [crates.pacer-lifecycle]
+layer = 6
+[crates.pacer-dispatch]
 layer = 6
 [crates.pacer-install]
 layer = 5

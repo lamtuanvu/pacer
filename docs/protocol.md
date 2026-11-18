@@ -117,7 +117,7 @@ The snapshot contains only `seq`, `at`, `service`, `planner`, `mode`, `policy`, 
 
 Executor, account and planner rows add optional `eligibility`: `{ state, reasons, evaluatedAt, validUntil, evidenceAgeS, availability, budget, spendingRisk }`. `state` is `eligible`, `uncertain` or `ineligible`; reasons contain stable `code` and `evidenceIds`. Missing fields on older services mean unknown eligibility. Timestamps are Unix seconds; a null deadline or age means unavailable, not fresh evidence. These fields do not change the protocol major.
 `routing.route` includes eligibility on ranked and excluded candidates, an `uncertain` subset and `fallback: "uncertain"` on automatic fallback candidates. Eligible choices precede uncertain ones within global and project routing. Attempts preserve the launch decision and fallback in `routing`. Preflight refreshes supported sources and checks evidence/configuration again before dispatch. Pacing verdicts and legacy state enums are not execution permission. Credits alone do not permit paid execution; `spendingRisk: "unknown"` does not mean no paid usage.
-Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with an optional shared execution.local_max_tasks cap (default `unlimited`, no fixed cap). New local tasks also wait while macOS memory pressure reaches execution.local_memory_pressure_limit (default `critical`) or the load per core exceeds execution.local_load_limit (default `off`); running tasks are never stopped. Tasks wait with queue { reason, since, position, limit?, capacity?, detail?, machine? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. machine_memory_pressure and machine_load waits add limit `machine`, a plain-words detail and machine `{ memoryPressure?, memoryPressureLimit?, loadPerCore?, loadLimit? }` with the observed values; waiting tasks are re-checked about every 5 seconds. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
+Tasks add `rev`, `repo`, `kind`, `host` and optional `source`. A task that belongs to managed work also carries `work { rootId, parentId, depth, allowDelegation }`, its place in the managed work tree. The snapshot includes queued and running tasks plus undismissed settled tasks updated in the last 24 hours, newest first, capped at 200. Parallel tasks use runners.<id>.max_tasks (default 1 locally or the host max_tasks remotely), with an optional shared execution.local_max_tasks cap (default `unlimited`, no fixed cap). New local tasks also wait while macOS memory pressure reaches execution.local_memory_pressure_limit (default `critical`) or the load per core exceeds execution.local_load_limit (default `off`); running tasks are never stopped. Tasks wait with queue { reason, since, position, limit?, capacity?, detail?, machine? }; no_slot waits add limit (`executor`, `machine` or `host`) and capacity `{used,max}` at the last scheduling check. machine_memory_pressure and machine_load waits add limit `machine`, a plain-words detail and machine `{ memoryPressure?, memoryPressureLimit?, loadPerCore?, loadLimit? }` with the observed values; waiting tasks are re-checked about every 5 seconds. Paused waits omit these capacity fields. Executor rows include enabled, disabled/checking/failing states and lastCheck. The snapshot includes pause from the current delegation pause; planner.modeHeldUntil is present while a mode hold is active.
 
 Repository identity and existence reads use an in-memory cache. New paths can initially use their absolute unresolved identity until an async probe completes. Registry probes refresh at most once a minute; timeouts retain the last known value, and only confirmed missing repos without active or recent tasks are hidden. Task resolution uses bounded async filesystem and git reads, so stalled volumes do not block snapshots or event replay.
 
@@ -129,7 +129,7 @@ An action is `{ label, op, params, style?, confirm? }`; style is `primary` or `d
 
 `attention.dismiss { id }` returns `{ dismissed: true }` and also dismisses a task item. `attention.snooze { id, for: "1h" | "4h" | "1d" }` returns `{ until }`. An unknown attention id returns `unknown_task`. Dismissals last until the underlying condition clears; snoozed items are hidden until the deadline. Planner-sourced tasks enter review 600 seconds after settling; other tasks enter immediately.
 
-A `question:<task>` item has blocked severity, important notifications, the question verbatim (first 200 characters) as detail, and Answer (`task.answer { id }`) then Stop (`task.stop { id }`) actions. The client collects the answer text before dispatching Answer.
+A `question:<task>` item has blocked severity, important notifications, the question verbatim (first 200 characters) as detail, and Answer (`task.answer { id }`) then Stop (`task.stop { id }`) actions. For managed work v3 supplies `dispatch.answer { id, expect_rev, requestId }` and the client adds the answer text. Managed failed and limit items offer `dispatch.retry { id, expect_rev, requestId }` without an executor selection. Request IDs are stable for the task revision; v2 supplies navigation actions for managed work.
 
 ## Activity
 
@@ -147,7 +147,7 @@ Task mutations `task.stop`, `task.retry`, `task.answer`, `task.review` and `task
 
 `task.delegate` accepts optional `request_id` (1–128 characters, deduplicated for 600 seconds), `base` (branch/ref or 7–40 hex SHA) and `source` (`planner`, `ui`, `cli`). A repo may be an absolute path or RepoRef key. HTTP client labels starting with app, desktop, orca, tui or tray default source to ui; others default to planner. `routing.route { kind?, goal?, repo? }` classifies goal when kind is absent.
 
-`task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
+`task.list { limit?, before?, repo?, states?, executor?, since? }` always returns `{ tasks, next }`. Calls with only limit or no parameters also return a page. `since` is a Unix time and filters to tasks **created** at or after it (creation time, not update time). RepoRef optionally carries `unreachable: true` when a folder probe fails or times out; cached task repo identities are retained and a later successful probe clears the flag. `repo.list` returns RepoRefs with branches (current first, at most 50); `repo.add { path }` registers a git repository and returns its RepoRef; `repo.remove { key }` returns `{ removed: true }`.
 
 Executor questions appear as `needs_input` (label: Needs your answer). A live direct task retains running ownership internally while task details, events and list filters show the waiting state. `task.ask { id, text }` records one 1–1000 character question from an executor session identified by PACER_TASK_ID. `task.answer { id, text, expect_rev? }` accepts 1–2000 characters and returns `{ task, retry }` and records answer/answeredAt on the original question. When its direct interactive terminal is still alive, an answer is reserved against the current question before terminal submission and stays in the same attempt; both return fields name the original task. A definite pre-input delivery failure rolls back that reservation; an ambiguous failure after writing does not silently resend it. Otherwise, when the task ran locally through the direct backend with a resumable native session (not managed work and not a conversation), the answer continues the original task: it is delivered as an `answer` message, the asking executor resumes its session in the same worktree, and `task` and `retry` both name the original task. That continuation passes the same project policy admission as a new attempt (delegate, then route). If policy now excludes the asking executor, an admitted executor replays the thread in a fresh session; if policy vetoes it or admits no executor, the answer falls back to a retry, which policy admits or refuses (`not_allowed`, hint `plugin <id>`) as it does a new delegation. Otherwise the answer creates a retry on the same executor. Any task not awaiting an unanswered question returns conflict, including repeat answers after the retry settles. Concurrent answers create one retry or one continuation. The stored brief accumulates `qa: [{ q, a }]`, rendered after Constraints as `## Question / Answer` with verbatim Q: and A: lines. Question and answer text never goes through a shell. Executor sessions cannot answer onward. On a task whose backend kept its worker live after the question, the answer is typed into that worker instead of a new one, and only while the worker is unsettled and its terminal still reports the lane's agent (on Orca, `terminal show`'s `agentIdentity` for the same terminal incarnation); otherwise the old worker is stopped and the retry starts fresh. The agent is launched with `exec` in place of the terminal's shell, so when it exits the terminal ends and no shell is left to read typed text. `task.send` also supports built-in interactive PTYs, taking and releasing terminal control without creating an attempt. `task.send { id, text, force?, expect_rev? }` delivers 1–4000 characters to the same live agent of a running lane under the same check (conflict while the lane waits on its question; unavailable when the task has no live worker, its backend cannot deliver input or the terminal does not report the lane's agent) and records a 60-second driving lease for the caller: a service client instance (`X-Pacer-Client-Instance`, so two app windows or two MCP servers contend even under one label; only its X-Pacer-Client label when it sends none), the CLI by its terminal. `driving.by` is caller-asserted and carries that label, instance id or the CLI's OS user and terminal session id. Another caller within the lease gets conflict unless force. Task records may carry `interactive`, `group`, `driving { by, at }` and `live { backend, worker, terminal, executor, agent, since }`; a live worker holds its executor slot until it is answered, stopped, settled or explicitly released. An unanswered worker has no idle expiry; interactive execution deadlines exclude waiting time, persisted across supervisor reattachment.
 
@@ -1829,6 +1829,25 @@ Params JSON Schema:
     },
     "notifier": {
       "type": "boolean"
+    },
+    "notification_permission": {
+      "type": "string",
+      "enum": [
+        "not_determined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+        "unsupported"
+      ]
+    },
+    "notification_alerts": {
+      "type": "string",
+      "enum": [
+        "none",
+        "banner",
+        "alert"
+      ]
     }
   },
   "required": [
@@ -1885,6 +1904,25 @@ Params JSON Schema:
     },
     "capture": {
       "type": "boolean"
+    },
+    "notification_permission": {
+      "type": "string",
+      "enum": [
+        "not_determined",
+        "denied",
+        "authorized",
+        "provisional",
+        "ephemeral",
+        "unsupported"
+      ]
+    },
+    "notification_alerts": {
+      "type": "string",
+      "enum": [
+        "none",
+        "banner",
+        "alert"
+      ]
     }
   },
   "required": [
@@ -1939,6 +1977,7 @@ Params JSON Schema:
         "pacing.planner_probe",
         "pacing.accounts",
         "pacing.fill_threshold",
+        "pacing.balance",
         "update_check",
         "terminal.app",
         "terminal.open"
@@ -2825,6 +2864,19 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 128
+    },
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
     },
     "requestId": {
       "type": "string",
@@ -3952,6 +4004,83 @@ Params JSON Schema:
 }
 ```
 
+### `dispatch.tierTargets.get`
+
+Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `dispatch.tierTargets.set`
+
+Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "targets": {
+      "type": "object",
+      "properties": {
+        "simple": {
+          "default": "small",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "standard": {
+          "default": "medium",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        },
+        "complex": {
+          "default": "frontier",
+          "type": "string",
+          "enum": [
+            "small",
+            "medium",
+            "frontier"
+          ]
+        }
+      },
+      "required": [
+        "simple",
+        "standard",
+        "complex"
+      ],
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "expectedRevision",
+    "targets"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `dispatch.tree`
 
 Scoped nested work tree, selected decisions, dependencies and aggregate execution time.
@@ -4048,6 +4177,33 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `executor.models.available`
+
+Models an executor can use, from its provider's live listing; models is null when the listing is unknown.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "runner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "refresh": {
+      "type": "boolean"
+    }
+  },
+  "required": [
+    "runner"
+  ],
   "additionalProperties": false
 }
 ```
@@ -5106,9 +5262,54 @@ Params JSON Schema:
 }
 ```
 
+### `notifications.ack`
+
+Acknowledge a notification delivery outcome (desktop clients only).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "client_id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "key": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 512
+    },
+    "delivered": {
+      "type": "boolean"
+    },
+    "error": {
+      "anyOf": [
+        {
+          "type": "string",
+          "maxLength": 512
+        },
+        {
+          "type": "null"
+        }
+      ]
+    }
+  },
+  "required": [
+    "client_id",
+    "key",
+    "delivered"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `notifications.get`
 
-Current notification level.
+Current notification level and sound.
 
 Params JSON Schema:
 
@@ -5121,9 +5322,45 @@ Params JSON Schema:
 }
 ```
 
+### `notifications.health`
+
+Cheap read of the notification check without running the full doctor.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `notifications.request`
+
+Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "wait_s": {
+      "type": "integer",
+      "minimum": 0,
+      "maximum": 25
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `notifications.set`
 
-Set notifications to off, important or all.
+Set notification level (off, important, all) and/or sound (pacer, default, off or a built-in macOS sound); only present fields are written.
 
 Params JSON Schema:
 
@@ -5139,11 +5376,45 @@ Params JSON Schema:
         "important",
         "all"
       ]
+    },
+    "sound": {
+      "type": "string",
+      "enum": [
+        "pacer",
+        "default",
+        "off",
+        "basso",
+        "blow",
+        "bottle",
+        "frog",
+        "funk",
+        "glass",
+        "hero",
+        "morse",
+        "ping",
+        "pop",
+        "purr",
+        "sosumi",
+        "submarine",
+        "tink"
+      ]
     }
   },
-  "required": [
-    "level"
-  ],
+  "additionalProperties": false
+}
+```
+
+### `notifications.test`
+
+Send a test notification to the OS presenter.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
   "additionalProperties": false
 }
 ```
@@ -6343,6 +6614,210 @@ Params JSON Schema:
 }
 ```
 
+### `runner.models.get`
+
+Read an executor's default and allowed models with tiers, against the strategy revision.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.models.set`
+
+Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "default": {
+      "type": "string",
+      "minLength": 1
+    },
+    "models": {
+      "maxItems": 256,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 256
+          },
+          "tier": {
+            "default": "unknown",
+            "type": "string",
+            "enum": [
+              "small",
+              "medium",
+              "frontier",
+              "unknown"
+            ]
+          },
+          "strengths": {
+            "default": [],
+            "maxItems": 64,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            }
+          },
+          "tools": {
+            "type": "boolean"
+          },
+          "context": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "tier",
+          "strengths"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "id",
+    "expectedRevision",
+    "default",
+    "models"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `runner.models.set_many`
+
+Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "expectedRevision": {
+      "type": "string",
+      "minLength": 1
+    },
+    "runners": {
+      "minItems": 1,
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "default": {
+            "type": "string",
+            "minLength": 1
+          },
+          "models": {
+            "maxItems": 256,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 256
+                },
+                "tier": {
+                  "default": "unknown",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier",
+                    "unknown"
+                  ]
+                },
+                "strengths": {
+                  "default": [],
+                  "maxItems": 64,
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  }
+                },
+                "tools": {
+                  "type": "boolean"
+                },
+                "context": {
+                  "type": "integer",
+                  "exclusiveMinimum": 0,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "id",
+                "tier",
+                "strengths"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "default",
+          "models"
+        ],
+        "additionalProperties": false
+      }
+    }
+  },
+  "required": [
+    "expectedRevision",
+    "runners"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.remove`
 
 Remove a runner and its routing and pacing order references.
@@ -7155,6 +7630,29 @@ Params JSON Schema:
 }
 ```
 
+### `setup.skip`
+
+Skip an optional setup step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "step": {
+      "type": "string",
+      "const": "notifications"
+    }
+  },
+  "required": [
+    "step"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `snapshot.get`
 
 Read the complete current v3 snapshot, counts, attention and activity, with its event sequence.
@@ -7592,6 +8090,19 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "difficulty": {
+      "type": "string",
+      "enum": [
+        "simple",
+        "standard",
+        "complex"
+      ]
+    },
+    "model": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
     "dispatch": {},
     "title": {
       "type": "string",
@@ -8024,6 +8535,11 @@ Params JSON Schema:
     "since": {
       "type": "number",
       "minimum": 0
+    },
+    "q": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200
     }
   },
   "additionalProperties": false

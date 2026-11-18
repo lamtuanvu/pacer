@@ -11,9 +11,11 @@ pacer-config = { path = "../config" }
 pacer-foundation = { path = "../foundation" }
 pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
-ryu-js = "1"
 serde_json.workspace = true
 sha2 = "0.10"
+
+[target.'cfg(unix)'.dependencies]
+nix = { version = "0.31", features = ["fs"] }
 
 [dev-dependencies]
 tempfile = "3"

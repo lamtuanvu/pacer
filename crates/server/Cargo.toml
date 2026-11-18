@@ -7,13 +7,15 @@ license.workspace = true
 rust-version.workspace = true
 
 [features]
-test-ops = []
+test-ops = ["pacer-config-ops/test-ops", "pacer-core-bridge/test-ops"]
 
 [dependencies]
 tokio.workspace = true
 serde_json.workspace = true
 serde.workspace = true
 ryu-js = "1"
+pacer-mcp = { path = "../mcp" }
+pacer-core-bridge = { path = "../core-bridge" }
 pacer-foundation = { path = "../foundation" }
 pacer-plugin-ops = { path = "../plugin-ops" }
 pacer-plugin-runtime = { path = "../plugin-runtime" }
@@ -25,6 +27,7 @@ pacer-store = { path = "../store" }
 pacer-read-model = { path = "../read-model" }
 pacer-task-ops = { path = "../task-ops" }
 pacer-config-ops = { path = "../config-ops" }
+pacer-models = { path = "../models" }
 pacer-messaging-ops = { path = "../messaging-ops" }
 pacer-dispatch-ops = { path = "../dispatch-ops" }
 pacer-issues = { path = "../issues" }

@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-//! ProcessOwner answers capability.* through the plugin-host broker (P4d-6/7).
+//! ProcessOwner answers capability.* through the plugin-capabilities broker (P4d-6/7).
 
 use pacer_plugin_host::OrcaAttemptResource;
 use pacer_plugin_runtime::{
@@ -274,7 +274,7 @@ for (;;) {{
         "hosts":[]
     });
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["fs.read".into()]),
@@ -286,6 +286,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -378,7 +379,7 @@ for (;;) {{
         "hosts":[]
     });
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["process.spawn".into()]),
@@ -390,6 +391,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -423,7 +425,7 @@ for (;;) {{
 }
 
 #[tokio::test]
-async fn process_owner_answers_observation_tasks_list_when_core_seals_bootstrap() {
+async fn process_owner_refuses_observation_reads_outside_a_lane_generation() {
     let dir = TempDir::new().unwrap();
     let home = dir.path().to_str().unwrap().to_owned();
     let pacer_home = dir.path().join("state");
@@ -451,7 +453,7 @@ for (;;) {{
       pending = m.id;
       send({{ id: 7, method: "capability.tasks.list", params: {{}}, _meta: {{ capabilityCall: token }} }});
     }} else if (m.id === 7) {{
-      send({{ id: pending, result: {{ ok: true, tasks: m.result?.tasks ?? null }} }});
+      send({{ id: pending, result: {{ ok: true, tasks: m.result?.tasks ?? null, error: m.error?.message }} }});
     }}
   }}
 }}
@@ -480,7 +482,7 @@ for (;;) {{
     });
     let observation = observation_bootstrap_from_value(&sealed).unwrap();
     let resources = call_resources_from_value(&sealed).unwrap();
-    let session = session_for_call(
+    let mut session = session_for_call(
         &hello,
         resources,
         Some(vec!["tasks.read".into(), "events.subscribe".into()]),
@@ -492,6 +494,7 @@ for (;;) {{
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
 
     let mut owner = ProcessOwner::native_for_tests();
     owner
@@ -511,10 +514,12 @@ for (;;) {{
         )
         .await
         .unwrap();
+    // Task reads come from the owning door's Core under the lane's generation; a session
+    // installed outside a sealed door call has neither, so it must not answer from anywhere else.
     assert_eq!(
         ping,
-        json!({"ok": true, "tasks": []}),
-        "Core-sealed observation bootstrap must answer capability.tasks.list"
+        json!({"ok": true, "tasks": null, "error": "observation owner or transport was not issued"}),
+        "a sealed observation token without a lane generation must not read tasks"
     );
     owner.terminate("fx-obs").await.unwrap();
 }
@@ -600,6 +605,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_hosts_fixture(
         FixtureHostProvider::new(snapshot.clone(), "probe-ok"),
         [snapshot],
@@ -723,6 +729,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session
         .bind_orca_fixture(
             home.path(),
@@ -894,6 +901,7 @@ for (;;) {
         None,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_process_owner_worktree().await.unwrap();
 
     let dir = TempDir::new().unwrap();
@@ -1018,6 +1026,7 @@ for (;;) {
         executor_context,
     )
     .unwrap();
+    session.seal_call_authority(&json!({"owning": true}));
     session.bind_process_owner_executor().unwrap();
 
     let dir = TempDir::new().unwrap();

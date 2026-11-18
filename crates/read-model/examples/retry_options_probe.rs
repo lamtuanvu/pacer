@@ -21,7 +21,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             .map_err(Error::from)
             .and_then(|mut store| {
                 let task = retry::retry_task(&mut store, text(&input["id"]))?;
-                retry::retry_options(&ctx, &mut store, &task, &input["parts"])
+                retry::retry_options(&ctx, &mut store, &task, &input["parts"], None)
             });
         let reply = match result {
             Ok(value) => json!({"result": value}),

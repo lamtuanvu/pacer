@@ -25,6 +25,10 @@ fn forward_override_removes_only_selected_native_ops() {
         "runner.remove",
         "runner.settings.get",
         "runner.settings.save",
+        "runner.models.get",
+        "runner.models.set",
+        "runner.models.set_many",
+        "executor.models.available",
         "notifications.get",
         "notifications.set",
         "config.get",
@@ -47,6 +51,7 @@ fn forward_override_removes_only_selected_native_ops() {
         "routing.route",
         "task.retry_options",
         "task.request_review",
+        "task.send",
         "task.stop",
         "task.review",
         "task.dismiss",
@@ -63,6 +68,8 @@ fn forward_override_removes_only_selected_native_ops() {
         "machine.rotate",
         "files.search",
         "setup.check",
+        "setup.health",
+        "doctor.run",
         "onboarding.skip",
         "repo.list",
         "repo.add",
@@ -84,9 +91,18 @@ fn forward_override_removes_only_selected_native_ops() {
         "msg.confirm",
         "msg.close",
         "dispatch.config.get",
+        "dispatch.tierTargets.get",
+        "dispatch.tierTargets.set",
         "dispatch.tree",
         "dispatch.list",
         "dispatch.events",
+        "dispatch.submit",
+        "dispatch.child",
+        "dispatch.wait",
+        "dispatch.review",
+        "dispatch.retry",
+        "dispatch.answer",
+        "dispatch.stop",
         "dispatch.dependencies",
         "dispatch.dependencies.waive",
         "dispatch.analytics",
@@ -94,6 +110,8 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.models",
         "dispatch.refresh",
         "dispatch.enforcement.consent",
+        "dispatch.preview",
+        "dispatch.explain",
         "insights.summary",
         "discovery.set",
         "discovery.respond",
@@ -110,35 +128,38 @@ fn forward_override_removes_only_selected_native_ops() {
         "assistant.delete",
         "assistant.card.record",
         "assistant.card.refresh",
+        "account.list",
+        "account.signin",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
     }
     for name in [
-        "dispatch.submit",
-        "dispatch.child",
-        "dispatch.wait",
-        "dispatch.review",
-        "dispatch.retry",
-        "dispatch.answer",
-        "dispatch.stop",
-        "dispatch.explain",
-        "dispatch.preview",
         "dispatch.enforcement",
         "dispatch.enforcement.probe",
         "dispatch.enforcement.denied",
         "desktop.update.status",
         "desktop.capture.targets",
-        "account.list",
     ] {
         assert!(registry("").get(name).is_none(), "{name}");
     }
     assert!(registry("").get("config.get").is_some());
     assert!(registry("config.get").get("config.get").is_none());
     assert!(registry("").get("activity.list").is_some());
-    // Stdio keeps retired install in TypeScript; HTTP registers the refuse.
+    // Plugin ops need a door's Core channel: both doors use the service registry.
     assert!(registry("").get("plugin.install").is_none());
-    assert!(registry("plugin.install").get("plugin.install").is_none());
+    for name in pacer_plugin_ops::public::OPERATIONS
+        .iter()
+        .chain(pacer_plugin_ops::mutations::MUTATION_OPERATIONS)
+    {
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry(name).get(name).is_none(), "{name}");
+    }
+    assert_eq!(
+        pacer_plugin_ops::public::OPERATIONS.len()
+            + pacer_plugin_ops::mutations::MUTATION_OPERATIONS.len(),
+        12
+    );
     assert!(registry("").get("task.log").is_some());
     assert!(registry("").get("task.prune").is_some());
     assert!(registry("").get("task.restore").is_some());
@@ -160,6 +181,8 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("").get("task.stop").is_some());
     assert!(registry("task.stop").get("task.stop").is_none());
     assert!(registry("").get("task.answer").is_none());
+    assert!(registry("").get("task.send").is_some());
+    assert!(registry("task.send").get("task.send").is_none());
     assert!(registry("").get("task.wait").is_some());
     assert!(registry("task.wait").get("task.wait").is_none());
     assert!(registry("").get("task.retry").is_none());
@@ -169,16 +192,69 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_some());
     assert!(registry("limits.refresh").get("limits.refresh").is_none());
+    assert!(registry("").get("runner.check").is_some());
+    assert!(registry("runner.check").get("runner.check").is_none());
     assert!(registry("").get("assistant.ask").is_none());
     assert!(registry("").get("assistant.cancel").is_none());
 }
 
 #[test]
-fn service_install_is_not_a_registered_native_op() {
-    // service.install stays on TypeScript until Core has a 'service.effects'
-    // bridge; TS owns install consent and the in-job self-reload.
-    assert!(registry("").get("service.install").is_none());
-    assert!(super::service_registry("").get("service.install").is_none());
+fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
+    for name in ["service.install", "update.apply"] {
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(registry(name).get(name).is_none(), "{name}");
+        assert!(super::install_apply_sync::uses_effects(name), "{name}");
+    }
+    assert!(!super::install_apply_sync::uses_effects("service.status"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    let grant = ctx(&[("PACER_WORK_GRANT", "g")]);
+    let params = serde_json::json!({});
+    assert!(super::service_agent_stays_forwarded(
+        &grant,
+        "service.install",
+        &params
+    ));
+    assert!(super::service_agent_stays_forwarded(
+        &grant,
+        "update.apply",
+        &params
+    ));
+    assert!(!super::install_apply_sync::stays_forwarded(
+        &grant,
+        "service.status"
+    ));
+}
+
+#[tokio::test]
+async fn install_apply_bridge_names_reach_core_endpoints() {
+    // Without a Core target the bridge reports a restarting core, not an unknown bridge.
+    for bridge in ["service.effects", "update.effects", "host.effects"] {
+        let body = serde_json::json!({"request": {}});
+        let result = crate::native::core_bridge_sync::http(None, bridge, body).await;
+        assert!(
+            matches!(&result, Err(error) if error.message == "pacer core is restarting"),
+            "{bridge}"
+        );
+    }
+}
+
+#[test]
+fn install_apply_bridges_wait_like_the_forwarded_path() {
+    use crate::native::core_bridge_sync::deadline;
+    assert_eq!(deadline("service.effects"), None);
+    assert_eq!(deadline("update.effects"), None);
+    assert_eq!(deadline("host.effects"), None);
+    assert_eq!(
+        deadline("setup.effects"),
+        Some(std::time::Duration::from_secs(120))
+    );
 }
 
 #[test]
@@ -193,14 +269,18 @@ fn service_handover_and_work_are_not_registered_native_ops() {
 }
 
 #[test]
-fn host_check_clean_and_setup_are_not_registered_native_ops() {
-    // host.check, host.clean and host.repo.setup stay on TypeScript until Core
-    // serves a real host effects bridge; unregistering them makes forwarding
-    // structural on every transport instead of a per-front-door predicate.
+fn host_check_clean_and_repo_setup_are_registered() {
+    // host.check, host.clean and host.repo.setup answer refusals (and clean dry runs)
+    // natively and run their jobs through Core's whole-operation host effects bridge;
+    // host.terminal stays on TypeScript.
     for name in ["host.check", "host.clean", "host.repo.setup"] {
-        assert!(registry("").get(name).is_none(), "{name}");
-        assert!(super::service_registry("").get(name).is_none(), "{name}");
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(registry(name).get(name).is_none(), "{name}");
+        assert!(super::needs_host_effects(name), "{name}");
     }
+    assert!(registry("").get("host.terminal").is_none());
+    assert!(super::service_registry("").get("host.terminal").is_none());
 }
 
 #[test]
@@ -232,6 +312,10 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "runner.remove",
         "runner.settings.get",
         "runner.settings.save",
+        "runner.models.get",
+        "runner.models.set",
+        "runner.models.set_many",
+        "executor.models.available",
         "notifications.get",
         "notifications.set",
         "config.get",
@@ -254,6 +338,7 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "routing.route",
         "task.retry_options",
         "task.request_review",
+        "task.send",
         "task.stop",
         "task.review",
         "task.dismiss",
@@ -270,6 +355,8 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "machine.rotate",
         "files.search",
         "setup.check",
+        "setup.health",
+        "doctor.run",
         "onboarding.skip",
         "repo.list",
         "repo.add",
@@ -291,9 +378,18 @@ fn service_registers_plugin_reads_and_mutations_with_individual_fallbacks() {
         "msg.confirm",
         "msg.close",
         "dispatch.config.get",
+        "dispatch.tierTargets.get",
+        "dispatch.tierTargets.set",
         "dispatch.tree",
         "dispatch.list",
         "dispatch.events",
+        "dispatch.submit",
+        "dispatch.child",
+        "dispatch.wait",
+        "dispatch.review",
+        "dispatch.retry",
+        "dispatch.answer",
+        "dispatch.stop",
         "dispatch.dependencies",
         "dispatch.dependencies.waive",
         "dispatch.analytics",

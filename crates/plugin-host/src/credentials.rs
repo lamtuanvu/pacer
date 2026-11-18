@@ -21,7 +21,7 @@ pub struct CredentialBindings {
     bindings: HashMap<String, Binding>,
 }
 impl CredentialBindings {
-    pub(crate) fn contains(&self, reference: &str) -> bool {
+    pub fn contains(&self, reference: &str) -> bool {
         self.bindings.contains_key(reference)
     }
     pub fn bind(&mut self, reference: &str, lookup: Lookup) -> Result<(), BrokerError> {
@@ -52,7 +52,7 @@ impl CredentialBindings {
             }),
         )
     }
-    pub(crate) async fn resolve(&mut self, reference: &str) -> Result<Option<String>, BrokerError> {
+    pub async fn resolve(&mut self, reference: &str) -> Result<Option<String>, BrokerError> {
         if !valid_reference(reference) {
             return Err(BrokerError::Invalid("secret reference"));
         }

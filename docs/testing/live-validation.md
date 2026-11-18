@@ -18,6 +18,9 @@ authorization. For a diagnostic run, `PACER_DEBUG_NATIVE=1` writes `native <op> 
 to stderr for stdio requests with an ID, and `native <op>` for HTTP requests
 and notifications, when the Rust handler executes. The test-only `test-ops` build exposes
 `test.echo` and `_debug.native` for strict native evidence; release builds do not.
+With a `test-ops` front door and an uncompiled core, `PACER_TEST_LOCAL_SERVER_PORTS=<ollama>,<lmstudio>`
+moves the `executor.setup.candidates` probes off the fixed ports 11434 and 1234 to
+loopback fixture ports; see the harness safeguards below.
 
 ## Start and inspect a sandbox
 
@@ -73,6 +76,10 @@ bun run live up --id my-change --real-keychain
 
 `session.json` then records `realKeychain: true`. `down`, with or without `--keep`, deletes the `machine-identity/<homeTag>`, `machine-identity-staging/<homeTag>` and `machine-install-salt/<homeTag>` items of the sandbox `home/` and of every copied home directly under the sandbox root that has `identity/machine.json` (for example a `home-copy/` made to test copied homes). It refuses before deleting anything if a home has the tag of your real `~/.pacer`, and it records the deleted accounts in the evidence log. Remove Keychain items of homes created elsewhere yourself. `--real-keychain` is valid only for `up`.
 
+### SSH and the fake host
+
+Every sandbox also puts a fake `ssh` first on its `PATH` (`bin/ssh`). It wraps `test/fixtures/bin/ssh`, which runs the remote program locally with `HOME` set to the sandbox's `fake-host/home/` and logs each call to `fake-host/ssh.log`. The SSH alias `pacer-live-down.invalid` is refused as an unreachable host would be. In sandboxes started by `live up`, every `ssh` call made by the service, the guarded CLI (`live pacer`) and their plugin children reaches this fake. The upgrade, OTA and integrations fixtures start their own services without it; the integrations fixture runs its service and CLI with the caller's `PATH`, not the sandbox `bin/`. None of them declares hosts, so they make no `ssh` calls. There is no option to use the real SSH client: live tests against a real remote still need separate maintainer approval under SEC-6 and are outside this harness. Use `.invalid` aliases (`pacer-live-fake.invalid`) for sandbox hosts, so a real client could not resolve them either. Because the fake runs pacer's fixed remote scripts on this machine, keep every repository and account path in a sandbox host declaration under `~/`, which the fake resolves inside `fake-host/home/`; an absolute path would be used as a local path. For the same reason, D3 refuses the CLI forms of the host operations D8 refuses (`host add`, `host account add`, `host repo map`, `host repo setup`, `host setup`, `host clean` and `host terminal`), admits `host repo` only with the read-only `list` and `check` subcommands, and fixtures write their fixed host declarations into the sandbox `home/strategy.yaml` themselves. Because the sandbox `PACER_HOME` is long, pacer keeps its ssh control sockets in `/tmp/pacer-ssh-<uid>-<hash>`; `live down` removes only that sandbox's directory, derived exactly as pacer derives it.
+
 ### M1 runtime and artifact layout
 
 To validate the development Rust front door, add `--front-door rust` to `up`. The harness builds `target/debug/pacer` and uses it for the service and guarded CLI calls, with `PACER_CORE_ARGV` pointing at this checkout's `src/cli.ts` through Bun. The recorded service PID is Root, bound to `innerPort`; its supervised `serve --internal` core uses another private ephemeral HTTP port. The D8 proxy remains the public sandbox endpoint. Both processes write to `logs/serve.log`. This development mode does not prove compiled sibling resolution, release packaging or signed native authority. Bundled plugin children retain the configured front-door or wrapper route; the source host supplies a fixed selector for its own Bun runtime and CLI module. Installed plugins do not receive that selector.
@@ -84,6 +91,12 @@ Use the guarded public proxy for HTTP checks. To check the forward override in
 a separate sandbox, add `--native-forward-echo`; it fixes
 `PACER_FORWARD_OPS=test.echo` for that sandbox. Record the native trace from
 `logs/serve.log` and the forwarding result as behavior notes in each report.
+Four more `up` options also need `--native-test-ops`. `--local-model-ports <ollama>,<lmstudio>`
+points local model probes at two distinct harness-owned loopback fixtures (`PACER_TEST_LOCAL_SERVER_PORTS`). The harness refuses 4317 and the probe defaults 11434 and 1234, binds both requested ports before starting the service, and refuses startup if either is already bound. By default the fixtures close connections. Choose `--local-model-fixture ollama=ok,lmstudio=fail:100` to serve a fixed two-model list on the first port and delay failure by 100 ms on the second; each mode is `ok`, `fail`, or `fail:<milliseconds>` (0–9999). The fixture serves `/v1/models` and `/api/tags` locally and never forwards requests. Fixtures are stopped with the session; use only while the fixture process remains alive. On macOS the service and its Core child also run under a sandbox denying outbound TCP to ports 4317, 11434 and 1234; `session.json` records `modelProbeSandbox`. This does not sandbox unrelated network traffic or protect against a fixture process dying and its port being reused. `--core-fixture <file>` runs a test Core entry
+from `test/fixtures/` instead of `src/cli.ts`; the entry reads its own fixture variables
+from the environment of `up` (for example `DISCOVER_PLAN` for `core-discover-plan.ts`).
+`--native-forward-ops <ops>` sets `PACER_FORWARD_OPS` so a second sandbox can compare
+forced forwarding for those operations. `session.json` records each choice.
 The D3 guard refuses generic stdio calls. For a native test-ops sandbox without
 `--native-forward-echo`, run `bun run live native-stdio --id <id>`. This fixed
 fixture starts the sandbox's Rust front door with the sandbox home and Keychain
@@ -95,6 +108,45 @@ requests with `PACER_FORWARD_OPS=*` and checks both replies without a native tra
 It accepts no operation, path or
 environment override. The normal guarded `live pacer -- api --stdio` remains
 refused. Report native stdio as PASS only when this fixture passes.
+
+Stdio plugin operations have their own fixed fixture, `bun run live native-plugin-stdio
+--id <id>`, for any Rust front-door sandbox without forwarding or the real Keychain; it
+does not need `--native-test-ops`. It installs the conformance `fx-ui` plugin in the
+sandbox home if missing, then opens two stdio connections, with
+`PACER_NATIVE_PLUGIN_HOST=0` and `=1`. Each sends `plugin.list` before `hello`, which
+must reach TypeScript, then `hello` (protocol 3), `plugin.list`, `plugin.enable`,
+`plugin.doctor`, `plugin.ui.render`, `plugin.settings.get`, `plugin.disable`,
+`plugin.enable` and `plugin.doctor`. Every protocol-3 plugin request needs exactly one
+native trace, and the flag-on connection must print its owner decision
+([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)). On a sandbox started
+with `--native-plugin-host` the flag-on connection must attach to the service's
+`run/host.sock`, and the service's `plugin.doctor` must report the same plugin process.
+Otherwise it must own its children on `run/s<12-hex>.sock`, or, when the sandbox home is so
+deep that this path exceeds 103 bytes, in the private per-user `pacer-<hash>/` directory
+([ADR 0027](../decisions/0027-one-native-plugin-owner-per-home.md)); both the socket and the
+plugin process must be gone after the connection ends. On a running sandbox the fixture
+then checks `plugin.list` and `plugin.doctor` over HTTP. Run it again after
+`live down --keep` for a home without a service. `--stop-service` (only with
+`--native-plugin-host`) runs only the attached connection, keeps it open, stops the sandbox as
+`live down --keep` does, and requires `plugin_unavailable` with a restart hint from the next
+render. A sandbox started with `--native-plugin-host` binds `run/host.sock`, whose path must
+fit in 103 bytes, so run attach checks from a checkout with a short path.
+
+The service's own plugin lifecycle has a fixed fixture, `bun run live native-plugin-owner
+--id <id>`, for a healthy `--front-door rust --native-plugin-host` sandbox. Over the guarded
+proxy it requires one SSE `config` event for the plugins area after each of `plugin.enable`,
+`plugin.disable` and `plugin.enable`. It then kills the service's `fx-ui` process three times:
+the `plugin.list` states must follow the TypeScript registry (`ready`, `idle` with the exit
+reason, `ready`, and `failing` after the third crash), the restarts must wait out the 1 and
+2 second backoff, and `plugin.enable` must restart the plugin at once. A second
+`pacer serve` on the same home and another port must exit 3 after its bounded wait and name
+the owner's pid, and `pacer doctor` must report the live socket with that pid. The restart
+cycle then starts a serve that waits for the owner, stops the service and waits for its whole
+process group to exit, checks that the waiting serve took over `run/host.sock`, stops it, and
+starts the service again on its port. Last, it holds a `plugin.ui.render` and, 1 second into
+the call's 2 second deadline, sends SIGTERM to the service pid alone (the plugin child shares
+its process group): the service and its plugin process must exit within the 2 second grace plus 1.5
+seconds, leaving no socket, sidecar or plugin process, and the service starts again.
 
 Validate compiled paired artifacts separately with the fixed repair/pair and native OTA modes below. A signed paired native app retains Root as the public native listener owner and transfers a duplicate to its verified core; the core accepts peers with their genuine kernel audit metadata. Logical service evidence names Root and records the actual core separately. Record the exact source fingerprint, both binary hashes/versions, signing scope, exercised surfaces and every FAIL/UNVERIFIED case. Keep complete app bundles intact; never repair one executable inside a signed app.
 
@@ -123,7 +175,7 @@ eval "$(bun run live env --id my-change)"
 
 Use those exports in a dedicated shell so later work does not inherit the sandbox. The guarded `pacer` stays first on `PATH`, and `PACER_BIN` points at it. Each guarded call reapplies sandbox env, including calls made by child tools. Do not bypass the wrapper or override the sandbox coordinates.
 
-The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host setup`, `orca`, and `open` without `--print`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
+The D3 guard exits **3** with a named rule for `install`, `uninstall`, `init`, `setup`, `statusline`, `update`, `service install|uninstall`, `plugin uninstall|remove`, `account add|rm|login`, `host add|setup|clean|terminal`, `host account add`, every `host repo` form except `list` and `check` (found after flags too), `orca`, `open` without `--print`, and `config set planner` in any spelling (`planner=…`, a different case, flags or `--` separators): the CLI calls `config.set` in-process with `integrations: "install"`, so D8 never sees it, and an unseeded sandbox does not redirect `HOME`, `CODEX_HOME` or `CLAUDE_CONFIG_DIR`. Shadow `launchctl` and `systemctl` binaries also refuse service-manager access. This is an operational guard for cooperative validation, not a security boundary for arbitrary executor code. D8 below guards network API operations. Keep tests within the stated sandbox scope.
 
 ## D8: service operation guard
 
@@ -154,7 +206,7 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `host.terminal` | hosts.terminal opens a real SSH terminal |
 | `update.apply` | applyUpdate may replace the installed binary and refresh integrations |
 | `strategy.build` | buildStrategy opens a planning terminal in Orca, tmux or the OS |
-| `config.set` | config.set can install and uninstall planner integrations (whole op refused conservatively) |
+| `config.set` | config.set can install and uninstall planner integrations; only a known key other than planner, or planner with integrations "skip", passes (CONDITIONAL_OPS) |
 | `runner.add` | interactiveTerminal opens a real terminal (whole op refused conservatively) |
 | `task.attach` | openSession can switch/create Orca terminals or split real tmux (whole op refused conservatively) |
 | `host.clean` | hosts.cleanJob removes worktrees on remote hosts (whole op refused conservatively) |
@@ -162,6 +214,10 @@ The policy source of truth is exported as `BLOCKED_OPS` from `scripts/live/proxy
 | `plugin.remove` | plugins.remove deletes a plugin folder under the home (whole op refused conservatively) |
 | `service.*` | all service operations except service.status can change the real login service |
 <!-- /D8 policy -->
+
+A row can pass conditionally only through `CONDITIONAL_OPS` in the same file, which inspects the request body. `config.set` is the only conditional row: the proxy reads at most 256 KiB of UTF-8 JSON and forwards the request only when `key` is exactly one of the `CONFIG_KEYS` and is not `planner`, or is `planner` with `integrations` exactly `"skip"`. Duplicate JSON fields resolve as in the service (the last one wins). A planner change with `integrations: "install"` or without `integrations`, an unknown or differently spelled key, and a malformed, oversized or non-UTF-8 body are refused with the same 403 response and evidence note. The command bar's `config-set` always sends `install`, so a planner change from the command bar stays refused. D3 applies the same body rule to a single inline `pacer api call config.set --params '<json>'`; `--params-file` and repeated `--params` stay refused because the guard cannot inspect them. Other `pacer config set` keys run in-process against the sandbox `strategy.yaml`; `pacer config set planner` is refused by D3 (see above).
+
+`BLOCKED_OPS` matches exact operation names, so the proxy forwards a `/v2/ops/` or `/v3/ops/` request only when its path is exactly `/v2/ops/<name>` or `/v3/ops/<name>` and `<name>` is a registered operation (`OPS` in `src/api/ops.ts`, plus `test.echo` and `_debug.native` from `--native-test-ops` builds). A trailing slash, percent-encoding, a different case or an unknown name gets the same 403 shape with the message `Live validation D8: only exact registered operation paths are forwarded` and an evidence note. Bun already collapses repeated leading slashes before the proxy sees the path and forwards the normalized path, so `//v3/ops/<name>` is checked as `/v3/ops/<name>`.
 
 `setup.init` is **allowed**: `setup.init` in `src/core/setup.ts` creates only `PACER_HOME/strategy.yaml`, or calls `config.set` with `integrations: "skip"`. Detection reads installed tools; it does not install integrations. Endpoint provider config regeneration itself is under `PACER_HOME/opencode`; account edit/adopt remain refused because their key paths can use the real Keychain. `host.add`, account mapping and repo mapping are conservatively refused even though their immediate config edits are sandbox-local: they enable later work on real hosts. Read-only operations and sandbox state changes remain available. Legacy delegation remains cooperative; new managed work requires strict native child control. Use only the disposable repository and do not register outside repos or add remote runners. This filter is not isolation for arbitrary executor code.
 
@@ -203,7 +259,10 @@ Combine rows for changes spanning areas. Remote live tests still require separat
 ### Sandbox SSH stream faults
 
 For a disposable full-session SSH task, the harness can arm one live-only
-`pacer-ssh` stream transport fault before opening its viewer:
+`pacer-ssh` stream transport fault before opening its viewer. In a sandbox,
+that task reaches only the fake host (see [SSH and the fake host](#ssh-and-the-fake-host)).
+Full sessions need the host prerequisites, such as glibc 2.17 or later, so run
+this on a Linux machine; elsewhere, report the stream-fault surface UNVERIFIED.
 
 ```sh
 bun run live stream-fault arm --id my-change --mode lost-input-ack
@@ -557,7 +616,12 @@ replacement decoding during writes. The service receives `PACER_AGENT=alice`; sa
 headers must retain that author. Block-routing cases exercise CRLF preservation,
 trailing mapping-key spaces, middle-rule deletion errors and CRLF error excerpts.
 It also saves a
-`0.000001` planner reserve to check YAML number bytes. It compares each result and
+`0.000001` planner reserve to check YAML number bytes. `runner.set` model cases
+check connection-account models and a seeded fresh OpenCode listing cache
+natively, including refusals with closest-model hints; a seeded stale listing
+is listed natively through a stand-in `opencode` that the fixture home puts
+first on `PATH`, and its call log is compared. The guarded CLI pass skips that
+discovery case so the sandbox service never runs a real `opencode`. It compares each result and
 persisted file state with `PACER_FORWARD_OPS=*`, verifies native execution traces,
 delayed stdio save timestamps, endpoint-plugin synchronization, protected/invalid requests, private
 route refusal and public SSE replay of configuration and strategy-switch events.
@@ -579,6 +643,27 @@ strategy save/remove), verify the resulting list or detail after a guarded CLI
 write and state that distinction in the evidence. API fixture success alone does
 not verify client rendering.
 
+## Fixed native host-effects fixture
+
+Start two fresh Rust test-ops sandboxes, then run the fixture against both:
+
+```sh
+bun run live up --id host-native --front-door rust --native-test-ops
+bun run live up --id host-forward --front-door rust --native-test-ops --native-forward-ops host.check
+bun run live native-host-effects --id host-native --forward-id host-forward
+```
+
+Before any request or write, the fixture checks both sandboxes: `ssh` on each sandbox's `PATH` must be exactly the sandbox fake (`bin/ssh`, a private regular file with the expected bytes), and neither sandbox may have used its fake host, hold fixture output or declare hosts. If either check fails, it refuses without touching either sandbox. It then declares two fixed hosts in each sandbox's `home/strategy.yaml`: `fakehost`, which reaches the fake host, and `downhost`, which the fake refuses. The fake host gets `setsid` and util-linux `script` stand-ins and the declared account home, so its prerequisites can pass on any OS. Through the guarded public proxy it runs `host.check` for each host and checks:
+
+- the reply is `{job}` and the job settles (`passed` for `fakehost`, `failed` with an unreachable `ssh` step for `downhost`) through `job.get`;
+- the private `state/jobs/<id>.json` file equals `job.get`, and `state/host-checks.json` holds the same checks;
+- public `/v3/events` delivers `job` events from `running` to the settled state;
+- the fake ssh log shows calls for exactly the two fixture hosts.
+
+In the native sandbox, it then runs the guarded CLI `host check fakehost --json`, which must write the same `host-checks.json` checks and facts. It sends `host.clean` and `host.repo.setup` through the proxy and `host setup` through the guarded CLI. D8 and D3 must refuse them; the fixture records their op-level behavior as UNVERIFIED, because the end-to-end differential tests are that evidence. Finally, it compares both sandboxes' replies, settled jobs, `host-checks.json` entries and SSE job event sequences, ignoring IDs, PIDs, timestamps and sandbox paths, and writes `native-host-effects/results.json` in the native sandbox (or `difference.json` on a mismatch).
+
+Native dispatch evidence comes from the `PACER_DEBUG_NATIVE` trace in `logs/serve.log`. A `native job.get` line must be present in both sandboxes. The forced-forward sandbox must have no `native host.check` line. In the native sandbox, one `native host.check` line per check records native dispatch as PASS. No line records it as UNVERIFIED, meaning that revision still forwards `host.check` to the TypeScript core, and the parity verdict then covers only the forwarded path. Any other count fails. The fixture accepts only the two sandbox IDs and refuses reused fake hosts, strategies that already declare hosts, core fixtures, other forwarded operations and real Keychain mode. Run `live report` and `live down --keep` for both sandboxes.
+
 ## Fixed settings save fixture
 
 `bun run live settings --id <seeded-id>` exercises the real `config.set` handler
@@ -590,10 +675,12 @@ policy and config bytes. It refuses existing fixture directories, redirected
 paths and unsafe evidence files. No subprocesses, real accounts or integrations
 are used. Fixture files remain with the sandbox for inspection.
 
-D8 continues to refuse **every network `config.set` request**. This fixture
-validates handler persistence and validation, not the browser's saving indicator,
-rollback rendering, concurrency, planner integration side effects or other
-settings. Those surfaces remain UNVERIFIED until safely exercised separately.
+D8 now forwards network `config.set` requests for every known key except a
+planner change that would connect integrations (see the D8 section), so Settings
+saves through the public proxy can be exercised directly. This fixture still
+validates only handler persistence and validation, not the browser's saving
+indicator, rollback rendering, concurrency, planner integration side effects or
+other settings. Record those surfaces separately or mark them UNVERIFIED.
 
 ## Test temporary files
 
@@ -605,3 +692,10 @@ machine failure cannot run teardown; the existing ownership-aware startup sweep
 handles stale managed roots on a later run. Hard-coded temp paths and surviving
 child processes are not covered by environment redirection. This does not scan
 or delete arbitrary historical temp folders.
+
+For synthetic interactive messaging, `live up --waiting-session-fixture` starts
+five disposable waiting tasks without an executor. Their task and question IDs
+are in `home/waiting-fixtures.json`; each run's `input` file records delivered
+bytes. The `stale` task has a superseded question. The fixture is incompatible
+with seeds, and `live down` stops its process group. This fixture does not replace
+validation with a real executor where CT-11 requires one.

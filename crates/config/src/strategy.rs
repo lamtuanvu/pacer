@@ -55,9 +55,14 @@ pub(crate) fn validate_yaml_strategy(
 
 /// `validateStrategy(Bun.YAML.parse(text), path)` for strategy text not yet written.
 pub fn validate_strategy_text(text: &str, path: &Path) -> Result<Value, StrategyError> {
+    parse_strategy(text, path, "default")
+}
+
+/// `validateStrategy(Bun.YAML.parse(text), path, name)` for text already read.
+pub fn parse_strategy(text: &str, path: &Path, name: &str) -> Result<Value, StrategyError> {
     let raw = parse_yaml_value(text)
         .map_err(|e| invalid(path, vec![format!("YAML syntax error: {e}")]))?;
-    validate_yaml_strategy(&raw, path, "default")
+    validate_yaml_strategy(&raw, path, name)
 }
 
 pub fn strategy_path(home: &Path) -> Result<(PathBuf, String), StrategyError> {
@@ -82,9 +87,7 @@ pub fn load_strategy(home: &Path) -> Result<Value, StrategyError> {
             e.into()
         }
     })?;
-    let raw = parse_yaml_value(&text)
-        .map_err(|e| invalid(&path, vec![format!("YAML syntax error: {e}")]))?;
-    validate_yaml_strategy(&raw, &path, &name)
+    parse_strategy(&text, &path, &name)
 }
 /// `dispatchConfigSchema.parse({})`: the dispatcher configuration without a strategy override.
 pub fn default_dispatch_config() -> Value {
@@ -136,7 +139,8 @@ fn provider_name(id: &str) -> String {
         }
     }
 }
-fn display_name(id: &str) -> String {
+/// `displayName(id)` (`src/render/accounts.ts`) for a well-formed runner id.
+pub fn display_name(id: &str) -> String {
     let (agent, account) = id.split_once('#').map_or((id, None), |(a, b)| (a, Some(b)));
     if agent == "opencode" {
         return account.map_or_else(|| provider_name(agent), provider_name);
@@ -226,6 +230,24 @@ pub fn migration_lines(path: &Path, result: &MigrationResult) -> Vec<String> {
     lines.push(format!("Backup: {}", backup.display()));
     lines.push(format!("Restore: cp {} {}", quote(backup), quote(path)));
     lines
+}
+
+/// `text.replace(/[ \t]+(?=\r?$)/gm, "")`: blanks before any JavaScript line terminator.
+fn strip_trailing_blanks(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut blanks = String::new();
+    for c in text.chars() {
+        if c == ' ' || c == '\t' {
+            blanks.push(c);
+            continue;
+        }
+        if !matches!(c, '\n' | '\r' | '\u{2028}' | '\u{2029}') {
+            out.push_str(&blanks);
+        }
+        blanks.clear();
+        out.push(c);
+    }
+    out
 }
 
 pub fn migrate_strategy(
@@ -370,7 +392,7 @@ pub fn migrate_strategy(
         doc.set_in(&[json!("runners")], &Value::Object(unreferenced))
             .map_err(|e| StrategyError::Other(e.to_string()))?;
     }
-    let after = doc.as_str().to_owned();
+    let after = strip_trailing_blanks(doc.as_str());
     let parsed = parse_yaml_value(&after).map_err(|e| StrategyError::Other(e.to_string()))?;
     validate_yaml_strategy(&parsed, path, "default")?;
     let backup = PathBuf::from(format!("{}.pre-accounts.bak", path.display()));

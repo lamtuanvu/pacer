@@ -9,12 +9,13 @@ import { ApiError } from "../src/api/client-types";
 import { StdioClient } from "../src/api/stdio-client";
 import { publish } from "../src/link/publish";
 import { fakeCtx } from "./helpers";
+import { fakeServiceManager } from "./child-env";
 
 const cli = ["bun", join(import.meta.dir, "..", "src", "cli.ts"), "api", "--stdio"];
 async function home() {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
   await Bun.write(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n");
-  return { ctx, env: { ...process.env, PACER_HOME: ctx.pacerHome, HOME: ctx.home, TZ: "Asia/Ho_Chi_Minh" } };
+  return { ctx, env: { ...process.env, PATH: `${fakeServiceManager(ctx.home)}:${process.env.PATH ?? "/usr/bin:/bin"}`, PACER_HOME: ctx.pacerHome, HOME: ctx.home, TZ: "Asia/Ho_Chi_Minh" } };
 }
 const waitFor = async (f: () => boolean, ms = 8000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(20); } };
 

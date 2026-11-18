@@ -8,6 +8,9 @@ import { KINDS } from "../config/strategy";
 import { resolvePolicyRepoInput } from "./project-policy";
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { rankExecutors } from "../engine/rank";
+import { balanceByLoad } from "../engine/balance";
+import { SLOT_STATES, slotUse } from "../engine/slots";
+import { listTasksWhere } from "../tasks/store";
 import { type Status, computeStatus } from "../engine/status";
 import { remoteExclusion } from "../remote/eligibility";
 import type { Ctx } from "../types";
@@ -34,6 +37,12 @@ export async function route(ctx: Ctx, kind: string | null, s: Strategy = loadStr
   }));
   const candidates = selection ? {executors: selection.executors, order: "configured" as const}
     : o.conversation ? {executors: Object.keys(s.runners), order: "configured" as const} : undefined;
-  const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])), candidates, {includePlanner: o.conversation});
-  return { ...(selection ? { policy: projectPolicy(selection) } : {}), kind, ranked: r.ranked, ...(r.uncertain ? { uncertain: r.uncertain } : {}), excluded: r.excluded, ...(r.reason ? {reason:r.reason} : {}) };
+  const conversationRanked = s.pacing.balance === "least-loaded" && o.conversation && !selection;
+  // With balance on, a conversation ranks like the runner (policy bands), not as a curated selection.
+  const r = rankExecutors(kind, s, Object.fromEntries(st.providers.map((p) => [p.id, p])),
+    conversationRanked ? undefined : candidates, {includePlanner: o.conversation});
+  const ranked = s.pacing.balance === "least-loaded"
+    ? balanceByLoad(r.ranked, s, slotUse(listTasksWhere(ctx, { states: SLOT_STATES }), ctx), Object.fromEntries(st.providers.map((p) => [p.id, p])))
+    : r.ranked;
+  return { ...(selection ? { policy: projectPolicy(selection) } : {}), kind, ranked, ...(r.uncertain ? { uncertain: r.uncertain } : {}), excluded: r.excluded, ...(r.reason ? {reason:r.reason} : {}) };
 }

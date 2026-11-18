@@ -64,6 +64,7 @@ pub struct NativeWrite {
     root_id: Identity,
     directories: HashMap<PathBuf, (Identity, File)>,
     resources: Vec<Resource>,
+    cleanup_failed: bool,
 }
 impl NativeWrite {
     pub fn prepare(root: &Path, descriptors: &[WriteResource]) -> Result<Self, BrokerError> {
@@ -79,6 +80,7 @@ impl NativeWrite {
             root_id,
             directories: HashMap::new(),
             resources: vec![],
+            cleanup_failed: false,
         };
         native.directories.insert(
             PathBuf::new(),
@@ -195,6 +197,7 @@ impl NativeWrite {
     }
     /// Recheck without mutation before staging a transfer.
     pub fn check(&self, path: &str, operation: &str) -> Result<(), BrokerError> {
+        self.retirement()?;
         let index = self.index(path, operation)?;
         let parent = self.parent(&self.resources[index].relative)?;
         self.current(index, &parent)?;
@@ -208,8 +211,28 @@ impl NativeWrite {
             })
             .ok_or_else(denied)
     }
+    /// A staged entry that could not be removed refuses every later operation.
+    fn retirement(&self) -> Result<(), BrokerError> {
+        if self.cleanup_failed {
+            return Err(BrokerError::Effect(
+                "private write cleanup unverified".into(),
+            ));
+        }
+        Ok(())
+    }
     /// Host-only binary capture; the write descriptors still authorize exact paths.
     pub fn write_bytes(&mut self, path: &str, bytes: &[u8]) -> Result<Value, BrokerError> {
+        self.write_bytes_owned(path, bytes, || Ok(()))
+    }
+    /// `guard` rechecks the owning call's authority before staging and before commit.
+    pub fn write_bytes_owned(
+        &mut self,
+        path: &str,
+        bytes: &[u8],
+        guard: impl Fn() -> Result<(), BrokerError>,
+    ) -> Result<Value, BrokerError> {
+        self.retirement()?;
+        guard()?;
         let index = self.index(path, "write")?;
         if self.resources[index].descriptor.kind != "file" {
             return Err(denied());
@@ -236,12 +259,14 @@ impl NativeWrite {
                 if existing == bytes {
                     self.parent(&relative)?;
                     self.current(index, &parent)?;
+                    guard()?;
                     file.set_permissions(Permissions::from_mode(0o600))
                         .map_err(|_| denied())?;
                     return Ok(json!({"ok":true}));
                 }
             }
         }
+        guard()?;
         let temp = format!(".pacer-write-{}.tmp", uuid::Uuid::new_v4());
         let staged = openat(
             &parent,
@@ -251,6 +276,7 @@ impl NativeWrite {
         )
         .map_err(|_| denied())?;
         let mut file = File::from(staged);
+        let mut committed = false;
         let result = (|| {
             file.set_permissions(Permissions::from_mode(0o600))
                 .map_err(|_| denied())?;
@@ -259,25 +285,45 @@ impl NativeWrite {
             let id = identity(&checked(&file, "file")?);
             self.parent(&relative)?;
             self.current(index, &parent)?;
+            guard()?;
             renameat(&parent, temp.as_str(), &parent, name).map_err(|_| denied())?;
+            committed = true;
             self.resources[index].expected = Some(id);
             self.parent(&relative)?;
             self.current(index, &parent)?;
             Ok(json!({"ok":true}))
         })();
-        // Only remove our staged inode; never an attacker's substituted entry.
-        if let Ok(Some(named)) = target(&parent, Path::new(&temp))
-            && named
-                .metadata()
-                .ok()
-                .zip(file.metadata().ok())
-                .is_some_and(|(a, b)| identity(&a) == identity(&b))
-        {
-            unlinkat(&parent, temp.as_str(), UnlinkatFlags::NoRemoveDir).map_err(|_| denied())?;
+        // Only remove our staged inode; never an attacker's substituted entry. Before the
+        // commit a missing stage is unverified, as in TypeScript; after it there is no stage.
+        let cleaned = committed
+            || match target(&parent, Path::new(&temp)) {
+                Ok(None) | Err(_) => false,
+                Ok(Some(named)) => {
+                    named
+                        .metadata()
+                        .ok()
+                        .zip(file.metadata().ok())
+                        .is_some_and(|(a, b)| identity(&a) == identity(&b))
+                        && unlinkat(&parent, temp.as_str(), UnlinkatFlags::NoRemoveDir).is_ok()
+                }
+            };
+        if !cleaned {
+            self.cleanup_failed = true;
+            self.retirement()?;
         }
         result
     }
     pub fn answer(&mut self, method: &str, params: &Value) -> Result<Value, BrokerError> {
+        self.answer_owned(method, params, || Ok(()))
+    }
+    pub fn answer_owned(
+        &mut self,
+        method: &str,
+        params: &Value,
+        guard: impl Fn() -> Result<(), BrokerError>,
+    ) -> Result<Value, BrokerError> {
+        self.retirement()?;
+        guard()?;
         let operation = method.strip_prefix("capability.fs.").ok_or_else(denied)?;
         let path = params["path"]
             .as_str()
@@ -301,12 +347,13 @@ impl NativeWrite {
                 {
                     return Err(BrokerError::Invalid("write bounds"));
                 }
-                self.write_bytes(path, text.as_bytes())
+                self.write_bytes_owned(path, text.as_bytes(), &guard)
             }
             "mkdir" => {
                 if kind != "directory" {
                     return Err(denied());
                 }
+                guard()?;
                 if let Some(file) = prior.as_ref() {
                     file.set_permissions(Permissions::from_mode(0o700))
                         .map_err(|_| denied())?;
@@ -332,8 +379,9 @@ impl NativeWrite {
                     self.parent(&relative)?;
                     self.current(index, &parent)?;
                     if kind == "directory" && params["recursive"] == true {
-                        remove_tree(&parent, name, self.resources[index].expected)?;
+                        remove_tree(&parent, name, self.resources[index].expected, &guard)?;
                     } else {
+                        guard()?;
                         unlinkat(
                             &parent,
                             name,
@@ -362,7 +410,13 @@ impl NativeWrite {
     }
 }
 
-fn remove_tree(parent: &File, name: &Path, expected: Option<Identity>) -> Result<(), BrokerError> {
+fn remove_tree(
+    parent: &File,
+    name: &Path,
+    expected: Option<Identity>,
+    guard: &impl Fn() -> Result<(), BrokerError>,
+) -> Result<(), BrokerError> {
+    guard()?;
     let Some(file) = target(parent, name)? else {
         return Ok(());
     };
@@ -372,6 +426,7 @@ fn remove_tree(parent: &File, name: &Path, expected: Option<Identity>) -> Result
     }
     if stat.is_file() {
         checked(&file, "file")?;
+        guard()?;
         unlinkat(parent, name, UnlinkatFlags::NoRemoveDir).map_err(|_| denied())?;
     } else if stat.is_dir() {
         let fd = openat(parent, name, flags() | OFlag::O_DIRECTORY, Mode::empty())
@@ -388,6 +443,7 @@ fn remove_tree(parent: &File, name: &Path, expected: Option<Identity>) -> Result
                     &file,
                     Path::new(std::ffi::OsStr::from_bytes(child.to_bytes())),
                     None,
+                    guard,
                 )?;
             }
         }
@@ -395,6 +451,7 @@ fn remove_tree(parent: &File, name: &Path, expected: Option<Identity>) -> Result
         if identity(&named.metadata().map_err(|_| denied())?) != identity(&stat) {
             return Err(denied());
         }
+        guard()?;
         unlinkat(parent, name, UnlinkatFlags::RemoveDir).map_err(|_| denied())?;
     } else {
         return Err(denied());

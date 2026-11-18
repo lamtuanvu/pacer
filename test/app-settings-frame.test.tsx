@@ -195,7 +195,7 @@ test('existing settings actions send the same operations', async () => {
   };
   const calls: unknown[] = [];
   const runner = { run: async (_key: string, request: any) => { calls.push({ op: request.op, params: request.params }); return { status: 'done' }; }, result: () => ({}) } as any;
-  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all' } }} /></TaskContext.Provider></ActionContext.Provider>);
+  const mount = (section: string) => renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state, api: {call: async (op: string, params: unknown) => {calls.push({op,params});return {};}} as any }}><SettingsGeneral section={section} initialData={{ ...settings, notifications: { level: 'all', sound: 'pacer' } }} /></TaskContext.Provider></ActionContext.Provider>);
   try {
     // Let each operation settle before the next control is used.
     const settle = () => new Promise(resolve => setTimeout(resolve, 0));

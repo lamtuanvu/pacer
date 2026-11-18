@@ -99,6 +99,21 @@ fn redaction_is_plugin_keyed_uses_js_length_and_old_peers_omit_metadata() {
     let redacted = privacy.redact("plugin-a", &review, false, true).unwrap();
     assert!(redacted["input"].get("note").is_none());
     assert_eq!(redacted["input"]["noteLength"], 3);
+    assert_eq!(
+        redacted["input"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        [
+            "taskId",
+            "verdict",
+            "revision",
+            "state",
+            "noteLength",
+            "noteHash"
+        ]
+    );
 }
 
 #[test]
@@ -174,9 +189,98 @@ async fn credential_failure_is_sanitized_and_resolver_runs_once_even_after_rejec
 #[test]
 fn legacy_policy_strips_redaction_fields_even_when_present_in_original_input() {
     let privacy = pacer_plugin_host::PolicyPrivacy::from_master([1; 32]);
-    let input = json!({"decision":"delegate","input":{"goal":"private","repo":"repo","goalLength":123,"goalHash":"x".repeat(64),"repoKey":"y".repeat(64)}});
+    let input = json!({"decision":"delegate","input":{"goal":"private","goalLength":123,"kind":null,"repo":"repo","goalHash":"x".repeat(64),"repoKey":"y".repeat(64),"placement":"new"}});
     let wire = privacy.redact("legacy", &input, false, false).unwrap();
     for key in ["goalLength", "goalHash", "repoKey"] {
         assert!(wire["input"].get(key).is_none());
+    }
+    assert_eq!(
+        wire["input"]
+            .as_object()
+            .unwrap()
+            .keys()
+            .collect::<Vec<_>>(),
+        ["goal", "kind", "repo", "placement"]
+    );
+}
+
+#[tokio::test]
+async fn policy_detail_requires_both_declaration_and_grant_and_key_is_lazy() {
+    use pacer_plugin_host::{
+        BrokerError, PolicyCaller, PolicyDetailAccess, PrivatePolicyCaller, parse_manifest,
+    };
+    use serde_json::Value;
+    use std::{
+        fs,
+        os::unix::fs::PermissionsExt,
+        time::{Duration, Instant},
+    };
+    #[derive(Default)]
+    struct Capture {
+        seen: Vec<Value>,
+    }
+    impl PolicyCaller for Capture {
+        async fn call(&mut self, _: &str, p: Value, _: Instant) -> Result<Value, BrokerError> {
+            self.seen.push(p);
+            Ok(json!({"verdict":"allow"}))
+        }
+    }
+    for declared in [false, true] {
+        for granted in [false, true] {
+            for bundled in [false, true] {
+                for metadata in [false, true] {
+                    let home = std::env::temp_dir()
+                        .join(format!("pacer-policy-detail-{}", uuid::Uuid::new_v4()));
+                    fs::create_dir(&home).unwrap();
+                    fs::set_permissions(&home, fs::Permissions::from_mode(0o700)).unwrap();
+                    fs::write(home.join("secrets"), "CLASSIFIER_KEY=fixture\n").unwrap();
+                    let manifest=parse_manifest(json!({"id":"policy-fixture","publisher":"test","version":"1.0.0","host":">=1.10.0","capabilities":if declared{json!([{"name":"tasks.read"}])}else{json!([])}})).unwrap();
+                    let access = PolicyDetailAccess {
+                        manifest,
+                        granted: if granted {
+                            vec!["tasks.read".into()]
+                        } else {
+                            vec![]
+                        },
+                        bundled,
+                        redaction_metadata: metadata,
+                    };
+                    let mut caller = PrivatePolicyCaller::new(
+                        &home,
+                        Capture::default(),
+                        HashMap::from([("policy-fixture".into(), access)]),
+                    );
+                    caller.call("policy-fixture",json!({"decision":"review","input":{"taskId":"t-fixture","revision":1,"state":"done","verdict":"accept"}}),Instant::now()+Duration::from_secs(1)).await.unwrap();
+                    assert!(!home.join("state/policy-hmac.key").exists());
+                    let raw = json!({"decision":"delegate","input":{"goal":"private😀","repo":"/synthetic/repo","kind":null,"requestedExecutor":null,"placement":"new"}});
+                    caller
+                        .call(
+                            "policy-fixture",
+                            raw.clone(),
+                            Instant::now() + Duration::from_secs(1),
+                        )
+                        .await
+                        .unwrap();
+                    let seen = caller.caller.seen.last().unwrap();
+                    let detail = declared && (granted || bundled);
+                    if detail {
+                        assert_eq!(*seen, raw);
+                    } else {
+                        assert_eq!(seen["input"]["goal"], "");
+                        assert!(seen["input"]["repo"].as_str().unwrap().starts_with("repo:"));
+                        assert_eq!(seen["input"].get("goalLength").is_some(), metadata);
+                        if metadata {
+                            assert_eq!(seen["input"]["goalLength"], 9);
+                        }
+                    }
+                    assert_eq!(home.join("state/policy-hmac.key").exists(), !detail);
+                    assert_eq!(
+                        fs::read_to_string(home.join("secrets")).unwrap(),
+                        "CLASSIFIER_KEY=fixture\n"
+                    );
+                    fs::remove_dir_all(home).unwrap();
+                }
+            }
+        }
     }
 }

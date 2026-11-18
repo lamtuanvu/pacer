@@ -13,6 +13,7 @@ import { runDoctor } from "../src/install/doctor";
 import { plannerPreview } from "../src/plugins/planner-preview";
 import { agentPlans } from "../src/install/detection";
 import { fakeCtx } from "./helpers";
+import { closedPort } from "./pinned-port";
 
 test("Claude-only starter has no invented executor and status, route, hook and doctor work", async () => {
   const ctx = fakeCtx({ which: bin => bin === "claude" ? "/fixture/claude" : null });
@@ -32,7 +33,7 @@ test("Claude-only starter has no invented executor and status, route, hook and d
 });
 
 test("UNKNOWN planner usage is honest and guard observes even a classifier denial", async () => {
-  const ctx = fakeCtx();
+  const ctx = fakeCtx({ env: { OLLAMA_HOST: `127.0.0.1:${closedPort()}` } });
   const s = validateStrategy(Bun.YAML.parse(starterStrategy(await detect(ctx))), "test");
   const st = await computeStatus(ctx, s);
   st.executors.ranked = [{ id: "codex", score: 1, verdict: "UNKNOWN", reason: "unknown" }];

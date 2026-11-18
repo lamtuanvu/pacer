@@ -1,4 +1,4 @@
-import { chmod, lstat, mkdir, mkdtemp, open, realpath, rename, rm, statfs } from "node:fs/promises";
+import { chmod, lstat, mkdir, mkdtemp, open, readdir, realpath, rename, rm, statfs } from "node:fs/promises";
 import { dirname, join, relative, isAbsolute } from "node:path";
 import { tmpdir } from "node:os";
 import { randomUUID } from "node:crypto";
@@ -11,10 +11,16 @@ export function within(root: string, path: string) { const rel = relative(root, 
 export async function reserve(path: string, bytes: number) {
   const fs = await statfs(path); if (fs.bavail * fs.bsize < RESERVE + bytes) throw new CoreError("plugin_unavailable", "insufficient disk for usage state staging");
 }
-export async function privateDirectory(storePath: string, readOnly: boolean): Promise<string> {
+export async function privateDirectory(storePath: string, readOnly: boolean): Promise<{ directory: string; identity: { device: number; inode: number } }> {
   const parent = readOnly ? tmpdir() : dirname(storePath);
   if (!readOnly) { await mkdir(parent, { recursive: true, mode: 0o700 }); await chmod(parent, 0o700); }
-  const dir = await mkdtemp(join(parent, ".pacer-usage-state-")); await chmod(dir, 0o700); return dir;
+  const dir = await mkdtemp(join(parent, ".pacer-usage-state-"));
+  try {
+    await chmod(dir, 0o700);
+    const info = await lstat(dir);
+    return { directory: dir, identity: { device: info.dev, inode: info.ino } };
+  }
+  catch (error) { await rm(dir, { recursive: true, force: true }).catch(() => {}); throw error; }
 }
 export async function writeParts(path: string, parts: AsyncIterable<string>, check: () => void) {
   const file = await open(path, "wx", 0o600);
@@ -83,4 +89,32 @@ export async function readStateFile(path: string) {
     if ((await file.stat()).size > USAGE_STATE_MAX_BYTES) throw new CoreError("too_large", "usage state exceeds 16 MiB limit");
     return await file.readFile("utf8");
   } finally { await file.close(); }
+}
+
+const SWEEP_AGE_MS = 60 * 60 * 1000, SWEEP_INTERVAL_MS = 10 * 60 * 1000;
+const lastSweep = new Map<string, number>();
+/** Remove staging directories a killed process left behind. Leases end within their call deadline, so an hour-old one is orphaned. */
+export async function sweepUsageState(pacerHome: string, now = Date.now()): Promise<number> {
+  let removed = 0;
+  for (const parent of [join(pacerHome, "cache"), join(pacerHome, "state")]) {
+    let names: string[], before: Awaited<ReturnType<typeof lstat>>;
+    try { before = await lstat(parent); if (!before.isDirectory()) continue; names = await readdir(parent); } catch { continue; }
+    for (const name of names) {
+      if (!name.startsWith(".pacer-usage-state-")) continue;
+      const path = join(parent, name);
+      try {
+        const current = await lstat(parent);
+        if (!current.isDirectory() || current.dev !== before.dev || current.ino !== before.ino) break;
+        const entry = await lstat(path);
+        if (!entry.isDirectory() || now - entry.mtimeMs <= SWEEP_AGE_MS) continue;
+        await rm(path, { recursive: true, force: true }); removed++;
+      } catch { /* vanished or not removable; retry next sweep */ }
+    }
+  }
+  return removed;
+}
+export async function sweepUsageStateIfDue(pacerHome: string, now = Date.now()): Promise<void> {
+  if (now - (lastSweep.get(pacerHome) ?? -Infinity) < SWEEP_INTERVAL_MS) return;
+  lastSweep.set(pacerHome, now);
+  await sweepUsageState(pacerHome, now);
 }

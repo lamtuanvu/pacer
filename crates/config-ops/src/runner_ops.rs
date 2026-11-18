@@ -18,6 +18,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     fsutil::write_private,
 };
+use pacer_models::{Validation, model_check_needs_core, validate_runner_model};
 use serde_json::{Map, Value, json};
 
 #[cfg(test)]
@@ -482,12 +483,45 @@ fn add_params(params: &Value) -> Option<&Map<String, Value>> {
     fine.then_some(p)
 }
 
+/// The `runner.set` model check, which may run OpenCode discovery. A legacy
+/// strategy is migrated by TypeScript before the check, so its runners are
+/// listed there.
+pub(crate) async fn model_check(ctx: &Ctx, strategy: &Value, id: &str, model: &str) -> Validation {
+    if strategy["legacy"] == true {
+        return Validation::NeedsCore;
+    }
+    validate_runner_model(&ctx.pacer_home, ctx.now, strategy, id, model).await
+}
+
+/// `runner.set` with a string `model` in otherwise valid params forwards only
+/// where TypeScript alone lists the runner's models: discovery the front door
+/// cannot run as Core does, a cache or catalog shape only TypeScript
+/// reproduces, a legacy strategy, or a strategy that does not load.
+pub fn runner_set_stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
+    if !params["model"].is_string() {
+        return false;
+    }
+    let Ok(p) = crate::config_params::parse("runner.set", params.clone()) else {
+        return false;
+    };
+    if !p["model"].is_string() {
+        return false;
+    }
+    load_strategy(&ctx.pacer_home).map_or(true, |strategy| {
+        let id = p["id"].as_str().unwrap_or("");
+        strategy["legacy"] == true
+            || model_check_needs_core(&ctx.pacer_home, ctx.now, &strategy, id)
+    })
+}
+
 /// `runner.add` with an interactive terminal, a check job or params outside
 /// the non-interactive schema stays with TypeScript, as does an unreadable or
 /// syntactically invalid strategy file: TypeScript reports it in its own
-/// parser's words.
+/// parser's words. `runner.set` stays with TypeScript when only TypeScript
+/// can list the runner's models to check a string `model`.
 pub fn runner_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx))
+    (op == "runner.add" && (add_params(params).is_none() || !strategy_parses(ctx)))
+        || (op == "runner.set" && runner_set_stays_forwarded(ctx, params))
 }
 
 fn strategy_parses(ctx: &Ctx) -> bool {

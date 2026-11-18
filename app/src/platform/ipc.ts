@@ -168,10 +168,18 @@ export function createIpcTransport(core: IpcCore | undefined) {
     },
     attachTerminal(url: string): SessionSocket {
       // The shared terminal still constructs v2 URLs for browser compatibility; IPC always uses v3.
-      const path = new URL(url,'http://ipc.invalid').pathname;
+      const parsed = new URL(url,'http://ipc.invalid'), path = parsed.pathname;
       const match = /^\/v[23]\/(tasks|terminals)\/([^/]+)\/session$/.exec(path);
       if (!match) throw Error('Unsupported terminal target');
-      const target = {kind:match[1] === 'tasks' ? 'task' : 'terminal',id:match[2]}, pipe = channel(), attachment = crypto.randomUUID();
+      // Only a task session addresses a recorded attempt, and only with a positive integer
+      // (Rust validates it again before rebuilding the service URL).
+      const raw = match[1] === 'tasks' ? parsed.searchParams.get('attempt') : parsed.searchParams.has('attempt') ? '' : null;
+      let attempt: number | undefined;
+      if (raw !== null) {
+        attempt = Number(raw);
+        if (!Number.isSafeInteger(attempt) || attempt < 1) throw Error('Unsupported terminal target');
+      }
+      const target = {kind:match[1] === 'tasks' ? 'task' : 'terminal',id:match[2],...(attempt !== undefined ? {attempt} : {})}, pipe = channel(), attachment = crypto.randomUUID();
       let closed = false, attaching: Promise<unknown> | undefined;
       const socket: SessionSocket = {
         readyState:0,binaryType:'arraybuffer',onopen:null,onclose:null,onerror:null,onmessage:null,

@@ -16,8 +16,8 @@ type Run = (argv: string[]) => Promise<string>;
 export const DESKTOP_MARKER = Buffer.from("pacer-desktop-" + "executable-marker/v1");
 
 /** Desktop CLI discovery skips executables carrying the marker, so only the shell may carry it. */
-export function verifyDesktopMarker(shell: Buffer, others: Buffer[]): void {
-  if (!shell.includes(DESKTOP_MARKER)) throw new Error("Desktop executable lacks the desktop marker");
+export function verifyDesktopMarker(shell: Buffer, others: Buffer[], shellPredatesMarker = false): void {
+  if (!shellPredatesMarker && !shell.includes(DESKTOP_MARKER)) throw new Error("Desktop executable lacks the desktop marker");
   if (others.some(bytes => bytes.includes(DESKTOP_MARKER))) throw new Error("A CLI or helper carries the desktop marker");
 }
 
@@ -73,10 +73,12 @@ export async function buildNativeShim(root: string, output: string, arch: Arch, 
  * Output: a fresh private directory containing the complete unsigned pacer.app.
  * Every input is checked before any executable runs. Sign only the returned app.
  */
-export async function stageDesktopPackage(root: string, releaseDir: string, arch: Arch, options: { run?: Run; bundleId?: StageBundleId } = {}): Promise<string> {
+export async function stageDesktopPackage(root: string, releaseDir: string, arch: Arch, options: { run?: Run; bundleId?: StageBundleId; shellPredatesMarker?: boolean } = {}): Promise<string> {
   if (arch !== "aarch64" && arch !== "x86_64") throw new Error("Unsupported desktop architecture");
   const bundleId = options.bundleId ?? "dev.pacer.desktop";
   if (bundleId !== "dev.pacer.desktop" && bundleId !== FIXTURE_IDENTIFIERS.desktop) throw new Error("Unsupported desktop bundle identifier");
+  // Only the live fixture's published-bridge baseline was built before the marker existed.
+  if (options.shellPredatesMarker && bundleId !== FIXTURE_IDENTIFIERS.desktop) throw new Error("Only a fixture baseline may predate the desktop marker");
   const dir = realpathSync(releaseDir);
   const version: unknown = JSON.parse(readFileSync(join(root, "package.json"), "utf8")).version;
   if (typeof version !== "string" || !isVersion(version)) throw new Error("Invalid package version");
@@ -102,7 +104,7 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
   }
   const shell = join(app, "Contents/MacOS/pacer");
   for (const binary of [cli, helper, shell]) verifyDesktopExecutable(regular(binary), arch);
-  verifyDesktopMarker(regular(shell), [cliBytes, ...(core ? [regular(core)] : []), regular(helper)]);
+  verifyDesktopMarker(regular(shell), [cliBytes, ...(core ? [regular(core)] : []), regular(helper)], options.shellPredatesMarker);
   const permissionHelper = join(app, "Contents/MacOS/pacer-permission-setup");
   if (existsSync(permissionHelper)) verifyDesktopExecutable(regular(permissionHelper), arch);
   const info = parsePlistDictionary(readFileSync(join(app, "Contents/Info.plist"), "utf8"));

@@ -152,6 +152,31 @@ fn optional_since(params: &Map<String, Value>) -> Result<Option<f64>, CoreError>
     }
 }
 
+fn optional_query(params: &Map<String, Value>, name: &str) -> Result<Option<String>, CoreError> {
+    match params.get(name) {
+        None => Ok(None),
+        // An empty string fails the schema's min(1); other whitespace-only
+        // queries are treated as absent, like TypeScript (a whitespace `q`
+        // passes zod and splits into no words, so nothing is filtered).
+        Some(Value::String(value)) if value.is_empty() => Err(invalid(format!(
+            "{name}: Too small: expected string to have >=1 characters"
+        ))),
+        Some(Value::String(value)) if value.trim().is_empty() => Ok(None),
+        Some(Value::String(value)) => {
+            if value.encode_utf16().count() > 200 {
+                return Err(invalid(format!(
+                    "{name}: Too big: expected string to have <=200 characters"
+                )));
+            }
+            Ok(Some(value.to_owned()))
+        }
+        Some(other) => Err(invalid(format!(
+            "{name}: Invalid input: expected string, received {}",
+            type_name(other)
+        ))),
+    }
+}
+
 fn optional_states(params: &Map<String, Value>) -> Result<Option<Vec<String>>, CoreError> {
     match params.get("states") {
         None => Ok(None),
@@ -258,6 +283,7 @@ struct ParsedListOptions {
     states: Option<Vec<String>>,
     executor: Option<String>,
     since: Option<f64>,
+    query: Option<String>,
 }
 
 fn parse_options(params: &Value) -> Result<ParsedListOptions, CoreError> {
@@ -317,6 +343,13 @@ fn parse_options(params: &Value) -> Result<ParsedListOptions, CoreError> {
             None
         }
     };
+    let query = match optional_query(p, "q") {
+        Ok(v) => v,
+        Err(error) => {
+            issues.push(error.message);
+            None
+        }
+    };
     if !issues.is_empty() {
         return Err(invalid(issues.join("; ")));
     }
@@ -328,6 +361,7 @@ fn parse_options(params: &Value) -> Result<ParsedListOptions, CoreError> {
         states,
         executor,
         since,
+        query,
     })
 }
 
@@ -350,6 +384,7 @@ pub async fn task_list(
         states: state_slice,
         executor: parsed.executor.as_deref(),
         since: parsed.since,
+        query: parsed.query.as_deref(),
     };
     let mut store = TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
@@ -410,17 +445,153 @@ mod tests {
         assert!(parts.alive_pids.contains(&42));
     }
 
+    fn probe_parts() -> SessionProbeParts {
+        SessionProbeParts {
+            active: ActiveCounts::default(),
+            alive_pids: HashSet::new(),
+        }
+    }
+
     #[tokio::test]
     async fn task_list_pages_done_tasks() {
         let (_dir, ctx) = ctx_with_tasks();
-        let probe = SessionProbeParts {
-            active: ActiveCounts::default(),
-            alive_pids: HashSet::new(),
-        };
-        let page = task_list(&ctx, json!({"states": ["done"], "limit": 2}), probe)
+        let page = task_list(&ctx, json!({"states": ["done"], "limit": 2}), probe_parts())
             .await
             .unwrap();
         assert_eq!(page["tasks"].as_array().unwrap().len(), 2);
         assert!(page["next"].is_null());
+    }
+
+    #[tokio::test]
+    async fn task_list_query_filters_by_id_suffix_and_goal_words() {
+        let (_dir, ctx) = ctx_with_tasks();
+        // One row whose goal words collide with no other row's id or goal.
+        {
+            let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+            store
+                .insert(
+                    &json!({
+                        "id": "t-20261106-000003-ffff",
+                        "rev": 1,
+                        "brief": {"goal": "Payments webhook timeout", "repo": ctx.pacer_home.to_string_lossy()},
+                        "state": "done",
+                        "createdAt": 103.0,
+                        "attempts": [],
+                        "timeoutS": 60,
+                        "requestedExecutor": "cursor",
+                        "executor": "cursor",
+                    }),
+                    103.0,
+                )
+                .unwrap();
+        }
+        // Fixture ids: t-20261106-000000-abcd … -000002-abcd; goals "Goal 0" … "Goal 2".
+        let page = task_list(&ctx, json!({"q": "000001"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"].as_array().unwrap().len(), 1);
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000001-abcd");
+        // Case-insensitive goal words across the fixture rows.
+        let page = task_list(&ctx, json!({"q": "GOAL"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"].as_array().unwrap().len(), 3);
+        // Every word must appear in the same row: one row has the id fragment, another the goal word.
+        let page = task_list(&ctx, json!({"q": "payments 000001"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"].as_array().unwrap().len(), 0);
+        // A whitespace-only query is treated as absent.
+        let page = task_list(&ctx, json!({"q": "   "}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"].as_array().unwrap().len(), 4);
+    }
+
+    #[tokio::test]
+    async fn task_list_rejects_an_empty_query_like_the_frozen_schema() {
+        let (_dir, ctx) = ctx_with_tasks();
+        let error = task_list(&ctx, json!({"q": ""}), probe_parts())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput);
+        assert_eq!(
+            error.message,
+            "q: Too small: expected string to have >=1 characters"
+        );
+    }
+
+    #[tokio::test]
+    async fn task_list_query_folds_unicode_titles_and_goals() {
+        let (_dir, ctx) = ctx_with_tasks();
+        // A row whose title words collide with no other row's id or goal, and a
+        // goal in another script.
+        {
+            let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+            for (id, title, goal) in [
+                ("t-20261106-000003-ffff", "Überprüfung der Gateways", ""),
+                ("t-20261106-000004-ffff", "", "Đồng bộ Élan cache"),
+            ] {
+                store
+                    .insert(
+                        &json!({
+                            "id": id,
+                            "rev": 1,
+                            "title": title,
+                            "brief": {"goal": goal, "repo": ctx.pacer_home.to_string_lossy()},
+                            "state": "done",
+                            "createdAt": 103.0,
+                            "attempts": [],
+                            "timeoutS": 60,
+                            "requestedExecutor": "cursor",
+                            "executor": "cursor",
+                        }),
+                        103.0,
+                    )
+                    .unwrap();
+            }
+        }
+        // Lower-case, upper-case and the exact word all find the same rows,
+        // folded per character on the decoded records in both runtimes.
+        let page = task_list(&ctx, json!({"q": "überprüfung"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000003-ffff");
+        let page = task_list(&ctx, json!({"q": "ÜBER"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000003-ffff");
+        let page = task_list(&ctx, json!({"q": "đồng bộ"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
+        let page = task_list(&ctx, json!({"q": "ĐỒNG ÉLAN"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
+        // Every word must appear: the ASCII word rides the SQL filter, the
+        // Unicode word is folded after decoding.
+        let page = task_list(&ctx, json!({"q": "cache t-2026"}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"][0]["id"], "t-20261106-000004-ffff");
+    }
+
+    #[tokio::test]
+    async fn task_list_rejects_query_over_200_code_units_or_of_the_wrong_type() {
+        let (_dir, ctx) = ctx_with_tasks();
+        let error = task_list(&ctx, json!({"q": "a".repeat(201)}), probe_parts())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput);
+        let error = task_list(&ctx, json!({"q": 5}), probe_parts())
+            .await
+            .unwrap_err();
+        assert_eq!(error.code, Code::InvalidInput);
+        // 200 code units (100 surrogate pairs) stay inside the limit, like TypeScript's length.
+        let page = task_list(&ctx, json!({"q": "😀".repeat(100)}), probe_parts())
+            .await
+            .unwrap();
+        assert_eq!(page["tasks"].as_array().unwrap().len(), 0);
     }
 }

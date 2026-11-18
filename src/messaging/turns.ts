@@ -18,6 +18,7 @@ import { withoutPlannerSession } from "../exec/process";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
+import { isClosed } from "./closed";
 import { parentOf, participantKind, rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import * as store from "./store";
@@ -26,7 +27,7 @@ import type { Message } from "./types";
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
 
-export const isClosed = (t: TaskRecord) => !!t.review || !!t.dismissed || !!t.msgClosed || t.state === "stopped";
+export { isClosed };
 const sessionAgent = (t: TaskRecord) => t.run?.executor ?? t.result?.executor ?? null;
 /** Unique per turn: the attempt it will run as, then the task's turn count, so a run that ended before any attempt never reuses an id. */
 export const turnKey = (ctx: Ctx, t: TaskRecord, replay = false) => `${t.id}#${t.attempts.length + 1}.${store.turnsForTask(ctx, t.id) + 1}${replay ? "r" : ""}`;

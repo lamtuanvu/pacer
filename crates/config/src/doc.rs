@@ -71,10 +71,13 @@ struct Frame {
     children: Vec<Node>,
 }
 
-fn byte_index(text: &str, char_index: usize) -> usize {
-    text.char_indices()
-        .nth(char_index)
-        .map_or(text.len(), |(i, _)| i)
+/// Byte offsets of the parser's char indices, built once per parse.
+fn byte_index(text: &str, offsets: &[usize], char_index: usize) -> usize {
+    if offsets.is_empty() {
+        char_index.min(text.len())
+    } else {
+        offsets.get(char_index).copied().unwrap_or(text.len())
+    }
 }
 
 fn yaml_scalar(content: &str) -> crate::yaml_value::Value {
@@ -375,6 +378,11 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
     let mut stack: Vec<Frame> = Vec::new();
     let mut root = None;
     let mut anchors = std::collections::HashMap::<usize, Node>::new();
+    let offsets: Vec<usize> = if text.is_ascii() {
+        Vec::new()
+    } else {
+        text.char_indices().map(|(i, _)| i).collect()
+    };
     for event in Parser::new_from_str(text) {
         let (event, span) = event.map_err(|e| {
             let message = e.to_string();
@@ -393,8 +401,8 @@ fn parse(text: &str, unique_keys: bool) -> Result<Node> {
             }
             EditError(message)
         })?;
-        let start = byte_index(text, span.start.index());
-        let end = byte_index(text, span.end.index());
+        let start = byte_index(text, &offsets, span.start.index());
+        let end = byte_index(text, &offsets, span.end.index());
         let node = match event {
             Event::Scalar(content, style, anchor, tag) => {
                 let node = scalar(text, start..end, &content, style, tag.as_deref());
@@ -621,13 +629,10 @@ impl StrategyDoc {
                 && matches!(old.kind, Kind::Scalar(_))
                 && preserve_scalar_style);
         let mut rendered = emit(value, flow, 0);
-        if value.is_array()
-            && old.flow()
-            && !self.text[old.span.start..old.core_end].starts_with("[ ")
-            && rendered.starts_with("[ ")
-            && rendered.ends_with(" ]")
+        if matches!(old.kind, Kind::Seq(_, true))
+            && !self.text[old.span.start + 1..].starts_with(char::is_whitespace)
         {
-            rendered = format!("[{}]", &rendered[2..rendered.len() - 2]);
+            rendered = emit_unpadded(value);
         }
         if preserve_scalar_style && value.is_string() {
             let src = &self.text[old.span.clone()];
@@ -695,12 +700,13 @@ impl StrategyDoc {
             let start = key.span.start - self.column(key.span.start);
             let end = if val.span.start == val.core_end && index + 1 < items.len() {
                 items[index + 1].0.span.start
-            } else if self.text[val.span.end..].starts_with("\r\n") {
-                val.span.end + 2
-            } else if self.text[val.span.end..].starts_with('\n') {
-                val.span.end + 1
+            } else if self.text[..val.core_end].ends_with('\n') {
+                // A block value's span runs into the next key's indentation.
+                val.core_end
             } else {
-                val.span.end
+                self.text[val.core_end..]
+                    .find('\n')
+                    .map_or(self.text.len(), |at| val.core_end + at + 1)
             };
             self.replace(start..end, "");
         }
@@ -1461,6 +1467,25 @@ fn emit_style(value: &Value, flow: bool, indent: usize, bun: bool) -> String {
 
 fn emit(value: &Value, flow: bool, indent: usize) -> String {
     emit_style(value, flow, indent, false)
+}
+
+/// Flow output with yaml's `flowCollectionPadding: false`, at every depth.
+fn emit_unpadded(value: &Value) -> String {
+    let key = |k: &str| emit_scalar(&Value::String(k.into()), None);
+    let items: Vec<String> = match value {
+        Value::Array(items) if !items.is_empty() => items.iter().map(emit_unpadded).collect(),
+        Value::Object(items) if !items.is_empty() => items
+            .iter()
+            .map(|(k, v)| format!("{}: {}", key(k), emit_unpadded(v)))
+            .collect(),
+        _ => return emit(value, true, 0),
+    };
+    let (open, close) = if value.is_array() {
+        ('[', ']')
+    } else {
+        ('{', '}')
+    };
+    format!("{open}{}{close}", items.join(", "))
 }
 
 /// Bun.YAML.stringify(value, null, 2) as used by strategy.save for the

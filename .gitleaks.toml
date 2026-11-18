@@ -1,0 +1,48 @@
+# Gitleaks configuration for pacer
+# Use default rules with some customizations
+
+[[allow]]
+description = "Test fixtures with placeholder secrets"
+paths = ["**/test/**", "**/tests/**", "**/fixtures/**"]
+
+[[allow]]
+description = "Documentation examples"
+paths = ["**/*.md", "**/docs/**"]
+
+[[allow]]
+description = "Exclude test fixtures"
+paths = ["**/test/**", "**/tests/**", "**/fixtures/**", "**/__snapshots__/**"]
+
+[[allow]]
+description = "Exclude documentation"
+paths = ["**/*.md", "**/docs/**", "**/doc/**"]
+
+[[rule]]
+id = "generic-api-key"
+description = "Generic API key pattern"
+regex = '([a-zA-Z0-9_-]{20,})'
+tags = ["key", "api"]
+
+[[rule]]
+id = "aws-access-key"
+description = "AWS Access Key ID"
+regex = 'A[SK]IA[0-9A-Z]{16}'
+tags = ["key", "aws"]
+
+[[rule]]
+id = "aws-secret-key"
+description = "AWS Secret Access Key"
+regex = '[A-Za-z0-9/+=]{40}'
+tags = ["key", "aws"]
+
+[[rule]]
+id = "github-token"
+description = "GitHub Personal Access Token"
+regex = 'gh[pousr]_[A-Za-z0-9_]{36,251}'
+tags = ["key", "github"]
+
+[[rule]]
+id = "slack-token"
+description = "Slack Token"
+regex = 'xox[baprs]-[A-Za-z0-9-]{10,48}'
+tags = ["key", "slack"]

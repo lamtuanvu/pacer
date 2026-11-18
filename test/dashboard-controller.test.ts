@@ -396,6 +396,19 @@ for (const c of [
   });
 }
 
+test("a desktop-managed installation offers no Update and restart", async () => {
+  const respond = (op: string) => op === "update.check" ? {...settingsResponse(op) as object, available: true, latest: "99.0.0", managedBy: "desktop", managedHint: "pacer is managed by the pacer app"} : settingsResponse(op);
+  const t = setup({ ops: SETTINGS_OPS_ALL, respond });
+  t.dash.state = { ...t.dash.state, screen: "settings", section: "updates", focus: "detail" };
+  await t.dash.refresh();
+  await t.dash.settle();
+  t.dash.draw();
+  expect(t.last()).toContain("pacer is managed by the pacer app");
+  expect(t.last()).not.toContain("Update and restart");
+  await t.keys("u");
+  expect(t.ops().filter(x => x.op === "update.apply")).toEqual([]);
+});
+
 test("installing the service from Setup asks for consent first", async () => {
   const s = structuredClone(fixture) as unknown as ClientSnapshot;
   const checklist = setupChecklist({ version: "0.3.0", planner: "codex", service: { installed: false, running: false }, link: true, agents: [], executors: { ranked: [], excluded: [] } }, s.at);

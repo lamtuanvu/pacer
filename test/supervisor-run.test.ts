@@ -1,9 +1,9 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync, realpathSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, realpathSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { readOutput, readRun, startRun, stopRun } from "../src/supervisor/run";
 import { killTree } from "../src/exec/process";
-import { tmpDir } from "./helpers";
+import { readPid, tmpDir, waitPid } from "./helpers";
 
 const until = async (f: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!f()) { if (Date.now() > end) throw new Error("timeout"); await Bun.sleep(25); } };
 const env = { PATH: process.env.PATH };
@@ -74,6 +74,24 @@ test("stopRun waits for a delayed exit receipt after the owned wrapper dies", as
   }
 });
 
+test("a receipt-requiring stop that starts after the wrapper died waits for its delayed receipt", async () => {
+  const dir = tmpDir(), dead = Bun.spawnSync(["sh", "-c", "echo $$"]).stdout.toString().trim();
+  writeFileSync(join(dir, "pid"), dead);
+  writeFileSync(join(dir, "child"), dead);
+  let polls = 0;
+  const stopped = await stopRun(dir, { graceMs: 1500, requireRecordedExit: true, sleep: async ms => {
+    if (++polls === 2) writeFileSync(join(dir, "exit"), "143");
+    await Bun.sleep(Math.min(ms, 20));
+  } });
+  expect(stopped).toEqual({ code: 143, killed: false });
+  rmSync(join(dir, "exit"));
+  await expect(stopRun(dir, { graceMs: 100, requireRecordedExit: true }))
+    .rejects.toThrow("detached run stop has no recorded exit");
+  let slept = false;
+  expect(await stopRun(dir, { graceMs: 1500, sleep: async () => { slept = true; } })).toEqual({ code: 137, killed: false });
+  expect(slept).toBe(false);
+});
+
 test("stopRun does not forge an exit after the wrapper vanishes", async () => {
   const dir = tmpDir(), script = join(dir, "run.sh");
   writeFileSync(script, "#!/bin/sh\ntrap 'exit 143' TERM\nwhile :; do sleep 0.1; done\n", { mode: 0o700 });
@@ -136,12 +154,28 @@ test("stopRun does not signal a process that replaced the wrapper during readine
 test("stopRun escalates to KILL when TERM is ignored", async () => {
   const dir = tmpDir(), marker = join(tmpDir(), "child");
   startRun({ dir, argv: ["sh", "-c", `trap '' TERM; sleep 30 & echo $! > '${marker}'; trap '' TERM; wait`], cwd: tmpDir(), env });
-  await until(() => existsSync(marker));
+  const child = await waitPid(marker, 5000);
   const res = await stopRun(dir, { graceMs: 500 });
   expect(res.killed).toBe(true);
   expect(res.code).toBe(137);
-  const child = Number(readFileSync(marker, "utf8"));
   await until(() => { try { process.kill(child, 0); return false; } catch { return true; } });
+});
+
+test("stopRun lets the interactive host record exit after escalating its TERM-resistant child", async () => {
+  const dir = tmpDir(), cwd = tmpDir(), ready = join(cwd, "ready");
+  const run = startRun({ dir, cwd, session: "interactive", env,
+    argv: ["sh", "-c", 'trap "" TERM; touch ready; while :; do sleep 0.1; done'] });
+  expect("pid" in run).toBe(true);
+  try {
+    await until(() => existsSync(ready) && existsSync(join(dir, "child")));
+    const result = await stopRun(dir, { graceMs: 200, requireRecordedExit: true });
+    expect(result).toEqual({ code: 143, killed: false });
+    expect(readRun(dir).exit).toBe(143);
+  } finally {
+    const child = readPid(join(dir, "child"));
+    if (child) killTree(child, "SIGKILL");
+    if ("pid" in run) killTree(run.pid, "SIGKILL");
+  }
 });
 
 test("a reused pid is not mistaken for the wrapper", async () => {

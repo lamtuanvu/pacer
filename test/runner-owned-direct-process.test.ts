@@ -1,6 +1,7 @@
 import { afterEach, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { dirname, join } from "node:path";
+import { repoFor } from "../src/core/repos";
 import { clearTerminalEnvCache } from "../src/exec/login-env";
 import { runnerLogPath, spawnRunner } from "../src/tasks/api";
 import { createTask, readTask } from "../src/tasks/store";
@@ -22,12 +23,14 @@ test("a detached runner launches a local claude-code attempt through the direct 
   const ctx = withLoginIndicators(fakeCtx());
   mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: codex\nproviders:\n  codex: {}\n  claude-code: {}\nrouting:\n  - default: [claude-code]\n");
-  ctx.env = { PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome,
+  ctx.env = { ...ctx.env, PATH: `${bin}:${dirname(process.execPath)}:/usr/bin:/bin`, HOME: ctx.home, SHELL: shell, PACER_HOME: ctx.pacerHome,
     PACER_LOGIN_ENV: "on", PACER_BACKEND: "direct", PACER_NO_UPDATE_CHECK: "1" };
   for (const argv of [["init", "-q"], ["-c", "user.name=t", "-c", "user.email=t@example.invalid", "commit", "-q", "--allow-empty", "-m", "init"]])
     expect(Bun.spawnSync(["git", "-C", repo, ...argv]).exitCode).toBe(0);
+  // Delegation stores the repo identity, as the CLI does. Without it the runner registers the repo
+  // under 2-second git bounds, and on macOS its first git in a fresh HOME is a cold xcrun lookup.
   const task = createTask(ctx, { brief: { goal: "Create greeting.txt containing hello", repo, acceptance: "grep -q hello greeting.txt" },
-    kind: null, requestedExecutor: "claude-code", timeoutS: 120 });
+    kind: null, requestedExecutor: "claude-code", timeoutS: 120, repo: repoFor(ctx, realpathSync(repo)) });
 
   // The production launcher re-invokes this pacer from argv; point it at the source CLI.
   const argv = process.argv;

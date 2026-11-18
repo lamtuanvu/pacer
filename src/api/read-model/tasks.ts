@@ -1,9 +1,11 @@
+import { getWork } from "../../dispatch/work";
 import { activeAgentSessions } from "../../session/agents-state";
 import { fullTaskTitle } from "../../core/short-title";
 import { repoFor, registeredRepo, listRepos, labelsFor } from "../../core/repos";
 import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
+import { awaitsAnswer } from "../../tasks/types";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
 import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
@@ -14,6 +16,7 @@ type UnreadCounts = ReturnType<typeof unreadCounts>;
 /** apiTasks batches this once (listLiveness) instead of two SELECTs per task (own + parent). */
 type LivenessLookup = (node: string) => LivenessRow | null;
 export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>, counts?: UnreadCounts, activeCount?:number, liveness?: LivenessLookup): ApiTask {
+ const work=getWork(ctx,t.id);
  const unread=(counts??unreadCounts(ctx,"human",[t.id])).get(t.id);
  const lookupLiveness=liveness??(node=>getLiveness(ctx,node));
  // parentOfTask(ctx,t), not parentOf(ctx,`task:${t.id}`): t is already a fresh read of this
@@ -24,7 +27,7 @@ export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>,
  const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
  // The read model places the diagnostics fields after host (Rust parity), so leave them out of the event shape here.
  const {diagnosticCheck:_check,diagnosticRecheck:_recheck,...event}=taskData(t);
- return {...event,...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
+ return {...event,...(work?{work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}}:{}),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
@@ -60,7 +63,17 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
  const rows=apiTasks(ctx,records.filter(t=>!t.archived));
- return rows.filter(t=>(!!t.activeAgentSessions||["queued","running"].includes(t.state))||(!t.dismissed && t.updatedAt>=ctx.now-86400)).sort((a,b)=>b.updatedAt-a.updatedAt).slice(0,200);
+ // `needs_input` (stored, and running with an open question via `visibleTaskState`)
+ // is an active state: tasks requiring the user never age out of the snapshot window.
+ // A needs_input that was answered, retried or dismissed is not retained by its state.
+ const active = rows.filter(t => (!!t.activeAgentSessions || ["queued","running"].includes(t.state) || awaitsAnswer(t))
+   || (!t.dismissed && t.updatedAt>=ctx.now-86400));
+ const sorted = active.sort((a,b)=>b.updatedAt-a.updatedAt);
+ // Tasks that still await an answer must never be dropped by the recent-window cap:
+ // keep them in addition to the newest 200.
+ const kept = new Map(sorted.slice(0,200).map(t=>[t.id,t]));
+ for (const t of sorted) if (awaitsAnswer(t)) kept.set(t.id,t);
+ return [...kept.values()].sort((a,b)=>b.updatedAt-a.updatedAt);
 }
 export type AttentionTask = Pick<TaskData, "state" | "review" | "resolved" | "dismissed" | "retriedBy" | "reviewRequest" | "acceptanceState">;
 export function taskAttentionReason(t: AttentionTask): "checks_failed" | "incomplete" | "review_requested" | null {

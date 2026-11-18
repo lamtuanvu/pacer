@@ -96,7 +96,7 @@ test.skipIf(!canBind)('ended session replays checkpoint, byte-exact suffix and r
   expect(frames.map(f=>f.type)).toEqual(['snapshot','output','exit']);
   expect(frames[0]).toMatchObject({outputOffset:6,screenAnsi:'prefix',controller:null,viewers:1});
   expect(frames[1].data).toEqual(Buffer.from([0,255,27,65,66]));
-  expect(frames[2]).toEqual({type:'exit',code:7});
+  expect(frames[2]).toEqual({type:'exit',code:7,at:expect.any(Number)});
  }finally{f.http.stop();}
 });
 test.skipIf(!canBind)('offline from resumes retained bytes, including bytes before the checkpoint',async()=>{
@@ -105,7 +105,7 @@ test.skipIf(!canBind)('offline from resumes retained bytes, including bytes befo
    const frames=await replayMessages(f,`?from=${offset}`);
    expect(frames.some(f=>f.type==='snapshot')).toBe(false);
    expect(Buffer.concat(frames.filter(f=>f.type==='output').map(f=>f.data))).toEqual(Buffer.from(bytes));
-   expect(frames.at(-1)).toEqual({type:'exit',code:7});
+   expect(frames.at(-1)).toEqual({type:'exit',code:7,at:expect.any(Number)});
   }
   expect((await replayMessages(f,'?from=999'))[0].type).toBe('snapshot');
  }finally{f.http.stop();}
@@ -163,7 +163,7 @@ test('recorded ended session upgrades and emits checkpoint, suffix and exit with
  expect(result.messages.map(f=>f.type)).toEqual(['snapshot','output','exit']);
  expect(result.messages[0]).toMatchObject({outputOffset:6,screenAnsi:'prefix',controller:null,viewers:1});
  expect(result.messages[1].data).toEqual(Buffer.from([0,255,27,65,66]));
- expect(result.messages[2]).toEqual({type:'exit',code:7});
+ expect(result.messages[2]).toEqual({type:'exit',code:7,at:expect.any(Number)});
 });
 test('offline handler resumes before and after checkpoint, falls back for missing offsets, and stays read-only',async()=>{
  const f=await recordedFixture();
@@ -171,7 +171,7 @@ test('offline handler resumes before and after checkpoint, falls back for missin
   const {messages}=await localReplay(f,`?from=${offset}`);
   expect(messages.some(f=>f.type==='snapshot')).toBe(false);
   expect(Buffer.concat(messages.filter(f=>f.type==='output').map(f=>f.data))).toEqual(Buffer.from(bytes));
-  expect(messages.at(-1)).toEqual({type:'exit',code:7});
+  expect(messages.at(-1)).toEqual({type:'exit',code:7,at:expect.any(Number)});
  }
  expect((await localReplay(f,'?from=999')).messages[0].type).toBe('snapshot');
  const {messages}=await localReplay(f,'',[JSON.stringify({type:'take',force:true}),wire(FrameType.input,Buffer.from('change')),JSON.stringify({type:'size',cols:10,rows:10})]);
@@ -192,6 +192,24 @@ test('offline upgrade handles checkpoint-only, rotated-log-only, dead host and a
  expect(messages[0]).toMatchObject({type:'snapshot',outputOffset:0,cols:120,rows:40});expect(messages[1].data.toString()).toBe('log only');
  rmSync(join(f.dir,'session.log.1'));
  expect((await localReplay(f)).response?.status).toBe(409);
+});
+
+test('offline exit frames date the exit from session.ended, then the exit file mtime, and omit an unknown time',async()=>{
+ const f=await recordedFixture();const statSync=await import('node:fs').then(fs=>fs.statSync);
+ try{
+  const ended=1762876932;
+  writeFileSync(join(f.dir,'session.ended'),String(ended));
+  expect((await localReplay(f)).messages.at(-1)).toEqual({type:'exit',code:7,at:ended});
+  rmSync(join(f.dir,'session.ended'));
+  const mtime=Math.round(statSync(join(f.dir,'exit')).mtimeMs/1000);
+  expect((await localReplay(f)).messages.at(-1)).toEqual({type:'exit',code:7,at:mtime});
+  // A host that recorded its end but never its receipt: the code stays unknown, the time is still real.
+  rmSync(join(f.dir,'exit'));writeFileSync(join(f.dir,'session.ended'),String(ended));
+  expect((await localReplay(f)).messages.at(-1)).toEqual({type:'exit',code:null,at:ended});
+  // Neither receipt nor end time (stale socket): no invented time.
+  rmSync(join(f.dir,'session.ended'));
+  expect((await localReplay(f)).messages.at(-1)).toEqual({type:'exit',code:null});
+ }finally{rmSync(join(f.dir,'session.sock.path'),{force:true});}
 });
 
 test('live bridge forwards focus to the session socket and closes on a deliver frame without forwarding it',()=>{
@@ -219,7 +237,7 @@ test('ended remote session replays from its local recording mirror',async()=>{
  const {messages,response,closed}=await localReplay(f);
  expect(response).toBeUndefined();expect(closed).toBe(true);
  expect(messages.map(f=>f.type)).toEqual(['snapshot','output','exit']);
- expect(messages.at(-1)).toEqual({type:'exit',code:7});
+ expect(messages.at(-1)).toEqual({type:'exit',code:7,at:expect.any(Number)});
 });
 
 test.skipIf(!canBind)('remote viewer refusal arrives as HTTP 409 before WebSocket upgrade',async()=>{

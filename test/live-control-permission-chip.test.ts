@@ -9,7 +9,8 @@ beforeAll(async () => {
  const build=Bun.spawn(["/usr/bin/swiftc","-parse-as-library","-whole-module-optimization",join(import.meta.dir,"../desktop/native/permission-chip.swift"),join(import.meta.dir,"fixtures/native-permission/layout-main.swift"),"-o",output],{stdout:"pipe",stderr:"pipe"});
  const error=await new Response(build.stderr).text();
  expect({code:await build.exited,error}).toEqual({code:0,error:""});
-}, 30000);
+ // A whole-module swiftc build of AppKit code can pass 30s on a loaded macOS runner.
+}, 120000);
 
 test.skipIf(process.platform!=="darwin")("permission chip docks inside Settings and stays visible across focus changes",async()=>{
  const run=Bun.spawn([output],{stdout:"pipe",stderr:"pipe"});

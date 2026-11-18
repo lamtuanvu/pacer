@@ -1,3 +1,6 @@
+import { managedDispatchConfigured } from "../dispatch/configured";
+type Difficulty = WorkOptions["difficulty"];
+import { route } from "../core/routing";
 import { visibleTaskState } from "./types";
 import { prepareCreationAdmission } from "./creation-admission";
 import { createHash } from "node:crypto";
@@ -56,6 +59,8 @@ export function validBase(base: string): boolean {
   return spawnSync("git", ["check-ref-format", "--branch", base], { stdio: "ignore" }).status === 0;
 }
 export const delegateSchema = {
+  difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  model: z.string().min(1).max(256).optional(),
   dispatch: z.unknown().optional(),
   title: z.string().trim().min(1).max(60).describe("Short task title (trimmed, 1–60 characters), stored separately from the full goal. Omitted titles are derived from the first goal clause with paths, URLs and backticked code removed and word-boundary truncation with an ellipsis. Snapshot tasks, task events, task.get, task.list, attention titles and activity text expose this title; older tasks derive it on read.").optional(),
   request_id: z.string().min(1).max(128).optional(),
@@ -76,13 +81,20 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
   const parsed=z.object(delegateSchema).safeParse({repo:defaultRepo,...(raw as object)});
   if(!parsed.success)throw new DelegateError(parsed.error.issues.map(i=>i.path[0]==="worktree"?"worktree must be one of current, new, auto":i.path[0]==="worktree_reason"?"worktree_reason must be a string of at most 200 characters":`${i.path.join(".")}: ${i.message}`).join("; "));
   const a=parsed.data;
-  return { brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
-    dispatch:a.dispatch?workOptionsSchema.parse(a.dispatch):undefined, title:a.title, requestId:a.request_id, source:a.source,
+  const dispatch = a.dispatch ? workOptionsSchema.parse(a.dispatch) : undefined;
+  const alias = (a.dispatch as {difficulty?: Difficulty} | undefined)?.difficulty;
+  if (a.difficulty !== undefined && alias !== undefined && a.difficulty !== alias)
+    throw new CoreError("invalid_input", "Give difficulty once: top-level difficulty and dispatch.difficulty differ");
+  if (a.model !== undefined && dispatch?.model !== undefined && a.model !== dispatch.model)
+    throw new CoreError("invalid_input", "Give model once: top-level model and dispatch.model differ");
+  const difficulty = a.difficulty ?? alias;
+  return { difficulty, model: a.model ?? dispatch?.model, difficultySource: difficulty === undefined ? "unspecified" : "brief", brief: { goal:a.goal, repo:a.repo, scope:a.scope, acceptance:a.acceptance, acceptanceTimeoutMin:a.acceptance_timeout_min, pipefail:a.acceptance_pipefail, constraints:a.constraints, context:a.context, base:a.base, worktreeBase:a.worktree_base },
+    dispatch:dispatch ? {...dispatch, difficulty: difficulty ?? "standard", model: a.model ?? dispatch.model} : undefined, title:a.title, requestId:a.request_id, source:a.source,
     kind:a.kind, executor:a.executor, timeoutMin:a.timeout_min, worktree:a.worktree, worktree_reason:a.worktree_reason,
     interactive:a.interactive, group:a.group, messaging:a.messaging, ...(a.grant!==undefined?{grant:a.grant}:{}) };
 }
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
-  return { ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
+  return { ...(t.difficultySource ? {difficulty:t.difficulty, difficultySource:t.difficultySource, ...(t.model ? {model:t.model} : {})} : {}), ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
     ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
     attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
     ...(t.question ? {question:t.question} : {}),
@@ -110,7 +122,9 @@ export class DelegateError extends Error {
   }
 }
 
-export interface DelegateInput { /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
+export const difficultyWarning = () => ({code: "difficulty_missing", field: "difficulty", values: ["simple", "standard", "complex"]});
+
+export interface DelegateInput { difficulty?: Difficulty; difficultySource?: "brief" | "unspecified"; model?: string; /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -133,16 +147,19 @@ function openRunnerLog(ctx: Ctx): number | "ignore" {
 }
 
 /** Spawn detached `_run` processes with an explicit self command. A worker must use
- * its parent's command: its own argv[1] is the worker module, not pacer's entry. */
+ * its parent's command: its own argv[1] is the worker module, not pacer's entry.
+ * A runner owns its plugin children: the door's native owner socket ends with the
+ * connection or service, before the attempt does (ADR 0027). */
 export const runnerProcess = (command: readonly string[]): SpawnRunner => (ctx, taskId) => {
   const [cmd, ...pre] = command;
   if (!cmd) throw new Error("runner self command is empty");
+  const { PACER_HOST_SOCKET: _owner, ...env } = ctx.env;
   const log = openRunnerLog(ctx);
   try {
     const child = spawn(cmd, [...pre, "_run", taskId], {
       detached: true,
       stdio: ["ignore", log, log],
-      env: { ...ctx.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
+      env: { ...env, HOME: ctx.home, PACER_HOME: ctx.pacerHome },
     });
     child.unref();
     return child.pid;
@@ -222,9 +239,15 @@ export async function prepareDelegate(
   if(basicProblems.length)throw new DelegateError(basicProblems.join("; "));
   input.repoValidated=true;
   if(input.executor)input.executor=resolveRunner(initial,input.executor)?.id??input.executor;
+  const routedExecutor = input.model && !input.executor
+    ? (await route(fresh(), input.kind ?? null, initial, {repo: input.brief.repo, goal: input.brief.goal})).ranked[0]?.id
+    : input.executor;
   const repo=input.repoRef??registeredRepo(ctx,input.brief.repo);
   const validate=(candidate:DelegateInput,current:Strategy)=>{
     const problems=validateInput(current,candidate);
+    const pinnedRunner = resolveRunner(current, candidate.executor ?? routedExecutor ?? "");
+    if (candidate.model && pinnedRunner?.models && !pinnedRunner.models.some(model => model.id === candidate.model))
+      throw new CoreError("invalid_input", `Model "${candidate.model}" is not declared by executor "${pinnedRunner.id}"`);
     if(candidate.executor){
       const runner=resolveRunner(current,candidate.executor);
       if(runner?.enabled===false)problems.push(`${candidate.executor}: disabled`);
@@ -357,8 +380,8 @@ function commitDelegate(
     ...(input.interactive === false ? {interactive: false} : {}),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
-  }, created => {if(input.dispatch || s.dispatch)registerWork(ctx,created.id,input.dispatch??{},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict"});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
-  updateTask(ctx,task.id,t=>{t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
+  }, created => {if(input.dispatch || managedDispatchConfigured(s))registerWork(ctx,created.id,{...input.dispatch, ...(input.difficulty ? {difficulty:input.difficulty} : {}), ...(input.model ? {model:input.model} : {})},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict",difficulty:input.difficulty??"standard",model:input.model});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
+  updateTask(ctx,task.id,t=>{t.difficulty=input.difficulty??input.dispatch?.difficulty??"standard"; t.difficultySource=input.difficultySource??(input.difficulty||input.dispatch?.difficulty?"brief":"unspecified"); if(input.model)t.model=input.model; t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
     if(origin)t.origin=origin;
     if(input.messaging)t.messaging=input.messaging;
     if(managedSkip)t.managedSkip=managedSkip;});
@@ -429,7 +452,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
   if (!["queued", "running"].includes(t.state) && !(t.state === "stopped" && handedOver)) return t;
   const id = t.id;
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run &&
-    !t.startIntent) {
+    !t.startIntent && !t.childPid &&
+    !existsSync(`${t.run.dir}/pid`) && !existsSync(`${t.run.dir}/exit`)) {
     return withTaskLock(ctx, id, () => {
       const latest = readTask(ctx, id);
       if (!latest || latest.state !== "running" || !latest.stopPending ||
@@ -483,7 +507,10 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
               "Remote executor exited after stop was requested", backend: "direct" };
         });
       });
-    } catch { /* Preserve pending remote stop for another exact reconciliation. */ }
+    } catch (error) {
+      // Preserve pending remote stop for another exact reconciliation.
+      console.error(`pacer: task ${id} remote stop reconcile failed: ${String(error)}`);
+    }
     return readTask(ctx, id) ?? t;
   }
   if (t.state === "running" && t.executorProvider && t.stopPending && t.run && !t.run.host) {
@@ -491,7 +518,20 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       const { inspectOwnedExecutorRun } = await import("../plugins/executor-run-state");
       const { stopOwnedExecutorAttempt } = await import("../plugins/executor-stop");
       const { pluginRegistry } = await import("../plugins");
-      const intent = t.stopPending, owner = t.executorProvider, run = t.run;
+      // Persist the first reconciliation, not the stop request: legacy intents and time
+      // spent asleep before cleanup must still get an initial cleanup attempt.
+      const started = withTaskLock(ctx, id, () => {
+        const latest = readTask(ctx, id);
+        if (!latest || latest.rev !== t.rev) return null;
+        if (latest.stopPending!.cleanupStartedAt !== undefined) return latest;
+        return updateTask(ctx, id, current => {
+          current.stopPending!.cleanupStartedAt = ctx.now;
+        });
+      });
+      if (!started) return readTask(ctx, id) ?? t;
+      const intent = started.stopPending!, owner = t.executorProvider, run = t.run;
+      const cleanupDeadline = Date.now() + Math.max(0, 600 - (ctx.now - intent.cleanupStartedAt!)) * 1000;
+      const expired = () => Date.now() >= cleanupDeadline;
       let observed = inspectOwnedExecutorRun(ctx, id, run.attempt);
       if (observed.state === "running") {
         await stopOwnedExecutorAttempt(ctx, pluginRegistry(ctx), owner, id, run.attempt, intent.graceMs);
@@ -525,7 +565,62 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
           });
         });
       }
-    } catch { /* Preserve the pending intent for the next bounded reconciliation. */ }
+      // Without a matching launch intent, an ambiguous PID proves neither launch nor
+      // ownership. Keep it pending even after the cleanup deadline; never reap it.
+      const launched = (task: TaskRecord) => task.startIntent?.attempt === run.attempt &&
+        task.startIntent.providerId === owner && task.startIntent.dir === run.dir;
+      // A dead owned wrapper may leave its executor alive. An absent PID can still
+      // be an in-flight launch, so only the bounded cleanup deadline can settle it.
+      if (observed.state === "uncertain" && launched(started) && (observed.pid !== null || expired())) {
+        const { stopOrphanedRun } = await import("../supervisor/orphan");
+        const guard = () => {
+          if (expired()) throw new Error("orphan cleanup deadline reached");
+          const latest = readTask(ctx, id);
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          if (!latest || !launched(latest) || latest.executorProvider !== owner || latest.run?.startedAt !== run.startedAt ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || checked.pid !== observed.pid ||
+            checked.state !== "uncertain") throw new Error("orphan stop owner changed");
+        };
+        const cleanup = expired() ? "unverified" : await stopOrphanedRun(run.dir, observed.pid!, intent.graceMs, guard);
+        if (!cleanup && !expired()) return readTask(ctx, id) ?? t;
+        const cleanupUnconfirmed = cleanup !== true;
+        return withTaskLock(ctx, id, () => {
+          const latest = readTask(ctx, id);
+          if (!latest || latest.state !== "running" || latest.executorProvider !== owner ||
+            latest.stopPending?.requestedAt !== intent.requestedAt ||
+            latest.stopPending.attempt !== run.attempt || latest.run?.dir !== run.dir ||
+            latest.run.startedAt !== run.startedAt || latest.attempts.length + 1 !== run.attempt)
+            return latest ?? t;
+          const checked = inspectOwnedExecutorRun(ctx, id, run.attempt);
+          // Between the outer observation and this lock the wrapper can still have recorded a
+          // proper exit; the verified-exit settle above then owns the next tick's outcome.
+          if (checked.state !== "uncertain" || !launched(latest)) return latest;
+          return updateTask(ctx, id, current => {
+            const deadline = current.stopPending?.reason === "deadline";
+            // Preserve exact attempt ownership for retry, without claiming a verified exit.
+            current.executorExitReceipt = { attempt: run.attempt, providerId: owner,
+              dir: run.dir, startedAt: run.startedAt, exitCode: 143, unverified: true };
+            current.attempts.push({ executor: run.executor, model: null,
+              startedAt: run.startedAt, endedAt: Date.now() / 1000,
+              exitCode: 143, timedOut: deadline, limitHit: false, log: run.logFile });
+            delete current.stopPending;
+            delete current.pendingAttempt;
+            delete current.childPid;
+            delete current.runnerPid;
+            current.state = deadline ? "failed" : "stopped";
+            current.result = { status: deadline ? "failed" : "stopped", executor: run.executor, model: null,
+              files: "", report: cleanupUnconfirmed ?
+                `${deadline ? "Executor deadline reached" : "Stop requested"}; cleanup was not confirmed; settled without a verified exit` : deadline ?
+                "Executor deadline reached; the executor wrapper ended without a recorded exit" :
+                "Executor ended without a recorded exit after stop was requested", backend: "direct" };
+          });
+        });
+      }
+    } catch (error) {
+      // Preserve the pending intent for the next bounded reconciliation.
+      console.error(`pacer: task ${id} stop reconcile failed: ${String(error)}`);
+    }
     return readTask(ctx, id) ?? t;
   }
   const run = t.run, current = run && run.attempt > t.attempts.length;

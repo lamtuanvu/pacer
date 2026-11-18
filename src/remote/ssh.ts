@@ -6,15 +6,21 @@ import { shq } from "../install/fsx";
 import type { Ctx } from "../types";
 import { SCRIPTS } from "./scripts";
 
-/** Private directory for pacer's own OpenSSH multiplexing sockets. */
-export function controlDir(ctx: Ctx): string {
-  const homeDir = join(ctx.pacerHome, "ssh");
+/** Where `controlDir` keeps the sockets for a pacer home, without creating it; `short` means outside the home. */
+export function controlDirPath(pacerHome: string): { dir: string; short: boolean } {
+  const homeDir = join(pacerHome, "ssh");
   // OpenSSH expands %C to 40 hex bytes; macOS rejects socket paths >= 104 bytes.
   const tooLong = Buffer.byteLength(join(homeDir, `cm-${"f".repeat(40)}`)) >= 104;
   const short = tooLong && process.platform !== "win32";
   const dir = short
-    ? join("/tmp", `pacer-ssh-${process.getuid!()}-${createHash("sha256").update(ctx.pacerHome).digest("hex").slice(0, 16)}`)
+    ? join("/tmp", `pacer-ssh-${process.getuid!()}-${createHash("sha256").update(pacerHome).digest("hex").slice(0, 16)}`)
     : homeDir;
+  return { dir, short };
+}
+
+/** Private directory for pacer's own OpenSSH multiplexing sockets. */
+export function controlDir(ctx: Ctx): string {
+  const { dir, short } = controlDirPath(ctx.pacerHome);
   if (short) {
     try { mkdirSync(dir, { mode: 0o700 }); }
     catch (error) { if ((error as NodeJS.ErrnoException).code !== "EEXIST") throw error; }

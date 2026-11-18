@@ -91,7 +91,7 @@ export interface Strategy {
   runnerAliases: Record<string, string>;
   /** @deprecated Derived from runners and accounts; use those directly in new consumers. */
   providers: Record<string, ProviderCfg>;
-  pacing: { policy: Policy; order: string[]; plannerReserve: number; plannerReserveHeadroom: number; plannerProbe: "ask" | "auto" | "off"; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number };
+  pacing: { policy: Policy; order: string[]; plannerReserve: number; plannerReserveHeadroom: number; plannerProbe: "ask" | "auto" | "off"; aheadThreshold: number; behindThreshold: number; accounts: "spread" | "fill"; fillThreshold: number; balance: "off" | "least-loaded" };
   routing: RouteRule[];
   execution: Record<string, unknown>;
   classifier: Record<string, unknown>;
@@ -218,9 +218,11 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
     aheadThreshold: num("ahead_threshold", 10),
     behindThreshold: num("behind_threshold", -10),
     accounts: (pc.accounts ?? "spread") as "spread" | "fill",
+    balance: (pc.balance ?? "off") as "off" | "least-loaded",
     fillThreshold: num("fill_threshold", 90),
   };
   if (!["spread", "fill"].includes(pacing.accounts)) p.push("pacing.accounts must be spread or fill");
+  if (!["off", "least-loaded"].includes(pacing.balance)) p.push("pacing.balance must be off or least-loaded");
   if (!Number.isFinite(pacing.fillThreshold) || pacing.fillThreshold < 50 || pacing.fillThreshold > 100) p.push("pacing.fill_threshold must be between 50 and 100");
   if (pacing.plannerReserve < 0 || pacing.plannerReserve >= 100) {
     p.push("pacing.planner_reserve must be between 0 and 99");
@@ -323,19 +325,34 @@ function parseFile(path: string, name: string): Strategy {
   const cached = parsedFileCache.get(cacheKey);
   // A copy, so a caller that edits its strategy can never change what the next read returns.
   if (cached && cached.stamp === stamp) return structuredClone(cached.strategy);
+  const strategy = parseText(readFileSync(path, "utf8"), path, name);
+  parsedFileCache.set(cacheKey, { stamp, strategy: structuredClone(strategy) });
+  return strategy;
+}
+function parseText(text: string, path: string, name: string): Strategy {
   let raw: unknown;
   try {
-    raw = Bun.YAML.parse(readFileSync(path, "utf8"));
+    raw = Bun.YAML.parse(text);
   } catch (e) {
     throw new StrategyError(path, [`YAML syntax error: ${(e as Error).message}`]);
   }
-  const strategy = validateStrategy(raw, path, name);
-  parsedFileCache.set(cacheKey, { stamp, strategy: structuredClone(strategy) });
-  return strategy;
+  return validateStrategy(raw, path, name);
 }
 
 export function loadStrategy(ctx: Ctx): Strategy {
   return parseFile(strategyPath(ctx), activeName(ctx) ?? "default");
+}
+
+/** The active strategy with the exact text it was parsed from, so a native caller can parse the same snapshot. */
+export function loadStrategySnapshot(ctx: Ctx): { path: string; name: string; text: string; strategy: Strategy } {
+  const path = strategyPath(ctx), name = activeName(ctx) ?? "default";
+  let text: string;
+  try { text = readFileSync(path, "utf8"); }
+  catch (e) {
+    if ((e as NodeJS.ErrnoException).code === "ENOENT") throw new MissingStrategyError(path);
+    throw e;
+  }
+  return { path, name, text, strategy: parseText(text, path, name) };
 }
 
 /** Switch the active strategy. "default" returns to ~/.pacer/strategy.yaml. Returns the active file path. */

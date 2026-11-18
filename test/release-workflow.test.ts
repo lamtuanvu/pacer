@@ -164,14 +164,23 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect((build as any).strategy["fail-fast"]).toBe(false);
   expect((build as any)["continue-on-error"]).toBeUndefined();
   expect(build.strategy?.matrix.include).toEqual([
-    { runner: "macos-latest", targets: "darwin-arm64,darwin-x64" },
-    { runner: "ubuntu-latest", targets: "linux-x64,linux-arm64" },
+    { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
+    { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
   ]);
-  const gate = build.steps.find(s => s.name === "Full M1 gate against built host release artifacts")!;
+  const gate = build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
   expect(gate.if).toBeUndefined();
   expect((gate as any)["continue-on-error"]).toBeUndefined();
-  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION"');
-  expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
+  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
+  const suite = jobs["ci-suite"]!;
+  expect(suite.needs).toBe("verify");
+  expect((suite as any).if).toBeUndefined();
+  expect((suite as any).permissions).toEqual({ contents: "read", actions: "write" });
+  const evidence = suite.steps.find(s => s.name === "Require CI's full suite on both OSes for this commit")!;
+  expect(evidence.if).toBeUndefined();
+  expect((evidence as any)["continue-on-error"]).toBeUndefined();
+  expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");
+  expect(evidence.env).toMatchObject({ CI_SHA: "${{ github.event.pull_request.head.sha || github.sha }}", CI_REF: "${{ github.head_ref || github.ref_name }}" });
+  expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
@@ -183,7 +192,7 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(verify).not.toContain("bun run test");
   const source = readFileSync("scripts/gate/m1.ts", "utf8");
   expect(source).toContain('validateM1Artifacts(dir)');
-  expect(source).toContain('[process.execPath, "run", "test"]');
+  expect(source).toContain('[process.execPath, "run", "test", ...files]');
   expect(source).toContain('PACER_TEST_FRONT_DOOR: front');
   expect(source).toContain('PACER_TEST_REFERENCE_CORE: core');
   expect(source).toContain('return failures ? 1 : 0');
@@ -193,7 +202,7 @@ test("M1 gate failure stops the release build despite log capture", () => {
   const root = tmpDir(), bin = join(root, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  const gate = jobs.build.steps.find(s => s.name === "Full M1 gate against built host release artifacts")!;
+  const gate = jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
   const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
   expect(result.exitCode).not.toBe(0);
 });

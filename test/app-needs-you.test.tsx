@@ -40,3 +40,38 @@ test("Needs you retains the exact footnote and uses workspace copy for review se
   expect(html).toMatch(/href="#\/workspace\?task=[^"&]+"[^>]*>Open workspace<\/a>/);
   expect(html).not.toContain(">Dispatch trace</a>");
 });
+
+test("a long question stays in its own reason column, keeps the meta readable and never collapses into the actions", () => {
+  const longQuestion = "Which database should we pick and why?. ".repeat(16); // > 600 chars
+  const longRepo = "github.com/a-very-long-owner-name/another-very-long-repository-name";
+  const now = Math.floor(Date.now() / 1000);
+  const snap = structuredClone(fixture) as unknown as ClientSnapshot;
+  const base = { ...(snap.tasks[0] as unknown as Record<string, unknown>) } as Record<string, unknown>;
+  // A needs_input question task with a very long question and a very long repo name.
+  snap.tasks = [{ ...base, id: "t-long-question", title: "Decide how to proceed", state: "needs_input", question: { text: longQuestion, at: now - 366 * 3600 - 540 }, repo: { key: longRepo, label: longRepo, path: "/tmp/long" } } as never];
+  snap.attention = [{
+    id: "question:long", kind: "question", severity: "decide",
+    repo: { key: longRepo, label: longRepo, path: "/tmp/long" },
+    taskId: "t-long-question", executor: "codex#team@devbox",
+    title: "Decide how to proceed", detail: longQuestion,
+    raisedAt: now - 366 * 3600 - 540, since: now - 366 * 3600 - 540,
+    actions: [{ label: "Answer", op: "task.answer", params: { id: "t-long-question" } }], notify: "important",
+  } as never];
+  const html = renderToString(<ActionContext.Provider value={runner}><TaskContext.Provider value={{ state: { ...initialState(), snapshot: snap }, api: {} as never }}><NeedsYouPage query={{ repo: null, scope: null }} /></TaskContext.Provider></ActionContext.Provider>);
+
+  // The row renders.
+  expect(html).toContain('class="ny-item"');
+  expect(html).toContain('data-attention-id="question:long"');
+  // The question text is confined to its own .ny-reason element with the full text as a title fallback (UI-11).
+  expect(html).toContain('class="ny-reason"');
+  expect(html).toContain('title="Codex asks: Which database should we pick and why?');
+  expect(html).toContain(longQuestion);
+  // The repo name lives inside .ny-meta, ellipsized with a title attribute exposing the full name.
+  expect(html).toContain('class="ny-mono"');
+  expect(html).toMatch(/title="github\.com\/a-very-long-owner-name\/another-very-long-repository-name"/);
+  // .ny-reason and .ny-meta sit inside the .ny-content link; .ny-actions is a sibling grid cell after the link
+  // closes, so the question text can never push the meta into or under the buttons.
+  expect(html).toMatch(/class="pc-text-action ny-content"[\s\S]*class="ny-reason"[\s\S]*class="ny-meta ny-cap"[\s\S]*<\/a>\s*<span class="ny-actions">/);
+  expect(html).toContain(">Answer</a>");
+  expect(html).toContain(">Open in workspace</a>");
+});

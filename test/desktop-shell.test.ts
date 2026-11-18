@@ -340,7 +340,7 @@ test("takeover disabled choice and progress focus are visible with shell tokens"
   expect(css).toMatch(/\.consent-row input:disabled::before \{[^}]*var\(--line\)[^}]*\}/);
   expect(css).toMatch(/\.consent-row input:checked:disabled::before \{[^}]*var\(--ink-muted\)[^}]*\}/);
   expect(css).toMatch(/\.consent-row input:disabled \+ label \{[^}]*color: var\(--ink-muted\)/);
-  expect(css).toMatch(/#takeover-progress:focus \{ outline: 2px solid var\(--focus\); outline-offset: 2px; \}/);
+  expect(css).toMatch(/#takeover-progress:focus-visible \{ outline: 2px solid var\(--focus\); outline-offset: 2px; \}/);
 });
 
 test("takeover choice stays visible at the default window height", () => {

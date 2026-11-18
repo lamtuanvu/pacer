@@ -20,6 +20,8 @@ export interface ExecutorSettingsInput {
   runners: ExecutorSettings['runners'];
 }
 const revision = (text: string) => createHash('sha256').update(text).digest('hex');
+/** The strategy file's content revision, shared with runner models saves (`runner.models.set`). */
+export const strategyRevision = revision;
 function projection(s: Strategy, text: string): ExecutorSettings {
   const order = orderedExecutorIds(s);
   return {revision: revision(text), order, runners: order.map(id => {

@@ -45,10 +45,20 @@ test("a child waiting on the task lock re-probes replaced repository before comm
  writeFileSync(script,`import {stat} from "node:fs/promises";const {withTaskPreparation,updateTask}=await import(${JSON.stringify(new URL("../src/tasks/store.ts",import.meta.url).href)});const input=JSON.parse(process.argv[2]);const ctx={...input.ctx,run:async()=>({code:127,stdout:"",stderr:""}),which:()=>null};console.log("ready");try{await withTaskPreparation(ctx,input.id,async()=>{const s=await stat(input.repo);if(s.dev!==input.dev||s.ino!==input.ino)throw Object.assign(Error("changed"),{code:"conflict"});},()=>updateTask(ctx,input.id,t=>{t.kind="tests";}));console.log("committed");}catch(error){console.log(JSON.stringify({code:error.code}));}`);
  let child:ReturnType<typeof Bun.spawn>|undefined;let reader:ReadableStreamDefaultReader<Uint8Array>|undefined;
  await withLock(ctx,`task-${task.id}`,async()=>{
-  child=Bun.spawn([process.execPath,script,JSON.stringify({ctx:{home:ctx.home,pacerHome:ctx.pacerHome,now:ctx.now,env:{}},id:task.id,repo,dev:original.dev,ino:original.ino})],{stdout:"pipe",stderr:"pipe"});
+  child=Bun.spawn([process.execPath,script,JSON.stringify({ctx:{home:ctx.home,pacerHome:ctx.pacerHome,now:ctx.now,env:{PACER_PORT:ctx.env.PACER_PORT}},id:task.id,repo,dev:original.dev,ino:original.ino})],{stdout:"pipe",stderr:"pipe"});
   reader=(child.stdout as ReadableStream<Uint8Array>).getReader();expect(new TextDecoder().decode((await reader.read()).value)).toContain("ready");
   renameSync(repo,`${repo}-retired`);mkdirSync(repo);
  });
  let output="";for(;;){const part=await reader!.read();if(part.done)break;output+=new TextDecoder().decode(part.value);}
  expect(await child!.exited).toBe(0);expect(output).toContain('"code":"conflict"');expect(output).not.toContain("committed");expect(readTask(ctx,task.id)?.kind).toBeNull();
+});
+
+test("withTaskLockAsync releases the task lock before yielding, so a sync writer in the same turn is not blocked",async()=>{
+ const {ctx,task,lock}=fixture();
+ const pending=withTaskLockAsync(ctx,task.id,()=>updateTask(ctx,task.id,t=>{t.kind="tests";}));
+ // withTaskLock spins synchronously; a lock still held across the microtask would block this turn until it timed out.
+ expect(existsSync(lock)).toBe(false);
+ withTaskLock(ctx,task.id,()=>updateTask(ctx,task.id,t=>{t.brief.context="sync";}));
+ await pending;
+ expect(readTask(ctx,task.id)).toMatchObject({kind:"tests",brief:{context:"sync"}});
 });

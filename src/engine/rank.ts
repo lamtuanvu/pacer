@@ -35,7 +35,11 @@ export interface RankedExecutor { eligibility?: EligibilityDecision; fallback?: 
 export interface Excluded { eligibility?: EligibilityDecision; id: string; account?: string; reason: string }
 
 const EXPIRING_BOOST = 50;
-const TIER: Record<UsageKind, number> = { unmetered: 0, quota: 1, reactive: 1, metered: 2 };
+export const TIER: Record<UsageKind, number> = { unmetered: 0, quota: 1, reactive: 1, metered: 2 };
+/** Whether an account has yielded under `pacing.accounts: fill`: a window behind/ahead of pace or at `fill_threshold`. */
+export function accountYielded(s: Strategy, id: string, statuses: Record<string, ProviderStatus>): boolean {
+  return statuses[id]?.windows.some(w => w.verdict === "BEHIND" || w.verdict === "AHEAD" || (w.usedPct ?? 0) >= s.pacing.fillThreshold) ?? false;
+}
 
 export function ruleFor(kind: string | null, s: Strategy): { index: number; kinds: string[] | null } {
   let index = kind ? s.routing.findIndex(r => r.kinds?.includes(kind)) : -1;
@@ -178,7 +182,7 @@ export function rankExecutors(
       const st = statuses[id];
       return st.binding?.delta !== undefined ? -st.binding.delta : 100 - (st.binding?.usedPct ?? 100);
     };
-    const yielded = (id: string) => statuses[id].windows.some(w => w.verdict === "BEHIND" || w.verdict === "AHEAD" || (w.usedPct ?? 0) >= s.pacing.fillThreshold);
+    const yielded = (id: string) => accountYielded(s, id, statuses);
     candidates.sort((a, b) => {
       if (s.pacing.accounts === "fill") return Number(yielded(a.id)) - Number(yielded(b.id)) || order(a.id) - order(b.id) || a.order - b.order;
       return Number(a.unknown) - Number(b.unknown) || headroom(b.id) - headroom(a.id) || order(a.id) - order(b.id) || a.order - b.order;

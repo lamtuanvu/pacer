@@ -36,9 +36,24 @@ pub const METHOD_PLUGIN_SPAWN: &str = "_host.plugin.spawn";
 /// Private JSON-RPC method: terminate a tracked child.
 pub const METHOD_PLUGIN_STOP: &str = "_host.plugin.stop";
 
+/// Longest socket path `sockaddr_un` holds with its terminating NUL on macOS.
+///
+/// Linux allows 107 bytes; binding refuses anything longer than the smaller
+/// limit so a home that works on one platform works on both.
+pub const SOCKET_PATH_MAX: usize = 103;
+
 /// `$PACER_HOME/run/host.sock` — never a TCP address.
 pub fn host_socket_path(pacer_home: &Path) -> PathBuf {
     pacer_home.join("run").join(HOST_SOCKET_NAME)
+}
+
+/// `s<12-hex>.sock`: the private owner socket of one stdio connection.
+///
+/// It lives beside `host.sock` in the same 0700 `run/` directory and is never
+/// `host.sock` itself, so a stdio connection cannot claim the home's owner lease.
+pub fn connection_socket_name(tag: [u8; 6]) -> String {
+    let hex = tag.iter().map(|b| format!("{b:02x}")).collect::<String>();
+    format!("s{hex}.sock")
 }
 
 /// True when an env value is an explicit truthy opt-in.
@@ -59,6 +74,12 @@ pub fn dark_bridge_disabled(value: Option<&str>) -> bool {
 /// Does not create the socket or start a listener. Refuses to proceed when
 /// `run` exists but is not a directory (for example a symlink to a file).
 pub fn prepare_host_run_dir(pacer_home: &Path) -> io::Result<PathBuf> {
+    prepare_run_dir(pacer_home)?;
+    Ok(host_socket_path(pacer_home))
+}
+
+/// [`prepare_host_run_dir`] without naming a socket; returns the `run` directory.
+pub fn prepare_run_dir(pacer_home: &Path) -> io::Result<PathBuf> {
     let run = pacer_home.join("run");
     match fs::symlink_metadata(&run) {
         Ok(meta) if meta.file_type().is_symlink() || !meta.is_dir() => {
@@ -78,5 +99,5 @@ pub fn prepare_host_run_dir(pacer_home: &Path) -> io::Result<PathBuf> {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(&run, fs::Permissions::from_mode(0o700))?;
     }
-    Ok(host_socket_path(pacer_home))
+    Ok(run)
 }

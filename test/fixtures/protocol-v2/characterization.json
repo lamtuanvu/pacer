@@ -69,6 +69,36 @@
     {
       "name": "other",
       "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "other",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
+        }
+      }
+    },
+    {
+      "name": "other",
+      "input": {
         "accepted": true
       },
       "output": {
@@ -242,6 +272,36 @@
       "output": {
         "value": {
           "capture": 1
+        }
+      }
+    },
+    {
+      "name": "task.delegate",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "task.delegate",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
         }
       }
     },
@@ -427,6 +487,30 @@
     {
       "name": "client.register",
       "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.register",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true
+        }
+      }
+    },
+    {
+      "name": "client.register",
+      "input": {
         "accepted": true
       },
       "output": {
@@ -539,6 +623,210 @@
       }
     },
     {
+      "name": "client.heartbeat",
+      "input": null,
+      "output": {
+        "value": null
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": false,
+      "output": {
+        "value": false
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": 0,
+      "output": {
+        "value": 0
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": "😀",
+      "output": {
+        "value": "😀"
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": [],
+      "output": {
+        "value": []
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": [
+        1
+      ],
+      "output": {
+        "value": [
+          1
+        ]
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {},
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "dispatch": 1,
+        "capture": 1
+      },
+      "output": {
+        "value": {
+          "dispatch": 1,
+          "capture": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {}
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": true
+      },
+      "output": {
+        "value": {
+          "accepted": true
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": false
+      },
+      "output": {
+        "value": {
+          "accepted": false
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": true,
+        "verdict": null
+      },
+      "output": {
+        "value": {
+          "accepted": true,
+          "verdict": null
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": false,
+        "verdict": "accept"
+      },
+      "output": {
+        "value": {
+          "accepted": false,
+          "verdict": "accept"
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": null
+      },
+      "output": {
+        "value": {
+          "accepted": null
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": 0
+      },
+      "output": {
+        "value": {
+          "accepted": 0
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": 1
+      },
+      "output": {
+        "value": {
+          "accepted": 1
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": ""
+      },
+      "output": {
+        "value": {
+          "accepted": ""
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": []
+      },
+      "output": {
+        "value": {
+          "accepted": []
+        }
+      }
+    },
+    {
+      "name": "client.heartbeat",
+      "input": {
+        "accepted": {}
+      },
+      "output": {
+        "value": {
+          "accepted": {}
+        }
+      }
+    },
+    {
       "name": "task.review",
       "input": null,
       "output": {
@@ -601,6 +889,36 @@
         "value": {
           "dispatch": 1,
           "capture": 1
+        }
+      }
+    },
+    {
+      "name": "task.review",
+      "input": {
+        "capture": 1,
+        "notification_permission": "authorized",
+        "notification_alerts": "banner"
+      },
+      "output": {
+        "value": {
+          "capture": 1,
+          "notification_permission": "authorized",
+          "notification_alerts": "banner"
+        }
+      }
+    },
+    {
+      "name": "task.review",
+      "input": {
+        "notifier": true,
+        "notification_permission": "not_determined",
+        "notification_alerts": "none"
+      },
+      "output": {
+        "value": {
+          "notifier": true,
+          "notification_permission": "not_determined",
+          "notification_alerts": "none"
         }
       }
     },
@@ -3160,6 +3478,385 @@
     }
   ],
   "snapshots": [
+    {
+      "id": "managed-actions-navigation",
+      "input": {
+        "seq": 3000000000000,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "fullTitle": "preserved",
+            "derived": {}
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 9007199254740991,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "items": []
+        },
+        "attention": [
+          {
+            "id": "question:managed",
+            "kind": "question",
+            "severity": "blocked",
+            "since": 1,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Answer",
+                "op": "dispatch.answer",
+                "params": {
+                  "id": "managed",
+                  "expect_rev": 7,
+                  "requestId": "managed.7.answer"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:managed",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 2,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry",
+                "op": "dispatch.retry",
+                "params": {
+                  "id": "managed",
+                  "expect_rev": 7,
+                  "requestId": "managed.7.retry"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:ordinary",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 3,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry on Codex",
+                "op": "task.retry",
+                "params": {
+                  "id": "ordinary",
+                  "executor": "codex"
+                }
+              }
+            ],
+            "taskId": "ordinary"
+          }
+        ],
+        "counts": {
+          "attention": 99,
+          "problems": 99,
+          "setupOpen": 99,
+          "other": 3
+        },
+        "service": {
+          "protocol": "3.0.0",
+          "version": "fixture"
+        },
+        "desktopUpdates": [
+          {
+            "id": "hidden"
+          }
+        ],
+        "extra": {
+          "preserved": true
+        }
+      },
+      "output": {
+        "seq": 0,
+        "at": 42,
+        "mode": "normal",
+        "tasks": [
+          {
+            "fullTitle": "preserved",
+            "derived": {}
+          }
+        ],
+        "strategies": [
+          "old",
+          {
+            "name": "inactive",
+            "active": false
+          },
+          {
+            "name": "chosen",
+            "active": true
+          },
+          {
+            "name": "later",
+            "active": true
+          }
+        ],
+        "planner": {
+          "runner": "p",
+          "mode": "normal",
+          "stale": true
+        },
+        "accounts": [
+          {
+            "name": "a",
+            "verdict": "GO",
+            "resetsAt": 60,
+            "window": "week"
+          }
+        ],
+        "policy": {
+          "mode": "normal"
+        },
+        "pause": null,
+        "today": {
+          "since": 0,
+          "done": 0,
+          "accepted": 0,
+          "rejected": 0,
+          "failed": 0,
+          "byRepo": {}
+        },
+        "hosts": [],
+        "repos": [],
+        "executors": [],
+        "machine": {
+          "used": 0,
+          "max": 1,
+          "hardCap": null,
+          "unlimited": true
+        },
+        "setup": {
+          "complete": false,
+          "open": 4,
+          "items": [
+            {
+              "id": "binary",
+              "title": "Binary",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "strategy",
+              "title": "Strategy",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "service",
+              "title": "Login service",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "link",
+              "title": "Link",
+              "status": "pending",
+              "required": true
+            },
+            {
+              "id": "live",
+              "title": "Live plugin",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:claude-code",
+              "title": "Claude Code",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:codex",
+              "title": "Codex",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:cursor",
+              "title": "Cursor",
+              "status": "pending",
+              "required": false
+            },
+            {
+              "id": "agent:opencode",
+              "title": "OpenCode",
+              "status": "pending",
+              "required": false
+            }
+          ]
+        },
+        "attention": [
+          {
+            "id": "question:managed",
+            "kind": "question",
+            "severity": "blocked",
+            "since": 1,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Answer",
+                "op": "ui.open",
+                "params": {
+                  "view": "task",
+                  "id": "managed",
+                  "tab": "answer"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:managed",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 2,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry",
+                "op": "ui.open",
+                "params": {
+                  "view": "task",
+                  "id": "managed"
+                }
+              }
+            ],
+            "taskId": "managed"
+          },
+          {
+            "id": "failed:ordinary",
+            "kind": "failed",
+            "severity": "problem",
+            "since": 3,
+            "raisedAt": 2,
+            "title": "original",
+            "detail": "detail",
+            "actions": [
+              {
+                "label": "Retry on Codex",
+                "op": "task.retry",
+                "params": {
+                  "id": "ordinary",
+                  "executor": "codex"
+                }
+              }
+            ],
+            "taskId": "ordinary"
+          }
+        ],
+        "counts": {
+          "attention": 3,
+          "problems": 3,
+          "setupOpen": 4,
+          "other": 3
+        },
+        "service": {
+          "protocol": "2.8.0",
+          "version": "fixture"
+        },
+        "extra": {
+          "preserved": true
+        },
+        "v": 1,
+        "budget": {
+          "generatedAt": 42,
+          "strategy": "chosen",
+          "planner": "p",
+          "mode": "normal",
+          "providers": [],
+          "ranked": []
+        },
+        "alerts": [
+          {
+            "key": "question:managed",
+            "level": "error",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          },
+          {
+            "key": "failed:managed",
+            "level": "warn",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          },
+          {
+            "key": "failed:ordinary",
+            "level": "warn",
+            "title": "original",
+            "body": "detail",
+            "at": 2
+          }
+        ],
+        "console": null,
+        "consoles": [],
+        "serviceInstalled": false
+      }
+    },
     {
       "id": "empty-unlimited",
       "input": {
@@ -16369,7 +17066,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.14.0",
+        "releaseVersion": "0.15.0",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -16377,7 +17074,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.14.0",
+      "pacer": "0.15.0",
       "ops": [
         "account.add",
         "account.adopt",
@@ -16393,6 +17090,7 @@
         "agent.detect",
         "agent.disconnect",
         "agent.preview",
+        "agent.undo",
         "api.describe",
         "api.list",
         "assistant.ask",
@@ -16465,9 +17163,13 @@
         "dispatch.review",
         "dispatch.stop",
         "dispatch.submit",
+        "dispatch.tierTargets.get",
+        "dispatch.tierTargets.set",
         "dispatch.tree",
         "dispatch.wait",
+        "doctor.fix.delegate",
         "doctor.run",
+        "executor.models.available",
         "executor.setup.candidates",
         "executor.setup.connect",
         "executor.setup.models",
@@ -16506,8 +17208,12 @@
         "msg.read",
         "msg.send",
         "msg.wait",
+        "notifications.ack",
         "notifications.get",
+        "notifications.health",
+        "notifications.request",
         "notifications.set",
+        "notifications.test",
         "onboarding.skip",
         "onboarding.try",
         "plugin.disable",
@@ -16540,6 +17246,9 @@
         "runner.block",
         "runner.check",
         "runner.list",
+        "runner.models.get",
+        "runner.models.set",
+        "runner.models.set_many",
         "runner.remove",
         "runner.reorder",
         "runner.set",
@@ -16567,6 +17276,7 @@
         "setup.check",
         "setup.health",
         "setup.init",
+        "setup.skip",
         "snapshot.get",
         "strategy.build",
         "strategy.list",
@@ -16628,12 +17338,13 @@
         "liveness",
         "machine",
         "assistant",
-        "discovery.found"
+        "discovery.found",
+        "control"
       ]
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.14.0",
+      "pacer": "0.15.0",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17292,7 +18003,7 @@
         }
       },
       "agent.connect": {
-        "description": "Connect an agent after explicit consent to write its integration files.",
+        "description": "Connect an agent after explicit consent to write its integration files. Returns installed plus an additive 'undo' flag reporting whether this connect left something undoable (with its revision) or, when it did not, a short reason.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -17357,7 +18068,7 @@
         }
       },
       "agent.preview": {
-        "description": "Preview agent integration files and the undo command before consenting.",
+        "description": "Preview agent integration files, the undo command and each file's change (create, update, restore, unchanged or kept) before consenting.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -17370,6 +18081,34 @@
                 "cursor",
                 "opencode"
               ]
+            }
+          },
+          "required": [
+            "agent"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "agent.undo": {
+        "description": "Undo exactly the files changed by the most recent connect, from its recorded snapshot, after explicit consent bound to that connect's preview revision, within 7 days. Reports restored, removed, reverted and kept files.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "agent": {
+              "type": "string",
+              "enum": [
+                "claude-code",
+                "codex",
+                "cursor",
+                "opencode"
+              ]
+            },
+            "consent": {
+              "type": "boolean"
+            },
+            "preview_revision": {
+              "type": "string"
             }
           },
           "required": [
@@ -18119,7 +18858,7 @@
         }
       },
       "client.heartbeat": {
-        "description": "Renew a client lease, which lapses after 45 seconds without a heartbeat.",
+        "description": "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -18128,6 +18867,28 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128
+            },
+            "notifier": {
+              "type": "boolean"
+            },
+            "notification_permission": {
+              "type": "string",
+              "enum": [
+                "not_determined",
+                "denied",
+                "authorized",
+                "provisional",
+                "ephemeral",
+                "unsupported"
+              ]
+            },
+            "notification_alerts": {
+              "type": "string",
+              "enum": [
+                "none",
+                "banner",
+                "alert"
+              ]
             }
           },
           "required": [
@@ -18172,6 +18933,25 @@
             },
             "capture": {
               "type": "boolean"
+            },
+            "notification_permission": {
+              "type": "string",
+              "enum": [
+                "not_determined",
+                "denied",
+                "authorized",
+                "provisional",
+                "ephemeral",
+                "unsupported"
+              ]
+            },
+            "notification_alerts": {
+              "type": "string",
+              "enum": [
+                "none",
+                "banner",
+                "alert"
+              ]
             }
           },
           "required": [
@@ -18214,6 +18994,7 @@
                 "pacing.planner_probe",
                 "pacing.accounts",
                 "pacing.fill_threshold",
+                "pacing.balance",
                 "update_check",
                 "terminal.app",
                 "terminal.open"
@@ -18938,6 +19719,19 @@
               "type": "string",
               "minLength": 1,
               "maxLength": 128
+            },
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
             },
             "requestId": {
               "type": "string",
@@ -19956,6 +20750,71 @@
           "additionalProperties": false
         }
       },
+      "dispatch.tierTargets.get": {
+        "description": "Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "dispatch.tierTargets.set": {
+        "description": "Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "targets": {
+              "type": "object",
+              "properties": {
+                "simple": {
+                  "default": "small",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "standard": {
+                  "default": "medium",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                },
+                "complex": {
+                  "default": "frontier",
+                  "type": "string",
+                  "enum": [
+                    "small",
+                    "medium",
+                    "frontier"
+                  ]
+                }
+              },
+              "required": [
+                "simple",
+                "standard",
+                "complex"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "required": [
+            "expectedRevision",
+            "targets"
+          ],
+          "additionalProperties": false
+        }
+      },
       "dispatch.tree": {
         "description": "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.",
         "params": {
@@ -19997,12 +20856,59 @@
           "additionalProperties": false
         }
       },
+      "doctor.fix.delegate": {
+        "description": "Start a pacer task to fix (scope fix) or investigate (scope investigate, changes nothing) one failing diagnostics check. The brief is built from the service's latest doctor result for that check, never from client text, and goes through task.delegate routing, pacing and review. The task records diagnosticCheck; accepting it reruns the check and records diagnosticRecheck. Task reads (task.get, task.list, snapshot tasks) expose both.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "check": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
+            "scope": {
+              "type": "string",
+              "enum": [
+                "fix",
+                "investigate"
+              ]
+            }
+          },
+          "required": [
+            "check",
+            "scope"
+          ],
+          "additionalProperties": false
+        }
+      },
       "doctor.run": {
-        "description": "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed.",
+        "description": "Run setup, service, account and integration diagnostics with fixed isolated Claude handler probes. Configuration and tested handlers do not prove host invocation. No repairs are performed. Each warning or failure carries one remedy { kind: auto|review|user|agent|internal, label, op?, params?, consent?, url?, secondary? } naming a registered operation; params never include consent. consent: true marks an op that requires it: show what will change and send consent: true only after the user's click.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "executor.models.available": {
+        "description": "Models an executor can use, from its provider's live listing; models is null when the listing is unknown.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "runner": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "refresh": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "runner"
+          ],
           "additionalProperties": false
         }
       },
@@ -20832,12 +21738,75 @@
           "additionalProperties": false
         }
       },
+      "notifications.ack": {
+        "description": "Acknowledge a notification delivery outcome (desktop clients only).",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "client_id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "key": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 512
+            },
+            "delivered": {
+              "type": "boolean"
+            },
+            "error": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 512
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "client_id",
+            "key",
+            "delivered"
+          ],
+          "additionalProperties": false
+        }
+      },
       "notifications.get": {
         "description": "Current notification level.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "notifications.health": {
+        "description": "Cheap read of the notification check without running the full doctor.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
+          "additionalProperties": false
+        }
+      },
+      "notifications.request": {
+        "description": "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "wait_s": {
+              "type": "integer",
+              "minimum": 0,
+              "maximum": 25
+            }
+          },
           "additionalProperties": false
         }
       },
@@ -20859,6 +21828,15 @@
           "required": [
             "level"
           ],
+          "additionalProperties": false
+        }
+      },
+      "notifications.test": {
+        "description": "Send a test notification to the OS presenter.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {},
           "additionalProperties": false
         }
       },
@@ -21865,6 +22843,192 @@
           "additionalProperties": false
         }
       },
+      "runner.models.get": {
+        "description": "Read an executor's default and allowed models with tiers, against the strategy revision.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            }
+          },
+          "required": [
+            "id"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "runner.models.set": {
+        "description": "Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "default": {
+              "type": "string",
+              "minLength": 1
+            },
+            "models": {
+              "maxItems": 256,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 256
+                  },
+                  "tier": {
+                    "default": "unknown",
+                    "type": "string",
+                    "enum": [
+                      "small",
+                      "medium",
+                      "frontier",
+                      "unknown"
+                    ]
+                  },
+                  "strengths": {
+                    "default": [],
+                    "maxItems": 64,
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "minLength": 1,
+                      "maxLength": 256
+                    }
+                  },
+                  "tools": {
+                    "type": "boolean"
+                  },
+                  "context": {
+                    "type": "integer",
+                    "exclusiveMinimum": 0,
+                    "maximum": 9007199254740991
+                  }
+                },
+                "required": [
+                  "id",
+                  "tier",
+                  "strengths"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "id",
+            "expectedRevision",
+            "default",
+            "models"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "runner.models.set_many": {
+        "description": "Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "expectedRevision": {
+              "type": "string",
+              "minLength": 1
+            },
+            "runners": {
+              "minItems": 1,
+              "maxItems": 64,
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 128
+                  },
+                  "default": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "models": {
+                    "maxItems": 256,
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string",
+                          "minLength": 1,
+                          "maxLength": 256
+                        },
+                        "tier": {
+                          "default": "unknown",
+                          "type": "string",
+                          "enum": [
+                            "small",
+                            "medium",
+                            "frontier",
+                            "unknown"
+                          ]
+                        },
+                        "strengths": {
+                          "default": [],
+                          "maxItems": 64,
+                          "type": "array",
+                          "items": {
+                            "type": "string",
+                            "minLength": 1,
+                            "maxLength": 256
+                          }
+                        },
+                        "tools": {
+                          "type": "boolean"
+                        },
+                        "context": {
+                          "type": "integer",
+                          "exclusiveMinimum": 0,
+                          "maximum": 9007199254740991
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "tier",
+                        "strengths"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "default",
+                  "models"
+                ],
+                "additionalProperties": false
+              }
+            }
+          },
+          "required": [
+            "expectedRevision",
+            "runners"
+          ],
+          "additionalProperties": false
+        }
+      },
       "runner.remove": {
         "description": "Remove a runner and its routing and pacing order references.",
         "params": {
@@ -22515,6 +23679,23 @@
           "additionalProperties": false
         }
       },
+      "setup.skip": {
+        "description": "Skip an optional setup step.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "step": {
+              "type": "string",
+              "const": "notifications"
+            }
+          },
+          "required": [
+            "step"
+          ],
+          "additionalProperties": false
+        }
+      },
       "snapshot.get": {
         "description": "Read the complete current v3 snapshot, counts, attention and activity, with its event sequence.",
         "params": {
@@ -22881,6 +24062,19 @@
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
           "properties": {
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "dispatch": {},
             "title": {
               "type": "string",
@@ -23283,6 +24477,11 @@
             "since": {
               "type": "number",
               "minimum": 0
+            },
+            "q": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200
             }
           },
           "additionalProperties": false
@@ -24507,6 +25706,7 @@
                 "pacing.planner_probe",
                 "pacing.accounts",
                 "pacing.fill_threshold",
+                "pacing.balance",
                 "update_check",
                 "terminal.app",
                 "terminal.open"
@@ -26561,6 +27761,9 @@
     "api.describe",
     "runner.settings.get",
     "runner.settings.save",
+    "runner.models.get",
+    "runner.models.set",
+    "runner.models.set_many",
     "desktop.capture.register",
     "desktop.capture.targets",
     "desktop.capture.request",
@@ -26601,10 +27804,13 @@
     "files.search",
     "issue.import",
     "issue.search",
+    "executor.models.available",
     "desktop.reconcile.status",
     "desktop.reconcile.request",
     "desktop.reconcile.cancel",
     "dispatch.config.get",
+    "dispatch.tierTargets.get",
+    "dispatch.tierTargets.set",
     "dispatch.preview",
     "dispatch.explain",
     "dispatch.submit",
@@ -26628,6 +27834,7 @@
     "dispatch.enforcement.consent",
     "dispatch.learning.reset",
     "setup.health",
+    "setup.skip",
     "account.usage.check",
     "limits.refresh",
     "session.draft.create",
@@ -26638,6 +27845,10 @@
     "session.resume",
     "session.attachment.prepare",
     "session.file.read",
+    "notifications.test",
+    "notifications.ack",
+    "notifications.request",
+    "notifications.health",
     "insights.summary",
     "machine.get",
     "machine.set",

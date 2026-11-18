@@ -1347,10 +1347,30 @@ dependencies = [
  "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-models",
  "pacer-repos",
  "pacer-store",
  "rand 0.9.5",
  "ryu-js",
+ "serde_json",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-core-bridge"
+version = "0.0.0"
+dependencies = [
+ "axum",
+ "hex",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "pacer-config-ops",
+ "pacer-foundation",
+ "pacer-install",
+ "pacer-messaging-ops",
+ "rand 0.9.5",
  "serde_json",
  "tempfile",
  "tokio",
@@ -1389,14 +1409,30 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-dispatch"
+version = "0.0.0"
+dependencies = [
+ "pacer-foundation",
+ "pacer-js-json",
+ "pacer-store",
+ "rusqlite",
+ "serde_json",
+ "sha2",
+ "tempfile",
+]
+
+[[package]]
 name = "pacer-dispatch-ops"
 version = "0.0.0"
 dependencies = [
  "icu_collator",
  "nix",
  "pacer-config",
+ "pacer-dispatch",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
+ "pacer-repos",
  "pacer-store",
  "rusqlite",
  "ryu-js",
@@ -1479,6 +1515,7 @@ dependencies = [
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
+ "ryu-js",
  "serde",
  "serde_json",
  "thiserror",
@@ -1490,6 +1527,7 @@ version = "0.1.0"
 dependencies = [
  "icu_collator",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-repos",
  "pacer-store",
  "regex",
@@ -1527,6 +1565,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-mcp"
+version = "0.0.0"
+dependencies = [
+ "ryu-js",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-mdns"
 version = "0.0.0"
 dependencies = [
@@ -1555,6 +1602,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-models"
+version = "0.1.0"
+dependencies = [
+ "pacer-config",
+ "pacer-js-json",
+ "rand 0.9.5",
+ "rustix",
+ "serde_json",
+ "sha2",
+ "tempfile",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-plugin"
 version = "0.2.0"
 dependencies = [
@@ -1580,6 +1641,27 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-plugin-capabilities"
+version = "0.0.0"
+dependencies = [
+ "base64 0.22.1",
+ "libc",
+ "nix",
+ "pacer-foundation",
+ "pacer-plugin-host",
+ "pacer-store",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha1",
+ "sha2",
+ "thiserror",
+ "tokio",
+ "url",
+ "uuid",
+]
+
+[[package]]
 name = "pacer-plugin-decision-protocol"
 version = "0.2.0"
 dependencies = [
@@ -1601,22 +1683,19 @@ dependencies = [
 name = "pacer-plugin-host"
 version = "0.2.0"
 dependencies = [
- "base64 0.22.1",
  "getrandom 0.4.3",
  "hmac",
  "libc",
  "nix",
- "pacer-foundation",
  "pacer-js-json",
+ "pacer-plugin-policy-protocol",
  "pacer-plugin-protocol",
  "pacer-store",
- "reqwest",
  "rusqlite",
  "ryu-js",
  "semver",
  "serde",
  "serde_json",
- "sha1",
  "sha2",
  "thiserror",
  "tokio",
@@ -1653,8 +1732,8 @@ dependencies = [
  "nix",
  "pacer-config",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-plugin-protocol",
- "ryu-js",
  "serde",
  "serde_json",
  "tempfile",
@@ -1695,10 +1774,14 @@ dependencies = [
 name = "pacer-plugin-runtime"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.4.3",
+ "hmac",
  "nix",
+ "pacer-plugin-capabilities",
  "pacer-plugin-host",
  "pacer-store",
  "serde_json",
+ "sha2",
  "tempfile",
  "thiserror",
  "tokio",
@@ -1710,6 +1793,7 @@ version = "0.1.0"
 dependencies = [
  "chrono",
  "chrono-tz",
+ "icu_collator",
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
@@ -1727,11 +1811,11 @@ dependencies = [
 name = "pacer-repos"
 version = "0.1.0"
 dependencies = [
+ "nix",
  "pacer-config",
  "pacer-foundation",
  "pacer-js-json",
  "pacer-store",
- "ryu-js",
  "serde_json",
  "sha2",
  "tempfile",
@@ -1759,6 +1843,7 @@ dependencies = [
  "pacer-assistant-ops",
  "pacer-config",
  "pacer-config-ops",
+ "pacer-core-bridge",
  "pacer-discovery-ops",
  "pacer-dispatch-ops",
  "pacer-engine",
@@ -1767,8 +1852,10 @@ dependencies = [
  "pacer-issues",
  "pacer-lifecycle",
  "pacer-machine-ops",
+ "pacer-mcp",
  "pacer-mdns",
  "pacer-messaging-ops",
+ "pacer-models",
  "pacer-plugin-ops",
  "pacer-plugin-runtime",
  "pacer-read-model",
@@ -1839,9 +1926,13 @@ version = "0.0.0"
 dependencies = [
  "chrono-tz",
  "pacer-config",
+ "pacer-config-ops",
+ "pacer-dispatch-ops",
+ "pacer-engine",
  "pacer-foundation",
  "pacer-lifecycle",
  "pacer-read-model",
+ "pacer-repos",
  "pacer-sessions",
  "pacer-store",
  "serde_json",
@@ -1888,6 +1979,7 @@ version = "0.0.0"
 dependencies = [
  "nix",
  "pacer-foundation",
+ "pacer-messaging-ops",
  "pacer-store",
  "ryu-js",
  "serde_json",

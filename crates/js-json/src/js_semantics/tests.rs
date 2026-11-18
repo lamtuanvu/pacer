@@ -187,3 +187,20 @@ fn worktree_tag_replaces_each_javascript_utf16_unit() {
         assert_eq!(path_tag(s), want);
     }
 }
+
+#[test]
+fn truthiness_matches_javascript_boolean() {
+    let cases = json!([null, false, true, 0, -0.0, 1, 0.5, "", "0", " ", [], {}]);
+    let script = "console.log(JSON.stringify(JSON.parse(Bun.argv.at(-1)).map(Boolean)));";
+    let out = Command::new("bun")
+        .args(["-e", script, &cases.to_string()])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let expected: Vec<bool> = serde_json::from_slice(&out.stdout).unwrap();
+    let cases = cases.as_array().unwrap();
+    assert_eq!(expected.len(), cases.len());
+    for (value, want) in cases.iter().zip(expected) {
+        assert_eq!(truthy(value), want, "{value}");
+    }
+}

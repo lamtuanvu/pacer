@@ -1,5 +1,6 @@
 //! Closed plugin document vocabulary. Text is data, never HTML or executable URLs.
 use crate::settings::{clean_text, js_length};
+use pacer_js_json::quoted;
 use serde_json::Value;
 pub const ROUTES: &[&str] = &[
     "start",
@@ -23,7 +24,7 @@ fn fail(path: &str, message: &str) -> String {
     )
 }
 fn invalid(v: Option<&Value>, expected: &str) -> String {
-    if let Some(n) = v.and_then(crate::json::number).filter(|n| !n.is_finite()) {
+    if let Some(n) = v.and_then(quoted::number).filter(|n| !n.is_finite()) {
         return format!(
             "Invalid input: expected {expected}, received {}",
             crate::settings::js_number(n)
@@ -66,14 +67,14 @@ fn text(
             Ok(())
         };
     };
-    let Some(s) = value.as_str().filter(|_| !crate::json::nonfinite(value)) else {
+    let Some(s) = value.as_str().filter(|_| !quoted::nonfinite(value)) else {
         return Err(fail(
             &format!("{path}{key}"),
             &invalid(Some(value), "string"),
         ));
     };
     let s = clean_text(s);
-    let n = crate::js_semantics::codepoint_len(&s);
+    let n = quoted::codepoint_len(&s);
     if n < min {
         return Err(fail(
             &format!("{path}{key}"),
@@ -415,9 +416,7 @@ pub fn validate_result(raw: Value) -> Result<Vec<Value>, String> {
                 .ok_or("invalid validation message")?;
             let path = clean_text(path);
             let message = clean_text(message);
-            if crate::js_semantics::codepoint_len(&path) > 200
-                || crate::js_semantics::codepoint_len(&message) > 200
-            {
+            if quoted::codepoint_len(&path) > 200 || quoted::codepoint_len(&message) > 200 {
                 return Err("invalid validation result".into());
             }
             Ok(serde_json::json!({"path":path,"message":message}))

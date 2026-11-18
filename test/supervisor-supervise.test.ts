@@ -27,6 +27,26 @@ test("idle when onPoll says so", async () => {
   expect(await supervise({ io: localRunIO(dir), deadlineMs: Date.now() + 10_000, isStopped: () => false, onPoll: async () => "idle", ...fast })).toEqual({ kind: "idle", code: 143 });
 });
 
+test("limit stops an interactive run even while it waits for input", async () => {
+  let stopped = false;
+  const io = {
+    read: async () => ({pid: 123, startedAt: 1, alive: true, exit: null, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, report: {status: "needs-input" as const, summary: "", at: Date.now() / 1000}}),
+    stop: async () => {stopped = true; return {code: 143, killed: false};},
+  };
+  expect(await supervise({io, deadlineMs: Date.now() + 5000, isStopped: () => false, onPoll: async () => "limit", ...fast})).toEqual({kind: "limit", code: 143});
+  expect(stopped).toBe(true);
+});
+
+test("provider stops an interactive run even while it waits for input", async () => {
+  let stopped = false;
+  const io = {
+    read: async () => ({pid: 123, startedAt: 1, alive: true, exit: null, stdoutBytes: 0, stderrBytes: 0, lastOutputAt: null, interactive: true, report: {status: "needs-input" as const, summary: "", at: Date.now() / 1000}}),
+    stop: async () => {stopped = true; return {code: 143, killed: false};},
+  };
+  expect(await supervise({io, deadlineMs: Date.now() + 5000, isStopped: () => false, onPoll: async () => "provider", ...fast})).toEqual({kind: "provider", code: 143});
+  expect(stopped).toBe(true);
+});
+
 test("lost when the wrapper vanished without an exit record", async () => {
   const dir = tmpDir(); const r = startRun({ dir, argv: ["sleep", "30"], cwd: tmpDir(), env }) as { pid: number };
   process.kill(-r.pid, "SIGKILL");
@@ -48,8 +68,17 @@ for (const status of ["done", "failed"] as const) {
 
 test("a clean interactive exit without an explicit report is not success", async () => {
   const dir = tmpDir();
-  startRun({dir, argv: ["sh", "-c", "echo done; exit 0"], cwd: dir, env, session: "interactive"});
-  while ((await localRunIO(dir).read()).exit === null) await Bun.sleep(25);
+  const started = startRun({dir, argv: ["sh", "-c", "echo done; exit 0"], cwd: dir, env, session: "interactive"});
+  if ("error" in started) throw new Error(`startRun failed: ${started.error}`);
+  // Wait on the actual condition (the wrapper's exit receipt) with a bounded
+  // deadline. An unbounded poll hung this test under a heavily loaded machine.
+  const waited = Date.now();
+  for (;;) {
+    const s = await localRunIO(dir).read();
+    if (s.exit !== null) break;
+    if (Date.now() - waited > 20_000) throw new Error(`run in ${dir} (pid=${s.pid}) never recorded an exit`);
+    await Bun.sleep(25);
+  }
   expect(await supervise({io: localRunIO(dir), deadlineMs: Date.now() + 5000, isStopped: () => false, ...fast}))
     .toEqual({kind: "exited", code: 1});
 });

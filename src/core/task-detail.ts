@@ -1,3 +1,4 @@
+import { taskData } from "../link/pump";
 import { agentChecksPending } from "../session/agents-checks";
 import { requirePolicyIdentity } from "./project-policy";
 import { getWork } from "../dispatch/work";
@@ -14,13 +15,14 @@ import { readJson } from "../fsutil";
 import type { ActivityProfile } from "../pace/activity";
 import { readActivity } from "../activity/log";
 import { buildExecutors } from "../api/read-model/capacity";
-import { apiTask, apiTasks } from "../api/read-model/tasks";
+import { apiTask } from "../api/read-model/tasks";
 import type { ApiTask, ExecutorRow } from "../api/read-model/types";
 import { loadStrategy } from "../config/strategy";
 import { executorsFor } from "../engine/rank";
 import { executorName } from "../link/notification";
-import { listTasks } from "../tasks/store";
+import { capacityTaskRecords, listTasks } from "../tasks/store";
 import { TERMINAL_STATES, type Attempt, type Brief, type RoutingNote, type TaskRecord } from "../tasks/types";
+import { attemptRecording } from "../session/service";
 import type { Ctx } from "../types";
 import { diff, get, userStartedRoot, type DiffFile } from "./tasks";
 
@@ -35,7 +37,7 @@ export interface TaskDetail extends ApiTask {
   /** Why a task a person started cannot coordinate sub-agents; copy comes from `managedSkipWords`. */
   managedSkip?: {reason:string};
   brief: Brief;
-  attempts: (Attempt & { log: string })[];
+  attempts: (Attempt & { log: string; recording?: boolean })[];
   /** Token roll-up for this task, with the split per agent. */
   tokens?: TokenRollup;
   routing: RoutingNote | null;
@@ -67,7 +69,7 @@ async function optionsFor(ctx: Ctx, task: TaskRecord, cacheOnly = false): Promis
     if (reason) provider.unavailableReason = reason;
   }));
   const routing = rankExecutors(task.kind, strategy, Object.fromEntries(st.providers.map(p => [p.id, p])), selection && { executors: selection.executors, order: "configured" });
-  const rows = buildExecutors(st, strategy, apiTasks(ctx, listTasks(ctx, Infinity)), ctx.now);
+  const rows = buildExecutors(st, strategy, capacityTaskRecords(ctx).map(t => ({...taskData(t), host: t.run?.host ?? null})), ctx.now);
   const ran = task.result?.executor ?? task.executor ?? task.attempts.at(-1)?.executor;
   return [...new Set(selection?.executors ?? executorsFor(task.kind, strategy))].filter(id => id !== ran).map(id => {
     const row = rows.find(r => r.id === id);
@@ -165,7 +167,9 @@ export async function taskDetailEnrichment(
       return [];
     }),
   ]);
-  const attempts = attemptsWithTokens(ctx, task.id, task.attempts);
+  // Attempt index n is run n+1; the flag mirrors the session route's offline replay check, so the
+  // app can show a recording or its absence without attaching.
+  const attempts = attemptsWithTokens(ctx, task.id, task.attempts).map((attempt, index) => ({ ...attempt, recording: attemptRecording(ctx, task.id, index + 1) }));
   const acceptance = agentChecksPending(ctx, id) ? undefined : task.result?.acceptance;
   const cmd = acceptance?.cmd ?? task.brief.acceptance ?? null;
   return {
@@ -199,6 +203,7 @@ export async function taskDetail(ctx: Ctx, id: string): Promise<TaskDetail> {
   return {
     ...overlay,
     ...apiTask(ctx, task),
+    ...(overlay.work ? { work: overlay.work } : {}),
     brief: task.brief,
     routing: task.pendingAttempt?.routing ?? last?.routing ?? null,
     cost: costFor(ctx, task),

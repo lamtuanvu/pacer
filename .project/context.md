@@ -30,6 +30,9 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `scripts/` | Release, protocol-doc, e2e, QA, brand and design-system sync scripts |
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
+| `crates/js-json` | `pacer-js-json`: JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form), `JSON.stringify` bytes and JS value helpers; layer 1 |
+| `crates/models` | `pacer-models`: runner model listings and the `runner.set` model check (OpenCode listing cache, endpoint connection models, closest-model suggestions); OpenCode discovery lands here in M2 wave 4; layer 4 |
+| `crates/dispatch` | `pacer-dispatch`: the dispatch decision library (model inventory, candidates, decision hash, tier choice, ladder engine, read-only task store view, status-cache observations, learned fit, reason codes and the route explanation builders); library only, used by `pacer-dispatch-ops`; layer 6 |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/desktop-protocol` | `pacer-desktop-protocol`: generated desktop capture and update operation types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
@@ -44,7 +47,8 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/read-model` | `pacer-read-model`: snapshot composition, task/message/discovery reads, v2 compatibility, status/context caches and SSE replay semantics; library only until native cutover |
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
-| `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads and JSON compatibility; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
+| `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads over the `pacer-js-json` codec; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
+| `crates/plugin-capabilities` | `pacer-plugin-capabilities`: native capability brokers for plugin calls (broker, transfers, native read/process/HTTP/bundle/duplex/hosts/worktree/run/remote/Orca effects) over `pacer-plugin-host`'s call authority; layer 5, budget ≤ 7,500 LOC ([ADR 0026](../docs/decisions/0026-native-plugin-capability-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
@@ -114,7 +118,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows, `src/plugins/**`, `src/identity/**`, `src/discovery/**` | [rules/security.md](rules/security.md) | Established, plus proposals |
 | TypeScript & testing | `src/**`, `app/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
 | UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25; compact density UI-26; spacing ownership UI-27) | Established (spec), plus proposals |
-| Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
+| Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `.github/workflows/nightly.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 | Rust crate structure & size | `Cargo.toml`, `crates/**`, `plugins-rs/**`, `xtask/**` | [rules/rust-crates.md](rules/rust-crates.md) (CRATE-1 to CRATE-11) | Established |
 

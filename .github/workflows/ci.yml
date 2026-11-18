@@ -21,7 +21,7 @@ concurrency:
 jobs:
   changes:
     name: Select affected checks
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     outputs:
       bun: ${{ steps.changes.outputs.bun }}
       full: ${{ steps.changes.outputs.full }}
@@ -42,7 +42,7 @@ jobs:
 
   release-readiness:
     name: Release readiness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 240
     permissions:
       contents: read
@@ -58,8 +58,9 @@ jobs:
           HEAD_REPO: ${{ github.event.pull_request.head.repo.full_name }}
         run: |
           set -euo pipefail
-          if test "$EVENT" != pull_request; then exit 0; fi
-          case "$BRANCH" in release/v*) ;; *) exit 0 ;; esac
+          # Releases are built from their tag (REL-2); a release/v* branch is only the
+          # bookkeeping PR that brings a published bump to main, so it needs no dry run.
+          exit 0
           test "$HEAD_REPO" = "$REPO" || { echo '::error::Release PR must be in this repository'; exit 1; }
           for _ in $(seq 1 1400); do
             runs=$(gh run list --repo "$REPO" --workflow release.yml --branch "$BRANCH" --commit "$HEAD" --event pull_request --limit 1 --json status,conclusion,url)
@@ -78,7 +79,7 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.ui == 'true' && github.event_name == 'pull_request' }}
     name: UI review readiness
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - name: Check out repository
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -112,7 +113,8 @@ jobs:
     if: ${{ always() }}
     # Keep required names, but do not allocate macOS for a docs-only gate or a PR;
     # PRs run logic tests on Linux and OS-specific checks run on main/schedule/dispatch.
-    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && matrix.os || 'ubuntu-latest' }}
+    # Required check names keep the ubuntu-latest label; runners are pinned to 24.04 until Playwright and the self-repair test support 26.04.
+    runs-on: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') && (matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os) || 'ubuntu-24.04' }}
     env:
       RUN_CHECKS: ${{ needs.changes.outputs.bun == 'true' && (github.event_name != 'pull_request' || matrix.os == 'ubuntu-latest') }}
     strategy:
@@ -193,7 +195,11 @@ jobs:
       # browser tests, so install it whenever that suite runs, not only when the change selects e2e.
       - name: Install locked Chromium test browser
         if: ${{ env.RUN_CHECKS == 'true' && (needs.changes.outputs.e2e == 'true' || needs.changes.outputs.full == 'true') }}
+        # Drop the Azure apt mirror only when it does not resolve; a no-op (and no sudo) when it resolves or on macOS.
         run: |
+          if [ -f /etc/apt/apt-mirrors.txt ] && ! getent hosts azure.archive.ubuntu.com >/dev/null; then
+            sudo sed -i '/azure\.archive\.ubuntu\.com/d' /etc/apt/apt-mirrors.txt
+          fi
           echo "PLAYWRIGHT_BROWSERS_PATH=$RUNNER_TEMP/pacer-playwright" >> "$GITHUB_ENV"
           PLAYWRIGHT_BROWSERS_PATH="$RUNNER_TEMP/pacer-playwright" bun node_modules/playwright-core/cli.js install --with-deps chromium
       - name: Test (full suite, sharded)
@@ -278,7 +284,7 @@ jobs:
     name: Test (${{ matrix.os }})
     needs: test
     if: ${{ always() }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     strategy:
       matrix:
         os: [ubuntu-latest, macos-latest]
@@ -291,7 +297,7 @@ jobs:
     needs: changes
     # OS-specific validation runs on main pushes, schedule and dispatch, not PRs.
     if: ${{ needs.changes.outputs.bun == 'true' && needs.changes.outputs.full == 'true' && github.event_name != 'pull_request' }}
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
       - name: Check out repository
@@ -327,7 +333,7 @@ jobs:
 
   secrets:
     name: Scan for secrets
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     permissions:
       contents: read
       pull-requests: read
@@ -352,7 +358,8 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.rust == 'true' }}
     name: Rust (${{ matrix.os }})
-    runs-on: ${{ matrix.os }}
+    runs-on: ${{ matrix.os == 'ubuntu-latest' && 'ubuntu-24.04' || matrix.os }}
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix:
@@ -372,6 +379,12 @@ jobs:
           components: rustfmt, clippy
       - name: Cache Rust
         uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          # Cache both the root workspace and the desktop crate (excluded from
+          # the root workspace) so the desktop test below stays fast.
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
       # Integration tests run the TypeScript core behind the Rust front door.
       - name: Set up Bun
         uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
@@ -399,7 +412,27 @@ jobs:
       - name: Crate layers and heavy dependencies (CRATE-2, CRATE-4, CRATE-5, CRATE-6)
         run: cargo xtask deps
       - name: Test
-        run: cargo test --workspace --locked
+        run: cargo test --workspace --locked --no-fail-fast
+      # The desktop crate is excluded from the root workspace, so the step
+      # above never builds it. Run its tests here so desktop-only
+      # terminal-bridge bugs (e.g. #838, #915) fail CI instead of only in
+      # the manual desktop.yml workflow. Bounds match the desktop build job.
+      - name: Install desktop build dependencies (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential libssl-dev libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Test desktop crate
+        # Tauri's build script requires the bundled CLI sidecars to exist; tests never run
+        # them, so stage two stub executables instead of building the full CLI.
+        run: |
+          stub="$RUNNER_TEMP/pacer-sidecar-stub"
+          mkdir -p "$stub"
+          printf '#!/bin/sh\nexit 0\n' > "$stub/pacer"
+          cp "$stub/pacer" "$stub/pacer-core"
+          chmod 0755 "$stub/pacer" "$stub/pacer-core"
+          desktop/scripts/stage-cli.sh "$stub/pacer" "$stub/pacer-core"
+          cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
         run: cargo test -p pacer-plugin --features testing --locked
       - name: Plugin conformance through the Rust front door

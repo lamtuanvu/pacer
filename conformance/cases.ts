@@ -2,12 +2,12 @@ import { createPublicKey, verify } from "node:crypto";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { installFixture, type FixtureName } from "./install";
-import { HostError, type HostSession } from "./host";
+import { HostError, type HostClient } from "./host";
 
 export interface CaseContext {
   home: string; pluginsDir: string;
   install(name: FixtureName, overrides?: Parameters<typeof installFixture>[2]): string;
-  host(options?:{subscribe?:boolean}): Promise<HostSession>;
+  host(options?:{subscribe?:boolean}): Promise<HostClient>;
   sleep(ms: number): Promise<void>;
   publishTaskEvent(id:string):Promise<void>;
 }
@@ -26,8 +26,8 @@ export function assert(cond: unknown, message: string): asserts cond { if (!cond
 const alive = (pid: number) => { try { process.kill(pid, 0); return true; } catch { return false; } };
 type Info = { id: string; state: string; pid: number | null; error: string | null; version: string };
 type Report = { id: string; ok: boolean; state: string; served: string[]; pid: number | null; restarts: number; error: string | null; needs: string | null };
-const listed = async (h: HostSession) => Object.fromEntries(((await h.call<{ plugins: Info[] }>("plugin.list")).plugins).map(p => [p.id, p]));
-const doctor = async (h: HostSession, id: string) => (await h.call<{ reports: Report[] }>("plugin.doctor", { id })).reports[0]!;
+const listed = async (h: HostClient) => Object.fromEntries(((await h.call<{ plugins: Info[] }>("plugin.list")).plugins).map(p => [p.id, p]));
+const doctor = async (h: HostClient, id: string) => (await h.call<{ reports: Report[] }>("plugin.doctor", { id })).reports[0]!;
 /** Events arrive through a polled subscription, so wait for them instead of checking once. */
 const eventually = async (seen: () => boolean, ms = 5000) => { const end = Date.now() + ms; while (!seen() && Date.now() < end) await Bun.sleep(50); return seen(); };
 const codeOf = async (p: Promise<unknown>) => { try { await p; return "no error"; } catch (e) { return e instanceof HostError ? e.code : String(e); } };
@@ -274,7 +274,9 @@ export const CASES: ConformanceCase[] = [
     assert(await eventually(()=>{try{return readFileSync(log,"utf8").includes(`"id":"${taskId}"`);}catch{return false;}}),"callback receives task event and reads task after bootstrap call settled");
     const text=readFileSync(log,"utf8");assert(text.includes(`"type":"${eventType}"`)&&text.includes('"hasEffects":false'),"callback uses isolated read-only client");
     assert(h.events.length===0,"host client did not subscribe to public events");
-    await h.close();assert(await eventually(()=>!alive(report.pid!)),"closing host retires observation process and timer");
+    // An owner door reports no pid (ADR 0027); the child records its own.
+    const pid=report.pid??Number(readFileSync(join(t.pluginsDir,"fx-observations","pid"),"utf8"));assert(alive(pid),"the observation process outlives the bootstrap call");
+    await h.close();assert(await eventually(()=>!alive(pid)),"closing host retires observation process and timer");
   }})),
 ];
 

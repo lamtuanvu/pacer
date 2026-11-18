@@ -12,9 +12,10 @@ fn disabled(ctx: &Ctx) -> bool {
         .is_some_and(|value| value.eq_ignore_ascii_case("off"))
 }
 
-/// Merge host-owned pause/hold/disabled with broker-injected budget rows.
+/// Merge host-owned pause/hold/disabled with broker-injected budget rows and the
+/// plugin policy summary, activity pace profile and warnings Core computed with them.
 pub fn assemble_compose_input(ctx: &Ctx, strategy: &Value, parts: &Value) -> Value {
-    json!({
+    let mut input = json!({
         "now": ctx.now,
         "strategy": strategy,
         "accounts": parts.get("accounts").cloned().unwrap_or(json!([])),
@@ -22,7 +23,13 @@ pub fn assemble_compose_input(ctx: &Ctx, strategy: &Value, parts: &Value) -> Val
         "paused": pause::read_pause(ctx).map_or(Value::Null, |v| json!(v)),
         "modeHold": mode_hold::read_hold(ctx).map_or(Value::Null, |v| json!(v)),
         "disabled": disabled(ctx),
-    })
+    });
+    for key in ["policy", "calendarPace", "warnings"] {
+        if let Some(value) = parts.get(key) {
+            input[key] = value.clone();
+        }
+    }
+    input
 }
 
 /// Pure `limits.check` once broker parts match a `computeStatus` snapshot.
@@ -36,18 +43,35 @@ pub fn routing_status(ctx: &Ctx, strategy: &Value, parts: &Value) -> Value {
     status::compose_status(&assemble_compose_input(ctx, strategy, parts))
 }
 
-/// Pure `routing.route` rank once broker parts match a `computeStatus` snapshot.
+/// Pure `routing.route` rank once broker parts match a `computeStatus` snapshot. A project
+/// `selection` (`project_selection`'s shape) ranks its executors in configured order and adds
+/// its `projectPolicy` to the reply.
 ///
-/// Does not run the classifier (`goal`) or remote eligibility (`repo`).
-pub fn routing_route(_ctx: &Ctx, strategy: &Value, parts: &Value, params: &Value) -> Value {
-    let kind = params.get("kind").cloned().unwrap_or(Value::Null);
-    status::rank_route(&json!({
+/// Does not run the classifier (`goal`), remote eligibility or the load balance.
+pub fn routing_route(
+    strategy: &Value,
+    parts: &Value,
+    kind: &Value,
+    selection: Option<&Value>,
+) -> Value {
+    let mut input = json!({
         "strategy": strategy,
         "providers": parts.get("providers").cloned().unwrap_or(json!([])),
         "kind": kind,
-        "selection": Value::Null,
+        "selection": selection.map_or(Value::Null, |s| {
+            json!({"executors": s["executors"], "order": "configured"})
+        }),
         "includePlanner": false,
-    }))
+    });
+    if let Some(s) = selection {
+        input["policy"] = json!({
+            "source": "project",
+            "repoKey": s["repoKey"],
+            "rev": s["rev"],
+            "executors": s["references"],
+        });
+    }
+    status::rank_route(&input)
 }
 
 #[cfg(test)]

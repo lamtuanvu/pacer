@@ -1,16 +1,16 @@
 //! Task selection and message/liveness enrichment. SQLite is authoritative; the
 //! shared store imports old-release JSON using the existing revision protocol.
+mod title_regex;
 use crate::snapshot::ActiveCounts;
 use crate::{Error, js::*, read};
 use pacer_foundation::Ctx;
-use pacer_store::{TaskFilter, TaskStore};
-use regex::Regex;
+use pacer_store::{TaskFilter, TaskStore, awaits_answer};
 use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::Path;
 fn replace(s: &str, pat: &str, to: &str) -> String {
-    crate::js::regex(pat).map_or_else(|_| s.to_owned(), |r| r.replace_all(s, to).into_owned())
+    title_regex::js_regex(pat).map_or_else(|_| s.to_owned(), |r| r.replace_all(s, to).into_owned())
 }
 fn balanced(s: &str) -> String {
     let mut stack = Vec::new();
@@ -35,7 +35,7 @@ fn clip_points(s: &str, max: usize) -> String {
     format!("{}…", if b.is_empty() { "Task" } else { &b })
 }
 fn links(s: &str) -> String {
-    let Ok(re) = Regex::new(r"!?\[([^\]]+)\]\(") else {
+    let Ok(re) = title_regex::raw_regex(r"!?\[([^\]]+)\]\(") else {
         return s.into();
     };
     let mut rest = s;
@@ -65,7 +65,7 @@ fn links(s: &str) -> String {
 }
 pub fn goal_title(goal: &str, compact: bool) -> String {
     let input = replace(&slice(goal, 4000), r"```[^\n]*\n[\s\S]*?(?:```|$)", "");
-    let sentence_re = crate::js::regex(r"[.!?](?:\s|$)").ok();
+    let sentence_re = title_regex::js_regex(r"[.!?](?:\s|$)").ok();
     for line in input.lines() {
         let mut plain = replace(&links(line), r"!?\[([^\]]+)\]\[[^\]]*\]", "$1");
         plain = replace(
@@ -113,7 +113,7 @@ pub fn goal_title(goal: &str, compact: bool) -> String {
     "Task".into()
 }
 fn safe_title(title: &str) -> String {
-    Regex::new(r#"(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?/)[^\s<>`]+)"#).map_or_else(
+    title_regex::raw_regex(r#"(^|[\s("'`])((?:[A-Za-z]:[\\/]|~?/)[^\s<>`]+)"#).map_or_else(
         |_| title.into(),
         |r| {
             r.replace_all(title, |c: &regex::Captures<'_>| {
@@ -146,19 +146,19 @@ fn leading(s: &str) -> String {
     replace(s, r"^[\s\p{P}>+=~|]+", "")
 }
 fn is_path(token: &str) -> bool {
-    crate::js::regex(r"^(?:/|\.{1,2}/|~|[A-Za-z]:[\\/])").is_ok_and(|r| r.is_match(token))
+    title_regex::js_regex(r"^(?:/|\.{1,2}/|~|[A-Za-z]:[\\/])").is_ok_and(|r| r.is_match(token))
         || token.split('/').count() >= 3
         || token.contains('/')
-            && crate::js::regex(r"\.[A-Za-z0-9]{1,10}$").is_ok_and(|r| r.is_match(token))
+            && title_regex::js_regex(r"\.[A-Za-z0-9]{1,10}$").is_ok_and(|r| r.is_match(token))
 }
 fn short_title(goal: &str, legacy: bool) -> String {
     let input = slice(goal, 400);
     let mut text = replace(&input, r"```[\s\S]*?(?:```|$)|`[^`]*(?:`|$)", " ");
-    if let Ok(url) = crate::js::regex(r"(?i)(?:https?://|www\.)[^\s<>]+") {
+    if let Ok(url) = title_regex::js_regex(r"(?i)(?:https?://|www\.)[^\s<>]+") {
         text = url
             .replace_all(&text, |c: &regex::Captures<'_>| {
                 let matched = c.get(0).map_or("", |m| m.as_str());
-                let suffix = crate::js::regex(r"[.!?;:,]+$")
+                let suffix = title_regex::js_regex(r"[.!?;:,]+$")
                     .ok()
                     .and_then(|r| r.find(matched).map(|m| m.as_str()))
                     .unwrap_or("");
@@ -175,7 +175,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
             "",
         );
         let mut cleaned = String::new();
-        let Ok(tokens) = crate::js::regex(r"[\s<>]+") else {
+        let Ok(tokens) = title_regex::js_regex(r"[\s<>]+") else {
             continue;
         };
         for token in tokens.split(&line) {
@@ -193,7 +193,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
                 cleaned.push_str(token);
                 continue;
             }
-            let punctuation = crate::js::regex(r"[.!?;:,]+$")
+            let punctuation = title_regex::js_regex(r"[.!?;:,]+$")
                 .ok()
                 .and_then(|r| r.find(token).map(|m| m.as_str()))
                 .unwrap_or("");
@@ -205,7 +205,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
                 )))
                 .into();
             }
-            let clause = crate::js::regex(r"[.!?;:,](?:\s|$)")
+            let clause = title_regex::js_regex(r"[.!?;:,](?:\s|$)")
                 .ok()
                 .and_then(|r| r.split(&cleaned).last().map(String::from))
                 .unwrap_or(cleaned.clone());
@@ -222,7 +222,7 @@ fn short_title(goal: &str, legacy: bool) -> String {
             cleaned.push_str(punctuation);
         }
         cleaned = trim(&replace(&cleaned, r"\s+", " ")).into();
-        if let Ok(parts) = crate::js::regex(r"[.!?;:,](?:\s|$)|\s[—–]\s") {
+        if let Ok(parts) = title_regex::js_regex(r"[.!?;:,](?:\s|$)|\s[—–]\s") {
             for part in parts.split(&cleaned) {
                 let clause = leading(part);
                 let clause = trim(&clause);
@@ -307,7 +307,10 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
     "id":t["id"],"title":if trim(text(&t["title"])).is_empty(){clip_points(&goal_title(text(&t["brief"]["goal"]),true),60)}else{clip_points(&full_title(t),60)},"state":visible_task_state(t),"goal":clip(text(&t["brief"]["goal"]),200),"executor":coalesce(&[&t["result"]["executor"],&t["executor"],&last["executor"]]),"backend":coalesce(&[&t["result"]["backend"],&t["backend"]]),"worktree":coalesce(&[&t["result"]["worktree"],&t["worktree"]]),"updatedAt":number(updated)}
     );
     if truth(&t["placement"]["mode"]) && t["placement"].get("why").is_some() {
-        row["placement"] = t["placement"].clone();
+        row["placement"] = json!({"mode":t["placement"]["mode"],"why":t["placement"]["why"]});
+    }
+    if truth(&t["question"]) {
+        row["question"] = t["question"].clone();
     }
     for key in ["interactionMode", "conversation"] {
         if truth(&t[key]) {
@@ -474,6 +477,26 @@ fn enrich_api_task(
             row[key] = v.clone();
         }
     }
+    if tables.work_nodes {
+        let work = db
+            .query_row(
+                "SELECT root_id,parent_id,depth,options FROM work_nodes WHERE task_id=?",
+                [text(&t["id"])],
+                |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
+                },
+            )
+            .optional()?;
+        if let Some((root, parent, depth, options)) = work {
+            let options: Value = serde_json::from_str(&options).unwrap_or_default();
+            row["work"] = json!({"rootId":root,"parentId":parent,"depth":depth,"allowDelegation":options["allowDelegation"].as_bool().unwrap_or(false)});
+        }
+    }
     row["fullTitle"] = json!(full_title(t));
     if truth(&t["question"]) {
         row["question"] = t["question"].clone();
@@ -637,6 +660,7 @@ pub struct TaskListOptions<'a> {
     pub states: Option<&'a [&'a str]>,
     pub executor: Option<&'a str>,
     pub since: Option<f64>,
+    pub query: Option<&'a str>,
 }
 /// Newest-first selection matching TS `core.tasks.list`: filter before paging.
 pub fn select_task_list(
@@ -668,6 +692,7 @@ pub fn select_task_list(
         before: options.before,
         limit: Some(options.limit.unwrap_or(20)),
         all: options.all,
+        query: options.query,
         ..TaskFilter::default()
     })?)
 }
@@ -714,13 +739,20 @@ pub fn snapshot_tasks(
     rows.retain(|t| {
         // Missing map entry reads as 0. A session-holding task stays in the
         // window even if stale (>24h) or dismissed, mirroring `!!t.activeAgentSessions`.
+        // needs_input (stored, and running with an open question) never ages out;
+        // one that was answered, retried or dismissed is not retained by state.
         active.task(text(&t["id"])) > 0
             || ["queued", "running"].contains(&text(&t["state"]))
+            || awaits_answer(t)
             || (!truth(&t["dismissed"]) && num(&t["updatedAt"]) >= ctx.now - 86400.0)
     });
     rows.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
-    rows.truncate(200);
-    Ok(rows)
+    // Tasks that still await an answer must never be dropped by the recent-window
+    // cap: keep them in addition to the newest 200.
+    let mut kept: Vec<Value> = rows.drain(..rows.len().min(200)).collect();
+    kept.extend(rows.into_iter().filter(awaits_answer));
+    kept.sort_by(|a, b| num(&b["updatedAt"]).total_cmp(&num(&a["updatedAt"])));
+    Ok(kept)
 }
 pub fn attention_reason(t: &Value) -> Option<&'static str> {
     if !["done", "partial"].contains(&text(&t["state"]))
@@ -769,4 +801,56 @@ pub fn snapshot_document(
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);
     Ok(doc)
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod title_tests {
+    use super::*;
+
+    #[test]
+    fn title_outputs_preserve_empty_explicit_generated_and_unicode_goldens() {
+        // Captured from the pre-cache implementation, including its invalid-regex
+        // fallback. Empty stored titles intentionally have distinct compact/full paths.
+        let cases: Vec<Value> = serde_json::from_str(include_str!(
+            "../../../test/fixtures/native-title-goldens.json"
+        ))
+        .unwrap();
+        for case in cases {
+            let task = &case["task"];
+            assert_eq!(full_title(task), case["full"], "{task}");
+            assert_eq!(
+                task_data(task, &|_| false)["title"],
+                case["title"],
+                "{task}"
+            );
+            assert_eq!(
+                short_title(text(&task["brief"]["goal"]), false),
+                case["modern"],
+                "{task}"
+            );
+            assert_eq!(
+                short_title(text(&task["brief"]["goal"]), true),
+                case["legacy"],
+                "{task}"
+            );
+        }
+    }
+
+    #[test]
+    fn raw_path_redaction_keeps_rust_whitespace_semantics() {
+        assert_eq!(
+            safe_title("keep\u{85}/private/file.txt"),
+            "keep\u{85}file.txt"
+        );
+        assert_eq!(
+            safe_title("keep\u{feff}/private/file.txt"),
+            "keep\u{feff}/private/file.txt"
+        );
+        assert_eq!(links("[label](url(with)parens) tail"), "label tail");
+        assert_eq!(
+            replace("(token)", r#"^[([{"']+|[)\]}"',;:!?]+$"#, ""),
+            "(token)"
+        );
+    }
 }

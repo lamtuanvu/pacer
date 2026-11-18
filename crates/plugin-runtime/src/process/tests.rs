@@ -184,10 +184,8 @@ async fn conformance_fixture_handshake_and_ping() {
 
 #[tokio::test]
 async fn identity_fixture_uses_rust_capability_broker() {
-    use pacer_plugin_host::{
-        BrokerError, CallAuthority, CallResources, CapabilityBroker, CapabilityEffect,
-        parse_manifest,
-    };
+    use pacer_plugin_capabilities::{CapabilityBroker, CapabilityEffect};
+    use pacer_plugin_host::{BrokerError, CallAuthority, CallResources, parse_manifest};
     use std::sync::Arc;
     use tokio::sync::Mutex;
     struct Signed;
@@ -343,23 +341,44 @@ async fn a_child_that_exits_mid_call_fails_the_call() {
     child.terminate().await.unwrap();
 }
 
-#[tokio::test]
-async fn requests_between_calls_go_to_the_next_call() {
-    let script = r#"console.log(JSON.stringify({jsonrpc:'2.0',id:'early',method:'capability.log',params:{n:1}}));const r=Bun.stdin.stream().getReader();let b='',early,probe;const done=()=>early&&probe!==undefined&&console.log(JSON.stringify({jsonrpc:'2.0',id:probe,result:{early}}));for(;;){const {value,done:end}=await r.read();if(end)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.id==='early')early=m.result;else if(m.method==='probe')probe=m.id;done();}}"#;
-    let child = PluginProcess::spawn(&peer(script)).unwrap();
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    let result = child
-        .request_with_handler(
-            "probe",
-            json!({}),
-            Duration::from_secs(5),
-            None,
-            |_, params, _| async move { Ok(json!({"seen": params["n"]})) },
-        )
-        .await
-        .unwrap();
-    assert_eq!(result["early"], json!({"seen": 1}), "{result}");
-    child.terminate().await.unwrap();
+/// Records the transport's closed flag at the moment a pending call is woken.
+struct SeesClosed {
+    closed: watch::Receiver<bool>,
+    seen: StdMutex<Option<bool>>,
+}
+
+impl std::task::Wake for SeesClosed {
+    fn wake(self: Arc<Self>) {
+        self.wake_by_ref();
+    }
+
+    fn wake_by_ref(self: &Arc<Self>) {
+        *self.seen.lock().unwrap() = Some(*self.closed.borrow());
+    }
+}
+
+#[test]
+fn a_call_woken_by_the_transport_closing_already_finds_it_closed() {
+    // The woken call asks `is_alive` to tell a crash from its own failure; a
+    // live answer reports `stdout closed` instead of waiting for the exit.
+    let shared = Shared::default();
+    let (reply, mut replied) = oneshot::channel();
+    let (requests, _received) = mpsc::channel(1);
+    let route = Route {
+        token: None,
+        reply: Some(reply),
+        requests,
+    };
+    shared.routes().calls.insert(1, route);
+    let waker = Arc::new(SeesClosed {
+        closed: shared.closed.subscribe(),
+        seen: StdMutex::new(None),
+    });
+    let woken = std::task::Waker::from(waker.clone());
+    let mut cx = std::task::Context::from_waker(&woken);
+    assert!(std::pin::Pin::new(&mut replied).poll(&mut cx).is_pending());
+    shared.close("stdout closed");
+    assert_eq!(*waker.seen.lock().unwrap(), Some(true));
 }
 
 #[tokio::test]
@@ -409,4 +428,172 @@ async fn a_call_that_times_out_leaves_the_child_usable() {
             .await,
         Err(ProcessError::Unavailable(_))
     ));
+}
+
+#[tokio::test]
+async fn stderr_reaches_the_plugin_log_and_its_reader_stops_with_the_child() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-err").unwrap();
+    let status = home.path().join("late-status");
+    // The descendant inherits stderr, holds the pipe open after the child exits
+    // and writes to it after the drain window: the line is not logged, and the
+    // write succeeds, as under TypeScript.
+    let late = format!("sleep 0.6; echo late >&2; echo $? > '{}'", status.display());
+    let script = format!(
+        r#"await Bun.write(Bun.stderr,"one\r\ntwo\n\nlast");Bun.spawn(["sh","-c",{late:?}],{{stdio:["ignore","ignore","inherit"]}}).unref();process.exit(0);"#
+    );
+    let child = PluginProcess::spawn_logged(&peer(&script), Some(log)).unwrap();
+    let mut exit = child.exit_watch();
+    tokio::time::timeout(Duration::from_secs(5), exit.wait_for(Option::is_some))
+        .await
+        .unwrap()
+        .unwrap();
+    drop(child);
+    let until = Instant::now() + Duration::from_secs(5);
+    while !status.exists() && Instant::now() < until {
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(&status).ok().as_deref(),
+        Some("0\n"),
+        "the descendant's late stderr write failed"
+    );
+    let text = std::fs::read_to_string(home.path().join("fx-err.log")).unwrap();
+    let lines: Vec<_> = text
+        .lines()
+        .map(|line| line.split_once(' ').unwrap().1)
+        .collect();
+    assert_eq!(
+        lines,
+        ["[stderr] one", "[stderr] two", "[stderr] ", "[stderr] last"]
+    );
+}
+
+/// A request sent while no call is pending waits for the idle handler, even
+/// when a call starts first: the next call's session never answers it (D4).
+#[tokio::test]
+async fn untokened_request_between_calls_never_reaches_the_next_call() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='',idle,probe;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const done=()=>{if(idle!==undefined&&probe!==undefined)send({id:probe,result:idle});};send({id:5,method:'capability.config.get',params:{}});for(;;){const {value,done:end}=await r.read();if(end)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe'){probe=m.id;done();}else if(m.id===5){idle=m.result??m.error;done();}}}"#;
+    let child = Arc::new(PluginProcess::spawn(&peer(script)).unwrap());
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    let call = tokio::spawn({
+        let child = Arc::clone(&child);
+        async move {
+            child
+                .request_with_handler(
+                    "probe",
+                    json!({}),
+                    Duration::from_secs(5),
+                    None,
+                    |_, _, _| async { Ok(json!({"from":"call"})) },
+                )
+                .await
+        }
+    });
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    child.serve_idle(|_, _, _| async { Ok(json!({"from":"idle"})) });
+    assert_eq!(call.await.unwrap().unwrap(), json!({"from":"idle"}));
+    child.terminate().await.unwrap();
+}
+
+/// A read-owner request belongs to the plugin's observation generation, not
+/// to the call pending when it arrives.
+#[tokio::test]
+async fn read_owner_request_during_a_call_reaches_the_idle_handler() {
+    let script = r#"const r=Bun.stdin.stream().getReader();let b='',probe;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='probe'){probe=m.id;send({id:6,method:'capability.tasks.read',params:{id:'t'},_meta:{readOwner:'pro_fixture'}});}else if(m.id===6)send({id:probe,result:m.result??m.error});}}"#;
+    let child = PluginProcess::spawn(&peer(script)).unwrap();
+    child.serve_idle(|_, _, metadata| async move { Ok(json!({"from":"idle","meta":metadata})) });
+    let result = child
+        .request_with_handler(
+            "probe",
+            json!({}),
+            Duration::from_secs(5),
+            None,
+            |_, _, _| async { Ok(json!({"from":"call"})) },
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        result,
+        json!({"from":"idle","meta":{"readOwner":"pro_fixture"}})
+    );
+    child.terminate().await.unwrap();
+}
+
+/// A failed child spawn is noted in the plugin log as `spawn error: <message>`.
+#[tokio::test]
+async fn failed_spawn_records_a_spawn_error_note() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-bad").unwrap();
+    let spec = SpawnSpec {
+        argv: vec!["/nonexistent/pacer-definitely-missing-program".into()],
+        cwd: std::env::current_dir().unwrap(),
+        env: std::env::vars().collect(),
+    };
+    let result = PluginProcess::spawn_logged(&spec, Some(log));
+    assert!(result.is_err());
+    let text = std::fs::read_to_string(home.path().join("fx-bad.log")).unwrap();
+    assert!(text.contains("[stderr] spawn error: "), "{text}");
+}
+
+/// A write to a child's closed stdin fails and is noted as `stdin error: <message>`.
+#[tokio::test]
+async fn failed_stdin_write_records_a_stdin_error_note() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-in").unwrap();
+    let script = "await new Promise(r=>setTimeout(r,50));process.exit(0);";
+    let child = PluginProcess::spawn_logged(&peer(script), Some(log)).unwrap();
+    // The child exits and its stdin closes; a later write then fails and is noted.
+    child.terminate().await.unwrap();
+    let result = child
+        .notify_bounded("$/event", json!({"t":1}), Duration::from_secs(2), || Ok(()))
+        .await;
+    assert!(result.is_err());
+    let path = home.path().join("fx-in.log");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let text = loop {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if text.contains("[stderr] stdin error: ") {
+            break text;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stdin error note never arrived"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    drop(text);
+}
+
+/// `$/event` lines are written as `JSON.stringify` writes them.
+#[tokio::test]
+async fn bounded_notification_is_written_as_javascript_writes_it() {
+    let dir = tempfile::TempDir::new().unwrap();
+    let path = dir.path().join("lines");
+    let script = format!(
+        r#"const r=Bun.stdin.stream().getReader();const {{appendFileSync}}=require('node:fs');for(;;){{const {{value,done}}=await r.read();if(done)break;appendFileSync({path:?},value);}}"#,
+        path = path.to_str().unwrap()
+    );
+    let child = PluginProcess::spawn(&peer(&script)).unwrap();
+    let params: Value = serde_json::from_str(
+        r#"{"type":"task","seq":3000000000005,"data":{"usd":1e21,"z":1,"a":0.1}}"#,
+    )
+    .unwrap();
+    child
+        .notify_bounded("$/event", params, Duration::from_secs(2), || Ok(()))
+        .await
+        .unwrap();
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    while std::fs::read(&path).map_or(true, |bytes| !bytes.ends_with(b"\n")) {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the line never arrived"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(
+        std::fs::read_to_string(&path).unwrap(),
+        "{\"jsonrpc\":\"2.0\",\"method\":\"$/event\",\"params\":{\"type\":\"task\",\"seq\":3000000000005,\"data\":{\"usd\":1e+21,\"z\":1,\"a\":0.1}}}\n"
+    );
+    child.terminate().await.unwrap();
 }

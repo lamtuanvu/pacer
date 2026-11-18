@@ -163,3 +163,103 @@ test("zero-duration measured constraints with another name are preserved", () =>
   const merged = reconcileEvidence(previous, freshQuota(15), now);
   expect(merged.facts.budget.some(f => f.value.name === "limit")).toBe(true);
 });
+
+test("reconcileEvidence drops an expired manual configuration limit mark", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "configuration", now - 1000, now - 100, "quota_failure",
+      { name: "limit", usedPct: 100, resetsAt: now - 100, lengthS: 21600, paced: false }),
+  ] };
+  const merged = reconcileEvidence(previous, emptyEvidence(), now);
+  expect(merged.facts.budget.some(f => f.source === "configuration" && f.value.name === "limit")).toBe(false);
+});
+
+test("an active manual configuration limit mark still binds", () => {
+  const runnerScope = { ...scope, runner: "cursor", model: "auto", host: "local" };
+  const until = now + 3600;
+  const evidence = { ...emptyEvidence(), budget: [evidenceFact(runnerScope, "configuration", now - 1000, until, "quota_failure",
+    { name: "limit", usedPct: 100, resetsAt: until, lengthS: 21600, paced: false })] };
+  const merged = reconcileEvidence(emptyEvidence(), evidence, now);
+  const decision = evaluateEligibility({ now, scope: runnerScope, usage: "reactive", allowPaid: false, evidence: merged, restrictions: [] });
+  expect(decision.state).toBe("ineligible");
+  expect(decision.reasons.map(r => r.code)).toContain("budget_exhausted");
+});
+
+test("same-source newer read without 5h retires a persisted null 5h fact", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 100, null, "quota_observed",
+      { name: "5h", usedPct: null, resetsAt: now + 3600, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h")).toBe(false);
+});
+
+test("same-source newer read without 5h retires a rolled measured 5h fact and proves eligibility", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 20000, null, "quota_observed",
+      { name: "5h", usedPct: 14, resetsAt: now - 1000, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(),
+    availability: [evidenceFact(scope, "status-line", now, now + 7200, "usage_observed", "ready" as const)],
+    budget: [evidenceFact(scope, "status-line", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true })] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.map(f => f.value.name)).toEqual(["weekly"]);
+  expect(evaluateEligibility({ now, scope, usage: "quota", allowPaid: false, evidence: merged, restrictions: [] }).state).toBe("eligible");
+});
+
+test("same-source read without 5h keeps a live measured 5h fact", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 100, null, "quota_observed",
+      { name: "5h", usedPct: 80, resetsAt: now + 3600, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h" && f.value.usedPct === 80)).toBe(true);
+});
+
+test("different-source read does not retire a persisted null 5h fact", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 100, null, "quota_observed",
+      { name: "5h", usedPct: null, resetsAt: now + 3600, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "session-log", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h")).toBe(true);
+});
+
+test("same-source read without 5h keeps a lapsed exhausted 5h fact until its reset", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 9000, null, "quota_observed",
+      { name: "5h", usedPct: 100, resetsAt: now + 9000, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h" && f.value.usedPct === 100)).toBe(true);
+  expect(evaluateEligibility({ now, scope, usage: "quota", allowPaid: false, evidence: merged, restrictions: [] }).state).not.toBe("eligible");
+});
+
+test("a future-dated read does not retire an unreported window", () => {
+  const previous = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now - 100, null, "quota_observed",
+      { name: "5h", usedPct: null, resetsAt: now + 3600, lengthS: 18000, paced: false }),
+  ] };
+  const incoming = { ...emptyEvidence(), budget: [
+    evidenceFact(scope, "status-line", now + 600, null, "quota_observed",
+      { name: "weekly", usedPct: 10, resetsAt: now + 604800, lengthS: 604800, paced: true }),
+  ] };
+  const merged = reconcileEvidence(previous, incoming, now);
+  expect(merged.facts.budget.some(f => f.value.name === "5h")).toBe(true);
+});

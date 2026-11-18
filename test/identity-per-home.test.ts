@@ -1,8 +1,8 @@
 import { beforeEach, expect, test } from "bun:test";
-import { cpSync, mkdirSync, statSync } from "node:fs";
+import { cpSync, mkdirSync, statSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
-import { clearIdentityCache, ensureIdentity, setIdentityPlatformForTests } from "../src/identity/store";
+import { clearIdentityCache, ensureIdentity, identityBackend, readMeta, setIdentityPlatformForTests } from "../src/identity/store";
 import { cloneSuspected, saltPath } from "../src/identity/salt";
 import { homeTag } from "../src/identity/key-store";
 import { fakeKeychain } from "./fake-keychain";
@@ -68,4 +68,33 @@ test("each home has its own salt file and a copied home on the file backend is s
   clearIdentityCache();
   expect((await ensureIdentity(a, { platform: "linux" })).id).toBe(idA.id);
   expect(await cloneSuspected(a, "linux")).toBe(false);
+});
+
+test("a HOME without a login Keychain keeps the identity in files and never runs security", async () => {
+  const calls: string[][] = [];
+  const ctx = fakeCtx({ run: async argv => { calls.push(argv); return { code: 1, stdout: "", stderr: "" }; } });
+  const saved = process.env.HOME;
+  try {
+    process.env.HOME = ctx.home;
+    expect(identityBackend()).toBe("file");
+    const first = await ensureIdentity(ctx);
+    expect(readMeta(ctx)?.backend).toBe("file");
+    expect(statSync(saltPath(ctx)).isFile()).toBe(true);
+    expect(calls).toEqual([]);
+    if (process.platform === "darwin") {
+      mkdirSync(join(ctx.home, "Library", "Keychains"), { recursive: true });
+      writeFileSync(join(ctx.home, "Library", "Keychains", "login.keychain-db"), "");
+      expect(identityBackend()).toBe("keychain");
+      // The identity keeps its recorded backend for both key and salt, so it is not mistaken for a copy.
+      clearIdentityCache();
+      const again = await ensureIdentity(ctx);
+      expect(again.id).toBe(first.id);
+      expect(await cloneSuspected(ctx)).toBe(false);
+      expect(calls).toEqual([]);
+    }
+    // A platform chosen by a caller or test still decides on its own.
+    expect(identityBackend("darwin")).toBe("keychain");
+  } finally {
+    process.env.HOME = saved;
+  }
 });

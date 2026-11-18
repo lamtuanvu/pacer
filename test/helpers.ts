@@ -1,3 +1,4 @@
+import { spawn, type SpawnOptions } from "node:child_process";
 import { chmodSync, mkdtempSync, readFileSync, rmSync, mkdirSync, writeFileSync } from "node:fs";
 import { createTestRoot } from "./temp-roots";
 import { join } from "node:path";
@@ -5,6 +6,7 @@ import { execProcess } from "../src/exec/process";
 import type { Ctx, RunFn } from "../src/types";
 import { manifestSchema } from "../src/plugins/protocol";
 import type { RegistryDeps } from "../src/plugins/registry";
+import { DEFAULT_PORT } from "../src/serve/constants";
 
 // One parent folder per test run, removed after the run (see test/setup.ts), so test homes don't pile up in TMPDIR.
 // Set PACER_KEEP_TEST_TMP=1 to keep it for debugging.
@@ -37,7 +39,7 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
     home,
     pacerHome: o.pacerHome ?? join(home, ".pacer"),
     now: o.now ?? localTs(2026, 10, 10, 19, 0),
-    env: o.env ?? {},
+    env: { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), OLLAMA_HOST: process.env.OLLAMA_HOST ?? `http://127.0.0.1:${closedPort()}`, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH, ...o.env },
     run: o.run ?? (async () => ({ code: 127, stdout: "", stderr: "not available in tests" })),
     which: o.which ?? (() => "/usr/bin/fake"),
   };
@@ -53,11 +55,43 @@ export function gitRepo(): string {
   return repo;
 }
 
+/** The pid a fixture wrote to `file`, or undefined while the file is missing or not yet written.
+ * Never 0: `process.kill(0, …)` signals the test runner's whole process group. */
+export function readPid(file: string): number | undefined {
+  let text: string;
+  try { text = readFileSync(file, "utf8").trim(); } catch { return undefined; }
+  return /^[1-9]\d*$/.test(text) ? Number(text) : undefined;
+}
+
+/** Wait until `file` holds a pid; fails naming the file when none appears within `ms`. */
+export async function waitPid(file: string, ms = 10000): Promise<number> {
+  for (const until = Date.now() + ms; ; await Bun.sleep(10)) {
+    const pid = readPid(file);
+    if (pid !== undefined) return pid;
+    if (Date.now() > until) throw Error(`no pid in ${file} after ${ms} ms`);
+  }
+}
+
+/** A loopback port that was free a moment ago and has nothing listening on it now. */
+export function closedPort(): number {
+  const reservation = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
+  const port = reservation.port!;
+  reservation.stop(true);
+  return port;
+}
+
+/** Env for a spawned pacer process and every descendant that inherits it. Core falls back to the
+ * real service on DEFAULT_PORT when PACER_PORT is unset, empty or 0, and a disposable home does not stop that. */
+export function pinnedPort<T extends Record<string, string | undefined>>(env: T, port = closedPort()): T & { PACER_PORT: string } {
+  if (!Number.isInteger(port) || port <= 0 || port > 65535 || port === DEFAULT_PORT) throw Error(`spawned test processes need a sandbox port, not ${port}`);
+  return { ...env, PACER_PORT: String(port) };
+}
+
 /** Environment that puts the fake `ssh` (test/fixtures/bin/ssh) first on PATH, with a temp dir as the host's HOME. */
 export const fakeSshEnv = (hostHome: string, log: string, down = "") => {
   const bin = join(import.meta.dir, "fixtures", "bin");
   chmodSync(join(bin, "ssh"), 0o755);
-  return { PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
+  return { PACER_PORT: process.env.PACER_PORT ?? String(closedPort()), OLLAMA_HOST: process.env.OLLAMA_HOST, LMS_API_SERVER_INFO_PATH: process.env.LMS_API_SERVER_INFO_PATH, PATH: `${bin}:${process.env.PATH}`, PACER_FAKE_HOST_HOME: hostHome, PACER_FAKE_SSH_LOG: log, PACER_FAKE_SSH_DOWN: down };
 };
 
 /** Fake login indicators for tests that route to installed native executors. */
@@ -107,6 +141,7 @@ export function folderPlugins(folders: string[], base: Pick<RegistryDeps, "bundl
       const plugin = served.get(id);
       return plugin ? { argv: [join(plugin.folder, plugin.manifest.entry!)], cwd: plugin.folder, env: {} } : base.spawnBundled(ctx, id);
     },
+    spawn: ((file: string, args: string[], options: SpawnOptions) => spawn(file, args, { ...options, env: { ...options.env, PACER_PORT: process.env.PACER_PORT } })) as unknown as typeof spawn,
     eventPumpMs: 0,
   };
 }

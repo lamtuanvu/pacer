@@ -8,6 +8,8 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'di
 /** Transport construction stays here; protocol negotiation and retries stay with callers. */
 export interface Platform {
   readonly desktop: boolean;
+  /** The macOS desktop app, where native notification sounds play. */
+  readonly macos: boolean;
   subscribeDesktopConnection?(listener: (state: import('./ipc').DesktopConnection) => void): () => void;
   request(path: string, init?: RequestInit): Promise<Response>;
   subscribeEvents(path: string): EventSource;
@@ -15,6 +17,7 @@ export interface Platform {
   subscribeConnection(listener: (status: ConnectionStatus) => void): () => void;
   setConnectionStatus(status: ConnectionStatus): void;
   openExternal(url: string): void;
+  openSystemSettings?(pane: "notifications" | "privacy_files"): Promise<void> | void;
   confirm(message: string): Promise<boolean>;
   pickFiles(options?: { multiple?: boolean }): Promise<File[]>;
   pickFolder(): Promise<File[]>;

@@ -1,8 +1,78 @@
 //! Native-registry parity driver on caller-created disposable homes. Endpoint
 //! bridge integration is exercised separately by the fixed live fixture.
-use pacer_foundation::Ctx;
+use pacer_foundation::{Ctx, api::OpFuture};
+use pacer_install::install_ops::ServiceEffects;
+use pacer_update::apply::UpdateEffects;
 use serde_json::{Value, json};
 use std::io::{self, BufRead, Write};
+
+/// Records the Core effects a native op requests and answers each with `effectResult`.
+struct Effects {
+    reply: Value,
+    requests: Vec<Value>,
+}
+
+impl Effects {
+    fn record(&mut self, request: Value) -> OpFuture<'_> {
+        self.requests.push(request);
+        let reply = self.reply.clone();
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
+impl ServiceEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
+impl UpdateEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
+/// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
+/// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
+struct Preview {
+    status: Value,
+    parts: Value,
+    requests: Vec<Value>,
+}
+
+impl pacer_dispatch_ops::preview_ops::Bridge for Preview {
+    fn status(&mut self, params: Value) -> OpFuture<'_> {
+        let parts = match params.get("draft") {
+            Some(_) => json!({"current": self.status, "draft": self.status}),
+            None => self.status.clone(),
+        };
+        self.requests.push(params);
+        Box::pin(async move { Ok(parts) })
+    }
+    fn parts(&mut self, params: Value) -> OpFuture<'_> {
+        let rows = |all: &Value| -> Vec<Value> {
+            let asked = params["runners"].as_array().cloned().unwrap_or_default();
+            asked
+                .iter()
+                .filter_map(|r| {
+                    all.as_array()?
+                        .iter()
+                        .find(|row| row["runner"] == *r)
+                        .cloned()
+                })
+                .collect()
+        };
+        let reply = if params["kind"] == "dispatch.executor-guards" {
+            let guards = &self.parts["guards"];
+            json!({"guards": rows(&guards["guards"]), "admissionHooks": guards["admissionHooks"]})
+        } else {
+            json!(rows(&self.parts["enforcement"]))
+        };
+        self.requests.push(params);
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
 #[tokio::main]
 async fn main() -> io::Result<()> {
     let mut stdout = io::BufWriter::new(io::stdout().lock());
@@ -56,8 +126,59 @@ async fn main() -> io::Result<()> {
             || pacer_server::native::repo_registry_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::runner_attention_stays_forwarded(&ctx, name, &input["params"])
             || pacer_server::native::service_agent_stays_forwarded(&ctx, name, &input["params"])
+            || pacer_server::native::status_residue_stays_forwarded(&ctx, name, &input["params"])
+            || (name == "config.set"
+                && pacer_server::native::config_set_stays_forwarded(&ctx, &input["params"]))
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if pacer_dispatch_ops::preview_ops::needs_dispatch_parts(name) {
+            if pacer_server::native::dispatch_preview_stays_forwarded(&ctx, name, &input["params"])
+            {
+                serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+                stdout.write_all(b"\n")?;
+                continue;
+            }
+            let mut bridge = Preview {
+                status: input["statusParts"].clone(),
+                parts: input["dispatchParts"].clone(),
+                requests: Vec::new(),
+            };
+            let result = pacer_dispatch_ops::preview_ops::dispatch_preview(
+                &ctx,
+                name,
+                input["params"].clone(),
+                &mut bridge,
+            )
+            .await;
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["bridge"] = json!(bridge.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if name == "service.install" || name == "update.apply" {
+            let mut effects = Effects {
+                reply: input.get("effectResult").cloned().unwrap_or(Value::Null),
+                requests: Vec::new(),
+            };
+            let params = input["params"].clone();
+            let result = if name == "service.install" {
+                pacer_install::install_ops::service_install(&ctx, params, &mut effects).await
+            } else {
+                pacer_update::apply::update_apply(&ctx, params, &mut effects).await
+            };
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["effects"] = json!(effects.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
             stdout.write_all(b"\n")?;
             continue;
         }
@@ -73,8 +194,13 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if name == "setup.check" {
-            let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
+        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
+            let bridge_result = if input["bridgeEcho"] == json!(true) {
+                pacer_server::native::core_bridge_params(name, &input["params"])
+                    .unwrap_or(Value::Null)
+            } else {
+                input.get("bridgeResult").cloned().unwrap_or(Value::Null)
+            };
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
             None

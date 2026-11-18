@@ -12,11 +12,13 @@ import { pause } from "../src/core/pause";
 import { fakeCtx, gitRepo, realRun, tmpDir, withLoginIndicators } from "./helpers";
 import { rankExecutors } from "../src/engine/rank";
 import type { Status } from "../src/engine/status";
+import { pairStrategy } from "./fixtures/balance-pair";
+import { createTask, updateTask } from "../src/tasks/store";
 
 function setup(used: Record<string, number | null>, extra: Record<string, unknown> = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
   const strategy = validateStrategy({ planner: "claude-code", accounts: { "claude-code": { kind: "claude" }, codex: { kind: "codex" }, cursor: { kind: "cursor" } },
-    runners: { codex: { models: [{ id: "provider/deep", tier: "frontier" }] }, cursor: { models: [{ id: "provider/mid", tier: "medium" }] } }, ...extra }, "test");
+    runners: { codex: { models: [{ id: "provider/deep", tier: "medium" }] }, cursor: { models: [{ id: "provider/mid", tier: "medium" }] } }, ...extra }, "test");
   const status = async (): Promise<Status> => ({ generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
     providers: Object.entries(used).map(([id, pct]) => ({ id, usage: "quota" as const, windows: pct === null ? [] : [{ name: "weekly", usedPct: pct, resetsAt: ctx.now + 3600, lengthS: 604800, paced: true, verdict: "ON_PACE" as const }], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
     accounts: Object.entries(used).map(([id, pct]) => ({ name: id, kind: id === "claude-code" ? "claude" as const : id === "codex" ? "codex" as const : "cursor" as const, verdict: "ON_PACE" as const, usedPct: pct, pacePct: 40, resetsAt: ctx.now + 3600, window: "weekly", stale: false, source: null, capturedAt: ctx.now, runners: [id], spendUsd: null })),
@@ -260,6 +262,36 @@ test("delegate explains ranking even with a dispatch block and no measured model
   expect(r.fallbacks.filter(f => f.state === "eligible").map(f => f.runner)).toEqual(route.ranked.slice(1).map(e => e.id));
   // The dispatch entry point uses the ladder with the same strategy.
   expect(await explainDispatch(ctx, input(), deps)).toMatchObject({ mode: "ladder", outcome: "queue", chosen: null });
+});
+
+test("ranked explain balances equal executors by load and the revision ignores load alone", async () => {
+  const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
+  const strategy = pairStrategy("least-loaded");
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), Bun.YAML.stringify({
+    planner: "claude-code",
+    accounts: { "claude-code": { kind: "claude" }, codex: { kind: "codex" }, tse: { kind: "endpoint", usage: "quota", quota_source: "arkcli" } },
+    runners: { codex: { max_tasks: 3 }, "opencode#tse": { model: "go/t", max_tasks: 3 } },
+    pacing: { policy: "priority", order: ["codex", "opencode#tse"], balance: "least-loaded" },
+    routing: [{ default: ["codex", "opencode#tse"] }],
+  }));
+  const status = async (): Promise<Status> => ({ generatedAt: ctx.now, strategy: "test", planner: "claude-code", mode: "normal", disabled: false, calendarPace: false,
+    providers: Object.keys(strategy.providers).map(id => ({ id, usage: "quota" as const, windows: [], binding: null, verdict: "ON_PACE" as const, installed: true, stale: false })),
+    accounts: [], executors: { ranked: [], excluded: [] } });
+  const deps = { strategy, status };
+  const explain = { via: "delegate" as const, repo: tmpDir(), goal: "Fix the login bug", kind: "debug", delegationEnforcement: "cooperative" as const };
+  // codex already carries a slot: balance starts the next task on the emptier tse.
+  const running = createTask(ctx, { brief: { goal: "one", repo: tmpDir() }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, running.id, t => { t.state = "running"; t.executor = "codex"; });
+  const r = await explainDispatch(ctx, explain, deps);
+  expect(r.mode).toBe("ranked");
+  expect(r.chosen?.runner).toBe("opencode#tse");
+  expect(r.fallbacks.filter(f => f.state === "eligible").map(f => f.runner)).toEqual(["codex"]);
+  // The revision hashes the pre-balance budget order, so only load changing does not change it.
+  const second = createTask(ctx, { brief: { goal: "two", repo: tmpDir() }, kind: "debug", requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, second.id, t => { t.state = "running"; t.executor = "codex"; });
+  const later = await explainDispatch(ctx, explain, deps);
+  expect(later.revision).toBe(r.revision);
+  expect(later.chosen?.runner).toBe("opencode#tse");
 });
 
 test("without dispatch, explain agrees with the routing.route operation", async () => {

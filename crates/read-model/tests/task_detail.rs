@@ -116,6 +116,7 @@ fn task_detail_by_id_composes_api_slice_and_derived_markers() {
             "startedAt": 2.0,
             "endedAt": 8.0,
             "log": "output",
+            "tier": {"requestedDifficulty":"standard","difficultySource":"explicit","effectiveDifficulty":"standard","targetTier":"medium","selectedTier":"small","reason":"executor-fixed-below-target"},
             "routing": {"chosen": "codex", "why": "on pace"},
             "usageAtStart": {"account": "team", "usedPct": 1.0, "window": "week", "at": 2.0},
             "usageAtEnd": {"account": "team", "usedPct": 2.0, "window": "week", "at": 8.0},
@@ -139,10 +140,94 @@ fn task_detail_by_id_composes_api_slice_and_derived_markers() {
     )
     .unwrap();
     assert_eq!(detail["id"], task["id"]);
+    assert_eq!(detail["attempts"][0]["tier"], task["attempts"][0]["tier"]);
     assert_eq!(detail["summary"], "Added tests");
     assert_eq!(detail["acceptance"]["state"], "passed");
     assert_eq!(detail["branch"], "pacer/t-20260101-000001-aaaa");
     assert_eq!(detail["derived"]["files"], "unavailable");
     assert_eq!(detail["derived"]["timeline"], "partial");
     assert!(detail["retryOptions"].as_array().unwrap().is_empty());
+}
+
+#[test]
+fn cost_projection_is_installed_and_repairs_missing_trigger() {
+    let (_dir, ctx) = home();
+    let task = json!({"id":"t-20260101-000001-aaaa", "rev":1,"state":"done", "createdAt":1,
+        "brief":{"goal":"cost","repo":"/repo"}, "attempts":[{"startedAt":10,"endedAt":20,
+        "usageAtStart":{"account":"a","usedPct":1},"usageAtEnd":{"account":"a","usedPct":2}}]});
+    write_task(&ctx, &task);
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    task_detail_by_id(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        task["id"].as_str().unwrap(),
+        &alive,
+        false,
+    )
+    .unwrap();
+    let db = rusqlite::Connection::open(ctx.pacer_home.join("state/tasks.db")).unwrap();
+    let installed: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='task_cost_intervals_v1')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(
+        installed,
+        "cost-bearing reads must use the scalar projection"
+    );
+    db.execute_batch("DROP TRIGGER task_cost_insert_v1")
+        .unwrap();
+    let mut peer = task.clone();
+    peer["id"] = json!("t-20260101-000002-bbbb");
+    db.execute(
+        "INSERT INTO tasks(id,rev,state,created_at,updated_at,record) VALUES(?1,1,'done',1,1,?2)",
+        rusqlite::params![peer["id"].as_str().unwrap(), peer.to_string()],
+    )
+    .unwrap();
+    let repaired = task_detail_by_id(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        task["id"].as_str().unwrap(),
+        &alive,
+        false,
+    )
+    .unwrap();
+    assert_eq!(repaired["cost"]["executor"]["reason"], "shared");
+}
+
+#[test]
+fn null_cost_does_not_install_projection_or_decode_invalid_history() {
+    let (_dir, ctx) = home();
+    let task = json!({"id":"t-20260101-000001-aaaa","rev":1,"state":"done","createdAt":1,
+        "brief":{"repo":"/repo","goal":"no reading"},"attempts":[]});
+    write_task(&ctx, &task);
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let db = rusqlite::Connection::open(ctx.pacer_home.join("state/tasks.db")).unwrap();
+    db.execute(
+        "INSERT INTO tasks(id,record) VALUES('peer','invalid json')",
+        [],
+    )
+    .unwrap();
+    let detail = task_detail_by_id(
+        &ctx,
+        &ActiveCounts::default(),
+        &mut store,
+        task["id"].as_str().unwrap(),
+        &alive,
+        false,
+    )
+    .unwrap();
+    assert_eq!(detail["cost"], json!({"executor":null,"planner":null}));
+    let installed: bool = db
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE name='task_cost_meta_v1')",
+            [],
+            |r| r.get(0),
+        )
+        .unwrap();
+    assert!(!installed);
 }

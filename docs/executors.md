@@ -13,6 +13,42 @@ Install and authenticate executor CLIs yourself. pacer launches existing tools; 
 
 The planner itself is excluded from executor ranking. An optional `model` selects the model passed to a native launcher; Cursor Free setups can use `model: auto` as in the starter example.
 
+## Default and allowed models
+
+`runners.<id>.model` is the executor's default model. It is used by readiness
+checks and when no task-specific model is selected. With no `models` list, the
+executor keeps using its default (or the agent default when none is set).
+
+`runners.<id>.models` declares the models this executor may use for tasks. Each
+entry has `id` and `tier`, with optional `strengths`, `tools` and `context` facts.
+Tiers are `small`, `medium`, `frontier` and `unknown` (shown as **Unrated**).
+They are user declarations; pacer does not infer them from model names.
+Two executors using the same provider may have different lists and defaults.
+The default must belong to a nonempty allowed list. Saving a list without a
+default uses its first entry. Declaring models enables
+[difficulty-based choice](dispatch.md#model-choice-by-difficulty) without another switch.
+
+Use **Settings → Executors → Models** to change the default, or
+`pacer executor models <id> --default <model>`. Use `--allow <model>:<tier>`
+and `--remove <model>` to edit the allowed list. See [CLI commands](cli.md#executor-models).
+
+`executor.models.available {runner, refresh?}` reports the available IDs, source,
+fetch time and known model facts. OpenCode accounts use `opencode models` filtered
+to their provider. Catalog facts enrich those IDs; catalog-only IDs are not offered.
+Successful OpenCode listings are cached for ten minutes; refresh bypasses the cache.
+Managed endpoint accounts read `connection.models` fresh. Agents without a listing
+adapter, including native Claude Code, Codex, Cursor and Antigravity, accept a typed
+model ID. A failed or empty listing means unknown availability, not an empty provider.
+
+Saving through `runner.set` or `runner.models.set` rejects an ID missing from a
+successful listing and suggests nearby available IDs when possible. An unknown
+listing permits saving but leaves validity unverified. The **Model offered** step
+in `runner.check` fails when the default is no longer offered. It skips with a
+reason when there is no listing or the executor uses the agent default. Doctor
+also reports missing defaults with a replacement action. Saving the default in
+the app runs the readiness check. A successful listing is evidence of availability,
+not a guarantee that the next task will succeed.
+
 ## BytePlus and local models
 
 ```yaml
@@ -63,6 +99,8 @@ pacer executor block agy --for 6h --reason "Temporarily unavailable"
 pacer executor unblock agy
 ```
 
+A direct executor stop stays pending until the exact owned wrapper has a verified exit. Recovery checks existing wrapper evidence even if the launch intent is absent, then releases task capacity. A missing runner or an unrecognized PID alone does not prove the executor exited; those runs remain pending.
+
 Replace `TASK_ID` with an actual task ID. A wait timeout returns exit 2; inspect and wait again. `pacer doctor` checks configuration, CLIs and integration health. See [CLI docs](cli.md) for briefs and review contracts.
 
 ## Settings and readiness checks
@@ -109,7 +147,7 @@ Before a new attempt, Pacer refreshes sources that support a current provider co
 
 Credits, credit balances and measured paid consumption are separate from the configured `allow_paid` permission. Current exhaustion with `allow_paid: false` remains unavailable even if credits exist. An uncertain fallback is not permission to change `allow_paid`; its paid-spend risk remains unknown when the source cannot establish it. Reactive and unmetered executors use their declared measurement contracts instead of fabricated quota windows.
 
-Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired. Reactive cooldown marks (`report-limit` or a detected provider limit) constrain budget only until their cooldown end (`resetsAt` / `validUntil`). After that end time, status and usage refresh drop the expired execution `limit` mark — including equal-authority duplicates that disagreed only on the cooldown end time — so a reactive executor does not stay **Skipped** waiting for a quota reading it cannot provide. Other expired quota windows remain historical.
+Successful execution confirms availability only. Authentication/subscription failures constrain availability; a quota failure constrains budget. Timeouts and unrelated task failures do not establish either. Later applicable evidence can clear an older observed failure; explicit user blocks remain effective until removed or expired. Reactive cooldown marks (`report-limit` or a detected provider limit) constrain budget only until their cooldown end (`resetsAt` / `validUntil`). After that end time, status and usage refresh drop the expired execution `limit` mark — including equal-authority duplicates that disagreed only on the cooldown end time — so a reactive executor does not stay **Skipped** waiting for a quota reading it cannot provide. A manual limit mark (`configuration` source) is dropped the same way once its end time passes. When a newer reading from the same source leaves out a window it reported before, that source's unknown or expired value for the window is retired; a window at or above the exhausted threshold stays until its reset. Other expired quota windows remain historical.
 
 ## Launch mode
 
@@ -225,6 +263,26 @@ and a new task worktree has neither. Before the launch, Pacer reads only
 applies `disabledMcpjsonServers` before `enableAllProjectMcpServers`, also when both
 come from the per-run file. If either file exists but cannot be read or parsed, pacer
 approves nothing for that launch and the attempt note says Claude's MCP prompt may appear.
+
+### Agent sandboxes and the plugin owner
+
+Because of the options above, pacer's executors run without their agent's sandbox, as
+ordinary processes of your user, and pacer ships no sandbox profile of its own. Such a
+process can already read your pacer home. The one sandboxed launch is an attended Codex
+session from the agent-session plugin, which runs with `-s workspace-write` and nothing
+that widens it.
+
+If you turn on an agent's own sandbox for work that reaches pacer, do not let it connect
+to Unix sockets under `$PACER_HOME/run` or under pacer's per-user socket directories
+(`pacer-<hash>` in the user temporary directory that `getconf DARWIN_USER_TEMP_DIR`
+prints on macOS, or in `$XDG_RUNTIME_DIR` on Linux), which a home with a long path uses.
+A setting that
+allows every Unix socket allows these too. The native plugin owner listens there, and a
+sandboxed process that can read `run/host.key` and connect could have the owner start
+plugin processes outside the sandbox. Pacer hands Core its own secrets on Core's stdin,
+not in its environment, so on macOS a sandbox that keeps the process out of your pacer home
+also keeps those secrets from it. On Linux the sandbox must also hide other processes'
+`/proc` entries. See [ADR 0027](decisions/0027-one-native-plugin-owner-per-home.md).
 
 ## Session environment
 

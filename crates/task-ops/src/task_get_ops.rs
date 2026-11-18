@@ -94,6 +94,22 @@ async fn task_get_with_probe(
     enrichment: Value,
     omit_result_acceptance: bool,
 ) -> Result<Value, CoreError> {
+    let ctx = ctx.clone();
+    let id = id.to_owned();
+    tokio::task::spawn_blocking(move || {
+        task_get_native(&ctx, &id, probe, enrichment, omit_result_acceptance)
+    })
+    .await
+    .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?
+}
+
+fn task_get_native(
+    ctx: &Ctx,
+    id: &str,
+    probe: SessionProbeParts,
+    enrichment: Value,
+    omit_result_acceptance: bool,
+) -> Result<Value, CoreError> {
     let mut store = TaskStore::open(&ctx.pacer_home)
         .map_err(|error| CoreError::new(Code::Internal, error.to_string()))?;
     let alive_pids = probe.alive_pids;
@@ -119,26 +135,4 @@ async fn task_get_with_probe(
 }
 
 #[cfg(test)]
-mod tests {
-    #![allow(clippy::unwrap_used)]
-    use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn merge_enrichment_overlays_git_and_tokens() {
-        let mut detail = json!({"id": "t-1", "files": []})
-            .as_object()
-            .unwrap()
-            .clone();
-        merge_enrichment(
-            &mut detail,
-            &json!({
-                "files": [{"path": "a.ts", "status": "modified"}],
-                "tokens": {"total": 1},
-                "omitResultAcceptance": true,
-            }),
-        );
-        assert_eq!(detail["files"].as_array().unwrap().len(), 1);
-        assert_eq!(detail["tokens"]["total"], 1);
-    }
-}
+mod tests;

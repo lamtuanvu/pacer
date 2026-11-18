@@ -11,7 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
-import { dispatchConfigSchema, previewInputSchema } from "../dispatch/types";
+import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
 import { filesSearchInputSchema, searchFiles } from "../core/files-search";
@@ -63,8 +63,11 @@ import { callerIdentity, send as sendMessage } from "../session/send";
 import * as accounts from "../core/accounts";
 import * as endpoints from "../core/endpoints";
 import * as opencodeSetup from "../core/opencode-setup";
+import { availableModels } from "../models/available";
 import { redactEndpointMessage } from "../endpoints/state";
 import * as executorSettings from "../core/executor-settings";
+import * as runnerModels from "../core/runner-models";
+import * as tierTargets from "../core/tier-targets";
 import * as runnersConfig from "../core/runners-config";
 import * as routingConfig from "../core/routing-config";
 import { AGENTS } from "../config/accounts";
@@ -72,6 +75,8 @@ import * as config from "../core/config";
 import * as setup from "../core/setup";
 import * as notify from "../core/notify";
 import * as clients from "../clients/registry";
+import * as notificationHealth from "../core/notification-health";
+import { notificationsCheck } from "../install/notifications-check";
 import { publishConfigChange } from "../core/events";
 import { refreshAccountUsage, refreshAllUsage } from "../usage/refresh";
 import { KINDS, loadStrategy } from "../config/strategy";
@@ -80,9 +85,10 @@ import { isExecutorSession } from "../install/role";
 import * as strategy from "../strategy/service";
 import { publish } from "../link/publish";
 import { checkForUpdate, updateAvailable } from "../update/check";
-import { defaultUpdateDeps, runUpdate, type UpdateDeps } from "../update/update";
+import { defaultUpdateDeps, installManager, runUpdate, type UpdateDeps, type UpdateManager } from "../update/update";
+import { MANAGED_BY_DESKTOP_MESSAGE, ownerRefusal } from "../install/owner";
 import { currentVersion } from "../update/version";
-import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask } from "../tasks/api";
+import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegateBrief, spawnRunner, summarizeTask, difficultyWarning } from "../tasks/api";
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
@@ -115,6 +121,8 @@ export interface OpDeps {
   openTerminal?: typeof openInTerminal;
   runUpdate?: typeof runUpdate;
   update?: Partial<Pick<UpdateDeps, "standalone" | "execPath">>;
+  /** The login-service backend `service.install` drives (tests inject one). */
+  service?: Parameters<typeof setup.serviceInstall>[2];
   gh?: IssueDeps["gh"];
   /** Runs the doctor for `doctor.fix.delegate` and the recheck after an accepted fix. */
   doctor?: RunDoctor;
@@ -133,7 +141,8 @@ const op = <P extends z.ZodTypeAny>(d: OpDef<P>) => d as unknown as OpDef;
 
 const agent = z.enum(["claude-code", "codex", "cursor", "opencode"]);
 const level = z.enum(["off", "important", "all"]);
-const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
+const sound = z.enum(notify.NOTIFICATION_SOUNDS);
+export const draft = z.object({from: id, set: z.record(z.string(), z.json()).optional(), unset: z.array(z.string()).optional(), description: z.string().optional()});
 const endpointModel = z.object({id: z.string().min(1), name: z.string().optional(), context: z.number().int().positive(), output: z.number().int().positive(), tools: z.boolean()});
 const endpointFields = {
   base_url: z.url().refine(value => /^https?:\/\//.test(value), "base URL must be HTTP(S)"),
@@ -161,14 +170,22 @@ async function strategyAction<T>(action: () => T | Promise<T>): Promise<T> {
     throw new CoreError(error.code, error.message, error.hint ?? "Use strategy.list to choose a strategy and strategy.preview to validate a draft.");
   }
 }
+/** Who updates this installation when it is not `pacer update`: the desktop owner (ADR 0021) or the install method. */
+function updateManager(ctx: Ctx, update: Pick<UpdateDeps, "env" | "execPath">): UpdateManager | undefined {
+  return ownerRefusal(ctx, "update") ? {by: "desktop", message: MANAGED_BY_DESKTOP_MESSAGE} : installManager(update);
+}
+const MANAGED_UPDATE_HINT = "This installation is updated by its own installer, not by this service.";
+
 async function applyUpdate(ctx: Ctx, deps: OpDeps) {
   const update = {...defaultUpdateDeps(ctx), restartService: async (path: string) => ({restarted: await restartAfterUpdate(ctx, path)}), ...deps.update};
+  const manager = updateManager(ctx, update);
+  if (manager) throw new CoreError("not_allowed", manager.message, MANAGED_UPDATE_HINT);
   // Reuse the CLI's install-method checks without letting it replace the daemon
   // binary in-process. With standalone:false it always stops before fetching.
   const preflight = await runUpdate({check: false}, {...update, standalone: false});
   if (!update.standalone || !preflight.err.startsWith("pacer update: this pacer runs from source")) {
     const message = preflight.err.replace(/^pacer update: /, "");
-    throw new CoreError("not_allowed", message, message);
+    throw new CoreError("not_allowed", message, update.standalone ? undefined : "Install a release build to update from this screen.");
   }
   const job=await startJob(ctx,"update.apply","pacer",["Download","Verify","Replace","Refresh integrations","Restart"],async step=>{
     const result=await (deps.runUpdate ?? runUpdate)({check:false},{...update,progress:(name,state,detail)=>{
@@ -299,6 +316,8 @@ export const OPS: Record<string, OpDef> = {
     params: z.object({
       kind: z.enum(clients.CLIENT_KINDS), version: z.string().min(1),
       notifier: z.boolean().optional(), capture: z.boolean().optional(),
+      notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(),
+      notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional(),
     }).refine(p => !p.capture || p.kind === "desktop", { path: ["capture"], message: "Only desktop clients can enroll a capture worker" }),
     handler: (ctx, { capture, ...options }) => {
       const registration = clients.register(ctx, options);
@@ -307,7 +326,7 @@ export const OPS: Record<string, OpDef> = {
         : registration;
     },
   }),
-  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p.notifier) }),
+  "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional(), notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(), notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
   "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),
@@ -329,6 +348,10 @@ export const OPS: Record<string, OpDef> = {
   "executor.setup.candidates": op({ description: "OpenCode providers, local model servers and catalog providers that can become executors; no secrets.", params: z.object({}), handler: (ctx, _p, deps) => opencodeSetup.setupCandidates(ctx, deps.endpoint) }),
   "executor.setup.models": op({ description: "Usable models for one setup candidate, with a recommended pick and usage type.", params: z.object({provider: z.string().min(1), group: setupGroup, base_url: endpointFields.base_url.optional()}), handler: (ctx, p, deps) => opencodeSetup.setupModels(ctx, p, deps.endpoint) }),
   "executor.setup.connect": op({ description: "Connect a catalog provider through OpenCode, which stores the key (never pacer). This release runs nothing and returns the opencode auth login command to run in a terminal; an optional key is accepted for later releases and never used or stored.", params: z.object({provider: opencodeProvider, key: z.string().min(1).optional()}), handler: (ctx, p) => endpointAction(p.key, () => opencodeSetup.connectWithKey(ctx, p.provider)) }),
+  "executor.models.available": op({ description: "Models an executor can use, from its provider's live listing; models is null when the listing is unknown.", params: z.object({runner: id, refresh: z.boolean().optional()}), handler: (ctx, p, deps) => {
+    if (!loadStrategy(ctx).runners[p.runner]) throw new CoreError("invalid_input", `unknown runner ${p.runner}`);
+    return availableModels(ctx, p.runner, {refresh: p.refresh, deps: deps.endpoint});
+  } }),
   "account.models": op({ description: "Discover endpoint models using a supplied or stored key.", params: z.object({name: id.optional(), base_url: endpointFields.base_url.optional(), key: z.string().optional()}), handler: (ctx, p, deps) => endpointAction(p.key, () => endpoints.listModels(ctx, p, deps.endpoint)) }),
   "account.edit": op({ description: "Edit a managed endpoint and regenerate its OpenCode provider.", params: endpointEdit, handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(p.key, () => endpoints.editEndpoint(ctx, p, deps.endpoint))) }),
   "account.test": op({ description: "Run an endpoint test task in an isolated temporary git repository.", params: z.object({name: id}), handler: (ctx, p, deps) => mutation(ctx, "accounts", () => endpointAction(undefined, () => endpoints.testEndpoint(ctx, p.name, deps.endpoint))) }),
@@ -341,6 +364,9 @@ export const OPS: Record<string, OpDef> = {
   "runner.check": op({description: "Check executor CLI, sign-in, usage and a scratch test task.", params: z.object({id}), handler: (ctx, p, deps) => checkRunner(ctx, p.id, deps.runnerCheck)}),
   "runner.settings.get": op({description:"Read editable executor settings and an opaque revision.",params:z.object({}),handler:ctx=>executorSettings.readExecutorSettings(ctx)}),
   "runner.settings.save": op({description:"Atomically save executor order, enabled states and parallel limits against the expected revision.",params:z.object({expectedRevision:z.string().min(1),order:z.array(id),runners:z.array(z.object({id,enabled:z.boolean(),maxTasks:z.number().int().min(1).max(16)}))}),handler:(ctx,p)=>mutation(ctx,"runners",()=>executorSettings.saveExecutorSettings(ctx,p))}),
+  "runner.models.get": op({description:"Read an executor's default and allowed models with tiers, against the strategy revision.",params:z.object({id}),handler:(ctx,p)=>runnerModels.readRunnerModels(ctx,p.id)}),
+  "runner.models.set": op({description:"Atomically save an executor's default and allowed tiered models against the expected revision; every id is checked against the live listing when one is known.",params:z.object({id,expectedRevision:z.string().min(1),default:z.string().min(1),models:modelDeclarationSchema.array().max(256)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModels(ctx,p))}),
+  "runner.models.set_many": op({description:"Validate every executor like runner.models.set, then commit all defaults and tiered models in one revision-checked edit; a failed runner writes nothing.",params:z.object({expectedRevision:z.string().min(1),runners:z.array(z.object({id,default:z.string().min(1),models:modelDeclarationSchema.array().max(256)})).min(1).max(64)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnerModels.saveRunnerModelsMany(ctx,p))}),
   "runner.set": op({description:"Edit an executor's settings and rank.",params:z.object({id,enabled:z.boolean().optional(),model:z.string().min(1).nullable().optional(),max_tasks:z.number().int().positive().optional(),rank:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.set(ctx,p.id,p))}),
   "runner.reorder": op({description:"Replace executor priority order.",params:z.object({ids:z.array(id)}),handler:(ctx,p)=>mutation(ctx,"runners",()=>runnersConfig.reorder(ctx,p.ids))}),
   "runner.remove": op({ description: "Remove a runner and its routing and pacing order references.", params: z.object({id:id.refine(value=>!!parseRunnerId(value),"invalid runner id")}), handler: (ctx, p) => mutation(ctx, "runners", async () => { const {migrated} = await runnersConfig.remove(ctx, p.id); return {removed: true, ...(migrated ? {migrated} : {})}; }) }),
@@ -362,8 +388,17 @@ export const OPS: Record<string, OpDef> = {
     return { ...base, ...configHostParts(ctx) };
   } }),
   "config.set": op({ description: "Change a setting with validation, rollback and an undo command; planner requires an integration choice.", params: z.object({ key: z.enum(config.CONFIG_KEYS), value: z.union([z.string(), z.number(), z.boolean(), z.array(z.string())]), integrations: z.enum(["install", "skip"]).optional() }), handler: async (ctx, p, deps) => { const {notes, ...result} = await config.set(ctx, p.key, p.value, {...p, terminalPresetsOnly: deps.terminalPresetsOnly, backendReady: async (...a) => (await import("../exec/backend")).backendAvailable(...a)}); return result; } }),
-  "notifications.get": op({ description: "Current notification level.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
-  "notifications.set": op({ description: "Set notifications to off, important or all.", params: z.object({level}), handler: (ctx, p) => mutation(ctx, "config", () => notify.setLevel(ctx, p.level)) }),
+  "notifications.get": op({ description: "Current notification level and sound.", params: z.object({}), handler: ctx => notify.getLevel(ctx) }),
+  "notifications.set": op({ description: "Set notification level (off, important, all) and/or sound (pacer, default, off or a built-in macOS sound); only present fields are written.", params: z.object({level: level.optional(), sound: sound.optional()}).refine(p => p.level !== undefined || p.sound !== undefined, "provide level or sound"), handler: (ctx, p) => mutation(ctx, "config", () => notify.setNotifications(ctx, {level: p.level, sound: p.sound})) }),
+  "notifications.test": op({ description: "Send a test notification to the OS presenter.", params: z.object({}), handler: (ctx, _p, _deps) => notificationHealth.testNotification(ctx) }),
+  "notifications.ack": op({ description: "Acknowledge a notification delivery outcome (desktop clients only).", params: z.object({ client_id: id, key: z.string().min(1).max(512), delivered: z.boolean(), error: z.string().max(512).nullable().optional() }), handler: async (ctx, p, _deps) => {
+    const entry = clients.list(ctx).find(c => c.client_id === p.client_id);
+    if (!entry || entry.kind !== "desktop") throw new CoreError("not_allowed", "notifications.ack requires a live desktop client");
+    return notificationHealth.ackNotification(ctx, p.client_id, p.key, p.delivered, p.error);
+  } }),
+  "notifications.request": op({ description: "Request notification permission from the live desktop and wait up to wait_s seconds (default 20, max 25) for the macOS answer.", params: z.object({ wait_s: z.number().int().min(0).max(25).optional() }), handler: (ctx, p, _deps) => notificationHealth.requestAuthorization(ctx, { wait_s: p.wait_s }) }),
+  "notifications.health": op({ description: "Cheap read of the notification check without running the full doctor.", params: z.object({}), handler: (ctx, _p, _deps) => notificationsCheck(ctx) }),
+  "setup.skip": op({ description: "Skip an optional setup step.", params: z.object({ step: z.literal("notifications") }), handler: (ctx, _p, _deps) => mutation(ctx, "config", () => setup.skipNotificationSetup(ctx)) }),
   "machine.get": op({ description: "This machine's identity: id, name, revision and whether the home looks copied. After a rotation it adds rotatedFrom (the previous id) and rotationSignature (the old key's signed rotation statement, base64).", params: z.object({}),
     handler: async ctx => { const m = await import("../identity"); return m.machineView(await m.ensureIdentity(ctx), await m.cloneSuspected(ctx)); } }),
   "machine.set": op({ description: "Rename this machine against the expected revision. Names are display-only.", params: z.object({ name: z.string().min(1).max(256), expect_rev: z.number().int().positive().safe() }),
@@ -386,7 +421,7 @@ export const OPS: Record<string, OpDef> = {
   }),
   "setup.check": op({ description: "Read the setup checklist and outstanding steps.", params: z.object({}), handler: (ctx, _p, deps) => setup.check(ctx, {snapshotProbe:deps.snapshotProbe}) }),
   "setup.init": op({ description: "Create a missing strategy and select a planner without connecting agents.", params: z.object({planner: id}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.init(ctx, p.planner)) }),
-  "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent)) }),
+  "service.install": op({ description: "Run pacer in the background at login to keep budgets fresh and run delegated tasks, after explicit consent.", params: z.object({consent: z.literal(true)}), handler: (ctx, p, deps) => mutation(ctx, "setup", () => setup.serviceInstall(ctx, p.consent, deps.service)) }),
   "onboarding.try": op({ description: "Start a tiny docs delegation in a scratch git repository; returns task_id, executor and repo.", params: z.object({}), handler: (ctx, _p, deps) => mutation(ctx, "setup", () => setup.onboardingTry(ctx, {route: deps.onboardingRoute, delegate: deps.delegate, spawnRunner: deps.spawnRunner})) }),
   "onboarding.skip": op({ description: "Skip the first delegation and record the onboarding choice.", params: z.object({}), handler: ctx => mutation(ctx, "setup", () => setup.onboardingSkip(ctx)) }),
   "service.status": op({ description: "Whether the login service is installed and running, with its process id when known.", params: z.object({}), handler: ctx => setup.serviceStatus(ctx) }),
@@ -421,10 +456,11 @@ export const OPS: Record<string, OpDef> = {
   "task.list": op({ description: "Recent tasks, newest first, always returned as a cursor page.", params: z.object({
     all:z.boolean().optional(), limit:z.number().int().min(1).max(200).optional(), before:id.optional(), repo:z.string().min(1).optional(),
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
+    q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
-    const limit=p.limit??20, rows=core.tasks.list(ctx,{...p,limit:limit+1});
+    const limit=p.limit??20, {q,...rest}=p, rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+1});
     const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
-    if([p.before,p.repo,p.states,p.executor,p.since].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
   "task.delegate": op({
@@ -440,7 +476,7 @@ export const OPS: Record<string, OpDef> = {
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
-      return summarizeTask(result);
+      return {...summarizeTask(result), ...(result.difficultySource === "unspecified" ? {warnings: [difficultyWarning()]} : {})};
     },
   }),
   "task.wait": op({ description: "Block until the task settles or timeout_s passes.", params: z.object({ id, timeout_s: z.number().int().min(1).max(3000).optional() }), handler: async (ctx, p) => summarizeTask(await core.tasks.wait(ctx, p.id, p.timeout_s ?? 600)) }),
@@ -560,6 +596,8 @@ export const OPS: Record<string, OpDef> = {
   "limits.report": op({ description: "Mark a provider's account exhausted until unix seconds or its cooldown.", params: z.object({ provider: id, until: z.number().optional() }), handler: (ctx, p) => core.limits.report(ctx, p.provider, p.until) }),
   "routing.status": op({ description: "Current budget and routing status.", params: z.object({}), handler: (ctx) => core.routing.status(ctx) }),
   "dispatch.config.get": op({description:"Read the active planner and effective dispatcher configuration, including built-in defaults.",params:z.object({}),handler:ctx=>{const current=loadStrategy(ctx);return {strategy:current.name,planner:current.planner.agent,plannerAccount:current.planner.account,source:current.dispatch?"strategy":"built-in",config:current.dispatch??dispatchConfigSchema.parse({})};}}),
+  "dispatch.tierTargets.get": op({description:"Read the active tier targets against the strategy revision; built-in defaults when the setup saves none.",params:z.object({}),handler:ctx=>tierTargets.readTierTargets(ctx)}),
+  "dispatch.tierTargets.set": op({description:"Save tier targets in the active setup against the expected revision; refuses a decreasing mapping.",params:z.object({expectedRevision:z.string().min(1),targets:tierTargetsSchema}),handler:(ctx,p)=>mutation(ctx,"strategy",()=>tierTargets.saveTierTargets(ctx,p))}),
   "dispatch.enforcement": op({description:"Read native subagent control certification and exclusion reasons for a repository.",params:z.object({repo:z.string().min(1).max(4096)}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);return enforcementDiagnostics(ctx,loadStrategy(ctx),repo.path);}}),
   "dispatch.enforcement.probe": op({description:"Start a quota-using native subagent control canary for one local executor and repository.",params:z.object({repo:z.string().min(1).max(4096),runner:id}),handler:async(ctx,p)=>{const repo=await resolvePolicyRepoInput(ctx,p.repo);const chosen=loadStrategy(ctx);const job=await startJob(ctx,"enforcement.probe",`${p.runner}:${repo.path}`,["Probe native child control"],async step=>{step.start("Probe native child control");const result=await probeNativeControl({...ctx,now:Date.now()/1000},chosen,p.runner,repo.path);if(result.state!=="certified")throw new CoreError("not_allowed",result.reason??"Native child blocking was not observed");step.pass("Probe native child control","Native child blocking verified");});return{job};}}),
   "dispatch.enforcement.consent": op({description:"Grant or decline consent for scheduled certification probes on an account. Probes spend the account's own quota to certify its enforcement guard.",params:z.object({account:id,granted:z.boolean()}),handler:async(ctx,p)=>({account:p.account,consent:await recordConsent(ctx,p.account,p.granted)})}),
@@ -583,7 +621,7 @@ export const OPS: Record<string, OpDef> = {
   "issue.import": op({ description: "Read one GitHub issue (title, body, labels, URL, state) of a registered repository through the user's gh login, as capped plain text for a new task. The GitHub repository comes from the checkout's origin remote. Writes nothing.", params: issueImportParams, handler: (ctx, p, deps) => importIssue(ctx, p, { gh: deps.gh }) }),
   "issue.search": op({ description: "Search a registered repository's GitHub issues for a picker (number, title, labels, URL, state) through the user's gh login. Writes nothing.", params: issueSearchParams, handler: (ctx, p, deps) => searchIssues(ctx, p, { gh: deps.gh }) }),
   "dispatch.submit": op({ description: "Submit a root work item to the dispatcher.", params: z.object({goal:z.string().min(1).max(20000),repo:z.string().min(1).max(4096),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id.optional(),options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await submitWork(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
-  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
+  "dispatch.child": op({ description: "Delegate a scoped child work item using the current attempt's grant and an idempotency key.", params: z.object({goal:z.string().min(1).max(20000),title:z.string().max(500).optional(),kind:id.optional(),acceptance:z.string().max(20000).optional(),acceptance_timeout_min:z.number().int().min(1).max(120).optional(),context:z.string().max(20000).optional(),constraints:z.string().max(20000).optional(),executor:id.optional(),difficulty:delegateSchema.difficulty,model:delegateSchema.model,requestId:id,options:workOptionsSchema.partial().optional()}),handler:async(ctx,p,deps)=>{const {acceptance_timeout_min,...input}=p;return summarizeTask(await delegateChild(ctx,{...input,acceptanceTimeoutMin:acceptance_timeout_min},deps.spawnRunner??spawnRunner));} }),
   "dispatch.tree": op({ description: "Scoped nested work tree, selected decisions, dependencies and aggregate execution time.", params:z.object({id}),handler:(ctx,p)=>scopedWorkTree(ctx,p.id) }),
   "dispatch.list": op({ description: "Page through work roots or children, optionally filtered by repository and state.", params:z.object({relation:z.enum(["roots","children","all"]).optional(),state:z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"]).optional(),repo:z.string().min(1).optional(),before:id.optional(),limit:z.number().int().min(1).max(100).optional()}),handler:(ctx,p)=>listWork(ctx,p) }),
   "dispatch.events": op({ description: "Scoped work timeline after a monotonic cursor.", params:z.object({id,after:z.number().int().nonnegative().optional()}),handler:(ctx,p)=>scopedWorkEvents(ctx,p.id,p.after??0) }),
@@ -625,7 +663,9 @@ export const OPS: Record<string, OpDef> = {
   "plugin.settings.set": op({ description: "Validate and save a plugin's settings against its manifest schema. A stale expect_rev returns conflict; invalid values return invalid_input with field errors in data.", params: z.object({ plugin: pluginId, values: z.record(z.string(), z.json()), expect_rev: z.number().int().nonnegative() }), handler: (ctx, p) => mutation(ctx, "plugins", () => plugins.settingsSet(ctx, p)) }),
   "update.check": op({ description: "Check the release version, optionally bypassing the cached update check. `plugin` is always null since the Orca plugin was removed.", params: z.object({force: z.boolean().optional()}), handler: (ctx, p) => mutation(ctx, "update", async () => {
     const check = await checkForUpdate(ctx, {force: p.force});
-    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {})};
+    const manager = updateManager(ctx, defaultUpdateDeps(ctx));
+    return {current: currentVersion(), latest: check?.latest ?? null, available: updateAvailable(check), plugin: null, ...(check?.error ? {error: check.error} : {}), ...(!check ? {disabled: true} : {}),
+      ...(manager ? {managedBy: manager.by, managedHint: manager.message} : {})};
   }) }),
   "update.apply": op({ description: "Apply pacer update as a shared job; package-manager and source installs are refused.", params: z.object({}), handler: (ctx, _p, deps) => applyUpdate(ctx, deps) }),
 };

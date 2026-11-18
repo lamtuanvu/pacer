@@ -20,15 +20,16 @@ export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
 import { PairingView } from "./Pairing";
-import { UpdatesSection } from "./Updates";
+import { UpdatesSection, type UpdateReport } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
+import { LazyModelMatrix } from "./LazyModelMatrix";
 
 import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
-import { settingsPageId } from "../../settings-pages";
+import { settingsPageId, settingsPageTitle } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
-import { Page, Stack } from "../../ds/Page";
+import { Cluster, Page, Stack } from "../../ds/Page";
 import { Card } from "../../ds/Patterns";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { modeWords, toneFor } from "../../../../src/view-model/words";
@@ -44,6 +45,7 @@ import {
   TextInput,
 } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
+import { notificationSoundOptions } from "../../../../src/view-model/notification-sounds";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
@@ -68,13 +70,15 @@ import { Pill } from "../../ds/Pill";
 import { AgentMark } from "../../ds/AgentMark";
 import { Button, ButtonLink, TextAction } from "../../ds/Button";
 import { platform } from "../../platform";
+import { openRemedyUrl } from "../../data/remedies";
 import { browserNotificationPermission, requestBrowserNotificationPermission, showBrowserNotificationOffer, type BrowserPermission } from "../../data/service-notifier";
 import { arkcliRefreshMessage, arkcliSignInRequired, type Account } from "../../model/accounts";
 import type { ConfigData, StrategyRow } from "../../model/strategy";
 import type { RoutingRules } from "../../model/executors";
 import type { AgentPreview } from "../../model/settings";
 import { consentAction, plannerAgent } from "../../model/settings";
-import { Dialog, useTaskContext } from "../task-shared";
+import { Dialog, ErrorMessage, useTaskContext } from "../task-shared";
+import type { BrowserApi } from "../../data/api";
 import {
   Feedback,
   Field,
@@ -97,15 +101,8 @@ export interface SettingsData {
   accounts?: Account[];
   routing?: RoutingRules;
   strategies?: StrategyRow[];
-  notifications?: { level: string };
-  updates?: {
-    current: string;
-    latest: string | null;
-    available: boolean;
-    error?: string;
-    disabled?: boolean;
-    checkedAt?: number;
-  };
+  notifications?: { level: string; sound: string };
+  updates?: UpdateReport;
 }
 /** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
 export function settingsNote(section: string | undefined): string | null {
@@ -152,6 +149,9 @@ export function SettingsGeneral({
     case "dispatcher":
       content = <LazyDispatcher query={query} />;
       break;
+    case "models":
+      content = <LazyModelMatrix />;
+      break;
     case "app":
     case "updates":
     case "notifications":
@@ -176,6 +176,7 @@ export function SettingsGeneral({
         <SettingsQueryContext.Provider value={query}>
         {section === "dispatcher" && <PageHead><h1>Dispatcher</h1></PageHead>}
         {section === "assistant" && <PageHead><header className="pc-settings-board__header"><h1>Assistant</h1><p>Ask questions about your tasks, dispatch and budgets from anywhere in the app. Choose where your questions are sent. Until then, the assistant button opens setup.</p></header></PageHead>}
+        {section === "models" && <PageHead><header className="pc-settings-board__header"><h1>{settingsPageTitle("models")}</h1><nav className="pc-model-matrix__back"><TextAction href="#/settings/dispatcher">Back to Dispatcher</TextAction></nav></header></PageHead>}
         <Page width="full" className="u3-settings u3-settings-page">
           <div className="u3-general-sections">{content}</div>
           {note && <p className="u3-settings-note">{note}</p>}
@@ -435,12 +436,21 @@ function PlannerConsent({
     </Dialog>
   );
 }
-function NotificationsSection({
+const SOUND_OPTIONS = notificationSoundOptions();
+export function NotificationsSection({
   initialData,
 }: {
-  initialData?: { level: string };
+  initialData?: { level: string; sound: string };
 }) {
+  const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
+  const health = useResource<NotificationCheck | undefined>("notifications.health", {});
+  const check = health.data;
+  const caption = notificationCaption(check);
+  const remedy = check?.remedy;
+  // On macOS, Send test sits beside the sound picker; a permission remedy stays
+  // with the Desktop banners status it fixes.
+  const testBesidePicker = platform.macos && check?.level === "ok" && !remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -458,10 +468,151 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
+        {platform.macos && (
+          <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
+            <Cluster>
+              <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <ChoicePicker
+                aria-label="Notification sound"
+                value={value}
+                disabled={busy}
+                options={SOUND_OPTIONS}
+                onValueChange={change}
+              />}</ImmediateSetting>
+              {testBesidePicker && <BannerAction api={api} reload={health.reload} level="ok" />}
+            </Cluster>
+          </SettingRow>
+        )}
+        {platform.desktop && (
+          <ResourceState resource={health}>
+            <DesktopBanners
+              reload={health.reload}
+              level={check?.level}
+              caption={caption}
+              remedy={remedy}
+              api={api}
+              action={!testBesidePicker}
+            />
+          </ResourceState>
+        )}
         <BrowserNotificationOffer level={query.data?.level ?? ""} />
       </ResourceState>
     </section>
   );
+}
+
+interface NotificationCheck {
+  level: string;
+  detail: string;
+  tested_at?: number;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string; caption?: string };
+}
+
+export function DesktopBanners({
+  api,
+  reload,
+  level,
+  caption,
+  remedy,
+  refetchDelay = 3000,
+  action = true,
+}: {
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
+  caption: string;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
+  /** After Send test, caption refresh; injectable so tests avoid real waits. */
+  refetchDelay?: number;
+  /** False when Send test sits beside the macOS sound picker instead, so it is offered once. */
+  action?: boolean;
+}) {
+  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+    {action ? <BannerAction api={api} reload={reload} level={level} remedy={remedy} refetchDelay={refetchDelay} /> : null}
+  </SettingRow>;
+}
+
+/**
+ * The banner check's one action: its remedy when banners are not allowed, or
+ * Send test (a real banner with the chosen sound) when the check is ok. Each
+ * action refetches the health read so the Desktop banners caption follows.
+ */
+export function BannerAction({
+  api,
+  reload,
+  level,
+  remedy,
+  refetchDelay = 3000,
+}: {
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
+  refetchDelay?: number;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [callError, setCallError] = useState<unknown>();
+  const [progress, setProgress] = useState<string>();
+  const refetchTimer = useRef<number>();
+  useEffect(() => () => { if (refetchTimer.current) window.clearTimeout(refetchTimer.current); }, []);
+  /** Run one action, refetch the health read so the caption follows, and keep focus on the button while in flight. */
+  const run = async (action: () => void | Promise<void>, progressText?: string) => {
+    if (busy) return;
+    setBusy(true); setCallError(undefined); setProgress(progressText);
+    try {
+      await action();
+      reload();
+    } catch (failure) {
+      setCallError(failure);
+    } finally {
+      setBusy(false); setProgress(undefined);
+    }
+  };
+  // "Send test" is offered only when the check is ok; every other state shows the caption only.
+  const showSend = level === "ok";
+  return <>
+    {remedy ? (
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
+        if (remedy.url) await openRemedyUrl(remedy.url, platform);
+        else if (remedy.op) await api.call(remedy.op, remedy.params ?? {});
+      }, remedy.op === "notifications.request" ? "Answer the macOS prompt…" : undefined)}>{remedy.label}</Button>
+    ) : showSend ? (
+      <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
+        await api.call("notifications.test", {});
+        // The ack arrives a few seconds later; refetch once more so the caption reads "test delivered".
+        // The timer is cleared on unmount so a leaving row never refetches behind it.
+        if (refetchTimer.current) window.clearTimeout(refetchTimer.current);
+        const timer = window.setTimeout(reload, refetchDelay);
+        refetchTimer.current = timer;
+      }, "Sending test banner…")}>Send test</Button>
+    ) : null}
+    {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
+    {callError && <ErrorMessage error={callError}/>}
+  </>;
+}
+
+export function notificationCaption(
+  check: NotificationCheck | undefined,
+  now = Date.now(),
+): string {
+  if (!check) return "Checking…";
+  const { level, detail, remedy } = check;
+  if (level === "warn" || level === "fail") {
+    if (remedy?.op === "notifications.request") return "Not asked yet";
+    if (remedy?.url?.startsWith("x-apple.systempreferences:com.apple.Notifications-Settings")) {
+      if (remedy?.caption?.startsWith("Turn on Allow")) return "Blocked in System Settings";
+      return "Notifications arrive quietly, without banners";
+    }
+    if (remedy?.op === "notifications.test") {
+      if (/^The banner was rejected/i.test(detail ?? "")) return detail ?? "";
+      return "The desktop didn't confirm the test notification";
+    }
+    return detail ?? "";
+  }
+  if (level === "info") return detail ?? "";
+  // ok: format the structured tested_at with the shared relative-time helper (no regex on detail).
+  if (check.tested_at != null) return `Allowed · test delivered ${ago(check.tested_at, now / 1000)}`;
+  if (/not tested/i.test(detail ?? "")) return "Allowed · not tested yet";
+  return (detail ?? "").replace(/^Banners allowed/i, "Allowed");
 }
 function BrowserNotificationOffer({ level }: { level: string }) {
   const [permission, setPermission] = useState<BrowserPermission>(browserNotificationPermission);

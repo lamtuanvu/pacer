@@ -35,6 +35,35 @@ export function taskJsonScanCount(): number { return jsonScanCount; }
 const columns = "id, rev, state, created_at, updated_at, settled_at, repo, record, archived";
 const placeholders = "?, ?, ?, ?, ?, ?, ?, ?, ?";
 
+const snapshotUpdatedAt = `MAX(created_at,
+    COALESCE(json_extract(record,'$.attempts[#-1].startedAt'),0),
+    COALESCE(json_extract(record,'$.attempts[#-1].endedAt'),0),
+    COALESCE(json_extract(record,'$.attemptStartedAt'),0),
+    COALESCE(json_extract(record,'$.reviewRequest.at'),0),
+    COALESCE(json_extract(record,'$.stopPending.requestedAt'),0),
+    COALESCE(json_extract(record,'$.question.at'),0),
+    COALESCE(json_extract(record,'$.question.answeredAt'),0))`;
+
+// Expressions are shared by the indexes and predicates: SQLite requires an exact
+// expression match. JSON null is an answered question; only a missing answer waits.
+const visibleStateSql = `CASE WHEN state = 'running'
+  AND json_extract(record, '$.question') IS NOT NULL
+  AND json_type(record, '$.question.answer') IS NULL
+  THEN 'needs_input' ELSE state END`;
+// A stored needs_input still needs the user only while its question is unanswered
+// (answer null), it was not superseded by a retry, and it is not dismissed.
+// Matches `awaitsAnswer` (types.ts) and the Rust `awaits_answer`. The leading
+// `state = 'needs_input'` lets a caller keep this indexed via tasks_state.
+const awaitsAnswerSql = `state = 'needs_input'
+  AND json_type(record, '$.question.answer') IS NULL
+  AND json_extract(record, '$.retriedBy') IS NULL
+  AND NOT COALESCE(json_extract(record, '$.dismissed'), 0)`;
+const executorSql = `COALESCE(json_extract(record, '$.result.executor'),
+  json_extract(record, '$.executor'), json_extract(record, '$.attempts[#-1].executor'),
+  json_extract(record, '$.requestedExecutor'))`;
+const repoKeySql = "json_extract(record, '$.repo.key')";
+const legacyRepoSql = "json_extract(record, '$.repo') IS NULL";
+
 // A corrupted or adversarial record can hold a non-number where a timestamp is expected
 // (for example `review` set to a string, which has its own `.at` method). `Math.max`
 // coerces such a value with `Number()` instead of treating it as absent, which can yield
@@ -178,8 +207,10 @@ function schemaReady(db: Database): boolean {
   if (!["json_mtime", "archived"].every(name => fields.some(field => field.name === name))) return false;
   const objects = new Set(db.query<{ name: string }, []>(
     "SELECT name FROM sqlite_master WHERE type IN ('index', 'table', 'trigger')").all().map(row => row.name));
-  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "task_first_settle",
-    "task_changes", "task_changes_insert", "task_changes_update"]
+  return ["tasks_state", "tasks_updated_at", "tasks_created_at", "tasks_retention", "tasks_snapshot_window", "tasks_live", "task_first_settle",
+    "task_changes", "task_changes_insert", "task_changes_update",
+    "pump_seen", "pump_state", "pump_cursor", "pump_session", "pump_reconcile",
+    "tasks_list_state", "tasks_list_executor", "tasks_list_repo", "tasks_list_legacy_repo", "tasks_capacity_failures", "tasks_native_unarchived_id"]
     .every(name => objects.has(name));
 }
 
@@ -226,6 +257,25 @@ function connection(ctx: Ctx) {
       if (!fields.some(field => field.name === "json_mtime")) db.run("ALTER TABLE tasks ADD COLUMN json_mtime REAL");
       if (!fields.some(field => field.name === "archived")) db.run("ALTER TABLE tasks ADD COLUMN archived INTEGER NOT NULL DEFAULT 0");
       db.run("CREATE INDEX IF NOT EXISTS tasks_retention ON tasks(archived, settled_at)");
+      db.run("CREATE INDEX IF NOT EXISTS tasks_native_unarchived_id ON tasks(id DESC) WHERE archived=0");
+      // Index the exact snapshot event time once. All writers maintain expression
+      // indexes, including older binaries and the Rust store; steady passes seek
+      // the recent window instead of parsing historical records to sort them.
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_snapshot_window
+        ON tasks(${snapshotUpdatedAt} DESC, id DESC)
+        WHERE archived=0 AND COALESCE(json_extract(record,'$.dismissed'),0)=0`);
+      // Failed retry candidates use the API event timestamp, not the write timestamp.
+      // Include dismissed failures: dismissal does not clear executor failure evidence.
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_capacity_failures
+        ON tasks(${snapshotUpdatedAt}) WHERE archived=0 AND state='failed'`);
+      // The pump checks live membership every 500ms. Keep this selection bounded
+      // by live records; an id-order scan would parse all settled JSON each time.
+      db.run("CREATE INDEX IF NOT EXISTS tasks_live ON tasks(id DESC) WHERE json_extract(record, '$.live') IS NOT NULL");
+
+      db.run(`CREATE INDEX IF NOT EXISTS tasks_list_state ON tasks((${visibleStateSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_executor ON tasks((${executorSql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_repo ON tasks((${repoKeySql}), id DESC);
+        CREATE INDEX IF NOT EXISTS tasks_list_legacy_repo ON tasks(repo, id DESC) WHERE ${legacyRepoSql};`);
       // settledAt is overwritten when a task settles again; Insights counts a task once, at its first settle.
       db.run("CREATE TABLE IF NOT EXISTS task_first_settle(task_id TEXT PRIMARY KEY, at REAL NOT NULL)");
       // Shared change log, filled by triggers so every writer (any runtime, any
@@ -237,6 +287,14 @@ function connection(ctx: Ctx) {
         CREATE TRIGGER IF NOT EXISTS task_changes_update AFTER UPDATE ON tasks
           WHEN NEW.rev IS NOT OLD.rev OR NEW.state IS NOT OLD.state OR NEW.archived IS NOT OLD.archived BEGIN
           INSERT INTO task_changes(task_id,rev,state,at) VALUES(NEW.id,COALESCE(NEW.rev,0),COALESCE(NEW.state,''),COALESCE(NEW.updated_at,NEW.created_at,0)); END;`);
+      // Pump ledgers (src/link/ledger.ts): per-task published state and the change-log
+      // cursor, read and written only for the tasks a tick touches instead of rewriting
+      // whole JSON files (link/task-data-seen.json, task-states.json, task-events-at.json).
+      db.run(`CREATE TABLE IF NOT EXISTS pump_seen(task_id TEXT PRIMARY KEY, data TEXT NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_state(task_id TEXT PRIMARY KEY, state TEXT NOT NULL, event_at REAL);
+        CREATE TABLE IF NOT EXISTS pump_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER NOT NULL);
+        CREATE TABLE IF NOT EXISTS pump_session(task_id TEXT PRIMARY KEY);
+        CREATE TABLE IF NOT EXISTS pump_reconcile(id INTEGER PRIMARY KEY CHECK(id=1), at REAL NOT NULL);`);
     }).immediate();
   } catch (error) { db.close(); throw error; }
   for (const [key, entry] of connections) {
@@ -265,6 +323,26 @@ export function taskStoreVersion(ctx: Ctx): string {
   const external = db.query<{ data_version: number }, []>("PRAGMA data_version").get()!.data_version;
   const local = db.query<{ changes: number }, []>("SELECT total_changes() AS changes").get()!.changes;
   return `${generation}:${external}:${local}`;
+}
+
+/** JS review truthiness for canonical JSON emitted by supported task writers.
+ * Only the scalar crosses into JS. The existing unarchived index permits early
+ * exit, but negative/late matches still scan unarchived record JSON in SQLite.
+ * Raw duplicate keys/JSON5 are not part of the canonical writer contract. */
+export function hasReviewedTask(ctx: Ctx): boolean {
+  const { db } = connection(ctx);
+  return db.query<{ reviewed: number }, []>(`SELECT EXISTS(
+    SELECT 1 FROM tasks INDEXED BY tasks_native_unarchived_id
+    WHERE archived=0 AND CASE json_type(record,'$.review')
+      WHEN 'true' THEN 1
+      WHEN 'object' THEN 1
+      WHEN 'array' THEN 1
+      WHEN 'text' THEN length(CAST(json_extract(record,'$.review') AS BLOB))>0
+      WHEN 'integer' THEN json_extract(record,'$.review')<>0
+      WHEN 'real' THEN json_extract(record,'$.review')<>0
+      ELSE 0
+    END
+  ) AS reviewed`).get()!.reviewed !== 0;
 }
 
 /** Service-owned extensions share the task transaction for claims and creation. */
@@ -327,11 +405,15 @@ export function withTaskLock<T>(ctx: Ctx, id: string, action: () => T): T {
   if (heldTaskLocks.has(key)) return action();
   // An asynchronous preparer must be able to settle on this event loop.
   if (preparingTaskLocks.has(key)) throw new CoreError("conflict", "Task admission is being prepared; retry the change");
+  // Request mutations must return promptly across isolates too. Internal/offline
+  // synchronous callers retain the established bounded wait: after an external
+  // effect, a busy lock is not permission to discard its completion or rollback.
+  // Async completion paths use withTaskLockAsync to keep their event loop free.
   return withLockSync(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
-  });
+  }, ctx.operation ? { timeoutMs: 0, conflict: true } : {});
 }
 
 /** Wait for the operation lock asynchronously, then perform a short synchronous
@@ -341,7 +423,8 @@ export function withTaskLockAsync<T>(ctx: Ctx, id: string, action: () => T): Pro
   assertPacerHomeAllowed(ctx.pacerHome);
   if (!isTaskId(id)) return Promise.resolve().then(action);
   const key = resolve(ctx.pacerHome, "tasks", id);
-  return withLock(ctx, `task-${id}`, async () => {
+  // Synchronous, so the lock is released before yielding; withTaskLock takes the same lock with withLockSync.
+  return withLock(ctx, `task-${id}`, () => {
     heldTaskLocks.add(key);
     try { return action(); }
     finally { heldTaskLocks.delete(key); }
@@ -416,24 +499,270 @@ function markImported(entry: Connection, task: TaskRecord, signature: string): v
   if (!task.archived && !entry.db.inTransaction) entry.imported.set(`${task.id}.json`, signature);
 }
 
-export interface TaskFilter { states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number }
+/** Only records that can affect executor slots or recent-failure presentation.
+ * Keep the exact event-time expression shared with the snapshot index. No limit:
+ * every running task and every recent failure contributes to capacity semantics.
+ * Callers still apply visible state (an unanswered question is not running).
+ */
+export function capacityTaskRecords(ctx: Ctx): TaskRecord[] {
+  return connection(ctx).db.query<{ record: string }, [number]>(`
+    SELECT record FROM tasks INDEXED BY tasks_state WHERE archived=0 AND state='running'
+    UNION ALL
+    SELECT record FROM tasks INDEXED BY tasks_capacity_failures
+      WHERE archived=0 AND state='failed' AND ${snapshotUpdatedAt} >= ?
+  `).all(ctx.now - 86400).map(row => JSON.parse(row.record) as TaskRecord);
+}
 
-/** Indexed filters, combined with AND. Newest id first, matching the file store. */
+export interface TaskFilter {
+  states?: readonly TaskState[]; updatedSince?: number; settledBefore?: number; all?: boolean; before?: string; limit?: number;
+  createdSince?: number;
+  /** Also select stored needs_input tasks the user still must answer (never aged out),
+   *  via `awaitsAnswerSql`. Keeps `tasks_state` as the driver index. */
+  awaitingAnswer?: boolean;
+  visibleStates?: readonly TaskState[];
+  executor?: string;
+  repoKey?: string;
+  legacyRepoPaths?: readonly string[];
+  /** Free-text search: every space-separated word must appear, case-insensitively,
+   * in the task id (including its short suffix), title or goal. Folding is ASCII-only
+   * in SQL (SQLite's lower()) and per-character Unicode lowercase on decoded records;
+   * a word shaped like a task-id prefix (for example the full id or a date prefix
+   * `t-2026`) is matched by the id prefix range instead, and is not searched in
+   * titles or goals. */
+  query?: string;
+}
+
+/** Distinct legacy paths from a covering partial index, without decoding task JSON.
+ * Resolve these through repoFor at request time: registry aliases can change without
+ * a task write, so persisting their resolved keys would change list semantics. */
+export function legacyTaskRepoPaths(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ repo: string }, []>(
+    `SELECT DISTINCT repo FROM tasks WHERE ${legacyRepoSql}`).all().map(row => row.repo);
+}
+
+/** Indexed predicates combined with AND, applied before the newest-first limit. */
+/** ASCII-only lowercase: SQLite's lower() folds ASCII letters and leaves every
+ *  other character (and every non-letter) alone, so a word folded this way is
+ *  matched exactly by `instr(lower(field), …)`. */
+const asciiFold = (word: string): string => word.replace(/[A-Z]/g, ch => String.fromCharCode(ch.charCodeAt(0) + 32));
+/** Task ids are `t-YYYYMMDD-HHMMSS-xxxx`. A word shaped like an id prefix (a date
+ *  prefix such as `t-2026`, a fuller `t-YYYYMMDD-HHMMSS-hex` prefix, or the full id,
+ *  possibly still ending in `-` while being typed) can never appear inside an id:
+ *  no id contains a second `t-`. Such a word is therefore matched with a
+ *  primary-key range instead of a full-table `instr` scan. Titles and goals are
+ *  not searched with an id-shaped word. Returns the `[start, end)` id bounds. */
+function idPrefixRange(word: string): [string, string] | null {
+  if (!/^t(?:-\d{1,8}(?:-\d{1,6}(?:-[0-9a-f]{1,4})?)?)?$/.test(word)) return null;
+  // Successor of the last character; ids extend the prefix with 0-9, a-f or `-`,
+  // all below the successor, so `[prefix, successor)` covers exactly its extensions.
+  return [word, word.slice(0, -1) + String.fromCharCode(word.charCodeAt(word.length - 1) + 1)];
+}
+/** Per-character Unicode lowercase, the same folding both runtimes apply to a
+ *  non-ASCII query word and to the decoded fields (see the Rust counterpart in
+ *  crates/store/src/task_selection.rs). */
+const fold = (text: string): string => [...text].map(ch => ch.toLowerCase()).join("");
+/** Longest run of ASCII characters (length >= 2) in a word, ASCII-lowered for SQL. */
+function longestAsciiRun(word: string): string | null {
+  let best = "";
+  let cur = "";
+  for (const ch of word) {
+    if (ch.charCodeAt(0) <= 0x7f) cur += ch;
+    else {
+      if (cur.length > best.length) best = cur;
+      cur = "";
+    }
+  }
+  if (cur.length > best.length) best = cur;
+  if (best.length < 2) return null;
+  return asciiFold(best);
+}
+
 export function listTasksWhere(ctx: Ctx, filter: TaskFilter = {}): TaskRecord[] {
-  if (filter.states?.length === 0 || filter.limit === 0) return [];
+  if (filter.states?.length === 0 || filter.visibleStates?.length === 0 || filter.limit === 0) return [];
+  const recentOnly = filter.updatedSince !== undefined && !filter.all && filter.states === undefined && filter.visibleStates === undefined
+    && filter.executor === undefined && filter.repoKey === undefined && filter.before === undefined
+    && filter.settledBefore === undefined && filter.createdSince === undefined && filter.query === undefined;
   const clauses: string[] = [], bindings: SQLQueryBindings[] = [];
   if (!filter.all) clauses.push("archived = 0");
   if (filter.settledBefore !== undefined) { clauses.push("settled_at < ?"); bindings.push(filter.settledBefore); }
   if (filter.before !== undefined) { clauses.push("id < ?"); bindings.push(filter.before); }
-  if (filter.states) {
-    clauses.push(`state IN (${filter.states.map(() => "?").join(",")})`);
-    bindings.push(...filter.states);
+  if (filter.states || filter.awaitingAnswer) {
+    const stateBranches: string[] = [];
+    if (filter.states) {
+      stateBranches.push(`state IN (${filter.states.map(() => "?").join(",")})`);
+      bindings.push(...filter.states);
+    }
+    if (filter.awaitingAnswer) stateBranches.push(`(${awaitsAnswerSql})`);
+    clauses.push(`(${stateBranches.join(" OR ")})`);
+  }
+  if (filter.visibleStates) {
+    clauses.push(`(${visibleStateSql}) IN (${filter.visibleStates.map(() => "?").join(",")})`);
+    bindings.push(...filter.visibleStates);
+  }
+  if (filter.executor !== undefined) {
+    clauses.push(`(${executorSql}) = ?`);
+    bindings.push(filter.executor);
+  }
+  if (filter.repoKey !== undefined) {
+    const paths = filter.legacyRepoPaths ?? [];
+    // Separate candidate seeks keep SQLite from choosing tasks_retention for an
+    // OR predicate and evaluating repository JSON across unrelated history.
+    clauses.push(paths.length
+      ? `id IN (SELECT id FROM tasks WHERE ${repoKeySql} = ?
+          UNION SELECT id FROM tasks WHERE ${legacyRepoSql} AND repo IN (SELECT value FROM json_each(?)))`
+      : `${repoKeySql} = ?`);
+    bindings.push(filter.repoKey);
+    if (paths.length) bindings.push(JSON.stringify(paths));
   }
   if (filter.updatedSince !== undefined) { clauses.push("updated_at >= ?"); bindings.push(filter.updatedSince); }
+  if (filter.createdSince !== undefined) { clauses.push("created_at >= ?"); bindings.push(filter.createdSince); }
+  const unicodeWords: string[] = [];
+  let idRange = false;
+  if (filter.query) {
+    // Every whitespace-separated word must appear somewhere in the id (which
+    // covers the short suffix and any date prefix), title or goal. Kept
+    // identical to the native filter in crates/store/src/task_selection.rs:
+    // ASCII words are matched exactly by SQLite (lower() folds ASCII), a word
+    // shaped like an id prefix by the primary-key range, and words SQLite
+    // cannot fold are checked on the decoded records below with the same
+    // per-character Unicode lowercase in both runtimes.
+    for (const word of filter.query.trim().split(/\s+/).filter(Boolean)) {
+      if (/^[\x00-\x7F]+$/.test(word)) {
+        const w = asciiFold(word);
+        const range = idPrefixRange(w);
+        if (range) {
+          idRange = true;
+          clauses.push("(id >= ? AND id < ?)");
+          bindings.push(range[0], range[1]);
+        } else {
+          clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
+          bindings.push(w, w, w);
+        }
+      } else {
+        unicodeWords.push(fold(word));
+        const run = longestAsciiRun(word);
+        if (run) {
+          clauses.push("(instr(lower(id), ?) > 0 OR instr(lower(json_extract(record, '$.title')), ?) > 0 OR instr(lower(json_extract(record, '$.brief.goal')), ?) > 0)");
+          bindings.push(run, run, run);
+        }
+      }
+    }
+  }
+  /** Match the words SQLite cannot fold against id/title/goal strings. */
+  const matchesUnicodeStrings = (id: string, title: unknown, goal: unknown): boolean => unicodeWords.every(w =>
+    fold(id).includes(w)
+    || (typeof title === "string" && fold(title).includes(w))
+    || (typeof goal === "string" && fold(goal).includes(w)));
   const limit = filter.limit === undefined || filter.limit === Infinity ? -1 : Math.max(0, Math.floor(filter.limit));
-  const sql = `SELECT record FROM tasks ${clauses.length ? "WHERE " + clauses.join(" AND ") : ""} ORDER BY id DESC LIMIT ?`;
-  const rows = connection(ctx).db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
-  return rows.map(row => { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; return task; });
+  /** Decode one stored record, defaulting its revision like every list path. */
+  const decode = (record: string): TaskRecord => { const task = JSON.parse(record) as TaskRecord; task.rev ??= 1; return task; };
+  // Raw state filters seek active states; repository aliases seek candidate IDs.
+  // Neither should let archived=0 drive a scan over settled history. An id-range
+  // clause is the most selective bound, so it always rides the primary key.
+  const index = filter.states || filter.awaitingAnswer ? " INDEXED BY tasks_state"
+    : idRange ? " INDEXED BY sqlite_autoindex_tasks_1"
+    : recentOnly ? " INDEXED BY tasks_updated_at"
+    : filter.repoKey !== undefined && filter.legacyRepoPaths?.length ? " INDEXED BY sqlite_autoindex_tasks_1" : "";
+  const where = clauses.length ? "WHERE " + clauses.join(" AND ") : "";
+  const db = connection(ctx).db;
+  if (!unicodeWords.length) {
+    if (filter.states || filter.awaitingAnswer || recentOnly) {
+      // These indexes do not deliver ID order. Sorting whole records by ID would spill
+      // task JSON into a temp b-tree whose release holds SQLite's process-wide VFS
+      // mutex, so order the candidate IDs here and fetch only the selected records.
+      return db.transaction(() => {
+        const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
+          .map(row => row.id).sort(newestFirst);
+        return recordsByIds(db, limit < 0 ? ids : ids.slice(0, limit));
+      })();
+    }
+    const sql = `SELECT record FROM tasks${index} ${where} ORDER BY id DESC LIMIT ?`;
+    const rows = db.query<{ record: string }, SQLQueryBindings[]>(sql).all(...bindings, limit);
+    return rows.map(row => decode(row.record));
+  }
+  // Words SQLite cannot fold are checked on id/title/goal extracted in SQL, so
+  // pages are walked newest-first with an id cursor until `limit` records match.
+  // Full records are fetched only for rows that pass the Unicode fold check.
+  if (filter.states || filter.awaitingAnswer || recentOnly) {
+    return db.transaction(() => {
+      const ids = db.query<{ id: string }, SQLQueryBindings[]>(`SELECT id FROM tasks${index} ${where}`).all(...bindings)
+        .map(row => row.id).sort(newestFirst);
+      const out: TaskRecord[] = [];
+      for (let i = 0; i < ids.length && (limit < 0 || out.length < limit); i += 500) {
+        const part = ids.slice(i, i + 500);
+        const rows = db.query<{ id: string; title: string | null; goal: string | null }, string[]>(
+          `SELECT id, json_extract(record, '$.title') AS title, json_extract(record, '$.brief.goal') AS goal FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`
+        ).all(...part).sort((a, b) => (a.id < b.id ? 1 : a.id > b.id ? -1 : 0));
+        for (const row of rows) {
+          if (limit >= 0 && out.length >= limit) break;
+          if (!matchesUnicodeStrings(row.id, row.title, row.goal)) continue;
+          const r = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(row.id);
+          if (!r) continue;
+          try { out.push(decode(r.record)); } catch { continue; }
+        }
+      }
+      return out;
+    })();
+  }
+  const out: TaskRecord[] = [];
+  let cursor: string | undefined = filter.before;
+  pageLoop: while (limit < 0 || out.length < limit) {
+    const condition = cursor !== undefined ? (where ? `${where} AND id < ?` : "WHERE id < ?") : where;
+    const rows = db.query<{ id: string; title: string | null; goal: string | null }, SQLQueryBindings[]>(
+      `SELECT id, json_extract(record, '$.title') AS title, json_extract(record, '$.brief.goal') AS goal FROM tasks INDEXED BY sqlite_autoindex_tasks_1 ${condition} ORDER BY id DESC LIMIT 500`
+    ).all(...bindings, ...(cursor !== undefined ? [cursor] : []));
+    if (!rows.length) break;
+    cursor = rows.at(-1)!.id;
+    for (const row of rows) {
+      if (limit >= 0 && out.length >= limit) break pageLoop;
+      if (!matchesUnicodeStrings(row.id, row.title, row.goal)) continue;
+      const r = db.query<{ record: string }, [string]>("SELECT record FROM tasks WHERE id = ?").get(row.id);
+      if (!r) continue;
+      try { out.push(decode(r.record)); } catch { continue; }
+    }
+  }
+  return out;
+}
+
+const newestFirst = (a: string, b: string) => a < b ? 1 : a > b ? -1 : 0;
+
+/** Unarchived task IDs in the given raw states, newest first, without decoding records. */
+export function taskIdsInStates(ctx: Ctx, states: readonly string[]): string[] {
+  if (!states.length) return [];
+  return connection(ctx).db.query<{ id: string }, string[]>(
+    `SELECT id FROM tasks INDEXED BY tasks_state WHERE archived = 0 AND state IN (${states.map(() => "?").join(",")})`,
+  ).all(...states).map(row => row.id).sort(newestFirst);
+}
+
+/** Newest first, in batches below SQLite's bound-parameter limit. Callers that need one
+ *  snapshot across batches run it inside a transaction. */
+function recordsByIds(db: Database, ids: string[]): TaskRecord[] {
+  const records: TaskRecord[] = [];
+  for (let i = 0; i < ids.length; i += 500) {
+    const part = ids.slice(i, i + 500);
+    const rows = db.query<{ record: string }, string[]>(`SELECT record FROM tasks WHERE id IN (${part.map(() => "?").join(",")})`).all(...part);
+    for (const row of rows) { const task = JSON.parse(row.record) as TaskRecord; task.rev ??= 1; records.push(task); }
+  }
+  return records.sort((a, b) => newestFirst(a.id, b.id));
+}
+
+/** Reconcile cursors read IDs only; the caller decodes each selected page once. */
+export function taskIdPage(ctx: Ctx, before?: string, limit = 200): string[] {
+  const db = connection(ctx).db;
+  const rows = before === undefined
+    ? db.query<{ id: string }, [number]>("SELECT id FROM tasks INDEXED BY tasks_native_unarchived_id WHERE archived=0 ORDER BY id DESC LIMIT ?").all(limit)
+    : db.query<{ id: string }, [string, number]>("SELECT id FROM tasks INDEXED BY tasks_native_unarchived_id WHERE archived=0 AND id<? ORDER BY id DESC LIMIT ?").all(before, limit);
+  return rows.map(row => row.id);
+}
+
+/** IDs for the bounded recent snapshot window. Match taskData's updatedAt without decoding
+ * records in JS; active tasks outside this window arrive through the pump selection. */
+export function snapshotTaskIds(ctx: Ctx): string[] {
+  return connection(ctx).db.query<{ id: string }, [number]>(`
+    SELECT id FROM tasks INDEXED BY tasks_snapshot_window WHERE archived=0
+      AND COALESCE(json_extract(record,'$.dismissed'),0)=0 AND ${snapshotUpdatedAt}>=?
+    ORDER BY ${snapshotUpdatedAt} DESC, id DESC LIMIT 200
+  `).all(ctx.now - 86400).map(row => row.id);
 }
 
 /** Tasks whose backend still records a live worker (`TaskRecord.live`), newest first. */
@@ -447,9 +776,24 @@ export function listTasks(ctx: Ctx, limit = 20): TaskRecord[] {
   return listTasksWhere(ctx, { limit });
 }
 
-/** Union of indexed active and recent selections for read-model consumers. */
+/** Selected records for the pump's change/active set: an indexed fetch that decodes
+ *  only the named rows instead of every task, newest id first (same order as listTasksWhere). */
+export function readTasksByIds(ctx: Ctx, ids: Iterable<string>): TaskRecord[] {
+  const list = [...new Set(ids)].filter(isTaskId);
+  if (!list.length) return [];
+  const db = connection(ctx).db;
+  return list.length > 500 ? db.transaction(() => recordsByIds(db, list))() : recordsByIds(db, list);
+}
+
+/** Union of indexed active and recent selections for read-model consumers. Tasks
+ *  that still require the user must never age out: a stored `needs_input` that
+ *  still awaits an answer (and running tasks with an open unanswered question via
+ *  the running branch of `visibleStateSql`) stays in the active set at any age.
+ *  Answered, retried or dismissed needs_input tasks do not. The selection uses
+ *  `tasks_state`, so the extra awaiting-answer branch adds a bounded indexed
+ *  seek even at 50k rows. */
 export function listActiveAndRecentTasks(ctx: Ctx, updatedSince = ctx.now - 86400): TaskRecord[] {
   const selected = new Map(listTasksWhere(ctx, { updatedSince }).map(t => [t.id, t]));
-  for (const task of listTasksWhere(ctx, { states: ["queued", "running"] })) selected.set(task.id, task);
+  for (const task of listTasksWhere(ctx, { states: ["queued", "running"], awaitingAnswer: true })) selected.set(task.id, task);
   return [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
 }

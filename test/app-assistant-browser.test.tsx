@@ -44,7 +44,9 @@ browserTest("assistant_opens_with_meta_j_focuses_input_and_escape_returns_focus"
     await launcher.focus();
     await page.keyboard.press("Meta+j");
     await focused(page, 'input[aria-label="Ask pacer"]');
-    await expect(page.getByRole("button", { name: "Close assistant" }).getAttribute("aria-expanded")).resolves.toBe("true");
+    // The launcher hides while open; the sheet carries its own close button.
+    expect(await page.locator(".pc-aurora-launcher").count()).toBe(0);
+    await expect(page.getByRole("button", { name: "Close assistant" }).isVisible()).resolves.toBe(true);
     await expect(page.getByRole("region", { name: "Assistant" }).isVisible()).resolves.toBe(true);
     await page.keyboard.press("Escape");
     await focused(page, '[aria-label="Open assistant"]');
@@ -150,6 +152,14 @@ browserTest("assistant_sheet_fits_phone_width_with_a_visible_input_and_forced_co
     await page.keyboard.press("Meta+j");
     await page.emulateMedia({ forcedColors: "active" });
     expect(await page.locator(".pc-aurora__glow").evaluate(el => getComputedStyle(el).display)).toBe("none");
+    await page.emulateMedia({ forcedColors: "none" });
+    // The narrow sheet has a close icon (no expand), and closing from the pill returns focus to the re-shown pill.
+    await focused(page, 'input[aria-label="Ask pacer"]');
+    await page.keyboard.press("Escape");
+    await page.getByRole("button", { name: "Open assistant" }).click({ timeout: 5000 });
+    expect(await page.getByRole("button", { name: "Expand assistant" }).count()).toBe(0);
+    await page.getByRole("button", { name: "Close assistant" }).click({ timeout: 5000 });
+    await focused(page, '[aria-label="Open assistant"]');
   } finally { await browser.close(); }
 }, 20_000);
 
@@ -212,7 +222,7 @@ browserTest("assistant_plus_menu_offers_only_what_works_and_the_sheet_never_depe
   } finally { await browser.close(); }
 }, 30_000);
 
-webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_the_launcher_rises_above_it", async () => {
+webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_its_close_button_below_the_top_bar", async () => {
   const built = await build();
   const browser = await webkit.launch();
   try {
@@ -222,14 +232,14 @@ webkitTest("assistant_sheet_is_drawn_in_webkit_with_the_desktop_frame_and_the_la
       await page.evaluate(() => document.documentElement.setAttribute("data-pacer-desktop", ""));
       await openSheet(page);
       const probe = await page.evaluate(() => {
-        const sheet = document.querySelector(".pc-aurora")!, input = document.querySelector('input[aria-label="Ask pacer"]')!.getBoundingClientRect(), pill = document.querySelector(".pc-aurora-launcher")!.getBoundingClientRect();
+        const sheet = document.querySelector(".pc-aurora")!, input = document.querySelector('input[aria-label="Ask pacer"]')!.getBoundingClientRect(), close = document.querySelector('[aria-label="Close assistant"]')!.getBoundingClientRect(), top = document.querySelector(".pc-topbar")!.getBoundingClientRect();
         const hit = document.elementFromPoint(input.left + input.width / 2, input.top + input.height / 2);
-        return { opacity: getComputedStyle(sheet).opacity, drawn: !!hit && sheet.contains(hit), inputBottom: input.bottom, pillBottom: pill.bottom, sheetTop: sheet.getBoundingClientRect().top, viewport: innerHeight };
+        return { opacity: getComputedStyle(sheet).opacity, drawn: !!hit && sheet.contains(hit), inputBottom: input.bottom, closeTop: close.top, topBar: top.bottom, viewport: innerHeight };
       });
       expect(probe.opacity).toBe("1");
       expect(probe.drawn).toBe(true);
       expect(probe.inputBottom).toBeLessThanOrEqual(probe.viewport);
-      expect(probe.pillBottom).toBeLessThanOrEqual(probe.sheetTop); // the launcher sits above the open sheet
+      expect(probe.closeTop).toBeGreaterThanOrEqual(probe.topBar); // the sheet's close button stays below the top bar
       await page.close();
     }
   } finally { await browser.close(); }
@@ -320,11 +330,12 @@ browserTest("pill stays 18px above the status bar or resized dock and exposes on
     await focused(page, 'input[aria-label="Ask pacer"]');
     await bodyDoesNotScroll();
     const openGeometry = await page.evaluate(() => {
-      const pill = document.querySelector('.pc-aurora-launcher')!.getBoundingClientRect();
-      return { top: pill.top, bottom: pill.bottom, sheetTop: document.querySelector('.pc-aurora')!.getBoundingClientRect().top, frameTop: document.querySelector('.pc-body')!.getBoundingClientRect().top };
+      const close = document.querySelector('[aria-label="Close assistant"]')!.getBoundingClientRect();
+      return { top: close.top, sheetTop: document.querySelector('.pc-aurora')!.getBoundingClientRect().top, frameTop: document.querySelector('.pc-body')!.getBoundingClientRect().top, launchers: document.querySelectorAll('.pc-aurora-launcher').length };
     });
-    expect(openGeometry.top).toBeGreaterThanOrEqual(openGeometry.frameTop + 36 + 8);
-    expect(openGeometry.bottom).toBeLessThanOrEqual(openGeometry.sheetTop);
+    expect(openGeometry.launchers).toBe(0);
+    expect(openGeometry.sheetTop).toBeGreaterThanOrEqual(openGeometry.frameTop + 36 + 8);
+    expect(openGeometry.top).toBeGreaterThanOrEqual(openGeometry.sheetTop);
     await page.keyboard.press('Meta+j');
     await bodyDoesNotScroll();
     // Replacing the dock while it remains open must move the observer to the new node.
@@ -398,7 +409,7 @@ browserTest("setup selection with the dock open never scrolls the frame body", a
   } finally { await browser.close(); }
 }, 20_000);
 
-browserTest("open assistant pill stays below top bar and measured session header with a dock", async () => {
+browserTest("open assistant close button stays below top bar and measured session header with a dock", async () => {
   const browser = await chromium.launch({executablePath:browserPath!,headless:true});
   try {
     for (const height of [700,900]) for (const headerClass of ["pc-session-bar", "pc-page-header"]) {
@@ -407,12 +418,13 @@ browserTest("open assistant pill stays below top bar and measured session header
       await page.keyboard.press("Control+Backquote");
       await page.locator(".pc-dock").waitFor();
       // Model a late-mounted session header in the real shell, including a height change.
-      await page.locator("#main-content").evaluate((el,cls)=>el.insertAdjacentHTML("afterbegin",`<header class="${cls} pc-test-header" style="height:80px"><button>Take over</button></header>`),headerClass);
+      // A session bar sits at the top of main; a page header renders inside the scroll area, as Page does.
+      await page.locator(headerClass === "pc-session-bar" ? "#main-content" : "#main-content .pc-main-scroll").evaluate((el,cls)=>el.insertAdjacentHTML("afterbegin",`<header class="${cls} pc-test-header" style="height:80px"><button>Take over</button></header>`),headerClass);
       await openSheet(page);
       for (const headerHeight of [80,120]) {
         await page.locator(".pc-test-header").evaluate((el,height)=>{(el as HTMLElement).style.height=`${height}px`;},headerHeight);
         await page.waitForFunction(()=>{
-          const pill=document.querySelector('.pc-aurora-launcher--open')!.getBoundingClientRect();
+          const pill=document.querySelector('[aria-label="Close assistant"]')!.getBoundingClientRect();
           const header=document.querySelector('.pc-test-header')!.getBoundingClientRect();
           const top=document.querySelector('.pc-topbar')!.getBoundingClientRect();
           return pill.top >= Math.max(header.bottom,top.bottom)+7;
@@ -424,3 +436,72 @@ browserTest("open assistant pill stays below top bar and measured session header
     }
   } finally {await browser.close();}
 },30000);
+
+browserTest("assistant_log_keeps_the_reader_on_an_older_message_until_they_send", async () => {
+  const built = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?history");
+    await openSheet(page);
+    const log = page.getByRole("log", { name: "Conversation" });
+    await page.getByText("Answer 11").waitFor();
+    const atBottom = () => log.evaluate(el => el.scrollHeight - el.scrollTop - el.clientHeight <= 1);
+    // The log opens at the newest message once its content overflows.
+    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight > el.clientHeight && el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
+    expect(await atBottom()).toBe(true);
+    // Scroll up to read, then cause re-renders (typing re-renders the host, as a live poll does): the log stays put.
+    // Let the sheet's own scroll event settle first, then scroll up as a reader does.
+    await page.evaluate(() => new Promise(r => requestAnimationFrame(() => requestAnimationFrame(r))));
+    await log.evaluate(el => { el.scrollTop = 40; el.dispatchEvent(new Event("scroll")); });
+    await page.locator('input[aria-label="Ask pacer"]').pressSequentially("why");
+    await page.waitForTimeout(100);
+    expect(await log.evaluate(el => el.scrollTop)).toBe(40);
+    // Scrolling back down to the newest message pins the log again.
+    await log.evaluate(el => { el.scrollTop = el.scrollHeight; el.dispatchEvent(new Event("scroll")); });
+    // The sheet's own scroll can land short of the bottom when content grows first (a streaming answer); that keeps the pin.
+    await log.evaluate(el => {
+      const grow = document.createElement("div"); grow.style.height = "300px"; grow.style.flex = "none"; grow.className = "pc-test-grow"; el.append(grow);
+      el.scrollTop = el.scrollTop + 10; el.dispatchEvent(new Event("scroll"));
+    });
+    await page.locator('input[aria-label="Ask pacer"]').pressSequentially("!");
+    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
+    await log.evaluate(el => el.querySelector(".pc-test-grow")?.remove());
+    // Sending returns to the newest message.
+    await page.keyboard.press("Enter");
+    await page.getByText("Three tasks need you.").last().waitFor();
+    await page.waitForFunction(() => { const el = document.querySelector(".pc-aurora__log")!; return el.scrollHeight - el.scrollTop - el.clientHeight <= 1; });
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("assistant_expands_to_the_full_content_area_and_restores", async () => {
+  const built = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?history");
+    await openSheet(page);
+    const sheet = page.locator(".pc-aurora");
+    const before = await sheet.evaluate(el => el.getBoundingClientRect().height);
+    await page.getByRole("button", { name: "Expand assistant" }).click();
+    const restore = page.getByRole("button", { name: "Restore assistant size" });
+    await restore.waitFor();
+    const after = await sheet.evaluate(el => el.getBoundingClientRect().height);
+    expect(after).toBeGreaterThan(before + 200);
+    // The expanded sheet stops below the top bar, and its close button stays inside it.
+    const [close, top, bar] = await Promise.all([page.getByRole("button", { name: "Close assistant" }).evaluate(el => el.getBoundingClientRect().top), sheet.evaluate(el => el.getBoundingClientRect().top), page.locator(".pc-topbar").evaluate(el => el.getBoundingClientRect().bottom)]);
+    expect(top).toBeGreaterThanOrEqual(bar);
+    expect(close).toBeGreaterThanOrEqual(top);
+    // The covered page is inert: clicks beside the column land on the sheet, and Tab never reaches the page.
+    await page.waitForFunction(() => (document.querySelector(".pc-work") as HTMLElement).inert);
+    const hit = await page.evaluate(() => { const r = document.querySelector(".pc-aurora__column")!.getBoundingClientRect(); const el = document.elementFromPoint(r.left - 40, r.top + r.height / 2); return !!el && !!el.closest(".pc-aurora"); });
+    expect(hit).toBe(true);
+    for (let i = 0; i < 12; i++) {
+      await page.keyboard.press("Tab");
+      expect(await page.evaluate(() => !!document.activeElement?.closest(".pc-work"))).toBe(false);
+    }
+    await restore.click();
+    expect(Math.round(await sheet.evaluate(el => el.getBoundingClientRect().height))).toBe(Math.round(before));
+    await page.waitForFunction(() => !(document.querySelector(".pc-work") as HTMLElement).inert);
+  } finally { await browser.close(); }
+}, 20_000);

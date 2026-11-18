@@ -26,6 +26,7 @@ export function createBrowserPlatform(): Platform {
   const listeners = new Set<(status: ConnectionStatus) => void>();
   return {
     desktop: false,
+    macos: false,
     request: (path, init) => fetch(path, init),
     subscribeEvents: path => new EventSource(path),
     attachTerminal: url => new WebSocket(url) as unknown as SessionSocket,

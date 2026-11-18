@@ -4,7 +4,7 @@ import { buildPlanner } from "./read-model/capacity";
 import { fullTaskTitle, shortTitle } from "../core/short-title";
 import { plannerMode } from "../engine/mode";
 import { readHold } from "../core/mode-hold";
-import { TERMINAL_STATES, type TaskRecord } from "../tasks/types";
+import { TERMINAL_STATES, awaitsAnswer, type TaskRecord } from "../tasks/types";
 import { currentSnapshot } from "../link/store";
 import { replayOutbox } from "../link/outbox-index";
 import { toBudget } from "../link/budget";
@@ -31,12 +31,13 @@ export async function liveSnapshot(
   if (cachedTasks?.version === version && ctx.now >= cachedTasks.at) records = cachedTasks.records;
   else {
     const selected = new Map(listTasksWhere(ctx, { updatedSince: ctx.now - 86400 }).map(t => [t.id, t]));
-    for (const t of listTasksWhere(ctx, { states: ["queued", "running"] })) selected.set(t.id, t);
+    for (const t of listTasksWhere(ctx, { states: ["queued", "running"], awaitingAnswer: true })) selected.set(t.id, t);
     records = [...selected.values()].sort((a, b) => b.id.localeCompare(a.id));
     taskCache.set(ctx.pacerHome, { version, at: ctx.now, records });
   }
-  // Age settled records out of the cached selection on every read.
-  const recent = (t: TaskRecord) => !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
+  // Age settled records out of the cached selection on every read, except tasks that
+  // still require the user (an open unanswered question) which stay regardless of age.
+  const recent = (t: TaskRecord) => awaitsAnswer(t) || !TERMINAL_STATES.includes(t.state) || Math.max(t.createdAt, t.attemptStartedAt ?? 0, ...t.attempts.map(a => a.endedAt ?? 0)) >= ctx.now - 86400;
   const tasks = snapshotTasks(ctx, records.filter(recent));
   snapshot.tasks = tasks.map(t=>({...snapshot.tasks.find(old=>old.id===t.id),...t}));
   let strategy;
@@ -76,7 +77,7 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
   // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
   const ids = [...new Set(after.flatMap(e => e.envelope.type === "task" ? [e.envelope.data.id] : []))];
   const records = ids.map(id => readTask(ctx, id)).filter((t): t is TaskRecord => t !== null);
-  const enriched = new Map(apiTasks(ctx, records).map(t => [t.id, t]));
+  const enriched = new Map((records.length ? apiTasks(ctx, records) : []).map(t => [t.id, t]));
   const events: ApiEvent[] = [
     ...(reset ? [{ seq: oldest! - 1, at: ctx.now, type: "reset" as const, data: { reason: "events were dropped; fetch the snapshot again" } }] : []),
     ...after.map((e): ApiEvent => {

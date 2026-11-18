@@ -81,6 +81,7 @@ async fn test_core(home: &Path) -> Arc<core_child::CoreChild> {
             ("PACER_HOME".into(), home.to_string_lossy().into()),
             ("TMPDIR".into(), home.to_string_lossy().into()),
         ]),
+        None,
     ));
     tokio::time::timeout(Duration::from_secs(10), async {
         while core.target().await.is_none() {
@@ -305,8 +306,18 @@ async fn listener_refuses_linked_database_without_modifying_target() {
 fn legacy_json(home: &Path, id: &str, rev: serde_json::Value, state: &str, run: &Path) {
     let file = home.join("tasks").join(format!("{id}.json"));
     let temp = file.with_extension("tmp");
+    // An older binary rewrites the copy after TaskStore's write-through. On a coarse
+    // file clock (Linux CI) a rewrite in the same tick keeps the mtime SQLite recorded,
+    // both readers then trust the row and the follow never ends; make it later.
+    let prior = std::fs::metadata(&file).and_then(|m| m.modified()).ok();
     std::fs::write(&temp, serde_json::to_vec(&json!({"id":id,"rev":rev,"state":state,"createdAt":1000,"brief":{"repo":"/tmp/repo"},"attempts":[],"run":{"dir":run}})).unwrap()).unwrap();
-    std::fs::rename(temp, file).unwrap();
+    std::fs::rename(temp, &file).unwrap();
+    if let Some(prior) = prior
+        && std::fs::metadata(&file).unwrap().modified().unwrap() <= prior
+    {
+        let file = std::fs::File::options().write(true).open(&file).unwrap();
+        file.set_modified(prior + Duration::from_secs(1)).unwrap();
+    }
 }
 
 fn ts_read(home: &Path, id: &str) -> serde_json::Value {
@@ -356,7 +367,13 @@ async fn listener_merges_new_and_updated_legacy_json_like_typescript() {
             .await
             .unwrap();
         assert_eq!(response.status(), StatusCode::OK);
-        let body = tokio::time::timeout(Duration::from_secs(3), response.into_body().collect())
+        // Each loop iteration spawns a fresh Bun core child and the follow
+        // triggers a durable cross-process legacy import before the done frame
+        // is emitted. That external, loader-sensitive work can exceed the old
+        // 3 s cap on a loaded CI runner; the same test already allows 10 s
+        // for the Bun child alone to reach its target (test_core). Give the
+        // import plus response comparable headroom.
+        let body = tokio::time::timeout(Duration::from_secs(15), response.into_body().collect())
             .await
             .unwrap()
             .unwrap()

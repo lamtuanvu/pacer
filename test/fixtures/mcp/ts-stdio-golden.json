@@ -16,6 +16,19 @@
         "inputSchema": {
           "type": "object",
           "properties": {
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "dispatch": {},
             "title": {
               "type": "string",
@@ -2075,6 +2088,42 @@
       }
     ],
     "schemaFailures": [
+      {
+        "name": "delegate",
+        "field": "difficulty",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "difficulty": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"simple\"|\"standard\"|\"complex\" at difficulty"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "model",
+        "args": {
+          "goal": "fixture",
+          "repo": "fixture",
+          "model": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at model"
+            }
+          ]
+        }
+      },
       {
         "name": "delegate",
         "field": "title",
@@ -6913,6 +6962,19 @@
               "type": "string",
               "minLength": 1
             },
+            "difficulty": {
+              "type": "string",
+              "enum": [
+                "simple",
+                "standard",
+                "complex"
+              ]
+            },
+            "model": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 256
+            },
             "title": {
               "type": "string"
             },
@@ -7851,6 +7913,42 @@
             {
               "type": "text",
               "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at requestId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "difficulty",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "difficulty": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid option: expected one of \"simple\"|\"standard\"|\"complex\" at difficulty"
+            }
+          ]
+        }
+      },
+      {
+        "name": "delegate",
+        "field": "model",
+        "args": {
+          "goal": "fixture",
+          "requestId": "fixture",
+          "model": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool delegate: Invalid input: expected string, received number at model"
             }
           ]
         }

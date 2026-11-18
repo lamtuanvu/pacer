@@ -3,8 +3,18 @@ import { spawn, type ChildProcessWithoutNullStreams } from "node:child_process";
 export class HostError extends Error { constructor(public readonly code: string, message: string) { super(message); this.name = "HostError"; } }
 type Pending = { resolve: (v: unknown) => void; reject: (e: Error) => void };
 
+/** What conformance cases may use of a host connection, whatever transport carries it. */
+export interface HostClient {
+  readonly events: { type: string; data: unknown }[];
+  readonly stderr: string[];
+  readonly pid: number | undefined;
+  start(options?: { subscribe?: boolean }): Promise<this>;
+  call<T = unknown>(method: string, params?: unknown): Promise<T>;
+  close(): Promise<void>;
+}
+
 /** A client of `<host> api --stdio`, using only the client protocol. */
-export class HostSession {
+export class HostSession implements HostClient {
   private child!: ChildProcessWithoutNullStreams;
   private readonly pending = new Map<number, Pending>();
   private nextId = 1;

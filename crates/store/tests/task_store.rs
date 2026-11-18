@@ -9,6 +9,40 @@ fn task() -> Value {
 }
 
 #[test]
+fn query_filter_matches_id_suffix_title_and_goal_case_insensitively() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let keepalive = json!({"id":"t-20261110-093000-d90f","rev":1,"state":"done","createdAt":1000.0,"title":"Add SSH keepalive","brief":{"repo":"/tmp/repo","goal":"keep long sessions alive"},"attempts":[]});
+    let webhook = json!({"id":"t-20261110-093005-e11f","rev":1,"state":"done","createdAt":1005.0,"title":"Payments webhook retry","brief":{"repo":"/tmp/repo","goal":"stop failed webhooks"},"attempts":[]});
+    store.insert(&keepalive, 1000.0).unwrap();
+    store.insert(&webhook, 1005.0).unwrap();
+    let mut ids = |query: &str| -> Vec<String> {
+        let mut rows = store
+            .list(&TaskFilter {
+                query: Some(query),
+                ..Default::default()
+            })
+            .unwrap()
+            .iter()
+            .map(|record| record["id"].as_str().unwrap().to_owned())
+            .collect::<Vec<_>>();
+        rows.sort();
+        rows
+    };
+    // The whole id, the short suffix users copy, and case-insensitive multi-word titles and goals.
+    assert_eq!(
+        ids("t-20261110-093000-D90F"),
+        vec!["t-20261110-093000-d90f"]
+    );
+    assert_eq!(ids("ssh KEEP"), vec!["t-20261110-093000-d90f"]);
+    assert_eq!(ids("WEBHOOK"), vec!["t-20261110-093005-e11f"]);
+    // Every word must appear somewhere in the id, title or goal.
+    assert_eq!(ids("keepalive alive"), vec!["t-20261110-093000-d90f"]);
+    assert_eq!(ids("webhook ssh"), Vec::<String>::new());
+    assert_eq!(ids("zzznope"), Vec::<String>::new());
+}
+
+#[test]
 fn schema_write_read_filters_and_cas() {
     let dir = tempfile::tempdir().unwrap();
     let mut store = TaskStore::open(dir.path()).unwrap();
@@ -167,6 +201,72 @@ fn schema_write_read_filters_and_cas() {
         serde_json::from_slice(&fs::read(dir.path().join(format!("tasks/{ID}.json"))).unwrap())
             .unwrap();
     assert_eq!(json, resettled);
+}
+
+#[test]
+fn list_active_and_recent_keeps_stale_needs_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    let mut old = task();
+    old["id"] = json!("t-20261101-000000-abcd");
+    old["state"] = json!("needs_input");
+    old["createdAt"] = json!(100.0);
+    old["question"] = json!({"text":"Which?","at":100.0}); // no answer -> still waiting
+    store.insert(&old, 100.0).unwrap();
+    // A purely done task far outside the recency window must not be selected.
+    let mut settled = task();
+    settled["id"] = json!("t-20261101-000000-ef01");
+    settled["state"] = json!("done");
+    settled["createdAt"] = json!(50.0);
+    store.insert(&settled, 50.0).unwrap();
+    // Well after 24h: the needs_input task is still selected, the done one is not.
+    let rows = store.list_active_and_recent(1_000_000.0).unwrap();
+    let ids: Vec<_> = rows.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"t-20261101-000000-abcd"), "{ids:?}");
+    assert!(!ids.contains(&"t-20261101-000000-ef01"), "{ids:?}");
+}
+
+#[test]
+fn list_active_and_recent_only_keeps_unanswered_needs_input() {
+    let dir = tempfile::tempdir().unwrap();
+    let mut store = TaskStore::open(dir.path()).unwrap();
+    // Open: still awaiting the answer.
+    let mut open = task();
+    open["id"] = json!("t-20261101-000000-abcd");
+    open["state"] = json!("needs_input");
+    open["createdAt"] = json!(100.0);
+    open["question"] = json!({"text":"Which?","at":100.0});
+    store.insert(&open, 100.0).unwrap();
+    // Answered via the retry path.
+    let mut answered = task();
+    answered["id"] = json!("t-20261101-000000-ef01");
+    answered["state"] = json!("needs_input");
+    answered["createdAt"] = json!(100.0);
+    answered["question"] = json!({"text":"Which?","answer":"postgres","at":100.0});
+    store.insert(&answered, 100.0).unwrap();
+    // Superseded by a retry (question still recorded as unanswered).
+    let mut retried = task();
+    retried["id"] = json!("t-20261101-000000-face");
+    retried["state"] = json!("needs_input");
+    retried["createdAt"] = json!(100.0);
+    retried["question"] = json!({"text":"Which?","at":100.0});
+    retried["retriedBy"] = json!("t-20261101-000000-abcd");
+    store.insert(&retried, 100.0).unwrap();
+    // Dismissed by the user.
+    let mut dismissed = task();
+    dismissed["id"] = json!("t-20261101-000000-1ce5");
+    dismissed["state"] = json!("needs_input");
+    dismissed["createdAt"] = json!(100.0);
+    dismissed["question"] = json!({"text":"Which?","at":100.0});
+    dismissed["dismissed"] = json!(true);
+    store.insert(&dismissed, 100.0).unwrap();
+    // Well after 24h only the still-unanswered task is retained by state.
+    let rows = store.list_active_and_recent(1_000_000.0).unwrap();
+    let ids: Vec<_> = rows.iter().map(|t| t["id"].as_str().unwrap()).collect();
+    assert!(ids.contains(&"t-20261101-000000-abcd"), "{ids:?}");
+    assert!(!ids.contains(&"t-20261101-000000-ef01"), "{ids:?}");
+    assert!(!ids.contains(&"t-20261101-000000-face"), "{ids:?}");
+    assert!(!ids.contains(&"t-20261101-000000-1ce5"), "{ids:?}");
 }
 
 #[test]

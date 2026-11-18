@@ -1,4 +1,5 @@
 import { closeSync, openSync, writeSync } from "node:fs";
+import { CORE_SECRET_ENV } from "../core-secrets";
 /**
  * The planner session's own variables. An executor or a turn runner that inherits them is treated as part of the
  * planner's session (Claude Code then neither persists nor resumes the executor's own conversation).
@@ -22,10 +23,10 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
   if (!profileKeys.includes("CODEX_HOME")) delete env.CODEX_HOME;
   delete env.PACER_RUN_DIR;
   delete env.PACER_REPORT_TOKEN;
-  delete env.PACER_INTERNAL_TOKEN;
   delete env.PACER_TRANSCRIPT_REPORT;
   delete env.PACER_AUTH_TOKEN;
-  delete env.PACER_INTERNAL_TOKEN;
+  delete env.PACER_HOST_SOCKET;
+  for (const name of CORE_SECRET_ENV) delete env[name];
   if (env.PACER_API === "inprocess") delete env.PACER_API;
   return {...env, ...account, PACER_ROLE: "executor", PACER_TASK_ID: taskId};
 }

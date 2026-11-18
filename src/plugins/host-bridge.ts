@@ -7,16 +7,50 @@
  * forwards the capability requests Core sealed in `coreMethods` on the same
  * connection; Core replies to each before the owner sends the final reply, and
  * never pipelines.
+ *
+ * The owner accepts only callers that prove its per-start credential (#918, ADR
+ * 0027). The owner hands it to its own Core child in the stdin secrets frame
+ * (`src/core-secrets.ts`), never in an environment, so no runner, executor or
+ * plugin child inherits it; Core holds it with `holdOwnerKey`. Each connection opens with a
+ * mutual HMAC-SHA256 challenge: Core checks the owner's proof before it sends
+ * the call, so it never answers a forwarded capability request from an impostor.
  */
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import { createConnection } from "node:net";
 import { z } from "zod";
 import { CoreError, type CoreErrorCode } from "../core/errors";
 import { pluginReplyError } from "./errors";
 
 export const HOST_PLUGIN_CALL = "_host.plugin.call";
+const HOST_AUTH = "_host.auth";
+const OWNER_PROOF = "pacer-host-owner/v1";
+const CORE_PROOF = "pacer-host-core/v1";
+const HEX_KEY = /^[0-9a-f]{64}$/;
 
 /** Matches `BRIDGE_MAX_LINE_BYTES` in `crates/plugin-runtime`. */
 const MAX_FRAME_BYTES = 1024 * 1024;
+
+let ownerKey: Buffer | undefined;
+
+/** Hold the owner's credential for this process's bridge calls; anything but 64 hex
+ * digits leaves Core without one. */
+export function holdOwnerKey(text: string): void {
+  ownerKey = HEX_KEY.test(text) ? Buffer.from(text, "hex") : undefined;
+}
+
+/** The credential this Core holds, for its own in-process worker threads only. */
+export function heldOwnerKey(): string | undefined {
+  return ownerKey?.toString("hex");
+}
+
+function proof(key: Buffer, label: string, caller: string, owner: string): Buffer {
+  return createHmac("sha256", key).update(`${label}\0${caller}\0${owner}`).digest();
+}
+
+function proves(key: Buffer, caller: string, owner: unknown, sent: unknown): boolean {
+  if (typeof owner !== "string" || !HEX_KEY.test(owner) || typeof sent !== "string" || !HEX_KEY.test(sent)) return false;
+  return timingSafeEqual(proof(key, OWNER_PROOF, caller, owner), Buffer.from(sent, "hex"));
+}
 
 /** The plugin error codes the local stdio transport keeps (`process.ts`). */
 const CORE_CODES: ReadonlySet<string> = new Set<CoreErrorCode>([
@@ -69,9 +103,15 @@ export function nativeOwnerCallFits(call: NativeOwnerCall): boolean {
 const nativeOwnerReply = z.object({
   value: z.unknown(),
   hello: z.object({ protocol: z.string(), served: z.array(z.string()) }).nullable(),
-  logs: z.array(z.string()).default([]),
+  // Call-scoped `capability.log` lines; a bare string is an older owner's line.
+  logs: z.array(z.union([
+    z.string(),
+    z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string() }),
+  ])).default([]),
 });
 export type NativeOwnerReply = z.infer<typeof nativeOwnerReply>;
+/** The `{protocol, served}` hello summary an owner reply (or a failed call's error data) carries. */
+export const nativeOwnerHello = nativeOwnerReply.shape.hello;
 
 const rpcReply = z.object({
   jsonrpc: z.literal("2.0"),
@@ -88,6 +128,9 @@ const rpcReply = z.object({
 
 let nextId = 1;
 
+/** An owner that cannot prove this Core's key: a restarted service drew a new one, or the socket is not this Core's owner. */
+const UNPROVEN_HINT = "If the pacer service restarted, reconnect: each start issues a new credential. Otherwise this socket is not this connection's plugin owner.";
+
 function unreachable(socketPath: string, detail: string): CoreError {
   return new CoreError("plugin_unavailable", `native process owner socket ${socketPath} is unreachable: ${detail}`,
     "Restart the pacer service.");
@@ -100,7 +143,8 @@ function bridgeError(socketPath: string, error: NonNullable<z.infer<typeof rpcRe
   if (sealed && CORE_CODES.has(sealed)) return new CoreError(sealed as CoreErrorCode, error.message, error.data?.hint);
   if (error.code === -32600 || error.code === -32602) return new CoreError("invalid_input", error.message);
   if (error.code === -32601) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} does not serve ${HOST_PLUGIN_CALL}`);
-  if (error.code === -32001) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} refused this caller`);
+  if (error.code === -32001) return new CoreError("plugin_unavailable", `native process owner at ${socketPath} refused this caller`,
+    "Reconnect after the pacer service restarts; each owner start issues a new credential.");
   return new CoreError("plugin_unavailable", error.message);
 }
 
@@ -112,19 +156,35 @@ function callbackError(error: unknown): { code: number; message: string; data: {
   return { code: -32000, message: "capability request failed", data: { code: "capability_denied" } };
 }
 
-/** One call per connection; the connection closes after the final reply line. */
-function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<unknown> {
+/** How long an aborted call waits for the owner's final reply, which carries the call's logs. */
+const DRAIN_MS = 1000;
+
+/**
+ * One call per connection; the connection closes after the final reply line.
+ * The first line answers Core's challenge; the call is sent only after the owner proves the key.
+ * `onFailed` sees the final reply of a call that fails, an aborted one's included.
+ */
+function exchange(socketPath: string, method: string, params: unknown, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
+  onFailed?: (reply: z.infer<typeof rpcReply>) => void): Promise<unknown> {
   const id = nextId++;
   const frame = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id, method, params }) + "\n");
   if (frame.length > MAX_FRAME_BYTES) return Promise.reject(new CoreError("too_large", "plugin call exceeds the 1 MiB native owner bridge frame"));
   if (signal?.aborted || revoked?.aborted) return Promise.reject(cancellation(signal, revoked));
+  const key = ownerKey;
+  if (!key) return Promise.reject(new CoreError("plugin_unavailable", "native process owner credential is missing", "Restart the pacer service."));
+  const nonce = randomBytes(32).toString("hex");
   return new Promise((resolve, reject) => {
     const socket = createConnection(socketPath);
     let chunks: Buffer[] = [];
-    let size = 0, settled = false;
+    let size = 0, settled = false, authenticated = false;
+    // Set once the call is aborted: it fails with this whatever the owner answers.
+    let aborted: CoreError | undefined;
+    let drain: ReturnType<typeof setTimeout> | undefined;
     const settle = (failure: CoreError | undefined, value?: unknown, flush = false) => {
       if (settled) return;
       settled = true;
+      if (aborted) failure = aborted;
+      clearTimeout(drain);
       signal?.removeEventListener("abort", abort);
       // Flush the chunk error answer, then close even if the peer keeps reading.
       if (flush) {
@@ -135,11 +195,19 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
       } else socket.destroy();
       if (failure) reject(failure); else resolve(value);
     };
-    const abort = () => settle(cancellation(signal, revoked));
+    // Shutting down the write side cancels the call on the owner, which still sends its final reply.
+    // Before the handshake ends no call was sent, so there is no reply to wait for.
+    const abort = () => {
+      if (settled || aborted) return;
+      aborted = cancellation(signal, revoked);
+      if (!authenticated || !onFailed) return settle(aborted);
+      drain = setTimeout(() => settle(aborted), DRAIN_MS);
+      socket.end();
+    };
     signal?.addEventListener("abort", abort, { once: true });
     const answer = (request: z.infer<typeof rpcReply>) => {
       const respond = (body: object) => {
-        if (settled) return;
+        if (settled || aborted) return;
         const line = Buffer.from(JSON.stringify({ jsonrpc: "2.0", id: request.id, ...body }) + "\n");
         if (line.length > MAX_FRAME_BYTES) socket.write(JSON.stringify({ jsonrpc: "2.0", id: request.id, error: callbackError(new CoreError("too_large", "capability reply exceeds the 1 MiB bridge frame")) }) + "\n");
         else socket.write(line);
@@ -170,13 +238,25 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
       } catch {
         return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`));
       }
-      if (reply.method !== undefined && reply.id !== undefined && reply.id !== id) return answer(reply);
+      if (!authenticated) {
+        if (reply.error) return settle(bridgeError(socketPath, reply.error));
+        const challenge = reply.result as { nonce?: unknown; proof?: unknown } | undefined;
+        if (reply.id !== "auth" || !proves(key, nonce, challenge?.nonce, challenge?.proof))
+          return settle(new CoreError("plugin_unavailable", `native process owner at ${socketPath} failed authentication`, UNPROVEN_HINT));
+        authenticated = true;
+        const coreProof = proof(key, CORE_PROOF, nonce, challenge!.nonce as string).toString("hex");
+        socket.write(JSON.stringify({ jsonrpc: "2.0", method: HOST_AUTH, params: { proof: coreProof } }) + "\n");
+        socket.write(frame);
+        return;
+      }
+      if (reply.method !== undefined && reply.id !== undefined && reply.id !== id) return aborted ? undefined : answer(reply);
+      if (reply.error || aborted) onFailed?.(reply);
       if (reply.error) return settle(bridgeError(socketPath, reply.error));
       settle(undefined, reply.result);
     };
-    socket.on("connect", () => socket.write(frame));
+    socket.on("connect", () => socket.write(JSON.stringify({ jsonrpc: "2.0", id: "auth", method: HOST_AUTH, params: { nonce } }) + "\n"));
     socket.on("error", (error: NodeJS.ErrnoException) => settle(unreachable(socketPath, error.code ?? error.message)));
-    socket.on("close", () => settle(new CoreError("plugin_unavailable", `native process owner socket ${socketPath} closed without a reply`)));
+    socket.on("close", () => settle(new CoreError("plugin_unavailable", `native process owner socket ${socketPath} closed without a reply`, "Restart the pacer service.")));
     socket.on("data", (data: Buffer) => {
       while (!settled) {
         const cut = data.indexOf(0x0a);
@@ -192,12 +272,39 @@ function exchange(socketPath: string, method: string, params: unknown, signal?: 
   });
 }
 
-/** Call a plugin through the native owner; it starts, hellos and authorizes the child. */
-export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal): Promise<NativeOwnerReply> {
-  const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked);
-  if ((result as { activated?: unknown } | null)?.activated === false)
-    throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
-  const reply = nativeOwnerReply.safeParse(result);
-  if (!reply.success) throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`);
-  return reply.data;
+/**
+ * Call a plugin through the native owner; it starts, hellos and authorizes the child.
+ * `onFailedLogs` gets the `capability.log` lines of a call that fails after the owner answered.
+ */
+export async function callNativeOwner(socketPath: string, call: NativeOwnerCall, signal?: AbortSignal, onRequest?: OwnerRequestHandler, revoked?: AbortSignal,
+  onFailedLogs?: (logs: NativeOwnerReply["logs"]) => void): Promise<NativeOwnerReply> {
+  // The `hello` `{protocol, served}` the final reply carried, validated with the
+  // reply schema's own shape: an error reply's `data.hello` or, for a call that
+  // failed after the owner already sent its result (an abort or a deadline), the
+  // result's `hello`.
+  let hello: NativeOwnerReply["hello"] = null;
+  try {
+    // The reply callback is always passed, even without `onFailedLogs`: an aborted
+    // call then waits up to DRAIN_MS for the owner's final reply, which is what
+    // carries the hello that restores readiness.
+    const result = await exchange(socketPath, HOST_PLUGIN_CALL, call, signal, onRequest, revoked, reply => {
+      const carried = nativeOwnerReply.shape.hello.safeParse(reply.error ? reply.error.data?.hello : (reply.result as { hello?: unknown } | null)?.hello);
+      if (carried.success && carried.data) hello = carried.data;
+      if (!onFailedLogs) return;
+      const logs = nativeOwnerReply.shape.logs.safeParse(reply.error ? reply.error.data?.logs : (reply.result as { logs?: unknown } | null)?.logs);
+      if (logs.success && logs.data.length) onFailedLogs(logs.data);
+    });
+    if ((result as { activated?: unknown } | null)?.activated === false)
+      throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} has not activated plugin ownership`);
+    const reply = nativeOwnerReply.safeParse(result);
+    if (!reply.success) throw new CoreError("plugin_unavailable", `native process owner at ${socketPath} sent a malformed reply`);
+    return reply.data;
+  } catch (error) {
+    // A failed call's reply still carries the `hello` summary when the child
+    // answered it, so Core can restore readiness even though it gave up on the
+    // call that ran the hello.
+    if (hello && error instanceof CoreError)
+      throw new CoreError(error.code, error.message, error.hint, { ...error.data, hello });
+    throw error;
+  }
 }

@@ -59,7 +59,7 @@ impl NativeListener {
                 _ => return Err(denied()),
             }
         }
-        let listener = bind_private(&path)?;
+        let listener = bind_private(&directory, &path)?;
         let socket = path.symlink_metadata()?;
         use std::os::unix::fs::FileTypeExt;
         if !socket.file_type().is_socket()
@@ -140,20 +140,27 @@ impl NativeListener {
 fn denied() -> io::Error {
     io::Error::other("native listener ownership unavailable")
 }
-fn bind_private(path: &Path) -> io::Result<UnixListener> {
-    use nix::sys::stat::{Mode, umask};
-    static BIND: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _guard = BIND.lock().map_err(|_| denied())?;
-    struct Restore(Mode);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            umask(self.0);
-        }
+fn bind_private(directory: &std::fs::File, path: &Path) -> io::Result<UnixListener> {
+    use nix::{
+        sys::stat::{FchmodatFlags, Mode, fchmodat},
+        unistd::{UnlinkatFlags, unlinkat},
+    };
+    // The process umask stays untouched, so concurrent threads keep their file modes. The
+    // directory is verified 0700 and ours, so the name cannot be redirected before the chmod,
+    // and nobody else can reach the socket while it carries the default mode.
+    let name = path.file_name().ok_or_else(denied)?;
+    let listener = UnixListener::bind(path)?;
+    let narrowed = fchmodat(
+        directory,
+        name,
+        Mode::S_IRUSR | Mode::S_IWUSR,
+        FchmodatFlags::FollowSymlink,
+    );
+    if let Err(error) = narrowed {
+        let _ = unlinkat(directory, name, UnlinkatFlags::NoRemoveDir);
+        return Err(error.into());
     }
-    // Restrict at creation; never chmod a pathname that could have been redirected.
-    // No await or child spawn occurs while the process mask is restricted.
-    let _mask = Restore(umask(Mode::from_bits_truncate(0o177)));
-    UnixListener::bind(path)
+    Ok(listener)
 }
 fn remove_stale(directory: &std::fs::File, path: &Path, owner: &Path) -> io::Result<()> {
     use nix::{

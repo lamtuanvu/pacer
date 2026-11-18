@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { statSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
+import { existsSync, statSync, readdirSync, writeFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
 import { accountEvidenceScope, mergeEvidence, readEvidence } from "../src/core/evidence";
 import { emptyEvidence, evidenceFact } from "../src/engine/evidence";
@@ -94,4 +94,17 @@ test("removing and recreating the same account retires old observations and in-f
   expect(recreated.evidence.facts.availability).toEqual([]);
   const next = await mergeEvidence({...ctx, now:ctx.now+1}, scope, { ...emptyEvidence(), availability: [evidenceFact(scope,"configuration",0,null,"measurement_contract","ready")] });
   expect(next.evidence.facts.availability[0].value).toBe("ready");
+});
+
+
+test("evidence merge releases its lock before yielding to other startup work", async () => {
+  const ctx = fakeCtx(), scope = accountEvidenceScope(account());
+  const pending = mergeEvidence(ctx, scope, { ...emptyEvidence(), availability: [
+    evidenceFact(scope, "execution", ctx.now, ctx.now + 600, "execution_success", "ready"),
+  ] });
+  // A synchronous status/sign-in call may block this turn for longer than the
+  // lock timeout. The completed disk transaction must not retain its lock.
+  const held = existsSync(join(ctx.pacerHome, "orca", `evidence-${scope.identity}.lock`));
+  await pending;
+  expect(held).toBe(false);
 });

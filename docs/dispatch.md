@@ -22,11 +22,17 @@ pacer dispatch probe --repo . --executor codex --json
 
 `dispatch.preview` is read only. It uses cached observations and makes no reservation. `dispatch.submit` creates a root, and the runner evaluates eligibility again immediately before launch. The response, work tree, and timeline distinguish declared, requested, and observed model identity. An executor-default model stays unresolved until supported execution evidence identifies it.
 
+The service owns periodic background work in a separate worker. When a task lock is busy, HTTP task mutations may return `conflict` promptly so request handling stays responsive. Read the latest task state before retrying the mutation, using its current revision where required. Required runner completion writes and cleanup after a definite input-delivery failure wait asynchronously for the lock: a successful runner result is preserved, and an undelivered answer or message does not leave an answer reservation or driving lease behind.
+
 An executor may run `pacer dispatch child --goal '...' --request-id UNIQUE_ID` only while its attempt has a valid grant. The grant is short lived, bound to the attempt, and scoped to its descendants. Child work uses a separate worktree based on the parent worktree's current commit. The parent can use `dispatch wait`, `review`, `tree`, and `events` for its subtree. A parent cannot accept its own result through a grant. A parent can be accepted only after required children have been accepted. Stopping work stops its active descendants. Existing API and MCP task review/stop actions use the same work rules.
 
 `dispatch.dependencies --id TASK_ID --depends-on CHILD_ID --expect-rev REV` sets same-root dependencies. A rejected dependency can be waived by the work owner with `dispatch waive --id TASK_ID --dependency CHILD_ID --reason '...' --expect-rev REV`. Both operations leave timeline evidence. `dispatch.review` uses the displayed revision; a competing change returns a conflict. The CLI fetches the latest revision when it is omitted. Direct API callers must supply `expect_rev`.
 
 `dispatch.retry` and `dispatch.answer` requeue the same managed task and keep its root, parent, policy, worktree, dependencies and prior attempts. Use one stable `request-id` for each intended retry; replaying it does not launch a second attempt. An answer adds the question and answer to the brief and normally keeps the asking executor. Earlier independent reviews remain in attempt history. Managed work defaults to at most three cumulative attempts per task (`maxAttempts` is configurable); accepted, archived, expired or active work cannot be retried. A child may retry its own child through a valid grant, but cannot retry itself.
+
+When a local executor wrapper dies without recording its exit, a pending stop waits for cleanup of surviving processes in its owned process group. For an attempt with a matching durable start intent (provider, attempt and run directory), uncertain process ownership keeps the stop pending for at most ten minutes. Once cleanup is confirmed, a deadline stop settles as failed and a user stop settles as stopped. The task retains an explicitly unverified exit receipt so retry or continuation can reuse the same task ID.
+
+Local pending stops also handle interactive children in a separate PTY process group, provided their birth time is not earlier than the run and no later than the recorded child file’s modification time. Cleanup never signals older or unowned processes. The ten-minute cleanup deadline starts at the first durably recorded cleanup attempt, rather than the stop request, so legacy requests still get cleanup. A running wrapper always goes through the identity-checked stop path, even after that deadline. After ten minutes of cleanup, a local stop with uncertain wrapper state settles without further signalling (`failed` for a deadline, `stopped` otherwise), and its report says cleanup was not confirmed. A provably reused wrapper PID also settles without signalling. An unverified exit receipt is not proof that every executor process ended. Without a matching start intent, an ambiguous PID with no verified exit stays pending even after that deadline; supervision neither signals it as an orphan nor manufactures completion. A verified running wrapper can still receive an identity-checked stop, and a recorded exit can settle the attempt, without a start intent.
 
 ## Interactive lanes
 
@@ -58,6 +64,63 @@ Open **Settings → Dispatcher → Native subagent control** or run `pacer dispa
 Certificates expire within 24 hours, so the service also renews them on a timer. Because a probe spends the quota of the account it certifies, it runs only with your consent: `pacing.planner_probe` is `ask` by default, and nothing is probed until you answer in Dispatcher or through `dispatch.enforcement.consent`; `auto` renews without asking and `off` disables scheduling while leaving manual verification available. Scheduling also stops short of probing when `pacing.planner_reserve_headroom` would be breached, when headroom cannot be measured, during failure backoff, past a daily ceiling, and when the runner is not listed in a routing rule. An over-ceiling probe cost or repeated repository switching pauses probing for at least 24 hours, then scheduling retries when eligible; the daily ceiling still applies. Dispatcher and `pacer doctor` show the consent state, the next eligible probe and the last measured cost; declining consent is a recorded answer, and probing turned off is a setting rather than a fault.
 
 Strict executor attempts get an enforcement identity for the native guard. They get a separate child work grant only when delegation is allowed. The guard denies native subagent calls and reports the denial to the service through an operation limited to that attempt. It directs the executor to `dispatch.child`; Pacer selects and records an authorized child. This is admission-time control of supported native subagent tools. It cannot prevent an executor from starting another AI CLI or calling a provider API through an unrestricted shell.
+
+## Model choice by difficulty
+
+Set `difficulty: simple|standard|complex` in a delegate brief, or pass
+`pacer delegate --difficulty <value>`. Release A still accepts an omitted
+difficulty, uses `standard`, and reports `difficulty_missing`. Model choice is
+active whenever an executor declares `runners.<id>.models`.
+
+`dispatch.tierTargets` defaults to `simple → small`, `standard → medium`, and
+`complex → frontier`. A mandatory `minTier` can raise the target. Managed dispatch
+tries the target tier first, then higher tiers in order, then `unknown` as a
+compatibility fallback. It evaluates the complete ladder within each bucket
+before moving up. Thus a qualifying target-tier model in a later step wins over
+a higher-tier model in an earlier step. Hard requirements, eligibility, quota,
+reserve and capacity gates still apply. Unknown tiers cannot satisfy `minTier`.
+The choice records `target-match`, `upward-fallback` or `unknown-tier-fallback`.
+Tiers express declared capability, not a price guarantee; ranking factors still
+choose within the bucket and step.
+
+Plain delegation first routes to an executor, then selects among that executor's
+models. Difficulty never reroutes it. If no declared rated model meets the target,
+it uses that executor's default and records `tierReason: executor-fixed-below-target`
+(the stored attempt field is `tier.reason`). It does not fail just because the
+target cannot be met. An executor without declared models keeps its default and
+normally records no tier. An explicit brief `model` or `--model` pin records
+`explicit-override`; managed dispatch still applies hard requirements and never
+silently substitutes a different model for a pin.
+
+Plain delegate attempts store the selected model in `attempts[].model` and choice
+metadata in `attempts[].tier`: `requestedDifficulty`, `difficultySource`,
+`effectiveDifficulty`, `targetTier`, `selectedTier` and `reason`. This preserves
+why each attempt chose its model across retries. Selected identity is not evidence
+of the actual model used; actual identity remains unknown without executor evidence.
+Managed work also retains the tier choice in its decision history.
+
+## Model matrix (Settings → Dispatcher)
+
+The **Model matrix** page (`#/settings/models`) shows every model each executor
+can run, as the union of the provider's model listing and the executor's
+declared `runners.<id>.models`. For each executor you can turn a model on or
+off, set its size (Small, Medium, Frontier, or return it to Unrated), and add a
+model by ID when the listing is unknown. The planner executor is read-only
+here, matching `runner.models.set`. **Suggest** proposes turning models on and
+a size from each provider's price and tool support; suggestions only apply to
+models with listing facts, and **Accept all** never turns off an enabled model
+without such facts. Coverage cards show how many rated models can take each
+difficulty. **Save matrix** writes only the executors whose models or default
+actually changed, in one revision-checked **`runner.models.set_many`** edit, and
+preserves each declared model's strengths, tools and context. On a clean page the matrix reloads whenever the dispatcher settings or the model
+inventory refresh, so edits made through pacer (a CLI or another window) appear
+without discarding anything. If settings change while the page is dirty, it keeps
+your edits and asks you to Discard to load them only when the loaded runner
+models actually differ from what your edits build on; an unrelated refresh with
+identical models stays silent. A hand edit of `strategy.yaml` that changes the
+strategy revision while you have unsaved edits is not visible until you save, and
+surfaces as a save conflict instead. Coverage follows `dispatch.tierTargets` and
+updates when the tier choices change.
 
 ## Configure the choice ladder
 
@@ -102,7 +165,7 @@ dispatch:
   discovery: {enabled: false, runners: [], models: []}
 ```
 
-Steps are evaluated in order; the first step with qualifying choices wins. Requirements remain mandatory at every step. Within a step, factors are compared in the listed order, then by stable candidate ID. Available factors are `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, and `preference`. Unknown prices or quota readings are not treated as zero or as unlimited capacity. `comfortable` requires fresh health and enough measured headroom; `usable` needs positive headroom. A step with `capacity: unknown` explicitly permits uncertain capacity but still honors hard exhaustion and requirements. A pin to one exact model never silently changes to another.
+Within each tier bucket, steps are evaluated in order; the first step with qualifying choices wins. Requirements remain mandatory at every step. Within a step, factors are compared in the listed order, then by stable candidate ID. Available factors are `task-fit`, `spare-capacity`, `burn-before-reset`, `cheapest-first`, and `preference`. Unknown prices or quota readings are not treated as zero or as unlimited capacity. `comfortable` requires fresh health and enough measured headroom; `usable` needs positive headroom. A step with `capacity: unknown` explicitly permits uncertain capacity but still honors hard exhaustion and requirements. A pin to one exact model never silently changes to another.
 
 Tier and strength tags are user declarations. Pacer does not infer a tier from a model name. An observed model list is a suggestion by default. To allow specific newly observed IDs, set `discovery.enabled: true` and list both permitted runners and exact model IDs. These models enter with unknown tier and strengths until explicitly declared, so discovery cannot satisfy a minimum-tier requirement by claiming one.
 

@@ -1,4 +1,5 @@
-import { remedyConsent, type RemedyConsent, type RemedyPlan } from "../../../src/view-model/diagnostics";
+import { remedyConsent, remedyProgress, type RemedyConsent, type RemedyPlan } from "../../../src/view-model/diagnostics";
+import type { Remedy } from "../../../src/install/doctor";
 import type { Platform } from "../platform/types";
 
 export interface PreviewFile { path: string; change: "create" | "update" | "restore" | "unchanged" | "kept"; note: string }
@@ -20,7 +21,8 @@ export interface RemedyHost {
   confirm: (request: ConsentRequest) => Promise<boolean>;
   review: (preview: RepairPreview) => Promise<boolean>;
   delegate: (check: string) => Promise<boolean>;
-  open: (url: string) => void;
+  /** Opens a remedy URL; may be async so callers await and surface a failure inline. */
+  open: (url: string) => void | Promise<void>;
   /** Waits for the pacer service that `before` named to be replaced after a call that restarts it. */
   awaitRestart?: (before: number | undefined) => Promise<void>;
   /** Called with agent.connect's undo report after a reviewed repair is applied, so the done sheet can offer Undo only when it works. */
@@ -125,7 +127,7 @@ export async function dispatchRemedy(plan: RemedyPlan, host: RemedyHost): Promis
       await host.call(plan.op, plan.consent ? { ...plan.params, consent: true } : plan.params);
       return "await-return";
     case "open":
-      host.open(plan.url);
+      await host.open(plan.url);
       return "await-return";
     case "delegate":
       return await host.delegate(plan.check) ? "delegated" : "cancelled";
@@ -139,9 +141,109 @@ export function recheckOnReturn(recheck: () => void, target: Pick<Window, "addEv
   return () => target.removeEventListener("focus", listener);
 }
 
-/** The desktop shell opens only https links from service pages, so a System Settings pane must be opened by hand there. */
-export function openRemedyUrl(url: string, target: Pick<Platform, "desktop" | "openExternal">): void {
-  if (target.desktop && !url.startsWith("https://"))
-    throw new Error("The desktop app can only open web links. Open System Settings › Privacy & Security yourself, then run the checks again.");
+export interface FixAllItem<T = unknown> {
+  id: string;
+  plan: RemedyPlan;
+  title?: string;
+  data?: T;
+  remedy?: Remedy;
+  progress?: string;
+}
+
+export interface FixAllPreparedItem<T = unknown> {
+  item: FixAllItem<T>;
+  run: PreparedRun;
+}
+
+export interface FixAllFailure<T = unknown> {
+  item: FixAllItem<T>;
+  error: unknown;
+}
+
+export interface FixAllResult<T = unknown> {
+  cancelled: boolean;
+  prepared: FixAllPreparedItem<T>[];
+  ordered: FixAllPreparedItem<T>[];
+  restarting: boolean;
+  failures: FixAllFailure<T>[];
+}
+
+export interface FixAllHooks<T = unknown> {
+  confirmAll?: (requests: ConsentRequest[]) => Promise<boolean>;
+  onPrepareFailure?: (item: FixAllItem<T>, error: unknown) => void;
+  onProgress?: (text: string) => void;
+  onRestartWait?: () => void;
+  onItemsStart?: (items: FixAllPreparedItem<T>[]) => void;
+  onItemCommit?: (item: FixAllItem<T>, restarting: boolean) => void;
+  onItemFailure?: (item: FixAllItem<T>, error: unknown) => void;
+}
+
+/** Shared batch fix: prepare -> serviceInstallLast -> one consent -> commit each -> await restart. */
+export async function runFixAll<T = unknown>(
+  items: FixAllItem<T>[],
+  host: Pick<RemedyHost, "call" | "awaitRestart">,
+  hooks: FixAllHooks<T> = {},
+): Promise<FixAllResult<T>> {
+  const failures: FixAllFailure<T>[] = [];
+  const prepared: FixAllPreparedItem<T>[] = [];
+  for (const item of items) {
+    try {
+      const run = await prepareRun(item.plan as Extract<RemedyPlan, { kind: "run" }>, host.call);
+      prepared.push({ item, run });
+    } catch (error) {
+      failures.push({ item, error });
+      hooks.onPrepareFailure?.(item, error);
+    }
+  }
+  const ordered = serviceInstallLast(prepared);
+  const requests = ordered.flatMap(p => (p.run.consent ? [p.run.consent] : []));
+  if (requests.length) {
+    const ok = await (hooks.confirmAll ? hooks.confirmAll(requests) : Promise.resolve(true));
+    if (!ok) {
+      return { cancelled: true, prepared, ordered, restarting: false, failures };
+    }
+  }
+  hooks.onItemsStart?.(ordered);
+  const before = ordered.some(p => p.run.op === "service.install")
+    ? await servicePid(host.call).catch(() => undefined)
+    : undefined;
+  let restarting = false;
+  for (const { item, run } of ordered) {
+    const progressText = item.progress ?? (item.remedy ? remedyProgress(item.remedy) : `${item.title ?? item.id}…`);
+    hooks.onProgress?.(`${item.title ?? item.id}: ${progressText}`);
+    try {
+      const restarts = restartsService(await commitRun(run, host.call));
+      restarting ||= restarts;
+      hooks.onItemCommit?.(item, restarts);
+    } catch (error) {
+      failures.push({ item, error });
+      hooks.onItemFailure?.(item, error);
+    }
+  }
+  if (restarting) {
+    hooks.onRestartWait?.();
+    await host.awaitRestart?.(before);
+  }
+  return { cancelled: false, prepared, ordered, restarting, failures };
+}
+
+const NOTIFICATIONS_SETTINGS_URL = "x-apple.systempreferences:com.apple.Notifications-Settings.extension";
+const PRIVACY_FILES_SETTINGS_URL = "x-apple.systempreferences:com.apple.preference.security?Privacy_FilesAndFolders";
+
+/** The desktop shell opens https links directly; the two known System Settings panes go through the allowlisted Tauri command. */
+export function openRemedyUrl(url: string, target: Pick<Platform, "desktop" | "openExternal" | "openSystemSettings">): void | Promise<void> {
+  if (target.desktop) {
+    if (url === NOTIFICATIONS_SETTINGS_URL || url === PRIVACY_FILES_SETTINGS_URL) {
+      if (!target.openSystemSettings) {
+        throw new Error("System Settings is unavailable from this desktop build. Open it yourself, then run the checks again.");
+      }
+      const pane = url === NOTIFICATIONS_SETTINGS_URL ? "notifications" : "privacy_files";
+      // The caller may await the returned promise to surface a rejection inline.
+      return Promise.resolve(target.openSystemSettings(pane));
+    }
+    if (!url.startsWith("https://")) {
+      throw new Error("The desktop app can only open web links. Open System Settings › Privacy & Security yourself, then run the checks again.");
+    }
+  }
   target.openExternal(url);
 }

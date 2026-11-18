@@ -6,6 +6,9 @@ edition.workspace = true
 license.workspace = true
 rust-version.workspace = true
 
+[features]
+test-ops = []
+
 [dependencies]
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation", features = ["async"] }
@@ -14,6 +17,7 @@ pacer-engine = { path = "../engine" }
 pacer-store = { path = "../store" }
 pacer-lifecycle = { path = "../lifecycle" }
 pacer-repos = { path = "../repos" }
+pacer-models = { path = "../models" }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 ryu-js = "1"
 tokio.workspace = true

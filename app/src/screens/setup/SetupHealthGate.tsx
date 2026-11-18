@@ -2,7 +2,8 @@ import { useEffect, useRef, useState } from "preact/hooks";
 import { remedyPlan } from "../../../../src/view-model/diagnostics";
 import type { SetupHealthRepair, SetupHealthReport } from "../../../../src/view-model/setup-health";
 import type { BrowserApi } from "../../data/api";
-import { awaitServiceRestart, dispatchRemedy, openRemedyUrl, recheckOnReturn, servicePid, type RemedyHost } from "../../data/remedies";
+import { awaitServiceRestart, commitRun, dispatchRemedy, openRemedyUrl, prepareRun, recheckOnReturn, restartsService, runFixAll, servicePid, type ConsentRequest, type RemedyHost } from "../../data/remedies";
+import { remedies } from "../../../../src/install/doctor-remedy";
 import { platform } from "../../platform";
 import { useDialogs } from "../../ds/useDialogs";
 import { pendingSetupHealthReport, SetupHealthStage } from "./SetupHealth";
@@ -22,8 +23,10 @@ function summaryOf(report: SetupHealthReport): SetupHealthSummary {
 }
 
 /** Honest hard-fail report when setup.health cannot run; used by the gate (never silent skip). */
-export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] = "startup"): SetupHealthReport {
+export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] = "startup", error?: unknown): SetupHealthReport {
   const pending = pendingSetupHealthReport(trigger);
+  const message = error == null ? "" : (error instanceof Error ? error.message : String(error));
+  const detail = message ? `Setup checks could not finish: ${message}` : "Setup checks could not finish.";
   return {
     ...pending,
     checkedAt: Date.now() / 1000,
@@ -31,10 +34,10 @@ export function setupHealthFailureReport(trigger: SetupHealthReport["trigger"] =
     attentionCount: 1,
     steps: pending.steps.map(step => ({
       ...step,
-      state: step.id === "service" ? "failed" : "needs_attention",
-      detail: step.id === "service" ? "Setup checks could not finish. Open Diagnostics or continue anyway." : undefined,
+      state: step.id === "service" ? "failed" : "not_checked",
+      detail: step.id === "service" ? detail : undefined,
     })),
-    repairs: [{ kind: "open.diagnostics", label: "Open Diagnostics" }],
+    repairs: [],
   };
 }
 
@@ -43,21 +46,21 @@ export type SetupHealthLoadResult =
   | { kind: "stage"; report: SetupHealthReport; autoEnterMs?: number }
   | { kind: "fail"; report: SetupHealthReport };
 
-/** Pure load path for the gate: skip, show stage, or hard-fail — never silent ready. */
+/** Pure load path for the gate: skip, show stage, or hard-fail — never silent ready. Only an all-passed stage enters by itself. */
 export async function loadSetupHealthGate(
   call: BrowserApi["call"],
 ): Promise<SetupHealthLoadResult> {
   try {
     const next = await call<SetupHealthReport & { skipFullWindow?: boolean }>("setup.health", { trigger: "startup" });
     if (next.skipFullWindow) return { kind: "skip", summary: summaryOf(next) };
-    if (next.outcome === "hard_fail") return { kind: "stage", report: next };
-    return { kind: "stage", report: next, autoEnterMs: next.outcome === "ok" ? 600 : 1200 };
-  } catch {
-    return { kind: "fail", report: setupHealthFailureReport("startup") };
+    if (next.outcome !== "ok") return { kind: "stage", report: next };
+    return { kind: "stage", report: next, autoEnterMs: 600 };
+  } catch (error) {
+    return { kind: "fail", report: setupHealthFailureReport("startup", error) };
   }
 }
 
-/** Map a load result to the gate commit — fail and stage never auto-enter ready. */
+/** Map a load result to the gate commit — fail, warnings and hard-fail stages never auto-enter ready. */
 export function commitSetupHealthLoad(
   result: SetupHealthLoadResult,
 ):
@@ -72,7 +75,7 @@ type Confirm = (message: string, title?: string, confirmLabel?: string) => Promi
 const fileList = (files: string[]) => files.length ? `\n\n${files.join("\n")}` : "";
 
 /** The gate's side of the shared remedy dispatch: confirmations are dialogs, agent tasks open their task page. */
-export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void = url => openRemedyUrl(url, platform)): RemedyHost {
+export function gateRemedyHost(api: Pick<BrowserApi, "call">, confirm: Confirm, open: (url: string) => void | Promise<void> = url => openRemedyUrl(url, platform)): RemedyHost {
   // One function identity per host: `servicePid` keys its single-flight read by identity,
   // so a fresh arrow per restart-wait poll would send a new `snapshot.get` every time.
   const call: RemedyHost["call"] = (op, params) => api.call(op, params);
@@ -110,6 +113,12 @@ export async function applyRepair(repair: SetupHealthRepair, host: RemedyHost): 
   return result === "delegated" ? "navigate" : "done";
 }
 
+/** Persist skipping the optional notifications step, then re-run the checks so it reads 'Skipped'. */
+export async function applySetupSkip(api: Pick<BrowserApi, "call">): Promise<"rerun"> {
+  await api.call("setup.skip", { step: "notifications" });
+  return "rerun";
+}
+
 /** Full-window Checking setup after service connect; skip when fingerprint is fresh. */
 export function SetupHealthGate({
   api,
@@ -131,6 +140,7 @@ export function SetupHealthGate({
   const [autoEnterMs, setAutoEnterMs] = useState<number>();
   const enterTimer = useRef<number>();
   const [repairError, setRepairError] = useState<string>();
+  const [fixAllProgress, setFixAllProgress] = useState<string>();
   const returnRecheck = useRef<() => void>();
   useEffect(() => () => returnRecheck.current?.(), []);
 
@@ -179,18 +189,88 @@ export function SetupHealthGate({
     if (hash) location.hash = hash;
   };
 
+  const rerunChecks = () => {
+    if (enterTimer.current) window.clearTimeout(enterTimer.current);
+    setFixAllProgress(undefined);
+    setReport(pendingSetupHealthReport(view.trigger));
+    setPhase("checking");
+  };
+
+  const restartService = async () => {
+    if (enterTimer.current) window.clearTimeout(enterTimer.current);
+    setRepairing(true);
+    setRepairError(undefined);
+    setFixAllProgress(undefined);
+    const host = gateRemedyHost(api, dialogs.confirm);
+    const remedy = remedies.internal();
+    const plan = remedyPlan(remedy)!;
+    try {
+      const run = await prepareRun(plan as Extract<typeof plan, { kind: "run" }>, host.call);
+      if (run.consent && !await host.confirm(run.consent)) return;
+      setFixAllProgress("Restarting the pacer service…");
+      const before = run.op === "service.install" ? await servicePid(host.call).catch(() => undefined) : undefined;
+      if (restartsService(await commitRun(run, host.call))) await host.awaitRestart?.(before);
+      rerunChecks();
+    } catch (failure) {
+      setRepairError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setRepairing(false);
+      setFixAllProgress(undefined);
+    }
+  };
+
   return <>
     <SetupHealthStage
       report={view}
       busy={phase === "checking" || !view.checkedAt}
       repairing={repairing}
       repairError={repairError}
+      repairProgress={fixAllProgress}
       onContinue={() => finish(view.checkedAt ? summaryOf(view) : null)}
       onOpenDiagnostics={() => finish(view.checkedAt ? summaryOf(view) : null, "#/settings/diagnostics")}
+      onRerun={rerunChecks}
+      onRestartService={restartService}
+      onFixAll={async autoRepairs => {
+        if (enterTimer.current) window.clearTimeout(enterTimer.current);
+        setRepairing(true);
+        setRepairError(undefined);
+        setFixAllProgress("Checking what will change…");
+        const host = gateRemedyHost(api, dialogs.confirm);
+        const items = autoRepairs.map(r => ({ id: r.check ?? r.label, plan: remedyPlan(r.remedy!)!, title: r.label, data: r, remedy: r.remedy }));
+        const confirmAll = async (requests: ConsentRequest[]) => {
+          const message = requests.map(req => req.message).join("\n\n");
+          const files = [...new Set(requests.flatMap(req => req.files))];
+          return dialogs.confirm(`${message}${fileList(files)}`, "Fix issues", "Fix");
+        };
+        let cancelled = false;
+        try {
+          const result = await runFixAll(items, host, {
+            confirmAll,
+            onProgress: setFixAllProgress,
+            onRestartWait: () => setFixAllProgress("Waiting for pacer to restart…"),
+          });
+          if (result.cancelled) {
+            cancelled = true;
+            setFixAllProgress("No changes were made.");
+            return;
+          }
+          if (result.failures.length) {
+            setRepairError(`Some fixes did not finish: ${result.failures.map(f => f.item.title ?? f.item.id).join(", ")}`);
+          }
+          rerunChecks();
+        } catch (failure) {
+          setRepairError(failure instanceof Error ? failure.message : String(failure));
+        } finally {
+          setRepairing(false);
+          if (!cancelled) setFixAllProgress(undefined);
+        }
+      }}
       onRepair={async repair => {
         if (enterTimer.current) window.clearTimeout(enterTimer.current);
         setRepairing(true);
         setRepairError(undefined);
+        // While notifications.request waits for the macOS prompt, tell the user what to do.
+        setFixAllProgress(repair.remedy?.op === "notifications.request" ? "Answer the macOS prompt…" : undefined);
         returnRecheck.current?.();
         try {
           const result = await applyRepair(repair, gateRemedyHost(api, dialogs.confirm));
@@ -204,6 +284,25 @@ export function SetupHealthGate({
           };
           if (result === "rerun") rerun();
           if (result === "rerun-on-return") returnRecheck.current = recheckOnReturn(rerun);
+        } catch (failure) {
+          setRepairError(failure instanceof Error ? failure.message : String(failure));
+        } finally {
+          setRepairing(false);
+          setFixAllProgress(undefined);
+        }
+      }}
+      onSkip={async () => {
+        if (enterTimer.current) window.clearTimeout(enterTimer.current);
+        setRepairing(true);
+        setRepairError(undefined);
+        returnRecheck.current?.();
+        try {
+          await applySetupSkip(api);
+          const rerun = () => {
+            setReport(pendingSetupHealthReport(view.trigger));
+            setPhase("checking");
+          };
+          rerun();
         } catch (failure) {
           setRepairError(failure instanceof Error ? failure.message : String(failure));
         } finally {

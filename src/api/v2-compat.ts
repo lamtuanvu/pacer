@@ -18,19 +18,20 @@ export type CompatSnapshot = SnapshotV3 & { [V2_STATE]?: Pick<LinkSnapshot,'budg
 export type CompatEvent = ApiEventV3 & { [V2_EVENT]?: ApiEventV2 | null };
 
 /** Operations added after 2.8.0. 2.x is frozen, so they exist only in v3. */
-export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search']);
+export const V3_ONLY_OPS = new Set(['service.handover','service.work','snapshot.get','client.control.enroll','client.control.targets','client.control.request','client.control.result','client.control.claim','client.control.complete','api.list','api.describe','runner.settings.get','runner.settings.save','runner.models.get','runner.models.set','runner.models.set_many','desktop.capture.register','desktop.capture.targets','desktop.capture.request','desktop.capture.claim','desktop.capture.complete','desktop.capture.result','desktop.update.adopt','desktop.update.adoptCancel','desktop.update.status','desktop.update.check','desktop.update.download','desktop.update.restart','desktop.update.cancel','desktop.update.configure','task.takeover','task.hand_back','service.install','onboarding.skip','onboarding.try','doctor.run','project.strategy.list','project.strategy.get','project.strategy.set','project.strategy.remove','task.prune','task.restore','plugin.list','plugin.enable','plugin.disable','plugin.remove','plugin.doctor','plugin.ui.list','plugin.ui.render','plugin.ui.action','plugin.ui.visibility','plugin.settings.get','plugin.settings.set','files.search','issue.import','issue.search','executor.models.available']);
 
 for (const op of ["desktop.reconcile.status", "desktop.reconcile.request", "desktop.reconcile.cancel"]) V3_ONLY_OPS.add(op);
 
-for (const op of ['dispatch.config.get','dispatch.preview','dispatch.explain','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.enforcement.consent','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
+for (const op of ['dispatch.config.get','dispatch.tierTargets.get','dispatch.tierTargets.set','dispatch.preview','dispatch.explain','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.enforcement.consent','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
 
 export function v2Hello() {
  const {previous:_,coreBuild: _coreBuild,...hello}=helloBody();
  return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
-for (const op of ["setup.health"]) V3_ONLY_OPS.add(op);
+for (const op of ["setup.health", "setup.skip"]) V3_ONLY_OPS.add(op);
 for (const op of ["account.usage.check", "limits.refresh", "session.draft.create", "session.prepare", "session.create", "session.context", "session.end", "session.resume", "session.attachment.prepare", "session.file.read"]) V3_ONLY_OPS.add(op);
+for (const op of ["notifications.test", "notifications.ack", "notifications.request", "notifications.health"]) V3_ONLY_OPS.add(op);
 for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
 for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
@@ -52,6 +53,9 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
   if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
+  const compatibleAction = (action: typeof a.actions[number]) => action.op === "dispatch.retry" || action.op === "dispatch.answer"
+   ? {...action,op:"ui.open",params:{view:"task",id:action.params.id,...(action.op === "dispatch.answer" ? {tab:"answer"} : {})}} : action;
+  a = {...a,actions:a.actions.map(compatibleAction)};
   if(!item)return [a]; // Plugin reload notices are independent of the checklist.
   if(item.status==="done")return [];
   return [{...a,id,title:item.title,actions:a.actions.map(action=>action.op==="ui.open"?{...action,params:{...action.params,section:item.id}}:action)}];
@@ -69,14 +73,14 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
  const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
- return e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
+ return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
 }
 export { isDiscoveryItemId };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
@@ -87,16 +91,20 @@ export const V3_CURSOR_BASE = 3_000_000_000_000;
 
 export function v2Params(name:string,params:unknown):unknown {
  if(name==='task.delegate'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {dispatch:_,...legacy}=params as Record<string,unknown>;return legacy;
+  const {dispatch:_,difficulty:_difficulty,model:_model,...legacy}=params as Record<string,unknown>;return legacy;
  }
  if(name==='client.register'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {capture:_,...legacy}=params as Record<string,unknown>;
+  const {capture:_,notification_permission:__,notification_alerts:___,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
  if(name==='client.heartbeat'&&params&&typeof params==='object'&&!Array.isArray(params)){
-  const {notifier:_,...legacy}=params as Record<string,unknown>;
+  const {notifier:_,notification_permission:__,notification_alerts:___,...legacy}=params as Record<string,unknown>;
   return legacy;
  }
+ // `q` is a protocol 3 addition; the frozen 2.x surface stays as documented
+ // (additionalProperties: false) and rejects it like any unrecognized key.
+ if(name==='task.list'&&params&&typeof params==='object'&&!Array.isArray(params)&&'q' in params)
+  throw new CoreError('invalid_input','params: Unrecognized key: "q"');
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -127,15 +135,30 @@ export async function callV2Op(ctx:Ctx,name:string,params:unknown,deps?:OpDeps):
 /** Keep the existing v2 document/schema check stable until the documentation task. */
 export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  const schemas=opJsonSchemas();
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.difficulty;
+ delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.model;
  delete (schemas['task.delegate'].params as {properties:Record<string,unknown>}).properties.dispatch;
  delete (schemas['client.register'].params as {properties:Record<string,unknown>}).properties.capture;
  for(const op of V3_ONLY_OPS)delete schemas[op];
  schemas['task.list'].description="Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0.";
+ // `q` is a protocol 3 addition; 2.x stays on its frozen task.list surface.
+ delete (schemas['task.list'].params as {properties:Record<string,unknown>}).properties.q;
  const registration=schemas['client.register'].params as {properties:Record<string,unknown>};
  delete registration.properties.capture;
+ delete registration.properties.notification_permission;
+ delete registration.properties.notification_alerts;
  schemas['client.register'].description="Register a client with an optional notifier lease; heartbeat every 30 seconds.";
  delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notifier;
+ delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_permission;
+ delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_alerts;
  schemas['client.heartbeat'].description="Renew a client lease, which lapses after 45 seconds without a heartbeat.";
+ // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
+ schemas['notifications.get'].description="Current notification level.";
+ schemas['notifications.set'].description="Set notifications to off, important or all.";
+ const notifications=schemas['notifications.set'].params as {properties:Record<string,unknown>;required?:string[];additionalProperties?:boolean};
+ delete notifications.properties.sound;
+ const {additionalProperties:closed,...openNotifications}=notifications;
+ schemas['notifications.set'].params={...openNotifications,required:['level'],additionalProperties:closed} as typeof schemas['notifications.set']['params'];
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";

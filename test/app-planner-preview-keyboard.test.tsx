@@ -11,6 +11,8 @@ beforeAll(async () => {
   styles = (await Promise.all(['tokens.css', 'components.css'].map(file => Bun.file(`app/src/ds/${file}`).text()))).join('\n');
 }, 15000);
 for (const width of [1440, 375]) for (const colorScheme of ['light', 'dark'] as const) {
+  // Timeout must cover Playwright's Browser.close() (in the finally), which on Bun waits its
+  // full 30s graceful-close when the Chromium process-exit event is delayed (see flaky teardown).
   test.skipIf(!browserPath)(`planner preview retains complete text and supports keyboard scrolling at ${width} ${colorScheme}`, async () => {
     const preview = {
       files: [`$HOME/${'project-directory/'.repeat(24)}skills/pacer/SKILL.md`],
@@ -50,7 +52,7 @@ for (const width of [1440, 375]) for (const colorScheme of ['light', 'dark'] as 
       expect(await page.getByRole('button', { name: 'Continue' }).evaluate(node => document.activeElement === node)).toBe(true);
       expect(await page.evaluate(() => document.documentElement.scrollWidth <= window.innerWidth)).toBe(true);
     } finally { await browser.close(); }
-  });
+  }, 45000);
 }
 
 test.skipIf(!browserPath)('narrow setup keeps a Tab-focused preview above the fixed navigation', async () => {
@@ -78,4 +80,4 @@ test.skipIf(!browserPath)('narrow setup keeps a Tab-focused preview above the fi
     expect(position.focused).toBe(true);
     expect(position.bottom).toBeLessThan(position.navigationTop);
   } finally { await browser.close(); }
-});
+}, 45000);

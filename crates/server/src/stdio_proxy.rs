@@ -1,4 +1,6 @@
-use crate::native::{call_native, registry};
+use crate::core_secrets::{self, CoreSecrets};
+use crate::native::{call_native, service_registry};
+use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
@@ -8,24 +10,33 @@ use std::{collections::HashMap, io, process::Stdio};
 use tokio::{
     io::{AsyncBufRead, AsyncBufReadExt, AsyncWrite, AsyncWriteExt, BufReader},
     process::Command,
+    signal::unix::{SignalKind, signal},
     sync::Mutex,
 };
 
 /// Generated from the TypeScript hello bodies; the parity test catches drift.
-/// The v3 body's `coreBuild` describes the running core, so it is never in the
-/// generated file: it comes from the core itself, once per connection.
+/// Two fields are never in the generated file. `pacer` changes with every
+/// release, so it is package.json's version, which the TypeScript hello reports
+/// too (`pkg.version`), even when the build was given another one. The v3
+/// body's `coreBuild` describes the running core, so it comes from the core
+/// itself, once per connection.
 fn hello_body(version: u8, core_build: Option<&Value>) -> io::Result<Value> {
     let bodies: Value = serde_json::from_str(include_str!("stdio_hello.json"))?;
-    let mut body = bodies[if version == 3 { "v3" } else { "v2" }].clone();
-    if version == 3
-        && let (Some(build), Value::Object(fields)) = (core_build, &mut body)
-    {
-        let mut ordered = serde_json::Map::new();
+    let Value::Object(fields) = &bodies[if version == 3 { "v3" } else { "v2" }] else {
+        return Err(io::Error::other("stdio_hello.json has no hello body"));
+    };
+    let mut ordered = serde_json::Map::new();
+    if let (3, Some(build)) = (version, core_build) {
         ordered.insert("coreBuild".into(), build.clone());
-        ordered.extend(std::mem::take(fields));
-        *fields = ordered;
     }
-    Ok(body)
+    for (key, value) in fields {
+        ordered.insert(key.clone(), value.clone());
+        // TypeScript sends `pacer` right after the protocol versions.
+        if key == if version == 3 { "previous" } else { "protocol" } {
+            ordered.insert("pacer".into(), env!("PACER_PACKAGE_VERSION").into());
+        }
+    }
+    Ok(Value::Object(ordered))
 }
 
 /// The core's build descriptor, read with `--pacer-component-descriptor` on first use.
@@ -48,6 +59,7 @@ impl CoreBuild<'_> {
                         .args(self.prefix)
                         .arg("--pacer-component-descriptor")
                         .envs(self.env)
+                        .env_remove(core_secrets::ANNOUNCE_ENV)
                         .stdin(Stdio::null())
                         .stderr(Stdio::inherit())
                         .kill_on_drop(true)
@@ -90,6 +102,23 @@ async fn write_line<W: AsyncWrite + Unpin>(out: &Mutex<W>, line: &[u8]) -> io::R
     out.flush().await
 }
 
+/// Request ids the front door may answer itself: null, strings and safe integers,
+/// which the core's `JSON.parse`/`JSON.stringify` echo byte for byte. Every other
+/// number forwards so the core's own echo decides, even one JavaScript happens to
+/// round-trip, such as `1.5`.
+fn natively_answered_id(id: &Value) -> bool {
+    const MAX_SAFE: u64 = (1 << 53) - 1;
+    match id {
+        Value::Null | Value::String(_) => true,
+        Value::Number(n) => n
+            .as_i64()
+            .map(i64::unsigned_abs)
+            .or_else(|| n.as_u64())
+            .is_some_and(|n| n <= MAX_SAFE),
+        _ => false,
+    }
+}
+
 fn rpc_line(id: &Value, result: Result<Value, CoreError>) -> io::Result<Vec<u8>> {
     let response = match result {
         Ok(value) => json!({"jsonrpc":"2.0", "id":id, "result":value}),
@@ -125,6 +154,32 @@ async fn wait_done<O: AsyncWrite + Unpin>(
     Ok(())
 }
 
+/// The plugin operations of one connection: their service, Core channel and running tasks.
+struct Plugins {
+    service: std::sync::Arc<crate::native::plugins::Service>,
+    link: std::sync::Arc<PluginLink>,
+    frames: tokio::sync::mpsc::UnboundedReceiver<Vec<u8>>,
+    tasks: tokio::task::JoinSet<Done>,
+    ids: HashMap<tokio::task::Id, Value>,
+}
+
+/// Act on a finished plugin operation: answer the client or replay the line to Core.
+async fn plugin_done<W: AsyncWrite + Unpin, O: AsyncWrite + Unpin>(
+    core: &mut W,
+    out: &Mutex<O>,
+    done: Done,
+) -> io::Result<()> {
+    match done {
+        Done::Reply(bytes) => write_line(out, &bytes).await,
+        Done::Replay(line) => {
+            core.write_all(&line).await?;
+            core.flush().await
+        }
+        Done::Nothing => Ok(()),
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 async fn forward_input<
     R: AsyncBufRead + Unpin,
     W: AsyncWrite + Unpin + Send,
@@ -137,6 +192,7 @@ async fn forward_input<
     registry: &Registry<'_>,
     sync: (&str, &str, &mut tokio::sync::mpsc::UnboundedReceiver<Value>),
     core_build: &CoreBuild<'_>,
+    plugins: &mut Plugins,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     let mut protocol = 2;
@@ -152,11 +208,33 @@ async fn forward_input<
                 Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
                     wait_done(out, &mut wait_ids, done).await?;
                 }
+                Some(frame) = plugins.frames.recv() => {
+                    core.write_all(&frame).await?;
+                    core.flush().await?;
+                }
+                Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
+                    let done = stdio_plugins::finished(&mut plugins.ids, done);
+                    plugin_done(&mut core, out, done).await?;
+                }
             }
         };
         if read == 0 && line.is_empty() {
-            while let Some(done) = waits.join_next_with_id().await {
-                wait_done(out, &mut wait_ids, done).await?;
+            // Plugin operations still need their Core channel until they finish.
+            loop {
+                tokio::select! {
+                    Some(done) = waits.join_next_with_id(), if !waits.is_empty() => {
+                        wait_done(out, &mut wait_ids, done).await?;
+                    }
+                    Some(frame) = plugins.frames.recv(), if !plugins.tasks.is_empty() => {
+                        core.write_all(&frame).await?;
+                        core.flush().await?;
+                    }
+                    Some(done) = plugins.tasks.join_next_with_id(), if !plugins.tasks.is_empty() => {
+                        let done = stdio_plugins::finished(&mut plugins.ids, done);
+                        plugin_done(&mut core, out, done).await?;
+                    }
+                    else => break,
+                }
             }
             return core.shutdown().await;
         }
@@ -170,11 +248,15 @@ async fn forward_input<
                 && r.get("id")
                     .is_none_or(|id| id.is_null() || id.is_string() || id.is_number())
         });
+        let native_id = request
+            .as_ref()
+            .and_then(|r| r.get("id"))
+            .is_none_or(natively_answered_id);
         if method == Some("hello")
             && valid
             && let Some(request) = request.as_ref()
         {
-            if core_build.forward_hello {
+            if core_build.forward_hello || !native_id {
                 if let Ok(version) = hello_version(request.get("params")) {
                     protocol = version;
                 }
@@ -219,27 +301,49 @@ async fn forward_input<
             }
             continue;
         }
+        // Plugin ops decode with the JavaScript-compatible codec, which also
+        // reads lines serde refuses (lone surrogates, nesting past 128).
+        if protocol == 3
+            && let Some(plugin) =
+                stdio_plugins::classify(&line, request.as_ref(), registry, natively_answered_id)
+        {
+            match plugin {
+                Line::Answer { op, id, params } => stdio_plugins::spawn(
+                    &mut plugins.tasks,
+                    &mut plugins.ids,
+                    &plugins.service,
+                    &plugins.link,
+                    ctx.at_now(),
+                    (op, id, params),
+                    line.clone(),
+                ),
+                Line::Forward => {
+                    core.write_all(&line).await?;
+                    core.flush().await?;
+                }
+            }
+            continue;
+        }
         if protocol == 3
             && valid
+            && native_id
             && let Some(op) = method.and_then(|name| registry.get(name))
             && let Some(request) = request.as_ref()
         {
             let params = request.get("params").cloned().unwrap_or_else(|| json!({}));
-            // Planner install and backend readiness remain on the TypeScript path.
-            if !(op.name == "config.set" && crate::native::config_set_stays_forwarded(&params))
-                && !(op.name == "mode.hold" && crate::native::mode_hold_stays_forwarded(&params))
-                && !(op.name == "routing.route"
-                    && crate::native::routing_route_stays_forwarded(&params))
-                && !(op.name == "task.retry_options"
-                    && crate::native::task_retry_options_stays_forwarded(&ctx.at_now()))
+            // Changed-planner installs and Orca backend readiness remain on the TypeScript path.
+            if !(op.name == "config.set"
+                && crate::native::config_set_stays_forwarded(&ctx.at_now(), &params))
+                && !crate::native::status_residue_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !(op.name == "repo.remove"
-                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now()))
+                    && crate::native::repo_remove_stays_forwarded(&ctx.at_now(), &params))
                 && !crate::native::project_messaging_stays_forwarded(
                     &ctx.at_now(),
                     op.name,
                     &params,
                 )
                 && !crate::native::msg_stays_forwarded(op.name, ctx)
+                && !crate::native::msg_answer_stays_forwarded(op.name, ctx, &params)
                 && !crate::native::repo_registry_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::discovery_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::desktop_reconcile_stays_forwarded(op.name)
@@ -247,6 +351,11 @@ async fn forward_input<
                 && !crate::native::dependencies_waive_stays_forwarded(op.name, &params)
                 && !crate::native::insights_stays_forwarded(op.name, &params)
                 && !crate::native::planning_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::dispatch_lifecycle_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
                 && !crate::native::job_strategy_setup_stays_forwarded(
                     &ctx.at_now(),
                     op.name,
@@ -255,6 +364,13 @@ async fn forward_input<
                 && !crate::native::runner_attention_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::service_agent_stays_forwarded(&ctx.at_now(), op.name, &params)
                 && !crate::native::account_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::host_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::strategy_settings_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
+                && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {
@@ -292,8 +408,56 @@ async fn forward_input<
                         replies: &mut *sync.2,
                     };
                     let result = msg_writes::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if matches!(&result, Err(error) if error.message == msg_writes::FORWARD_DUPLICATE_ANSWER)
+                    {
+                        core.write_all(&line).await?;
+                        core.flush().await?;
+                        continue;
+                    }
                     if let Some(id) = id {
                         write_line(out, &rpc_line(&id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let by =
+                        crate::native::task_send_ops::caller_identity(&request_ctx, None, None);
+                    let mut bridge = crate::native::task_send_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::task_send_ops::task_send(
+                        &request_ctx,
+                        params,
+                        by,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::preview_ops::needs_dispatch_parts(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut bridge = crate::native::dispatch_preview_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::preview_ops::dispatch_preview(
+                        &request_ctx,
+                        op.name,
+                        params,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
                     }
                     continue;
                 }
@@ -318,17 +482,33 @@ async fn forward_input<
                     }
                     continue;
                 }
-                if pacer_install::needs_service_effects_bridge(op.name) {
+                if crate::native::install_apply_sync::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
-                    let mut effects = crate::native::service_effects_sync::StdioServiceEffects {
-                        core: &mut core,
-                        prefix: sync.0,
-                        key: sync.1,
-                        replies: &mut *sync.2,
+                    match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if crate::native::needs_host_effects(op.name) {
+                    use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let result = match admit(&request_ctx, op.name, &params) {
+                        Ok(Admission::Core) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(Admission::Native(reply)) => Ok(reply),
+                        Err(error) => Err(error),
                     };
-                    let result =
-                        pacer_install::call(&request_ctx, op.name, params, false, &mut effects)
-                            .await;
                     if let Some(id) = request.get("id") {
                         write_line(out, &rpc_line(id, result)?).await?;
                     }
@@ -578,6 +758,7 @@ async fn forward_input<
                     }
                 }
                 let result = if crate::native::needs_usage_broker(op.name) {
+                    let broker_params = crate::native::usage_broker_params(op.name, &params);
                     call_native(
                         &request_ctx,
                         op,
@@ -585,7 +766,11 @@ async fn forward_input<
                         request.get("id"),
                         None,
                         Some(Box::pin(crate::native::status_sync::stdio(
-                            &mut core, sync.0, sync.1, sync.2,
+                            &mut core,
+                            sync.0,
+                            sync.1,
+                            broker_params,
+                            sync.2,
                         ))
                             as pacer_foundation::api::OpFuture<'_>),
                         None,
@@ -781,6 +966,31 @@ async fn forward_input<
                         None,
                     )
                     .await
+                } else if crate::native::needs_account_list_bridge(op.name) {
+                    call_native(
+                        &request_ctx,
+                        op,
+                        params,
+                        request.get("id"),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                        Some(Box::pin(crate::native::account_list_sync::stdio(
+                            &mut core, sync.0, sync.1, sync.2,
+                        ))
+                            as pacer_foundation::api::OpFuture<'_>),
+                        None,
+                        None,
+                        None,
+                        None,
+                        None,
+                    )
+                    .await
                 } else if crate::native::needs_core_bridge(op.name) {
                     match crate::native::p8_bridge_ops::bridge_params(op.name, &params) {
                         Ok(bridge_params) => {
@@ -865,12 +1075,17 @@ async fn forward_output<R: AsyncBufRead + Unpin, W: AsyncWrite + Unpin>(
     out: &Mutex<W>,
     sync_id: &str,
     sync: tokio::sync::mpsc::UnboundedSender<Value>,
+    plugins: &PluginLink,
 ) -> io::Result<()> {
     let mut line = Vec::new();
     loop {
         line.clear();
         if core.read_until(b'\n', &mut line).await? == 0 {
             return Ok(());
+        }
+        // Before serde: plugin envelopes may hold lone surrogates or deep nesting.
+        if plugins.route(&line) {
+            continue;
         }
         if let Ok(value) = serde_json::from_slice::<Value>(&line)
             && value
@@ -924,7 +1139,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     if !forward.is_empty() {
         eprintln!("pacer: PACER_FORWARD_OPS={forward}");
     }
-    let registry = registry(if scoped_work { "*" } else { forward });
+    let registry = service_registry(if scoped_work { "*" } else { forward });
     let forward_hello = scoped_work
         || forward
             .split(',')
@@ -943,57 +1158,170 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         env: &env,
         value: tokio::sync::OnceCell::new(),
     };
-    let mut child = Command::new(program)
-        .args(prefix)
-        .args(["api", "--stdio"])
-        .envs(&env)
-        .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::inherit())
-        .kill_on_drop(true)
-        .spawn()?;
-    let input = child
-        .stdin
-        .take()
-        .ok_or_else(|| io::Error::other("missing core stdin"))?;
-    let output = child
-        .stdout
-        .take()
-        .ok_or_else(|| io::Error::other("missing core stdout"))?;
-    let out = Mutex::new(tokio::io::stdout());
     let mut ctx = Ctx::from_env();
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
-    let incoming = forward_input(
-        BufReader::new(tokio::io::stdin()),
-        input,
-        &out,
-        &ctx,
-        &registry,
-        (&sync_id, &sync_key, &mut sync_rx),
-        &core_build,
-    );
-    let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx);
-    tokio::pin!(incoming, outgoing);
-    let mut input_done = false;
-    let mut output_done = false;
-    loop {
-        tokio::select! {
-            result = &mut incoming, if !input_done => {
-                result?;
-                input_done = true;
-            }
-            result = &mut outgoing, if !output_done => {
-                result?;
-                output_done = true;
-            }
-            status = child.wait() => {
-                if !output_done {
-                    outgoing.await?;
+    ctx.env.remove(core_secrets::ANNOUNCE_ENV);
+    // The core child's env fixes who owns plugin processes for this connection.
+    let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
+    crate::core_process::record_stdio(&env, &host_socket);
+    let (link, frames) = PluginLink::new(&sync_id, &sync_key);
+    if let Some((reports, requests)) = ownership.crash_reports().zip(ownership.door_requests()) {
+        let ipc: std::sync::Arc<dyn pacer_plugin_ops::ipc::CoreIpc> = link.clone();
+        let core = move || {
+            let ipc = ipc.clone();
+            async move { Some((ipc, String::new())) }
+        };
+        tokio::spawn(crate::native::plugins::deliver_crashes(
+            reports,
+            core.clone(),
+        ));
+        tokio::spawn(crate::native::plugins::deliver_door_requests(
+            requests, core,
+        ));
+    }
+    let mut plugins = Plugins {
+        service: std::sync::Arc::clone(&ownership.service),
+        link,
+        frames,
+        tasks: tokio::task::JoinSet::new(),
+        ids: HashMap::new(),
+    };
+    let secrets = CoreSecrets {
+        internal_token: None,
+        owner_key: host_socket.owner_key(),
+        native_config_sync_key: Some(sync_key.clone()),
+    };
+    let session = async {
+        let mut command = Command::new(program);
+        host_socket
+            .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
+            .stdin(Stdio::piped())
+            .stdout(Stdio::piped())
+            .stderr(Stdio::inherit())
+            .kill_on_drop(true);
+        let mut child = core_secrets::announce(&mut command).spawn()?;
+        let mut input = child
+            .stdin
+            .take()
+            .ok_or_else(|| io::Error::other("missing core stdin"))?;
+        // Before any forwarded line: Core reads the frame first.
+        core_secrets::send(&mut input, &secrets).await?;
+        let output = child
+            .stdout
+            .take()
+            .ok_or_else(|| io::Error::other("missing core stdout"))?;
+        let out = Mutex::new(tokio::io::stdout());
+        let link = std::sync::Arc::clone(&plugins.link);
+        let incoming = forward_input(
+            BufReader::new(tokio::io::stdin()),
+            input,
+            &out,
+            &ctx,
+            &registry,
+            (&sync_id, &sync_key, &mut sync_rx),
+            &core_build,
+            &mut plugins,
+        );
+        let outgoing = forward_output(BufReader::new(output), &out, &sync_id, sync_tx, &link);
+        tokio::pin!(incoming, outgoing);
+        let mut input_done = false;
+        let mut output_done = false;
+        loop {
+            tokio::select! {
+                result = &mut incoming, if !input_done => {
+                    result?;
+                    input_done = true;
                 }
-                return Ok(status?.code().unwrap_or(1));
+                result = &mut outgoing, if !output_done => {
+                    result?;
+                    output_done = true;
+                }
+                status = child.wait() => {
+                    if !output_done {
+                        outgoing.await?;
+                    }
+                    return Ok(status?.code().unwrap_or(1));
+                }
             }
         }
+    };
+    // A terminated owning connection still removes its socket and children;
+    // dropping the session kills the core child.
+    let code = if ownership.owns_children() {
+        let mut terminate = signal(SignalKind::terminate())?;
+        tokio::select! {
+            code = session => code,
+            _ = terminate.recv() => Ok(128 + 15),
+        }
+    } else {
+        session.await
+    };
+    ownership.finish().await;
+    code
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{hello_body, natively_answered_id};
+    use serde_json::{Value, json};
+
+    #[test]
+    #[allow(clippy::unwrap_used)]
+    fn hello_reports_the_package_version_in_typescript_key_order() {
+        let package: Value = serde_json::from_str(include_str!("../../../package.json")).unwrap();
+        let keys = |body: &Value| {
+            body.as_object()
+                .unwrap()
+                .keys()
+                .cloned()
+                .collect::<Vec<_>>()
+        };
+        let v2 = hello_body(2, None).unwrap();
+        assert_eq!(v2["pacer"], package["version"]);
+        assert_eq!(keys(&v2), ["protocol", "pacer", "ops", "events"]);
+        let build = json!({"schemaVersion": 1});
+        let v3 = hello_body(3, Some(&build)).unwrap();
+        assert_eq!(v3["pacer"], package["version"]);
+        assert_eq!(
+            keys(&v3),
+            [
+                "coreBuild",
+                "protocol",
+                "previous",
+                "pacer",
+                "ops",
+                "events"
+            ]
+        );
+        assert_eq!(keys(&hello_body(3, None).unwrap())[0], "protocol");
+    }
+
+    #[test]
+    fn only_null_string_and_safe_integer_ids_are_answered_natively() {
+        let parse = |text: &str| serde_json::from_str::<Value>(text).unwrap_or(Value::Null);
+        for id in [
+            "null",
+            "\"a\\u0001\"",
+            "0",
+            "-1",
+            "9007199254740991",
+            "-9007199254740991",
+        ] {
+            assert!(natively_answered_id(&parse(id)), "{id}");
+        }
+        for id in [
+            "9007199254740992",
+            "-9007199254740993",
+            "18446744073709551615",
+            "1e300",
+            "1.5",
+            "1.0",
+            "1e3",
+            "100000000000000000000000",
+        ] {
+            assert!(!natively_answered_id(&parse(id)), "{id}");
+        }
+        assert!(!natively_answered_id(&json!([1])));
     }
 }

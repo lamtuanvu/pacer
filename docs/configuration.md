@@ -42,6 +42,46 @@ Orca-linked accounts use their own folders: pacer reads Codex session logs in th
 
 `usage_source: orca` is deprecated and ignored. Existing configurations still load and retain the setting, with a status warning: Claude and Codex use their native readers, and other account kinds use reactive tracking.
 
+## Executor models and difficulty targets
+
+`runners.<id>.model` sets the default. Optional `runners.<id>.models` entries
+have `{id, tier, strengths?, tools?, context?}`. The tiers are `small`, `medium`,
+`frontier` and `unknown`; names do not imply a tier. A nonempty allowed list must
+contain the default. Saving a list without a default selects its first entry.
+Executors without a list retain their default-model behavior.
+
+```yaml
+runners:
+  codex:
+    model: provider/fast
+    models:
+      - {id: provider/fast, tier: small}
+      - {id: provider/deep, tier: frontier, tools: true, context: 128000}
+dispatch:
+  tierTargets:
+    simple: small
+    standard: medium
+    complex: frontier
+```
+
+Model IDs above are placeholders; use IDs your executor serves. Setting
+`dispatch.tierTargets` alone does not enable managed dispatch for plain delegates.
+
+The shown `dispatch.tierTargets` values are the defaults, including when the mapping is
+omitted. Targets may be `small`, `medium` or `frontier`, never `unknown`.
+They must be nondecreasing from simple to complex: `simple ≤ standard ≤ complex`
+in the order `small < medium < frontier`. Equal targets are allowed.
+
+In **Settings → Dispatcher → Model choice**, preview the model each difficulty and
+executor would use, then save the tier choices in place (updating the active
+setup) or save as a new named setup. In **Settings → Dispatcher → Model matrix**,
+see every model each executor can run (from the provider listing and the declared
+models), turn models on and rate their size (or return them to unrated), and
+suggest on/off and sizes from the listing; **Save matrix** writes only the
+executors that changed in one revision-checked edit. Availability can change
+before dispatch. See [executor models](executors.md#default-and-allowed-models)
+for validation and [dispatch](dispatch.md#model-choice-by-difficulty) for fallback.
+
 ## Remote hosts
 
 `hosts:` maps runner host aliases to SSH aliases and repository checkouts.
@@ -88,6 +128,8 @@ plugins:
 
 Policies are `priority` (default), `even`, `burn-before-reset` and `cheapest-first`. Priority follows `order`, whose default is `[codex, cursor, agy, opencode]` filtered to configured providers; `opencode` expands to OpenCode-routed candidates. Expiring capacity moves forward, ahead-of-pace usage moves back and unknown usage moves down one place. Other policies score pace, remaining capacity or usage tiers. The planner, unavailable CLIs and blocked/broken executors are excluded from routing.
 
+`pacing.balance` defaults to `off`. `least-loaded` keeps the budget order but starts each task on the least-loaded executor within a band of equally acceptable candidates, sorting by tasks running over `max_tasks` (host limit or 1 when unset). Bands follow the policy order: uncertain fallbacks stay last, verdict tiers never mix (near-limit capacity ranks behind headroom), `accounts: fill` still uses one account before the next, and under `cheapest-first` metered executors never pass cheaper ones. A runner's `requestedExecutor` and a drain reservation always win over the reorder. `pacer route` and `dispatch.explain` show the same order the runner picks.
+
 `planner_reserve` defaults to 15 percentage points (valid 0–99). `ahead_threshold` and `behind_threshold` default to 10 and -10 percentage points. Planner verdicts produce relaxed, normal, strict or emergency mode; see the [mode table](../README.md#how-it-works).
 
 Two further settings govern scheduled native control certification, which spends the quota of the account it certifies. `planner_probe` is `ask` (default), `auto` or `off`: on `ask` nothing is probed until you answer the consent question in Dispatcher or through `dispatch.enforcement.consent`, and `off` disables scheduling without affecting manual verification. `planner_reserve_headroom` defaults to 25 percentage points (valid 0–99) and is a separate setting from `planner_reserve`: it is the measured headroom an account must still have before Pacer will spend any of it on a probe. It is checked when a probe is admitted; it is not a guarantee that a quota window cannot fall below it afterwards. Headroom that cannot be measured never satisfies it. An over-ceiling probe cost or repeated repository switching pauses scheduled probes for at least 24 hours, then scheduling retries when eligible; the daily probe ceiling still applies.
@@ -110,6 +152,8 @@ Kinds: `boilerplate`, `tests`, `docs`, `rename`, `migration`, `feature`, `debug`
 `execution.worktree` is `child-of-current` (default), `new-child` or `current`; `base_branch` selects a base ref and implies `new-child` when worktree is omitted. New worktrees fetch and use the remote default branch tip unless `base_branch`, a brief `base`, or `worktree_base: head` explicitly selects another base. Automatic `child-of-current` placement in a local-only repository without origin preserves its HEAD base; explicit `worktree: new` or `worktree_base: default` still requires origin. A failed fetch never falls back to HEAD. Individual briefs use `worktree: current|new|auto` and an optional reason; safety checks can veto current placement. See [placement](executors.md#execution-and-review).
 
 `execution.idle_after_min` defaults to 10: without output or file changes, the task becomes idle and emits an alert. `execution.idle_fail_min` defaults to 30: continued inactivity stops the task. Both accept whole minutes from 1 to 1440, and `idle_fail_min` must exceed `idle_after_min`.
+
+`execution.transient_retry_min` defaults to 10: an interactive OpenCode session that keeps showing a transient provider retry (for example HTTP 524) without file changes for that long ends its attempt, and the task moves to the next executor. A rate-limit retry ends the attempt at once as a usage limit. It accepts whole minutes from 1 to 1440. The window survives the banner clearing and coming back; only a file change or commit resets it.
 
 Classification defaults to deterministic `rules`. Optional adapters are `ollama` (an OpenAI-compatible chat endpoint, default `http://127.0.0.1:1234/v1`) and `jev`. Decisions are `task_kind`, `difficulty`, `guard` and `result_check`; each can set `use` and `min_confidence` (default 0.6). Errors, timeouts and low confidence fall back to rules. Keep defaults unless you intend to configure and evaluate an adapter.
 

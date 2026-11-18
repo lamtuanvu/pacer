@@ -3,7 +3,7 @@ use super::{detect::detect_takeover, engine::TakeoverPlatform, journal::Takeover
 use crate::ota::{
     bootstrap_identity::inspect_legacy_executable,
     control,
-    native::{self, AwakeStamp},
+    native::{self, AwakeStamp, ProcessIdentity},
     platform::{self, JobChange, JobDefinition, OwnedJob},
     platform_fs,
     trust::{CodeRole, ReleaseTrust},
@@ -47,6 +47,9 @@ pub struct NativeTakeoverPlatform {
     trust: ReleaseTrust,
     user_home: PathBuf,
     config_dir: PathBuf,
+    /// The named check the step just performed failed on, carried into the
+    /// journal's reason code and the desktop's log. Taken once by the engine.
+    failure_predicate: std::sync::Mutex<Option<&'static str>>,
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -125,7 +128,13 @@ impl NativeTakeoverPlatform {
             trust,
             user_home,
             config_dir,
+            failure_predicate: std::sync::Mutex::new(None),
         })
+    }
+    /// Names the check that made this step fail, so the journal's reason code
+    /// and the desktop's log say which one, without paths or identifiers.
+    fn note_failure(&self, predicate: &'static str) {
+        *self.failure_predicate.lock().unwrap() = Some(predicate);
     }
     fn source_path(&self, m: &TakeoverManifest) -> Result<PathBuf, OtaError> {
         if let Some(policy) = self.trust.fixture_policy() {
@@ -409,6 +418,68 @@ fn probe_service(home: PathBuf, port: u16, snapshot: bool) -> Result<(), OtaErro
     .map_err(|_| OtaError::Unavailable)?
 }
 
+/// launchd's removal of a job and the exit of its process are not synchronous
+/// with the bootout that asked for them: the job can still be listed, and the
+/// PID still alive, for about a second afterwards. The stop step polls both on
+/// awake time this long before reporting the state it still sees.
+const STOP_WAIT_MS: u64 = 15_000;
+const STOP_POLL: std::time::Duration = std::time::Duration::from_millis(50);
+
+/// Whether the pinned process is still running at `pid`. A PID that now holds
+/// another incarnation is the pinned process having exited, and an inspection
+/// that races the exit cannot prove it is gone, so both keep the wait going.
+/// Nothing is ever signaled.
+fn pinned_process_alive(pid: u32, expected: &ProcessIdentity) -> bool {
+    match native::process_details(pid) {
+        Ok(details) => details.is_some_and(|details| details.identity == *expected),
+        Err(_) => true,
+    }
+}
+
+/// launchd's `bootout` and the pinned process's exit are not synchronous with
+/// the call that asked for them: the job can still be listed, and the PID still
+/// alive, for about a second afterwards (the front door also has a child that
+/// drains). Poll both on awake time and only report success when they are
+/// gone. A check that still holds at the deadline is the failure, named for the
+/// journal reason and the log; `None` means the query itself failed.
+fn wait_original_stopped(
+    start: &AwakeStamp,
+    now: impl Fn() -> Result<AwakeStamp, OtaError>,
+    mut job_loaded: impl FnMut() -> Result<bool, OtaError>,
+    mut process_alive: impl FnMut() -> Result<bool, OtaError>,
+    deadline_ms: u64,
+    poll: std::time::Duration,
+) -> Result<(), (Option<&'static str>, OtaError)> {
+    loop {
+        let job = job_loaded().map_err(|error| (None, error))?;
+        let alive = if job {
+            true
+        } else {
+            process_alive().map_err(|error| (None, error))?
+        };
+        if !job && !alive {
+            return Ok(());
+        }
+        let stamp = now().map_err(|error| (None, error))?;
+        if stamp.boot_id != start.boot_id {
+            return Err((None, OtaError::Timeout));
+        }
+        if native::elapsed_ms(start, &stamp).map_err(|_| (None, OtaError::Identity))?
+            >= deadline_ms
+        {
+            return Err((
+                Some(if job {
+                    "job-still-loaded"
+                } else {
+                    "pinned-process-still-running"
+                }),
+                OtaError::Identity,
+            ));
+        }
+        std::thread::sleep(poll);
+    }
+}
+
 impl TakeoverPlatform for NativeTakeoverPlatform {
     fn awake_now(&self) -> Result<AwakeStamp, OtaError> {
         native::awake_now().map_err(|_| OtaError::Io)
@@ -485,35 +556,50 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
     }
     fn stop_original(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
         let job = self.original_job(m)?;
-        if job
+        let loaded = job
             .observe_pinned(&self.trust, &m.candidate.identity)?
-            .is_none()
-        {
-            if native::process_details(m.candidate.process.pid)
-                .map_err(|_| OtaError::Identity)?
-                .is_none_or(|p| p.identity != m.candidate.process)
-            {
-                return Ok(());
+            .is_some();
+        let start = self.awake_now()?;
+        let label = m.candidate.label.clone();
+        let pid = m.candidate.process.pid;
+        let pinned = m.candidate.process.clone();
+        let stopped = if loaded {
+            self.run_job(
+                job,
+                JobChange::Bootout,
+                Some((m.candidate.process.clone(), m.candidate.identity.clone())),
+            )?;
+            wait_original_stopped(
+                &start,
+                || self.awake_now(),
+                || platform::copy_user_job(&label).map(|job| job.is_some()),
+                || Ok(pinned_process_alive(pid, &pinned)),
+                STOP_WAIT_MS,
+                STOP_POLL,
+            )
+        } else {
+            // The job is already gone, so nothing is left to boot out; only the
+            // pinned process may still be finishing its exit.
+            wait_original_stopped(
+                &start,
+                || self.awake_now(),
+                || Ok(false),
+                || Ok(pinned_process_alive(pid, &pinned)),
+                STOP_WAIT_MS,
+                STOP_POLL,
+            )
+        };
+        stopped.map_err(|(predicate, error)| {
+            if let Some(predicate) = predicate {
+                self.note_failure(predicate);
             }
-            return Err(OtaError::Identity);
-        }
-        self.run_job(
-            job,
-            JobChange::Bootout,
-            Some((m.candidate.process.clone(), m.candidate.identity.clone())),
-        )?;
-        if platform::copy_user_job(&m.candidate.label)?.is_some()
-            || native::process_details(m.candidate.process.pid)
-                .map_err(|_| OtaError::Identity)?
-                .is_some_and(|p| p.identity == m.candidate.process)
-        {
-            return Err(OtaError::Identity);
-        }
-        Ok(())
+            error
+        })
     }
     fn switch_registration(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
         self.trust.verify_static(&m.bundled_cli, CodeRole::Cli)?;
         if platform::copy_user_job(&m.candidate.label)?.is_some() {
+            self.note_failure("job-still-loaded");
             return Err(OtaError::Identity);
         }
         platform_fs::replace_registration(
@@ -695,6 +781,9 @@ impl TakeoverPlatform for NativeTakeoverPlatform {
             }
         }
         self.run_job(job, JobChange::Bootout, None)
+    }
+    fn take_failure_predicate(&self) -> Option<&'static str> {
+        self.failure_predicate.lock().unwrap().take()
     }
 }
 
@@ -935,5 +1024,123 @@ mod restore_tests {
         let (port, server) = fake_service(true);
         assert_eq!(probe_service(home.path().to_path_buf(), port, true), Ok(()));
         server.join().unwrap();
+    }
+}
+
+/// The waiting half of `stop_original`, and the process check it polls, in terms
+/// of the two live observations it makes: launchd's job and the pinned process.
+/// Nothing here signals, boots out or inspects a real service.
+#[cfg(test)]
+mod stop_original_tests {
+    use super::*;
+    use std::cell::Cell;
+
+    fn start() -> AwakeStamp {
+        AwakeStamp {
+            boot_id: "boot".into(),
+            millis: 0,
+        }
+    }
+    /// A clock that advances `step` milliseconds on every read.
+    fn clock(step: u64) -> impl Fn() -> Result<AwakeStamp, OtaError> {
+        let now = Cell::new(0u64);
+        move || {
+            now.set(now.get() + step);
+            Ok(AwakeStamp {
+                boot_id: "boot".into(),
+                millis: now.get(),
+            })
+        }
+    }
+    const POLL: std::time::Duration = std::time::Duration::from_millis(1);
+
+    #[test]
+    fn stop_original_succeeds_once_the_job_and_the_pinned_process_are_gone() {
+        // launchd still lists the job for two reads, and the process is still
+        // exiting for four: both are ordinary lag after a successful bootout.
+        let jobs = Cell::new(0u32);
+        let job_loaded = || {
+            jobs.set(jobs.get() + 1);
+            Ok(jobs.get() < 3)
+        };
+        let alive = Cell::new(4u32);
+        let process_alive = || {
+            let seen = alive.get();
+            alive.set(seen.saturating_sub(1));
+            Ok(seen > 0)
+        };
+        assert_eq!(
+            wait_original_stopped(&start(), clock(25), job_loaded, process_alive, 15_000, POLL),
+            Ok(())
+        );
+        assert!(
+            jobs.get() >= 3,
+            "the job was polled until it disappeared ({} reads)",
+            jobs.get()
+        );
+        assert_eq!(alive.get(), 0, "the process was polled until it exited");
+    }
+
+    #[test]
+    fn stop_original_fails_only_after_the_deadline_with_the_check_that_held() {
+        // The pinned process never exits: fail with Identity, naming it.
+        assert_eq!(
+            wait_original_stopped(&start(), clock(500), || Ok(false), || Ok(true), 15_000, POLL),
+            Err((Some("pinned-process-still-running"), OtaError::Identity))
+        );
+        // The job never disappears: fail with Identity, naming it instead.
+        assert_eq!(
+            wait_original_stopped(&start(), clock(500), || Ok(true), || Ok(false), 15_000, POLL),
+            Err((Some("job-still-loaded"), OtaError::Identity))
+        );
+        // A query that fails is reported as itself, without a named check.
+        assert_eq!(
+            wait_original_stopped(
+                &start(),
+                clock(1),
+                || Err(OtaError::Unavailable),
+                || Ok(false),
+                15_000,
+                POLL
+            ),
+            Err((None, OtaError::Unavailable))
+        );
+        // Another boot ends the wait rather than reporting a stale state.
+        let other = || {
+            Ok(AwakeStamp {
+                boot_id: "other".into(),
+                millis: 1,
+            })
+        };
+        assert_eq!(
+            wait_original_stopped(&start(), other, || Ok(true), || Ok(false), 15_000, POLL),
+            Err((None, OtaError::Timeout))
+        );
+    }
+
+    #[test]
+    fn a_different_identity_at_the_pinned_pid_counts_as_exited() {
+        let own = native::process_details(std::process::id())
+            .unwrap()
+            .unwrap();
+        // This process is alive and is the pinned one.
+        assert!(pinned_process_alive(own.identity.pid, &own.identity));
+        // The same PID with another incarnation is the pinned process being
+        // gone, so nothing waits for it and nothing signals it.
+        let mut other = own.identity.clone();
+        other.birth.push('x');
+        assert!(!pinned_process_alive(own.identity.pid, &other));
+        let pinned = other;
+        assert_eq!(
+            wait_original_stopped(
+                &start(),
+                clock(1),
+                || Ok(false),
+                || Ok(pinned_process_alive(own.identity.pid, &pinned)),
+                15_000,
+                POLL
+            ),
+            Ok(())
+        );
     }
 }

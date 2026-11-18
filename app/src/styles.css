@@ -12,6 +12,10 @@ html[data-pacer-desktop],html[data-pacer-desktop] body,html[data-pacer-desktop] 
 html[data-pacer-desktop] .pc-main-scroll{overflow:auto;min-height:0}
 a{color:var(--link)}a:hover{color:var(--ink)}
 a:focus-visible,button:focus-visible,input:focus-visible,select:focus-visible,textarea:focus-visible{outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus)}
+/* Programmatic focus targets (tabIndex=-1 headings, regions, panes, frames) draw no ring of their own, even when WebKit treats
+   programmatic focus as :focus-visible. :where() keeps this at zero specificity, so any component that draws a deliberate
+   keyboard ring on such a target (pagination, sortable list, confirm groups, roving menu items) still wins. */
+:where([tabindex="-1"]):focus,:where([tabindex="-1"]):focus-visible{outline:none}
 h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
 code{display:inline-block;max-width:100%;min-width:0;vertical-align:bottom;font-family:var(--font-mono);user-select:text;white-space:pre;overflow-x:auto;overflow-wrap:normal;word-break:normal}
 
@@ -112,11 +116,12 @@ fieldset{border:1px solid var(--line);border-radius:var(--radius-sm);display:fle
 @media(pointer:coarse){:root{--frame-launcher:calc(var(--size-18) + var(--control-touch))}}
 /* The fixed bottom-right notice stack renders outside .pc-app (hence the frame tokens on :root) and clears the status bar when it shows. */
 html:has(.pc-app--with-status) .pc-notice-stack{bottom:var(--frame-status);max-height:calc(100dvh - var(--frame-status))}
-/* While the launcher is shown closed, the stack also sits above it. */
-html:has(.pc-app--with-status .pc-aurora-launcher:not(.pc-aurora-launcher--open)) .pc-notice-stack{bottom:calc(var(--frame-status) + var(--frame-launcher));max-height:calc(100dvh - var(--frame-status) - var(--frame-launcher))}
-/* An open sheet lifts the launcher to its top edge (520 px sheet + 18 px + 8 px, or below the top bar and page header when
-   the window is short), so the stack keeps its status-bar floor and stops below that position. */
-html:has(.pc-app--with-status .pc-aurora-launcher--open) .pc-notice-stack{max-height:min(calc(var(--size-520) + var(--size-18) + var(--space-2)),calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--size-36) - var(--space-2)))}
+/* While the launcher shows, the stack also sits above it. The launcher hides while the sheet is open (the sheet has its own close). */
+html:has(.pc-app--with-status .pc-aurora-launcher) .pc-notice-stack{bottom:calc(var(--frame-status) + var(--frame-launcher));max-height:calc(100dvh - var(--frame-status) - var(--frame-launcher))}
+/* An open sheet keeps its expand and close controls at its top edge: 520 px up, or below the top bar and page header when the
+   window is short, or at the top of the work area when expanded. The stack keeps its status-bar floor and stops below them. */
+html:has(.pc-app--with-status .pc-aurora[data-state=open]) .pc-notice-stack{max-height:min(calc(var(--size-520) - var(--size-40) - var(--space-2)),calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--size-36) - var(--space-2)*2))}
+html:has(.pc-app--with-status .pc-aurora--max[data-state=open]) .pc-notice-stack{max-height:calc(100dvh - var(--frame-top) - var(--frame-status) - var(--size-40) - var(--space-2))}
 /* On narrow screens it clears the bottom navigation instead (no status bar there), and the launcher above it when shown.
    The narrow launcher hides while the sheet is open. */
 .pc-notice-stack--narrow{bottom:max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom)));max-height:calc(100dvh - max(var(--frame-nav),calc(var(--size-56) + env(safe-area-inset-bottom))))}
@@ -388,6 +393,7 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 .pc-setup-health__brand{margin-bottom:var(--space-2)}
 .pc-setup-health h1{margin:0;font-size:var(--type-display-size);line-height:var(--type-display-line);font-weight:var(--type-display-weight);letter-spacing:var(--type-display-tracking)}
 .pc-setup-health__support{margin:0;color:var(--ink-secondary)}
+.pc-setup-health__progress{margin:var(--space-2) 0 0;color:var(--ink-secondary)}
 .pc-setup-health__steps{list-style:none;margin:var(--space-4) 0 0;padding:0;display:grid;gap:var(--space-3)}
 .pc-setup-health__steps li{display:grid;grid-template-columns:var(--size-24) minmax(0,1fr);gap:var(--space-3);align-items:start}
 .pc-setup-health__steps strong{font-weight:var(--type-body-strong-weight)}
@@ -435,7 +441,6 @@ html[data-pacer-native-titlebar] .pc-topbar{padding-left:var(--size-84)}
 /* Leave room for the fixed narrow navigation when Tab reveals a code preview. */
 .pc-app--narrow .pc-setup .pc-code-scroll{scroll-margin-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
 html:has(.pc-app--narrow .pc-setup){scroll-padding-bottom:calc(var(--size-56) + var(--space-4) + env(safe-area-inset-bottom))}
-.sr-only{position:absolute;width:var(--size-1);height:var(--size-1);padding:0;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
 .pc-review-files .pc-selectable-row,.pc-review-queue .pc-selectable-row{flex-direction:column;align-items:flex-start;overflow:hidden}
 .pc-panel{position:sticky;top:var(--frame-top);max-height:calc(100vh - var(--frame-top));overflow:auto;align-self:flex-start}
 .pc-app:not(.pc-app--narrow).pc-app--with-status .pc-panel{max-height:calc(100vh - var(--frame-top) - var(--frame-status))}
@@ -530,6 +535,14 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .pc-strategy-popup__actions .pc-text-action{display:flex;align-items:center;gap:var(--space-2);padding:var(--space-1)}
 .pc-strategy-popup__error{padding:var(--space-2) var(--space-4);color:var(--bad-fg);font-size:var(--type-caption-size);overflow-wrap:anywhere}
 /* AppFrame regions: sticky full-height side panels like the rail, and the terminal dock above the status bar. */
+.pc-side-panel--right > .pc-frame-slot {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  overflow: auto;
+  overscroll-behavior-y: contain;
+}
 .pc-body>.pc-side-panel{position:sticky;top:var(--frame-top);height:calc(100vh - var(--frame-top));align-self:flex-start}
 .pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--frame-top) - var(--frame-status))}
 @media(pointer:coarse){.pc-body>.pc-side-panel{top:var(--control-touch)}.pc-app--with-status .pc-body>.pc-side-panel{height:calc(100vh - var(--control-touch) - var(--frame-status))}}
@@ -725,14 +738,15 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-item:hover{background:var(--surface-card)}
 .ny-glyph{font-weight:var(--type-match-strong-weight);text-align:center;line-height:var(--type-body-line);align-self:start}
 .ny-glyph--warn{color:var(--warn-fg)}.ny-glyph--bad{color:var(--bad-fg)}.ny-glyph--info{color:var(--info-fg)}
-.ny-content.pc-text-action{display:grid;grid-template-columns:minmax(0,auto) minmax(0,1fr);align-items:center;gap:var(--space-half) var(--space-2);min-width:0;text-decoration:none;color:var(--ink);font-weight:var(--type-body-weight)}
+.ny-content.pc-text-action{display:grid;grid-template-columns:minmax(0,1fr) auto;align-items:center;gap:var(--space-half) var(--space-2);min-width:0;text-decoration:none;color:var(--ink);font-weight:var(--type-body-weight)}
 .ny-title-line{display:flex;align-items:center;gap:var(--space-2);min-width:0}
 /* Two lines: title and pill, then the reason and its facts side by side; the reason gives way first. */
 .ny-content>.ny-title-line{grid-column:1/-1}
 .ny-reason+.ny-meta::before{content:"·";margin-right:var(--space-1)}
 .ny-title{font-size:var(--type-body-size);line-height:var(--type-body-line);font-weight:var(--type-body-strong-weight);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ny-reason{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
-.ny-meta{display:flex;align-items:center;gap:var(--space-1\.5)}
+.ny-reason{color:var(--ink-secondary);font-size:var(--type-caption-size);line-height:var(--type-caption-line);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;min-width:0}
+.ny-meta{display:flex;align-items:center;gap:var(--space-1\.5);min-width:0}
+.ny-meta .ny-mono{white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:var(--size-240)}
 .ny-actions{display:flex;gap:var(--space-1\.5);align-items:center}
 .ny-warning{display:flex;align-items:center;gap:var(--space-2\.5)}
 .ny-warning>.ny-glyph{width:var(--size-14);flex-shrink:0;line-height:inherit}
@@ -746,7 +760,7 @@ body:has(.pc-app--narrow) .pc-toasts{bottom:calc(var(--size-56) + var(--space-5)
 .ny-options{display:flex;flex-direction:column;gap:var(--space-1\.5);align-items:flex-start}
 .ny-resume{flex-grow:1;white-space:nowrap}
 .ny-heading>.ny-cap>.pc-text-action{color:var(--link)}
-@media(max-width:767px){.pc-needs-board{padding:var(--space-4)}.ny-item{grid-template-columns:var(--size-20) minmax(0,1fr)}.ny-actions{grid-column:2;flex-wrap:wrap}.ny-title-line{flex-wrap:wrap}.ny-warning{flex-wrap:wrap}.ny-reason{white-space:normal}.ny-content.pc-text-action{grid-template-columns:minmax(0,1fr)}.ny-reason+.ny-meta::before{content:none}}
+@media(max-width:767px){.pc-needs-board{padding:var(--space-4)}.ny-item{grid-template-columns:var(--size-20) minmax(0,1fr)}.ny-actions{grid-column:2;flex-wrap:wrap}.ny-title-line{flex-wrap:wrap}.ny-warning{flex-wrap:wrap}.ny-meta{flex-wrap:wrap}.ny-reason{white-space:normal}.ny-content.pc-text-action{grid-template-columns:minmax(0,1fr)}.ny-reason+.ny-meta::before{content:none}}
 
 /* Lost-service state follows the top bar while cached page content stays visible. */
 .connection-bar{display:flex;align-items:center;gap:var(--space-2\.5);padding:var(--space-2\.5) var(--space-4);background:var(--warn-tint);color:var(--ink);border-bottom:1px solid var(--warn-line)}

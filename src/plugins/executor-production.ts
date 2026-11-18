@@ -1,4 +1,4 @@
-import { activeDeadlineExpired } from "../supervisor/active-time";
+import { activeDeadlineExpired, humanDriving } from "../supervisor/active-time";
 import { EXECUTOR_ARGV_BYTES } from "../exec/launch";
 import { appendFileSync, existsSync, lstatSync, readFileSync, realpathSync, statSync } from "node:fs";
 import { createHash } from "node:crypto";
@@ -7,13 +7,14 @@ import { CoreError } from "../core/errors";
 import { gitInfo, realpathSafe } from "../core/git";
 import { loadStrategy, type ProviderCfg } from "../config/strategy";
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
-import { validateExecution } from "../config/execution";
+import { TRANSIENT_RETRY_S, validateExecution } from "../config/execution";
+import { providerRetryingReason } from "../exec/broken";
 import { launchModeFor } from "../exec/launch";
-import { outcome } from "../exec/direct";
+import { loadExec, outcome, rememberRetry, retryLoopVerdict, retryWatch, workFingerprint } from "../exec/direct";
 import { buildPrompt } from "../exec/prompt";
 import { resolveWorktreeBase, taskWorktreePath } from "../supervisor/worktree";
-import { readRun } from "../supervisor/run";
-import { detectLimit } from "../exec/limits";
+import { readRun, stopRun } from "../supervisor/run";
+import { LIMIT_QUIET_S, detectLimit, detectSessionLimit, sessionLimitExcerpt, sessionLimitText } from "../exec/limits";
 import type { AttemptOutcome } from "../exec/direct";
 import { readTask, tasksDir, updateTask, withTaskLock } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -190,6 +191,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
         executor: cfg.id, model: cfg.model ?? null } },
     { resources, onProgress: () => {}, deadlineMs: interactive ? 60_000 : task.timeoutS * 1000 + 10_000 });
   } catch (error) {
+    if (interactive) await stopAtSessionLimit(ctx, task.id, error, {attempt, dir, executor: cfg.id});
     if (!interactive || !renewInteractive(ctx, task.id, error, {attempt, dir, executor: cfg.id})) throw error;
     return resumeOwnedDirect(ctx, cfg, readTask(ctx, task.id)!, caller);
   }
@@ -202,7 +204,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
       if (last) out.report = last;
     }
     out.attempt.limitHit = detectLimit(cfg.id, out.exec);
-  }
+  } else if (!retryLoopOutcome(ctx, task.id, cfg.id, dir, out) && sessionLimitOutcome(cfg.id, dir, out)) out.attempt.limitHit = true;
   out.report = plan.note + out.report;
   const durable = inspectOwnedExecutorRun(ctx, task.id, attempt), latest = readTask(ctx, task.id);
   const report = interactive ? readRun(durable.dir).report : null;
@@ -395,7 +397,10 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
   }, { resources, onProgress: () => {}, deadlineMs: run.session === "interactive" ? 60_000 : Math.max(5_000,
     run.startedAt * 1000 + task.timeoutS * 1000 - Date.now() + 10_000) });
     break;
-  } catch (error) { if (run.session !== "interactive" || !renewInteractive(ctx, task.id, error, run)) throw error; }
+  } catch (error) {
+    if (run.session === "interactive") await stopAtSessionLimit(ctx, task.id, error, run);
+    if (run.session !== "interactive" || !renewInteractive(ctx, task.id, error, run)) throw error;
+  }
   }
   const parsed = executorAttemptOutcome.safeParse(raw);
   if (!parsed.success) throw new CoreError("plugin_refused", "executor resume returned an invalid attempt outcome");
@@ -417,6 +422,8 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     out.attempt.startedAt !== run.startedAt || out.attempt.log !== run.logFile ||
     (run.mode === "new" ? out.worktree !== run.workdir : out.worktree !== undefined))
     throw new CoreError("conflict", "executor resume outcome does not match the persisted wrapper");
+  if (run.session === "interactive" && !validCompletion && !retryLoopOutcome(ctx, task.id, cfg.id, run.dir, out) &&
+    sessionLimitOutcome(cfg.id, run.dir, out)) out.attempt.limitHit = true;
   withTaskLock(ctx, task.id, () => {
     const latest = readTask(ctx, task.id);
     if (!latest || latest.state !== "running" || latest.executorProvider !== providerId ||
@@ -432,6 +439,68 @@ export async function resumeOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRe
     });
   });
   return out as AttemptOutcome;
+}
+
+/** An interactive attempt that ended without a completion report while its screen shows the provider's limit error. */
+export function sessionLimitOutcome(executor: string, dir: string, out: {exec: {code: number; timedOut: boolean}; report: string}): boolean {
+  const reported = readRun(dir).report?.status;
+  // An explicit done/failed report is authoritative, whatever the screen shows.
+  if (out.exec.code === 0 || out.exec.timedOut || reported === "done" || reported === "failed") return false;
+  const excerpt = sessionLimitExcerpt(executor, sessionLimitText(dir));
+  if (excerpt === null) return false;
+  out.report += `\n\nUsage limit reached:\n${excerpt}`;
+  return true;
+}
+
+/**
+ * An attempt a lease renewal stopped on its provider retry banner: a rate-limit banner is a limit, a transient one
+ * that outlasted its window marks the executor broken. The verdict is on the task's run, so it survives a restart.
+ */
+export function retryLoopOutcome(ctx: Ctx, id: string, executor: string, dir: string,
+  out: {exec: {code: number; timedOut: boolean; stderr: string}; report: string; attempt: {limitHit: boolean; exitCode: number; brokenReason?: string}}): boolean {
+  const banner = readTask(ctx, id)?.run, reported = readRun(dir).report?.status;
+  // An explicit done/failed report is authoritative; an agent that exits 0 on the stop still failed its attempt.
+  if (banner?.dir !== dir || !banner.retryBanner?.ended || out.exec.timedOut || reported === "done" || reported === "failed") return false;
+  if (out.exec.code === 0) out.exec.code = out.attempt.exitCode = 1;
+  const {ended, reason, since} = banner.retryBanner;
+  if (ended === "limit") {
+    out.attempt.limitHit = true;
+    out.report += `\n\nUsage limit reached:\n${reason}`;
+    return true;
+  }
+  const line = `pacer: ${executor} kept retrying a provider error for ${Math.round((Date.now() / 1000 - since) / 60)} min: ${reason}`;
+  out.attempt.limitHit = false;
+  out.attempt.brokenReason = providerRetryingReason(reason);
+  out.exec.stderr += `\n${line}`;
+  out.report += `\n\n${line}`;
+  return true;
+}
+
+/**
+ * An interactive agent that hits its plan limit prints the error and waits; nothing else ends the run. At each lease
+ * renewal, stop a quiet session whose screen shows the error, or one stuck on a provider retry banner, so the
+ * observation sees an exit and the runner fails over.
+ */
+export async function stopAtSessionLimit(ctx: Ctx, id: string, error: unknown, expected: {attempt: number; dir: string; executor: string}): Promise<void> {
+  if (!(error instanceof CoreError) || error.code !== "plugin_timeout") return;
+  const task = readTask(ctx, id), run = task?.run;
+  if (!task || task.state !== "running" || task.stopPending || !run || run.host || run.session !== "interactive" ||
+    run.interactionMode === "conversation" || run.takeover || run.attempt !== expected.attempt || run.dir !== expected.dir ||
+    run.executor !== expected.executor || task.executorProvider !== "pacer-exec-direct") return;
+  const state = readRun(run.dir);
+  if (!state.alive || state.exit !== null || state.report?.status === "done" || state.report?.status === "failed") return;
+  // A person typing in the session owns it; they can see the error themselves.
+  if (humanDriving(state, Date.now())) return;
+  const now = Date.now() / 1000, watch = retryWatch(), windowS = loadExec(ctx).transientRetryS ?? TRANSIENT_RETRY_S;
+  const verdict = await retryLoopVerdict(ctx, id, run, now, {watch, watching: true, windowS, fingerprint: () => workFingerprint(ctx, run.workdir).catch(() => undefined)});
+  if (verdict) {
+    rememberRetry(ctx, id, run, {...run.retryBanner, since: run.retryBanner?.since ?? now, reason: verdict === "limit" ? watch.banner!.reason : run.retryBanner!.reason, ended: verdict});
+    await stopRun(run.dir, {graceMs: 5000});
+    return;
+  }
+  if (now - (state.lastOutputAt ?? now) < LIMIT_QUIET_S) return;
+  if (!detectSessionLimit(run.executor, sessionLimitText(run.dir))) return;
+  await stopRun(run.dir, {graceMs: 5000});
 }
 
 /** Renew a finite provider observation lease only while the same task still owns a live run. */

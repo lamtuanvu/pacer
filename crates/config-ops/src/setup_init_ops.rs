@@ -1,15 +1,16 @@
 //! Native `setup.init` (`src/core/setup.ts` `init`). An existing strategy only
 //! gets its planner set, without agent integrations. Otherwise Rust detects the
-//! installed CLIs and running local model servers (the Ollama tags endpoint and
-//! `lms ls` on an explicit port, so neither starts an application), writes the
-//! starter strategy and migrates it. An `https` `OLLAMA_HOST` forwards.
+//! installed CLIs and running local model servers (the Ollama tags endpoint,
+//! fetched by Core through the setup effects bridge, and `lms ls` on an
+//! explicit port, so neither starts an application), writes the starter
+//! strategy and migrates it.
 #![allow(clippy::result_large_err)]
 use crate::executor_setup_ops::{invalid, params_map, type_name};
-use crate::setup_effects::{run, which};
+use crate::setup_effects::{SetupEffects, run, unavailable, which};
 use pacer_config::{settings, strategy};
 use pacer_foundation::{
     Ctx,
-    api::{Code, CoreError, OpFuture},
+    api::{Code, CoreError},
 };
 use serde_json::{Value, json};
 use std::{collections::HashMap, path::Path, time::Duration};
@@ -72,88 +73,15 @@ fn local_planner(id: &str) -> bool {
         && PLANNERS.contains(&agent)
 }
 
-/// `OLLAMA_HOST` as the `/api/tags` URL parts, or `None` when fetch would fail.
-fn ollama_target(env: &HashMap<String, String>) -> Option<(String, String, u16)> {
-    let host = env
-        .get("OLLAMA_HOST")
-        .map(|h| h.trim())
-        .filter(|h| !h.is_empty())
-        .unwrap_or("http://127.0.0.1:11434");
-    let (scheme, rest) = match host.split_once("://") {
-        Some((scheme, rest)) => (scheme.to_ascii_lowercase(), rest),
-        None => ("http".into(), host),
-    };
-    if scheme != "http" {
-        return None;
+/// The first model the Ollama server at `OLLAMA_HOST` lists, from Core's
+/// `fetch` so every `OLLAMA_HOST` form resolves and frames as in `pacer init`.
+async fn ollama_model(effects: &mut dyn SetupEffects) -> Result<Option<String>, CoreError> {
+    let reply = effects.call(json!({"kind": "ollama_model"})).await?;
+    match &reply["model"] {
+        Value::Null => Ok(None),
+        Value::String(model) => Ok(Some(model.clone())),
+        _ => Err(unavailable("invalid setup effects response")),
     }
-    let authority = rest.split(['/', '?', '#']).next().unwrap_or_default();
-    if authority.contains('@') || authority.is_empty() {
-        return None;
-    }
-    let default_port = if host.contains("://") { 80 } else { 11434 };
-    let (name, port) = if let Some(v6) = authority.strip_prefix('[') {
-        let (name, tail) = v6.split_once(']')?;
-        (name.to_owned(), tail.strip_prefix(':'))
-    } else {
-        match authority.rsplit_once(':') {
-            Some((name, port)) => (name.to_owned(), Some(port)),
-            None => (authority.to_owned(), None),
-        }
-    };
-    let port = match port {
-        None | Some("") => default_port,
-        Some(port) => port.parse().ok()?,
-    };
-    let header = if authority.starts_with('[') {
-        format!("[{name}]:{port}")
-    } else {
-        format!("{}:{port}", name.to_ascii_lowercase())
-    };
-    Some((name.to_ascii_lowercase(), header, port))
-}
-
-pub(crate) fn stays_forwarded(ctx: &Ctx, params: &Value) -> bool {
-    let https = ctx
-        .env
-        .get("OLLAMA_HOST")
-        .is_some_and(|h| h.trim().to_ascii_lowercase().starts_with("https://"));
-    https
-        && planner_param(params).is_ok_and(|p| local_planner(&p))
-        && !ctx.pacer_home.join("strategy.yaml").exists()
-        && which(ctx, "ollama").is_some()
-}
-
-/// The first model name the running Ollama server lists, without redirects.
-async fn ollama_model(ctx: &Ctx) -> Option<String> {
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    let (name, header, port) = ollama_target(&ctx.env)?;
-    let fetch = async {
-        let mut stream = tokio::net::TcpStream::connect((name.as_str(), port))
-            .await
-            .ok()?;
-        let request = format!(
-            "GET /api/tags HTTP/1.0\r\nHost: {header}\r\nAccept: */*\r\nConnection: close\r\n\r\n"
-        );
-        stream.write_all(request.as_bytes()).await.ok()?;
-        let mut bytes = Vec::new();
-        stream.take(4 << 20).read_to_end(&mut bytes).await.ok()?;
-        Some(bytes)
-    };
-    let bytes = tokio::time::timeout(Duration::from_secs(5), fetch)
-        .await
-        .ok()??;
-    let split = bytes.windows(4).position(|w| w == b"\r\n\r\n")?;
-    let head = String::from_utf8_lossy(&bytes[..split]);
-    let status: u16 = head.split_whitespace().nth(1)?.parse().ok()?;
-    if !(200..300).contains(&status) {
-        return None;
-    }
-    let body: Value = serde_json::from_slice(&bytes[split + 4..]).ok()?;
-    body["models"]
-        .as_array()?
-        .iter()
-        .find_map(|m| m["name"].as_str().filter(|n| !n.is_empty()))
-        .map(str::to_owned)
 }
 
 /// The LM Studio model to start with, from a server already listening.
@@ -209,14 +137,14 @@ struct Detection {
     lmstudio: Option<String>,
 }
 
-async fn detect(ctx: &Ctx) -> Detection {
+async fn detect(ctx: &Ctx, effects: &mut dyn SetupEffects) -> Result<Detection, CoreError> {
     let mut clis: HashMap<&'static str, bool> =
         BINS.iter().map(|b| (*b, which(ctx, b).is_some())).collect();
     if clis["cursor"] {
         clis.insert("cursor-agent", true);
     }
     let ollama = if clis["ollama"] {
-        ollama_model(ctx).await
+        ollama_model(effects).await?
     } else {
         None
     };
@@ -225,11 +153,11 @@ async fn detect(ctx: &Ctx) -> Detection {
     } else {
         None
     };
-    Detection {
+    Ok(Detection {
         clis,
         ollama,
         lmstudio,
-    }
+    })
 }
 
 /// `starterStrategy(detect(ctx), planner)` for a planner agent.
@@ -337,13 +265,18 @@ fn publish(ctx: &Ctx, area: &str) -> Result<(), CoreError> {
     Ok(())
 }
 
-async fn create(ctx: &Ctx, path: &Path, planner: &str) -> Result<(), CoreError> {
+async fn create(
+    ctx: &Ctx,
+    path: &Path,
+    planner: &str,
+    effects: &mut dyn SetupEffects,
+) -> Result<(), CoreError> {
     if !PLANNERS.contains(&planner) {
         return Err(failed(format!(
             "planner {planner} is unknown or its CLI is missing"
         )));
     }
-    let text = starter(&detect(ctx).await, planner);
+    let text = starter(&detect(ctx, effects).await?, planner);
     strategy::validate_strategy_text(&text, path).map_err(failed)?;
     std::fs::create_dir_all(&ctx.pacer_home).map_err(failed)?;
     std::fs::write(path, &text).map_err(failed)?;
@@ -351,25 +284,27 @@ async fn create(ctx: &Ctx, path: &Path, planner: &str) -> Result<(), CoreError> 
     Ok(())
 }
 
-pub fn setup_init(ctx: &Ctx, params: Value) -> OpFuture<'_> {
-    Box::pin(async move {
-        crate::executor_setup_ops::enforcement(ctx)?;
-        let planner = planner_param(&params)?;
-        if !local_planner(&planner) {
-            return Err(invalid("unknown planner").hint(format!("choose {}", PLANNERS.join(", "))));
-        }
-        let path = ctx.pacer_home.join("strategy.yaml");
-        if path.exists() {
-            let (active, name) = strategy::strategy_path(&ctx.pacer_home).map_err(failed)?;
-            settings::set_planner_without_integrations(&active, &name, &json!(planner))
-                .map_err(settings_error)?;
-            publish(ctx, "config")?;
-        } else {
-            create(ctx, &path, &planner).await?;
-        }
-        publish(ctx, "setup")?;
-        Ok(json!({"strategy": path.display().to_string()}))
-    })
+pub(crate) async fn setup_init(
+    ctx: &Ctx,
+    params: Value,
+    effects: &mut dyn SetupEffects,
+) -> Result<Value, CoreError> {
+    crate::executor_setup_ops::enforcement(ctx)?;
+    let planner = planner_param(&params)?;
+    if !local_planner(&planner) {
+        return Err(invalid("unknown planner").hint(format!("choose {}", PLANNERS.join(", "))));
+    }
+    let path = ctx.pacer_home.join("strategy.yaml");
+    if path.exists() {
+        let (active, name) = strategy::strategy_path(&ctx.pacer_home).map_err(failed)?;
+        settings::set_planner_without_integrations(&active, &name, &json!(planner))
+            .map_err(settings_error)?;
+        publish(ctx, "config")?;
+    } else {
+        create(ctx, &path, &planner, effects).await?;
+    }
+    publish(ctx, "setup")?;
+    Ok(json!({"strategy": path.display().to_string()}))
 }
 
 #[cfg(test)]

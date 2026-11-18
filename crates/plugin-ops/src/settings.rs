@@ -4,6 +4,10 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError},
 };
+pub use pacer_js_json::js_semantics::trim as js_trim;
+pub use pacer_js_json::number_string as js_number;
+use pacer_js_json::quoted;
+pub use pacer_js_json::quoted::{stringify as js_json, stringify_ipc as ipc_json};
 use serde_json::{Value, json};
 use std::fs;
 use unicode_normalization::UnicodeNormalization;
@@ -12,10 +16,7 @@ pub fn clean_text(s: &str) -> String {
     s.nfc().filter(|c| !matches!(*c as u32, 0..=8 | 11..=12 | 14..=31 | 127..=159 | 0x200b..=0x200f | 0x202a..=0x202e | 0x2060..=0x2064 | 0x2066..=0x2069 | 0xfeff)).collect()
 }
 pub fn js_length(s: &str) -> usize {
-    crate::json::utf16(s).len()
-}
-pub fn js_trim(s: &str) -> &str {
-    s.trim_matches(|c: char| matches!(c as u32, 9..=13 | 0x20 | 0xa0 | 0x1680 | 0x2000..=0x200a | 0x2028..=0x2029 | 0x202f | 0x205f | 0x3000 | 0xfeff))
+    quoted::utf16(s).len()
 }
 fn empty() -> Value {
     json!({"rev":0,"values":{},"hidden":[]})
@@ -25,8 +26,8 @@ fn store(ctx: &Ctx) -> Result<Value, CoreError> {
     if !path.exists() {
         return Ok(json!({}));
     }
-    let raw = match fs::read(&path).map(|bytes| crate::json::parse_file(&bytes)) {
-        Ok(Err(error)) if error == crate::json::NESTING_FALLBACK => {
+    let raw = match fs::read(&path).map(|bytes| quoted::parse_file(&bytes)) {
+        Ok(Err(error)) if error == quoted::NESTING_FALLBACK => {
             // Unsupported native decoding is not evidence of corrupt state.
             // Leave the source intact and let the read dispatcher use TS.
             return Err(CoreError::new(Code::Unavailable, error));
@@ -46,8 +47,8 @@ fn store(ctx: &Ctx) -> Result<Value, CoreError> {
     };
     let mut out = json!({});
     for (id, r) in raw {
-        if crate::json::number(&r["rev"]).is_some() && r["values"].is_object() {
-            out[&id] = json!({"rev":r["rev"],"values":r["values"],"hidden":r["hidden"].as_array().map(|a| a.iter().filter(|v| v.is_string() && !crate::json::nonfinite(v)).cloned().collect::<Vec<_>>()).unwrap_or_default()});
+        if quoted::number(&r["rev"]).is_some() && r["values"].is_object() {
+            out[&id] = json!({"rev":r["rev"],"values":r["values"],"hidden":r["hidden"].as_array().map(|a| a.iter().filter(|v| v.is_string() && !quoted::nonfinite(v)).cloned().collect::<Vec<_>>()).unwrap_or_default()});
         }
     }
     Ok(out)
@@ -57,7 +58,7 @@ pub fn read(ctx: &Ctx, id: &str) -> Result<Value, CoreError> {
 }
 pub fn validate(schema: &Value, values: &Value) -> Vec<Value> {
     let mut errors = vec![];
-    let ordered = crate::json::parse(js_json(values).as_bytes()).unwrap_or(Value::Null);
+    let ordered = quoted::parse(js_json(values).as_bytes()).unwrap_or(Value::Null);
     let Some(values) = ordered.as_object() else {
         return errors;
     };
@@ -148,7 +149,7 @@ fn mutate(
     crate::private::locked(ctx, "plugin-settings", |ctx| {
         let mut all = store(ctx)?;
         let mut cur = all.get(id).cloned().unwrap_or_else(empty);
-        let actual = crate::json::number(&cur["rev"]).unwrap_or(0.0);
+        let actual = quoted::number(&cur["rev"]).unwrap_or(0.0);
         if actual != rev {
             return Err(CoreError::new(
                 Code::Conflict,
@@ -230,70 +231,6 @@ pub fn effective_config(ctx: &Ctx, id: &str) -> Result<Value, CoreError> {
     Ok(Value::Object(values))
 }
 
-/// ECMAScript decimal rendering (including exponent thresholds and negative zero).
-pub fn js_number(n: f64) -> String {
-    ryu_js::Buffer::new().format(n).to_owned()
-}
 fn js_value(n: f64) -> Value {
     serde_json::from_str(&js_number(n)).unwrap_or(Value::Null)
-}
-
-/// JSON.stringify's number rendering and integer-index key enumeration.
-pub fn js_json(value: &Value) -> String {
-    stringify(value, false)
-}
-/// Private IPC must let JSON.parse recover Infinity before Zod validates it.
-pub fn ipc_json(value: &Value) -> String {
-    stringify(value, true)
-}
-fn stringify(value: &Value, ipc: bool) -> String {
-    if crate::json::nonfinite(value) {
-        return if ipc {
-            if crate::json::number(value).is_some_and(f64::is_sign_negative) {
-                "-1e400"
-            } else {
-                "1e400"
-            }
-        } else {
-            "null"
-        }
-        .into();
-    }
-    match value {
-        Value::String(s) => crate::json::string(s),
-        Value::Number(n) => js_number(n.as_f64().unwrap_or(0.0)),
-        Value::Array(a) => format!(
-            "[{}]",
-            a.iter()
-                .map(|v| stringify(v, ipc))
-                .collect::<Vec<_>>()
-                .join(",")
-        ),
-        Value::Object(o) => {
-            let mut indexes = o
-                .keys()
-                .filter_map(|k| {
-                    k.parse::<u32>()
-                        .ok()
-                        .filter(|i| *i < u32::MAX && i.to_string() == *k)
-                        .map(|i| (i, k))
-                })
-                .collect::<Vec<_>>();
-            indexes.sort_by_key(|(i, _)| *i);
-            let mut keys = indexes.into_iter().map(|(_, k)| k).collect::<Vec<_>>();
-            keys.extend(o.keys().filter(|k| !keys_contains_index(k)));
-            format!(
-                "{{{}}}",
-                keys.into_iter()
-                    .map(|k| format!("{}:{}", crate::json::string(k), stringify(&o[k], ipc)))
-                    .collect::<Vec<_>>()
-                    .join(",")
-            )
-        }
-        _ => value.to_string(),
-    }
-}
-fn keys_contains_index(k: &str) -> bool {
-    k.parse::<u32>()
-        .is_ok_and(|i| i < u32::MAX && i.to_string() == k)
 }

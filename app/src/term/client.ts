@@ -8,7 +8,7 @@ export interface SessionSocket {
 }
 export interface TerminalSnapshot { outputOffset:number; cols:number; rows:number; scrollbackAnsi:string; screenAnsi:string; controller:string|null; viewers:number }
 /** shared is true once a host negotiated session protocol 1.2, which has no controller (ADR 0023). */
-export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; shared?:boolean; delivered?:Delivery; active?:string|null; code?:number; signal?:string; message?:string }
+export interface SessionState { status:'connecting'|'live'|'reconnecting'|'resyncing'|'exited'|'error'; you:boolean; controller:string|null; cols:number; rows:number; viewers:number; shared?:boolean; delivered?:Delivery; active?:string|null; code?:number|null; signal?:string; message?:string; /** The server-recorded exit time (Unix seconds); absent when the server could not date the exit. */ at?:number }
 /** The last input pacer typed into a 1.2 session, from the host's delivered broadcast (ADR 0023). */
 export interface Delivery { kind:'answer'|'message'; label?:string }
 export interface SessionClientOptions {
@@ -76,7 +76,7 @@ export class SessionClient {
     case 'delivered':if(this.shared&&frame.ok===true){const label=typeof frame.label==='string'?frame.label:undefined;this.update({delivered:{kind:frame.kind==='answer'||frame.kind!=='message'&&/answer/i.test(label??'')?'answer':'message',...(label?{label}:{})}});}break;
     case 'granted':break;
     case 'resync':this.offset=undefined;this.update({status:'resyncing',you:false,message:'Refreshing the terminal snapshot…'});break;
-    case 'exit':this.ended=true;this.cancel?.();this.update({status:'exited',you:false,code:frame.code,signal:frame.signal,message:undefined});break;
+    case 'exit':this.ended=true;this.cancel?.();this.update({status:'exited',you:false,code:frame.code,signal:frame.signal,at:typeof frame.at==='number'&&Number.isFinite(frame.at)&&frame.at>0?frame.at:undefined,message:undefined});break;
     default:throw Error('unknown session frame');
    }
    return;

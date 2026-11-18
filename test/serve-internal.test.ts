@@ -50,19 +50,28 @@ test("internal mode trusts only the internal token and keeps the bearer/cookie d
   } finally { s.stop(); }
 });
 
-for (const token of [undefined, "i".repeat(31)]) {
-  test(`internal CLI rejects ${token ? "short" : "missing"} environment token`, async () => {
-    const ctx = fakeCtx({ env: token ? { PACER_INTERNAL_TOKEN: token } : {} });
+for (const env of [{}, { PACER_INTERNAL_TOKEN: "i".repeat(64) }]) {
+  test(`internal CLI refuses to start without its secrets frame (${Object.keys(env).join() || "no token"})`, async () => {
+    const ctx = fakeCtx({ env });
     const result = await main(["serve", "--internal", "--token", "i".repeat(64)], ctx);
     expect(result.code).toBe(2);
     expect(result.out).toBe("");
-    expect(result.err).toContain("PACER_INTERNAL_TOKEN");
-    expect(result.err).toContain("32");
+    expect(result.err).toContain("secrets frame on stdin (PACER_CORE_SECRETS=stdin/1)");
+    expect(ctx.env).not.toHaveProperty("PACER_INTERNAL_TOKEN");
   });
 }
 
-test("executors never inherit the internal credential", () => {
-  expect(executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PATH: "/bin" }, {}).PACER_INTERNAL_TOKEN).toBeUndefined();
+test("executors never inherit any of Core's secrets", () => {
+  const env = executorEnv({ PACER_INTERNAL_TOKEN: "i".repeat(64), PACER_NATIVE_CONFIG_SYNC_KEY: "k".repeat(64), PATH: "/bin" }, {});
+  expect(env).not.toHaveProperty("PACER_INTERNAL_TOKEN");
+  expect(env).not.toHaveProperty("PACER_NATIVE_CONFIG_SYNC_KEY");
+});
+
+test("executors never inherit the native process owner socket or its credential", () => {
+  const env = executorEnv({ PACER_HOST_SOCKET: "/tmp/pacer/run/host.sock", PACER_HOST_SOCKET_KEY: "ab".repeat(32), PATH: "/bin" }, {}, "t-1");
+  expect(env).not.toHaveProperty("PACER_HOST_SOCKET");
+  expect(env).not.toHaveProperty("PACER_HOST_SOCKET_KEY");
+  expect(env.PATH).toBe("/bin");
 });
 
 test("internal core exits when its supervising stdin pipe closes", async () => {
@@ -88,9 +97,12 @@ for await (const line of createInterface({ input: process.stdin })) {
   let pluginPid: number | undefined;
   const child = Bun.spawn([process.execPath, "src/cli.ts", "serve", "--internal"], {
     env: { ...process.env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PATH: keychainStubPath(ctx.home),
-      PACER_INTERNAL_TOKEN: "i".repeat(64), PACER_INTERNAL_PARENT_PIPE: "1" },
+      PACER_CORE_SECRETS: "stdin/1", PACER_INTERNAL_PARENT_PIPE: "1" },
     stdin: "pipe", stdout: "pipe", stderr: "pipe",
   });
+  const body = JSON.stringify({ internalToken: "f".repeat(64) });
+  child.stdin.write(`pacer-core-secrets/1 ${body.length}\n${body}`);
+  child.stdin.flush();
   try {
     const reader = child.stdout.getReader();
     const announced = await reader.read();
@@ -98,7 +110,7 @@ for await (const line of createInterface({ input: process.stdin })) {
     reader.releaseLock();
     const port = JSON.parse(new TextDecoder().decode(announced.value)).internal.port;
     const doctor = await fetch(`http://127.0.0.1:${port}/v3/ops/plugin.doctor`, {
-      method: "POST", headers: { authorization: `Bearer ${"i".repeat(64)}`, "content-type": "application/json" },
+      method: "POST", headers: { authorization: `Bearer ${"f".repeat(64)}`, "content-type": "application/json" },
       body: JSON.stringify({ id: "fx-stubborn" }),
     });
     expect(doctor.status).toBe(200);

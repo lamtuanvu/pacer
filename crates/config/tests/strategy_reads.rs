@@ -14,7 +14,7 @@ fn legacy_defaults_and_errors_match_strategy_contract() {
     let s = validate_strategy(&raw, path, "default").unwrap();
     assert_eq!(
         s["pacing"],
-        json!({"policy":"priority","order":["codex","cursor","opencode"],"plannerReserve":15,"plannerReserveHeadroom":25,"plannerProbe":"ask","aheadThreshold":10,"behindThreshold":-10,"accounts":"spread","fillThreshold":90})
+        json!({"policy":"priority","order":["codex","cursor","opencode"],"plannerReserve":15,"plannerReserveHeadroom":25,"plannerProbe":"ask","aheadThreshold":10,"behindThreshold":-10,"accounts":"spread","balance":"off","fillThreshold":90})
     );
     assert_eq!(s["providers"]["cursor"]["cooldownS"], 21600);
     assert_eq!(

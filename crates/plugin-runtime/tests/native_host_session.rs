@@ -1,23 +1,30 @@
 #![allow(clippy::unwrap_used)]
-//! Flag-on NativeHostSession: socket appears, same-uid peer auth, live call/find
-//! against owned fixture children, clean shutdown.
+//! Flag-on NativeHostSession: socket appears, same-uid peer and credential
+//! auth, live sealed call/find against owned fixture children, clean shutdown.
+//! Callers without the credential are covered in `bridge_caller_auth`.
 //! Flag-off stays dark (no socket, no PACER_HOST_SOCKET).
 //! Wrong-uid denial remains covered by reverse_bridge::denies_untrusted_caller.
 //! Stub (no-owner) call/find stay in reverse_bridge::fixture_dial_plugin_call_and_find_stubs.
 
 use pacer_plugin_runtime::{
     HOST_SOCKET_ENV, METHOD_PLUGIN_CALL, METHOD_PLUGIN_FIND, METHOD_PLUGIN_SPAWN,
-    METHOD_PLUGIN_STOP, NativeHostSession, SpawnSpec, native_plugin_host_enabled,
-    serve_starts_reverse_bridge_by_default,
+    METHOD_PLUGIN_STOP, NativeHostSession, OwnerError, OwnerKey, SpawnSpec, StartFailure,
+    TERMINATE_GRACE, authenticate, native_plugin_host_enabled,
+    serve_starts_reverse_bridge_by_default, start_lane,
 };
 use serde_json::{Value, json};
-use std::{env, fs, os::unix::fs::MetadataExt, path::Path, time::Duration};
+use std::{
+    env, fs,
+    os::unix::fs::MetadataExt,
+    path::PathBuf,
+    time::{Duration, Instant},
+};
 use tokio::{
     io::{AsyncBufReadExt, AsyncWriteExt, BufReader},
     net::UnixStream,
 };
 
-// The bridge narrows the process-wide umask while binding; reset the mode a parallel bind may have stripped.
+// The bridge requires a private home; temp dirs follow the process umask.
 fn temp_home() -> tempfile::TempDir {
     use std::os::unix::fs::PermissionsExt;
     let home = tempfile::tempdir().unwrap();
@@ -33,18 +40,96 @@ fn peer(script: &str) -> SpawnSpec {
     }
 }
 
-async fn dial_json(path: &Path, request: Value) -> Value {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+/// A session's socket and the credential its Core holds.
+#[derive(Clone)]
+struct Dial {
+    path: PathBuf,
+    key: OwnerKey,
+}
+
+fn dial(session: &NativeHostSession) -> Dial {
+    Dial {
+        path: session.socket_path().to_path_buf(),
+        key: session.key().clone(),
+    }
+}
+
+/// Connect and prove the credential, as Core does before its request.
+async fn connect(target: &Dial) -> BufReader<UnixStream> {
+    let mut reader = BufReader::new(UnixStream::connect(&target.path).await.unwrap());
+    authenticate(&mut reader, &target.key).await.unwrap();
+    reader
+}
+
+async fn dial_json(target: &Dial, request: Value) -> Value {
+    let mut reader = connect(target).await;
     let mut bytes = serde_json::to_vec(&request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
-    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut line = Vec::new();
     reader.read_until(b'\n', &mut line).await.unwrap();
     if line.last() == Some(&b'\n') {
         line.pop();
     }
     serde_json::from_slice(&line).unwrap()
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shutdown_stops_children_while_a_caller_holds_the_owner() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let owner = session.owner().clone();
+    let stubborn = peer(
+        r"process.on('SIGTERM',()=>{});const r=Bun.stdin.stream().getReader();let t='';for(;;){const {value,done}=await r.read();if(done)break;t+=new TextDecoder().decode(value);for(let i=t.indexOf('\n');i>=0;i=t.indexOf('\n')){const m=JSON.parse(t.slice(0,i));t=t.slice(i+1);console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{}}));}}",
+    );
+    owner.lock().await.spawn("fx", &stubborn).unwrap();
+    let lane = owner.lock().await.lane("fx").unwrap();
+    // Answering proves the SIGTERM handler is installed.
+    lane.process()
+        .request("probe", json!({}), Duration::from_secs(5), None)
+        .await
+        .unwrap();
+    let socket = session.socket_path().to_path_buf();
+    // A plugin call in flight may hold the owner for its whole deadline.
+    let held = owner.clone().lock_owned().await;
+    let stopping = tokio::spawn(session.shutdown());
+    for _ in 0..50 {
+        if lane.process().is_stopping() {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(10)).await;
+    }
+    assert!(
+        lane.process().is_stopping(),
+        "no SIGTERM while the owner was held"
+    );
+    drop(held);
+    // The child outlives SIGTERM during the grace, but no call starts on it.
+    assert!(lane.process().is_alive());
+    let refused = start_lane(
+        &owner,
+        "fx",
+        &stubborn,
+        None,
+        Instant::now() + Duration::from_secs(5),
+        None,
+    )
+    .await;
+    assert!(
+        matches!(refused, Err(StartFailure::Owner(OwnerError::Closing))),
+        "{:?}",
+        refused.err()
+    );
+    let stopped = tokio::time::timeout(TERMINATE_GRACE + Duration::from_secs(2), stopping).await;
+    assert!(
+        stopped.is_ok_and(|joined| joined.is_ok()),
+        "shutdown outlived the grace"
+    );
+    assert_eq!(
+        lane.process().exit_reason().as_deref(),
+        Some("exited on SIGKILL")
+    );
+    assert!(!socket.exists());
 }
 
 #[test]
@@ -82,7 +167,7 @@ async fn flag_on_session_binds_socket_exports_env_and_shuts_down() {
     tokio::task::yield_now().await;
     // Live dispatch with no children: missing id is invalid params (not the stub).
     let call = dial_json(
-        &socket,
+        &dial(&session),
         json!({"jsonrpc":"2.0","id":1,"method":METHOD_PLUGIN_CALL,"params":{}}),
     )
     .await;
@@ -101,7 +186,7 @@ async fn flag_on_session_binds_socket_exports_env_and_shuts_down() {
 async fn flag_on_same_uid_peer_is_accepted() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     tokio::task::yield_now().await;
     let find = dial_json(
         &path,
@@ -121,7 +206,7 @@ async fn flag_on_same_uid_peer_is_accepted() {
 async fn live_call_and_find_against_fixture_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
 
     let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ok:true,echo:m.params||{}}}));}}"#;
     {
@@ -150,6 +235,8 @@ async fn live_call_and_find_against_fixture_under_owner() {
     .await;
     assert_eq!(missing["result"]["found"], false);
 
+    // Only Core-sealed calls run: even Core may not call a lane it did not
+    // start from its own spec.
     let call = dial_json(
         &path,
         json!({
@@ -160,21 +247,11 @@ async fn live_call_and_find_against_fixture_under_owner() {
         }),
     )
     .await;
-    assert!(call.get("error").is_none(), "{call}");
-    assert_eq!(call["result"]["ok"], true);
-    assert_eq!(call["result"]["echo"]["n"], 1);
-
-    let unknown = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":13,
-            "method":METHOD_PLUGIN_CALL,
-            "params":{"id":"absent","method":"probe","params":{}}
-        }),
-    )
-    .await;
-    assert_eq!(unknown["error"]["code"], -32002);
+    assert_eq!(call["error"]["code"], -32602, "{call}");
+    assert_eq!(
+        call["error"]["message"],
+        "call must carry Core's spawn spec and authority"
+    );
 
     {
         let mut owner = session.owner().lock().await;
@@ -187,7 +264,7 @@ async fn live_call_and_find_against_fixture_under_owner() {
 async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let note = account_home.join("note.txt");
@@ -225,7 +302,7 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[{"path":note,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
                     "grants":["fs.read"],
                     "ttlMs":10000
@@ -293,10 +370,10 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     let mut hang = request(38, json!(account_home));
     hang["params"]["method"] = json!("hang.forever");
     {
-        let mut stream = UnixStream::connect(&path).await.unwrap();
+        let mut stream = connect(&path).await;
         let mut bytes = serde_json::to_vec(&hang).unwrap();
         bytes.push(b'\n');
-        stream.write_all(&bytes).await.unwrap();
+        stream.get_mut().write_all(&bytes).await.unwrap();
         tokio::time::sleep(Duration::from_millis(200)).await;
     }
     let started = std::time::Instant::now();
@@ -342,11 +419,92 @@ async fn sealed_call_starts_hellos_and_authorizes_under_owner() {
     session.shutdown().await;
 }
 
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_failed_sealed_call_returns_its_logs_even_to_a_caller_that_shut_its_write_side() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let target = dial(&session);
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(
+        &script,
+        r#"const r=Bun.stdin.stream().getReader();let b='',pending;const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'fx-logs',version:'1.0.0',contributes:['diagnostic']}});else if(m.method==='log.then.fail'){pending=m.id;send({id:7,method:'capability.log',params:{level:'warn',message:'before failing'}});}else if(m.method==='log.then.hang')send({id:8,method:'capability.log',params:{level:'info',message:'before hanging'}});else if(m.id===7)send({id:pending,error:{code:-32000,message:'refused after logging',data:{code:'conflict'}}});}}"#,
+    )
+    .unwrap();
+    let request = |rpc: u64, method: &str| {
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"fx-logs",
+                "method":method,
+                "params":{},
+                "deadlineMs":5000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"fx-logs","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"log"}],"contributes":{"diagnostic":{}}
+                        },
+                        "config":{},"grants":["log"],"features":[]
+                    },
+                },
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"commands":[],"hosts":[]},"grants":["log"],"ttlMs":10000},
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null}
+            }
+        })
+    };
+    tokio::task::yield_now().await;
+
+    let failed = dial_json(&target, request(40, "log.then.fail")).await;
+    assert_eq!(
+        failed["error"]["message"], "refused after logging",
+        "{failed}"
+    );
+    assert_eq!(
+        failed["error"]["data"]["logs"],
+        json!([{"level": "warn", "message": "before failing"}])
+    );
+
+    // Shutting the write side cancels the call; the final reply still carries its logs.
+    let mut reader = connect(&target).await;
+    let mut bytes = serde_json::to_vec(&request(41, "log.then.hang")).unwrap();
+    bytes.push(b'\n');
+    reader.get_mut().write_all(&bytes).await.unwrap();
+    tokio::time::sleep(Duration::from_millis(500)).await;
+    reader.get_mut().shutdown().await.unwrap();
+    let mut line = Vec::new();
+    reader.read_until(b'\n', &mut line).await.unwrap();
+    let cancelled: Value = serde_json::from_slice(&line).unwrap_or(Value::Null);
+    assert_eq!(
+        cancelled["error"]["data"]["code"], "plugin_timeout",
+        "{cancelled}"
+    );
+    assert_eq!(
+        cancelled["error"]["data"]["logs"],
+        json!([{"level": "info", "message": "before hanging"}])
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("fx-logs")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let file = |name: &str| {
@@ -384,7 +542,7 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[{"path":read,"kind":"file"}],"writes":[],"commands":[],"hosts":[]},
                     "grants":["fs.read"],"ttlMs":10000
                 },
@@ -476,15 +634,14 @@ async fn sealed_calls_overlap_across_plugins_and_within_a_reentrant_plugin() {
 
 /// Dial one call; answer every owner-forwarded request with `answer` until the final reply.
 async fn dial_with_core(
-    path: &Path,
+    target: &Dial,
     request: Value,
     answer: impl Fn(&Value) -> Value,
 ) -> (Value, Vec<Value>) {
-    let mut stream = UnixStream::connect(path).await.unwrap();
+    let mut reader = connect(target).await;
     let mut bytes = serde_json::to_vec(&request).unwrap();
     bytes.push(b'\n');
-    stream.write_all(&bytes).await.unwrap();
-    let mut reader = BufReader::new(stream);
+    reader.get_mut().write_all(&bytes).await.unwrap();
     let mut forwarded = Vec::new();
     loop {
         let mut line = Vec::new();
@@ -508,7 +665,7 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     use std::os::unix::fs::PermissionsExt;
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let account = temp_home();
     let account_home = account.path().canonicalize().unwrap();
     let tools = temp_home();
@@ -565,7 +722,7 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
                     "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
                     "hello":hello,
                 },
-                "authority":{
+                "authority":{"owning":true,
                     "resources":{"reads":[],"writes":[],"hosts":[],"commands":[
                         {"argv":[codex,"-s","read-only","-a","never","app-server"],"timeoutMs":10000,"mode":"codex-live","env":codex_env},
                         {"argv":[fx_env],"timeoutMs":10000}
@@ -685,6 +842,197 @@ async fn sealed_call_runs_codex_live_and_forwards_usage_state_to_core() {
     session.shutdown().await;
 }
 
+/// Orca provider child: `executor.run` asks for `capability.orca.prepare` then a
+/// plain file write; `executor.stop` asks for `capability.orca.stop`. Each call
+/// returns what it was answered.
+const ORCA_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',call,out={};const send=x=>console.log(JSON.stringify({jsonrpc:'2.0',...x}));const ids={taskId:'t-1',attempt:1};for(;;){const {value,done}=await r.read();if(done)break;b+=new TextDecoder().decode(value);while(b.includes('\n')){const i=b.indexOf('\n'),m=JSON.parse(b.slice(0,i));b=b.slice(i+1);if(m.method==='plugin.hello')send({id:m.id,result:{protocol:'1.10.0',id:'pacer-exec-orca',version:'1.0.0',contributes:['executor']}});else if(m.method==='executor.run'){call=m.id;out={};send({id:'prepare',method:'capability.orca.prepare',params:ids});}else if(m.id==='prepare'){out.prepare=m.result??m.error;send({id:'write',method:'capability.fs.write',params:{path:'/fixture/out.txt',text:'x'}});}else if(m.id==='write'){out.write=m.result??m.error;send({id:call,result:out});}else if(m.method==='executor.stop'){call=m.id;send({id:'stop',method:'capability.orca.stop',params:ids});}else if(m.id==='stop'){send({id:call,result:{stop:m.result??m.error}});}}}"#;
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn sealed_orca_attempt_live_and_writes_are_answered_by_core() {
+    let home = temp_home();
+    let (session, _) = NativeHostSession::start(home.path()).unwrap();
+    let path = dial(&session);
+    let plugin_dir = temp_home();
+    let script = plugin_dir.path().join("plugin.js");
+    fs::write(&script, ORCA_CHILD).unwrap();
+    let orca_methods = json!([
+        "capability.orca.status",
+        "capability.orca.liveAnswer",
+        "capability.orca.prepare",
+        "capability.orca.place",
+        "capability.orca.terminal",
+        "capability.orca.abandon",
+        "capability.orca.start",
+        "capability.orca.lookup",
+        "capability.orca.adopt",
+        "capability.orca.unstarted",
+        "capability.orca.wait",
+        "capability.orca.settle",
+        "capability.orca.finish",
+        "capability.orca.stop",
+        "capability.orca.sessionState"
+    ]);
+    let attempt = json!({"taskId":"t-1","attempt":1,"providerId":"pacer-exec-orca","executor":"codex","session":"host-only-session"});
+    let live = json!({"taskId":"t-1","attempt":1,"providerId":"pacer-exec-orca","worker":"ctx_1","terminal":"term_1","action":"stop"});
+    let request = |rpc: u64, method: &str, orca: Value, grants: Value, core_methods: Value| {
+        let mut resources = json!({"reads":[],"writes":[],"hosts":[],"commands":[]});
+        for (key, value) in orca.as_object().unwrap() {
+            resources[key] = value.clone();
+        }
+        json!({
+            "jsonrpc":"2.0",
+            "id":rpc,
+            "method":METHOD_PLUGIN_CALL,
+            "params":{
+                "id":"pacer-exec-orca",
+                "method":method,
+                "params":{},
+                "deadlineMs":10000,
+                "spawn":{
+                    "argv":["bun", script.to_str().unwrap()],
+                    "cwd":plugin_dir.path().display().to_string(),
+                    "env":env::vars().collect::<std::collections::HashMap<_, _>>(),
+                    "hello":{
+                        "protocol":"1.10.0","pacer":"0.2.0",
+                        "manifest":{
+                            "id":"pacer-exec-orca","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+                            "capabilities":[{"name":"orca","scopes":["task-owned"]},{"name":"fs.write","scopes":["/fixture/**"]}],
+                            "contributes":{"executor":{"backends":["orca"]}},"reentrant":true
+                        },
+                        "config":{},"grants":["orca","fs.write"],"features":[]
+                    },
+                },
+                "authority":{"owning":true,
+                    "resources":resources,
+                    "grants":grants,
+                    "ttlMs":10000,
+                    "orcaContext":{"home":home.path().display().to_string()}
+                },
+                "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
+                "coreMethods":core_methods
+            }
+        })
+    };
+    let mut sealed = orca_methods.as_array().unwrap().clone();
+    sealed.extend([
+        json!("capability.fs.write"),
+        json!("capability.fs.mkdir"),
+        json!("capability.fs.remove"),
+    ]);
+    let sealed = Value::Array(sealed);
+    tokio::task::yield_now().await;
+
+    // Core holds the attempt session: every Orca effect and the issued write go back to it.
+    let (reply, forwarded) = dial_with_core(
+        &path,
+        request(
+            60,
+            "executor.run",
+            json!({"orcaAttempt":attempt}),
+            json!(["orca", "fs.write"]),
+            sealed.clone(),
+        ),
+        |frame| json!({"result":{"answered":frame["method"]}}),
+    )
+    .await;
+    assert!(reply.get("error").is_none(), "{reply}");
+    assert_eq!(
+        reply["result"]["value"],
+        json!({"prepare":{"answered":"capability.orca.prepare"},"write":{"answered":"capability.fs.write"}})
+    );
+    let methods: Vec<_> = forwarded
+        .iter()
+        .map(|frame| frame["method"].clone())
+        .collect();
+    assert_eq!(
+        methods,
+        [
+            json!("capability.orca.prepare"),
+            json!("capability.fs.write")
+        ]
+    );
+    assert_eq!(forwarded[0]["params"], json!({"taskId":"t-1","attempt":1}));
+
+    // Live control is answered by Core the same way.
+    let (stopped, forwarded) = dial_with_core(
+        &path,
+        request(
+            61,
+            "executor.stop",
+            json!({"orcaLive":live}),
+            json!(["orca", "fs.write"]),
+            orca_methods.clone(),
+        ),
+        |_| json!({"result":{"code":0,"killed":true}}),
+    )
+    .await;
+    assert_eq!(
+        stopped["result"]["value"],
+        json!({"stop":{"code":0,"killed":true}}),
+        "{stopped}"
+    );
+    assert_eq!(forwarded.len(), 1);
+
+    // Unless Core seals the Orca methods, an Orca grant re-enters the owner and is refused before the child runs.
+    for (rpc, orca) in [
+        (62, json!({"orcaAttempt":attempt})),
+        (63, json!({"orcaLive":live})),
+    ] {
+        let (refused, forwarded) = dial_with_core(
+            &path,
+            request(
+                rpc,
+                "executor.run",
+                orca,
+                json!(["orca", "fs.write"]),
+                json!(["capability.fs.write"]),
+            ),
+            |_| json!({"result":{}}),
+        )
+        .await;
+        assert!(forwarded.is_empty(), "{forwarded:?}");
+        assert_eq!(
+            refused["error"]["data"]["code"], "plugin_unavailable",
+            "{refused}"
+        );
+        assert!(
+            refused["error"]["message"]
+                .as_str()
+                .unwrap()
+                .contains("re-enter the process owner"),
+            "{refused}"
+        );
+    }
+
+    // A forwarded write or Orca effect still needs the call's grant.
+    let (ungranted, forwarded) = dial_with_core(
+        &path,
+        request(
+            64,
+            "executor.run",
+            json!({"orcaAttempt":attempt}),
+            json!(["orca"]),
+            sealed.clone(),
+        ),
+        |_| json!({"result":{}}),
+    )
+    .await;
+    assert_eq!(forwarded.len(), 1, "{forwarded:?}");
+    assert_eq!(
+        ungranted["result"]["value"]["write"]["data"]["code"], "capability_denied",
+        "{ungranted}"
+    );
+
+    session
+        .owner()
+        .lock()
+        .await
+        .terminate("pacer-exec-orca")
+        .await
+        .unwrap();
+    session.shutdown().await;
+}
+
 /// Planner child: `planner.install` asks Core to run a pinned command, read its
 /// output and the prior record, then returns what Core answered (or fails after
 /// the command when `params.fail`); `planner.uninstall` reads the prior only.
@@ -695,7 +1043,7 @@ const PLANNER_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let b='',c
 async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("planner.js");
     fs::write(&script, PLANNER_CHILD).unwrap();
@@ -730,7 +1078,7 @@ async fn sealed_planner_transaction_forwards_commands_to_core_after_negotiation(
                         "features":["chunkedResults","plannerInstallTransactions"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":core_methods,
                 "requireFeatures":required
@@ -917,7 +1265,7 @@ const CHUNKED_CHILD: &str = r#"try{const r=Bun.stdin.stream().getReader();let b=
 async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("chunked.js");
     fs::write(&script, CHUNKED_CHILD).unwrap();
@@ -947,7 +1295,7 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
                         "features":["chunkedResults","plannerInstallTransactions"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":core_methods.clone(),
                 "requireFeatures":["plannerInstallTransactions"]
@@ -1107,7 +1455,7 @@ async fn sealed_planner_result_is_forwarded_below_at_and_above_the_chunk_limit()
 async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_features() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("simple.js");
     fs::write(
@@ -1133,7 +1481,7 @@ async fn sealed_call_ready_without_a_summary_is_fail_closed_under_require_featur
                         "config":{},"grants":[],"features":["chunkedResults"]
                     },
                 },
-                "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":[],"ttlMs":10000},
+                "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":[],"ttlMs":10000},
                 "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
                 "coreMethods":Value::Null,
                 "requireFeatures":required
@@ -1199,7 +1547,7 @@ const HELLO_FORWARD_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let 
 async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("hello-forward.js");
     fs::write(&script, HELLO_FORWARD_CHILD).unwrap();
@@ -1228,7 +1576,7 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
                     "features":["chunkedResults","plannerInstallTransactions"]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","fs.write","process.spawn"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":planner_methods,
             "requireFeatures":["plannerInstallTransactions"]
@@ -1278,66 +1626,47 @@ async fn sealed_call_never_forwards_during_hello_before_the_feature_gate() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn bridge_spawn_and_stop_under_owner() {
+async fn bridge_spawn_is_retired_and_stop_stays_under_owner() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
-    let script = r#"const reader=Bun.stdin.stream().getReader();let text='';for(;;){const {value,done}=await reader.read();if(done)break;text+=new TextDecoder().decode(value);while(text.includes('\n')){const cut=text.indexOf('\n');const line=text.slice(0,cut);text=text.slice(cut+1);const m=JSON.parse(line);if(m.method==='probe')console.log(JSON.stringify({jsonrpc:'2.0',id:m.id,result:{ok:true}}));}}"#;
+    let path = dial(&session);
+    let script = r#"const reader=Bun.stdin.stream().getReader();for(;;){const {done}=await reader.read();if(done)break;}"#;
     let peer = peer(script);
     tokio::task::yield_now().await;
 
-    let spawn_params = json!({
-        "id":"fx-spawn",
-        "argv":peer.argv,
-        "cwd":peer.cwd.display().to_string(),
-        "env":peer.env,
-    });
+    // No caller starts a lane from its own spec, not even an authenticated one.
     let spawned = dial_json(
         &path,
         json!({
             "jsonrpc":"2.0",
             "id":20,
             "method":METHOD_PLUGIN_SPAWN,
-            "params":spawn_params,
-        }),
-    )
-    .await;
-    assert!(spawned.get("error").is_none(), "{spawned}");
-    assert_eq!(spawned["result"]["created"], true);
-    assert_eq!(spawned["result"]["id"], "fx-spawn");
-    assert!(spawned["result"]["pid"].as_u64().is_some());
-
-    let again = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":21,
-            "method":METHOD_PLUGIN_SPAWN,
             "params":{
                 "id":"fx-spawn",
                 "argv":peer.argv,
                 "cwd":peer.cwd.display().to_string(),
                 "env":peer.env,
-            }
+            },
         }),
     )
     .await;
-    assert_eq!(again["result"]["created"], false);
-    assert_eq!(again["result"]["pid"], spawned["result"]["pid"]);
+    assert_eq!(spawned["error"]["code"], -32601, "{spawned}");
+    assert!(
+        session
+            .owner()
+            .lock()
+            .await
+            .find_plugin("fx-spawn")
+            .is_none()
+    );
 
-    let call = dial_json(
-        &path,
-        json!({
-            "jsonrpc":"2.0",
-            "id":22,
-            "method":METHOD_PLUGIN_CALL,
-            "params":{"id":"fx-spawn","method":"probe","params":{}}
-        }),
-    )
-    .await;
-    assert!(call.get("error").is_none(), "{call}");
-    assert_eq!(call["result"]["ok"], true);
-
+    // Stop serves the attached door's plugin.disable and plugin.remove.
+    session
+        .owner()
+        .lock()
+        .await
+        .spawn("fx-spawn", &peer)
+        .unwrap();
     let stopped = dial_json(
         &path,
         json!({"jsonrpc":"2.0","id":23,"method":METHOD_PLUGIN_STOP,"params":{"id":"fx-spawn"}}),
@@ -1367,7 +1696,7 @@ const UNSEALED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader();let
 async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("unsealed-chunk.js");
     fs::write(&script, UNSEALED_CHUNK_CHILD).unwrap();
@@ -1389,7 +1718,7 @@ async fn sealed_call_refuses_result_chunk_when_core_did_not_seal_it() {
                     "config":{},"grants":["fs.read"],"features":[]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":["capability.fs.read"]
         }
@@ -1432,7 +1761,7 @@ const UNNEGOTIATED_CHUNK_CHILD: &str = r#"const r=Bun.stdin.stream().getReader()
 async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() {
     let home = temp_home();
     let (session, _) = NativeHostSession::start(home.path()).unwrap();
-    let path = session.socket_path().to_path_buf();
+    let path = dial(&session);
     let plugin_dir = temp_home();
     let script = plugin_dir.path().join("unnegotiated-chunk.js");
     fs::write(&script, UNNEGOTIATED_CHUNK_CHILD).unwrap();
@@ -1455,7 +1784,7 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
                     "features":["chunkedResults","plannerInstallTransactions"]
                 },
             },
-            "authority":{"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
+            "authority":{"owning":true,"resources":{"reads":[],"writes":[],"hosts":[],"commands":[]},"grants":["fs.read","process.spawn"],"ttlMs":10000},
             "scopeRoots":{"home":home.path().display().to_string(),"pacerHome":home.path().display().to_string(),"accountHome":null},
             "coreMethods":[
                 "capability.planner.run",
@@ -1490,4 +1819,36 @@ async fn sealed_call_refuses_result_chunk_when_chunked_results_not_negotiated() 
         .await
         .unwrap();
     session.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn owned_children_append_stderr_to_the_home_plugin_log() {
+    let script = r#"await Bun.write(Bun.stderr,"fixture says hi\n");const r=Bun.stdin.stream().getReader();for(;;){const {done}=await r.read();if(done)break;}"#;
+    for connection in [false, true] {
+        let home = temp_home();
+        let (session, _) = if connection {
+            NativeHostSession::start_connection(home.path(), [7; 6]).unwrap()
+        } else {
+            NativeHostSession::start(home.path()).unwrap()
+        };
+        session
+            .owner()
+            .lock()
+            .await
+            .spawn("fx-log", &peer(script))
+            .unwrap();
+        let log = home.path().join("logs").join("plugins").join("fx-log.log");
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while !fs::read_to_string(&log).is_ok_and(|text| text.contains("hi")) {
+            assert!(
+                Instant::now() < deadline,
+                "no plugin log line (connection {connection})"
+            );
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+        let text = fs::read_to_string(&log).unwrap();
+        assert!(text.ends_with(" [stderr] fixture says hi\n"), "{text}");
+        assert_eq!(fs::metadata(&log).unwrap().mode() & 0o777, 0o600);
+        session.shutdown().await;
+    }
 }

@@ -2,11 +2,13 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { PluginError, pairingStart, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { pingProbe?: "serial" | "barrier"; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string }
+interface Fixture { startDelayMs?: number; pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string; pingStderr?: string; pingStdout?: string; exitOnPing?: boolean }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
 if (fixture.exitAtStart) process.exit(3);
+// Reading stdin late delays the answer to `plugin.hello`.
+if (fixture.startDelayMs) await new Promise<void>(resolve => setTimeout(resolve, fixture.startDelayMs));
 let pings = 0, active = 0, sequence = 0;
 let renders = 0;
 let activePings = 0;
@@ -34,6 +36,8 @@ await serve({
     "ui.action": async () => ({ result: "refresh", message: fixture.actionMessage ?? "done" }),
     "ui.settings.validate": async () => fixture.validateErrors ? { ok: false, errors: fixture.validateErrors } : { ok: true },
     "diagnostic.ping": async (_params, host, signal) => {
+      // Dies mid-call, after it answered the hello and before it answers the ping.
+      if (fixture.exitOnPing) process.exit(7);
       const ping = ++pings;
       const measured = fixture.pingProbe !== undefined && ping > 1;
       let entered = false, completed = false;
@@ -42,6 +46,8 @@ await serve({
       try {
         console.error(`fixture ${manifest.id}: ping ${ping}`);
         console.error(`fixture ${manifest.id}: active pings ${activePings}`);
+        if (fixture.pingStderr) await new Promise<void>(resolve => process.stderr.write(fixture.pingStderr!, () => resolve()));
+        if (fixture.pingStdout) await new Promise<void>(resolve => process.stdout.write(fixture.pingStdout!, () => resolve()));
         if (measured) {
           active++; entered = true; receipt(ping, "enter");
           if (fixture.pingProbe === "barrier") {
@@ -52,6 +58,7 @@ await serve({
                 aborted = () => reject(new PluginError("cancelled", "overlap barrier cancelled"));
                 signal.addEventListener("abort", aborted, { once: true });
                 if (signal.aborted) aborted();
+                if (fixture.barrierTimeoutMs) setTimeout(() => reject(new PluginError("plugin_timeout", "overlap barrier timed out")), fixture.barrierTimeoutMs);
                 barrier.then(resolve);
               });
             } finally {

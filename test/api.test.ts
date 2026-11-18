@@ -51,6 +51,15 @@ test("runnerProcess launches _run with the given self command, not the caller's 
   expect(() => runnerProcess([])(ctx, "t-1")).toThrow("runner self command is empty");
 });
 
+test("runnerProcess keeps the caller's environment except the door's native owner socket", async () => {
+  const ctx = fakeCtx(), out = join(tmpDir(), "env");
+  const env = {...ctx.env, OUT: out, KEEP: "kept", PACER_HOST_SOCKET: join(ctx.pacerHome, "run", "host.sock")};
+  runnerProcess(["/bin/sh", "-c", 'printf "%s|%s" "${PACER_HOST_SOCKET-unset}" "$KEEP" > "$OUT.tmp" && mv "$OUT.tmp" "$OUT"', "sh"])({...ctx, env}, "t-1");
+  for (let i = 0; i < 100 && !existsSync(out); i++) await Bun.sleep(20);
+  expect(readFileSync(out, "utf8")).toBe("unset|kept");
+  expect(env.PACER_HOST_SOCKET).toBe(join(ctx.pacerHome, "run", "host.sock"));
+});
+
 test("the supervision worker refuses to start without the service's self command", async () => {
   // In a worker, argv[1] is the worker module in source and compiled modes alike.
   const worker = new Worker(new URL("../src/tasks/supervision-worker.ts", import.meta.url), {type: "module"});

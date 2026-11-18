@@ -43,12 +43,15 @@ Use \`pacer help\` for stream/file commands. Do not read private task files, cre
 ## Brief fields
 
 JSON object: \`goal\` (required string), \`title\` (optional explicit title, 1–60 characters; stored separately from the goal), \`repo\` (absolute path, defaults to cwd),
-\`kind\`, \`scope\`, \`acceptance\` (verification command), \`acceptance_timeout_min\` (integer 1–120, default 10;
+\`kind\`, \`difficulty\` (simple|standard|complex), \`model\` (optional exact model pin), \`scope\`, \`acceptance\` (verification command), \`acceptance_timeout_min\` (integer 1–120, default 10;
 acceptance deadline in minutes, also \`--acceptance-timeout-min\`; preserved on retry), \`acceptance_pipefail\` (boolean,
 default false), \`constraints\`, \`context\`,
 \`executor\`, \`timeout_min\` (1–240), \`worktree\` (current/new/auto),
 \`worktree_reason\` (one line, max 200 characters).
-Command-line flags override file fields. Give a kind tag and a concrete acceptance command.
+Command-line flags override file fields. Give a kind tag, difficulty and a concrete acceptance command.
+For example: {"goal":"Fix the flaky test","kind":"debug","difficulty":"standard","acceptance":"bun run test"}.
+Choose simple for small edits, standard for routine implementation, and complex for difficult reasoning.
+Omitting difficulty currently uses standard and returns a difficulty_missing warning.
 \`acceptance\` runs exactly as written (\`bash -c\`/\`sh -c\`); pipeline idioms like
 \`grep -v ... | (! grep .)\` or \`cmd | grep -q ...\` behave normally. Set
 \`acceptance_pipefail: true\`, or write \`set -o pipefail;\` yourself, to also fail on a

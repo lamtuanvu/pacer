@@ -44,11 +44,13 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
         const agent = markAgent(item.executor ?? task?.executor ?? "codex", item.account), name = agentInfo(agent).name;
         const href = withQuery(attentionDestination(item), query);
         const stop = item.actions.find(action => action.op === "task.stop");
+        const repoLabel = item.repo?.label ?? item.repo?.key ?? "Repository unknown";
+        const reason = question ? `${name} asks: ${task?.question?.text ?? item.detail}` : item.detail;
         return <div key={item.id} className="ny-item" data-attention-id={item.id}>
           <span aria-hidden="true" className={`ny-glyph ny-glyph--${question ? "warn" : review ? "info" : "bad"}`}>{question ? "◐" : review ? "●" : "✕"}</span>
           <TextAction className="ny-content" href={item.taskId?withQuery(`#/tasks/${encodeURIComponent(item.taskId)}`,query):href}><span className="ny-title-line"><span className="ny-title" title={task?.fullTitle ?? task?.title ?? item.title}>{task?.fullTitle ?? task?.title ?? item.title}</span><Pill tone={question ? "warn" : review ? "info" : "bad"}>{question ? "Question" : review ? "Ready for review" : "Checks failed"}</Pill></span>
-            <span className="ny-reason">{question ? `${name} asks: ${task?.question?.text ?? item.detail}` : item.detail}</span>
-            <span className="ny-meta ny-cap"><AgentMark agent={agent} size={16} labelled={false} /><span className="ny-mono">{item.repo?.label ?? item.repo?.key ?? "Repository unknown"}</span> · {question ? "asked " : review ? "finished " : ""}{question || review ? `${durationWords(now - item.raisedAt)} ago` : clock(item.raisedAt, now)}</span>
+            <span className="ny-reason" title={reason}>{reason}</span>
+            <span className="ny-meta ny-cap"><AgentMark agent={agent} size={16} labelled={false} /><span className="ny-mono" title={repoLabel}>{repoLabel}</span> · {question ? "asked " : review ? "finished " : ""}{question || review ? `${durationWords(now - item.raisedAt)} ago` : clock(item.raisedAt, now)}</span>
           </TextAction>
           <span className="ny-actions">{question ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}&panel=session&tab=answer`}>Open in workspace</ButtonLink> : review ? <ButtonLink typography="board" size="sm" href={`#/workspace?task=${encodeURIComponent(item.taskId!)}`}>Open workspace</ButtonLink> : stop ? <ActionButton runner={runner} id={`${item.id}:stop`} action={{ ...stop, label: "Stop task" }} /> : null}<ButtonLink typography="board" size="sm" variant="primary" href={href}>{question ? "Answer" : review ? "Review" : "Inspect failures"}</ButtonLink></span>
         </div>;

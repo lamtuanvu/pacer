@@ -2,8 +2,8 @@
 //! final publication is performed only after that bridge has settled.
 use pacer_config::{
     config_writes, executor_settings, notifications,
-    settings::{self, SettingsError},
-    strategy::{StrategyError, list_strategy_reads, load_strategy, show_strategy, strategy_path},
+    settings::SettingsError,
+    strategy::{StrategyError, list_strategy_reads, load_strategy, show_strategy},
     strategy_write,
 };
 use pacer_foundation::{
@@ -11,17 +11,12 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     lock::{LockOptions, with_lock},
 };
+use pacer_models::Validation;
 use serde_json::{Value, json};
 
-/// Planner install and backend readiness stay on the TypeScript `config.set` path.
-pub fn config_set_stays_forwarded(params: &Value) -> bool {
-    matches!(
-        params.get("key").and_then(Value::as_str),
-        Some("planner" | "execution.backend")
-    )
-}
+pub use super::config_set_ops::config_set_stays_forwarded;
 
-const STRATEGY_HINT: &str =
+pub(crate) const STRATEGY_HINT: &str =
     "Use strategy.list to choose a strategy and strategy.preview to validate a draft.";
 #[allow(clippy::result_large_err)]
 fn error(op: &str, error: StrategyError) -> CoreError {
@@ -58,9 +53,10 @@ fn error(op: &str, error: StrategyError) -> CoreError {
     error
 }
 
-fn settings_error(error: SettingsError) -> CoreError {
+pub(crate) fn settings_error(error: SettingsError) -> CoreError {
     let code = match error.code {
         "conflict" => Code::Conflict,
+        "not_allowed" => Code::NotAllowed,
         "unavailable" => Code::Unavailable,
         _ => Code::InvalidInput,
     };
@@ -79,12 +75,15 @@ pub fn area(op: &str) -> Option<&'static str> {
         | "runner.set"
         | "runner.reorder"
         | "runner.remove"
-        | "runner.settings.save" => Some("runners"),
+        | "runner.settings.save"
+        | "runner.models.set"
+        | "runner.models.set_many" => Some("runners"),
         "host.add" | "host.set" | "host.remove" | "host.repo.map" | "host.account.add" => {
             Some("hosts")
         }
+        "dispatch.tierTargets.set" => Some("strategy"),
         "routing.set" => Some("routing"),
-        "notifications.set" | "config.set" => Some("config"),
+        "notifications.set" => Some("config"),
         "delegation.pause" | "delegation.resume" => Some("delegation"),
         "mode.hold" | "mode.release" => Some("mode"),
         "machine.set" | "machine.rotate" => Some("machine"),
@@ -111,6 +110,9 @@ pub fn syncs_endpoints(op: &str) -> bool {
             | "runner.reorder"
             | "runner.remove"
             | "routing.set"
+            | "runner.models.set"
+            | "runner.models.set_many"
+            | "dispatch.tierTargets.set"
     )
 }
 
@@ -125,13 +127,21 @@ pub fn finish(ctx: &Ctx, op: &str, result: &Value) -> Result<(), CoreError> {
             ],
         ));
     }
-    if let Some(area) = area(op) {
-        match pacer_store::publish_config_change(ctx, area) {
-            Ok(result) => report(result),
-            Err(error) => return Err(CoreError::new(Code::InvalidInput, error.to_string())),
-        }
+    match area(op) {
+        Some(area) => publish(ctx, area),
+        None => Ok(()),
     }
-    Ok(())
+}
+/// `config.set` publishes from its handler, before it releases the edit key.
+#[allow(clippy::result_large_err)]
+pub(crate) fn publish(ctx: &Ctx, area: &str) -> Result<(), CoreError> {
+    match pacer_store::publish_config_change(ctx, area) {
+        Ok(result) => {
+            report(result);
+            Ok(())
+        }
+        Err(error) => Err(CoreError::new(Code::InvalidInput, error.to_string())),
+    }
 }
 fn report(report: pacer_store::PublishReport) {
     for error in report.errors {
@@ -161,6 +171,40 @@ pub fn legacy_dir_for_platform(ctx: &Ctx, macos: bool) -> std::path::PathBuf {
             }
         });
     base.join("plugins-data/lamtuanvu.pacer")
+}
+
+/// `runnersConfig.set`: a string model is checked after the runner and rank
+/// refusals and before the edit; its warning follows the routing warnings.
+#[allow(clippy::result_large_err)]
+async fn set_runner(ctx: &Ctx, id: &str, p: &Value) -> Result<Value, CoreError> {
+    let home = &ctx.pacer_home;
+    let mut unverified = None;
+    if let Some(model) = p["model"].as_str() {
+        let strategy =
+            load_strategy(home).map_err(|e| CoreError::new(Code::Internal, e.to_string()))?;
+        match crate::runner_ops::model_check(ctx, &strategy, id, model).await {
+            Validation::NotReached => {}
+            Validation::Accepted(warning) => unverified = warning,
+            Validation::Refused { message, hint } => {
+                let refused = CoreError::new(Code::InvalidInput, message);
+                return Err(match hint {
+                    Some(hint) => refused.hint(hint),
+                    None => refused,
+                });
+            }
+            Validation::NeedsCore => {
+                return Err(CoreError::new(
+                    Code::Unavailable,
+                    "runner.set model check requires the forwarded operation",
+                ));
+            }
+        }
+    }
+    let mut result = config_writes::set_runner(home, id, p).map_err(|e| error("runner.set", e))?;
+    if let (Some(warning), Some(warnings)) = (unverified, result["warnings"].as_array_mut()) {
+        warnings.push(Value::String(warning));
+    }
+    Ok(result)
 }
 
 fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
@@ -253,7 +297,7 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                     result => result,
                 }
             }
-            "runner.set" => config_writes::set_runner(home, id, &p),
+            "runner.set" => return set_runner(ctx, id, &p).await,
             "runner.reorder" => config_writes::reorder_runners(
                 home,
                 &p["ids"]
@@ -288,31 +332,23 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                     .map_err(|e| CoreError::new(Code::Internal, e.to_string()));
             }
             "notifications.set" => {
-                return notifications::set_level(home, p["level"].as_str().unwrap_or(""))
-                    .map_err(|e| CoreError::new(Code::InvalidInput, e.to_string()));
+                let level = p.get("level").and_then(Value::as_str);
+                let sound = p.get("sound").and_then(Value::as_str);
+                return notifications::set(home, level, sound).map_err(|e| {
+                    let code = if matches!(
+                        e,
+                        notifications::NotificationError::InvalidLevel
+                            | notifications::NotificationError::InvalidSound
+                            | notifications::NotificationError::Empty
+                    ) {
+                        Code::InvalidInput
+                    } else {
+                        Code::Internal
+                    };
+                    CoreError::new(code, e.to_string())
+                });
             }
-            "config.set" => {
-                let key = p["key"].as_str().unwrap_or("");
-                if config_set_stays_forwarded(&p) {
-                    return Err(CoreError::new(
-                        Code::Unavailable,
-                        format!("{key} requires the forwarded config.set operation"),
-                    ));
-                }
-                let (path, name) = strategy_path(home).map_err(|e| error(op, e))?;
-                let presets_only = ctx
-                    .env
-                    .get("PACER_TERMINAL_PRESETS_ONLY")
-                    .is_some_and(|v| v == "1");
-                let mut result =
-                    settings::set_setting(&path, &name, key, &p["value"], presets_only)
-                        .map_err(settings_error)?;
-                // Match the TypeScript op handler: notes stay internal.
-                if let Some(obj) = result.as_object_mut() {
-                    obj.remove("notes");
-                }
-                return Ok(result);
-            }
+            "config.set" => return super::config_set_ops::config_set(ctx, &p),
             _ => return Err(CoreError::new(Code::UnknownOp, op)),
         };
         result.map_err(|e| error(op, e))

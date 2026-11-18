@@ -58,6 +58,8 @@ import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { shutdownPlugins } from "./plugins";
+import { holdOwnerKey } from "./plugins/host-bridge";
+import { CORE_SECRETS_ENV, CORE_SECRETS_STDIN, LEGACY_CORE_SECRETS, legacyCoreSecrets, readCoreSecrets, scrubCoreSecrets, type CoreSecrets } from "./core-secrets";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -71,6 +73,9 @@ import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
 import type { Ctx } from "./types";
 import { ensureIdentity } from "./identity/store";
+import { readRunnerModels, saveRunnerModels, modelDeclarationWarnings, type ModelDeclaration } from "./core/runner-models";
+import { availableModels } from "./models/available";
+import { tierSchema } from "./dispatch/types";
 
 /** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`. */
 export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
@@ -85,7 +90,7 @@ const USAGE = `usage: pacer <command>
                                                  read-only: where this request would go, and why
   project strategy list | show | set | remove   repository executor policy (--repo, --executors, --json)
   delegate [--title <text>] [--brief-file <path|->] [--goal <text>] [--repo <dir>] [--kind <k>] [--scope <s>] [--acceptance <cmd>]
-           [--acceptance-timeout-min <n>] [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--timeout-min <n>] [--wait] [--json] [--force]
+           [--acceptance-timeout-min <n>] [--acceptance-pipefail] [--constraints <s>] [--context <s>] [--executor <id>] [--difficulty <simple|standard|complex>] [--model <id>] [--timeout-min <n>] [--wait] [--json] [--force]
            [--worktree current|new|auto] [--worktree-base default|head] [--worktree-reason <text>]
            [--interactive] [--group <name>]        interactive: routed/reviewed like any delegated task, with a live terminal;
                                                      group: lanes nested under one named Orca parent worktree
@@ -97,6 +102,8 @@ const USAGE = `usage: pacer <command>
   tasks prune [--dry-run] [--json]               archive old settled tasks
   tasks restore <task-id> [--json]               restore archived artifacts
   executor set <id> [--enabled true|false] [--model <m>] [--max-tasks <n>]
+  executor models <id>                            print available and allowed models
+                    [--default <m>] [--allow <m>:<tier>] [--remove <m>]  save them
   executor block <id> [--for <duration>] [--reason <text>] | unblock <id> | list
   report --task <task-id> --outcome done|failed|needs-input|running --summary <text>
   takeover <task-id> [--no-attach]
@@ -319,7 +326,7 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     let raw:Record<string,unknown>={};
     if(file){const parsed=JSON.parse(file==="-" ? await io.readBriefStdin() : readFileSync(file,"utf8"));
       if(!parsed || typeof parsed!=="object" || Array.isArray(parsed))throw new DelegateError("brief must be a JSON object");raw=parsed;}
-    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
+    for(const key of ["title","goal","repo","scope","acceptance","constraints","context","kind","executor","difficulty","model","worktree","group"]){if(str(opts[key])!==undefined)raw[key]=str(opts[key]);}
     if(opts["acceptance-pipefail"]===true)raw.acceptance_pipefail=true;
     if(str(opts.repo)!==undefined)raw.repo=resolve(str(opts.repo)!);
     if(opts["acceptance-timeout-min"]!==undefined)raw.acceptance_timeout_min=Number(str(opts["acceptance-timeout-min"]));
@@ -332,9 +339,10 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
     const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: "" };
+    const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
-    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: "" };
+    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: warning };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }
@@ -388,14 +396,71 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   };
 }
 
-export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+ /** Show and edit one executor's allowed models: the CLI face of `runner.models.get/set`. */
+ async function executorModelsCommand(args: string[], ctx: Ctx): Promise<Result> {
+   try {
+     const [id, ...flags] = args;
+     if (!id) throw new Error("usage: pacer executor models <id> [--default <m>] [--allow <m>:<tier>] [--remove <m>]");
+     if (!flags.length) {
+       const m = readRunnerModels(ctx, id);
+       const s = loadStrategy(ctx), runner = s.runners[m.runner];
+       const available = await availableModels(ctx, m.runner);
+       const lines = [
+         `${m.runner}`,
+         `Default model: ${m.default ?? "(agent default)"}`,
+         m.models.length ? `Allowed models:\n${m.models.map(x => `  ${x.id} (${x.tier})`).join("\n")}` : "Allowed models: none declared; the default model always launches",
+         `Available models: ${available.models === null ? `unknown${available.note ? ` (${available.note})` : ""}` : available.models.length ? available.models.map(x => x.id).join(", ") : "none"}`,
+         ...(runner ? modelDeclarationWarnings(runner) : []),
+       ];
+       return {code: 0, out: lines.join("\n"), err: ""};
+     }
+     const current = readRunnerModels(ctx, id);
+     let appliedDefault: string | undefined;
+     const declared: ModelDeclaration[] = [...current.models];
+     for (let i = 0; i < flags.length; i += 2) {
+       const key = flags[i], value = flags[i + 1];
+       if (value === undefined) throw new Error(`missing value for ${key}`);
+       if (key === "--default") appliedDefault = value;
+       else if (key === "--allow") {
+         const at = value.lastIndexOf(":");
+         const tier = at < 0 ? "" : value.slice(at + 1);
+         if (at < 1 || !tierSchema.safeParse(tier).success) throw new Error("--allow expects <model>:<tier>, tier one of small, medium, frontier, unknown");
+         const mid = value.slice(0, at), found = declared.find(x => x.id === mid);
+         if (found) found.tier = tier as ModelDeclaration["tier"];
+         else declared.push({id: mid, tier: tier as ModelDeclaration["tier"]});
+       }
+       else if (key === "--remove") {
+         const at = declared.findIndex(x => x.id === value);
+         if (at === -1) throw new Error(`${value} is not a declared model for ${current.runner}`);
+         declared.splice(at, 1);
+       }
+       else throw new Error(`unknown option ${key}`);
+     }
+     if (appliedDefault === undefined) {
+       if (current.default === null) throw new Error("this executor has no default model; provide --default");
+       appliedDefault = current.default;
+     }
+     const result = await saveRunnerModels(ctx, {id: current.runner, expectedRevision: current.revision, default: appliedDefault, models: declared});
+     return {code: 0, out: [`${result.runner}: updated`, ...result.warnings].join("\n"), err: ""};
+   } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
+ }
+
+ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+  // Only this Core may hold its secrets: no environment it passes on carries them.
+  let secretsOnStdin: boolean;
+  let secrets: CoreSecrets = {};
   let nativeBootstrap;
+  const legacySecrets = legacyCoreSecrets(ctx.env);
   try {
+    secretsOnStdin = scrubCoreSecrets(ctx.env);
     nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
     if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
       return {code:2,out:"",err:"Native bootstrap requires the internal service"};
     }
+    // A paired native Core authenticates its parent channel before it reads a byte from it.
+    if (secretsOnStdin && !nativeBootstrap) secrets = readCoreSecrets();
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
+  if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
@@ -442,9 +507,17 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "setup": return setupCmd(rest, ctx);
     case "answer": {
       try {
-        if (rest.length !== 2) throw new Error('usage: pacer answer <task> "<text>"');
-        const result = await callOp(ctx,"task.answer",{id:rest[0],text:rest[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
-        return {code:0,out:JSON.stringify(result),err:""};
+        const pos: string[] = [];
+        let json = false, options = true;
+        for (const a of rest) {
+          if (options && a === "--") { options = false; continue; }
+          if (options && a === "--json") json = true;
+          else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
+          else pos.push(a);
+        }
+        if (pos.length !== 2) throw new Error('usage: pacer answer <task> "<text>" [--json] [--]');
+        const result = await callOp(ctx,"task.answer",{id:pos[0],text:pos[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
+        return {code:0,out:JSON.stringify(result,null,json?2:undefined),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
     }
     case "send": {
@@ -471,7 +544,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         return {code:0,out:`${r.provider} exhausted until ${r.exhaustedUntil}`,err:""};
       }catch(e){return {code:2,out:"",err:explain(e)};}
     }
-    case "executor": return executorCommand(rest,ctx);
+    case "executor": return rest[0] === "models" ? executorModelsCommand(rest.slice(1), ctx) : executorCommand(rest, ctx);
     case "status":
       return status(rest, ctx);
     case "route":
@@ -587,6 +660,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
     case "api": {
       if (rest[0] !== "--stdio") return apiCommand(rest, ctx);
       if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer api --stdio" };
+      if (legacySecrets) console.error(`pacer: ${LEGACY_CORE_SECRETS}`);
       async function* lines() {
         const decoder = new StringDecoder("utf8");
         let remainder = "";
@@ -601,10 +675,8 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
         remainder += decoder.end();
         if (remainder) yield remainder;
       }
-      // Only Root's private post-edit hook holds this key; descendants must not inherit it.
-      const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-      delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-      delete process.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      // Only Root's private post-edit hook holds this key.
+      const nativeConfigKey = secrets.nativeConfigSyncKey;
       const rechecks: Promise<void>[] = [];
       await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: { ...cliDeps, diagnosticRecheck: pending => { rechecks.push(pending); } }, nativeConfigKey });
       // A diagnostics recheck started by an accepted fix still uses the plugins.
@@ -616,20 +688,22 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
-      const internalToken = ctx.env.PACER_INTERNAL_TOKEN;
-      if (internal && (!internalToken || internalToken.length < 32)) {
-        return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
-      }
+      const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door${legacySecrets ? `; ${LEGACY_CORE_SECRETS}` : ""}`;
+      if (internal && !nativeBootstrap && !secrets.internalToken) return { code: 2, out: "", err: tokenRequired };
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
       try {
         if (internal) {
-          // Only this process may hold the internal credential: task runners and executors inherit the environment.
-          delete process.env.PACER_INTERNAL_TOKEN;
-          delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          // The authenticated parent channel carries the frame after its descriptors.
+          if (pairedNative && secretsOnStdin) {
+            secrets = readCoreSecrets();
+            if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
+          }
+          const internalToken = secrets.internalToken;
+          if (!internalToken) return { code: 2, out: "", err: tokenRequired };
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
           // Best-effort cleanup starts only after the listener binds; the helper logs errors.
           void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);
@@ -644,7 +718,7 @@ export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result
           }
           return { code: 0, out: "", err: "", keepAlive: true };
         }
-        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true });
+        const s = startServer(() => fresh(ctx), { port: Number(str(opts.port) ?? ctx.env.PACER_PORT ?? DEFAULT_PORT), supervisionWorker: true, backgroundWorker: true });
         // Best-effort cleanup starts only after the listener binds; the helper logs errors.
         void pruneUndoSnapshotsAtStartup(ctx);
         ctx.env.PACER_PORT=String(s.port);

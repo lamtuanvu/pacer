@@ -31,8 +31,8 @@ import { prepareFilesystemAuthority } from "./capability-fs";
 import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
-import { sealCallAuthority, type HostSnapshotSeal } from "./native-call-authority";
-import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall } from "./host-bridge";
+import { observationGeneration, sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
+import { callNativeOwner, nativeOwnerCallFits, nativeOwnerHello, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
@@ -45,6 +45,7 @@ import { currentVersion } from "../update/version";
 import { controlDir, sshArgv } from "../remote/ssh";
 import { SCRIPTS } from "../remote/scripts";
 import { HOST_RUNNER_METHODS } from "./host-runner-protocol";
+import { ORCA_CAPABILITY_METHODS } from "./executor-orca-protocol";
 import { discardTransferredBundle, prepareBundleStageAuthority, resolveStagedBundle,
   transferStagedBundleOwnership, type ClaimedBundleTicket } from "./bundle-stage";
 import { finalizeClaimedPublication, rollbackClaimedPublication } from "./claimed-bundle";
@@ -108,6 +109,14 @@ const NATIVE_READ_ONLY_PLANNER = ["planner.plan", "planner.preview", "planner.de
 const NATIVE_PLANNER_EFFECTS = ["planner.install", "planner.uninstall"];
 const NATIVE_PLANNER_COMMAND_METHODS = ["capability.planner.run", "capability.process.outputChunk"];
 const NATIVE_PLANNER_PRIOR_METHOD = "capability.planner.readPriorRange";
+/** Issued file writes stay with Core's write broker; oversized chunked writes are not carried. */
+const NATIVE_WRITE_METHODS = ["capability.fs.write", "capability.fs.mkdir", "capability.fs.remove"];
+/** Core holds the Orca attempt session, so every Orca effect of an attempt call is answered by Core. */
+const NATIVE_ORCA_METHODS = Object.keys(ORCA_CAPABILITY_METHODS);
+/** A detached stop, inspection or remote stop grant stays in Core, which consumes it once as flag-off does. */
+const NATIVE_DETACHED_STOP_METHOD = "capability.process.stopRun";
+const NATIVE_DETACHED_INSPECT_METHOD = "capability.process.inspectRun";
+const NATIVE_REMOTE_STOP_METHOD = "capability.hosts.stopOwned";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
@@ -1763,6 +1772,10 @@ export class PluginRegistry {
       argv: spec.argv,
       cwd: spec.cwd,
       env,
+      // The door reports `ready` for a child it finds ready only while Core still lists it otherwise.
+      state: e.state,
+      // The crash backoff `start()` would sleep through; the owner waits for it instead.
+      nextStartAt: e.nextStartAt,
       hello: {
         protocol: PLUGIN_PROTOCOL_VERSION,
         features: ["chunkedResults", "httpBodyChunks", "fileWriteChunks", "plannerInstallTransactions", POLICY_OBSERVATIONS_FEATURE, POLICY_REDACTION_METADATA_FEATURE],
@@ -1775,21 +1788,19 @@ export class PluginRegistry {
   }
 
   /**
-   * Seal call-scoped CallResources for flag-on ProcessOwner (P4d-7).
-   * Auto-issues exact absolute fs.read paths and exact net.http hosts from the
-   * granted manifest; host-supplied resources are validated then echoed sealed.
-   * Glob / `$VAR` scopes still need a later host-issued concrete resource path.
+   * Seal the flag-off call authority for flag-on ProcessOwner (P4d-7): only the
+   * resources the host issued for this call, validated then echoed sealed, and
+   * whether flag-off would make it an owning call at all.
    */
-  nativeIssueCallAuthority(ctx: Ctx, id: string, options: { resources?: CallResources; ttlMs?: number; method?: string; accountHome?: string | null } = {}) {
+  nativeIssueCallAuthority(ctx: Ctx, id: string, options: Omit<CallAuthorityOptions, "bundled" | "observationFingerprint"> = {}) {
     const e = this.findEntry(ctx, id);
     if (!ENABLED.has(e.state)) throw new CoreError("plugin_unavailable", `plugin ${id} is ${e.state}${e.error ? `: ${e.error}` : ""}`);
     const manifest = e.manifest!;
     const grants = e.bundled ? manifest.capabilities.map(c => c.name) : (pluginsConfig(ctx).installed[e.id]?.capabilities ?? []);
     const sealed = sealCallAuthority(ctx, manifest, grants, {
-      resources: options.resources,
-      ttlMs: options.ttlMs,
-      method: options.method,
-      accountHome: options.accountHome,
+      ...options,
+      bundled: e.bundled,
+      observationFingerprint: e.observationFingerprint,
     });
     let out = sealed;
     if (sealed.resources.hosts.length && grants.includes("hosts")) {
@@ -1900,11 +1911,59 @@ export class PluginRegistry {
 
   async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
 
+  /** An owner-supervised child exited unasked: the bookkeeping `onExit` does for a local child. */
+  nativeCrash(ctx: Ctx, id: string, reason: string): void {
+    const e = this.findEntry(ctx, id);
+    if (ENABLED.has(e.state)) this.recordCrash(ctx, e, reason);
+  }
+
   nativeReset(ctx: Ctx, id: string): void {
     const e = this.findEntry(ctx, id);
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";
     this.refresh(ctx);
+  }
+
+  /**
+   * Core's half of an owner lane's observation generation (ADR 0027): a read owner that stays
+   * current while the plugin is enabled and keeps the fingerprint `generation` names, as the
+   * generation a local child's subscription holds.
+   */
+  private nativeObservationOwner(ctx: Ctx, id: string, generation: string): ReadOwner {
+    const current = () => {
+      this.refresh(ctx);
+      const e = this.entries.get(id);
+      return !!e?.manifest && ENABLED.has(e.state) && e.observationFingerprint !== undefined
+        && observationGeneration(e.observationFingerprint) === generation;
+    };
+    if (!current()) throw new CoreError("capability_denied", "read owner generation changed");
+    const e = this.entries.get(id)!;
+    const grants = e.bundled ? e.manifest!.capabilities.map(c => c.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
+    return new ReadOwner(ctx, e.manifest!, grants, current);
+  }
+
+  /** The events after `since` of the subscribed types (and resets); `since: null` asks only for the cursor a subscription starts at. */
+  async nativeObservationEvents(ctx: Ctx, id: string, generation: string, since: number | null, types: readonly string[]) {
+    const owner = this.nativeObservationOwner(ctx, id, generation);
+    owner.assertGranted("events.subscribe");
+    const { eventsSince } = await import("../api/events");
+    const batch = eventsSince(owner.readContext(), since ?? 0, 3);
+    if (since === null) return { last: batch.last };
+    const wanted = new Set(types);
+    return { events: batch.events.filter(event => event.type === "reset" || wanted.has(event.type)), last: batch.last, reset: batch.reset };
+  }
+
+  /** The owner frames the reply to the child and re-checks its size against the request it answers. */
+  nativeObservationRead(ctx: Ctx, id: string, generation: string, method: string, params: unknown): Promise<unknown> {
+    const transport = { resultFits: (result: unknown) => Buffer.byteLength(`${JSON.stringify({ jsonrpc: "2.0", id: 0, result })}\n`) <= MAX_LINE_BYTES };
+    return answerTaskCapability(ctx, method, params, this.nativeObservationOwner(ctx, id, generation), transport);
+  }
+
+  /** The owner retired a current generation on a pump or delivery failure, as a subscription's `onRetire` does. */
+  nativeObservationRetired(ctx: Ctx, id: string, generation: string, reason: string): void {
+    try { this.nativeObservationOwner(ctx, id, generation); } catch { return; }
+    appendPluginLog(ctx, id, "observation", reason);
+    this.setState(ctx, this.findEntry(ctx, id), "failing", reason);
   }
 
   /** Bump the surface epoch and drop TS-side cache rows; returns a thunk for deferred bump after a successful ui.action refresh. */
@@ -2326,7 +2385,9 @@ export class PluginRegistry {
     const duration = ownerBoundStream ? 0 : capped ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
     if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
-    if (method === "executor.run" && !options.onProgress) throw new CoreError("invalid_input", "executor run requires a progress owner");
+    // An Orca attempt reports through its capability calls and has no progress owner: progress it sends fails the
+    // attempt with the owner off, and the native owner drops it (child notifications are not relayed).
+    if (method === "executor.run" && !options.onProgress && !options.resources?.orcaAttempt) throw new CoreError("invalid_input", "executor run requires a progress owner");
     const parsed = method === "usage.read" || hostRunner || executorAvailable || executorAttempt || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable || executorAttempt ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
     let input = parsed?.success ? parsed.data : params;
@@ -2342,8 +2403,10 @@ export class PluginRegistry {
       credentialBindings = classifierCredentialBindings(ctx, selected);
     }
     if (ctx.env.PACER_HOST_SOCKET) {
-      if (credentialBindings !== undefined) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
-      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint);
+      // Only an endpoint launch crosses with its empty list: a credential reference would need its secret to cross
+      // the socket, and keyless discovery and classifier calls lack the flag-off HTTP scope and generation checks here.
+      if (credentialBindings !== undefined && (credentialBindings.length || method !== "endpoint.launchEnv")) throw new CoreError("plugin_unavailable", `${method} needs credential bindings, which the native process owner bridge does not carry`);
+      return this.callNativeOwner<T>(ctx, e, method, input, { ...options, resources }, ctx.env.PACER_HOST_SOCKET, deadlineAt, plannerFingerprint, credentialBindings !== undefined);
     }
     return (ownerBoundStream ? this.streamAdmission : this.admission).run(deadlineAt, async signal => {
       const run = async () => {
@@ -2475,7 +2538,7 @@ export class PluginRegistry {
    * Core seals the same spawn spec and call authority it serves over
    * `/_internal/plugins` and never spawns a second owner for the plugin id.
    */
-  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string): Promise<T> {
+  private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string, credentialBound = false): Promise<T> {
     const lease = options.plannerResources;
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
@@ -2484,8 +2547,10 @@ export class PluginRegistry {
     if (hostOnly !== undefined || (lease && !effects && !NATIVE_READ_ONLY_PLANNER.includes(method)))
       throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
     const issued = options.resources;
-    if (issued?.orcaAttempt || issued?.orcaLive || issued?.hosts?.length)
-      throw new CoreError("plugin_unavailable", `${method} needs orca or hosts resources, which the native process owner bridge does not serve`);
+    if (issued?.hosts?.length)
+      throw new CoreError("plugin_unavailable", `${method} needs hosts resources, which the native process owner bridge does not serve`);
+    const { orcaAttempt, orcaLive, detachedStop, detachedInspect, remoteStop } = issued ?? {};
+    const writes = issued?.writes?.length ? issued.writes : undefined;
     const point = method.split(".")[0]!;
     // Mirrors the flag-off admission checks (line ~2349): a grant revocation or planner config
     // change during this call must fail it before Core (in withPlannerInstall) commits writes.
@@ -2501,8 +2566,14 @@ export class PluginRegistry {
         await checkPlannerGeneration();
         const remaining = deadlineAt === Infinity ? undefined : Math.max(1, deadlineAt - Date.now());
         const spawn = this.nativeSpawnSpec(ctx, e.id);
-        const resources = issued && pinnedExecutables(ctx, issued);
-        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome, ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        // Writes and the detached stop, inspection and remote stop grants are answered by Core (`coreMethods`),
+        // so the owner is never issued them (`sealProvided` carries neither).
+        const resources = issued && pinnedExecutables(ctx, writes ? { ...issued, writes: [] } : issued);
+        const authority = this.nativeIssueCallAuthority(ctx, e.id, { method, resources, accountHome: options.accountHome,
+          plannerResources: lease !== undefined, credentialBindings: credentialBound,
+          ttlMs: remaining === undefined ? undefined : Math.min(remaining, 600_000) });
+        // An attempt's Orca effects (the worker wait above all) run as long as the call itself.
+        if (orcaAttempt && remaining !== undefined) authority.ttlMs = remaining;
         // Commands without an issued environment get the flag-off minimal environment of Core.
         const processEnv: Record<string, string> = Object.assign({}, ...authority.resources.commands
           .filter(command => !command.cwd && !command.env && !command.secretEnv)
@@ -2515,9 +2586,21 @@ export class PluginRegistry {
         // negotiates chunkedResults and sends `$/resultChunk`; Core stages those with the
         // same bounds and ordering as flag-off. Sealing it also gives the call a `local`.
         const chunked = method === "usage.read" || effects;
-        const coreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
-          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : [])];
-        const local = coreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [] }, {
+        const scopedCoreMethods = [...(issued?.stores.length ? NATIVE_USAGE_STATE_METHODS : []), ...(lease || logReads ? NATIVE_CORE_READ_METHODS : []),
+          ...(effects ? NATIVE_PLANNER_COMMAND_METHODS : []), ...(chunked ? [RESULT_CHUNK_METHOD] : []),
+          ...(writes ? NATIVE_WRITE_METHODS : []), ...(orcaAttempt || orcaLive ? NATIVE_ORCA_METHODS : []),
+          ...(detachedStop ? [NATIVE_DETACHED_STOP_METHOD] : []), ...(detachedInspect ? [NATIVE_DETACHED_INSPECT_METHOD] : []),
+          ...(remoteStop ? [NATIVE_REMOTE_STOP_METHOD] : [])];
+        // The assistant's endpoint key and machine signatures need no owning call (`answerCapability`), so Core answers
+        // them without `local`, as flag-off does: the Keychain and the machine key never reach the owner. Core also
+        // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
+        const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
+        const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
+          "capability.identity.sign"];
+        const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+          ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}),
+          ...(detachedStop ? { detachedStop } : {}), ...(detachedInspect ? { detachedInspect } : {}),
+          ...(remoteStop ? { remoteStop } : {}) }, {
           deadlineMs: deadlineAt, signal, accountHome: options.accountHome,
           grants: e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[e.id]?.capabilities ?? [],
         }) : undefined;
@@ -2529,12 +2612,24 @@ export class PluginRegistry {
         const bridgeSignal = local ? AbortSignal.any([signal, local.signal]) : signal;
         // The owner refuses the call unless the child negotiated every requireFeatures entry, so the envelope may claim them.
         const fits = (message: unknown) => Buffer.byteLength(`${JSON.stringify(message)}\n`, "utf8") <= MAX_LINE_BYTES;
-        let transport: CapabilityTransport | undefined;
+        // Plain writes only: Core does not know whether the child negotiated `fileWriteChunks`.
+        let transport: CapabilityTransport | undefined = writes && Object.freeze({
+          features: [],
+          requestFits: (params: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, method: "capability.fs.write", params }),
+          resultFits: (result: unknown) => fits({ jsonrpc: "2.0", id: Number.MAX_SAFE_INTEGER, result }),
+        });
         // Core stages a chunked result for this call with the flag-off bounds and
         // ordering (`ResultStaging`): contiguous offsets, a bounded chunk, a 16 MiB cap.
         let staging: ResultStaging | undefined;
         let transferStarted = false;
-        const onRequest = local && ((name: string, params: unknown, request: number) => {
+        // Of flag-off `answerHosts`, only the direct executor's issued remote stop is answered for an owner call.
+        const hostBroker = remoteStop ? async (name: string, params: unknown, authority: CallAuthority) => {
+          authority.assertGranted("hosts");
+          if (e.id !== "pacer-exec-direct" || name !== NATIVE_REMOTE_STOP_METHOD)
+            throw new CoreError("capability_denied", "direct executor has no general SSH broker authority");
+          return answerOwnedRemoteStop(authority, params as { taskId: string; attempt: number; graceMs: number });
+        } : undefined;
+        const onRequest = coreMethods.length ? ((name: string, params: unknown, request: number) => {
           if (name === RESULT_CHUNK_METHOD) {
             if (params && typeof params === "object" && "request" in params && params.request !== request)
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
@@ -2544,15 +2639,22 @@ export class PluginRegistry {
             // plain single-frame limit (read-only planner calls, diagnostics, …).
             if (!coreMethods.includes(RESULT_CHUNK_METHOD))
               return Promise.reject(new CoreError("capability_denied", "result chunk does not belong to an active negotiated request"));
-            if (!staging) staging = new ResultStaging(local);
+            if (!staging) staging = new ResultStaging(local!);
             const parsed = resultChunkParams.safeParse(params);
             if (!parsed.success) return Promise.reject(new CoreError("invalid_input", "malformed result chunk"));
             return staging.stage(parsed.data.offset, parsed.data.base64);
           }
           return coreMethods.includes(name)
-            ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport)
+            ? answerCapability(ctx, { id: e.id, manifest }, name, params, local, undefined, transport, hostBroker)
             : Promise.reject(new CoreError("capability_denied", `${name} is not served by Core for this call`));
-        });
+        }) : undefined;
+        // Written as soon as the owner answers, whether or not the call then fails, as flag-off writes each line on arrival.
+        const writeLogs = (logs: NativeOwnerReply["logs"]) => {
+          for (const line of logs) {
+            if (typeof line === "string") appendPluginLog(ctx, e.id, "stderr", line);
+            else appendPluginLog(ctx, e.id, line.level, line.message);
+          }
+        };
         const call: NativeOwnerCall = {
           id: e.id, method, params: input, ...(remaining === undefined ? {} : { deadlineMs: remaining }), spawn, authority,
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
@@ -2561,6 +2663,20 @@ export class PluginRegistry {
         };
         let reply: Awaited<ReturnType<typeof callNativeOwner>>;
         let value: unknown;
+        // A child that answered its hello tells Core `{protocol, served}` even when the
+        // call later fails (a deadline, a refused method, the owner stopping for a stop
+        // or restart), so Core restores readiness instead of staying `idle` on a child
+        // that is actually ready.
+        // Only an enabled plugin becomes ready, as flag-off's start() runs only for one and
+        // `nativeCrash` guards with the same set: a disabled, refused or needs_grant entry
+        // stays as it is. An empty protocol never marks ready, as flag-off refuses it
+        // (protocol major `Number("")` is not PLUGIN_PROTOCOL_MAJOR).
+        const markReadyFrom = (hello: NativeOwnerReply["hello"] | undefined) => {
+          if (hello?.protocol && ENABLED.has(e.state) && e.state !== "ready") {
+            this.nativeMarkReady(ctx, e.id, hello.protocol,
+              hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+          }
+        };
         try {
           if (lease) {
             lease.bind(local!, method);
@@ -2580,8 +2696,27 @@ export class PluginRegistry {
             }
           }
           if (logReads) await prepareFilesystemAuthority(local!);
+          if (writes) await prepareWriteAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal);
+          try {
+            reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          } catch (error) {
+            if (error instanceof CoreError) {
+              // A failed call's reply still carried the `hello` when the child answered it.
+              const hello = nativeOwnerHello.safeParse(error.data?.hello);
+              if (hello.success) markReadyFrom(hello.data);
+              // The hello rides the wire only to restore readiness; flag-off errors
+              // never carry it, so it must not reach the caller. An error whose data
+              // held nothing else loses `data` entirely, as flag-off has none.
+              if (error.data && Object.hasOwn(error.data, "hello")) {
+                delete error.data.hello;
+                if (!Object.keys(error.data).length)
+                  (error as unknown as { data?: Record<string, unknown> }).data = undefined;
+              }
+            }
+            throw error;
+          }
+          writeLogs(reply.logs);
           value = reply.value;
           // A child that sent its result in `$/resultChunk` pieces ends with a
           // `_chunkedResult` completion: assemble the staged bytes now, while the
@@ -2604,15 +2739,12 @@ export class PluginRegistry {
         // Re-check after the reply: a revocation racing the final reply line must still fail
         // the call before the planner install/uninstall transaction commits any write.
         if (effects) await checkPlannerGeneration();
-        for (const line of reply.logs) appendPluginLog(ctx, e.id, "stderr", line);
-        if (reply.hello && e.state !== "ready") {
-          this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
-            reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
-        }
+        markReadyFrom(reply.hello);
         const def = EXTENSION_METHODS[method]!;
-        if (method === "usage.read" || method === "executor.available") {
+        if (method === "usage.read" || method.startsWith("executor.")) {
           const output = def.result.safeParse(value);
-          if (!output.success) throw new CoreError("plugin_refused", method === "usage.read" ? "usage reader returned an invalid reading" : "executor returned an invalid availability result");
+          // Same refusal text as the flag-off path, an executor attempt's included.
+          if (!output.success) throw new CoreError("plugin_refused", method === "executor.available" ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
           return output.data as T;
         }
         if (method.startsWith("ui.")) {

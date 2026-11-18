@@ -2,6 +2,7 @@
 //! Inputs and outputs use the TypeScript JSON shapes until the M2 operation boundary introduces
 //! protocol types. Pacing status ops compose from [`usage_broker`] injections; selective
 //! `routing.route` params still forward for classifier and remote eligibility.
+pub mod balance;
 pub mod exhausted;
 pub mod mode_hold;
 pub mod pause;
@@ -532,6 +533,17 @@ fn account_preference(strategy: &Value, id: &str, preference: &[String]) -> usiz
         .position(|name| account(strategy, name) == account(strategy, id))
         .unwrap_or(preference.len())
 }
+/// An excluded executor in TypeScript `rankExecutors` key order: id, account (when configured), reason, eligibility.
+fn excluded_entry(id: &str, account: Value, reason: Value, eligibility: Value) -> Value {
+    let mut value = json!({"id": id});
+    if !account.is_null() {
+        value["account"] = account;
+    }
+    value["reason"] = reason;
+    value["eligibility"] = eligibility;
+    value
+}
+
 /// Rank statuses using the current TS routing and account ordering rules.
 pub fn rank_executors(input: &Value) -> Value {
     let strategy = &input["strategy"];
@@ -594,21 +606,26 @@ pub fn rank_executors(input: &Value) -> Value {
                 None
             };
         if let Some(reason) = exclude_reason {
-            let mut value = json!({"id": id, "reason": reason, "eligibility": restriction(field(status, "eligibility"), Some(if reason == "planner" { "planner" } else { "unavailable" }))});
-            if !account_field.is_null() {
-                value["account"] = account_field;
-            }
-            excluded.push(value);
+            let eligibility = restriction(
+                field(status, "eligibility"),
+                Some(if reason == "planner" {
+                    "planner"
+                } else {
+                    "unavailable"
+                }),
+            );
+            excluded.push(excluded_entry(
+                id,
+                account_field,
+                json!(reason),
+                eligibility,
+            ));
             continue;
         }
         let decision = restriction(field(status, "eligibility"), None);
         if string(&decision["state"]) == "ineligible" {
-            let mut value =
-                json!({"id": id, "reason": eligibility_detail(&decision), "eligibility": decision});
-            if !account_field.is_null() {
-                value["account"] = account_field;
-            }
-            excluded.push(value);
+            let reason = json!(eligibility_detail(&decision));
+            excluded.push(excluded_entry(id, account_field, reason, decision));
             continue;
         }
         let unknown = string(&decision["state"]) == "uncertain";
@@ -617,13 +634,18 @@ pub fn rank_executors(input: &Value) -> Value {
         } else {
             status_reason(status)
         };
-        let mut output = json!({"id": id, "eligibility": decision, "score": candidate_score(status, policy), "verdict": status["verdict"], "reason": reason});
+        // TypeScript key order: id, account, eligibility, fallback, score, verdict, reason.
+        let mut output = json!({"id": id});
         if !account_field.is_null() {
             output["account"] = account_field;
         }
+        output["eligibility"] = decision;
         if unknown {
             output["fallback"] = json!("uncertain");
         }
+        output["score"] = json!(candidate_score(status, policy));
+        output["verdict"] = status["verdict"].clone();
+        output["reason"] = json!(reason);
         candidates.push(Candidate {
             output,
             unknown,

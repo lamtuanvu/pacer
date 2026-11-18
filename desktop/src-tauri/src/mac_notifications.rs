@@ -17,7 +17,7 @@ use objc2_user_notifications::{
     UNMutableNotificationContent, UNNotification, UNNotificationAction,
     UNNotificationActionOptions, UNNotificationCategory, UNNotificationCategoryOptions,
     UNNotificationDefaultActionIdentifier, UNNotificationPresentationOptions,
-    UNNotificationRequest, UNNotificationResponse, UNUserNotificationCenter,
+    UNNotificationRequest, UNNotificationResponse, UNNotificationSound, UNUserNotificationCenter,
     UNUserNotificationCenterDelegate,
 };
 use std::ptr::NonNull;
@@ -48,6 +48,107 @@ fn launch_id() -> &'static str {
             .unwrap_or_default();
         format!("{started:x}{:x}", std::process::id())
     })
+}
+
+/// Built-in macOS sounds as `(setting id, file name)`. The file lives in
+/// `/System/Library/Sounds/`; `UNNotificationSound::soundNamed` finds them there
+/// (live-validated on macOS: Glass and Tink banners played their own sounds).
+/// Keep the ids identical to `NOTIFICATION_SOUNDS` in `src/core/notify.ts`.
+const SYSTEM_SOUNDS: &[(&str, &str)] = &[
+    ("basso", "Basso.aiff"),
+    ("blow", "Blow.aiff"),
+    ("bottle", "Bottle.aiff"),
+    ("frog", "Frog.aiff"),
+    ("funk", "Funk.aiff"),
+    ("glass", "Glass.aiff"),
+    ("hero", "Hero.aiff"),
+    ("morse", "Morse.aiff"),
+    ("ping", "Ping.aiff"),
+    ("pop", "Pop.aiff"),
+    ("purr", "Purr.aiff"),
+    ("sosumi", "Sosumi.aiff"),
+    ("submarine", "Submarine.aiff"),
+    ("tink", "Tink.aiff"),
+];
+
+/// Which notification sound to play, derived from the `notificationSound`
+/// setting ("pacer" default, "default", "off" or a built-in macOS sound id).
+/// Absent or invalid means "pacer".
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum SoundChoice {
+    Pacer,
+    Default,
+    Off,
+    /// A built-in macOS sound, by file name (e.g. "Glass.aiff").
+    System(&'static str),
+}
+
+fn sound_choice(setting: Option<&str>) -> SoundChoice {
+    match setting {
+        Some("default") => SoundChoice::Default,
+        Some("off") => SoundChoice::Off,
+        Some(id) => SYSTEM_SOUNDS
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map_or(SoundChoice::Pacer, |(_, file)| SoundChoice::System(file)),
+        None => SoundChoice::Pacer,
+    }
+}
+
+impl SoundChoice {
+    /// The sound file name passed to `UNNotificationSound::soundNamed`, if any.
+    fn file_name(self) -> Option<&'static str> {
+        match self {
+            SoundChoice::Pacer => Some("pacer-drop.caf"),
+            SoundChoice::System(file) => Some(file),
+            SoundChoice::Default | SoundChoice::Off => None,
+        }
+    }
+
+    fn sound(self) -> Option<Retained<UNNotificationSound>> {
+        match self {
+            SoundChoice::Default => Some(UNNotificationSound::defaultSound()),
+            SoundChoice::Off => None,
+            SoundChoice::Pacer | SoundChoice::System(_) => self
+                .file_name()
+                .map(|file| UNNotificationSound::soundNamed(&NSString::from_str(file))),
+        }
+    }
+}
+
+/// The notification sound to play, read from `$PACER_HOME/settings.json` at
+/// every post so a settings change takes effect without a restart. The
+/// `notifications` level stays a plain sibling string key.
+fn sound_for_present() -> Option<Retained<UNNotificationSound>> {
+    let settings = crate::client::pacer_home().join("settings.json");
+    let setting = std::fs::read(&settings)
+        .ok()
+        .and_then(|bytes| sound_setting(&bytes));
+    sound_choice(setting.as_deref()).sound()
+}
+
+/// The `notificationSound` string in `settings.json` bytes. The service
+/// accepts files serde_json rejects (invalid UTF-8, lone-surrogate escapes in
+/// unrelated keys), so when strict parsing fails this falls back to a scan for
+/// the top-level key, whose valid values are plain ASCII.
+fn sound_setting(bytes: &[u8]) -> Option<String> {
+    if let Ok(value) = serde_json::from_slice::<serde_json::Value>(bytes) {
+        return value.get("notificationSound")?.as_str().map(str::to_owned);
+    }
+    let text = String::from_utf8_lossy(bytes);
+    let mut found = None;
+    let mut rest = text.as_ref();
+    // The last occurrence wins, as with duplicate keys in JSON.parse.
+    while let Some(at) = rest.find("\"notificationSound\"") {
+        rest = &rest[at + "\"notificationSound\"".len()..];
+        let value = rest.trim_start().strip_prefix(':').map(str::trim_start);
+        if let Some(value) = value.and_then(|v| v.strip_prefix('"')) {
+            if let Some(end) = value.find('"') {
+                found = Some(value[..end].to_owned());
+            }
+        }
+    }
+    found
 }
 
 /// The button-id prefix that leaves the window when notification `index` is
@@ -124,8 +225,9 @@ define_class!(
     // SAFETY: UNUserNotificationCenterDelegate has no safety requirements; the
     // completion handlers below are always called exactly once.
     unsafe impl UNUserNotificationCenterDelegate for CenterDelegate {
-        /// Present the banner and the list row with no sound even while pacer is
-        /// the frontmost app (the default would suppress banners).
+        /// Present the banner and the list row even while pacer is the frontmost
+        /// app (the default would suppress banners). Include `Sound` so the
+        /// sound set on the content (if any) plays while pacer is focused.
         #[unsafe(method(userNotificationCenter:willPresentNotification:withCompletionHandler:))]
         fn will_present(
             &self,
@@ -133,8 +235,9 @@ define_class!(
             _notification: &UNNotification,
             completion: &block2::DynBlock<dyn Fn(UNNotificationPresentationOptions)>,
         ) {
-            let options =
-                UNNotificationPresentationOptions::Banner | UNNotificationPresentationOptions::List;
+            let options = UNNotificationPresentationOptions::Banner
+                | UNNotificationPresentationOptions::List
+                | UNNotificationPresentationOptions::Sound;
             completion.call((options,));
         }
 
@@ -182,6 +285,8 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
         return;
     }
     let launch = launch_id();
+    // Read before taking the registry lock: it is file I/O.
+    let sound = sound_for_present();
     // Allocating under the registry lock keeps concurrent posts from dropping a
     // newer category while registering an older one.
     let mut registered = REGISTERED.lock().unwrap();
@@ -195,10 +300,12 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
             .unwrap()
             .retain(|id, _| !id.starts_with(&stale));
     }
-    let request = request(&notification, &category);
+    let client_id = notification.client_id.clone();
+    let notify_key = notification.key.clone();
+    let request = request(&notification, &category, sound);
     if notification.actions.is_empty() {
         drop(registered);
-        add(&request);
+        add(&request, client_id, notify_key);
         return;
     }
     let mut actions = Vec::new();
@@ -224,7 +331,9 @@ pub fn present(app: &AppHandle, notification: crate::notifications::Notification
     // reading the set back orders the post after it, so the banner gets its buttons.
     center.setNotificationCategories(&categories(&registered));
     drop(registered);
-    let after = RcBlock::new(move |_: NonNull<NSSet<UNNotificationCategory>>| add(&request));
+    let ack_client = client_id.clone();
+    let ack_key = notify_key.clone();
+    let after = RcBlock::new(move |_: NonNull<NSSet<UNNotificationCategory>>| add(&request, ack_client.clone(), ack_key.clone()));
     center.getNotificationCategoriesWithCompletionHandler(&after);
 }
 
@@ -259,10 +368,14 @@ fn categories(registered: &[Category]) -> Retained<NSSet<UNNotificationCategory>
 fn request(
     notification: &crate::notifications::Notification,
     category: &str,
+    sound: Option<Retained<UNNotificationSound>>,
 ) -> Retained<UNNotificationRequest> {
     let content = UNMutableNotificationContent::new();
     content.setTitle(&NSString::from_str(&notification.title));
     content.setBody(&NSString::from_str(&notification.body));
+    if let Some(sound) = sound {
+        content.setSound(Some(&sound));
+    }
     if !notification.route.is_empty() {
         // SAFETY: the dictionary is NSString-keyed with a plist value.
         unsafe { content.setUserInfo(&route_user_info(&notification.route)) };
@@ -279,14 +392,51 @@ fn request(
     )
 }
 
-fn add(request: &UNNotificationRequest) {
-    let completion = RcBlock::new(|error: *mut NSError| {
-        if let Some(error) = unsafe { error.as_ref() } {
+/// Build the `notifications.ack` payload from the addNotificationRequest
+/// completion outcome. Sent exactly once; a failed ack is logged, never retried.
+fn ack_params(
+    client_id: String,
+    key: String,
+    delivered: bool,
+    error: Option<String>,
+) -> serde_json::Value {
+    // Omit `error` entirely when there is none: the service schema rejects `error: null`.
+    let mut value = serde_json::Map::new();
+    value.insert("client_id".into(), client_id.into());
+    value.insert("key".into(), key.into());
+    value.insert("delivered".into(), delivered.into());
+    if let Some(error) = error {
+        value.insert("error".into(), error.into());
+    }
+    serde_json::Value::Object(value)
+}
+
+fn add(request: &UNNotificationRequest, client_id: Option<String>, key: Option<String>) {
+    let completion = RcBlock::new(move |error: *mut NSError| {
+        let error_ref = unsafe { error.as_ref() };
+        if let Some(error) = error_ref {
             desktop_log!(
                 "pacer notifications: delivery error {}: {}",
                 error.code(),
                 error.localizedDescription()
             );
+        }
+        let delivered = error_ref.is_none();
+        let error_message = error_ref.map(|e| e.localizedDescription().to_string());
+        if let (Some(client_id), Some(key)) = (client_id.clone(), key.clone()) {
+            let params = ack_params(client_id.clone(), key, delivered, error_message);
+            let app = APP_HANDLE.get().cloned();
+            tauri::async_runtime::spawn(async move {
+                let Some(app) = app else { return; };
+                let session = app.state::<crate::Shell>().session.lock().unwrap().clone();
+                let Some(session) = session else {
+                    desktop_log!("pacer notifications: no live session for ack");
+                    return;
+                };
+                if let Err(err) = session.op("notifications.ack", &params).await {
+                    desktop_log!("pacer notifications: ack failed: {err}");
+                }
+            });
         }
     });
     UNUserNotificationCenter::currentNotificationCenter()
@@ -345,6 +495,38 @@ fn response_route(response: &UNNotificationResponse) -> Option<String> {
 mod tests {
     use super::*;
     use objc2_foundation::NSDictionary;
+
+    #[test]
+    fn sound_setting_reads_strict_and_lenient_settings() {
+        assert_eq!(
+            sound_setting(br#"{"notifications":"all","notificationSound":"off"}"#).as_deref(),
+            Some("off")
+        );
+        assert_eq!(sound_setting(br#"{"notifications":"all"}"#), None);
+        assert_eq!(sound_setting(br#"{"notificationSound":3}"#), None);
+        // serde_json rejects a lone surrogate and invalid UTF-8; the service does not.
+        assert_eq!(
+            sound_setting(br#"{"0":"\ud83d","notificationSound":"off"}"#).as_deref(),
+            Some("off")
+        );
+        assert_eq!(
+            sound_setting(b"{\"x\":\"\xff\",\"notificationSound\" : \"default\"}").as_deref(),
+            Some("default")
+        );
+        assert_eq!(
+            sound_setting(br#"{"notificationSound":"glass"}"#).as_deref(),
+            Some("glass")
+        );
+        assert_eq!(
+            sound_setting(b"{\"x\":\"\xff\",\"notificationSound\":\"tink\"}").as_deref(),
+            Some("tink")
+        );
+        assert_eq!(sound_setting(b"not json"), None);
+        assert_eq!(
+            sound_choice(sound_setting(br#"{"0":"\ud83d","notificationSound":"off"}"#).as_deref()),
+            SoundChoice::Off
+        );
+    }
 
     #[test]
     fn category_and_action_ids_are_stable_and_unique() {
@@ -426,5 +608,75 @@ mod tests {
             Some("#/sessions/t-1")
         );
         assert_eq!(route_from_user_info(&NSDictionary::dictionary()), None);
+    }
+
+    #[test]
+    fn ack_payload_carries_the_id_key_delivery_and_optional_error() {
+        // A successful delivery omits `error` entirely (the schema rejects `error: null`).
+        assert_eq!(
+            ack_params("client-a".into(), "test:abc".into(), true, None),
+            serde_json::json!({"client_id":"client-a","key":"test:abc","delivered":true})
+        );
+        assert_eq!(
+            ack_params("client-b".into(), "test:def".into(), false, Some("banner rejected".into())),
+            serde_json::json!({"client_id":"client-b","key":"test:def","delivered":false,"error":"banner rejected"})
+        );
+    }
+
+    #[test]
+    fn sound_choice_falls_back_to_pacer_and_resolves_each_option() {
+        // Absent or invalid values mean the bundled pacer sound.
+        assert_eq!(sound_choice(None), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("pacer")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("squeak")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("default")), SoundChoice::Default);
+        assert_eq!(sound_choice(Some("off")), SoundChoice::Off);
+        // Ids are lowercase; the file name is not an id.
+        assert_eq!(sound_choice(Some("Glass")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("Glass.aiff")), SoundChoice::Pacer);
+    }
+
+    #[test]
+    fn sound_ids_map_to_their_file_names() {
+        assert_eq!(sound_choice(None).file_name(), Some("pacer-drop.caf"));
+        assert_eq!(sound_choice(Some("default")).file_name(), None);
+        assert_eq!(sound_choice(Some("off")).file_name(), None);
+        assert_eq!(sound_choice(Some("glass")).file_name(), Some("Glass.aiff"));
+        assert_eq!(
+            sound_choice(Some("submarine")).file_name(),
+            Some("Submarine.aiff")
+        );
+        let ids: Vec<_> = SYSTEM_SOUNDS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(
+            ids,
+            [
+                "basso",
+                "blow",
+                "bottle",
+                "frog",
+                "funk",
+                "glass",
+                "hero",
+                "morse",
+                "ping",
+                "pop",
+                "purr",
+                "sosumi",
+                "submarine",
+                "tink"
+            ]
+        );
+        for (id, file) in SYSTEM_SOUNDS {
+            let mut chars = id.chars();
+            let capitalized: String = chars
+                .next()
+                .map(|c| c.to_ascii_uppercase())
+                .into_iter()
+                .chain(chars)
+                .collect();
+            assert_eq!(*file, format!("{capitalized}.aiff"));
+            assert_eq!(sound_choice(Some(id)), SoundChoice::System(file));
+        }
     }
 }

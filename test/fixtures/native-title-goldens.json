@@ -1,0 +1,362 @@
+[
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": ""
+      }
+    },
+    "full": "Task",
+    "title": "Task",
+    "modern": "Task",
+    "legacy": "Task"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": ""
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Task",
+    "legacy": "Task"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": ""
+      }
+    },
+    "full": "Task",
+    "title": "Task",
+    "modern": "Task",
+    "legacy": "Task"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "﻿# Summary\nFix the café 😀 /tmp/secret/file.rs. More details"
+      }
+    },
+    "full": "Fix the café 😀 file.rs",
+    "title": "# Summary",
+    "modern": "Fix the café 😀",
+    "legacy": "Fix the café 😀"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "﻿# Summary\nFix the café 😀 /tmp/secret/file.rs. More details"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Fix the café 😀",
+    "legacy": "Fix the café 😀"
+  },
+  {
+    "task": {
+      "title": "﻿# Summary\nFix the café 😀 /tmp/secret/file.rs. More details",
+      "brief": {
+        "goal": "﻿# Summary\nFix the café 😀 /tmp/secret/file.rs. More details"
+      }
+    },
+    "full": "Fix the café 😀 file.rs",
+    "title": "Fix the café 😀 file.rs",
+    "modern": "Fix the café 😀",
+    "legacy": "Fix the café 😀"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "Use /tmp/private/file.rs and C:\\secret\\file.txt"
+      }
+    },
+    "full": "Use file.rs and file.txt",
+    "title": "Use /tmp/private/file.rs and C:\\secret\\file.txt",
+    "modern": "Use",
+    "legacy": "Use"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "Use /tmp/private/file.rs and C:\\secret\\file.txt"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Use",
+    "legacy": "Use"
+  },
+  {
+    "task": {
+      "title": "Use /tmp/private/file.rs and C:\\secret\\file.txt",
+      "brief": {
+        "goal": "Use /tmp/private/file.rs and C:\\secret\\file.txt"
+      }
+    },
+    "full": "Use file.rs and file.txt",
+    "title": "Use file.rs and file.txt",
+    "modern": "Use",
+    "legacy": "Use"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "[visible](https://example.test/a(b)) and ![image][ref]"
+      }
+    },
+    "full": "visible and image",
+    "title": "visible and image",
+    "modern": "Visible](",
+    "legacy": "Visible]("
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "[visible](https://example.test/a(b)) and ![image][ref]"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Visible](",
+    "legacy": "Visible]("
+  },
+  {
+    "task": {
+      "title": "[visible](https://example.test/a(b)) and ![image][ref]",
+      "brief": {
+        "goal": "[visible](https://example.test/a(b)) and ![image][ref]"
+      }
+    },
+    "full": "visible and image",
+    "title": "visible and image",
+    "modern": "Visible](",
+    "legacy": "Visible]("
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "```rust\nlet x = 1;\n```\n## Implement **feature**"
+      }
+    },
+    "full": "Implement feature",
+    "title": "Implement feature",
+    "modern": "Implement **feature**",
+    "legacy": "Implement **feature**"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "```rust\nlet x = 1;\n```\n## Implement **feature**"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Implement **feature**",
+    "legacy": "Implement **feature**"
+  },
+  {
+    "task": {
+      "title": "```rust\nlet x = 1;\n```\n## Implement **feature**",
+      "brief": {
+        "goal": "```rust\nlet x = 1;\n```\n## Implement **feature**"
+      }
+    },
+    "full": "Implement feature",
+    "title": "Implement feature",
+    "modern": "Implement **feature**",
+    "legacy": "Implement **feature**"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "Context:\nhttps://example.test/a?q=b! Fix next"
+      }
+    },
+    "full": "https://example.test/a?q=b",
+    "title": "https://example.test/a?q=b",
+    "modern": "\u0001Url",
+    "legacy": "\u0001Url"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "Context:\nhttps://example.test/a?q=b! Fix next"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "\u0001Url",
+    "legacy": "\u0001Url"
+  },
+  {
+    "task": {
+      "title": "Context:\nhttps://example.test/a?q=b! Fix next",
+      "brief": {
+        "goal": "Context:\nhttps://example.test/a?q=b! Fix next"
+      }
+    },
+    "full": "https://example.test/a?q=b",
+    "title": "https://example.test/a?q=b",
+    "modern": "\u0001Url",
+    "legacy": "\u0001Url"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "firstsecond﻿third"
+      }
+    },
+    "full": "firstsecond third",
+    "title": "firstsecond third",
+    "modern": "Firstsecond third",
+    "legacy": "Firstsecond third"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "firstsecond﻿third"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Firstsecond third",
+    "legacy": "Firstsecond third"
+  },
+  {
+    "task": {
+      "title": "firstsecond﻿third",
+      "brief": {
+        "goal": "firstsecond﻿third"
+      }
+    },
+    "full": "firstsecond third",
+    "title": "firstsecond third",
+    "modern": "Firstsecond third",
+    "legacy": "Firstsecond third"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation"
+      }
+    },
+    "full": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation",
+    "title": "A long title with many words that reaches well past sixty…",
+    "modern": "A long title with many words that reaches well past sixty…",
+    "legacy": "A long title with many words that reaches well past sixty…"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "A long title with many words that reaches well past sixty…",
+    "legacy": "A long title with many words that reaches well past sixty…"
+  },
+  {
+    "task": {
+      "title": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation",
+      "brief": {
+        "goal": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation"
+      }
+    },
+    "full": "A long title with many words that reaches well past sixty characters and eighty characters to exercise truncation branches and balanced punctuation",
+    "title": "A long title with many words that reaches well past sixty…",
+    "modern": "A long title with many words that reaches well past sixty…",
+    "legacy": "A long title with many words that reaches well past sixty…"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "(unclosed text"
+      }
+    },
+    "full": "Task",
+    "title": "Task",
+    "modern": "Unclosed text",
+    "legacy": "Unclosed text"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "(unclosed text"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Unclosed text",
+    "legacy": "Unclosed text"
+  },
+  {
+    "task": {
+      "title": "(unclosed text",
+      "brief": {
+        "goal": "(unclosed text"
+      }
+    },
+    "full": "Task",
+    "title": "Task",
+    "modern": "Unclosed text",
+    "legacy": "Unclosed text"
+  },
+  {
+    "task": {
+      "title": "",
+      "brief": {
+        "goal": "straße _identifier_name_ `code`"
+      }
+    },
+    "full": "straße identifier_name code",
+    "title": "straße identifier_name code",
+    "modern": "Straße _identifier_name_",
+    "legacy": "Straße _identifier_name_"
+  },
+  {
+    "task": {
+      "title": "Explicit /tmp/private/path.txt",
+      "brief": {
+        "goal": "straße _identifier_name_ `code`"
+      }
+    },
+    "full": "Explicit path.txt",
+    "title": "Explicit path.txt",
+    "modern": "Straße _identifier_name_",
+    "legacy": "Straße _identifier_name_"
+  },
+  {
+    "task": {
+      "title": "straße _identifier_name_ `code`",
+      "brief": {
+        "goal": "straße _identifier_name_ `code`"
+      }
+    },
+    "full": "straße identifier_name code",
+    "title": "straße identifier_name code",
+    "modern": "Straße _identifier_name_",
+    "legacy": "Straße _identifier_name_"
+  }
+]

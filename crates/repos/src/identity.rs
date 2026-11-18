@@ -1,12 +1,10 @@
 //! `registerRepo` and `addRepo` from `src/core/repos.ts`: the git identity of an absolute
 //! checkout path (top level, shared git directory, `origin` key) and its registration in
 //! `state/repos.json`, with linked-checkout aliases in `state/repo-paths.json`.
-use super::{
-    basename, git::git_read, local_key, mark_unreachable, read_object, repo_for, state_file,
-};
+use super::{basename, git::git_read, local_key, mark_unreachable, repo_for, state_file};
 use crate::{
-    json::stringify,
     probe::{absent, dirname, remember, resolve},
+    read::{Registry, quote, text},
 };
 use pacer_config::host::repo_key;
 use pacer_foundation::{
@@ -15,7 +13,7 @@ use pacer_foundation::{
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
-use pacer_js_json::js_semantics::trim;
+use pacer_js_json::{js_semantics::trim, quoted};
 use serde_json::{Value, json};
 use std::{path::Path, sync::mpsc, thread, time::Duration};
 
@@ -123,7 +121,18 @@ fn identify(path: &str) -> Result<Identity, CoreError> {
 /// `registerRepo(ctx, path, strict)`: identity, then the registry entry (and a linked
 /// checkout's alias) stamped `ctx.now`, returning `repoFor` of the shared checkout. Without
 /// identity a strict caller fails and others get `repoFor(path)` marked `identityUnverified`.
+/// A registry that needs the core by the time it is re-read here is a `conflict`.
 pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
+    register(ctx, path, strict, true)
+}
+
+/// `registerRepo(ctx, path, strict, false)` for a read-only caller: the identity's `key` and
+/// shared checkout `path` (without a `label`), recording nothing.
+pub fn resolve_repo_read_only(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreError> {
+    register(ctx, path, strict, false)
+}
+
+fn register(ctx: &Ctx, path: &str, strict: bool, persist: bool) -> Result<Value, CoreError> {
     let unresolved = || {
         if strict {
             return Err(invalid("Cannot establish repository identity for project routing")
@@ -144,29 +153,40 @@ pub fn register_repo(ctx: &Ctx, path: &str, strict: bool) -> Result<Value, CoreE
     let Identity::Known { top, main, key } = identify(path)? else {
         return unresolved();
     };
-    let file = state_file(&ctx.pacer_home, "repos.json");
-    let mut reg = read_object(&file);
+    let Registry {
+        mut reg,
+        mut aliases,
+        needs_core,
+    } = Registry::read(&ctx.pacer_home, persist);
+    if needs_core {
+        return Err(CoreError::new(
+            Code::Conflict,
+            "repository registry changed during registration",
+        ));
+    }
     let key = key
-        .or_else(|| reg.get(&main)?.get("key")?.as_str().map(str::to_owned))
+        .or_else(|| reg.get(&quote(&main))?.get("key")?.as_str().map(text))
         .unwrap_or_else(|| local_key(&main));
+    if !persist {
+        return Ok(json!({"key": key, "path": main}));
+    }
     reg.insert(
-        main.clone(),
-        json!({"key": key, "path": main, "lastUsed": ctx.now}),
+        quote(&main),
+        quoted::from_utf8(json!({"key": key, "path": main, "lastUsed": ctx.now})),
     );
     if top != main {
+        aliases.insert(quote(&top), Value::String(quote(&main)));
         let aliases_file = state_file(&ctx.pacer_home, "repo-paths.json");
-        let mut aliases = read_object(&aliases_file);
-        aliases.insert(top.clone(), json!(main));
         write_json(&aliases_file, &Value::Object(aliases))?;
-        reg.shift_remove(&top);
+        reg.shift_remove(&quote(&top));
     }
+    let file = state_file(&ctx.pacer_home, "repos.json");
     write_json(&file, &Value::Object(reg))?;
     Ok(repo_for(&ctx.pacer_home, &main))
 }
 
 fn write_json(file: &Path, value: &Value) -> Result<(), CoreError> {
-    let text = stringify(value).map_err(internal)?;
-    write_private(file, text.as_bytes()).map_err(internal)
+    write_private(file, quoted::stringify(value).as_bytes()).map_err(internal)
 }
 
 /// `addRepo`: an absolute path inside a git work tree, registered under the `repos` lock.

@@ -1,6 +1,6 @@
 //! Generation-owned read authority. Public projections are injected by the host;
 //! neither a retained owner nor an event subscription can authorize an effect.
-use crate::{AuthorityError, BrokerError, ParsedManifest};
+use crate::{AuthorityError, BrokerError, MAX_LINE_BYTES, ParsedManifest, ProcessError};
 use serde_json::{Value, json};
 use std::{
     collections::{HashSet, VecDeque},
@@ -37,6 +37,7 @@ pub const POLICY_EVENT_TYPES: &[&str] = &[
     "machine",
     "assistant",
     "discovery.found",
+    "control",
 ];
 pub(crate) const TASK_STATES: &[&str] = &[
     "queued",
@@ -226,9 +227,20 @@ pub struct EventSubscription {
     position: u64,
     retired: bool,
 }
+/// A notification line as the TypeScript transport writes it: `JSON.stringify`
+/// of `{jsonrpc, method, params}` in insertion order, then a newline.
+pub fn notification_frame(method: &str, params: &Value) -> Result<Vec<u8>, ProcessError> {
+    let mut bytes =
+        pacer_js_json::stringify(&json!({"jsonrpc":"2.0","method":method,"params":params}))
+            .into_bytes();
+    bytes.push(b'\n');
+    if bytes.len() > MAX_LINE_BYTES {
+        return Err(ProcessError::TooLarge);
+    }
+    Ok(bytes)
+}
 fn event_size(event: &Value) -> usize {
-    crate::js_canonical_json(&json!({"jsonrpc":"2.0","method":"$/event","params":event}))
-        .map_or(usize::MAX, |s| s.len() + 1)
+    pacer_js_json::stringify(&json!({"jsonrpc":"2.0","method":"$/event","params":event})).len() + 1
 }
 fn valid_event(e: &Value) -> bool {
     e.as_object().is_some_and(|o| o.len() == 4)
@@ -279,6 +291,12 @@ impl EventSubscription {
     }
     pub fn cursor(&self) -> u64 {
         self.position
+    }
+    /// The subscribed event types, sorted.
+    pub fn types(&self) -> Vec<String> {
+        let mut types: Vec<_> = self.types.iter().cloned().collect();
+        types.sort();
+        types
     }
     pub fn active(&self) -> bool {
         !self.retired

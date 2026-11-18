@@ -32,7 +32,7 @@ test("test temp roots inside a checkout cannot discover its Git repository", () 
     [colonTemp, inheritedCases[1]!] as const,
   ]) {
     const result = Bun.spawnSync([
-      process.execPath, "run", "test", "./test/repos.test.ts", "./test/fixtures/git-isolation-probe.ts",
+      process.execPath, "test", "--timeout", "30000", "./test/repos.test.ts", "./test/fixtures/git-isolation-probe.ts",
     ], {
       cwd: join(import.meta.dir, ".."),
       env: {
@@ -62,7 +62,7 @@ test("unrepresentable ceilings fail closed before crossing a repository", () => 
   const temp = join(checkout, "tmp");
   mkdirSync(temp);
   const result = Bun.spawnSync([
-    process.execPath, "run", "test", "./test/fixtures/git-isolation-probe.ts",
+    process.execPath, "test", "--timeout", "30000", "./test/fixtures/git-isolation-probe.ts",
   ], {
     cwd: join(import.meta.dir, ".."),
     env: { ...process.env, TMPDIR: temp, TMP: temp, TEMP: temp },

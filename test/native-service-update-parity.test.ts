@@ -7,6 +7,7 @@ import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {defaultRun} from "../src/ctx";
 import {fakeCtx} from "./helpers";
+import {closedPort} from "./child-env";
 
 let binary: string;
 function driver() {
@@ -38,6 +39,8 @@ async function compare(steps: Step[], setup: (home: string) => void, files: stri
   const ts = realpathSync(mkdtempSync(join(tmpdir(), "native-svc-ts-"))), rs = realpathSync(mkdtempSync(join(tmpdir(), "native-svc-rs-")));
   homes.push(ts, rs);
   setup(ts);
+  const port = String(closedPort());
+  steps = steps.map(step => ({...step, env: {PACER_PORT: port, ...step.env}}));
   cpSync(ts, rs, {recursive: true});
   const path = (home: string) => `${home}/bin:/usr/bin:/bin`;
   const expected: unknown[] = [];
@@ -82,7 +85,7 @@ test("native service.status matches TypeScript service-manager probes", async ()
     {op: "service.status", params: null}, {op: "service.status", params: []}, {op: "service.status", params: "x"},
     {op: "service.status", params: {extra: 1}}, status({PACER_ENFORCEMENT_TOKEN: "t"}),
   ], home => fakeServiceManager(home, "exit 1"));
-  await compare([status()], () => {});
+  await compare([status()], home => fakeServiceManager(home, "exit 1"));
 }, 600_000);
 
 const check = (params: unknown = {}, env?: Record<string, string>): Step => ({op: "update.check", params, env});
@@ -153,6 +156,16 @@ test("native update.check matches TypeScript loopback HTTP feeds", async () => {
     expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
     expect(readFileSync(join(rs, "update-check.json"), "utf8")).toBe(readFileSync(join(ts, "update-check.json"), "utf8"));
   } finally { server.stop(true); }
+}, 600_000);
+
+test("installations managed elsewhere keep update.check forwarded to the reference that reports managedBy", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-")));
+  homes.push(home);
+  expect(await native([check({}, {PACER_INSTALL_METHOD: "npm"}), check({}, {PACER_BIN: "/Applications/Pacer.APP/Contents/MacOS/pacer"})], home, "/usr/bin:/bin")).toEqual([{forwarded: true}, {forwarded: true}]);
+  writeFileSync(join(home, "owner.json"), JSON.stringify({schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1}));
+  expect(await native([check()], home, "/usr/bin:/bin")).toEqual([{forwarded: true}]);
+  const ctx = fakeCtx({pacerHome: home, home, now: NOW, env: {PACER_NO_UPDATE_CHECK: "1"}, run: defaultRun});
+  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "desktop", managedHint: expect.stringContaining("managed by the pacer app")});
 }, 600_000);
 
 test("an array cached latest keeps update.check forwarded", async () => {

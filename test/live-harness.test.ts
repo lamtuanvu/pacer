@@ -1,11 +1,13 @@
 import {exerciseNativeConfig} from "../scripts/live/native-config";
 import { describe, expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, statSync, symlinkSync } from "node:fs";
+import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, statSync, symlinkSync } from "node:fs";
 import { join } from "node:path";
 import { request } from "node:http";
 import { createServer, type Socket } from "node:net";
 import { tmpDir } from "./helpers";
-import { atomicWrite, down, environmentScript, freePort, healthy, loadSession, readEvidence, record, renderReport, run, pacerArgv, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, up, validId, type Session } from "../scripts/live/core";
+import { atomicWrite, down, environmentScript, FAKE_SSH_ALIAS, FAKE_SSH_DOWN_ALIAS, FAKE_SSH_FIXTURE, fakeHostHome, fakeSshLog, freePort, healthy, installFakeSsh, loadSession, pacerArgv, readEvidence, record, removeSshControlDir, renderReport, run, sandboxEnv, saveSession, sessions, shellQuote, sourceServiceMatchesExecutable, startService, stopService, up, validateNativeFixtures, validId, verifyFakeSsh, type Session } from "../scripts/live/core";
+import { controlDir, controlDirPath } from "../src/remote/ssh";
+import { exerciseNativeHostEffects, fakeSshCalls, hostCheckDispatch, jobEvents, normalizeJob } from "../scripts/live/native-host-effects";
 import { resolveRepoInput } from "../src/core/repos";
 import { seedUi } from "../scripts/live/seed";
 import { makeCtx } from "../src/ctx";
@@ -20,8 +22,9 @@ import { shutdownPlugins } from "../src/plugins";
 import { executorRefusal, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
-import { exerciseNativeStdio, verifyForwardedHello, verifyNativeStdio } from "../scripts/live/native-stdio";
-import { BLOCKED_OPS, ClientWebSocket, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
+import { exerciseNativePluginStdio, exerciseNativeStdio, PLUGIN_STDIO_STEPS, verifyForwardedHello, verifyNativeStdio, verifyOwnerSocket, verifyPluginStdio } from "../scripts/live/native-stdio";
+import { exerciseNativePluginOwner } from "../scripts/live/native-plugin-owner";
+import { BLOCKED_OPS, CONDITIONAL_OPS, ClientWebSocket, conditionallyAllowed, configSetAllowed, inexactOpPath, refusedOp, startProxy, upstreamHeaders } from "../scripts/live/proxy";
 
 function fixture(): Session {
   const root = join(tmpDir(), "sandbox");
@@ -55,6 +58,57 @@ describe("live guard (D3)", () => {
     expect(() => verifyNativeStdio(output, "native test.echo\n", 1)).toThrow("exited");
     expect(() => verifyNativeStdio(output.replace("3.0.0", "2.8.0"), "native test.echo\n", 0)).toThrow("protocol 3");
   });
+  test("fixed plugin stdio mode rejects unsafe sessions and caller-selected inputs", async () => {
+    await expect(exerciseNativePluginStdio(fixture())).rejects.toThrow("Rust front-door sandbox");
+    await expect(exerciseNativePluginStdio({ ...fixture(), frontDoor: "rust", nativeForwardOps: "*" })).rejects.toThrow("without forwarding");
+    await expect(exerciseNativePluginStdio({ ...fixture(), frontDoor: "rust" })).rejects.toThrow("healthy sandbox or one stopped");
+    await expect(exerciseNativePluginStdio({ ...fixture(), frontDoor: "rust", stopped: true }, true)).rejects.toThrow("--stop-service requires");
+    await expect(main(["native-plugin-stdio", "--id", "missing", "--", "plugin.list"])).rejects.toThrow("usage: live native-plugin-stdio");
+    await expect(main(["native-plugin-stdio", "--id", "missing", "--keep"])).rejects.toThrow("usage: live native-plugin-stdio");
+    await expect(main(["native-stdio", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
+    await expect(main(["status", "--native-plugin-host"])).rejects.toThrow("--native-plugin-host is only valid for up");
+    await expect(up("plugin-host", undefined, tmpDir(), undefined, undefined, false, false, false, {}, false, true)).rejects.toThrow("requires --front-door rust");
+  });
+  test("fixed plugin owner mode requires a healthy native-host sandbox and takes no inputs", async () => {
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust" })).rejects.toThrow("--native-plugin-host sandbox");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, nativeForwardOps: "*" })).rejects.toThrow("without forwarding");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true })).rejects.toThrow("healthy sandbox");
+    await expect(exerciseNativePluginOwner({ ...fixture(), frontDoor: "rust", nativePluginHost: true, stopped: true })).rejects.toThrow("healthy sandbox");
+    await expect(main(["native-plugin-owner", "--id", "missing", "--stop-service"])).rejects.toThrow("--stop-service is only valid");
+    await expect(main(["native-plugin-owner", "--id", "missing", "--", "serve"])).rejects.toThrow("usage: live native-plugin-owner");
+    await expect(main(["native-plugin-owner"])).rejects.toThrow("usage: live native-plugin-owner");
+    await expect(startService({ ...fixture(), serviceGroup: undefined })).rejects.toThrow("must stop before");
+    await expect(stopService({ ...fixture(), serviceGroup: undefined })).rejects.toThrow("no verified service process group");
+  });
+  test("fixed plugin stdio evidence requires the pre-hello refusal, native traces and the ownership line", () => {
+    const replies = new Map<number, any>(PLUGIN_STDIO_STEPS.map(([id]) => [id, { id, result: {} }]));
+    replies.set(1, { id: 1, error: { code: -32601, data: { code: "unknown_op" } } });
+    replies.set(2, { id: 2, result: { protocol: "3.0.0" } });
+    replies.set(3, { id: 3, result: { plugins: [{ id: "fx-ui" }] } });
+    replies.set(5, { id: 5, result: { reports: [{ ok: true, pid: 11 }] } });
+    replies.set(10, { id: 10, result: { reports: [{ ok: true, pid: 12 }] } });
+    const traces = PLUGIN_STDIO_STEPS.filter(([id, method]) => id !== 1 && method !== "hello").map(([id, method]) => `native ${method} ${id}`);
+    const own = [...traces, "native plugin owner own /h/run/s0123456789ab.sock"].join("\n");
+    expect(verifyPluginStdio(replies, own, "own")).toBe("/h/run/s0123456789ab.sock");
+    const deep = [...traces, "native plugin owner own /var/u/T/pacer-0123456789abcdef/s0123456789ab.sock"].join("\n");
+    expect(verifyPluginStdio(replies, deep, "own")).toBe("/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock");
+    expect(() => verifyPluginStdio(replies, own.replace("/run/", "/tmp/"), "own")).toThrow("ownership trace");
+    expect(() => verifyPluginStdio(replies, own, "attach")).toThrow("ownership trace");
+    expect(() => verifyPluginStdio(replies, own, "core")).toThrow("ownership trace");
+    expect(() => verifyPluginStdio(replies, traces.join("\n"), "core")).not.toThrow();
+    expect(() => verifyPluginStdio(replies, [...traces, "native plugin.list 1"].join("\n"), "core")).toThrow("plugin.list 1");
+    expect(() => verifyPluginStdio(replies, traces.slice(1).join("\n"), "core")).toThrow("native trace");
+    expect(() => verifyPluginStdio(new Map([...replies, [1, { id: 1, result: {} }]]), traces.join("\n"), "core")).toThrow("before hello");
+    expect(() => verifyPluginStdio(new Map([...replies, [6, { id: 6, error: { code: -32000 } }]]), traces.join("\n"), "core")).toThrow("step 6");
+  });
+  test("an owning connection's socket is in run/, or in the private directory only for a deep home", () => {
+    expect(verifyOwnerSocket("/h", "/h/run/s0123456789ab.sock")).toBe("run");
+    expect(() => verifyOwnerSocket("/h", "/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock")).toThrow("home's run directory");
+    const deep = `/h/${"d".repeat(90)}`;
+    expect(verifyOwnerSocket(deep, "/var/u/T/pacer-0123456789abcdef/s0123456789ab.sock")).toBe("private");
+    expect(() => verifyOwnerSocket(deep, `${deep}/run/s0123456789ab.sock`)).toThrow("private per-user directory");
+    expect(() => verifyOwnerSocket(deep, "/var/u/T/elsewhere/s0123456789ab.sock")).toThrow("private per-user directory");
+  });
   test("fixed forwarded hello control rejects a native trace", () => {
     const output = ["3.0.0", "2.8.0"].map((protocol, index) =>
       JSON.stringify({ id: index + 1, result: { protocol } })).join("\n") + "\n";
@@ -74,6 +128,153 @@ describe("live guard (D3)", () => {
     const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "install"], { cwd: join(import.meta.dir, "..") });
     expect(child.exitCode).toBe(3);
     expect(child.stderr.toString()).toContain("D3");
+    const host = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "host", "--json", "clean", "box"], { cwd: join(import.meta.dir, "..") });
+    expect(host.exitCode).toBe(3);
+    expect(host.stderr.toString()).toContain("Live validation guard refused: D3: host clean changes the real user environment (D8 refuses host.clean)");
+  });
+});
+
+describe("live fake ssh host", () => {
+  test("the sandbox ssh is the fake host and never falls through to another ssh", () => {
+    const session = fixture();
+    expect(() => verifyFakeSsh(session)).toThrow("Fake ssh check failed: sandbox PATH resolves ssh to");
+    installFakeSsh(session.root);
+    const path = join(session.root, "bin/ssh");
+    expect(verifyFakeSsh(session)).toBe(path);
+    expect(statSync(path).mode & 0o777).toBe(0o700);
+    const env = { PATH: sandboxEnv(session, { PATH: process.env.PATH }).PATH };
+    const reached = Bun.spawnSync([path, "-o", "BatchMode=yes", "--", FAKE_SSH_ALIAS, 'printf %s "$HOME"'], { env });
+    expect(reached.exitCode).toBe(0);
+    expect(reached.stdout.toString()).toBe(fakeHostHome(session.root));
+    const refused = Bun.spawnSync([path, "-o", "BatchMode=yes", "--", FAKE_SSH_DOWN_ALIAS, "true"], { env });
+    expect(refused.exitCode).toBe(255);
+    expect(refused.stderr.toString()).toContain("Connection refused");
+    expect(fakeSshCalls(readFileSync(fakeSshLog(session.root), "utf8"))).toEqual({ [FAKE_SSH_ALIAS]: 1, [FAKE_SSH_DOWN_ALIAS]: 1 });
+    expect(() => verifyFakeSsh(session, () => null)).toThrow("resolves ssh to nothing");
+  });
+  test("host checks fail closed when the fake is changed, replaced or shadowed", () => {
+    const session = fixture();
+    installFakeSsh(session.root);
+    const path = join(session.root, "bin/ssh"), original = readFileSync(path, "utf8");
+    atomicWrite(path, original.replace(FAKE_SSH_DOWN_ALIAS, "other.invalid"), 0o700);
+    expect(() => verifyFakeSsh(session)).toThrow("is not the sandbox fake");
+    atomicWrite(path, original, 0o700);
+    chmodSync(path, 0o720);
+    expect(() => verifyFakeSsh(session)).toThrow("is not a private regular file");
+    rmSync(path);
+    atomicWrite(join(session.root, "real-looking-ssh"), original, 0o700);
+    symlinkSync(join(session.root, "real-looking-ssh"), path);
+    expect(() => verifyFakeSsh(session)).toThrow("is not a private regular file");
+    rmSync(path);
+    installFakeSsh(session.root);
+    // A seeded sandbox puts home/bin first; an ssh there would win and must be refused.
+    mkdirSync(join(session.root, "home/bin"));
+    atomicWrite(join(session.root, "home/bin/ssh"), "#!/bin/sh\nexit 0\n", 0o700);
+    expect(() => verifyFakeSsh({ ...session, seed: "ui" })).toThrow(`resolves ssh to ${join(session.root, "home/bin/ssh")}`);
+    expect(verifyFakeSsh(session)).toBe(path);
+  });
+  test("the fixed host-effects fixture refuses before any request unless both sandboxes resolve the fake", async () => {
+    const native: Session = { ...fixture(), id: "native", frontDoor: "rust", nativeTestOps: true };
+    const forward: Session = { ...fixture(), id: "forward", frontDoor: "rust", nativeTestOps: true, nativeForwardOps: "host.check" };
+    await expect(exerciseNativeHostEffects(native, native)).rejects.toThrow("two different sandboxes");
+    await expect(exerciseNativeHostEffects(forward, forward)).rejects.toThrow("two different sandboxes");
+    await expect(exerciseNativeHostEffects({ ...native, nativeForwardOps: "host.check" }, forward)).rejects.toThrow("--id requires");
+    await expect(exerciseNativeHostEffects(native, { ...forward, nativeForwardOps: "*" })).rejects.toThrow("--native-forward-ops host.check");
+    await expect(exerciseNativeHostEffects({ ...native, realKeychain: true }, forward)).rejects.toThrow("--id requires");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("Fake ssh check failed");
+    installFakeSsh(native.root);
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("Fake ssh check failed");
+    for (const session of [native, forward]) {
+      expect(existsSync(join(session.root, "native-host-effects"))).toBe(false);
+      expect(existsSync(join(session.root, "home/strategy.yaml"))).toBe(false);
+    }
+    installFakeSsh(forward.root);
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("strategy is missing (native)");
+    for (const session of [native, forward]) atomicWrite(join(session.root, "home/strategy.yaml"), "planner: claude-code\n");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("requires a healthy sandbox");
+    await expect(main(["native-host-effects", "--id", "missing"])).rejects.toThrow("usage: live native-host-effects");
+    await expect(main(["native-host-effects", "--id", "a", "--forward-id", "b", "--", "host", "clean"])).rejects.toThrow("usage: live native-host-effects");
+    await expect(main(["status", "--forward-id", "b"])).rejects.toThrow("only valid for native-host-effects");
+  });
+  test("a used or host-declaring forward sandbox refuses before the native sandbox is touched", async () => {
+    const native: Session = { ...fixture(), id: "native", frontDoor: "rust", nativeTestOps: true };
+    const forward: Session = { ...fixture(), id: "forward", frontDoor: "rust", nativeTestOps: true, nativeForwardOps: "host.check" };
+    const strategy = "planner: claude-code\n";
+    for (const session of [native, forward]) {
+      installFakeSsh(session.root);
+      atomicWrite(join(session.root, "home/strategy.yaml"), strategy);
+    }
+    const untouched = () => {
+      expect(readFileSync(join(native.root, "home/strategy.yaml"), "utf8")).toBe(strategy);
+      for (const path of ["native-host-effects", "fake-host/bin", "fake-host/ssh.log", "fake-host/home/.bash_profile", "fake-host/home/.codex-team"]) {
+        expect(existsSync(join(native.root, path))).toBe(false);
+      }
+    };
+    atomicWrite(join(forward.root, "home/strategy.yaml"), "hosts:\n  other: {ssh: other.invalid}\n");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already declares hosts (forward)");
+    untouched();
+    atomicWrite(join(forward.root, "home/strategy.yaml"), strategy);
+    atomicWrite(fakeSshLog(forward.root), "");
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already used (forward)");
+    untouched();
+    rmSync(fakeSshLog(forward.root));
+    mkdirSync(join(forward.root, "native-host-effects"));
+    await expect(exerciseNativeHostEffects(native, forward)).rejects.toThrow("already used (forward)");
+    untouched();
+  });
+  test("host checks refuse when the checkout's ssh fixture is missing", () => {
+    const session = fixture(), copy = join(session.root, "fixture-ssh");
+    atomicWrite(copy, readFileSync(FAKE_SSH_FIXTURE, "utf8"), 0o700);
+    installFakeSsh(session.root, copy);
+    expect(verifyFakeSsh(session, Bun.which, copy)).toBe(join(session.root, "bin/ssh"));
+    expect(() => verifyFakeSsh(session)).toThrow("is not the sandbox fake");
+    rmSync(copy);
+    expect(() => verifyFakeSsh(session, Bun.which, copy)).toThrow(`Fake ssh check failed: ${copy} is missing`);
+  });
+  test("down removes only the sandbox's own /tmp ssh control directory", async () => {
+    const sandbox = (name: string): Session => {
+      const root = join(tmpDir(), `${name}-${"long-".repeat(12)}`);
+      for (const path of ["home", "bin", "repo", "evidence", "logs"]) mkdirSync(join(root, path), { recursive: true });
+      return { id: name, root, pid: 0, port: 49672, createdAt: "2026-10-18T00:00:00Z" };
+    };
+    const session = sandbox("own"), other = sandbox("other");
+    const own = controlDirPath(join(session.root, "home")), kept = controlDirPath(join(other.root, "home"));
+    expect(own.short && kept.short).toBe(true);
+    try {
+      expect(controlDir({ pacerHome: join(session.root, "home") } as never)).toBe(own.dir);
+      mkdirSync(kept.dir, { mode: 0o700 });
+      atomicWrite(join(own.dir, "cm-socket-stand-in"), "");
+      await down(session, true);
+      expect(existsSync(own.dir)).toBe(false);
+      expect(existsSync(kept.dir)).toBe(true);
+      // A symlink at the derived path is not ours to follow or remove.
+      symlinkSync(kept.dir, own.dir);
+      removeSshControlDir(session.root);
+      expect(lstatSync(own.dir).isSymbolicLink()).toBe(true);
+      expect(existsSync(kept.dir)).toBe(true);
+    } finally {
+      rmSync(own.dir, { recursive: !lstatSync(own.dir, { throwIfNoEntry: false })?.isSymbolicLink(), force: true });
+      rmSync(kept.dir, { recursive: true, force: true });
+    }
+  });
+  test("host-effects evidence: SSE job events, ssh calls, normalized jobs and native dispatch traces", () => {
+    const job = (id: string, state: string) => ({ id, kind: "host.check", target: "fakehost", state, steps: [], startedAt: 1, pid: 2, cancellable: false });
+    const transcript = [": connected", `id: 1\nevent: job\ndata: ${JSON.stringify(job("a", "running"))}`, `id: 2\nevent: plugin\ndata: {"id":"a"}`,
+      `id: 3\nevent: job\ndata: ${JSON.stringify(job("b", "running"))}`, `id: 4\nevent: job\ndata: ${JSON.stringify({ ...job("a", "passed"), endedAt: 3 })}`, "event: job\ndata: {"].join("\n\n");
+    const events = jobEvents(transcript, ["a"]);
+    expect(Object.keys(events)).toEqual(["a"]);
+    expect(events.a.map(value => value.state)).toEqual(["running", "passed"]);
+    expect(normalizeJob({ ...job("a", "passed"), endedAt: 3 })).toEqual({ kind: "host.check", target: "fakehost", state: "passed", steps: [], cancellable: false });
+    expect(fakeSshCalls(`${FAKE_SSH_ALIAS} -o BatchMode=yes -o X -- h 'printf\nos=%s\n'\nother.example -o BatchMode=yes -- x\nprintf -o BatchMode=yes\n`))
+      .toEqual({ [FAKE_SSH_ALIAS]: 1, "other.example": 1 });
+    const trace = "pacer: PACER_FORWARD_OPS=host.check\nnative job.get\n";
+    expect(hostCheckDispatch(trace, 2, true)).toBe("forwarded");
+    expect(hostCheckDispatch(trace, 2, false)).toBe("forwarded");
+    expect(hostCheckDispatch(`${trace}native host.check\nnative host.check\n`, 2, false)).toBe("native");
+    expect(() => hostCheckDispatch(`${trace}native host.check\n`, 2, false)).toThrow("traced 1 times for 2 checks");
+    expect(() => hostCheckDispatch(`${trace}native host.check\n`, 2, true)).toThrow("forced-forward session executed host.check natively");
+    expect(() => hostCheckDispatch("native host.check\nnative host.check\n", 2, false)).toThrow("no native job.get line");
+    expect(hostCheckDispatch(`${trace}native host.checks\n`, 2, false)).toBe("forwarded");
   });
 });
 
@@ -139,6 +340,30 @@ test("the rust front door runs the Rust binary and points it at the checkout cor
   expect(pacerArgv({})).toEqual(core);
   expect(JSON.parse(sandboxEnv(session, {}).PACER_CORE_ARGV!)).toEqual(core);
   expect(environmentScript(session)).toContain("export PACER_CORE_ARGV=");
+});
+
+test("native test-ops fixtures set probe ports, a test Core entry and forwarded ops only when chosen", async () => {
+  const session = { ...fixture(), frontDoor: "rust" as const, nativeTestOps: true as const };
+  const inherited = { PACER_TEST_LOCAL_SERVER_PORTS: "1,2", PACER_FORWARD_OPS: "*" };
+  const plain = sandboxEnv(session, inherited);
+  expect([plain.PACER_TEST_LOCAL_SERVER_PORTS, plain.PACER_FORWARD_OPS]).toEqual([undefined, undefined]);
+  const chosen = { ...session, localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" };
+  const env = sandboxEnv(chosen, inherited);
+  expect(env.PACER_TEST_LOCAL_SERVER_PORTS).toBe("5001,5002");
+  expect(env.PACER_FORWARD_OPS).toBe("executor.setup.candidates");
+  expect(JSON.parse(env.PACER_CORE_ARGV!)).toEqual([process.execPath, join(import.meta.dir, "fixtures", "core-discover-plan.ts")]);
+  expect(environmentScript(chosen)).toContain("export PACER_TEST_LOCAL_SERVER_PORTS='5001,5002'");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002" }, false, false)).toThrow("require --native-test-ops");
+  for (const ports of ["4317,5002", "11434,5002", "5001,1234", "5001,5001", "0,1", "1", "1,2,3", "70000,1", "a,b"]) expect(() => validateNativeFixtures({ localModelPorts: ports }, true, false)).toThrow("--local-model-ports");
+  for (const file of ["../cli.ts", "missing.ts", "core-discover-plan.js", "/abs.ts"]) expect(() => validateNativeFixtures({ coreFixture: file }, true, false)).toThrow("--core-fixture");
+  expect(() => validateNativeFixtures({ nativeForwardOps: "test.echo" }, true, true)).toThrow("--native-forward-echo");
+  expect(() => validateNativeFixtures({ nativeForwardOps: "a b" }, true, false)).toThrow("--native-forward-ops");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", coreFixture: "core-discover-plan.ts", nativeForwardOps: "executor.setup.candidates" }, true, false)).not.toThrow();
+  for (const mode of ["ollama=ok", "ollama=ok,lmstudio=no", "ollama=ok,ollama=fail", "lmstudio=ok,ollama=fail"]) expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: mode }, true, false)).toThrow("--local-model-fixture");
+  expect(() => validateNativeFixtures({ localModelFixture: "ollama=ok,lmstudio=fail" }, true, false)).toThrow("--local-model-ports");
+  expect(() => validateNativeFixtures({ localModelPorts: "5001,5002", localModelFixture: "ollama=ok,lmstudio=fail:100" }, true, false)).not.toThrow();
+  await expect(main(["status", "--local-model-fixture", "ollama=ok,lmstudio=fail"])).rejects.toThrow("only valid for up");
+  await expect(main(["status", "--local-model-ports", "1,2"])).rejects.toThrow("only valid for up");
 });
 
 test("native OTA source ownership follows the selected service executable", () => {
@@ -239,6 +464,8 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
     expect(login.stdout).toContain(`http://127.0.0.1:${session.port}/app/auth?code=`);
     const blocked = await run([join(session.root, "bin/pacer"), "install"], session);
     expect(blocked.code).toBe(3);
+    expect(verifyFakeSsh(session)).toBe(join(session.root, "bin/ssh"));
+    expect(existsSync(fakeHostHome(session.root))).toBe(true);
     expect(readFileSync(join(session.root, "env.sh"), "utf8")).toContain(session.root);
   } finally { await down(session); }
   expect(existsSync(session.root)).toBe(false);
@@ -246,7 +473,9 @@ test.skipIf(!canBind)("up/status/down uses a free port and leaves no service", a
   for (const port of [session.port, session.innerPort!]) {
     await expect(fetch(`http://127.0.0.1:${port}/health`, { signal: AbortSignal.timeout(500) })).rejects.toThrow();
   }
-}, 10000);
+  // up() allows up to 8s for service startup alone (its internal healthy() deadline), then the
+  // surface checks and down() run after it; under CI load that exceeds the old 10s budget.
+}, 30000);
 
 test("CLI rejects incomplete or unknown harness options before touching a session", async () => {
   await expect(main(["note", "--id"])).rejects.toThrow("requires a value");
@@ -281,6 +510,15 @@ describe("live service guard (D8)", () => {
       test(`allows v${version} ${op}`, () => expect(refusedOp("POST", `/v${version}/ops/${op}`)).toBeUndefined());
     }
   }
+  test("only exact registered operation paths pass", () => {
+    for (const path of ["/v3/ops/config.set", "/v2/ops/routing.status", "/v3/ops/task.get", "/v3/ops/test.echo", "/v3/ops/_debug.native", "/app/v3/ops/x", "/v1/ops/agent.connect", "/v3/events"]) {
+      expect(inexactOpPath(path), path).toBe(false);
+    }
+    for (const path of ["/v3/ops/config.set/", "/v3/ops/%63onfig.set", "/v3/ops/config%2Eset", "//v3/ops/config.set", "/v3//ops/config.set", "/V3/ops/config.set", "/v3/OPS/config.set",
+      "/%2Fv3/ops/config.set", "/v3/ops/", "/v3/ops", "/v2/ops/nope", "/v3/ops/service.future", "/v3/ops/__proto__", "/v3/ops/config.set%00", "/v3/ops/%E0%A4%A"]) {
+      expect(inexactOpPath(path), path).toBe(true);
+    }
+  });
   test("only op POSTs are filtered", () => {
     expect(refusedOp("GET", "/v3/ops/agent.connect")).toBeUndefined();
     expect(refusedOp("POST", "/app/agent.connect")).toBeUndefined();
@@ -291,6 +529,50 @@ describe("live service guard (D8)", () => {
     const table = doc.split("<!-- D8 policy -->")[1].split("<!-- /D8 policy -->")[0];
     const rows = table.split("\n").filter(row => row.startsWith("| `"));
     expect(rows).toEqual(Object.entries(BLOCKED_OPS).map(([op, reason]) => `| \`${op}\` | ${reason} |`));
+  });
+  test("config.set passes only known non-planner keys and planner with integrations skip", () => {
+    expect(Object.keys(CONDITIONAL_OPS).every(op => Object.hasOwn(BLOCKED_OPS, op))).toBe(true);
+    for (const body of [
+      '{"key":"pacing.policy","value":"even"}',
+      '{"key":"execution.backend","value":"direct"}',
+      '{"key":"execution.backend","value":"orca"}',
+      '{"key":"pacing.balance","value":"on","integrations":"install"}',
+      '{"key":"planner","value":"codex","integrations":"skip"}',
+      '{"key":"planner","value":"codex","integrations":"install","integrations":"skip"}',
+      ' {"key":"planner","value":"codex","integrations":"skip"}\n',
+    ]) expect(configSetAllowed(body), body).toBe(true);
+    for (const body of [
+      '{"key":"planner","value":"codex","integrations":"install"}',
+      '{"key":"planner","value":"codex"}',
+      '{"key":"planner","value":"codex","integrations":"Skip"}',
+      '{"key":"planner","value":"codex","integrations":" skip"}',
+      '{"key":"planner","value":"codex","integrations":["skip"]}',
+      '{"key":"Planner","value":"codex","integrations":"install"}',
+      '{"key":" planner","value":"codex","integrations":"install"}',
+      '{"key":"planner ","value":"codex","integrations":"install"}',
+      '{"key":"PACING.POLICY","value":"even"}',
+      '{"key":"nope","value":1}',
+      '{"key":["pacing.policy"],"value":"even"}',
+      '{"key":"pacing.policy","key":"planner","value":"codex","integrations":"install"}',
+      '{"key":"planner","value":"codex","integrations":"skip","integrations":"install"}',
+      '{"value":"even"}', "[]", "null", '"pacing.policy"', "", "not json", '{"key":"pacing.policy"',
+    ]) expect(configSetAllowed(body), body).toBe(false);
+  });
+  test("conditional bodies are bounded UTF-8 and only apply to conditional ops", async () => {
+    const post = (op: string, body: BodyInit) => new Request(`http://127.0.0.1/v3/ops/${op}`, { method: "POST", body });
+    const ok = '{"key":"pacing.policy","value":"even"}';
+    expect(await conditionallyAllowed("config.set", post("config.set", ok))).toBe(true);
+    expect(await conditionallyAllowed("agent.connect", post("agent.connect", ok))).toBe(false);
+    expect(await conditionallyAllowed("config.set", new Request("http://127.0.0.1/v3/ops/config.set", { method: "POST" }))).toBe(false);
+    const padded = (size: number) => `{"key":"pacing.policy","value":"even","pad":"${"x".repeat(size)}"}`;
+    const limit = 256 * 1024, overhead = padded(0).length;
+    expect(await conditionallyAllowed("config.set", post("config.set", padded(limit - overhead)))).toBe(true);
+    expect(await conditionallyAllowed("config.set", post("config.set", padded(limit - overhead + 1)))).toBe(false);
+    const invalid = new Uint8Array([...new TextEncoder().encode('{"key":"pacing.policy","value":"'), 0xff, ...new TextEncoder().encode('"}')]);
+    expect(await conditionallyAllowed("config.set", post("config.set", invalid))).toBe(false);
+    const request = post("config.set", ok);
+    await conditionallyAllowed("config.set", request);
+    expect(await request.text()).toBe(ok);
   });
   test("Host and only matching public Origins are rewritten; authentication survives", () => {
     for (const host of ["127.0.0.1", "localhost"]) {
@@ -392,6 +674,49 @@ test.skipIf(!canBind)("real proxy forwards assets, ops, cookies, streaming SSE a
     expect(notes).toHaveLength(2);
     expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
     expect(renderReport(session)).toContain("D8 blocked agent.connect");
+  } finally { proxy.stop(true); upstream.stop(true); }
+}, 10000);
+
+test.skipIf(!canBind)("real proxy forwards sandbox config.set bodies and refuses planner installs", async () => {
+  const session = fixture();
+  session.port = await freePort();
+  session.innerPort = await freePort();
+  while (session.innerPort === session.port) session.innerPort = await freePort();
+  const seen: string[] = [];
+  const upstream = Bun.serve({
+    hostname: "127.0.0.1", port: session.innerPort,
+    async fetch(req) { const body = await req.text(); seen.push(body); return Response.json({ body }); },
+  });
+  const proxy = startProxy(session);
+  const origin = `http://127.0.0.1:${session.port}`;
+  try {
+    for (const version of [2, 3]) {
+      for (const body of ['{"key":"execution.backend","value":"direct"}', '{"key":"planner","value":"codex","integrations":"skip"}']) {
+        const response = await fetch(`${origin}/v${version}/ops/config.set`, { method: "POST", body });
+        expect(await response.json()).toEqual({ body });
+      }
+      for (const body of ['{"key":"planner","value":"codex","integrations":"install"}', '{"key":"planner","value":"codex"}', "not json"]) {
+        const refused = await fetch(`${origin}/v${version}/ops/config.set`, { method: "POST", body });
+        expect(refused.status).toBe(403);
+        expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
+      }
+    }
+    const install = '{"key":"planner","value":"codex","integrations":"install"}';
+    for (const path of ["/v3/ops/%63onfig.set", "/v3/ops/config.set/", "/v3/ops/nope"]) {
+      const refused = await fetch(origin + path, { method: "POST", body: install });
+      expect(refused.status, path).toBe(403);
+      expect(await refused.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: only exact registered operation paths are forwarded" } });
+    }
+    // Bun's server collapses the leading slashes, so the normalized path meets the config.set body rule.
+    const collapsed = await fetch(`${origin}//v3/ops/config.set`, { method: "POST", body: install });
+    expect(await collapsed.json()).toEqual({ error: { code: "forbidden", message: "Live validation D8: config.set changes the real user environment" } });
+    expect(seen).toHaveLength(4);
+    const notes = readEvidence(session);
+    expect(notes).toHaveLength(10);
+    expect(notes.every(note => note.kind === "note" && note.verdict === "UNVERIFIED")).toBe(true);
+    expect(notes.filter(note => note.behavior === "D8 blocked config.set")).toHaveLength(7);
+    expect(notes.filter(note => note.behavior === "D8 blocked inexact operation path")).toHaveLength(3);
+    expect(JSON.stringify(notes)).not.toContain("codex");
   } finally { proxy.stop(true); upstream.stop(true); }
 }, 10000);
 
@@ -618,4 +943,76 @@ test.skipIf(!canBind)("proxy preserves refused WebSocket handshake statuses, hea
         : { status, marker: "1", body: `refused ${status}` });
     }
   } finally { proxy.stop(true); for (const socket of sockets) socket.destroy(); upstream.close(); }
+}, 30000);
+
+
+test("local model fixture binds both ports and refuses an existing listener", async () => {
+  const occupied = createServer();
+  await new Promise<void>(resolve => occupied.listen(0, "127.0.0.1", resolve));
+  const address = occupied.address();
+  if (!address || typeof address === "string") throw Error("no port");
+  const free = await freePort();
+  const root = tmpDir();
+  const script = join(import.meta.dir, "../scripts/live/model-port-fixture.ts");
+  const failed = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "failed")], { stderr: "pipe" });
+  for (let i = 0; i < 100 && !existsSync(join(root, "failed.error")); i++) await Bun.sleep(20);
+  expect(existsSync(join(root, "failed.error"))).toBe(true);
+  expect(existsSync(join(root, "failed"))).toBe(false);
+  failed.kill(); await failed.exited;
+  await new Promise<void>(resolve => occupied.close(() => resolve()));
+  const child = Bun.spawn([process.execPath, script, `${address.port},${free}`, join(root, "ready")], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    const contender = createServer();
+    const error = await new Promise<NodeJS.ErrnoException>(resolve => { contender.once("error", resolve); contender.listen(address.port, "127.0.0.1"); });
+    expect(error.code).toBe("EADDRINUSE");
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture serves both listing formats and closes failures", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=ok,lmstudio=fail:50"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    expect((await (await fetch(`http://127.0.0.1:${first}/v1/models`)).json()).data).toHaveLength(2);
+    expect((await (await fetch(`http://127.0.0.1:${first}/api/tags`)).json()).models).toHaveLength(2);
+    expect((await fetch(`http://127.0.0.1:${first}/other`)).status).toBe(404);
+    await expect(fetch(`http://127.0.0.1:${second}/v1/models`)).rejects.toThrow();
+  } finally { child.kill(); await child.exited; }
+});
+
+ test("model fixture can serve LM Studio while Ollama fails", async () => {
+  const first = await freePort(), second = await freePort(), root = tmpDir();
+  const child = Bun.spawn([process.execPath, join(import.meta.dir, "../scripts/live/model-port-fixture.ts"), `${first},${second}`, join(root, "ready"), "ollama=fail,lmstudio=ok"], { stderr: "pipe" });
+  try {
+    for (let i = 0; i < 100 && !existsSync(join(root, "ready")); i++) await Bun.sleep(20);
+    expect(existsSync(join(root, "ready"))).toBe(true);
+    await expect(fetch(`http://127.0.0.1:${first}/v1/models`)).rejects.toThrow();
+    expect((await (await fetch(`http://127.0.0.1:${second}/v1/models`)).json()).data).toHaveLength(2);
+  } finally { child.kill(); await child.exited; }
+});
+
+test.skipIf(!canBind)("waiting session fixture starts isolated hosts and tears them down", async () => {
+  const session = await up("waiting-cycle", undefined, tmpDir(), undefined, undefined, false, false, false, {}, true);
+  try {
+    const fixtures = JSON.parse(readFileSync(join(session.root, "home/waiting-fixtures.json"), "utf8"));
+    expect(fixtures.map((entry: { name: string }) => entry.name)).toEqual(["cli", "http", "retry", "stale", "message"]);
+    for (const entry of fixtures) {
+      expect(entry.dir.startsWith(join(session.root, "home/"))).toBe(true);
+      expect(existsSync(join(session.root, "home", `waiting-${entry.name}.sock`))).toBe(true);
+    }
+    const first = fixtures[0];
+    const sent = await run([join(session.root, "bin/pacer"), "msg", "send", first.task, "main", "--answer", first.question, "--json"], session, false);
+    expect(sent.code).toBe(0);
+    expect(JSON.parse(sent.stdout).delivery).toBe("live");
+    for (let i = 0; i < 100 && !existsSync(join(first.dir, "input")); i++) await Bun.sleep(10);
+    expect(readFileSync(join(first.dir, "input"), "utf8")).toContain("main");
+    expect(loadStrategy(makeCtx({ home: join(session.root, "home"), pacerHome: join(session.root, "home") })).messaging?.rules[0]?.effect).toBe("allow");
+    expect(await healthy(session)).toBe(true);
+  } finally { await down(session, true); }
+  expect(loadSession(session.id, join(session.root, "..")).waitingGroup?.stopped).toBe(true);
+  await expect(main(["status", "--waiting-session-fixture"])).rejects.toThrow("only valid for up");
+  await expect(main(["up", "--seed", "ui", "--waiting-session-fixture"])).rejects.toThrow("cannot be combined");
 }, 30000);

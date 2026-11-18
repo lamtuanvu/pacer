@@ -8,9 +8,12 @@ import { certificateEvidence, enforcementExclusion, resolveEnforcementTarget, ST
 import { appendWorkEvent, dispatchDatabase, updateWorkDecision } from "../dispatch/store";
 import { extractAttemptTokens } from "../tokens/extract";
 import { attemptUsageText, recordAttemptUsage } from "../tokens/store";
-import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel } from "../dispatch/runtime";
+import { resolveTaskDispatch, reserveDispatch, releaseDispatch, selectedDispatchModel, selectedDispatchTier } from "../dispatch/runtime";
 import {dispatchSettingsHash} from "../dispatch/learning";
-import type { Candidate, DispatchPreview } from "../dispatch/types";
+import { dispatchConfigSchema, type Candidate, type DispatchPreview } from "../dispatch/types";
+import { buildModelInventory } from "../dispatch/inventory";
+import { selectModel } from "../dispatch/tier-select";
+import { storedObservations } from "../dispatch/refresh";
 import { ensureRunnerIntegration } from "../core/integrations";
 import { beginWorkSync, claimWorkSync, finishWorkSync } from "../update/desktop/admission";
 import { installHandoverHandler, registerRunnerLease } from "./handover";
@@ -29,7 +32,7 @@ import { resolvePolicyRepo, requirePolicyIdentity } from "../core/project-policy
 import { projectPolicy, type ProjectSelection } from "../engine/project-routing";
 import { queueCapacity } from "./capacity";
 import { persistTaskDiff } from "./diff";
-import { SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
+import { slotLimit, SLOT_STATES, localMachineGuard, slotBlock, slotUse } from "../engine/slots";
 import { readPause } from "../core/pause";
 import { drainQueue } from "./drain";
 import { onRunEnded } from "../messaging/turns";
@@ -46,9 +49,10 @@ import { activeHooks } from "../classify/active";
 import type { DecisionHooks } from "../classify/hooks";
 import { type ProviderCfg, type Strategy, loadStrategy } from "../config/strategy";
 import { conversationFallback, type Excluded, rankExecutors, ruleFor } from "../engine/rank";
+import { balanceByLoad } from "../engine/balance";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
-import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
+import { brokenReason, isProviderRetrying, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
@@ -63,7 +67,7 @@ import { resolveRunner } from "../config/runner-id";
 import { markAuthFailed, attemptAuthError } from "../usage/auth";
 import { markExhausted } from "../usage/reactive";
 import { usageRefreshCapability } from "../usage";
-import { listTasksWhere, readTask, updateTask, withTaskLock } from "./store";
+import { listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
 
 export const MAX_ATTEMPTS = 3;
@@ -102,9 +106,9 @@ export function needsDirectBackend(task: TaskRecord, strict: boolean): boolean {
   return strict || !!task.pendingTurn || (task.interactionMode === "conversation" && !task.interactive);
 }
 
-function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
+async function finish(ctx: Ctx, id: string, result: TaskResult): Promise<TaskRecord> {
   if (getWork(ctx,id) && result.status === "done" && pendingChildren(ctx,id).length) result = {...result,status:"needs_input",report:result.report+"\nRequired child work needs review before this task can complete."};
-  const finished = updateTask(ctx, id, (t) => {
+  const finished = await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, (t) => {
     if (t.executorProvider && t.stopPending) {
       const receipt = t.executorExitReceipt, run = t.run, pending = t.stopPending;
       if (!run || !receipt || receipt.attempt !== pending.attempt ||
@@ -135,7 +139,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
     delete t.childIdentity;
     delete t.runnerPid;
     delete t.handover;
-  });
+  }));
   if (finished.state === "done") {
     const seen = new Set<string>([id]);
     let parent = finished.retryOf;
@@ -143,7 +147,7 @@ function finish(ctx: Ctx, id: string, result: TaskResult): TaskRecord {
       seen.add(parent);
       const previous = readTask(ctx, parent);
       if (!previous) break;
-      updateTask(ctx, parent, t => { t.dismissed = true; });
+      await withTaskLockAsync(ctx, parent, () => updateTask(ctx, parent!, t => { t.dismissed = true; }));
       parent = previous.retryOf;
     }
   }
@@ -291,6 +295,8 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       let pick: string | undefined;
       let routing: RoutingNote | undefined;
       let pickReason: string | undefined;
+      let policyFirst: string | undefined;
+      let pickNote: string | undefined;
       let startStatus: Status | undefined;
       let applicableIds: string[] = [];
       let decision: DispatchPreview | undefined;
@@ -405,6 +411,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           const full = new Set<string>();
           ranking.ranked = ranking.ranked.filter(candidate => {
             if (!allowed.includes(candidate.id)) return false;
+            const declared = s.runners[candidate.id]?.models;
+            if (!work && task.model !== undefined && declared?.length && !declared.some(model => model.id === task.model)) {
+              excluded.push({id: candidate.id, reason: `pinned model ${task.model} is not declared by ${candidate.id}`});
+              return false;
+            }
             const guard = executorExclusion({ ...ctx, now: Date.now() / 1000 }, s, candidate.id);
             if (guard) { excluded.push({ id: candidate.id, reason: guard }); return false; }
             // The machine guard holds only a start, never a retry of a running task.
@@ -415,6 +426,16 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             remoteSkipped.set(candidate.id, reason);
             return false;
           });
+          // Dispatch engines own their own ranking; everything else may be rebalanced
+          // within its budget band by how many tasks each executor already runs.
+          const dispatchRanked = work && decision?.proposal?.state === "ranked";
+          if (!dispatchRanked) {
+            // The policy's first candidate is the first untried one before balancing, so a
+            // retry after a failure is not described as "least loaded (… X ahead in order)"
+            // when load did not actually change the pick among the untried candidates.
+            policyFirst = ranking.ranked.find(e => untried(e.id))?.id;
+            ranking.ranked = balanceByLoad(ranking.ranked, s, use, byId);
+          }
           const ids = ranking.ranked.map(e => e.id);
           applicableIds = ids;
           const paused = readPause(ctx);
@@ -438,8 +459,21 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             });
             return;
           }
-          pick = requested && ids.includes(req!) ? req! : ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
+          // A drain reservation (executor set before the first attempt) is still admissible:
+          // balance keeps it instead of rebalancing away from the executor it reserved. Managed
+          // work dispatched by an engine is not kept: the engine's choice (with its own
+          // dispatchCandidates/triedCandidates logic) decides there, exactly as with balance off.
+          const reservedFirst = s.pacing.balance === "least-loaded" && i === 0 && !task.attempts.length && !task.run && !tried.size
+            && !dispatchRanked
+            && task.executor && ids.includes(task.executor) ? task.executor : undefined;
+          pick = requested && ids.includes(req!) ? req! : reservedFirst ?? ids.find(e => work ? dispatchCandidates.some(c=>c.runner===e&&!triedCandidates.has(c.id)) : !tried.has(e));
           pickReason = ranking.ranked.find(e => e.id === pick)?.reason;
+          const balanced = s.pacing.balance === "least-loaded" && !dispatchRanked && policyFirst && pick && pick !== policyFirst
+            && !requested && !reservedFirst;
+          if (balanced && policyFirst && pick) {
+            const ahead = ranking.ranked.find(e => e.id === policyFirst);
+            if (ahead) pickNote = pickReason = `least loaded (${pick} ${use.byExecutor[pick] ?? 0}/${slotLimit(s, pick).executor}; ${policyFirst} ${use.byExecutor[policyFirst] ?? 0}/${slotLimit(s, policyFirst).executor} ahead in order)`;
+          }
           if (work && pick && decision) {
             const c = dispatchCandidates.find(c=>c.runner===pick);
             if (!c || !reserveDispatch({...ctx,now},id,c,decision)) pick=undefined;
@@ -513,8 +547,45 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
       }
 
-      const selectedModel = work ? selectedDispatchModel(ctx,id) : undefined;
-      const cfg = selectedModel === undefined ? s.providers[pick] : {...s.providers[pick],model:selectedModel};
+      let selectedModel = resuming && task.pendingAttempt?.model !== undefined
+        ? task.pendingAttempt.model : work ? selectedDispatchModel(ctx,id) : undefined;
+      let tier = resuming ? task.pendingAttempt?.tier : undefined;
+      const runner = s.runners[pick];
+      if (!work && !resuming && (runner?.models?.length || task.model !== undefined)) {
+        const effectiveDifficulty = task.difficulty ?? "standard";
+        const config = s.dispatch ?? dispatchConfigSchema.parse({});
+        const now = ctx.now;
+        const records = buildModelInventory(s, storedObservations({ ...ctx, now }), now).filter(record => record.runner === pick);
+        if (task.model !== undefined && !runner?.models?.length) {
+          // Legacy executors accept arbitrary model IDs without a declared inventory.
+          records.splice(0, records.length, {
+            runner: pick, account: runner?.account ?? pick, executor: pick,
+            binding: {kind: "exact", id: task.model}, actualModel: null,
+            tier: "unknown", strengths: [], provenance: "declared",
+          });
+        }
+        const choice = selectModel(records, {
+          difficulty: effectiveDifficulty, targets: config.tierTargets, pin: task.model,
+          fixedExecutor: true, defaultModel: runner?.model ?? undefined,
+        });
+        if (choice.record?.binding.kind === "exact") selectedModel = choice.record.binding.id;
+        tier = {
+          requestedDifficulty: task.difficultySource === "unspecified" ? "unspecified" : task.difficulty ?? "unspecified",
+          difficultySource: task.difficultySource === "brief" ? "explicit" : task.difficultySource === "unspecified" ? "unspecified" : "legacy",
+          effectiveDifficulty, targetTier: choice.targetTier, selectedTier: choice.selectedTier, reason: choice.reason,
+        };
+      }
+      if (work && !resuming) {
+        const selectedTier = selectedDispatchTier(ctx, id);
+        if (selectedTier) tier = {
+          ...selectedTier,
+          requestedDifficulty: task.difficultySource === "unspecified" ? "unspecified" : task.difficulty ?? "unspecified",
+          difficultySource: task.difficultySource === "brief" ? "explicit" : task.difficultySource === "unspecified" ? "unspecified" : "legacy",
+          effectiveDifficulty: task.difficulty ?? work.options.difficulty ?? "standard",
+        };
+      }
+      const provider = s.providers[pick];
+      const cfg = selectedModel === undefined || !provider ? provider : {...provider,model:selectedModel};
       if (!resuming && task.executorProvider && task.executor && task.executor !== pick)
         return updateTask(ctx, id, current => {
           if (current.runnerPid === process.pid) delete current.runnerPid;
@@ -582,11 +653,12 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       };
       const usageAtStart = resuming ? task.pendingAttempt?.usageAtStart : usage(startStatus);
       if (resuming) routing = task.pendingAttempt?.routing;
-      task = await withLock(ctx,'session-create',async()=>{
+      // Synchronous body: withLock then releases before yielding (session-create is also taken by withLockSync).
+      task = await withLock(ctx,'session-create',()=>{
        requireAgentWorkspaceBackend(ctx,id,attemptedBackend,!!resolveRunner(s,pick!)?.host);
        return updateTask(ctx, id, t => {
         if(!resuming) routeAdmission!.revalidate();
-        t.pendingAttempt = { routing, usageAtStart };
+        t.pendingAttempt = { routing, usageAtStart, model: selectedModel, ...(tier ? { tier } : {}) };
         t.executor = pick; t.backend = attemptedBackend; t.attemptStartedAt = resuming ? t.attemptStartedAt ?? resuming.startedAt : Date.now() / 1000;
        });
       },{staleMs:600000});
@@ -637,7 +709,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
         routing = { ...routing!, eligibility: prepared.decision,
           ...(prepared.decision.state === "uncertain" ? { fallback: "uncertain" as const } : {}),
-          why: candidate.reason };
+          why: pickNote ?? candidate.reason };
         task = await withLock(ctx, "slots", () => withLock(ctx, PROJECT_STRATEGIES_LOCK, async () => {
           routeAdmission!.revalidate();
           if(policySnapshot && projectRevision(readProjectStrategies(ctx),policySnapshot.repoKey)!==policySnapshot.rev)
@@ -646,7 +718,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             throw new CoreError("conflict","Strategy changed before route commit");
           return updateTask(ctx,id,t=>{
             routeAdmission!.revalidate();
-            t.pendingAttempt={routing,usageAtStart};
+            t.pendingAttempt={routing,usageAtStart,model:selectedModel,...(tier ? {tier} : {})};
           });
         }));
         routeAdmission!.checkpoint(task);
@@ -739,7 +811,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           updateTask(ctx, id, current => {
             if (current.state !== "running" || current.startIntent || current.stopPending)
               throw new CoreError("conflict", "executor state changed before refusal settlement");
-            current.attempts.push({ executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
+            current.attempts.push({ ...(tier ? { tier } : {}), executor: cfg.id, model: cfg.model ?? null, startedAt: task.attemptStartedAt!,
               endedAt, exitCode: 1, timedOut: false, limitHit: false, log: "" });
             delete current.runClaim; delete current.pendingAttempt; delete current.worktreeIntent;
           });
@@ -773,6 +845,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const latest = readTask(ctx, id);
         if (latest && TERMINAL_STATES.includes(latest.state)) return latest;
       }
+      if (tier) out.attempt.tier = tier;
       if (owned && readTask(ctx, id)?.stopPending) {
         const deadline = readTask(ctx, id)?.stopPending?.reason === "deadline";
         task = updateTask(ctx, id, current => {
@@ -838,7 +911,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
       attemptedBackend = out.backend ?? attemptedBackend;
       out.attempt.tokens = extractAttemptTokens({ executor: pick, log: attemptUsageText(ctx, id, task.attempts.length + 1, pick, out.attempt.log),
         exitCode: out.attempt.exitCode, timedOut: out.attempt.timedOut, takeover, now: out.attempt.endedAt });
-      task = updateTask(ctx, id, (t) => {
+      task = await withTaskLockAsync(ctx, id, () => updateTask(ctx, id, (t) => {
         t.attempts.push(out.attempt);
         // Same transaction as the attempt; an index failure must not lose the attempt itself.
         try { recordAttemptUsage(ctx, t, t.attempts.length, out.attempt.tokens!, authAccount); } catch (error) { console.warn(`pacer: token usage index not updated for ${id}: ${error instanceof Error ? error.message : String(error)}`); }
@@ -846,7 +919,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         t.backend = attemptedBackend;
         delete t.childPid;
         delete t.childIdentity;
-      });
+      }));
       try {
         const result: TaskResult | undefined = out.worktree ? {
           status: "done", executor: pick, model: cfg.model, files: "", report: "",
@@ -870,9 +943,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         markBroken({ ...ctx, now: Date.now()/1000 }, pick, out.attempt.brokenReason);
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };
         if (pick === task.requestedExecutor) requestedUnavailable = `broken: ${out.attempt.brokenReason}`;
-        if (owned) return finish(ctx, id, { status: "failed", executor: pick,
+        // An owned launch failure settles here; an owned run stopped for a provider retry loop moves on like a limit.
+        if (owned && !isProviderRetrying(out.attempt.brokenReason)) return finish(ctx, id, { status: "failed", executor: pick,
           model: cfg.model, files: "", report: `executor not working: ${out.attempt.brokenReason}`,
           backend: attemptedBackend, ...lastBroken });
+        if (owned) task = updateTask(ctx, id, current => {
+          delete current.run; delete current.executorProvider; delete current.executor;
+          delete current.attemptStartedAt;
+        });
         continue;
       }
       lastBroken = undefined;

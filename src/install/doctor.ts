@@ -4,12 +4,14 @@ import { recordedAgent } from "./reconcile-target";
 import { claudeHookChecks, claudeHooksApplicable, probeClaudeHandlers, enforcementProbeScheduleCheck } from "./doctor-hooks";
 import { removableVolumeChecks } from "./removable-volume";
 import { executorCliCheck } from "./cli-check";
+import { hostSocketCheck } from "./host-socket-check";
 import { serviceBackend, type ServiceStatus } from "../service";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { loadStrategy, MissingStrategyError, type Strategy } from "../config/strategy";
 import { binaryFor, computeStatus, type Status } from "../engine/status";
 import { readJson } from "../fsutil";
+import { notificationsCheck } from "./notifications-check";
 import type { ActivityProfile } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx } from "../types";
@@ -25,6 +27,8 @@ import { withInstallLock } from "./lock";
 import { internalCheck, internalErrorCode, isInternalCode, remedies, remedyCommand, withRemedies } from "./doctor-remedy";
 import { displayName } from "../render/accounts";
 import type { ProviderStatus } from "../engine/rank";
+import { availableModels as listModels, closestModels, isOffered, type AvailableModels } from "../models/available";
+import { modelDeclarationWarnings } from "../core/runner-models";
 
 /** The one primary fix for a warning or failure. The server decides it; clients render it. */
 export interface Remedy {
@@ -42,6 +46,8 @@ export interface Remedy {
   consent?: true;
   /** `user` remedies only: https or x-apple.systempreferences: links. */
   url?: string;
+  /** Optional caption for system settings remedies. */
+  caption?: string;
   secondary?: { label: string; op?: string; params?: Record<string, unknown>; consent?: true; url?: string };
 }
 
@@ -53,12 +59,14 @@ export interface Check {
   fix?: string;
   evidence?: "configured" | "tested" | "unverified";
   remedy?: Remedy;
+  /** Unix seconds when the evidence test was acknowledged; structured for relative-time captions. */
+  tested_at?: number;
 }
 
 /** Hook checks whose files agent.connect writes, so a reviewed reconnect repairs them. */
 const CLAUDE_HOOK_CHECKS = ["Claude hook configuration", "Claude message hooks"];
 
-export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus> } = {}): Promise<Check[]> {
+export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise<Status>; service?: () => Promise<ServiceStatus>; availableModels?: typeof listModels } = {}): Promise<Check[]> {
   // Expire old undo snapshots so credential-bearing configs never sit on disk
   // indefinitely when no file-changing connect runs to prune them (L2). Run
   // under a try-lock so pacer never races a concurrent staged connect or waits
@@ -82,6 +90,19 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       return runner && !(runner.agent === strategy!.planner.agent && runner.account === strategy!.planner.account);
     })) checks.push({ name: "Executor", level: "warn", detail: "no executor configured",
       fix: "install an executor CLI such as codex, then run pacer init" });
+
+    try {
+      checks.push(...await executorModelsChecks(ctx, strategy, deps.availableModels ?? listModels));
+    } catch { /* a failed listing is unknown, never a failure (see executorModelsChecks) */ }
+
+    // Hand-edited drift in the allowed models is pure strategy reading: no listing
+    // is needed, so these checks cannot fail on a fetch like the ones above.
+    for (const runner of Object.values(strategy.runners)) {
+      const warnings = modelDeclarationWarnings(runner);
+      if (warnings.length) checks.push({ name: `Models ${runner.id}`, level: "warn", detail: warnings.join("\n"),
+        remedy: warnings.some(w => w.includes('default model "') && w.endsWith('" is not in models'))
+          ? remedies.agent(`Models ${runner.id}`) : {kind: "user", label: `Rate ${runner.id} models`} });
+    }
 
     for (const cfg of Object.values(strategy.providers)) {
       const bin = binaryFor(cfg);
@@ -160,6 +181,19 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
       ...(!good ? { fix: reinstall ? "pacer service install" : "pacer service restart",
         remedy: remedies.service(reinstall ? "Install service" : "Restart service") } : {}) });
   } catch (e) { checks.push({ name: "Service", level: "info", detail: errorText(e) }); }
+  const hostSocket = await hostSocketCheck(ctx);
+  if (hostSocket) checks.push(hostSocket);
+
+  // The background periodic worker (spec §5) mirrors its health to
+  // state/background-worker.json; surface it so `pacer doctor` reports degradation.
+  try {
+    const bg = readJson<{ state?: string; restarts?: number; lastError?: string | null; lastHeartbeatAt?: number }>(join(ctx.pacerHome, "state", "background-worker.json"));
+    if (bg && typeof bg.state === "string") {
+      const healthy = bg.state === "running";
+      const detail = `state: ${bg.state}; restarts: ${bg.restarts ?? 0}; last error: ${bg.lastError ?? "none"}`;
+      checks.push({ name: "Background worker", level: healthy ? "ok" : "warn", detail });
+    }
+  } catch { /* no background worker reported yet */ }
 
   const profile = readJson<ActivityProfile>(join(ctx.pacerHome, "activity.json"));
   const usableProfile = profile && Array.isArray(profile.active) && Array.isArray(profile.bins)
@@ -211,6 +245,8 @@ export async function runDoctor(ctx: Ctx, deps: { status?: (ctx: Ctx) => Promise
     checks.push({ name: "Legacy guard", level: "warn", detail: "legacy subagent_guard.py present",
       fix: "pacer install claude-code migrates it", ...(claudeAgent ? { remedy: remedies.review(claudeAgent) } : {}) });
   }
+  // Notifications check (spec notification-health §3).
+  checks.push(notificationsCheck(ctx));
   return withRemedies(checks);
 }
 
@@ -257,6 +293,45 @@ function usageRemedy(ctx: Ctx, strategy: Strategy, id: string, provider: Provide
     return agent ? remedies.review(agent) : remedies.agent(`Usage ${id}`);
   }
   return provider?.error ? remedies.agent(`Usage ${id}`) : remedies.refreshUsage(accountName);
+}
+
+/**
+ * Report executor-model drift and OpenCode accounts left without an executor.
+ * Listings are fetched in parallel (they are cached). Only a *known* listing that lacks a
+ * runner's default produces a check: an unknown listing means "not verifiable", not "absent",
+ * so it stays quiet. An OpenCode account is one whose source is `opencode`; its executor is
+ * any runner with agent "opencode" citing that account as its account.
+ */
+async function executorModelsChecks(ctx: Ctx, strategy: Strategy, list: typeof listModels): Promise<Check[]> {
+  const checks: Check[] = [];
+  const modelRunners = Object.values(strategy.runners).filter(runner => !!runner.model);
+  const listings = await Promise.all(modelRunners.map(runner => list(ctx, runner.id)));
+  for (let i = 0; i < modelRunners.length; i++) {
+    const runner = modelRunners[i]!;
+    const offering = listings[i]!;
+    if (isOffered(offering, runner.model!) !== false) continue;
+    const replacement = closestModels(offering, runner.model!, 1)[0];
+    const account = strategy.accounts[runner.account];
+    const provider = account?.provider ?? runner.account;
+    checks.push({
+      name: `Model ${runner.id}`, level: "warn",
+      detail: `default model ${runner.model} is no longer offered by ${provider}${replacement ? `; use ${replacement}` : ""}`,
+      remedy: replacement ? remedies.replaceModel(runner.id, replacement) : remedies.agent(`Model ${runner.id}`),
+    });
+  }
+  const covered = new Set(Object.values(strategy.runners)
+    .filter(runner => runner.agent === "opencode")
+    .map(runner => runner.account));
+  for (const [name, account] of Object.entries(strategy.accounts)) {
+    if (account.source === "opencode" && !covered.has(name)) {
+      checks.push({
+        name: `Account ${name}`, level: "warn",
+        detail: `Account ${name} has no executor`,
+        remedy: remedies.addExecutor(name),
+      });
+    }
+  }
+  return checks;
 }
 
 function loginCheck(ctx: Ctx, runner: RunnerCfg, strategy: Strategy): Check {

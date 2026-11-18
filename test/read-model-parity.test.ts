@@ -17,6 +17,7 @@ import { toBudget } from "../src/link/budget";
 import { OUTBOX_KEEP, OUTBOX_MAX_BYTES, OUTBOX_ROTATE_LINES } from "../src/link/store";
 import { capacityFixture, record } from "./read-model-helpers";
 import { snapshotTasks } from "../src/api/read-model/tasks";
+import pkg from "../package.json";
 import { buildRustProbe, rustSnapshot, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
 import { buildExecutors } from "../src/api/read-model/capacity";
 import { loadStrategy } from "../src/config/strategy";
@@ -103,7 +104,7 @@ test("oversized outbox entry is retained by the existing TS writer", () => {
 test("seeded v2/v3 event conversion keeps only legacy event families", () => {
   let seed = 0x570;
   const next = () => (seed = (Math.imul(seed, 1664525) + 1013904223) >>> 0);
-  const families = ["task", "alert", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "discovery.found"];
+  const families = ["task", "alert", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "discovery.found", "control"];
   const areas = ["machine", "discovery", "strategy", "accounts"];
   const ids = ["discovery:one", "discovery-network:two", "review:three", "setup:four"];
   // Cover every ID and area for the relevant families; a seeded sample alone
@@ -119,9 +120,9 @@ test("seeded v2/v3 event conversion keeps only legacy event families", () => {
     const area = areas[next() % areas.length]!;
     const id = ids[next() % ids.length]!;
     const event = { seq: V3_CURSOR_BASE + i + 1, at: 100 + i, type, data: { area, id, key: id } };
-    const v3Only = type === "discovery.found" || type === "config" && area === "discovery" || ["attention", "notify"].includes(type) && id.startsWith("discovery");
+    const v3Only = type === "control" || type === "discovery.found" || type === "config" && area === "discovery" || ["attention", "notify"].includes(type) && id.startsWith("discovery");
     expect(v3OnlyEvent(event)).toBe(v3Only);
-    const excluded = ["desktop.update", "message", "assistant", "machine", "planner", "discovery.found"].includes(type) || type === "config" && ["machine", "discovery"].includes(area);
+    const excluded = type === "control" || ["desktop.update", "message", "assistant", "machine", "planner", "discovery.found"].includes(type) || type === "config" && ["machine", "discovery"].includes(area);
     const converted = toV2Event(event as never);
     expect(converted === null).toBe(excluded);
     if (converted) expect(converted.seq).toBe(i + 1);
@@ -147,7 +148,7 @@ test("outbox conversion retains non-discovery attention, notify, and config for 
 });
 
 // Golden files are the serialized TS wire contract. Replace only process, platform,
-// temporary-home and random identifiers; preserve every other field and ordering.
+// temporary-home and random identifiers and the package version; preserve every other field and ordering.
 const golden = join(import.meta.dir, "fixtures", "read-model", "ts-golden.json");
 const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   let json = JSON.stringify(value);
@@ -157,6 +158,8 @@ const normalize = (value: unknown, home: string, ids: string[]): unknown => {
   json = json.replace(/local:[0-9a-f]{12}/g, "local:FIXTURE");
   ids.forEach((id, i) => { json = json.replaceAll(id, `TASK_${i + 1}`); });
   json = json.replace(/m-\d{14}-[0-9a-f]{8}/g, "MESSAGE_ID");
+  // The package version changes with every release; the golden must not pin it.
+  json = json.replaceAll(JSON.stringify(pkg.version), '"PACER_VERSION"');
   const parsed = JSON.parse(json) as { snapshot?: { service?: Record<string, unknown>; machine?: Record<string, unknown>; console?: Record<string, unknown> } };
   const snapshots = Array.isArray(parsed) ? parsed : [parsed];
   for (const row of snapshots) {
@@ -300,7 +303,7 @@ test("TS full read-model and event/cursor golden over isolated fixture homes", a
       await cursorReader.cancel();
     } else cursorBounds.push({ since, status: response.status, body: await response.json() });
   }
-  const types = ["discovery.found", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "task"];
+  const types = ["discovery.found", "config", "attention", "notify", "desktop.update", "message", "assistant", "machine", "planner", "task", "control"];
   const v2Exclusions = types.flatMap(type => ["discovery:sample", "review:sample"].flatMap(id => ["discovery", "strategy", "machine"].map(area => ({ type, id, area, discovery: v3OnlyEvent({ type, data: { area, id, key: id } }), v2: toV2Event({ seq: V3_CURSOR_BASE + 1, at: ctx.now, type, data: { area, id, key: id } } as never) }))));
   const observed = { empty, rich, v2, eventCases, gap, sse, invalidCursor, populated, populatedV2, warming, failedStatus, cachedStatus, budgetAge, taskWindow, legacyConsole, retention, oversizedOutbox, cursorBounds, v2Exclusions };
   if (process.env.UPDATE_READ_MODEL_GOLDEN === "1") {

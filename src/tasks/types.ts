@@ -93,6 +93,14 @@ export interface AttemptTokens {
 }
 
 export interface Attempt {
+  tier?: {
+    requestedDifficulty: import("../dispatch/tier-select").Difficulty | "unspecified";
+    difficultySource: "explicit" | "unspecified" | "work" | "legacy";
+    effectiveDifficulty: import("../dispatch/tier-select").Difficulty;
+    targetTier: import("../dispatch/types").TierTargets["standard"];
+    selectedTier: import("../dispatch/types").ModelRecord["tier"] | null;
+    reason: import("../dispatch/tier-select").TierReason;
+  };
   tokens?: AttemptTokens;
   routing?: RoutingNote;
   usageAtStart?: AttemptUsage;
@@ -186,6 +194,11 @@ export interface RunRef {
   lastMessageFile?: string;
   waitKey?: string;
   idleAlertedAt?: number;
+  /**
+   * When the agent's screen first showed a transient provider retry banner without progress since; `fingerprint` is the
+   * worktree's git state then (lease renewals compare it for progress), `ended` the verdict a lease renewal stopped the run on.
+   */
+  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" };
 }
 
 export interface ReviewRequest { note: string; at: number }
@@ -208,6 +221,9 @@ export interface LiveWorker {
 }
 
 export interface TaskRecord {
+  difficulty?: import("../dispatch/work").WorkOptions["difficulty"];
+  difficultySource?: "brief" | "unspecified";
+  model?: string;
   /** Host-authorized origin fetch is journaled before effect; unresolved outcomes cannot be retried. */
   baseFetchIntent?: { attempt: number; providerId: string; repoTop: string;
     originHash: string; base?: string; sha?: string };
@@ -217,8 +233,8 @@ export interface TaskRecord {
     host?: string; remoteDir?: string; remoteBranch?: string; baseSha?: string };
   /** A wrapper start may have reached the OS; never authorize a second start for this attempt. */
   startIntent?: { attempt: number; providerId: string; dir: string };
-  /** Host-verified exit of the exact provider-owned run, safe across later task revision changes. */
-  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number };
+  /** Exact provider-owned run settlement; unverified does not certify wrapper exit or process cleanup. */
+  executorExitReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number; exitCode: number; unverified?: true };
   /** Exact terminal interactive report reaped by the host before logical settlement. */
   executorReportReceipt?: { attempt: number; providerId: string; dir: string; startedAt: number;
     status: "done" | "failed"; summary: string; at: number; exitCode: number };
@@ -238,7 +254,7 @@ export interface TaskRecord {
   /** Persisted owner of a plugin-backed direct attempt, including before its run directory exists. */
   executorProvider?: string;
   /** A stop request is not terminal until the exact executor exit is verified. */
-  stopPending?: { attempt: number; requestedAt: number; providerId: string; graceMs: number;
+  stopPending?: { attempt: number; requestedAt: number; cleanupStartedAt?: number; providerId: string; graceMs: number;
     reason?: "user" | "deadline" };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
@@ -261,7 +277,7 @@ export interface TaskRecord {
   repo?: RepoRef;
   client?: string;
   /** Checkpoint for the in-flight attempt, retained when its runner resumes. */
-  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart">;
+  pendingAttempt?: Pick<Attempt, "routing" | "usageAtStart" | "tier"> & {model?: string | null};
   rev: number;
   question?: { text: string; at: number; answer?: string; answeredAt?: number };
   run?: RunRef;
@@ -339,4 +355,19 @@ export type ManagedSkipReason = "interactive" | "unsupported" | "unverified" | "
 /** A live question needs an answer without surrendering the running attempt's ownership. */
 export function visibleTaskState(task: Pick<TaskRecord, "state" | "question">): TaskState {
   return task.state === "running" && task.question && task.question.answer === undefined ? "needs_input" : task.state;
+}
+
+/** A stored needs_input task still needs the user only while its question is unanswered
+ *  (no answer yet), it was not superseded by a retry, and it is not dismissed.
+ *  This is the attention rule's predicate, factored so every selection (active set,
+ *  snapshot window, live events) shares it: a task answered via the retry path or
+ *  dismissed no longer holds a place as a live question. Mirrors the SQL
+ *  `awaitsAnswerSql` (store.ts) and the Rust `awaits_answer` (pacer-store). */
+export function awaitsAnswer(task: {
+  state: string;
+  question?: { answer?: string | null } | null;
+  retriedBy?: string | null;
+  dismissed?: boolean;
+}): boolean {
+  return task.state === "needs_input" && !!task.question && task.question.answer === undefined && !task.retriedBy && !task.dismissed;
 }

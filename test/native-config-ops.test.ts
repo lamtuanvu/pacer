@@ -23,13 +23,13 @@ function home() {
   return path;
 }
 const normalize = (value: unknown, path: string) => JSON.parse(JSON.stringify(value).replaceAll(path, "$HOME"));
-async function compare(op: string, params: unknown, setup?: (home: string) => void, rawParams?: string) {
+async function compare(op: string, params: unknown, setup?: (home: string) => void, rawParams?: string, env: Record<string, string> = {}) {
   const rs = home(), ts = home();
   setup?.(rs); setup?.(ts);
-  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {PACER_ORCA_USER_DATA:join(ts,"orca-user-data"),PACER_AGENT:"fixture"}});
+  const ctx = fakeCtx({pacerHome: ts, home: ts, now: 1_700_000_000, env: {PACER_ORCA_USER_DATA:join(ts,"orca-user-data"),PACER_AGENT:"fixture",...env}});
   let expected: unknown;
   try {expected = {result: await callOp(ctx, op, params)};} catch (error) {expected = {error:toApiError(error)};}
-  const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture"}\n`;
+  const input = `{"op":${JSON.stringify(op)},"params":${rawParams ?? JSON.stringify(params)},"home":${JSON.stringify(rs)},"now":${ctx.now},"agent":"fixture","env":${JSON.stringify(env)}}\n`;
   const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
   expect(normalize(actual,rs), `${op} ${JSON.stringify(params)} actual=${JSON.stringify(actual)} expected=${JSON.stringify(expected)}`).toEqual(normalize(expected,ts));
   for (const file of ["strategy.yaml", "active", "strategies/review.yaml", "settings.json"]) {
@@ -74,6 +74,8 @@ test("native registry matches every TS config operation result, bytes and public
     ["runner.remove",{id:"cursor"}], ["runner.remove",{id:"claude-code"}], ["runner.remove",{id:"codex#missing"}],
     ["notifications.get",{}], ["notifications.get",{},p=>writeFileSync(join(p,"settings.json"),'{"notifications":"all"}')],
     ...["off","important","all"].map(level=>["notifications.set",{level}] as [string,unknown]),
+    ...["pacer","default","off","basso","glass","submarine","tink"].map(sound=>["notifications.set",{sound}] as [string,unknown]),
+    ["notifications.set",{level:"important",sound:"off"}],
     // Nested pacing inserts that add new map keys after a blank line before the
     // next root key are not byte-identical on this golden yet; stick to keys the
     // shared editor already matches here (corpus covers the broader matrix).
@@ -87,6 +89,48 @@ test("native registry matches every TS config operation result, bytes and public
   ];
   for (const [op,params,setup] of cases) await compare(op,params,setup);
 }, 60_000);
+
+test("planner and backend config.set run natively when no integration install or Orca probe is needed", async () => {
+  const executor = {PACER_ROLE: "executor"};
+  const cases: [unknown, Record<string, string>?][] = [
+    [{key:"planner",value:"codex",integrations:"skip"}],
+    [{key:"planner",value:"cursor",integrations:"skip"}],
+    [{key:"planner",value:"claude-code",integrations:"skip"}],
+    [{key:"planner",value:"claude-code",integrations:"install"}],
+    [{key:"planner",value:"codex"}],
+    [{key:"planner",value:"codex",integrations:"skip"}, executor],
+    [{key:"planner",value:"codex",integrations:"install"}, executor],
+    [{key:"planner",value:"Not A Runner",integrations:"install"}],
+    [{key:"planner",value:"Not A Runner",integrations:"skip"}],
+    [{key:"planner",value:"codex#missing",integrations:"install"}],
+    [{key:"planner",value:"codex#missing",integrations:"skip"}],
+    [{key:"planner",value:["codex"],integrations:"skip"}],
+    [{key:"planner",value:"codex",integrations:"maybe"}],
+    [{key:"execution.backend",value:"direct"}],
+    [{key:"execution.backend",value:"elsewhere"}],
+    [{key:"execution.backend",value:true}],
+    [{key:"execution.backend",value:"direct"}, {PACER_BACKEND:"orca"}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:"direct"}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:"orca"}],
+    [{key:"execution.backend",value:"elsewhere"}, {PACER_BACKEND:"orca"}],
+  ];
+  for (const [params, env] of cases) await compare("config.set", params, undefined, undefined, env);
+}, 60_000);
+
+test("changed planner installs and Orca backend without PACER_BACKEND stay forwarded", () => {
+  for (const [params, env] of [
+    [{key:"planner",value:"codex",integrations:"install"}, {}],
+    [{key:"planner",value:"cursor",integrations:"install"}, {}],
+    [{key:"execution.backend",value:"orca"}, {}],
+    [{key:"execution.backend",value:"orca"}, {PACER_BACKEND:""}],
+  ] as const) {
+    const rs = home(), before = readFileSync(join(rs, "strategy.yaml"));
+    const input = JSON.stringify({op:"config.set",params,home:rs,now:1_700_000_000,agent:"fixture",env}) + "\n";
+    expect(JSON.parse(execFileSync(driver(), [], {input}).toString()), JSON.stringify(params)).toEqual({forwarded: true});
+    expect(readFileSync(join(rs, "strategy.yaml"))).toEqual(before);
+    expect(existsSync(join(rs, "link/outbox.jsonl"))).toBe(false);
+  }
+});
 
 test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue order", async () => {
   const cases: [string,unknown][] = [
@@ -102,7 +146,7 @@ test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue
     ...[1.5,1e20,-1e20,null,"1"].map(rank=>["runner.set",{id:"codex",rank,max_tasks:rank}] as [string,unknown]),
     ["runner.remove",{id:""}], ["runner.remove",{id:"codex\n"}],
     ["runner.reorder",{ids:[3,""]}], ["routing.set",{rules:[{kinds:null,executors:[null,""]},null]}],
-    ["notifications.set",{level:"bad"}], ["notifications.get",null],
+    ["notifications.set",{}], ["notifications.set",{level:"bad"}], ["notifications.set",{sound:"bad"}], ["notifications.set",{sound:"Glass"}], ["notifications.set",{sound:"glass.aiff"}], ["notifications.set",{level:"all",sound:"squeak"}], ["notifications.get",null],
     ["config.set",{}], ["config.set",{key:"nope",value:1}],
     ["config.set",{key:"update_check",value:{a:1}}],
     ["config.set",{key:"pacing.policy",value:"bad"}],
@@ -115,6 +159,14 @@ test("notification migration and writes preserve TS object spread and numeric ke
   for (const initial of ['[1e30,1e-7,1e-6,1e400,9007199254740993,-0]', '["keep",3]', '"ascii"', '"😀"', '{"0":"\\ud83d","1":"\\ude00","notifications":"all"}', '{"2":"second","0":"first","other":true}', '3', 'null', '{"unrelated":true,"notifications":"invalid"}']) {
     for (const op of ["notifications.get", "notifications.set"]) {
       await compare(op, op.endsWith("set") ? {level:"all"} : {}, path=>writeFileSync(join(path,"settings.json"), initial, {mode:0o600}));
+    }
+  }
+}, 30_000);
+
+test("notification get and set agree on stored, invalid and migrated sound values", async () => {
+  for (const initial of ['{"notifications":"all","notificationSound":"off"}', '{"notifications":"all","notificationSound":"glass"}', '{"notifications":"all","notificationSound":"Glass"}', '{"notifications":"all","notificationSound":"squeak"}', '{"notifications":"all","notificationSound":3}', '{"notifications":"all","notificationSound":null}', '{"notificationSound":"default"}', '{"notifications":"invalid","notificationSound":"off","other":1}']) {
+    for (const [op, params] of [["notifications.get", {}], ["notifications.set", {level:"off"}], ["notifications.set", {sound:"default"}], ["notifications.set", {sound:"hero"}], ["notifications.set", {level:"all", sound:"off"}]] as const) {
+      await compare(op, params, path=>writeFileSync(join(path,"settings.json"), initial, {mode:0o600}));
     }
   }
 }, 30_000);

@@ -4,6 +4,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { CoreError } from "../../../src/core/errors";
+import { workActionRequestId } from "../../../src/work/action-id";
 const transpiler = new Bun.Transpiler({ loader: "ts" });
 function load(path: string, names: string[], deps: Record<string, any>) {
   const source = transpiler
@@ -30,10 +31,12 @@ const error = (e: any) => {
 const hostsCfg = load("src/config/hosts.ts", ["canonical", "repoKey"], {});
 const { AGENTS } = load("src/config/agent-id.ts", ["AGENTS"], {});
 const runnerId = load("src/config/runner-id.ts", ["parseRunnerId"], { AGENTS });
+const { AGENT_BINS } = load("src/install/detection.ts", ["AGENT_BINS"], {});
+const { awaitsAnswer } = load("src/tasks/types.ts", ["awaitsAnswer"], {});
 const taskFns = load(
   "src/api/read-model/tasks.ts",
   ["taskAttentionReason", "supersededTaskIds"],
-  {},
+  { awaitsAnswer },
 );
 const discovery = load("src/discovery/prompts.ts", ["discoveryPrompts"], {});
 const { executorName } = load("src/link/notification.ts", ["executorName"], {});
@@ -43,11 +46,18 @@ const { redactEndpointError } = load(
   ["redactEndpointError"],
   { sliceText },
 );
+const { isOffered, closestModels } = load(
+  "src/models/available.ts",
+  ["isOffered", "closestModels"],
+  {},
+);
 const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
   ...runnerId,
   ...taskFns,
   ...discovery,
+  awaitsAnswer,
   executorName,
+  workActionRequestId,
 });
 const taskAttention = load("src/core/task-attention.ts", ["deriveTaskItems"], {
   ...taskFns,
@@ -91,7 +101,7 @@ export async function reference(c: any): Promise<any> {
             a.type === "register"
               ? api.register(ctx, a.options)
               : a.type === "heartbeat"
-                ? api.heartbeat(ctx, a.id, a.notifier)
+                ? api.heartbeat(ctx, a.id, a.notifier, a.notification_permission, a.notification_alerts)
                 : a.type === "active"
                   ? api.activeNotifier(ctx)
                   : api.list(ctx),
@@ -430,6 +440,7 @@ export async function reference(c: any): Promise<any> {
       let reads = 0;
       const api = load("src/core/runner-check.ts", ["checkRunner"], {
         ...memory,
+        AGENT_BINS,
         loadStrategy: () => ({
           accounts: { [c.account.name]: c.account },
           hosts: {},
@@ -478,6 +489,25 @@ export async function reference(c: any): Promise<any> {
         readAccountUsage: async () => {},
         accountSignIn: () => ({ reason: c.signInReason }),
         accountEvidenceScope: () => ({}),
+        availableModels: async () => {
+          const m = c.models;
+          if (!m) return { runner: c.runner.id, source: "none", models: null, fetchedAt: ctx.now };
+          return {
+            runner: c.runner.id,
+            source: m.source,
+            models:
+              m.offered !== null && m.offered !== undefined
+                ? [
+                    ...(m.offered === true ? [{ id: c.runner.model }] : []),
+                    ...m.closest.map((id: string) => ({ id })),
+                  ]
+                : null,
+            fetchedAt: ctx.now,
+            ...(m.note !== undefined ? { note: m.note } : {}),
+          };
+        },
+        isOffered,
+        closestModels,
         redactEndpointError,
       });
       return await api.checkRunner(ctx, c.runner.id);

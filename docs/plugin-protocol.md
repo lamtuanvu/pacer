@@ -2016,7 +2016,8 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "liveness",
         "machine",
         "assistant",
-        "discovery.found"
+        "discovery.found",
+        "control"
       ]
     },
     "data": {
@@ -2896,6 +2897,44 @@ Params:
     "config": {
       "type": "object",
       "properties": {
+        "tierTargets": {
+          "type": "object",
+          "properties": {
+            "simple": {
+              "default": "small",
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "standard": {
+              "default": "medium",
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "complex": {
+              "default": "frontier",
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            }
+          },
+          "required": [
+            "simple",
+            "standard",
+            "complex"
+          ],
+          "additionalProperties": false
+        },
         "engine": {
           "default": "ladder",
           "type": "string",
@@ -3188,6 +3227,7 @@ Params:
         }
       },
       "required": [
+        "tierTargets",
         "engine",
         "engineFallback",
         "timeoutMs",
@@ -3275,6 +3315,43 @@ Result:
             "minLength": 1,
             "maxLength": 256
           }
+        },
+        "tier": {
+          "type": "object",
+          "properties": {
+            "targetTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "selectedTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier",
+                "unknown"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "target-match",
+                "upward-fallback",
+                "unknown-tier-fallback",
+                "explicit-override"
+              ]
+            }
+          },
+          "required": [
+            "targetTier",
+            "selectedTier",
+            "reason"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -3307,6 +3384,43 @@ Result:
             "minLength": 1,
             "maxLength": 256
           }
+        },
+        "tier": {
+          "type": "object",
+          "properties": {
+            "targetTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier"
+              ]
+            },
+            "selectedTier": {
+              "type": "string",
+              "enum": [
+                "small",
+                "medium",
+                "frontier",
+                "unknown"
+              ]
+            },
+            "reason": {
+              "type": "string",
+              "enum": [
+                "target-match",
+                "upward-fallback",
+                "unknown-tier-fallback",
+                "explicit-override"
+              ]
+            }
+          },
+          "required": [
+            "targetTier",
+            "selectedTier",
+            "reason"
+          ],
+          "additionalProperties": false
         }
       },
       "required": [
@@ -10791,7 +10905,8 @@ Params:
           "liveness",
           "machine",
           "assistant",
-          "discovery.found"
+          "discovery.found",
+          "control"
         ]
       }
     }

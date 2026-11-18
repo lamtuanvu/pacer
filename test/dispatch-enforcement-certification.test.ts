@@ -52,6 +52,32 @@ test("target uses the selected account and repository control files",async()=>{
   expect(target.controlFiles).toContain(join(repo,".claude","settings.json"));
   expect(target.launchArgs).toContain("--dangerously-skip-permissions");
 });
+test("the native control canary never inherits the native process owner socket",async()=>{
+  const dir=tmpDir(),script=join(dir,"canary-env.ts"),src=join(import.meta.dir,"../src");
+  await Bun.write(script,`
+    import { mock } from "bun:test";
+    import { readFileSync, writeFileSync, chmodSync } from "node:fs";
+    import { join } from "node:path";
+    mock.module(${JSON.stringify(join(src,"plugins/agent-session.ts"))},()=>({agentDelegationControl:async()=>({mechanism:"hook",entryPoints:["Task"]})}));
+    const { fakeCtx, tmpDir } = await import(${JSON.stringify(join(import.meta.dir,"helpers.ts"))});
+    const { validateStrategy } = await import(${JSON.stringify(join(src,"config/strategy.ts"))});
+    const { probeNativeControl } = await import(${JSON.stringify(join(src,"dispatch/enforcement.ts"))});
+    const home=tmpDir(),repo=tmpDir(),binary=join(home,"claude"),dump=join(home,"canary.env");
+    writeFileSync(binary,"#!/bin/sh\\n/bin/cat >/dev/null\\n/usr/bin/env > "+JSON.stringify(dump)+"\\n");chmodSync(binary,0o755);
+    const ctx=fakeCtx({home,env:{PATH:process.env.PATH,PACER_BIN:"/opt/pacer",PACER_HOST_SOCKET:"/tmp/pacer/run/host.sock"},
+      which:name=>name==="claude"?binary:null,run:async()=>({code:0,stdout:"2.1.281 (Claude Code)\\n",stderr:""})});
+    const strategy=validateStrategy({planner:"claude-code",accounts:{"claude-code":{kind:"claude"}},runners:{"claude-code":{agent:"claude-code",account:"claude-code",session:"headless"}}},"test");
+    const status=await probeNativeControl(ctx,strategy,"claude-code",repo);
+    console.log(JSON.stringify({status,names:readFileSync(dump,"utf8").split("\\n").map(line=>line.split("=")[0])}));
+  `);
+  const child=Bun.spawn([process.execPath,script],{stdout:"pipe",stderr:"pipe"});
+  const output=await new Response(child.stdout).text(),errors=await new Response(child.stderr).text();
+  expect({code:await child.exited,errors}).toEqual({code:0,errors:""});
+  const {status,names}=JSON.parse(output);
+  expect(status.state).toBe("uncertified");
+  expect(names).toContain("PACER_ROLE");
+  expect(names).not.toContain("PACER_HOST_SOCKET");
+});
 test("strict Claude launches attach the current Pacer guard without editing account settings",()=>{
   const ctx=fakeCtx({env:{PACER_BIN:"/opt/pacer"}}),dir=tmpDir();
   const original=["claude","-p","--","hello"];

@@ -1,11 +1,14 @@
 import { CoreError } from "../core/errors";
+import { answerLiveTask } from "../core/tasks";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
 import { callerParticipant, rootOf, taskOf } from "./participants";
 import { checkSend } from "./policy";
+import { directInputAvailable } from "../session/send";
 import { readTask, updateTask } from "../tasks/store";
 import * as store from "./store";
 import { assertOpen, deliver, notifyMessage, readMessages, type Delivery, type TurnDelivery, type TurnHold } from "./turns";
+import type { TaskRecord } from "../tasks/types";
 import { participantSchema, type Message, type MsgKind } from "./types";
 
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
@@ -38,11 +41,16 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
 }
 
 /**
- * Deliver a pending message. An answer is recorded on the task's question before the turn starts, as pacer answer does;
- * an answer that reaches no turn, or whose delivery fails, leaves the task's question open for the legacy retry.
- * The question is read once delivery is decided; an answer project policy held leaves it unread, so it can be answered again.
+ * Deliver a pending message. An answer to a question that the target task currently waits on in its own live
+ * interactive session is typed into that session at once, exactly as `pacer answer` does: the agent reads nothing
+ * else while it waits for its answer, so no turn started here or live poll later would ever deliver it. Any other
+ * delivery starts the task's next message turn. An answer that reaches no turn, or whose delivery fails, leaves
+ * the task's question open for the legacy retry; the question is read once delivery is decided. An answer project
+ * policy held leaves it unread, so it can be answered again.
  */
 async function deliverMessage(ctx: Ctx, m: Message, deps: SendDeps): Promise<TurnDelivery> {
+  const target = m.kind === "answer" && m.replyTo ? directAnswerTarget(ctx, m) : undefined;
+  if (target && await deliverLiveAnswer(ctx, m, target)) return { delivery: "live" };
   const answered = m.kind === "answer" && m.replyTo ? recordAnswer(ctx, m.from, m.to, m.replyTo, m.body) : undefined;
   let result: TurnDelivery;
   try { result = await deliver(ctx, m.to, deps.spawnRunner); }
@@ -50,6 +58,45 @@ async function deliverMessage(ctx: Ctx, m: Message, deps: SendDeps): Promise<Tur
   if (answered && result.delivery !== "turn_started" && result.delivery !== "queued") answered.undo?.();
   if (answered && result.delivery !== "held") readMessages(ctx, answered.question.to, [answered.question.id]);
   return result;
+}
+
+/** The task a reply answers, when it currently waits for that answer in its own live interactive run. */
+function directAnswerTarget(ctx: Ctx, m: Message): string | undefined {
+  const id = taskOf(m.to);
+  const question = answeredQuestion(ctx, m.from, m.to, m.replyTo!);
+  if (!question || !id) return undefined;
+  const task = readTask(ctx, id);
+  return task?.question && task.question.answer === undefined && isTaskQuestion(task, question) && directInputAvailable(task) ? id : undefined;
+}
+
+/** The task's open question is the one the message replies to, matched as answerLiveTask matches it. */
+const isTaskQuestion = (task: TaskRecord, question: Message) =>
+  task.question !== undefined && task.question.text === question.body && task.question.at === question.createdAt;
+
+/**
+ * Answer the question a live run waits on, as pacer answer does: the answer is reserved on the task's question
+ * and typed into the running session, and the answer message is marked read so no later turn or live poll
+ * delivers it again. The message is read before typing: while the answer is reserved the answer message may
+ * not be claimed elsewhere, and a possibly-typed failure keeps it read. A delivery that typed nothing while the
+ * session still waits rethrows and keeps it read, so only the caller's retry (same request id) delivers it — the
+ * caller must never report it delivered. When the task moved on beneath the send (another answer, or its run changed),
+ * returns false and the ordinary delivery below decides from the task as it is now.
+ */
+async function deliverLiveAnswer(ctx: Ctx, m: Message, target: string): Promise<boolean> {
+  readMessages(ctx, m.to, [m.id]);
+  try {
+    await answerLiveTask(ctx, target, m.body);
+  } catch (e) {
+    // Possibly typed: answerLiveTask keeps the reservation on the task's question deliberately, so nothing
+    // here may resend it; the failure reaches the caller.
+    if (readTask(ctx, target)?.question?.answer === m.body) throw e;
+    // A refused answer to the question the task waits on reaches the caller and stays read, so no later tick types it
+    // behind the caller's back; only a reply that may still go out another way returns to pending.
+    if (directAnswerTarget(ctx, m)) throw e;
+    store.unmarkRead(ctx, m.to, [m.id]);
+    return false;
+  }
+  return true;
 }
 
 /**
@@ -62,7 +109,8 @@ function recordAnswer(ctx: Ctx, caller: string, to: string, replyTo: string, bod
   const id = taskOf(to);
   if (!question || !id) return undefined;
   const task = readTask(ctx, id);
-  if (!task?.question || task.question.answer !== undefined) return { question };
+  // A stale reply to an earlier question is never recorded as the answer of the question the task waits on now.
+  if (!task?.question || task.question.answer !== undefined || !isTaskQuestion(task, question)) return { question };
   updateTask(ctx, id, t => { if (t.question && t.question.answer === undefined) { t.question.answer = body; t.question.answeredAt = ctx.now; } });
   return { question, undo: () => updateTask(ctx, id, t => { if (t.question?.answer === body) { delete t.question.answer; delete t.question.answeredAt; } }) };
 }
@@ -82,6 +130,11 @@ async function duplicate(ctx: Ctx, prior: Message & { fingerprint: string | null
   if (message.status === "held") return { message, duplicate: true, delivery: "held" };
   // The first delivery never started a turn (project policy may have held it): try again, answering the question as a first send does.
   if (message.status === "pending") {
+    const { delivery, hold } = await deliverMessage(ctx, message, deps);
+    return { message, duplicate: true, delivery, ...(hold ? { hold } : {}) };
+  }
+  // A refused live answer stays read while its question stays open: a retry of the same request delivers it again.
+  if (message.kind === "answer" && message.replyTo && directAnswerTarget(ctx, message)) {
     const { delivery, hold } = await deliverMessage(ctx, message, deps);
     return { message, duplicate: true, delivery, ...(hold ? { hold } : {}) };
   }

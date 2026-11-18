@@ -61,6 +61,12 @@ export interface Status {
   executors: { ranked: RankedExecutor[]; excluded: Excluded[] };
 }
 
+/** The computeStatus parts native status ops compose with (`_internal.status-broker.parts`). */
+export const statusBrokerParts = (status: Status) => ({
+  accounts: status.accounts, providers: status.providers, policy: status.policy, calendarPace: status.calendarPace,
+  ...(status.warnings ? { warnings: status.warnings } : {}),
+});
+
 const BINARIES: Record<string, string> = { "claude-code": "claude", codex: "codex", cursor: "cursor-agent", agy: "agy" };
 
 export function binaryFor(cfg: ProviderCfg): string {

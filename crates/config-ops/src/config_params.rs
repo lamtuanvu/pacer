@@ -1,4 +1,5 @@
 //! The P2-C subset of the TS operation schemas, including Zod issue order.
+use pacer_config::notifications::SOUNDS;
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::{Value, json};
 
@@ -10,6 +11,7 @@ enum Schema {
     /// Inclusive min/max with Zod `.min(n).max(m)` messages (`>=` / `<=`).
     IntegerBounds(f64, f64),
     Level,
+    Sound,
     HostSession,
     Json,
     Array(Box<Schema>),
@@ -91,6 +93,20 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
                 .is_some_and(|v| ["off", "important", "all"].contains(&v))
             {
                 issue("Invalid option: expected one of \"off\"|\"important\"|\"all\"".into());
+            }
+            return value.cloned().unwrap_or(Value::Null);
+        }
+        Schema::Sound => {
+            if !value
+                .and_then(Value::as_str)
+                .is_some_and(|v| SOUNDS.contains(&v))
+            {
+                let choices = SOUNDS
+                    .iter()
+                    .map(|v| format!("\"{v}\""))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                issue(format!("Invalid option: expected one of {choices}"));
             }
             return value.cloned().unwrap_or(Value::Null);
         }
@@ -249,6 +265,9 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
             ("rank", Integer(0.0), true),
         ]),
         "runner.reorder" => object(vec![("ids", array(id()), false)]),
+        "executor.models.available" => {
+            object(vec![("runner", id(), false), ("refresh", Bool, true)])
+        }
         "runner.remove" => object(vec![("id", RunnerId, false)]),
         "runner.settings.get" => object(vec![]),
         "runner.settings.save" => object(vec![
@@ -264,7 +283,7 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
                 false,
             ),
         ]),
-        "notifications.set" => object(vec![("level", Level, false)]),
+        "notifications.set" => object(vec![("level", Level, true), ("sound", Sound, true)]),
         "host.add" => object(vec![
             ("alias", id(), false),
             ("ssh", String(1, None), false),
@@ -316,6 +335,14 @@ pub fn parse(op: &str, mut params: Value) -> Result<Value, CoreError> {
                 kind(Some(set))
             ),
         );
+    }
+    // Zod refine: runs only once the field checks pass.
+    if op == "notifications.set"
+        && issues.is_empty()
+        && params.get("level").is_none()
+        && params.get("sound").is_none()
+    {
+        issues.push("params: provide level or sound".into());
     }
     if issues.is_empty() {
         Ok(result)

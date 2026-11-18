@@ -14,7 +14,7 @@ use pacer_desktop::ota::control::NativeConnection;
 #[cfg(feature = "native-socket")]
 use std::sync::Arc;
 
-fn pacer_home() -> PathBuf {
+pub(crate) fn pacer_home() -> PathBuf {
     std::env::var_os("PACER_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
@@ -213,6 +213,20 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
         let status = process.wait().map_err(|e| e.to_string())?;
         final_state.ok_or_else(|| format!("Takeover helper stopped without a final state ({status})"))
     }).await.map_err(|e| e.to_string())??;
+    if result == "committed" {
+        // The user explicitly moved the service to the app, so "Keep mine" no longer
+        // describes this installation; the desktop stops running the replaced build
+        // for its own CLI calls (ADR 0011).
+        if let Ok(config) = app.path().app_config_dir() {
+            if let Ok(Some(consent)) = pacer_desktop::ota::takeover::detect::read_consent(&config) {
+                if consent.keep {
+                    if let Err(error) = write_consent(&config, consent.path, false) {
+                        desktop_log!("pacer lifecycle: takeover could not record the app's service as chosen: {error}");
+                    }
+                }
+            }
+        }
+    }
     if result == "committed" && relink {
         if let Err(error) = link::relink_after_takeover(&user_home, &bundled_binary().ok_or("Bundled command missing")?, &view.candidate.identity, std::time::SystemTime::now()) {
             crate::set_takeover_progress(app, serde_json::json!({"state":"committed","error":"relink"}));
@@ -227,6 +241,8 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
                         body: body.into(),
                         route: "#/".into(),
                         actions: Vec::new(),
+                        key: None,
+                        client_id: None,
                     },
                 );
             }
@@ -903,15 +919,17 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             let config = app.path().app_config_dir().ok()?;
             let home = required_home(std::env::var_os("HOME").as_deref()).ok()?;
             let bundled = bundled_binary()?;
+            let consent = pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten();
             // While nothing changed, reuse the cached inspection instead of hashing
-            // and verifying the other build again on every reconnect.
+            // and verifying the other build again on every reconnect. Either consent
+            // choice is detected; only the launch-time offer differs.
             let cached = app.state::<Shell>().takeover.lock().unwrap().clone();
             if let Some(view) = cached {
-                if pacer_desktop::ota::takeover::detect::read_consent(&config).ok().flatten().is_some_and(|consent| !consent.keep)
+                if consent.is_some()
                     && pacer_desktop::ota::control::observe_service_registration(&home, &cli.pacer_home, service_port(), &trust)
                         .is_ok_and(|observed| pacer_desktop::ota::takeover::detect::still_current(&view.candidate, &observed))
                 {
-                    return Some((view, config));
+                    return Some((view, config, consent.is_some_and(|consent| consent.keep)));
                 }
             }
             match pacer_desktop::ota::takeover::detect::detect_takeover(&config, &home, &cli.pacer_home, service_port(), &bundled, &trust) {
@@ -923,12 +941,12 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         "port":candidate.port,
                         "dataHome":candidate.home,
                     });
-                    (crate::TakeoverView { candidate, inspection }, config)
+                    (crate::TakeoverView { candidate, inspection }, config, consent.is_some_and(|consent| consent.keep))
                 }),
                 Err(error) => { desktop_log!("pacer lifecycle: takeover inspection unavailable: {error}"); None }
             }
         })();
-        if let Some((mut view, config)) = candidate {
+        if let Some((mut view, config, keep)) = candidate {
             // Identity checks are cached; the work counts are read on every pass.
             let task_count = tokio::time::timeout(Duration::from_secs(3), count_active_tasks(&session)).await.ok().flatten();
             let terminal_count = tokio::time::timeout(Duration::from_secs(2), session.op("terminal.list", &serde_json::json!({}))).await.ok().and_then(Result::ok)
@@ -940,7 +958,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             // dismissal, for example when it was opened from Settings or the restored outcome.
             let retry = app.state::<Shell>().takeover_retry.swap(false, Ordering::SeqCst);
             let reviewing = retry || app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == "takeover");
-            if reviewing || logic::launch_gate(true, dismissed) == logic::LaunchGate::Takeover {
+            if reviewing || logic::launch_offer(keep, dismissed) {
                 crate::recovery(app, "takeover");
                 return Err("takeover".into());
             }
@@ -1007,10 +1025,15 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         return Err("starting".into());
     }
+    crate::approvals::refresh_notifications();
     let registration = session
         .op(
             "client.register",
-            &registration_params(crate::approvals::notifications_presentable()),
+            &registration_params(
+                crate::approvals::notifications_presentable(),
+                crate::approvals::notification_permission_reported(),
+                crate::approvals::notification_alerts_state(),
+            ),
         )
         .await?;
     let client_id = registration["client_id"]
@@ -1127,12 +1150,20 @@ async fn monitor_health(app: &AppHandle, client: &Client) -> Result<(), String> 
 /// seconds under load (background timers), and a heartbeat should outlast that before it even
 /// counts as a miss, independent of the retry tolerance below.
 const HEARTBEAT_OP_TIMEOUT: Duration = Duration::from_secs(20);
-fn registration_params(notifier: bool) -> Value {
-    serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true})
+fn registration_params(notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
+    let mut value = serde_json::json!({"kind":"desktop","version":env!("CARGO_PKG_VERSION"),"notifier":notifier,"capture":true,"notification_alerts":notification_alerts});
+    if let Some(permission) = notification_permission {
+        value["notification_permission"] = permission.into();
+    }
+    value
 }
 /// Services before the heartbeat `notifier` flag ignore it, keeping the registered value.
-fn heartbeat_params(client_id: &str, notifier: bool) -> Value {
-    serde_json::json!({"client_id":client_id,"notifier":notifier})
+fn heartbeat_params(client_id: &str, notifier: bool, notification_permission: Option<String>, notification_alerts: String) -> Value {
+    let mut value = serde_json::json!({"client_id":client_id,"notifier":notifier,"notification_alerts":notification_alerts});
+    if let Some(permission) = notification_permission {
+        value["notification_permission"] = permission.into();
+    }
+    value
 }
 async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Result<(), String> {
     let mut missing_reported = false;
@@ -1165,7 +1196,12 @@ async fn heartbeat(app: &AppHandle, session: &Session, client_id: &str) -> Resul
         let result = session
             .op_timeout(
                 "client.heartbeat",
-                &heartbeat_params(client_id, crate::approvals::notifications_presentable()),
+                &heartbeat_params(
+                    client_id,
+                    crate::approvals::notifications_presentable(),
+                    crate::approvals::notification_permission_reported(),
+                    crate::approvals::notification_alerts_state(),
+                ),
                 HEARTBEAT_OP_TIMEOUT,
             )
             .await;
@@ -1207,6 +1243,15 @@ async fn reconcile_cursor(app: &AppHandle, session: &Session, home: &std::path::
     let identity=event_identity(&session.origin,home,&session.owner_identity,&process,&registration,&session.hello_identity.lock().unwrap());
     Ok(app.state::<crate::ipc_transport::Bridge>().reconcile_cursor(identity,snapshot["seq"].as_u64().unwrap_or(0)))
 }
+/// Whether a `control` entity event is addressed to this client: the recipient
+/// list includes `client_id`, or a bare `client_id` matches when no list is given.
+fn control_targets_client(value: &Value, client_id: &str) -> bool {
+    let recipients = value.get("recipients").and_then(|v| v.as_array());
+    recipients
+        .map(|list| list.iter().any(|item| item.as_str() == Some(client_id)))
+        .unwrap_or_else(|| value.get("client_id").and_then(|v| v.as_str()) == Some(client_id))
+}
+
 async fn listen(
     app: &AppHandle,
     session: &Session,
@@ -1294,6 +1339,16 @@ async fn listen(
                             crate::notifications::from_event(&data, &client_id)
                         {
                             crate::notify(app, notification);
+                        }
+                    }
+                }
+                if event.kind == "control" {
+                    if let Ok(value) = serde_json::from_str::<Value>(&event.data) {
+                        let action = value.get("action").and_then(|v| v.as_str());
+                        if action == Some("notifications.request")
+                            && control_targets_client(&value, &client_id)
+                        {
+                            crate::approvals::request_notifications_then_refresh();
                         }
                     }
                 }
@@ -1814,6 +1869,14 @@ fn takeover_gate(app: &AppHandle) -> Option<TakeoverHold> {
 fn show_takeover_outcome(app: &AppHandle, page: &'static str, error: Option<String>) {
     if app.state::<Shell>().diagnosis.lock().unwrap().as_ref().is_some_and(|d| d.page == page) {
         return;
+    }
+    // The journal's reason is the only record of which check failed; name it
+    // here, in the one log the maintainer reads, without paths or identifiers.
+    if matches!(page, "takeoverRestored" | "takeoverFailed") {
+        if let Some(reason) = error.as_deref() {
+            let (step, predicate) = logic::takeover_failure_step(reason);
+            desktop_log!("pacer lifecycle: takeover step {step} failed: {predicate}");
+        }
     }
     desktop_log!("pacer lifecycle: holding takeover page {page}; service actions wait for the transaction");
     let mut detail = logic::diagnosis(page, None);
@@ -3033,14 +3096,22 @@ mod notifier_params_tests {
     #[test]
     fn registration_and_heartbeat_carry_the_notifier_flag() {
         for notifier in [true, false] {
-            let registration = registration_params(notifier);
+            let registration = registration_params(notifier, Some("authorized".into()), "banner".into());
             assert_eq!(registration["kind"], "desktop");
             assert_eq!(registration["notifier"], notifier);
             assert_eq!(registration["capture"], true);
+            assert_eq!(registration["notification_permission"], "authorized");
+            assert_eq!(registration["notification_alerts"], "banner");
             assert_eq!(
-                heartbeat_params("client", notifier),
-                serde_json::json!({"client_id":"client","notifier":notifier})
+                heartbeat_params("client", notifier, Some("authorized".into()), "banner".into()),
+                serde_json::json!({"client_id":"client","notifier":notifier,"notification_permission":"authorized","notification_alerts":"banner"})
             );
+            // A None permission is omitted entirely (item 13): the service must not read
+            // "unsupported" for an app macOS has not answered yet.
+            let omitted = registration_params(notifier, None, "none".into());
+            assert!(!omitted.get("notification_permission").is_some());
+            let omitted_heartbeat = heartbeat_params("client", notifier, None, "none".into());
+            assert!(!omitted_heartbeat.get("notification_permission").is_some());
         }
     }
 }
@@ -3071,5 +3142,26 @@ mod event_identity_tests {
             event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&serde_json::json!("new registration"),&Value::Null),
             event_identity("http://127.0.0.1:4317",home,"owner-a",&image,&Value::Null,&serde_json::json!("new hello")),
         ] {assert_ne!(identity,changed);}
+    }
+}
+
+#[cfg(test)]
+mod control_targeting_tests {
+    use super::*;
+
+    #[test]
+    fn control_event_targets_only_the_desktop_that_owns_the_notify_request() {
+        // The service sends recipients; this client must act only when its id is listed.
+        let mine = serde_json::json!({"action":"notifications.request","recipients":["other","me"],"client_id":"other"});
+        assert!(control_targets_client(&mine, "me"));
+        assert!(!control_targets_client(&mine, "other-plus")); // no prefix match
+        assert!(!control_targets_client(&mine, "them"));
+        // A bare client_id also targets when present (backward-compatible shape).
+        let bare = serde_json::json!({"action":"notifications.request","client_id":"only"});
+        assert!(control_targets_client(&bare, "only"));
+        assert!(!control_targets_client(&bare, "someone"));
+        // No recipient list and no client_id means untargeted.
+        let untargeted = serde_json::json!({"action":"notifications.request"});
+        assert!(!control_targets_client(&untargeted, "me"));
     }
 }
