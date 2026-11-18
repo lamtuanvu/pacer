@@ -2701,10 +2701,18 @@ export class PluginRegistry {
           try {
             reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
           } catch (error) {
-            // A failed call's reply still carried the `hello` when the child answered it.
             if (error instanceof CoreError) {
+              // A failed call's reply still carried the `hello` when the child answered it.
               const hello = nativeOwnerHello.safeParse(error.data?.hello);
               if (hello.success) markReadyFrom(hello.data);
+              // The hello rides the wire only to restore readiness; flag-off errors
+              // never carry it, so it must not reach the caller. An error whose data
+              // held nothing else loses `data` entirely, as flag-off has none.
+              if (error.data && Object.hasOwn(error.data, "hello")) {
+                delete error.data.hello;
+                if (!Object.keys(error.data).length)
+                  (error as unknown as { data?: Record<string, unknown> }).data = undefined;
+              }
             }
             throw error;
           }
