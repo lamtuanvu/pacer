@@ -864,6 +864,7 @@ fn known_capability(method: &str) -> bool {
         "usage.state",
         "hosts",
         "orca",
+        "assistant.tool",
     ]
     .iter()
     .any(|capability| name == *capability || name.starts_with(&format!("{capability}.")))

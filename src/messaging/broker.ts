@@ -3,7 +3,7 @@ import { withLock } from "../core/lock";
 import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
 import { publish } from "../link/publish";
-import { readTask } from "../tasks/store";
+import { readTask, updateTask } from "../tasks/store";
 import { stopRun } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
@@ -11,7 +11,7 @@ import { analyzeLiveness, buildSnapshot, type Stall } from "./liveness";
 import { clearLiveness, getLiveness, listLiveness, upsertLiveness, type LivenessUpsert } from "./liveness-store";
 import { rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
-import { insertMessage } from "./store";
+import { insertMessage, markRead } from "./store";
 import { messagesDatabase } from "./store";
 import { deliver } from "./turns";
 
@@ -19,9 +19,11 @@ export interface BrokerReport { skipped?: "locked" | "mode_unavailable"; stalls?
 export interface BrokerDeps { spawnRunner?: SpawnRunner; mode: () => Promise<Mode | undefined> }
 
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
-  const task = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node)?.task;
+  const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, task?.progress?.lastOutputAt, last?.id]);
+  // A spinner moves lastOutputAt every tick; a no-progress stall resets only on progress.
+  const moved = stall.reason === "no_progress" ? n?.lastProgressAt : task?.progress?.lastOutputAt;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id]);
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
@@ -48,14 +50,17 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const config = effectivePolicy(ctx, { root }).config.liveness;
         const allowed = config.nudge_in_modes.includes(mode);
         const old = getLiveness(ctx, node);
-        const mark = progressMark(ctx, stall, snapshot);
+        const mark = progressMark(ctx, stall, snapshot), seen = snapshot.tasks.find(n => `task:${n.task.id}` === node);
+        // Per attempt, so a retried task's pings are not taken for the previous attempt's.
+        const pingId = (n: number) => `nudge:${node}:a${seen?.task.run?.attempt ?? 0}:${n}`;
         const changed = old?.progressMark !== mark || old.reason !== stall.reason;
         const row: LivenessUpsert = old && !changed ? { ...old } : {
-          node, reason: stall.reason, since: ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
+          // A no_progress stall started at the last progress, which the attention detail counts from.
+          node, reason: stall.reason, since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now : ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         row.reason = stall.reason;
-        const nudged = stall.reason === "cycle" || stall.reason === "idle_run";
+        const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress";
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
         if (ctx.now < row.nextAt && nudged && allowed && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
@@ -68,6 +73,34 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             acted = true;
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
           }
+        } else if (stall.reason === "no_progress") {
+          if (!allowed) stallNow = true;
+          // Ping first; only pings that go unanswered stop the run.
+          else if (row.nudges < config.max_nudges) {
+            insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
+              kind: "nudge", body: `pacer: no progress for ${snapshot.noProgressS / 60} min. Report progress, ask your parent, or report a blocker.`,
+              replyTo: null, requestId: pingId(row.nudges + 1) });
+            await deliver(ctx, node, deps.spawnRunner);
+            row.nudges++; acted = true;
+          } else {
+            // Record it on the attempt first, so the runner classifies the stopped run even across a restart.
+            // Only the run the broker saw stall is marked and stopped; a run that ended or was replaced since is left alone.
+            const id = taskOf(node)!, run = seen?.task.run;
+            let marked = false;
+            if (run) updateTask(ctx, id, t => {
+              if (t.state !== "running" || t.run?.dir !== run.dir || t.run.startedAt !== run.startedAt || t.unresponsive?.attempt === t.run.attempt) return;
+              t.unresponsive = { attempt: t.run.attempt, pings: row.nudges };
+              marked = true;
+            });
+            if (marked && run) {
+              acted = true;
+              // Unanswered pings must not resume the task once its run is stopped.
+              const pings = messagesDatabase(ctx).query<{ id: string }, [string]>(
+                "SELECT id FROM messages WHERE sender='broker' AND recipient=? AND kind='nudge' AND status<>'read'").all(node).map(r => r.id);
+              markRead(ctx, node, pings);
+              await stopRun(run.dir);
+            }
+          }
         } else if (nudged) {
           if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;
           else if (node === stall.deepest && !cycleTargets.has(node)) {
@@ -75,7 +108,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: your conversation is waiting on you (cycle: ${chain}). Answer the open question, ask your parent, or report.`,
-              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+              replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           } else if (stall.reason === "idle_run") {
@@ -84,7 +117,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             if (task?.run?.dir) await stopRun(task.run.dir);
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: "pacer: your run was idle. Resume the work, ask for help, or report progress.",
-              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+              replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           }

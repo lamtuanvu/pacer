@@ -54,7 +54,10 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
     }
     if (t.liveness?.stalled) {
-      add("stalled", t.id, t.goal, `Conversation stalled: ${t.liveness.reason}`, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],
+      const detail = t.liveness.reason === "no_progress"
+        ? `No progress for ${Math.max(1, Math.floor((input.now - t.liveness.since) / 60))} min`
+        : `Conversation stalled: ${t.liveness.reason}`;
+      add("stalled", t.id, t.goal, detail, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],
         { ...extra, since: t.liveness.since, raisedAt: t.liveness.since });
     }
     // An unanswered task question already raises the "question" item above.

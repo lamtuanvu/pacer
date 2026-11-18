@@ -3,7 +3,9 @@ import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { brokerTick } from "../src/messaging/broker";
 import { getLiveness } from "../src/messaging/liveness-store";
-import { byRequest, insertMessage, markRead } from "../src/messaging/store";
+import { byRequest, insertMessage, markRead, messagesDatabase } from "../src/messaging/store";
+import * as runs from "../src/supervisor/run";
+import * as turns from "../src/messaging/turns";
 import { apiTask } from "../src/api/read-model/tasks";
 import { deriveItems } from "../src/attention/rules";
 import { startServer } from "../src/serve/http";
@@ -77,18 +79,18 @@ test("cycle nudges the deepest task with exponential backoff and clears after an
   const qa = insertMessage(ctx, { taskId: a.id, rootId: `task:${a.id}`, from: `task:${a.id}`, to: `task:${b.id}`, kind: "question", body: "A?", replyTo: null, requestId: "qa" }).message;
   const qb = insertMessage(ctx, { taskId: b.id, rootId: `task:${b.id}`, from: `task:${b.id}`, to: `task:${a.id}`, kind: "question", body: "B?", replyTo: null, requestId: "qb" }).message;
   await brokerTick(ctx, { mode });
-  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   await brokerTick({ ...ctx, now: ctx.now + 59 }, { mode });
-  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
-  const target = [a.id, b.id].find(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))!;
+  const target = [a.id, b.id].find(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))!;
   expect(target).toBeDefined();
   const node = `task:${target}`;
   expect(getLiveness(ctx, node)?.attempts).toBe(1);
   await brokerTick({ ...ctx, now: ctx.now + 179 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:2`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:2`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:2`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:2`)).not.toBeNull();
   const ownQuestion = target === a.id ? qa : qb;
   insertMessage(ctx, { taskId: target, rootId: node, from: node, to: ownQuestion.to,
     kind: "answer", body: "answered", replyTo: target === a.id ? qb.id : qa.id, requestId: "answer" });
@@ -114,7 +116,7 @@ test("zero nudge cap escalates a cycle immediately without inserting a nudge", a
   const ids = cycle(ctx);
   await brokerTick(ctx, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
-  expect(ids.some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect(ids.some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   expect(ids.map(id => getLiveness(ctx, `task:${id}`))).toContainEqual(expect.objectContaining({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now }));
 });
 
@@ -122,10 +124,10 @@ test("a cycle stops at max_nudges on the third nudge and the fourth tick inserts
   const ctx = fakeCtx({ now: 1_000_000 });
   const ids = cycle(ctx);
   for (const at of [0, 60, 180, 420, 900, 1800]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
-  const target = ids.find(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))!;
+  const target = ids.find(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))!;
   const node = `task:${target}`;
-  expect(byRequest(ctx, "broker", `nudge:${node}:3`)).not.toBeNull();
-  expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:3`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:4`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
 });
 
@@ -138,7 +140,7 @@ test("zero nudge cap escalates an idle run immediately without inserting a nudge
   await brokerTick(ctx, { mode });
   const node = `task:${task.id}`;
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
   expect(getLiveness(ctx, node)?.nudges).toBe(0);
 });
@@ -149,13 +151,13 @@ test("idle run waits one interval before bounded recovery", async () => {
   updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
   const node = `task:${task.id}`;
   await brokerTick(ctx, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).not.toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 420 }, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:4`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
 });
 
@@ -195,6 +197,131 @@ test("strict mode escalates an idle run instead of nudging it", async () => {
   updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
   const node = `task:${task.id}`;
   await brokerTick(ctx, { mode: async () => "strict" as const });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
+});
+
+test("spinner output does not reset a no_progress stall", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "spin", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const spin = (at: number) => updateTask(ctx, task.id, t => {
+    t.state = "running"; t.attemptStartedAt = ctx.now - 3600;
+    t.progress = { phase: "working", lastOutputAt: at, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+  });
+  const node = `task:${task.id}`;
+  spin(ctx.now - 1);
+  await brokerTick(ctx, { mode });
+  const first = getLiveness(ctx, node);
+  expect(first).toMatchObject({ reason: "no_progress", since: ctx.now - 3600, nudges: 0 });
+  spin(ctx.now + 14);
+  await brokerTick({ ...ctx, now: ctx.now + 15 }, { mode });
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "no_progress", since: first!.since, nudges: first!.nudges, progressMark: first!.progressMark });
+});
+
+/** A running executor whose output never becomes progress, with the run the broker would stop. */
+function spinning(ctx: ReturnType<typeof fakeCtx>, goal: string) {
+  const task = createTask(ctx, { brief: { goal, repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  updateTask(ctx, task.id, t => {
+    t.state = "running"; t.attemptStartedAt = ctx.now - 3600;
+    t.progress = { phase: "working", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 3600, mode: "current", workdir: task.brief.repo, logFile: "/dev/null" };
+  });
+  return { id: task.id, node: `task:${task.id}`, dir };
+}
+const attention = (ctx: ReturnType<typeof fakeCtx>, id: string, now: number) => deriveItems({ now, tasks: [apiTask(ctx, readTask(ctx, id)!)],
+  executors: [], accounts: [], planner: null, setup: { items: [] } as never, update: null, retryTarget: () => null });
+
+test("no_progress pings the executor through delivery with the exact body", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { node } = spinning(ctx, "spin");
+  const deliverPing = spyOn(turns, "deliver").mockResolvedValue({ delivery: "turn_started" });
+  try {
+    await brokerTick(ctx, { mode });
+    await brokerTick({ ...ctx, now: ctx.now + 59 }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+    const ping = byRequest(ctx, "broker", `nudge:${node}:a1:1`);
+    expect(ping).toMatchObject({ to: node, kind: "nudge",
+      body: "pacer: no progress for 30 min. Report progress, ask your parent, or report a blocker." });
+    expect(deliverPing.mock.calls.some(([, to]) => to === node)).toBe(true);
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "no_progress", nudges: 1, stalledAt: null });
+  } finally { deliverPing.mockRestore(); }
+});
+
+test("an outgoing message after the ping clears the no_progress stall", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node } = spinning(ctx, "spin");
+  await brokerTick(ctx, { mode });
+  await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "no_progress", nudges: 1 });
+  insertMessage(ctx, { taskId: id, rootId: node, from: node, to: "external:planner", kind: "report",
+    body: "made progress", replyTo: null, requestId: "progress" });
+  await brokerTick({ ...ctx, now: ctx.now + 61 }, { mode });
+  expect(getLiveness(ctx, node)).toBeNull();
+});
+
+test("three unanswered pings stop the run and the task moves", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node, dir } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
+    expect(stop.mock.calls).toEqual([[dir]]);
+    expect(readTask(ctx, id)?.unresponsive).toEqual({ attempt: 1, pings: 3 });
+    expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
+    expect(attention(ctx, id, ctx.now + 900).find(i => i.kind === "stalled"))
+      .toMatchObject({ taskId: id, detail: "No progress for 75 min" });
+  } finally { stop.mockRestore(); }
+});
+
+test("a run replaced after the last ping is neither marked nor stopped", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node, dir } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    // The stalled attempt ended on its own and the next attempt started before the stop was due.
+    updateTask(ctx, id, t => { t.attemptStartedAt = ctx.now + 800; t.run = { ...t.run!, dir: `${dir}-2`, attempt: 2, startedAt: ctx.now + 800 }; });
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+    expect(stop.mock.calls).toEqual([]);
+    expect(readTask(ctx, id)?.unresponsive).toBeUndefined();
+  } finally { stop.mockRestore(); }
+});
+
+test("a retried attempt gets its own no_progress pings and stopped pings never resume the task", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node, dir } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(stop.mock.calls).toEqual([[dir]]);
+    // The stopped attempt's pings are read, so they cannot start a message turn on the task.
+    const unread = messagesDatabase(ctx).query<{ n: number }, [string]>(
+      "SELECT count(*) n FROM messages WHERE recipient=? AND kind='nudge' AND status<>'read'").get(node)!.n;
+    expect(unread).toBe(0);
+    // Attempt 2 starts and also makes no progress: it is pinged under its own ids.
+    const later = ctx.now + 900;
+    updateTask(ctx, id, t => {
+      t.attemptStartedAt = later - 3600; t.run = { ...t.run!, dir: `${dir}-2`, attempt: 2, startedAt: later - 3600 };
+    });
+    for (const at of [960, 1020]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a2:1`)).not.toBeNull();
+  } finally { stop.mockRestore(); }
+});
+
+test("strict mode escalates a no_progress stall instead of pinging it", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
+    expect(stop.mock.calls).toEqual([]);
+    expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
+    expect(attention(ctx, id, ctx.now).some(i => i.kind === "stalled" && i.taskId === id)).toBe(true);
+  } finally { stop.mockRestore(); }
 });

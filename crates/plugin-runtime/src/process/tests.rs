@@ -160,9 +160,9 @@ async fn conformance_fixture_handshake_and_ping() {
     spec.argv = vec!["bun".into(), "main.ts".into()];
     spec.cwd = dir.clone();
     let child = PluginProcess::spawn(&spec).unwrap();
-    let hello = child.request("plugin.hello", json!({"protocol":"1.10.0","pacer":"0.2.0","manifest":manifest,"config":{},"grants":[],"features":[]}), Duration::from_secs(5), None).await.unwrap();
+    let hello = child.request("plugin.hello", json!({"protocol":"1.11.0","pacer":"0.2.0","manifest":manifest,"config":{},"grants":[],"features":[]}), Duration::from_secs(5), None).await.unwrap();
     assert_eq!(hello["id"], "fx-serial");
-    assert_eq!(hello["protocol"], "1.10.0");
+    assert_eq!(hello["protocol"], "1.11.0");
     let ping = child
         .request_with_handler(
             "diagnostic.ping",

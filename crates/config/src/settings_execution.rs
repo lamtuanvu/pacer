@@ -20,6 +20,7 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
         "idle_after_min",
         "idle_fail_min",
         "transient_retry_min",
+        "no_progress_min",
     ];
     let mut problems = Vec::new();
     if let Some(map) = raw.as_object() {
@@ -93,9 +94,16 @@ pub(crate) fn validate(raw: &Value) -> Result<(), SettingsError> {
     let after = mins("idle_after_min", 10.);
     let fail = mins("idle_fail_min", 30.);
     mins("transient_retry_min", 10.);
+    // NaN marks an unset or invalid value, which (as in TypeScript) skips the comparison below.
+    let no_progress = mins("no_progress_min", f64::NAN);
     if fail <= after {
         problems
             .push("execution.idle_fail_min must be greater than execution.idle_after_min".into());
+    }
+    // Only an explicit no_progress_min is compared, so an existing long idle_after_min stays valid.
+    if no_progress <= after {
+        problems
+            .push("execution.no_progress_min must be greater than execution.idle_after_min".into());
     }
     if raw
         .get("session")
@@ -145,6 +153,33 @@ mod tests {
             assert!(
                 message.contains("execution.transient_retry_min must be a whole number of minutes between 1 and 1440"),
                 "{bad}: {message}"
+            );
+        }
+    }
+
+    #[test]
+    fn no_progress_min_must_exceed_idle_after_min() {
+        assert_eq!(check("no_progress_min: 45\n"), Ok(()));
+        assert_eq!(check("idle_after_min: 40\nidle_fail_min: 50\n"), Ok(()));
+        for bad in ["0", "2.5", "\"30\""] {
+            let message = check(&format!("no_progress_min: {bad}\n")).unwrap_err();
+            assert!(
+                message.contains(
+                    "execution.no_progress_min must be a whole number of minutes between 1 and 1440"
+                ),
+                "{bad}: {message}"
+            );
+        }
+        for yaml in [
+            "no_progress_min: 10\n",
+            "idle_after_min: 20\nidle_fail_min: 50\nno_progress_min: 20\n",
+        ] {
+            let message = check(yaml).unwrap_err();
+            assert!(
+                message.contains(
+                    "execution.no_progress_min must be greater than execution.idle_after_min"
+                ),
+                "{yaml}: {message}"
             );
         }
     }

@@ -52,6 +52,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
+| `crates/plugin-assistant-protocol` | `pacer-plugin-assistant-protocol`: generated `assistant.reply` and `capability.assistant.tool` plugin types, CRATE-3 area split ([ADR 0028](../docs/decisions/0028-assistant-backends.md)) |
 | `crates/plugin-hosts-protocol` | `pacer-plugin-hosts-protocol`: generated `hostRunner.*` and `capability.hosts.*` plugin types, CRATE-3 area split ([ADR 0016](../docs/decisions/0016-plugin-hosts-protocol-area.md)) |
 | `crates/plugin-exec-protocol` | `pacer-plugin-exec-protocol`: generated `executor.*` and `capability.process.*` plugin types, CRATE-3 area split ([ADR 0017](../docs/decisions/0017-plugin-exec-protocol-area.md)) |
 
@@ -118,7 +119,7 @@ There is no lint or format command; `.editorconfig` is the only style config.
 | Security & secrets | `src/serve/**`, `src/endpoints/**`, `src/remote/**`, `src/exec/**`, `src/supervisor/**`, `src/session/**`, `src/install/**`, `src/update/**`, `desktop/**`, CI workflows, `src/plugins/**`, `src/identity/**`, `src/discovery/**` | [rules/security.md](rules/security.md) | Established, plus proposals |
 | TypeScript & testing | `src/**`, `app/**`, `test/**`, `scripts/**` | [rules/code-and-testing.md](rules/code-and-testing.md) | Established, plus proposals |
 | UI & accessibility | `app/**`, `src/dashboard/**`, `src/render/**`, `desktop/**` | [rules/ui.md](rules/ui.md) (visual craft UI-8–18; shared foundation/evidence UI-19–25; compact density UI-26; spacing ownership UI-27) | Established (spec), plus proposals |
-| Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
+| Release & distribution | `package.json` version, `CHANGELOG.md`, `scripts/release*`, `.github/workflows/release.yml`, `.github/workflows/nightly.yml`, `npm/**`, `desktop/` versions | [rules/release.md](rules/release.md) | Established |
 | Repository hygiene & docs | all tracked files, commits, PRs, `docs/**` | [rules/repository.md](rules/repository.md) | Established, plus proposals |
 | Rust crate structure & size | `Cargo.toml`, `crates/**`, `plugins-rs/**`, `xtask/**` | [rules/rust-crates.md](rules/rust-crates.md) (CRATE-1 to CRATE-11) | Established |
 
