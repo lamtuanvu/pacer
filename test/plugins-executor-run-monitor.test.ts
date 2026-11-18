@@ -141,6 +141,30 @@ test("an animating rate-limit banner is stopped within one poll, not one lease",
   } finally { await monitor.stop(); await recording.close(); await stopRun(dir, {graceMs: 500}); }
 }, 15_000);
 
+test("a transient banner that outlasts its window is stopped and the outcome is broken with the provider reason", async () => {
+  const ctx = fakeCtx(), dir = tmpDir();
+  const launched = startRun({dir, argv: ["sh", "-c", "exec sleep 30"], cwd: dir, env: {PATH: process.env.PATH}});
+  if ("error" in launched) throw new Error(launched.error);
+  await waitFor("the run to start", () => readRun(dir).alive);
+  writeFileSync(join(dir, "interactive.json"), "{}");
+  const recording = new Recording(dir);
+  await recording.output(readFileSync(join(import.meta.dir, "fixtures", "opencode-retry-524.ansi")));
+  const task = createTask(ctx, {brief: {goal: "retry", repo: dir}, kind: null, requestedExecutor: null, timeoutS: 7200});
+  // The window opened over ten minutes ago (a resumed monitor keeps it), so the next sighting ends the attempt.
+  const run: RunRef = {dir, attempt: 1, executor: "opencode#tse", startedAt: Date.now() / 1000 - 900, mode: "current", workdir: dir, logFile: join(dir, "log"), session: "interactive",
+    retryBanner: {since: Date.now() / 1000 - 601, reason: "Provider request failed with HTTP 524"}};
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; t.executorProvider = "pacer-exec-direct"; t.startIntent = {attempt: 1, providerId: "pacer-exec-direct", dir}; });
+  const monitor = startRunMonitor(ctx, task.id, run, {pollMs: 50});
+  try {
+    await waitFor("the banner stop", () => readRun(dir).exit !== null);
+    expect(readTask(ctx, task.id)!.run!.retryBanner).toMatchObject({ended: "provider", reason: expect.stringContaining("HTTP 524")});
+    const out = {exec: {code: 143, stdout: "", stderr: "", timedOut: false}, report: "", attempt: {limitHit: false, exitCode: 143} as {limitHit: boolean; exitCode: number; brokenReason?: string}};
+    expect(retryLoopOutcome(ctx, task.id, run.executor, dir, out)).toBe(true);
+    expect(out.attempt.limitHit).toBe(false);
+    expect(out.attempt.brokenReason).toStartWith("provider retrying: ");
+  } finally { await monitor.stop(); await recording.close(); await stopRun(dir, {graceMs: 500}); }
+}, 15_000);
+
 test("a monitor error never fails the attempt", async () => {
   let ticks = 0;
   for (const poller of [

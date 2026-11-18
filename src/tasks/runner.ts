@@ -274,6 +274,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
     let requestedUnavailable: string | undefined;
     let policyChanges = 0;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
+    let lastUnresponsive: { executor: string; pings: number } | undefined;
 
     const managedWork = getWork(ctx, id);
     const attemptBudget = managedWork
@@ -774,7 +775,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
               ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
           });
-          // No poller writes owned progress, so the mark a lost owner left would outlive this reattach.
+          // A reattached owner starts a new monitor; the lost-contact mark the lost owner left must not outlive it.
           else task = updateTask(ctx, id, current => {
             if (current.progress?.phase === "lost-contact") delete current.progress;
           });
@@ -961,6 +962,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         continue;
       }
       lastBroken = undefined;
+      lastUnresponsive = undefined;
       if (out.attempt.unresponsive) {
         // One unresponsive attempt moves the task to another executor; a second one ends it.
         const pings = out.attempt.unresponsive.pings;
@@ -973,6 +975,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           delete current.unresponsive;
           if (owned) { delete current.run; delete current.executorProvider; delete current.executor; delete current.attemptStartedAt; }
         });
+        lastUnresponsive = { executor: pick, pings };
         continue;
       }
       if (out.attempt.limitHit) {
@@ -1013,6 +1016,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         ? `every executor tried hit a limit (${[...tried].join(", ")})`
         : `no executor available (${excluded.map((e) => `${e.id}: ${e.reason}`).join(", ") || "none configured"})`;
     const unavailableBroken = Object.entries(readBroken({ ...ctx, now: Date.now()/1000 })).find(([id]) => (!req || id === req) && excluded.some(e => e.id === id));
+    // An unresponsive last attempt with no executor left ends the task for that reason, not as a limit.
+    if (lastUnresponsive && !lastBroken) return finish(ctx, id, { status: "failed", executor: lastUnresponsive.executor, model: attemptedModel,
+      files: "", report: `executor unresponsive: no progress after ${lastUnresponsive.pings} pings`, backend: attemptedBackend });
     const failure = lastBroken ?? (unavailableBroken && (tried.size === 0 || req === unavailableBroken[0]) ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
     return finish(ctx, id, { status: failure || !excluded.some(e => e.reason === "exhausted" || e.eligibility?.budget === "exhausted") && !lastLimitReport ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
   } catch (error) {

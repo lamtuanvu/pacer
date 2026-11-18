@@ -37,20 +37,20 @@ const { runTask } = await import("../src/tasks/runner");
 const strategy = validateStrategy({
   planner: "claude-code", providers: {"claude-code": {}, codex: {}, cursor: {}}, pacing: {policy: "priority"}, execution: {worktree: "current"},
 }, "/x");
-const status = (): Status => ({generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
-  providers: Object.keys(strategy.providers).map(id => ({id, eligibility: eligibility(), usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false})) as ProviderStatus[],
+const status = (st = strategy): Status => ({generatedAt: 0, strategy: "default", planner: "claude-code", mode: "normal", disabled: false, paused: null, modeHold: null, calendarPace: true,
+  providers: Object.keys(st.providers).map(id => ({id, eligibility: eligibility(), usage: "quota", windows: [], binding: null, verdict: "ON_PACE", installed: true, stale: false})) as ProviderStatus[],
   executors: {ranked: [], excluded: []}});
 const outcome = (executor: string, code: number, brokenReason?: string): AttemptOutcome => ({
   exec: {code, stdout: `${executor} report`, stderr: "", timedOut: false}, report: `${executor} report`,
   attempt: {executor, model: null, startedAt: 1, endedAt: 2000, exitCode: code, timedOut: false, limitHit: false, log: `/l/${executor}.log`, ...(brokenReason ? {brokenReason} : {})},
 });
 
-async function run(p: NonNullable<typeof plan>) {
+async function run(p: NonNullable<typeof plan>, st = strategy) {
   plan = p; calls.length = 0;
   const ctx = fakeCtx({run: async () => ({code: 0, stdout: "", stderr: ""})});
   const task = createTask(ctx, {brief: {goal: "g", repo: tmpDir()}, kind: null, requestedExecutor: null, timeoutS: 60});
   try {
-    const result = await runTask(ctx, task.id, {loadStrategy: () => strategy, computeStatus: async () => status(),
+    const result = await runTask(ctx, task.id, {loadStrategy: () => st, computeStatus: async () => status(st),
       verifyRepo: async () => ({files: "a.ts | 2 +-"})});
     return {ctx, result: readTask(ctx, result.id)!};
   } finally { plan = undefined; }
@@ -104,5 +104,15 @@ test("a second unresponsive attempt fails the task", async () => {
   expect(result.state).toBe("failed");
   expect(result.attempts.map(a => a.executor)).toEqual(["codex", "cursor"]);
   expect(result.attempts.map(a => a.unresponsive?.pings)).toEqual([3, 3]);
+  expect(result.result?.report).toEndWith("executor unresponsive: no progress after 3 pings");
+});
+
+test("an unresponsive attempt with no other executor left fails as unresponsive, not as a limit", async () => {
+  const single = validateStrategy({
+    planner: "claude-code", providers: {"claude-code": {}, codex: {}}, pacing: {policy: "priority"}, execution: {worktree: "current"},
+  }, "/x");
+  const {result} = await run({codex: (_attempt, c, id) => { markUnresponsive(c, id); return outcome("codex", 143); }}, single);
+  expect(calls).toEqual(["codex"]);
+  expect(result.state).toBe("failed");
   expect(result.result?.report).toEndWith("executor unresponsive: no progress after 3 pings");
 });
