@@ -13,7 +13,13 @@ export interface StatusResult {
 }
 export interface RepoRow { id: string; path: string }
 /** `agentIdentity` is the agent Orca sees in the terminal's foreground (`claude`, `codex`), or null for a plain shell. */
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null }
+export interface TerminalRow {
+  handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean;
+  preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null;
+  title?: string | null; lastOutputAt?: number | null;
+  /** Null = Orca looked and found no interactive wait; absent = never evaluated (older host, unreadable pane). */
+  agentWait?: { source?: string; reason?: string } | null;
+}
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
