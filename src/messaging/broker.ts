@@ -3,7 +3,7 @@ import { withLock } from "../core/lock";
 import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
 import { publish } from "../link/publish";
-import { readTask } from "../tasks/store";
+import { readTask, updateTask } from "../tasks/store";
 import { stopRun } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
@@ -57,7 +57,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         row.reason = stall.reason;
-        const nudged = stall.reason === "cycle" || stall.reason === "idle_run";
+        const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress";
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
         if (ctx.now < row.nextAt && nudged && allowed && config.max_nudges > 0) { upsertLiveness(ctx, row); continue; }
         if (ctx.now < row.nextAt && !changed) continue;
@@ -69,6 +69,24 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             const result = (await deliver(ctx, node, deps.spawnRunner)).delivery;
             acted = true;
             stallNow = ["cap", "no_session", "closed", "live_unavailable"].includes(result);
+          }
+        } else if (stall.reason === "no_progress") {
+          if (!allowed) stallNow = true;
+          // Ping first; only pings that go unanswered stop the run.
+          else if (row.nudges < config.max_nudges) {
+            insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
+              kind: "nudge", body: `pacer: no progress for ${snapshot.noProgressS / 60} min. Report progress, ask your parent, or report a blocker.`,
+              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+            await deliver(ctx, node, deps.spawnRunner);
+            row.nudges++; acted = true;
+          } else {
+            // Record it on the attempt first, so the runner classifies the stopped run even across a restart.
+            const id = taskOf(node)!, task = readTask(ctx, id);
+            if (task && task.unresponsive?.attempt !== (task.run?.attempt ?? task.attempts.length + 1)) {
+              updateTask(ctx, id, t => { t.unresponsive = { attempt: t.run?.attempt ?? t.attempts.length + 1, pings: row.nudges }; });
+              acted = true;
+              if (task.run?.dir) await stopRun(task.run.dir);
+            }
           }
         } else if (nudged) {
           if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;

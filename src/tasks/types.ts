@@ -116,6 +116,8 @@ export interface Attempt {
   limitHit: boolean;
   log: string;
   brokenReason?: string;
+  /** The attempt was stopped after its pings for progress went unanswered; the task moves to another executor. */
+  unresponsive?: { pings: number };
 }
 
 export interface Verification {
@@ -256,6 +258,8 @@ export interface TaskRecord {
   /** A stop request is not terminal until the exact executor exit is verified. */
   stopPending?: { attempt: number; requestedAt: number; cleanupStartedAt?: number; providerId: string; graceMs: number;
     reason?: "user" | "deadline" };
+  /** The broker stopped this attempt after `pings` no-progress pings went unanswered; the runner classifies the end from it. */
+  unresponsive?: { attempt: number; pings: number };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;

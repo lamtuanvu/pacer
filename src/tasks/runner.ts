@@ -856,6 +856,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         return finish(ctx, id, { status: deadline ? "failed" : "stopped", executor: pick, model: cfg.model,
           files: "", report: out.report, backend: "direct" });
       }
+      const marked = readTask(ctx, id);
+      if (marked?.unresponsive) {
+        // The broker stopped this run for pings that went unanswered; consume the mark and carry it on the attempt.
+        if (marked.unresponsive.attempt === (marked.run?.attempt ?? marked.attempts.length + 1))
+          out.attempt.unresponsive = { pings: marked.unresponsive.pings };
+        updateTask(ctx, id, current => { delete current.unresponsive; });
+      }
       const failureMarker=executionCtx.env.PACER_GUARD_FAILURE_MARKER;
       if(work?.options.delegationEnforcement==="strict"&&failureMarker&&existsSync(failureMarker)){
         rmSync(failureMarker,{force:true});
@@ -891,7 +898,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           ...(classification === "quota" ? { until: exhaustUntil(byId[pick], cfg, out.attempt.endedAt, text) } : {}),
         });
       }
-      if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; }
+      if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; delete out.attempt.unresponsive; }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (!takeover && out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
         const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
@@ -954,6 +961,20 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         continue;
       }
       lastBroken = undefined;
+      if (out.attempt.unresponsive) {
+        // One unresponsive attempt moves the task to another executor; a second one ends it.
+        const pings = out.attempt.unresponsive.pings;
+        if (task.attempts.slice(0, -1).some(a => a.unresponsive)) {
+          updateTask(ctx, id, current => { delete current.unresponsive; });
+          return finish(ctx, id, { status: "failed", executor: pick, model: cfg.model, files: "",
+            report: `executor unresponsive: no progress after ${pings} pings`, backend: attemptedBackend });
+        }
+        task = updateTask(ctx, id, current => {
+          delete current.unresponsive;
+          if (owned) { delete current.run; delete current.executorProvider; delete current.executor; delete current.attemptStartedAt; }
+        });
+        continue;
+      }
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
         markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
