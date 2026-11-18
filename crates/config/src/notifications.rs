@@ -161,6 +161,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[allow(clippy::unwrap_used)]
     fn built_in_sounds_round_trip_and_the_error_lists_every_sound() {
         let dir = tempfile::tempdir().unwrap();
         let home = dir.path().to_path_buf();
