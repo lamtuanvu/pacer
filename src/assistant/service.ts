@@ -334,9 +334,8 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(tools)) + approxTokens(digest) + approxTokens(question) + transcript.reduce((n, m) => n + approxTokens(m.content), 0);
       while (transcript.length && inputTokens() > settings.limits.maxInputTokens) transcript.shift();
       if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-      const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
-      // The same arrays the loop fills, with the capability's own budget: one call per tool round.
-      const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: { ...toolState, rounds: { used: 0, max: settings.limits.maxToolRounds } } };
+      // The turn's one tool state, so the reply call's capability and the `assistant.tool` op share its budget.
+      const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: toolState };
       // Resume the backend's own session only on the account and backend it belongs to (spec §6).
       const stored = readBackendSession(ctx, turn.conversationId);
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
