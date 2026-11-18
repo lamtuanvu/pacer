@@ -31,6 +31,19 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
   return {...env, ...account, PACER_ROLE: "executor", PACER_TASK_ID: taskId};
 }
 
+/**
+ * A resumed planner session must not carry the executor's role, run state or tokens, nor another
+ * planner session's keys: the resumed turn reviews, it does not run the task it was told about.
+ */
+export function plannerResumeEnv(base: Record<string, string | undefined>): Record<string, string | undefined> {
+  const env = withoutPlannerSession(base);
+  for (const k of Object.keys(env)) if (/_TOKEN$/.test(k)) delete env[k];
+  for (const k of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_RUN_DIR", "PACER_TRANSCRIPT_REPORT",
+    "PACER_HOST_SOCKET", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]) delete env[k];
+  for (const name of CORE_SECRET_ENV) delete env[name];
+  return env;
+}
+
 export interface ExecSpec {
   argv: string[];
   cwd: string;

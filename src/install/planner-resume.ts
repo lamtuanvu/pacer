@@ -1,7 +1,8 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync } from "node:fs";
-import { join } from "node:path";
+import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { isAbsolute, join } from "node:path";
 import { appendActivity } from "../activity/log";
+import { plannerResumeEnv } from "../exec/process";
 import type { PlannerKind } from "../messaging/identity";
 import type { Ctx } from "../types";
 
@@ -11,11 +12,14 @@ export interface ResumeSpawn { argv: string[]; cwd: string; env: Record<string, 
 export type ResumeSpawner = (o: ResumeSpawn) => number | undefined;
 export interface ResumeDeps { task: string; isAlive: () => Promise<boolean>; spawn?: ResumeSpawner }
 
+/** A session id is a local input, never a flag: both CLIs parse a leading `-` as an option otherwise. */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
+
 /** Codex answers `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` (verified with codex exec resume --help). */
 export function resumeArgv(kind: PlannerKind, session: string, prompt: string): string[] | null {
-  if (!session) return null;
-  if (kind === "claude-code") return ["claude", "--resume", session, "-p", prompt];
-  if (kind === "codex") return ["codex", "exec", "resume", session, prompt];
+  if (!SESSION_ID.test(session)) return null;
+  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--", prompt];
+  if (kind === "codex") return ["codex", "exec", "resume", "--", session, prompt];
   return null;
 }
 
@@ -49,12 +53,19 @@ export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string
   const session = nativeSession(reach.kind, reach.session ?? "");
   const argv = resumeArgv(reach.kind, session, prompt);
   if (!argv) return "unavailable";
+  if (!isAbsolute(reach.cwd) || !statSync(reach.cwd, { throwIfNoEntry: false })?.isDirectory()) return "unavailable";
   const dir = join(ctx.pacerHome, "runs", `caller-${segment(session)}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const log = join(dir, `${nextLogIndex(dir)}.log`);
   try { closeSync(openSync(log, "a", 0o600)); } catch { /* a log that cannot be created never blocks a launch */ }
-  const { PACER_HOST_SOCKET: _owner, ...env } = ctx.env;
-  (deps.spawn ?? spawnResume)({ argv, cwd: reach.cwd, env: { ...env, HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}` }, log });
+  const env = { ...plannerResumeEnv(ctx.env), HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}` };
+  let pid: number | undefined, failure: unknown;
+  try { pid = (deps.spawn ?? spawnResume)({ argv, cwd: reach.cwd, env, log }); } catch (e) { failure = e; }
+  // No pid means nothing started: the record would be false and the ladder could not escalate.
+  if (pid === undefined) {
+    try { appendFileSync(log, `${failure === undefined ? "spawn returned no pid" : String(failure)}\n`); } catch { /* nothing left to report */ }
+    return "unavailable";
+  }
   appendActivity(ctx, { kind: "message", level: "info", text: `caller resumed for ${deps.task}`, taskId: deps.task });
   return "resumed";
 }
