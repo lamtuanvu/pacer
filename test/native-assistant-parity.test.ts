@@ -10,10 +10,12 @@ import {assistantDatabase} from "../src/assistant/store";
 import {fakeCtx} from "./helpers";
 
 let binary: string;
+/** Cargo never leaves a `target/` in the worktree: the project's own target dir, else a temporary one. */
+const cargoEnv = () => ({ ...process.env, CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? join(tmpdir(), "pacer-native-as") });
 function driver() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"]);
-    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
+    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], { env: cargoEnv() });
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], { env: cargoEnv() }).toString());
     binary = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
   return binary;
