@@ -258,6 +258,14 @@ test("the sound picker sizes its menu to the longest label and Saved follows Sen
     expect(ancestor(findByText(dom.container, "Glass"), "pc-choice-picker--content")).toBeTruthy();
     // Send test is inside the save boundary's control, so the "Saved" status renders after it
     // rather than between the picker and the button.
-    expect(ancestor(findByText(dom.container, "Send test"), "pc-immediate-save__control")).toBeTruthy();
+    const send = findByText(dom.container, "Send test");
+    expect(ancestor(send, "pc-immediate-save__control")).toBeTruthy();
+    // In document order the status comes after Send test, never between it and the picker.
+    const order: Node[] = [];
+    const walk = (node: Node) => { order.push(node); node.childNodes.forEach(walk); };
+    walk(dom.container);
+    const status = order.find(node => hasClass(node, "pc-immediate-save__status") && ancestor(node, "pc-setting-row") === ancestor(send, "pc-setting-row"));
+    expect(status).toBeTruthy();
+    expect(order.indexOf(status!)).toBeGreaterThan(order.indexOf(send!));
   });
 });
