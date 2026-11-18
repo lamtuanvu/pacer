@@ -1408,6 +1408,43 @@ Params JSON Schema:
 }
 ```
 
+### `assistant.tool`
+
+Run one assistant tool for the turn in progress: the host's read pipeline (permitted op, parameter parsing, scope, projection, redaction and size cap), with propose_action becoming a card and its result as delimited data. The turn's assistant grant is the only caller, only while it is live and only for its own turnId; it shares one tool-round budget with capability.assistant.tool, and a call after the turn has ended is refused.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "params": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "turnId",
+    "name"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `assistant.turn`
 
 One turn, for reading its final state after a stream ends.

@@ -16,7 +16,8 @@ import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
 import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
 import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
-import type { AssistantToolState, AssistantToolTurn } from "./turn-tools";
+import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
+import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
 
 export const ASSISTANT_PLUGIN = "pacer-assistant";
@@ -187,6 +188,13 @@ export type StreamFrame = { delta: string } | { status: string } | { done: { sta
 interface Live { /** The turn's redactor, applied to streamed text as to the final answer; set once the turn has built it. */ redactor?: Redactor; frames: StreamFrame[]; listeners: Set<(frame: StreamFrame) => void>; closed: boolean; cancelled: boolean; /** The backend streamed text itself, so the final answer must not be replayed as one more delta. */ streamed: boolean; stop: () => void; stopped: Promise<never>; abort: AbortController }
 const live = new Map<string, Live>();
 const inflight = new Map<string, string>();
+/** The `pag_` token this process issued for a live turn, kept so the executor backend can hand it to the CLI. */
+const turnGrants = new Map<string, string>();
+
+/** The assistant grant issued for one turn, or null: no turn, another backend, or a turn that ended. */
+export function assistantGrantFor(turnId: string): string | null {
+  return turnGrants.get(turnId) ?? null;
+}
 
 // `assistant.delta` notifications of a plugin serving the assistant point land on this turn's
 // stream: the frames `subscribeTurn` delivers, in memory only, never the event outbox.
@@ -280,16 +288,20 @@ export function cancel(ctx: Ctx, turnId: string): { cancelled: boolean } {
   // The backend call is aborted (and cancelled in the plugin), so it stops spending and the slot frees at once.
   entry.abort.abort();
   entry.stop();
+  // Cancelling ends the turn's tools and its `pag_` grant at once, not when the unwinding finishes.
+  revokeAssistantGrants(ctx, turnId);
+  turnGrants.delete(turnId);
   return { cancelled: true };
 }
 
 async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string }, question: string, scope: AssistantScope, settings: AssistantSettings, deps: AssistantDeps): Promise<void> {
   const usage: AssistantUsage = { input: 0, output: 0, coverage: "unknown" };
   const cards: ActionCard[] = [], notes: string[] = [], toolLog: unknown[] = [], seenTasks = new Set<string>();
-  // One tool state for the turn: the loop charges rounds × calls, a plugin backend one call per round.
-  const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
+  const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
   const entry = live.get(turn.turnId)!;
   let state: TurnView["state"] = "done", answer = "", error: string | null = null, measured = 0, calls = 0, reported: Coverage | null = null;
+  // Closers for the turn's tools and its `pag_` grant; both run the moment the turn ends.
+  let closeTurn: (() => void) | null = null, grant: string | null = null;
   try {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
     const endpoint = endpointFor(strategy, settings);
@@ -301,6 +313,17 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
     const system = SYSTEM(ctx.now, scope);
     const replyTo = replyProvider(ctx, settings.backend);
+    // One tool state for the turn: a plugin backend is charged one call per round, the host's own
+    // loop rounds × calls. The same object is reachable through the reply call's authority and by
+    // turnId, so `capability.assistant.tool` and the `assistant.tool` op share one budget.
+    const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: replyTo || settings.backend === "executor" ? settings.limits.maxToolRounds : settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
+    closeTurn = openAssistantTurnFor(turn.turnId, { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: toolState });
+    // Only the executor backend's CLI reaches the tools outside the plugin call, so only that
+    // turn's backend is handed a `pag_` grant; it dies with the turn, its cancellation or this deadline.
+    if (settings.backend === "executor") {
+      grant = issueAssistantGrant(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, expiresAt: ctx.now + deadlineMs / 1000 });
+      turnGrants.set(turn.turnId, grant);
+    }
     if (replyTo) {
       // The plugin that serves this backend answers the whole turn: the host still builds the
       // prompt, runs every tool through capability.assistant.tool, and owns the cards and accounting.
@@ -311,9 +334,8 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(tools)) + approxTokens(digest) + approxTokens(question) + transcript.reduce((n, m) => n + approxTokens(m.content), 0);
       while (transcript.length && inputTokens() > settings.limits.maxInputTokens) transcript.shift();
       if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-      const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
-      // The same arrays the loop fills, with the capability's own budget: one call per tool round.
-      const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: { ...toolState, rounds: { used: 0, max: settings.limits.maxToolRounds } } };
+      // The turn's one tool state, so the reply call's capability and the `assistant.tool` op share its budget.
+      const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: toolState };
       // Resume the backend's own session only on the account and backend it belongs to (spec §6).
       const stored = readBackendSession(ctx, turn.conversationId);
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
@@ -394,6 +416,9 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const core = e instanceof CoreError ? e : null;
     error = core ? core.message : "The assistant could not answer.";
   }
+  // The turn ends here: its tools close and its `pag_` grant is revoked before the final state lands.
+  closeTurn?.();
+  if (grant) { revokeAssistantGrants(ctx, turn.turnId); turnGrants.delete(turn.turnId); }
   usage.coverage = reported ?? (calls === 0 || measured === 0 ? "unknown" : measured === calls ? "measured" : "partial");
   const citations: Citation[] = [...seenTasks].filter(id => answer.includes(id)).slice(0, 6).map(id => ({ label: id, href: `#/tasks/${encodeURIComponent(id)}` }));
   if (state === "cancelled") answer = "";
