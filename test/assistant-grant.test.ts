@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { BUNDLED } from "../plugins/bundled";
-import { admit, ask, assistantGrantFor } from "../src/assistant/service";
+import { admit, ask, assistantGrantFor, cancel } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import { createRedactor } from "../src/assistant/redact";
 import { assistantTurnById, assistantTurnFor, openAssistantTurn, openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "../src/assistant/turn-tools";
@@ -166,6 +166,19 @@ describe("a turn's assistant grant", () => {
     expect(() => authorizeAssistantGrant(c, token!)).toThrow(/Expired or revoked assistant grant/);
     expect(assistantTurnById(started.turnId)).toBeNull();
     expect(assistantGrants(c).every(row => row.revoked === 1)).toBe(true);
+  }, 30_000);
+
+  test("is revoked the moment its turn is cancelled", async () => {
+    const { ctx: c, deps } = setup("executor", async () => { throw new Error("the executor backend answers with assistant.reply"); });
+    const started = await ask(c, { text: "slow", scope, requestId: `r-${crypto.randomUUID()}` }, deps);
+    let token: string | null = null;
+    for (let i = 0; i < 3000 && !token; i++) { token = assistantGrantFor(started.turnId); if (!token) await Bun.sleep(2); }
+    expect(token).toMatch(/^pag_[0-9a-f]{64}$/);
+    expect(cancel(c, started.turnId)).toEqual({ cancelled: true });
+    expect(assistantGrantFor(started.turnId)).toBeNull();
+    expect(() => authorizeAssistantGrant(c, token!)).toThrow(/Expired or revoked assistant grant/);
+    expect(assistantGrants(c).every(row => row.revoked === 1)).toBe(true);
+    expect((await finished(c, started.turnId)).state).toBe("cancelled");
   }, 30_000);
 
   test("is never issued for a turn the pacer backend answers", async () => {

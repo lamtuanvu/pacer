@@ -316,7 +316,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     // One tool state for the turn: a plugin backend is charged one call per round, the host's own
     // loop rounds × calls. The same object is reachable through the reply call's authority and by
     // turnId, so `capability.assistant.tool` and the `assistant.tool` op share one budget.
-    const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: replyTo ? settings.limits.maxToolRounds : settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
+    const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: replyTo || settings.backend === "executor" ? settings.limits.maxToolRounds : settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
     closeTurn = openAssistantTurnFor(turn.turnId, { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: toolState });
     // Only the executor backend's CLI reaches the tools outside the plugin call, so only that
     // turn's backend is handed a `pag_` grant; it dies with the turn, its cancellation or this deadline.

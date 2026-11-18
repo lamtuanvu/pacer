@@ -17,7 +17,6 @@ import { isExecutorSession } from "../install/role";
 import { callerParticipant } from "../messaging/participants";
 import { MSG_KINDS } from "../messaging/types";
 import { makeCtx } from "../ctx";
-import { DEFAULT_PORT } from "../serve/constants";
 import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner, difficultyWarning } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
 import type { Ctx } from "../types";
@@ -42,7 +41,8 @@ function assistantLink(getCtx: () => Ctx): AssistantLink | null {
   const env = getCtx().env;
   const grant = env.PACER_ASSISTANT_GRANT ?? "";
   const turnId = env.PACER_ASSISTANT_TURN ?? "";
-  const base = env.PACER_ASSISTANT_URL ?? `http://127.0.0.1:${env.PACER_PORT ?? DEFAULT_PORT}`;
+  // No default address: the host that issued the grant names its service, or nothing is usable.
+  const base = env.PACER_ASSISTANT_URL ?? "";
   if (!/^pag_[0-9a-f]{64}$/.test(grant)) return null;
   if (!/^[A-Za-z0-9_-]{1,128}$/.test(turnId)) return null;
   if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(base)) return null;
