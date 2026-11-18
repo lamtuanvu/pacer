@@ -13,11 +13,13 @@ mod keychain_stub;
 // Records each internal discovery call and whether it carried this generation's internal bearer.
 const FAKE_CORE: &str = r#"
 const { appendFileSync, writeFileSync } = require("node:fs");
+const { readCoreSecrets, scrubCoreSecrets } = require(process.env.PACER_TEST_CORE_SECRETS);
+const token = scrubCoreSecrets(process.env) ? readCoreSecrets().internalToken : undefined;
 const log = process.env.PACER_TEST_DISCOVERY_LOG;
 const server = Bun.serve({ port: 0, hostname: "127.0.0.1", fetch(req) {
   const path = new URL(req.url).pathname;
   if (path.startsWith("/_internal/discovery/")) {
-    const auth = req.headers.get("authorization") === `Bearer ${process.env.PACER_INTERNAL_TOKEN}` ? "auth" : "noauth";
+    const auth = token && req.headers.get("authorization") === `Bearer ${token}` ? "auth" : "noauth";
     appendFileSync(log, `${req.method} ${path} ${auth}\n`);
   }
   if (path === "/_internal/discovery/config") return Response.json({ rev: 1, enabled: false, listen: false, advertise: null });
@@ -46,6 +48,10 @@ impl Serve {
                 home.path().join("discovery.log"),
             )
             .env("PACER_TEST_READY", home.path().join("ready"))
+            .env(
+                "PACER_TEST_CORE_SECRETS",
+                concat!(env!("CARGO_MANIFEST_DIR"), "/../../src/core-secrets.ts"),
+            )
             .env(
                 "PACER_CORE_ARGV",
                 serde_json::json!([bun, "--eval", FAKE_CORE]).to_string(),

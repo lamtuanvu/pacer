@@ -24,6 +24,7 @@ fn keys(env: &Env) -> Vec<&OsStr> {
 /// Every key Core consumes at startup, including the owner credential.
 fn consumed() -> Vec<(&'static str, &'static str)> {
     [
+        "PACER_CORE_SECRETS",
         "PACER_HOST_SOCKET_KEY",
         "PACER_INTERNAL_NATIVE_BOOTSTRAP",
         "PACER_INTERNAL_TOKEN",

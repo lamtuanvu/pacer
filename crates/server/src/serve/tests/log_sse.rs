@@ -81,6 +81,7 @@ async fn test_core(home: &Path) -> Arc<core_child::CoreChild> {
             ("PACER_HOME".into(), home.to_string_lossy().into()),
             ("TMPDIR".into(), home.to_string_lossy().into()),
         ]),
+        None,
     ));
     tokio::time::timeout(Duration::from_secs(10), async {
         while core.target().await.is_none() {

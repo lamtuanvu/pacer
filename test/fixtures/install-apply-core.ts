@@ -13,10 +13,12 @@ import { runStdio } from "../../src/api/stdio";
 import { makeCtx } from "../../src/ctx";
 import { startServer } from "../../src/serve/http";
 import type { ServiceStatus } from "../../src/service";
+import { readCoreSecrets, scrubCoreSecrets } from "../../src/core-secrets";
 
 /** `updateBlockMs` holds the whole core once, during the first update.apply preflight, so every bridged request waits on it. */
 type Behavior = { installDelayMs?: number; installFail?: string; standalone?: boolean; updateBlockMs?: number };
 
+const secrets = scrubCoreSecrets(process.env) ? readCoreSecrets() : {};
 const ctx = makeCtx();
 const fresh = () => ({ ...ctx, now: Date.now() / 1000 });
 const behavior = (): Behavior => { try { return JSON.parse(readFileSync(join(ctx.pacerHome, "fixture.json"), "utf8")); } catch { return {}; } };
@@ -50,16 +52,14 @@ const opDeps: OpDeps = {
 const [command, flag] = process.argv.slice(2);
 appendFileSync(join(ctx.pacerHome, "core-port.log"), `${command} ${process.env.PACER_PORT ?? "unset"}\n`);
 if (command === "serve" && flag === "--internal") {
-  const token = ctx.env.PACER_INTERNAL_TOKEN!;
-  delete ctx.env.PACER_INTERNAL_TOKEN;
+  const token = secrets.internalToken!;
   const server = startServer(fresh, { internal: { token }, opDeps });
   process.stdout.write(`${JSON.stringify({ internal: { port: server.port } })}\n`);
   writeFileSync(join(ctx.pacerHome, "core-ready"), String(process.pid));
   process.stdin.once("end", () => { void server.stop().finally(() => process.exit(0)); });
   process.stdin.resume();
 } else if (command === "api" && flag === "--stdio") {
-  const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-  delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+  const nativeConfigKey = secrets.nativeConfigSyncKey;
   await runStdio(fresh, createInterface({ input: process.stdin, crlfDelay: Infinity }), line => { process.stdout.write(line); }, { opDeps, nativeConfigKey });
   process.exit(0);
 } else {
