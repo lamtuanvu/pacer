@@ -9,37 +9,57 @@ import { Skeleton } from "../../ds/Patterns";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
 
-interface Candidates { accounts: { account: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }[]; reads: string[] }
+type Backend = "pacer" | "executor";
+interface Candidate { account: string; backend: Backend; available: boolean; reason?: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }
+interface Candidates { accounts: Candidate[]; reads: string[] }
+/** One picker value per account and backend: an account can answer through both. */
+const choiceOf = (account: string | null, backend: Backend) => account ? `${backend}:${account}` : "";
+const parseChoice = (value: string): { account: string | null; backend: Backend } =>
+  value.startsWith("executor:") ? { account: value.slice(9), backend: "executor" } : value.startsWith("pacer:") ? { account: value.slice(6), backend: "pacer" } : { account: null, backend: "pacer" };
 interface Status { available: boolean; reason?: string; hint?: string; today: { turns: number; input: number; output: number } }
 
 /** Settings › Assistant: which account answers, what it can read, limits, history. Off until an account is chosen. */
 export function AssistantSettingsSection() {
   const { api } = useTaskContext(), dialogs = useDialogs();
   const settings = useResource<Settings>("assistant.settings.get"), candidates = useResource<Candidates>("assistant.candidates"), status = useResource<Status>("assistant.status");
-  const [account, setAccount] = useState<string | null>(null), [runner, setRunner] = useState<string>(""), [turns, setTurns] = useState(""), [days, setDays] = useState("");
+  const [account, setAccount] = useState<string | null>(null), [backend, setBackend] = useState<Backend>("pacer"), [runner, setRunner] = useState<string>(""), [turns, setTurns] = useState(""), [days, setDays] = useState("");
   const [busy, setBusy] = useState(false), [error, setError] = useState<unknown>(), [saved, setSaved] = useState<string | null>(null);
   useEffect(() => {
     if (!settings.data) return;
-    setAccount(settings.data.account); setRunner(settings.data.runner ?? ""); setTurns(String(settings.data.limits.turnsPerDay)); setDays(String(settings.data.retention.days));
+    setAccount(settings.data.account); setBackend(settings.data.backend ?? "pacer"); setRunner(settings.data.runner ?? ""); setTurns(String(settings.data.limits.turnsPerDay)); setDays(String(settings.data.retention.days));
   }, [settings.data?.rev]);
   if (!settings.data || !candidates.data) return <Section id="assistant" title="Assistant"><Skeleton layout="settings" label="Loading assistant settings…" />{settings.error ? <ErrorMessage error={settings.error} /> : null}</Section>;
-  const chosen = candidates.data.accounts.find(a => a.account === account);
+  const chosen = candidates.data.accounts.find(a => a.account === account && a.backend === backend);
   const runnerOptions = [{ value: "", agent: chosen?.runners[0]?.id ?? chosen?.account ?? "opencode", label: "The account’s default model" }, ...(chosen?.runners ?? []).map(r => ({ value: r.id, agent: r.id, label: r.model ? `${r.id} · ${r.model}` : r.id }))];
   const act = async (work: () => Promise<unknown>, message: string) => {
     setBusy(true); setError(undefined); setSaved(null);
     try { await work(); setSaved(message); settings.reload(); status.reload(); } catch (e) { setError(e); } finally { setBusy(false); }
   };
-  const save = () => act(() => api.call("assistant.settings.set", { account, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
+  const save = async () => {
+    // Choosing an agent CLI to answer is a trust decision (spec §7): say what it can and cannot do, once per switch.
+    if (backend === "executor" && settings.data!.backend !== "executor" &&
+      !(await dialogs.confirm("The agent CLI runs on this machine as you, restricted to answering from pacer's summary: every tool is denied and the restriction was checked. If the CLI ever ignored its restrictions, it could read files you can read. Use it to answer?", "Use the agent CLI", "Use the agent CLI"))) return;
+    await act(() => api.call("assistant.settings.set", { account, backend, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
+  };
+  const check = () => act(() => api.call("assistant.selftest", { account }), "Check finished.").then(() => candidates.reload());
   return <Section id="assistant" title="Assistant">
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
-        <ChoicePicker value={account ?? ""} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({ value: a.account, agent: a.runners[0]?.id ?? a.account, label: a.isPlanner ? `${a.account} (planner)` : a.account }))]} onValueChange={value => { setAccount(value || null); setRunner(""); }} />
+        <ChoicePicker value={choiceOf(account, backend)} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({
+          value: choiceOf(a.account, a.backend), agent: a.runners[0]?.id ?? a.account,
+          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via opencode" : "pacer's agent"}`,
+          description: a.backend === "executor" ? (a.available ? "Answers through the agent CLI, from pacer's summary. Slower; no extra key." : "Needs the ask-mode check first.") : "Answers directly with this account's key. Fastest.",
+        }))]} onValueChange={value => { const next = parseChoice(value); setAccount(next.account); setBackend(next.backend); setRunner(""); }} />
       </Field>
       {chosen?.isPlanner && <Alert tone="warning" title="This is your planner’s account">The assistant follows the planner’s pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.</Alert>}
       {chosen && <Field label="Model"><ChoicePicker value={runner} options={runnerOptions} onValueChange={setRunner} /></Field>}
       <Field label="Questions per day" help="Turns beyond this wait until midnight."><TextInput type="number" min="1" max="1000" value={turns} onInput={event => setTurns(event.currentTarget.value)} /></Field>
       <Field label="Keep history for (days)" help="Older conversations are deleted. At most 200 conversations are kept."><TextInput type="number" min="1" max="365" value={days} onInput={event => setDays(event.currentTarget.value)} /></Field>
-      <div><Button variant="primary" busy={busy} onClick={() => void save()}>Save</Button></div>
+      {chosen?.backend === "executor" && !chosen.available && <Alert tone="warning" title="This account has not passed the ask-mode check">
+        <p>{chosen.reason ?? "Run the check before this account can answer."} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
+        <div><Button busy={busy} onClick={() => void check()}>Run ask-mode check</Button></div>
+      </Alert>}
+      <div><Button variant="primary" busy={busy} disabled={chosen?.backend === "executor" && !chosen.available} onClick={() => void save()}>Save</Button></div>
       {saved && <p role="status">{saved}</p>}
       <ErrorMessage error={error} />
     </div>
