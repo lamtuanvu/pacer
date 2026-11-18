@@ -76,6 +76,14 @@ test("spawns in the caller's cwd with an argument vector", async () => {
   expect(readActivity(ctx, {}).entries[0]).toMatchObject({ kind: "message", level: "info", text: "caller resumed for t-1", taskId: "t-1" });
 });
 
+test("the resumed environment names the task it was resumed for", async () => {
+  calls.length = 0;
+  const ctx = fakeCtx();
+  const reach: PlannerReach = { kind: "claude-code", session: "a1b2", cwd: tmpDir() };
+  expect(await resumeCaller(ctx, reach, "review", { task: "t-42", isAlive: async () => false, spawn: recorder })).toBe("resumed");
+  expect(calls[0]!.env.PACER_CALLER_RESUME).toBe("t-42");
+});
+
 test("executor state and secrets stay out of the resumed environment", async () => {
   calls.length = 0;
   const ctx = fakeCtx({ env: {

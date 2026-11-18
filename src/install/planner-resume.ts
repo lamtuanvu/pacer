@@ -58,7 +58,7 @@ export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string
   mkdirSync(dir, { recursive: true, mode: 0o700 });
   const log = join(dir, `${nextLogIndex(dir)}.log`);
   try { closeSync(openSync(log, "a", 0o600)); } catch { /* a log that cannot be created never blocks a launch */ }
-  const env = { ...plannerResumeEnv(ctx.env), HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}` };
+  const env = { ...plannerResumeEnv(ctx.env), HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}`, PACER_CALLER_RESUME: deps.task };
   let pid: number | undefined, failure: unknown;
   try { pid = (deps.spawn ?? spawnResume)({ argv, cwd: reach.cwd, env, log }); } catch (e) { failure = e; }
   // No pid means nothing started: the record would be false and the ladder could not escalate.
