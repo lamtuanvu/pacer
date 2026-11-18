@@ -157,6 +157,7 @@ pub fn set_sound(home: &Path, sound: &str) -> Result<Value, NotificationError> {
 }
 
 #[cfg(test)]
+#[allow(clippy::unwrap_used)]
 mod tests {
     use super::*;
 
