@@ -15,6 +15,8 @@ export interface RuleInput {
   /** Absent when LAN discovery is off. */
   discovery?: DiscoveryRuleInput;
 }
+/** The planner kind in a caller participant (`external:claude-code:<session>` → `claude-code`). */
+const callerLabel = (p?: string) => /^external:([a-z-]+)/.exec(p ?? "")?.[1] ?? "the caller";
 const displayName = (id: string | null) => executorName(id ? parseRunnerId(id)?.agent ?? id : null);
 const open = (label: string, params: Action["params"]): Action => ({ label, op: "ui.open", params });
 const severityOrder = { blocked: 0, problem: 1, decide: 2 };
@@ -56,6 +58,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     if (t.liveness?.stalled) {
       const detail = t.liveness.reason === "no_progress"
         ? `No progress for ${Math.max(1, Math.floor((input.now - t.liveness.since) / 60))} min`
+        : t.liveness.reason === "caller_decision" ? `Waiting for ${callerLabel(t.liveness.waitingOn)} to review and decide`
         : `Conversation stalled: ${t.liveness.reason}`;
       add("stalled", t.id, t.goal, detail, [open("Open messages", { view: "task", id: t.id, tab: "messages" })],
         { ...extra, since: t.liveness.since, raisedAt: t.liveness.since });

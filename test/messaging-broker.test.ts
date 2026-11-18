@@ -568,3 +568,15 @@ test("an escalation survives the switch to caller_decision and back", async () =
   await brokerTick({ ...ctx, now: ctx.now + 960 }, { mode: callerMode });
   expect(getLiveness(ctx, node)).toMatchObject({ reason: "caller_decision", escalatedAt: escalated.escalatedAt, since: escalated.since });
 });
+
+test("an escalated decision marks only the task it is owed for, with the planned text", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  const owed = callerTask(ctx, node, "uncontrolled");
+  const running = createTask(ctx, { brief: { goal: "other", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, running.id, t => { t.state = "running"; t.origin = node; });
+  for (const at of [0, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode });
+  expect(getLiveness(ctx, node)?.escalatedAt).toBe(ctx.now + 900);
+  expect(attention(ctx, owed.id, ctx.now + 900).find(i => i.kind === "stalled"))
+    .toMatchObject({ taskId: owed.id, detail: "Waiting for claude-code to review and decide" });
+  expect(attention(ctx, running.id, ctx.now + 900).some(i => i.kind === "stalled")).toBe(false);
+});
