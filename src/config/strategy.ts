@@ -6,6 +6,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, statSync, writeFileSync } 
 import { join } from "node:path";
 import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
+import { UPDATE_CHANNEL_ERROR, UPDATE_CHANNELS } from "../update/channel";
 import { LOCAL_LOAD_LIMIT_ERROR, LOCAL_MAX_TASKS_ERROR, LOCAL_MEMORY_PRESSURE_LIMIT_ERROR, MEMORY_PRESSURE_LIMITS, localLoadLimitProblem, localMaxTasksProblem } from "./execution";
 import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
 import { parseHosts, type HostCfg } from "./hosts";
@@ -275,6 +276,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
   if (localLoadLimitProblem(exec.local_load_limit)) p.push(LOCAL_LOAD_LIMIT_ERROR);
   const launchMode = isObj(raw.execution) ? raw.execution.launch_mode : undefined;
   if (launchMode !== undefined && launchMode !== "interactive" && launchMode !== "headless") p.push("execution.launch_mode must be interactive or headless");
+  if (raw.update_channel != null && !(UPDATE_CHANNELS as readonly unknown[]).includes(raw.update_channel)) p.push(UPDATE_CHANNEL_ERROR);
   const taskRetentionDays = raw.task_retention_days ?? 14;
   if (typeof taskRetentionDays !== "number" || !Number.isSafeInteger(taskRetentionDays) || taskRetentionDays < 0) p.push("task_retention_days must be a non-negative integer");
   const plugins = parsePlugins(raw.plugins, p);

@@ -8,7 +8,8 @@ import type { Result } from "../commands/types";
 import type { Ctx } from "../types";
 import { ReleaseError } from "./errors";
 import { type FetchFn, fetchBytes, fetchText, normalizeBase, releaseFetch } from "./fetch";
-import { type Platform, hostPlatform, latestUrl, parseLatest, parseManifest, parseSha256Sums, releaseUrl, sha256Hex } from "./manifest";
+import { type Platform, hostPlatform, latestForChannel, parseManifest, parseSha256Sums, releaseUrl, sha256Hex } from "./manifest";
+import { type UpdateChannel, updateChannel } from "./channel";
 import { type SmokeFn, replaceBinary, replacePair, runVersion } from "./replace";
 import { compareVersions, currentVersion, isVersion } from "./version";
 
@@ -24,6 +25,8 @@ export interface UpdateDeps {
   standalone: boolean;
   version: string;
   platform: Platform | null;
+  /** The `update_channel` that picks the release when `--to` is absent; stable when unset. */
+  channel?: UpdateChannel;
   /** When set, a successful replace stamps setup-health.required under this home. */
   pacerHome?: string;
   smoke?: SmokeFn;
@@ -77,6 +80,7 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
     standalone: Bun.isStandaloneExecutable,
     version: currentVersion(),
     platform: hostPlatform(),
+    channel: updateChannel(ctx),
     refreshIntegrations: path => refreshIntegrations(ctx, path),
     migrateStrategy: () => refreshStrategy(ctx),
     restartService: async (path, target) => {
@@ -94,8 +98,8 @@ const fail = (code: number, msg: string): Result => ({ code, out: "", err: `pace
 /** An installation that another installer updates; `pacer update` must not replace it. */
 export interface UpdateManager { by: "desktop" | "homebrew" | "npm"; message: string }
 
-export function installManager(d: Pick<UpdateDeps, "env" | "execPath">): UpdateManager | undefined {
-  if (d.env.PACER_INSTALL_METHOD === "npm") return {by: "npm", message: "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest"};
+export function installManager(d: Pick<UpdateDeps, "env" | "execPath" | "channel">): UpdateManager | undefined {
+  if (d.env.PACER_INSTALL_METHOD === "npm") return {by: "npm", message: `pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@${d.channel === "nightly" ? "nightly" : "latest"}`};
   let real: string;
   try { real = realpathSync(d.execPath); } catch { return undefined; }
   const prefixes = [d.env.HOMEBREW_PREFIX, d.env.HOMEBREW_CELLAR].filter((p): p is string => !!p);
@@ -119,7 +123,9 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
   };
   const hint = installManager(d)?.message;
   if (hint && !o.check) return fail(2, hint);
-  const checked = (out: string): Result => ok(out + (hint ? `\n${hint}` : ""));
+  // On nightly, a feed that failed while the other answered is reported, not fatal.
+  let feedWarning = "";
+  const checked = (out: string): Result => ok(out + (hint ? `\n${hint}` : "") + feedWarning);
   const raw = o.base ?? (d.env.PACER_RELEASE_BASE || undefined);
   let base: string | undefined;
   try {
@@ -134,7 +140,12 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
   if (!plat) return fail(2, "this OS/CPU is not supported (release builds exist for darwin and linux on arm64 and x64)");
   try {
     if(!o.check) d.progress?.("Download","running");
-    const target = o.to ?? parseLatest(JSON.parse(await fetchText(d.fetch, latestUrl(base))));
+    let target = o.to;
+    if (target === undefined) {
+      const found = await latestForChannel(d.channel ?? "stable", base, url => fetchText(d.fetch, url));
+      target = found.latest;
+      if (found.error !== undefined) feedWarning = `\nWARNING: ${found.error}`;
+    }
     const cmp = compareVersions(target, d.version);
     if (!o.check && !o.to && cmp<=0) {
       d.progress?.("Download","passed");
@@ -197,7 +208,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
 
       catch (e) { d.progress?.("Restart","skipped",String(e)); serviceNote = `\nWARNING: could not restart pacer serve: ${(e as Error).message}`; }
     }
-    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + refreshNote + serviceNote);
+    return ok([`updated pacer ${d.version} -> ${target}`, `binary: ${r.path}`, `previous binary: ${r.backup}`].join("\n") + refreshNote + serviceNote + feedWarning);
   } catch (e) {
     if (e instanceof SyntaxError) return fail(1, `release metadata is not valid JSON (${e.message})`);
     return fail(1, (e as Error).message);
