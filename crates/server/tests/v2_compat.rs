@@ -97,6 +97,21 @@ fn operation_boundary_keeps_v3_private_and_maps_errors() {
         json!({"error":{"code":"invalid_input","message":"accepted: expected boolean"}})
     );
     assert_eq!(
+        v2::call_params(
+            "config.set",
+            &json!({"key":"update_channel","value":"nightly"})
+        )
+        .unwrap_err()
+        .body(),
+        json!({"error":{"code":"invalid_input","message":"key: \"update_channel\" requires protocol 3"}})
+    );
+    assert_eq!(
+        v2::op_schemas(
+            &json!({"config.set":{"params":{"properties":{"key":{"enum":["update_check","update_channel","terminal.app"]}}}}})
+        )["config.set"]["params"]["properties"]["key"]["enum"],
+        json!(["update_check", "terminal.app"])
+    );
+    assert_eq!(
         v2::call_params("client.register", &json!(["a"])).unwrap(),
         json!({"0":"a"})
     );
