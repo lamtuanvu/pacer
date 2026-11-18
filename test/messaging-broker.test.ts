@@ -212,7 +212,7 @@ test("spinner output does not reset a no_progress stall", async () => {
   spin(ctx.now - 1);
   await brokerTick(ctx, { mode });
   const first = getLiveness(ctx, node);
-  expect(first).toMatchObject({ reason: "no_progress", since: ctx.now, nudges: 0 });
+  expect(first).toMatchObject({ reason: "no_progress", since: ctx.now - 3600, nudges: 0 });
   spin(ctx.now + 14);
   await brokerTick({ ...ctx, now: ctx.now + 15 }, { mode });
   expect(getLiveness(ctx, node)).toMatchObject({ reason: "no_progress", since: first!.since, nudges: first!.nudges, progressMark: first!.progressMark });
@@ -273,7 +273,22 @@ test("three unanswered pings stop the run and the task moves", async () => {
     expect(readTask(ctx, id)?.unresponsive).toEqual({ attempt: 1, pings: 3 });
     expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
     expect(attention(ctx, id, ctx.now + 900).find(i => i.kind === "stalled"))
-      .toMatchObject({ taskId: id, detail: "No progress for 15 min" });
+      .toMatchObject({ taskId: id, detail: "No progress for 75 min" });
+  } finally { stop.mockRestore(); }
+});
+
+test("a run replaced after the last ping is neither marked nor stopped", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node, dir } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:3`)).not.toBeNull();
+    // The stalled attempt ended on its own and the next attempt started before the stop was due.
+    updateTask(ctx, id, t => { t.attemptStartedAt = ctx.now + 800; t.run = { ...t.run!, dir: `${dir}-2`, attempt: 2, startedAt: ctx.now + 800 }; });
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
+    expect(stop.mock.calls).toEqual([]);
+    expect(readTask(ctx, id)?.unresponsive).toBeUndefined();
   } finally { stop.mockRestore(); }
 });
 

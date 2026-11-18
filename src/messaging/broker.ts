@@ -50,10 +50,11 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const config = effectivePolicy(ctx, { root }).config.liveness;
         const allowed = config.nudge_in_modes.includes(mode);
         const old = getLiveness(ctx, node);
-        const mark = progressMark(ctx, stall, snapshot);
+        const mark = progressMark(ctx, stall, snapshot), seen = snapshot.tasks.find(n => `task:${n.task.id}` === node);
         const changed = old?.progressMark !== mark || old.reason !== stall.reason;
         const row: LivenessUpsert = old && !changed ? { ...old } : {
-          node, reason: stall.reason, since: ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
+          // A no_progress stall started at the last progress, which the attention detail counts from.
+          node, reason: stall.reason, since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now : ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
         row.reason = stall.reason;
@@ -81,12 +82,15 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             row.nudges++; acted = true;
           } else {
             // Record it on the attempt first, so the runner classifies the stopped run even across a restart.
-            const id = taskOf(node)!, task = readTask(ctx, id);
-            if (task && task.unresponsive?.attempt !== (task.run?.attempt ?? task.attempts.length + 1)) {
-              updateTask(ctx, id, t => { t.unresponsive = { attempt: t.run?.attempt ?? t.attempts.length + 1, pings: row.nudges }; });
-              acted = true;
-              if (task.run?.dir) await stopRun(task.run.dir);
-            }
+            // Only the run the broker saw stall is marked and stopped; a run that ended or was replaced since is left alone.
+            const id = taskOf(node)!, run = seen?.task.run;
+            let marked = false;
+            if (run) updateTask(ctx, id, t => {
+              if (t.state !== "running" || t.run?.dir !== run.dir || t.run.startedAt !== run.startedAt || t.unresponsive?.attempt === t.run.attempt) return;
+              t.unresponsive = { attempt: t.run.attempt, pings: row.nudges };
+              marked = true;
+            });
+            if (marked && run) { acted = true; await stopRun(run.dir); }
           }
         } else if (nudged) {
           if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;
