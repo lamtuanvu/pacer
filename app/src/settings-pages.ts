@@ -17,6 +17,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: '', label: 'Overview', icon: 'settings-home', group: 'dispatch' },
   { id: 'executors', label: 'Agents', icon: 'settings-agents', group: 'dispatch', description: 'Agents that take delegated work, their order and limits.' },
   { id: 'dispatcher', label: 'Dispatcher', icon: 'settings-routing', group: 'dispatch', description: 'Saved profiles and the rules that choose an executor.' },
+  { id: 'models', label: 'Model matrix', icon: 'layers', group: 'dispatch', description: 'Rate and enable models per executor; difficulty steers which model runs.' },
   { id: 'planner', label: 'Budget & pacing', icon: 'settings-budget', group: 'dispatch', description: 'The planner, how work spreads and the reserve kept for planning.' },
   { id: 'machine', label: 'Machines', icon: 'settings-machines', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
   { id: 'plugins', label: 'Plugins', icon: 'settings-plugins', group: 'extend', description: 'Add capabilities and choose where they appear.' },
@@ -33,7 +34,7 @@ export function settingsPageId(section = ''): string {
 
 /** Secondary pages keep their routes and select their parent navigation category. */
 export function settingsNavId(section = ''): string {
-  return section === 'accounts' || section === 'add-executor' ? 'executors' : section === 'hosts' || section === 'pairing' ? 'machine' : section === 'assistant' ? 'app' : section === 'models' ? 'dispatcher' : settingsPageId(section);
+  return section === 'accounts' || section === 'add-executor' ? 'executors' : section === 'hosts' || section === 'pairing' ? 'machine' : section === 'assistant' ? 'app' : settingsPageId(section);
 }
 
 /** App preferences already shows update status, so the floating update notice stays hidden there. */

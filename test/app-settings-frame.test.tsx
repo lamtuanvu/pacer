@@ -85,7 +85,7 @@ const navOrder = (html: string) => [...html.matchAll(/<a\b[^>]*href="([^"]+)"/g)
 test('settings panel groups pages and keeps a stable keyboard order', () => {
   const html = renderToString(<SettingsPanel route={{ name: 'settings', query }} counts={null} />);
   expect(navOrder(html)).toEqual([
-    '#/', '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/planner', '#/settings/machine',
+    '#/', '#/settings', '#/settings/executors', '#/settings/dispatcher', '#/settings/models', '#/settings/planner', '#/settings/machine',
     '#/settings/plugins', '#/settings/app', '#/settings/diagnostics',
   ]);
   expect(html).not.toMatch(/tabindex="[1-9]/);
