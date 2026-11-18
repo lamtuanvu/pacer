@@ -37,6 +37,10 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
             value,
             &["notifier", "notification_permission", "notification_alerts"],
         )),
+        // `update_channel` is a protocol 3 addition; the frozen 2.x config.set keys stay as documented.
+        "config.set" if value.get("key").is_some_and(|key| key == "update_channel") => {
+            Err("key: \"update_channel\" requires protocol 3")
+        }
         "task.review" => {
             let accepted = value.get("accepted");
             if accepted.is_some_and(|v| !v.is_boolean()) {

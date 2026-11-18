@@ -112,6 +112,30 @@ test("native update.check matches TypeScript release-feed reads and the cache", 
   }
 }, 600_000);
 
+test("native update.check matches TypeScript on the nightly channel, including feed fallback and the channel cache", async () => {
+  const nightlyFeed = (home: string, body: string | null) => { mkdirSync(join(home, "feed"), {recursive: true}); if (body !== null) writeFileSync(join(home, "feed/cli-nightly.json"), body); };
+  const nightly = (home: string) => writeFileSync(join(home, "strategy.yaml"), "planner: codex\nupdate_channel: nightly # opted in\n");
+  for (const stable of ['{"version":"0.15.1"}', '{"version":"999.0.0"}', "<html>", null]) {
+    for (const body of ['{"version":"0.16.0-nightly.202611170000"}', '{"version":"v999.1.0-nightly.202611170000"}', '{"version":"0.15.2"}', "<html>", null]) {
+      await compareWithBase([check(), check(), check({force: true})], home => {
+        nightly(home);
+        if (stable !== null) feed(home, stable);
+        nightlyFeed(home, body);
+      });
+    }
+  }
+  // A cache from the other channel (or from before channels) is stale, and a failed check does not keep its latest.
+  for (const [strategy, cache] of [
+    ["update_channel: nightly\n", {checkedAt: NOW - 10, latest: "998.0.0", current: "x"}],
+    ["update_channel: 'nightly'\n", {checkedAt: NOW - 10, latest: "998.0.0", current: "x", channel: "stable"}],
+    ["update_channel: stable\n", {checkedAt: NOW - 10, latest: "999.0.0-nightly.202611170000", current: "x", channel: "nightly"}],
+    ["update_channel: nightly\n", {checkedAt: NOW - 10, latest: "999.0.0-nightly.202611170000", current: "x", channel: "nightly", error: "old"}],
+    ["planner: codex\n", {checkedAt: NOW - 10, latest: "998.0.0", current: "x", channel: 5}],
+  ] as const) {
+    await compareWithBase([check(), check({force: true})], home => { writeFileSync(join(home, "strategy.yaml"), strategy); writeFileSync(join(home, "update-check.json"), JSON.stringify(cache)); mkdirSync(join(home, "feed"), {recursive: true}); });
+  }
+}, 600_000);
+
 /** Runs the steps with `PACER_RELEASE_BASE` pointing at each home's own feed directory. */
 async function compareWithBase(steps: Step[], setup: (home: string) => void) {
   const ts = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-ts-"))), rs = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-rs-")));
