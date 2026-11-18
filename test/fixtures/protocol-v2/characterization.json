@@ -26223,7 +26223,7 @@
         }
       },
       "notifications.get": {
-        "description": "Current notification level.",
+        "description": "Current notification level and sound.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26232,7 +26232,7 @@
         }
       },
       "notifications.set": {
-        "description": "Set notifications to off, important or all.",
+        "description": "Set notification level (off, important, all) and/or sound (pacer, default, off or a built-in macOS sound); only present fields are written.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -26244,11 +26244,30 @@
                 "important",
                 "all"
               ]
+            },
+            "sound": {
+              "type": "string",
+              "enum": [
+                "pacer",
+                "default",
+                "off",
+                "basso",
+                "blow",
+                "bottle",
+                "frog",
+                "funk",
+                "glass",
+                "hero",
+                "morse",
+                "ping",
+                "pop",
+                "purr",
+                "sosumi",
+                "submarine",
+                "tink"
+              ]
             }
           },
-          "required": [
-            "level"
-          ],
           "additionalProperties": false
         }
       },
