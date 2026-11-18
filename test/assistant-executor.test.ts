@@ -6,7 +6,7 @@ import { BUNDLED } from "../plugins/bundled";
 import { parseRun } from "../plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, candidates, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
-import { ASK_DENIED, askConfig } from "../src/assistant/ask-mode";
+import { askConfig } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -91,7 +91,7 @@ describe("the executor backend in ask mode", () => {
     // Config travels by reference and arrives resolved; nothing of pacer's role leaks in.
     const config = JSON.parse(call!.env.OPENCODE_CONFIG_CONTENT!);
     expect(config.default_agent).toBe("pacer-ask");
-    for (const action of ASK_DENIED) expect(config.agents["pacer-ask"].permissions).toContainEqual({ action, resource: "*", effect: "deny" });
+    expect(config.agents["pacer-ask"].permissions).toEqual([{ action: "execute", resource: "*", effect: "deny" }, { action: "pacer_*", resource: "*", effect: "allow" }]);
     expect(config.policies[0]).toEqual({ action: "tool.use", resource: "*", effect: "deny" });
     expect(Object.keys(config.mcp.servers)).toEqual(["pacer"]);
     expect(config.mcp.servers.pacer.codemode).toBe(false);
@@ -206,7 +206,7 @@ describe("ask-mode pieces", () => {
     const config = JSON.parse(askConfig({ pacer: ["pacer"], grant: "pag_x", url: "http://127.0.0.1:1", turnId: "t", runDir: "/r", system: "s" }));
     expect(config.agents["pacer-ask"].permissions).toContainEqual({ action: "execute", resource: "*", effect: "deny" });
     expect(config.agents["pacer-ask"].permissions.at(-1)).toEqual({ action: "pacer_*", resource: "*", effect: "allow" });
-    expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }, { action: "tool.use", resource: "pacer_*", effect: "allow" }]);
+    expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }, { action: "tool.use", resource: "pacer_*:*", effect: "allow" }]);
     expect(config.mcp.servers.pacer.environment).toEqual({ PACER_ASSISTANT_GRANT: "pag_x", PACER_ASSISTANT_URL: "http://127.0.0.1:1", PACER_ASSISTANT_TURN: "t", PACER_HOME: "/r" });
   });
 });

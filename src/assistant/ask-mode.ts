@@ -13,9 +13,16 @@ import type { Ctx } from "../types";
 /** The reference the plugin passes for the config; the host resolves it when the command runs. */
 export const ASK_CONFIG_REF = "secrets:assistantAskConfig";
 
-/** Built-in opencode tools ask mode denies. `execute` is Code Mode, which can call opencode's own
- * tools and `fetch`; it is not covered by the tool.use policy and must be denied by permission. */
-export const ASK_DENIED = ["execute", "shell", "edit", "read", "glob", "grep", "webfetch", "websearch", "subagent", "skill", "question", "experimental_image_generate"] as const;
+/**
+ * How ask mode restricts opencode (verified against opencode 2.2.3 with a real model):
+ * - The `tool.use` policy denies every tool except pacer's MCP tools. Denied tools stay on the
+ *   model's list and every attempt fails with "Blocked by configuration policy", which is the
+ *   evidence the self-test needs. (An agent-permission deny removes a tool from the list instead,
+ *   so an attempt could never be observed.)
+ * - `execute` (Code Mode) is not covered by that policy: its runtime can call opencode's own tools
+ *   and `fetch`. Only the agent-permission deny removes it, so it is denied there.
+ */
+export const ASK_REMOVED = ["execute"] as const;
 
 /** One host-issued command, as the plugin must echo it to `capability.process.spawn`. */
 export interface AskCommand {
@@ -55,14 +62,14 @@ export function askConfig(o: { pacer: string[]; grant: string; url: string; turn
         mode: "primary",
         system: o.system,
         permissions: [
-          ...ASK_DENIED.map(action => ({ action, resource: "*", effect: "deny" })),
+          ...ASK_REMOVED.map(action => ({ action, resource: "*", effect: "deny" })),
           { action: "pacer_*", resource: "*", effect: "allow" },
         ],
       },
     },
     policies: [
       { action: "tool.use", resource: "*", effect: "deny" },
-      { action: "tool.use", resource: "pacer_*", effect: "allow" },
+      { action: "tool.use", resource: "pacer_*:*", effect: "allow" },
     ],
     mcp: {
       servers: {
