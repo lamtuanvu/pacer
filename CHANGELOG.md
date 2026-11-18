@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.1] - 2026-11-18
+
 ### Fixed
 
 - Settings → Updates and the TUI no longer offer a service Install that is always refused: `update.check` reports `managedBy` (`desktop`, `homebrew` or `npm`) with `managedHint` when another installer updates the installation, `update.apply` refuses a desktop-owned installation before anything else, and an error no longer repeats its hint.
