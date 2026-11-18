@@ -81,7 +81,7 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
   const turn = async (message: string, session?: string) => {
     const turnId = `${id}-${++n}`;
     // An unissued grant: pacer's MCP server lists its tools, and every call to it is refused.
-    const ask = askTurn(ctx, { turnId, grant: `pag_${randomBytes(32).toString("hex")}`, model: o.model, ...(session ? { session } : {}),
+    const ask = askTurn(ctx, { turnId, conversationId: id, grant: `pag_${randomBytes(32).toString("hex")}`, model: o.model, ...(session ? { session } : {}),
       system: "You are the pacer assistant.", question: message, history: [], timeoutMs: ASSISTANT_MAX_DEADLINE_MS - 10_000 });
     try {
       const pins = [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({ argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin, secretEnv: { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } }));
@@ -107,5 +107,8 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
     return again.verdict === "pass" ? record(true) : record(false, `on a resumed turn, ${again.reason}`);
   } catch (error) {
     return record(false, error instanceof Error ? error.message : String(error));
-  } finally { rmSync(dir, { recursive: true, force: true }); }
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+    rmSync(join(ctx.pacerHome, "runs", "assistant", "conversations", id), { recursive: true, force: true });
+  }
 }

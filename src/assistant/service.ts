@@ -1,3 +1,5 @@
+import { rmSync } from "node:fs";
+import { join } from "node:path";
 import { type z } from "zod";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -12,7 +14,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, askTurn, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_NO_TOOLS, ASK_PACER_TOOLS, askTurn, type AskTurn } from "./ask-mode";
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -358,7 +360,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       // Executor turns: the host builds the restricted `opencode run` commands and their config, which
       // carries the grant; the plugin gets the command shapes and a reference, never the config.
       if (settings.backend === "executor" && grant)
-        ask = askTurn(ctx, { turnId: turn.turnId, grant, model: endpoint.model, ...(session ? { session } : {}), system: `${system}\n\n${digest}`,
+        ask = askTurn(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: ASK_PACER_TOOLS ? `${system}\n\n${digest}` : `${system}\n\n${digest}\n\n${ASK_NO_TOOLS}`,
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
@@ -462,6 +464,9 @@ export { getTurn, updateCard };
 export function deleteConversations(ctx: Ctx, id?: string): { deleted: number } {
   const result = deleteAll(ctx, id);
   checkpoint(ctx);
+  // The executor backend's per-conversation working directories go with their conversations.
+  if (id === undefined || /^[A-Za-z0-9_-]{1,128}$/.test(id))
+    rmSync(join(ctx.pacerHome, "runs", "assistant", "conversations", ...(id === undefined ? [] : [id])), { recursive: true, force: true });
   return result;
 }
 /** Retention also runs when History is read, so text past its period does not wait for the next question. */

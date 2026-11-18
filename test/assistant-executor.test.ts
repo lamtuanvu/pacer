@@ -87,23 +87,24 @@ describe("the executor backend in ask mode", () => {
     // Standalone, JSON, the restricted agent, the account's model, the question on stdin.
     expect(call!.argv).toEqual(["run", "--standalone", "--format", "json", "--agent", "pacer-ask", "--model", "opencode-go/glm-test", "--title", "pacer assistant"]);
     expect(call!.stdin).toBe("What needs me?");
-    expect(call!.cwd).toContain(join("runs", "assistant", first.turnId));
+    expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
     // Config travels by reference and arrives resolved; nothing of pacer's role leaks in.
     const config = JSON.parse(call!.env.OPENCODE_CONFIG_CONTENT!);
     expect(config.default_agent).toBe("pacer-ask");
     expect(config.agents["pacer-ask"].permissions).toEqual([{ action: "execute", resource: "*", effect: "deny" }, { action: "pacer_*", resource: "*", effect: "allow" }]);
     expect(config.policies[0]).toEqual({ action: "tool.use", resource: "*", effect: "deny" });
-    expect(Object.keys(config.mcp.servers)).toEqual(["pacer"]);
-    expect(config.mcp.servers.pacer.codemode).toBe(false);
-    expect(config.mcp.servers.pacer.command.slice(-2)).toEqual(["mcp", "--assistant"]);
-    expect(config.mcp.servers.pacer.environment.PACER_ASSISTANT_GRANT).toMatch(/^pag_[0-9a-f]{64}$/);
-    expect(config.mcp.servers.pacer.environment.PACER_ASSISTANT_TURN).toBe(first.turnId);
+    // v1 is digest-only: no MCP server, every tool denied, and the agent is told it has no tools.
+    expect(config.mcp).toBeUndefined();
+    expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }]);
+    expect(config.agents["pacer-ask"].system).toContain("You have no tools");
+    expect(config.agents["pacer-ask"].system).toContain('"open":3');
     expect(config.instructions).toEqual([]);
     expect(config.plugins).toEqual([]);
     expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
-    // The turn is over: its grant is revoked and its run directory is gone.
+    // The turn is over: its grant is revoked and its config directory is gone; the conversation keeps its empty directory to resume in.
     expect(assistantGrantFor(first.turnId)).toBeNull();
-    expect(existsSync(call!.cwd)).toBe(false);
+    expect(existsSync(join(ctx.pacerHome, "runs", "assistant", first.turnId))).toBe(false);
+    expect(readdirSync(call!.cwd)).toEqual([]);
     const session = readBackendSession(ctx, first.conversationId)!;
     expect(session).toMatchObject({ account: "oc", backend: "executor" });
     expect(session.handle).toMatch(/^ses_new_/);
@@ -114,9 +115,8 @@ describe("the executor backend in ask mode", () => {
     expect(resumed.argv).toContain("--session");
     expect(resumed.argv[resumed.argv.indexOf("--session") + 1]).toBe(session.handle);
     expect(resumed.stdin).toBe("And now?");
-    // A different turn gets a different grant.
-    expect(JSON.parse(resumed.env.OPENCODE_CONFIG_CONTENT!).mcp.servers.pacer.environment.PACER_ASSISTANT_GRANT)
-      .not.toBe(config.mcp.servers.pacer.environment.PACER_ASSISTANT_GRANT);
+    expect(resumed.cwd).toBe(call!.cwd);
+    expect(JSON.parse(resumed.env.OPENCODE_CONFIG_CONTENT!).mcp).toBeUndefined();
   }, 60_000);
 
   test("starts a new session seeded with the transcript when the stored one cannot be resumed", async () => {
@@ -138,17 +138,17 @@ describe("the executor backend in ask mode", () => {
     expect(readBackendSession(ctx, first.conversationId)!.handle).toMatch(/^ses_new_/);
   }, 60_000);
 
-  test("the grant never reaches a log", async () => {
+  test("no grant reaches the agent, a log or the turn", async () => {
     const { ctx, deps, calls: all } = setup();
     expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
     const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "hello", scope, requestId: req() }, deps);
     await finished(ctx, first.turnId);
-    const grant = JSON.parse(calls()[0]!.env.OPENCODE_CONFIG_CONTENT!).mcp.servers.pacer.environment.PACER_ASSISTANT_GRANT as string;
+    expect(calls()[0]!.env.OPENCODE_CONFIG_CONTENT).not.toContain("pag_");
     const logs = join(ctx.pacerHome, "logs");
     const files = existsSync(logs) ? readdirSync(logs, { recursive: true }).map(String).filter(f => f.endsWith(".log")) : [];
-    for (const file of files) expect(readFileSync(join(logs, file), "utf8")).not.toContain(grant);
-    expect(JSON.stringify(getTurn(ctx, first.turnId))).not.toContain(grant);
+    for (const file of files) expect(readFileSync(join(logs, file), "utf8")).not.toMatch(/pag_[0-9a-f]{64}/);
+    expect(JSON.stringify(getTurn(ctx, first.turnId))).not.toMatch(/pag_[0-9a-f]{64}/);
   }, 60_000);
 });
 
@@ -202,8 +202,16 @@ describe("ask-mode pieces", () => {
       .toBe("provider.no-route: Model unavailable");
   });
 
-  test("the ask config denies Code Mode and lists only pacer's MCP server", () => {
+  test("v1's ask config denies every tool and loads no MCP server", () => {
     const config = JSON.parse(askConfig({ pacer: ["pacer"], grant: "pag_x", url: "http://127.0.0.1:1", turnId: "t", runDir: "/r", system: "s" }));
+    expect(config.mcp).toBeUndefined();
+    expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }]);
+    expect(config.agents["pacer-ask"].permissions).toContainEqual({ action: "execute", resource: "*", effect: "deny" });
+    expect(JSON.stringify(config)).not.toContain("pag_x");
+  });
+
+  test("with pacer's tools, the ask config denies Code Mode and lists only pacer's MCP server", () => {
+    const config = JSON.parse(askConfig({ pacer: ["pacer"], grant: "pag_x", url: "http://127.0.0.1:1", turnId: "t", runDir: "/r", system: "s", tools: true }));
     expect(config.agents["pacer-ask"].permissions).toContainEqual({ action: "execute", resource: "*", effect: "deny" });
     expect(config.agents["pacer-ask"].permissions.at(-1)).toEqual({ action: "pacer_*", resource: "*", effect: "allow" });
     expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }, { action: "tool.use", resource: "pacer_*:*", effect: "allow" }]);

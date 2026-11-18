@@ -50,7 +50,19 @@ export function serviceUrl(ctx: Ctx): string {
 }
 
 /** The restricted opencode config for one turn: one agent, every built-in denied, pacer's MCP server only. */
-export function askConfig(o: { pacer: string[]; grant: string; url: string; turnId: string; runDir: string; system: string }): string {
+/**
+ * Whether ask mode hands the agent pacer's read tools through `pacer mcp --assistant`. Off in v1:
+ * opencode 2.2.3 connects the server but does not offer its tools to the model, so the agent
+ * answers from the host-built digest and the conversation alone, with every tool denied. The grant
+ * and the MCP path stay in place for when that is resolved.
+ */
+export const ASK_PACER_TOOLS = false;
+
+/** What the agent is told in v1, where it has no tools. */
+export const ASK_NO_TOOLS = "You have no tools in this conversation. Answer only from the pacer digest above and the conversation. When the answer needs data the digest does not show, say so plainly and name what the user can open in pacer to see it.";
+
+export function askConfig(o: { pacer: string[]; grant: string; url: string; turnId: string; runDir: string; system: string; tools?: boolean }): string {
+  const tools = o.tools ?? ASK_PACER_TOOLS;
   return JSON.stringify({
     $schema: "https://opencode.ai/config.json",
     default_agent: "pacer-ask",
@@ -69,19 +81,21 @@ export function askConfig(o: { pacer: string[]; grant: string; url: string; turn
     },
     policies: [
       { action: "tool.use", resource: "*", effect: "deny" },
-      { action: "tool.use", resource: "pacer_*:*", effect: "allow" },
+      ...(tools ? [{ action: "tool.use", resource: "pacer_*:*", effect: "allow" }] : []),
     ],
-    mcp: {
-      servers: {
-        pacer: {
-          type: "local",
-          // Listed directly, not through Code Mode, so `execute` can stay denied.
-          codemode: false,
-          command: [...o.pacer, "mcp", "--assistant"],
-          environment: { PACER_ASSISTANT_GRANT: o.grant, PACER_ASSISTANT_URL: o.url, PACER_ASSISTANT_TURN: o.turnId, PACER_HOME: o.runDir },
+    ...(tools ? {
+      mcp: {
+        servers: {
+          pacer: {
+            type: "local",
+            // Listed directly, not through Code Mode, so `execute` can stay denied.
+            codemode: false,
+            command: [...o.pacer, "mcp", "--assistant"],
+            environment: { PACER_ASSISTANT_GRANT: o.grant, PACER_ASSISTANT_URL: o.url, PACER_ASSISTANT_TURN: o.turnId, PACER_HOME: o.runDir },
+          },
         },
       },
-    },
+    } : {}),
   });
 }
 
@@ -92,14 +106,18 @@ export function seededPrompt(history: readonly { role: "user" | "assistant"; con
   return `Earlier in this conversation:\n${lines.join("\n\n")}\n\nNew question:\n${question}`;
 }
 
-/** Build one turn's commands in a fresh, empty run directory under the service's runs. */
+/** Build one turn's commands: a per-turn config directory and the conversation's empty working directory. */
 export function askTurn(ctx: Ctx, o: {
-  turnId: string; grant: string; model: string | null; session?: string;
+  turnId: string; conversationId: string; grant: string; model: string | null; session?: string;
   system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
 }): AskTurn {
+  // opencode binds a session to its working directory, so each conversation keeps one empty
+  // directory to resume in; the turn's own directory holds its isolated config and is deleted after.
   const runDir = join(ctx.pacerHome, "runs", "assistant", o.turnId);
+  const cwd = join(ctx.pacerHome, "runs", "assistant", "conversations", o.conversationId);
   rmSync(runDir, { recursive: true, force: true });
   mkdirSync(runDir, { recursive: true, mode: 0o700 });
+  mkdirSync(cwd, { recursive: true, mode: 0o700 });
   const config = askConfig({ pacer: pacerArgv(ctx.env), grant: o.grant, url: serviceUrl(ctx), turnId: o.turnId, runDir, system: o.system });
   // Only configuration is isolated: HOME and XDG_DATA_HOME stay the user's, so opencode finds its
   // own sign-in for the account and pacer never reads or copies the key.
@@ -109,7 +127,7 @@ export function askTurn(ctx: Ctx, o: {
   };
   const argv = (session?: string) => ["opencode", "run", "--standalone", "--format", "json", "--agent", "pacer-ask",
     ...(o.model ? ["--model", o.model] : []), ...(session ? ["--session", session] : ["--title", "pacer assistant"])];
-  const command: AskCommand = { argv: argv(o.session), cwd: runDir, env, stdin: o.session ? o.question : seededPrompt(o.history, o.question), timeoutMs: o.timeoutMs };
+  const command: AskCommand = { argv: argv(o.session), cwd, env, stdin: o.session ? o.question : seededPrompt(o.history, o.question), timeoutMs: o.timeoutMs };
   const fallback: AskCommand | undefined = o.session ? { ...command, argv: argv(), stdin: seededPrompt(o.history, o.question) } : undefined;
   return { command, ...(fallback ? { fallback } : {}), config, cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
 }
