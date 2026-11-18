@@ -4,6 +4,7 @@ import { admit, ask, assistantGrantFor } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import { assistantTurnById } from "../src/assistant/turn-tools";
 import type { AssistantScope } from "../src/assistant/types";
+import { authorizeWorkOperation } from "../src/core/work";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
 import { manifestSchema } from "../src/plugins/protocol";
 import type { BundledPlugin } from "../src/plugins/types";
@@ -171,4 +172,60 @@ describe("a turn's assistant grant", () => {
     expect(assistantGrants(c)).toEqual([]);
     expect(assistantTurnById(started.turnId)).toBeNull();
   }, 30_000);
+});
+
+describe("the assistant-turn identity", () => {
+  const withGrant = (c: Ctx, token: string) => ({ ...c, env: { ...c.env, PACER_ASSISTANT_GRANT: token } });
+
+  test("runs assistant.tool for its own live turn and refuses every other operation", () => {
+    const c = ctx();
+    const token = issueAssistantGrant(c, { turnId: TURN, conversationId: CONVERSATION, expiresAt: NOW + 60 });
+    const granted = withGrant(c, token);
+    expect(() => authorizeWorkOperation(granted, "assistant.tool", { turnId: TURN, name: "snapshot", params: {} })).not.toThrow();
+    // The executor refusals in ops.ts and caller-policy.ts stay as they are; this identity is not
+    // an executor session, so it reaches only what this branch allows.
+    for (const op of ["assistant.status", "assistant.ask", "assistant.turn", "assistant.delete", "assistant.settings.set", "task.get", "task.delegate", "task.review", "snapshot.get", "msg.send", "dispatch.child", "plugin.enable", "files.search"]) {
+      expect(() => authorizeWorkOperation(granted, op, { turnId: TURN }), op).toThrow(/assistant grant runs assistant\.tool only/);
+    }
+    // Another turn's id is another grant's business.
+    expect(() => authorizeWorkOperation(granted, "assistant.tool", { turnId: "turn-another", name: "snapshot" })).toThrow(/belongs to another turn/);
+    expect(() => authorizeWorkOperation(granted, "assistant.tool", { name: "snapshot" })).toThrow(/turnId is required/);
+    expect(() => authorizeWorkOperation(granted, "assistant.tool", { turnId: 42 })).toThrow(/turnId is required/);
+    expect(() => authorizeWorkOperation(granted, "assistant.tool", {})).toThrow(/turnId is required/);
+  });
+
+  test("fails closed: an unknown, expired or revoked grant is refused, never the operator", () => {
+    const c = ctx();
+    for (const token of [`pag_${"0".repeat(64)}`, "pag_forged", `pwg_${"0".repeat(64)}`]) {
+      const refused = withGrant(c, token);
+      for (const op of ["assistant.tool", "assistant.status", "task.get", "snapshot.get", "dispatch.child"]) {
+        expect(() => authorizeWorkOperation(refused, op, { turnId: TURN }), `${token.slice(0, 8)} ${op}`).toThrow(/assistant grant/);
+      }
+    }
+    const live = issueAssistantGrant(c, { turnId: TURN, conversationId: CONVERSATION, expiresAt: NOW + 5 });
+    const expired = withGrant({ ...c, now: NOW + 5 }, live);
+    for (const op of ["assistant.tool", "snapshot.get"]) expect(() => authorizeWorkOperation(expired, op, { turnId: TURN }), op).toThrow(/Expired or revoked assistant grant/);
+    revokeAssistantGrants(c, TURN);
+    const revoked = withGrant(c, live);
+    for (const op of ["assistant.tool", "snapshot.get"]) expect(() => authorizeWorkOperation(revoked, op, { turnId: TURN }), op).toThrow(/Expired or revoked assistant grant/);
+  });
+
+  test("leaves a caller with no assistant grant exactly where it was", () => {
+    const c = ctx();
+    expect(() => authorizeWorkOperation(c, "assistant.tool", { turnId: TURN })).not.toThrow();
+    expect(() => authorizeWorkOperation(c, "snapshot.get", {})).not.toThrow();
+    expect(() => authorizeWorkOperation(c, "task.get", { id: "t-1" })).not.toThrow();
+    // An enforcement identity still answers only for its own denial, and an assistant grant cannot stand in for it.
+    expect(() => authorizeWorkOperation({ ...c, env: { ...c.env, PACER_ENFORCEMENT_TOKEN: "pet_x" } }, "dispatch.enforcement.denied", {})).not.toThrow();
+    expect(() => authorizeWorkOperation({ ...c, env: { ...c.env, PACER_ENFORCEMENT_TOKEN: "pet_x", PACER_ASSISTANT_GRANT: `pag_${"0".repeat(64)}` } }, "dispatch.enforcement.denied", {}))
+      .toThrow(/assistant grant/);
+    // A work grant keeps its own list; an assistant grant never widens it.
+    const task = createTask(c, { brief: { goal: "g", repo: "/r" }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+    registerWork(c, task.id, { allowDelegation: true });
+    updateTask(c, task.id, t => { t.state = "running"; });
+    const work = issueWorkGrant(c, task.id, 1);
+    const executor = { ...c, env: { ...c.env, PACER_WORK_GRANT: work, PACER_ROLE: "executor" } };
+    expect(() => authorizeWorkOperation(executor, "assistant.tool", { turnId: TURN })).toThrow(/not allowed by this work grant|is not allowed/);
+    expect(() => authorizeWorkOperation(executor, "task.get", { id: task.id })).not.toThrow();
+  });
 });

@@ -27,7 +27,7 @@ import { requireRepoDirectory } from "./repos";
 import {boundedGitRead} from "./git";
 import { withLock, withLockSync } from "./lock";
 import { isExecutorSession } from "../install/role";
-import { getWork, registerWork, requireWorkScope, authorizeWorkGrant, workOptionsSchema, workTree, workTotals, workWaitTotals, workEvents, pendingChildren, pendingDependencies, syncDependentWaits, beginChildWait, endChildWait, type WorkOptions } from "../dispatch/work";
+import { authorizeAssistantGrant, getWork, registerWork, requireWorkScope, authorizeWorkGrant, workOptionsSchema, workTree, workTotals, workWaitTotals, workEvents, pendingChildren, pendingDependencies, syncDependentWaits, beginChildWait, endChildWait, type WorkOptions } from "../dispatch/work";
 import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/store";
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
@@ -311,6 +311,18 @@ export async function waitWork(ctx:Ctx,id:string,timeout=600){
 
 /** Every transport, including in-process callers, must pass this gate. */
 export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
+ // The assistant-turn identity comes first and answers for nothing else: `assistant.tool`, for the
+ // one turn its grant names, while that grant is live. An unknown, expired or revoked `pag_` is
+ // refused here and never falls through to the operator's permissions (spec §2).
+ const assistantToken=ctx.env.PACER_ASSISTANT_GRANT;
+ if(assistantToken){
+  const grant=authorizeAssistantGrant(ctx,assistantToken);
+  if(name!=="assistant.tool")throw new CoreError("not_allowed","An assistant grant runs assistant.tool only.");
+  const turnId=(params as {turnId?:unknown})?.turnId;
+  if(typeof turnId!=="string"||!turnId)throw new CoreError("invalid_input","turnId is required");
+  if(turnId!==grant.turnId)throw new CoreError("not_allowed","This assistant grant belongs to another turn.");
+  return;
+ }
  if(ctx.env.PACER_ENFORCEMENT_TOKEN){
   if(name!=="dispatch.enforcement.denied")throw new CoreError("not_allowed","Enforcement identity only reports a native child denial");
   return;
