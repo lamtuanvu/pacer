@@ -28,7 +28,7 @@ Besides pacer's own agent, which calls an endpoint account with a key pacer hold
 
 An account can answer this way only after it passes the **ask-mode check**, which runs again when opencode's version changes. The check tells the agent to run a shell command, read a file outside its directory, fetch a page and use Code Mode, on a first and a resumed turn. It passes only when each attempt is refused and nothing was written or read back.
 
-**What this does not guarantee.** These restrictions are opencode's own configuration, checked by pacer. They are not an operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read. pacer's own agent does not carry this risk: it can reach nothing but the data pacer hands it.
+**What this does not guarantee.** These restrictions are opencode's own configuration, checked by pacer. They are not an operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read. Settings asks you to confirm this the first time you switch to an agent CLI, and an account cannot be saved for it until it passes the check. pacer's own agent does not carry this risk: it can reach nothing but the data pacer hands it.
 
 ## What it can do
 
