@@ -141,6 +141,10 @@ export class OrcaClient {
   worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }
   terminalList(worktree: string) { return this.call<{ terminals?: TerminalRow[]; truncated?: boolean }>(["terminal", "list", "--worktree", worktree]); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
+  /** The bottom `limit` screen rows (`source: "screen"`), which include the prompt box the `show` preview lacks. */
+  terminalScreen(handle: string, limit: number) {
+    return this.call<{ terminal?: { source?: string; tail?: string[] } }>(["terminal", "read", "--terminal", handle, "--screen", "--limit", String(limit)]);
+  }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }

@@ -3,9 +3,10 @@ import { pingOrcaCaller } from "../src/exec/orca/caller-ping";
 import { type Route, fakeRun, ok, raw } from "./fixtures/orca/fake";
 import { fakeCtx } from "./helpers";
 
-const HANDLE = "term_d2540c20-c681-4f80-bc41-689a96ed264a";
+const HANDLE = "term_00000000-0000-0000-0000-000000000001";
 const PING = "pacer: task t-1 is done. Review and decide: `pacer review t-1 --accept|--reject`, or `pacer msg inbox`.";
 const SHOW = ["orca", "terminal", "show"];
+const READ = ["orca", "terminal", "read"];
 const SEND = ["orca", "terminal", "send"];
 const arg = (argv: string[], flag: string) => argv[argv.indexOf(flag) + 1];
 
@@ -14,24 +15,33 @@ const show = (terminal: Record<string, unknown>): Route => [
   raw(JSON.stringify({ ok: true, result: { terminal: { handle: HANDLE, connected: true, writable: true, ...terminal } } })),
 ];
 
-/** Scrubbed from a real `orca terminal show` of a Claude Code pane: status block, no personal data. */
-const statusPreview = (...top: string[]) => [
-  ...top,
+const screen = (tail: string[]): Route => [
+  READ,
+  raw(JSON.stringify({ ok: true, result: { terminal: { source: "screen", tail } } })),
+];
+
+/** Scrubbed from a real `orca terminal show` of a Claude Code pane: status block only, no prompt box, no personal data. */
+const statusBlock = [
   "─────────",
-  "👤 planner@example.invalid [Max] | 🧠 Opus 5.5 (1M context) | 📁 bichir",
-  "▰▰▰▰▱▱▱▱▱▱ 49% (494.7k/1000.0k) | 💰 $79.35 | ⏱ 41h12m (api 2h10m) | +2300 -5",
-  "📊 📅 week 44% ↻2d20h",
-  "▬┃ Claude Code 44%·52  policy: open",
+  "👤 planner@example.invalid [Pro] | 🧠 Sonnet 5 (1M context) | 📁 sample-repo",
+  "▰▰▰▰▰▱▱▱▱▱ 50% (100.0k/200.0k) | 💰 $1.23 | ⏱ 1h00m (api 0h10m) | +12 -3",
+  "📊 📅 week 30% ↻1d0h",
+  "▬┃ Sample Agent 60%·40  policy: review",
   "-- INSERT -- ⏵⏵ bypass permissions on (shift+tab to cycle) · ← for agents",
-].join("\n");
+];
+
+/** The prompt box as `orca terminal read --screen` returns it: the prompt row boxed by `─` rules, above the status block. */
+const screenBox = (promptRow: string) => screen(["scrollback line", "…", "─────────", promptRow, "─────────", ...statusBlock]);
 
 const IDLE: Record<string, unknown> = {
-  // The real pane keeps its title glyph; Orca evaluated agentWait and found no wait.
-  title: "◐ Pacer task dispatch stuck forever",
+  // Claude Code marks an idle-at-prompt pane with the ✳ title prefix; Orca evaluated agentWait and found no wait.
+  title: "✳ Example session",
   agentWait: null,
   lastOutputAt: Date.now() - 60_000,
-  preview: statusPreview("❯"),
+  preview: statusBlock.join("\n"),
 };
+
+const emptyBox = screenBox("❯");
 
 function setup(...routes: Route[]) {
   const f = fakeRun(routes);
@@ -39,7 +49,7 @@ function setup(...routes: Route[]) {
 }
 
 test("sends when the caller is idle at an empty prompt", async () => {
-  const { f, ctx } = setup(show(IDLE), [SEND, ok("terminal-send.json")]);
+  const { f, ctx } = setup(show(IDLE), emptyBox, [SEND, ok("terminal-send.json")]);
   expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("sent");
   expect(f.count(SEND)).toBe(1);
   const send = f.calls.find((a) => a[1] === "terminal" && a[2] === "send")!;
@@ -49,26 +59,52 @@ test("sends when the caller is idle at an empty prompt", async () => {
 });
 
 test("never types over a draft", async () => {
-  const { f, ctx } = setup(show({ ...IDLE, preview: statusPreview("❯ fix the thing") }));
+  const { f, ctx } = setup(show(IDLE), screenBox("❯ fix the thing"));
+  expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
+  expect(f.count(SEND)).toBe(0);
+});
+
+test("never types over a multi-line draft", async () => {
+  const { f, ctx } = setup(show(IDLE), screen(["─────────", "❯ first line", "second line", "third line", "─────────", ...statusBlock]));
+  expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
+  expect(f.count(SEND)).toBe(0);
+});
+
+test("a screen without a prompt box is busy", async () => {
+  const { f, ctx } = setup(show(IDLE), screen(statusBlock));
   expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
   expect(f.count(SEND)).toBe(0);
 });
 
 test("waits while the agent is working", async () => {
-  const { f, ctx } = setup(show({ ...IDLE, agentWait: undefined, lastOutputAt: Date.now() - 60_000 }));
+  const { f, ctx } = setup(show({ ...IDLE, title: "◐ Example session", agentWait: undefined }), emptyBox);
   expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
   expect(f.count(SEND)).toBe(0);
 });
 
 test("an agent parked on an interactive prompt is busy", async () => {
-  const { f, ctx } = setup(show({ ...IDLE, agentWait: { source: "prompt-text", reason: "agent-approval-prompt" } }));
+  const { f, ctx } = setup(show({ ...IDLE, agentWait: { source: "prompt-text", reason: "agent-approval-prompt" } }), emptyBox);
   expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
   expect(f.count(SEND)).toBe(0);
 });
 
 test("terminal output in the last 30 s is busy", async () => {
-  const { f, ctx } = setup(show({ ...IDLE, lastOutputAt: Date.now() - 1_000 }));
+  const { f, ctx } = setup(show({ ...IDLE, lastOutputAt: Date.now() - 1_000 }), emptyBox);
   expect(await pingOrcaCaller(ctx, HANDLE, PING)).toBe("busy");
+  expect(f.count(SEND)).toBe(0);
+});
+
+test("text with a newline is never sent", async () => {
+  const { f, ctx } = setup(show(IDLE), emptyBox, [SEND, ok("terminal-send.json")]);
+  expect(await pingOrcaCaller(ctx, HANDLE, "pacer: one\npacer: two")).toBe("busy");
+  expect(f.count(SHOW)).toBe(0);
+  expect(f.count(SEND)).toBe(0);
+});
+
+test("text with a control character is never sent", async () => {
+  const { f, ctx } = setup(show(IDLE), emptyBox, [SEND, ok("terminal-send.json")]);
+  expect(await pingOrcaCaller(ctx, HANDLE, "pacer: \x1b[2J ping")).toBe("busy");
+  expect(f.count(SHOW)).toBe(0);
   expect(f.count(SEND)).toBe(0);
 });
 
