@@ -151,7 +151,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             // Only an open caller in a terminal pacer can type into is woken; tmux, uncontrolled and
             // unknown liveness wait for the notification, and a closed caller is not resumed in this PR.
             const wake = deps.callerWake;
-            const state = wake && text && reach && reach.terminal.kind === "orca" ? await callerAlive(ctx, reach) : null;
+            const state = wake && text && reach && reach.terminal.kind === "orca" && node !== "human" ? await callerAlive(ctx, reach) : null;
             if (wake && state === "alive") {
               const result = await wake(ctx, reach!, text!);
               if (result === "sent" || result === "resumed") { row.nudges++; acted = true; }
