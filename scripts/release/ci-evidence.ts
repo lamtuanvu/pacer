@@ -58,7 +58,7 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
     for (const run of pending) checked.delete(run.id);
     if (pending.length) log(`Waiting for CI: ${pending.map(run => run.html_url).join(", ")}`);
     else if (!options.dispatch) {
-      throw Error(`no CI evidence for ${sha}: no CI run passed the full suite on both OSes, and dispatch is off`);
+      throw Error(`no CI evidence for ${sha}: no CI run passed the Linux suite and macOS job, and dispatch is off`);
     } else if (failed && dispatchedAt === undefined) {
       // A failed full suite is the answer for this commit: dispatching again would retry until it passes.
       throw Error(`CI ran the full suite on ${sha} and it failed (${failed}); not dispatching another run`);

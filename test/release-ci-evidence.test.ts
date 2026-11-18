@@ -175,6 +175,11 @@ test("a failed full suite on the commit skips instead of dispatching another run
   const { ci, refs } = fake(() => [ciRun(12, "push"), ciRun(13, "push")], { 12: suite("skipped"), 13: suite("failure") });
   await expect(awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).rejects.toThrow("it failed (run/13); not dispatching");
   expect(refs).toEqual([]);
+  // A failed macOS-specific suite is a result too.
+  const macFailed = suite().map(job => job.name === MACOS_JOB ? { ...job, conclusion: "failure", steps: [{ name: MACOS_STEP, conclusion: "failure" }] } : job);
+  const mac = fake(() => [ciRun(16, "push")], { 16: macFailed });
+  await expect(awaitCiEvidence(mac.ci, SHA, "main", 1e9, () => {})).rejects.toThrow("it failed (run/16); not dispatching");
+  expect(mac.refs).toEqual([]);
   // A suite that never ran (path filter, or a job that failed before the suite step) is no result, so CI is dispatched.
   const unrun = fake((_, d) => d === undefined ? [ciRun(14, "push")] : [ciRun(14, "push"), ciRun(15, "workflow_dispatch", "completed", d)],
     { 14: suite("skipped", undefined, "failure"), 15: suite() });
