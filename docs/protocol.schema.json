@@ -3819,7 +3819,21 @@
           "enum": [
             "pacer",
             "default",
-            "off"
+            "off",
+            "basso",
+            "blow",
+            "bottle",
+            "frog",
+            "funk",
+            "glass",
+            "hero",
+            "morse",
+            "ping",
+            "pop",
+            "purr",
+            "sosumi",
+            "submarine",
+            "tink"
           ]
         }
       },

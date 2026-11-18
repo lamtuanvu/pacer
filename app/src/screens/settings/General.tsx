@@ -29,7 +29,7 @@ import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
 import { settingsPageId, settingsPageTitle } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
-import { Page, Stack } from "../../ds/Page";
+import { Cluster, Page, Stack } from "../../ds/Page";
 import { Card } from "../../ds/Patterns";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { modeWords, toneFor } from "../../../../src/view-model/words";
@@ -45,6 +45,7 @@ import {
   TextInput,
 } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
+import { notificationSoundOptions } from "../../../../src/view-model/notification-sounds";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
@@ -435,7 +436,8 @@ function PlannerConsent({
     </Dialog>
   );
 }
-function NotificationsSection({
+const SOUND_OPTIONS = notificationSoundOptions();
+export function NotificationsSection({
   initialData,
 }: {
   initialData?: { level: string; sound: string };
@@ -446,6 +448,9 @@ function NotificationsSection({
   const check = health.data;
   const caption = notificationCaption(check);
   const remedy = check?.remedy;
+  // On macOS, Send test sits beside the sound picker; a permission remedy stays
+  // with the Desktop banners status it fixes.
+  const testBesidePicker = platform.macos && check?.level === "ok" && !remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -465,17 +470,16 @@ function NotificationsSection({
         </SettingRow>
         {platform.macos && (
           <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
-            <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <Segment
-              variant="board" label="Notification sound"
-              value={value}
-              disabled={busy}
-              options={[
-                { value: "pacer", label: "Pacer" },
-                { value: "default", label: "System" },
-                { value: "off", label: "Off" },
-              ]}
-              onChange={change}
-            />}</ImmediateSetting>
+            <Cluster>
+              <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <ChoicePicker
+                aria-label="Notification sound"
+                value={value}
+                disabled={busy}
+                options={SOUND_OPTIONS}
+                onValueChange={change}
+              />}</ImmediateSetting>
+              {testBesidePicker && <BannerAction api={api} reload={health.reload} level="ok" />}
+            </Cluster>
           </SettingRow>
         )}
         {platform.desktop && (
@@ -486,6 +490,7 @@ function NotificationsSection({
               caption={caption}
               remedy={remedy}
               api={api}
+              action={!testBesidePicker}
             />
           </ResourceState>
         )}
@@ -509,6 +514,7 @@ export function DesktopBanners({
   caption,
   remedy,
   refetchDelay = 3000,
+  action = true,
 }: {
   api: Pick<BrowserApi, "call">;
   reload: () => void;
@@ -516,6 +522,31 @@ export function DesktopBanners({
   caption: string;
   remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
   /** After Send test, caption refresh; injectable so tests avoid real waits. */
+  refetchDelay?: number;
+  /** False when Send test sits beside the macOS sound picker instead, so it is offered once. */
+  action?: boolean;
+}) {
+  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+    {action ? <BannerAction api={api} reload={reload} level={level} remedy={remedy} refetchDelay={refetchDelay} /> : null}
+  </SettingRow>;
+}
+
+/**
+ * The banner check's one action: its remedy when banners are not allowed, or
+ * Send test (a real banner with the chosen sound) when the check is ok. Each
+ * action refetches the health read so the Desktop banners caption follows.
+ */
+export function BannerAction({
+  api,
+  reload,
+  level,
+  remedy,
+  refetchDelay = 3000,
+}: {
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
   refetchDelay?: number;
 }) {
   const [busy, setBusy] = useState(false);
@@ -538,7 +569,7 @@ export function DesktopBanners({
   };
   // "Send test" is offered only when the check is ok; every other state shows the caption only.
   const showSend = level === "ok";
-  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+  return <>
     {remedy ? (
       <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
         if (remedy.url) await openRemedyUrl(remedy.url, platform);
@@ -556,7 +587,7 @@ export function DesktopBanners({
     ) : null}
     {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
     {callError && <ErrorMessage error={callError}/>}
-  </SettingRow>;
+  </>;
 }
 
 export function notificationCaption(

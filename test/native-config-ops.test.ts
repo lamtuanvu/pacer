@@ -74,7 +74,7 @@ test("native registry matches every TS config operation result, bytes and public
     ["runner.remove",{id:"cursor"}], ["runner.remove",{id:"claude-code"}], ["runner.remove",{id:"codex#missing"}],
     ["notifications.get",{}], ["notifications.get",{},p=>writeFileSync(join(p,"settings.json"),'{"notifications":"all"}')],
     ...["off","important","all"].map(level=>["notifications.set",{level}] as [string,unknown]),
-    ...["pacer","default","off"].map(sound=>["notifications.set",{sound}] as [string,unknown]),
+    ...["pacer","default","off","basso","glass","submarine","tink"].map(sound=>["notifications.set",{sound}] as [string,unknown]),
     ["notifications.set",{level:"important",sound:"off"}],
     // Nested pacing inserts that add new map keys after a blank line before the
     // next root key are not byte-identical on this golden yet; stick to keys the
@@ -146,7 +146,7 @@ test("native schemas match TS Unicode lengths, JS safe integers, nulls and issue
     ...[1.5,1e20,-1e20,null,"1"].map(rank=>["runner.set",{id:"codex",rank,max_tasks:rank}] as [string,unknown]),
     ["runner.remove",{id:""}], ["runner.remove",{id:"codex\n"}],
     ["runner.reorder",{ids:[3,""]}], ["routing.set",{rules:[{kinds:null,executors:[null,""]},null]}],
-    ["notifications.set",{}], ["notifications.set",{level:"bad"}], ["notifications.set",{sound:"bad"}], ["notifications.set",{level:"all",sound:"squeak"}], ["notifications.get",null],
+    ["notifications.set",{}], ["notifications.set",{level:"bad"}], ["notifications.set",{sound:"bad"}], ["notifications.set",{sound:"Glass"}], ["notifications.set",{sound:"glass.aiff"}], ["notifications.set",{level:"all",sound:"squeak"}], ["notifications.get",null],
     ["config.set",{}], ["config.set",{key:"nope",value:1}],
     ["config.set",{key:"update_check",value:{a:1}}],
     ["config.set",{key:"pacing.policy",value:"bad"}],
@@ -164,8 +164,8 @@ test("notification migration and writes preserve TS object spread and numeric ke
 }, 30_000);
 
 test("notification get and set agree on stored, invalid and migrated sound values", async () => {
-  for (const initial of ['{"notifications":"all","notificationSound":"off"}', '{"notifications":"all","notificationSound":"squeak"}', '{"notifications":"all","notificationSound":3}', '{"notifications":"all","notificationSound":null}', '{"notificationSound":"default"}', '{"notifications":"invalid","notificationSound":"off","other":1}']) {
-    for (const [op, params] of [["notifications.get", {}], ["notifications.set", {level:"off"}], ["notifications.set", {sound:"default"}], ["notifications.set", {level:"all", sound:"off"}]] as const) {
+  for (const initial of ['{"notifications":"all","notificationSound":"off"}', '{"notifications":"all","notificationSound":"glass"}', '{"notifications":"all","notificationSound":"Glass"}', '{"notifications":"all","notificationSound":"squeak"}', '{"notifications":"all","notificationSound":3}', '{"notifications":"all","notificationSound":null}', '{"notificationSound":"default"}', '{"notifications":"invalid","notificationSound":"off","other":1}']) {
+    for (const [op, params] of [["notifications.get", {}], ["notifications.set", {level:"off"}], ["notifications.set", {sound:"default"}], ["notifications.set", {sound:"hero"}], ["notifications.set", {level:"all", sound:"off"}]] as const) {
       await compare(op, params, path=>writeFileSync(join(path,"settings.json"), initial, {mode:0o600}));
     }
   }

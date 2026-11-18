@@ -7930,7 +7930,21 @@ impl ::std::default::Default for NotificationsRequestParams {
 ///      "enum": [
 ///        "pacer",
 ///        "default",
-///        "off"
+///        "off",
+///        "basso",
+///        "blow",
+///        "bottle",
+///        "frog",
+///        "funk",
+///        "glass",
+///        "hero",
+///        "morse",
+///        "ping",
+///        "pop",
+///        "purr",
+///        "sosumi",
+///        "submarine",
+///        "tink"
 ///      ]
 ///    }
 ///  },
@@ -8030,7 +8044,21 @@ impl ::std::convert::TryFrom<&str> for NotificationsSetParamsLevel {
 ///  "enum": [
 ///    "pacer",
 ///    "default",
-///    "off"
+///    "off",
+///    "basso",
+///    "blow",
+///    "bottle",
+///    "frog",
+///    "funk",
+///    "glass",
+///    "hero",
+///    "morse",
+///    "ping",
+///    "pop",
+///    "purr",
+///    "sosumi",
+///    "submarine",
+///    "tink"
 ///  ]
 ///}
 /// ```
@@ -8054,6 +8082,34 @@ pub enum NotificationsSetParamsSound {
     Default,
     #[serde(rename = "off")]
     Off,
+    #[serde(rename = "basso")]
+    Basso,
+    #[serde(rename = "blow")]
+    Blow,
+    #[serde(rename = "bottle")]
+    Bottle,
+    #[serde(rename = "frog")]
+    Frog,
+    #[serde(rename = "funk")]
+    Funk,
+    #[serde(rename = "glass")]
+    Glass,
+    #[serde(rename = "hero")]
+    Hero,
+    #[serde(rename = "morse")]
+    Morse,
+    #[serde(rename = "ping")]
+    Ping,
+    #[serde(rename = "pop")]
+    Pop,
+    #[serde(rename = "purr")]
+    Purr,
+    #[serde(rename = "sosumi")]
+    Sosumi,
+    #[serde(rename = "submarine")]
+    Submarine,
+    #[serde(rename = "tink")]
+    Tink,
 }
 impl ::std::convert::From<&Self> for NotificationsSetParamsSound {
     fn from(value: &NotificationsSetParamsSound) -> Self {
@@ -8066,6 +8122,20 @@ impl ::std::fmt::Display for NotificationsSetParamsSound {
             Self::Pacer => f.write_str("pacer"),
             Self::Default => f.write_str("default"),
             Self::Off => f.write_str("off"),
+            Self::Basso => f.write_str("basso"),
+            Self::Blow => f.write_str("blow"),
+            Self::Bottle => f.write_str("bottle"),
+            Self::Frog => f.write_str("frog"),
+            Self::Funk => f.write_str("funk"),
+            Self::Glass => f.write_str("glass"),
+            Self::Hero => f.write_str("hero"),
+            Self::Morse => f.write_str("morse"),
+            Self::Ping => f.write_str("ping"),
+            Self::Pop => f.write_str("pop"),
+            Self::Purr => f.write_str("purr"),
+            Self::Sosumi => f.write_str("sosumi"),
+            Self::Submarine => f.write_str("submarine"),
+            Self::Tink => f.write_str("tink"),
         }
     }
 }
@@ -8076,6 +8146,20 @@ impl ::std::str::FromStr for NotificationsSetParamsSound {
             "pacer" => Ok(Self::Pacer),
             "default" => Ok(Self::Default),
             "off" => Ok(Self::Off),
+            "basso" => Ok(Self::Basso),
+            "blow" => Ok(Self::Blow),
+            "bottle" => Ok(Self::Bottle),
+            "frog" => Ok(Self::Frog),
+            "funk" => Ok(Self::Funk),
+            "glass" => Ok(Self::Glass),
+            "hero" => Ok(Self::Hero),
+            "morse" => Ok(Self::Morse),
+            "ping" => Ok(Self::Ping),
+            "pop" => Ok(Self::Pop),
+            "purr" => Ok(Self::Purr),
+            "sosumi" => Ok(Self::Sosumi),
+            "submarine" => Ok(Self::Submarine),
+            "tink" => Ok(Self::Tink),
             _ => Err("invalid value".into()),
         }
     }

@@ -50,32 +50,68 @@ fn launch_id() -> &'static str {
     })
 }
 
+/// Built-in macOS sounds as `(setting id, file name)`. The file lives in
+/// `/System/Library/Sounds/`; `UNNotificationSound::soundNamed` finds them there
+/// (live-validated on macOS: Glass and Tink banners played their own sounds).
+/// Keep the ids identical to `NOTIFICATION_SOUNDS` in `src/core/notify.ts`.
+const SYSTEM_SOUNDS: &[(&str, &str)] = &[
+    ("basso", "Basso.aiff"),
+    ("blow", "Blow.aiff"),
+    ("bottle", "Bottle.aiff"),
+    ("frog", "Frog.aiff"),
+    ("funk", "Funk.aiff"),
+    ("glass", "Glass.aiff"),
+    ("hero", "Hero.aiff"),
+    ("morse", "Morse.aiff"),
+    ("ping", "Ping.aiff"),
+    ("pop", "Pop.aiff"),
+    ("purr", "Purr.aiff"),
+    ("sosumi", "Sosumi.aiff"),
+    ("submarine", "Submarine.aiff"),
+    ("tink", "Tink.aiff"),
+];
+
 /// Which notification sound to play, derived from the `notificationSound`
-/// setting ("pacer" default, "default", "off"). Absent or invalid means
-/// "pacer".
+/// setting ("pacer" default, "default", "off" or a built-in macOS sound id).
+/// Absent or invalid means "pacer".
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 enum SoundChoice {
     Pacer,
     Default,
     Off,
+    /// A built-in macOS sound, by file name (e.g. "Glass.aiff").
+    System(&'static str),
 }
 
 fn sound_choice(setting: Option<&str>) -> SoundChoice {
     match setting {
         Some("default") => SoundChoice::Default,
         Some("off") => SoundChoice::Off,
-        _ => SoundChoice::Pacer,
+        Some(id) => SYSTEM_SOUNDS
+            .iter()
+            .find(|(known, _)| *known == id)
+            .map_or(SoundChoice::Pacer, |(_, file)| SoundChoice::System(file)),
+        None => SoundChoice::Pacer,
     }
 }
 
 impl SoundChoice {
+    /// The sound file name passed to `UNNotificationSound::soundNamed`, if any.
+    fn file_name(self) -> Option<&'static str> {
+        match self {
+            SoundChoice::Pacer => Some("pacer-drop.caf"),
+            SoundChoice::System(file) => Some(file),
+            SoundChoice::Default | SoundChoice::Off => None,
+        }
+    }
+
     fn sound(self) -> Option<Retained<UNNotificationSound>> {
         match self {
-            SoundChoice::Pacer => Some(UNNotificationSound::soundNamed(&NSString::from_str(
-                "pacer-drop.caf",
-            ))),
             SoundChoice::Default => Some(UNNotificationSound::defaultSound()),
             SoundChoice::Off => None,
+            SoundChoice::Pacer | SoundChoice::System(_) => self
+                .file_name()
+                .map(|file| UNNotificationSound::soundNamed(&NSString::from_str(file))),
         }
     }
 }
@@ -477,6 +513,14 @@ mod tests {
             sound_setting(b"{\"x\":\"\xff\",\"notificationSound\" : \"default\"}").as_deref(),
             Some("default")
         );
+        assert_eq!(
+            sound_setting(br#"{"notificationSound":"glass"}"#).as_deref(),
+            Some("glass")
+        );
+        assert_eq!(
+            sound_setting(b"{\"x\":\"\xff\",\"notificationSound\":\"tink\"}").as_deref(),
+            Some("tink")
+        );
         assert_eq!(sound_setting(b"not json"), None);
         assert_eq!(
             sound_choice(sound_setting(br#"{"0":"\ud83d","notificationSound":"off"}"#).as_deref()),
@@ -588,5 +632,51 @@ mod tests {
         assert_eq!(sound_choice(Some("")), SoundChoice::Pacer);
         assert_eq!(sound_choice(Some("default")), SoundChoice::Default);
         assert_eq!(sound_choice(Some("off")), SoundChoice::Off);
+        // Ids are lowercase; the file name is not an id.
+        assert_eq!(sound_choice(Some("Glass")), SoundChoice::Pacer);
+        assert_eq!(sound_choice(Some("Glass.aiff")), SoundChoice::Pacer);
+    }
+
+    #[test]
+    fn sound_ids_map_to_their_file_names() {
+        assert_eq!(sound_choice(None).file_name(), Some("pacer-drop.caf"));
+        assert_eq!(sound_choice(Some("default")).file_name(), None);
+        assert_eq!(sound_choice(Some("off")).file_name(), None);
+        assert_eq!(sound_choice(Some("glass")).file_name(), Some("Glass.aiff"));
+        assert_eq!(
+            sound_choice(Some("submarine")).file_name(),
+            Some("Submarine.aiff")
+        );
+        let ids: Vec<_> = SYSTEM_SOUNDS.iter().map(|(id, _)| *id).collect();
+        assert_eq!(
+            ids,
+            [
+                "basso",
+                "blow",
+                "bottle",
+                "frog",
+                "funk",
+                "glass",
+                "hero",
+                "morse",
+                "ping",
+                "pop",
+                "purr",
+                "sosumi",
+                "submarine",
+                "tink"
+            ]
+        );
+        for (id, file) in SYSTEM_SOUNDS {
+            let mut chars = id.chars();
+            let capitalized: String = chars
+                .next()
+                .map(|c| c.to_ascii_uppercase())
+                .into_iter()
+                .chain(chars)
+                .collect();
+            assert_eq!(*file, format!("{capitalized}.aiff"));
+            assert_eq!(sound_choice(Some(id)), SoundChoice::System(file));
+        }
     }
 }

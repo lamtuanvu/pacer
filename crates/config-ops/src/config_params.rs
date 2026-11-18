@@ -1,4 +1,5 @@
 //! The P2-C subset of the TS operation schemas, including Zod issue order.
+use pacer_config::notifications::SOUNDS;
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::{Value, json};
 
@@ -98,9 +99,14 @@ fn validate(schema: &Schema, value: Option<&Value>, path: &str, issues: &mut Vec
         Schema::Sound => {
             if !value
                 .and_then(Value::as_str)
-                .is_some_and(|v| ["pacer", "default", "off"].contains(&v))
+                .is_some_and(|v| SOUNDS.contains(&v))
             {
-                issue("Invalid option: expected one of \"pacer\"|\"default\"|\"off\"".into());
+                let choices = SOUNDS
+                    .iter()
+                    .map(|v| format!("\"{v}\""))
+                    .collect::<Vec<_>>()
+                    .join("|");
+                issue(format!("Invalid option: expected one of {choices}"));
             }
             return value.cloned().unwrap_or(Value::Null);
         }
