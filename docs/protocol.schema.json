@@ -937,6 +937,33 @@
       "properties": {},
       "additionalProperties": false
     },
+    "AssistantToolParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "turnId",
+        "name"
+      ],
+      "additionalProperties": false
+    },
     "AssistantTurnParams": {
       "type": "object",
       "properties": {

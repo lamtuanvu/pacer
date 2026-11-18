@@ -117,7 +117,7 @@ const USAGE = `usage: pacer <command>
   report-limit <provider> [--until <unix-seconds>] record an executor limit
   host list [--json] | check <alias> [--repo <path>] [--json] | setup <alias> [--repo <path>] | clean <alias> [--json]
   limits check [--json] | refresh [account] [--json]  inspect or refresh account usage
-  mcp                                            run the MCP server on stdio
+  mcp [--assistant]                               run the MCP server on stdio; --assistant serves only the assistant's tools for one turn
   api list|describe <op>|call <op> [--json]       discover and invoke protocol v3 operations
   api --stdio                                    JSON-RPC (v2 default, v3 negotiation)
   serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
@@ -465,6 +465,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
+  if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
+    return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
   if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
     if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
     try {
@@ -654,9 +656,12 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         return { code: 0, out: out.join("\n") || "no accounts", err: "" };
       } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
-    case "mcp":
-      await runMcpStdio(() => fresh(ctx));
+    case "mcp": {
+      if (rest.length > 1 || (rest[0] !== undefined && rest[0] !== "--assistant"))
+        return { code: 2, out: "", err: "usage: pacer mcp [--assistant]" };
+      await runMcpStdio(() => fresh(ctx), { assistant: rest[0] === "--assistant" });
       return { code: 0, out: "", err: "", keepAlive: true };
+    }
     case "api": {
       if (rest[0] !== "--stdio") return apiCommand(rest, ctx);
       if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer api --stdio" };

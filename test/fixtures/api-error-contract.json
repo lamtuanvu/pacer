@@ -28,6 +28,7 @@
     "assistant.settings.get",
     "assistant.settings.set",
     "assistant.status",
+    "assistant.tool",
     "assistant.turn",
     "attention.dismiss",
     "attention.snooze",

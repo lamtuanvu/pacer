@@ -18,7 +18,7 @@ export function dispatchDatabase(ctx: Ctx) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS work_nodes(task_id TEXT PRIMARY KEY, parent_id TEXT, root_id TEXT NOT NULL, depth INTEGER NOT NULL, options TEXT NOT NULL, dependencies TEXT NOT NULL DEFAULT '[]');
     CREATE INDEX IF NOT EXISTS work_root ON work_nodes(root_id);
-    CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'work', conversation_id TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS enforcement_tokens(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS enforcement_certificates(target TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, probed_at REAL NOT NULL, expires REAL NOT NULL, evidence TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS work_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, root_id TEXT NOT NULL, task_id TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);
@@ -61,6 +61,11 @@ export function dispatchDatabase(ctx: Ctx) {
       UPDATE work_waits SET total_seconds=total_seconds+CASE WHEN started_at IS NULL THEN 0 ELSE max(0,NEW.updated_at-started_at) END,started_at=NULL,refs=0 WHERE task_id=NEW.id AND kind='capacity';
     END;
   `);
+  // `kind`/`conversation_id` join the grant store for assistant grants (`pag_`); a database
+  // created before them, or by the Rust front door's identical CREATE TABLE, gains them here.
+  const grantColumns = db.query<{ name: string }, []>("SELECT name FROM pragma_table_info('work_grants')").all().map(row => row.name);
+  if (!grantColumns.includes("kind")) db.exec("ALTER TABLE work_grants ADD COLUMN kind TEXT NOT NULL DEFAULT 'work'");
+  if (!grantColumns.includes("conversation_id")) db.exec("ALTER TABLE work_grants ADD COLUMN conversation_id TEXT NOT NULL DEFAULT ''");
   ready.add(db);
   return db;
 }

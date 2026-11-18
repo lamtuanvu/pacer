@@ -129,6 +129,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "assistant.candidates",
     "assistant.card.record",
     "assistant.card.refresh",
+    "assistant.tool",
     "msg.send",
     "msg.inbox",
     "msg.wait",
@@ -233,6 +234,20 @@ pub fn op_schemas(input: &Value) -> Value {
         json!("Preview agent integration files and the undo command before consenting.");
     out["agent.connect"]["description"] =
         json!("Connect an agent after explicit consent to write its integration files.");
+    // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
+    out["notifications.get"]["description"] = json!("Current notification level.");
+    out["notifications.set"]["description"] = json!("Set notifications to off, important or all.");
+    let notifications = &mut out["notifications.set"]["params"];
+    if let Some(map) = notifications.as_object_mut() {
+        if let Some(properties) = map.get_mut("properties").and_then(Value::as_object_mut) {
+            properties.shift_remove("sound");
+        }
+        let closed = map.shift_remove("additionalProperties");
+        map.insert("required".into(), json!(["level"]));
+        if let Some(closed) = closed {
+            map.insert("additionalProperties".into(), closed);
+        }
+    }
     let review = &mut out["task.review"]["params"];
     review["properties"]["accepted"] = json!({"type":"boolean"});
     let source = review["properties"].clone();

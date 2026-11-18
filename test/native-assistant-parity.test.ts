@@ -10,10 +10,12 @@ import {assistantDatabase} from "../src/assistant/store";
 import {fakeCtx} from "./helpers";
 
 let binary: string;
+/** Cargo never leaves a `target/` in the worktree: the project's own target dir, else a temporary one. */
+const cargoEnv = () => ({ ...process.env, CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? join(tmpdir(), "pacer-native-as") });
 function driver() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"]);
-    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
+    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], { env: cargoEnv() });
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], { env: cargoEnv() }).toString());
     binary = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
   return binary;
@@ -168,8 +170,9 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   const home = mkdtempSync(join(tmpdir(), "native-as-"));
   unusable(home);
   await expect(callOp(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
-  // assistant.ask and assistant.cancel are not registered natively.
-  for (const op of ["assistant.ask", "assistant.cancel"]) {
-    expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
+  // assistant.ask, assistant.cancel and assistant.tool are not registered natively: the first two
+  // drive the plugin and the stream, the third needs a live turn's tool context in the core.
+  for (const op of ["assistant.ask", "assistant.cancel", "assistant.tool"]) {
+    expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {turnId: "turn-1", name: "snapshot", params: {}}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
   }
 });
