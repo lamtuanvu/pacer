@@ -18,6 +18,18 @@ Results keep numbers and short pacer-owned names only. Goals, context, constrain
 terminal screens and session transcripts are never sent, secrets and your home path are removed, and each result is cut at
 32 KiB. What it reads, and your question, go to the account's model.
 
+## Answering through an agent CLI (executor backend)
+
+Besides pacer's own agent, which calls an endpoint account with a key pacer holds, the assistant can answer through an executor account's agent CLI. opencode is the first, for example `oc-glm · via opencode` in Settings › Assistant. Each turn runs one `opencode run --standalone` in ask mode:
+
+- every opencode tool is denied by policy, and Code Mode (`execute`) is removed;
+- in this version the agent has no pacer tools either: it answers from the summary pacer builds for the turn and from the conversation, and says when it needs data the summary does not show;
+- its config is isolated and passed by the host, its working directory is an empty directory kept per conversation, and opencode uses its own sign-in, so pacer never reads or copies the key.
+
+An account can answer this way only after it passes the **ask-mode check**, which runs again when opencode's version changes. The check tells the agent to run a shell command, read a file outside its directory, fetch a page and use Code Mode, on a first and a resumed turn. It passes only when each attempt is refused and nothing was written or read back.
+
+**What this does not guarantee.** These restrictions are opencode's own configuration, checked by pacer. They are not an operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read. pacer's own agent does not carry this risk: it can reach nothing but the data pacer hands it.
+
 ## What it can do
 
 Nothing on its own. It can propose a retry, stop, answer, pause (at most 24 hours), resume, a prefilled New task, or a link.
