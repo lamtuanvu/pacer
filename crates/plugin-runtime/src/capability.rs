@@ -70,6 +70,8 @@ pub fn core_capability(method: &str) -> Option<&'static str> {
         "capability.planner.run" | "capability.process.outputChunk" => Some("process.spawn"),
         "capability.secrets.resolve" => Some("secrets.resolve"),
         "capability.identity.sign" => Some("identity.sign"),
+        // The assistant's tool pipeline, its turn and its round budget live in Core.
+        "capability.assistant.tool" => Some("assistant.tool"),
         "$/resultChunk" => Some("result"),
         _ => None,
     }
@@ -81,7 +83,7 @@ const NO_OWNING_CALL: &str = "scoped capability requires an active owning call";
 /// The capability of a method TypeScript answers only inside an owning call
 /// (`answerCapability`, `src/plugins/host.ts`): every known method of fs.read,
 /// fs.write, process.spawn, usage.state, net.http, secrets.resolve, hosts,
-/// worktree and orca, except `capability.secrets.resolve`.
+/// worktree, orca and assistant.tool, except `capability.secrets.resolve`.
 fn owning_call_capability(method: &str) -> Option<&'static str> {
     match method {
         "capability.fs.read"
@@ -122,6 +124,7 @@ fn owning_call_capability(method: &str) -> Option<&'static str> {
         | "capability.net.http.body.readChunk"
         | "capability.net.http.body.release" => Some("net.http"),
         "capability.secrets.check" => Some("secrets.resolve"),
+        "capability.assistant.tool" => Some("assistant.tool"),
         "capability.hosts.open"
         | "capability.hosts.run"
         | "capability.hosts.fetch"

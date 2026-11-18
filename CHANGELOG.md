@@ -6,6 +6,9 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
+- New publishable generated crate `pacer-plugin-assistant-protocol` 0.2 (CRATE-3 split): the 1.11.0 `assistant.reply` and `capability.assistant.tool` types, re-exported through `pacer_plugin::types`.
+- Plugin protocol 1.11.0 (additive): the `assistant` point adds the turn-level `assistant.reply` method, the `capability.assistant.tool` capability (answered only under the owning reply call's authority, for its turn, within `maxToolRounds`) and the `assistant.delta` notification. A contribution names its `backend` (`pacer` or `executor`) and whether it provides `reply`; the contribution stays open to other keys.
+- Assistant settings and candidates gain an additive `backend` choice (`pacer` by default) and `available`. A stored `executor` backend is refused with a reason until a plugin answers it. Each conversation keeps the backend's resume handle for the same account and backend; clients never see it.
 - A running executor that keeps producing output but makes no progress (no file change, commit or outgoing message) for `execution.no_progress_min` (new key, default 30 minutes) is pinged up to `messaging.liveness.max_nudges` times; if it still makes no progress, pacer stops it and moves the task to the next executor, and a second unresponsive attempt fails the task with `executor unresponsive`. In `strict` and `emergency` mode pacer raises a stalled item instead of pinging. Liveness pings now use per-attempt ids, so a retried attempt is pinged again, and pings left on a stopped run no longer restart the task.
 
 ### Fixed
