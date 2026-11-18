@@ -70,6 +70,115 @@ pub mod error {
 ///      "type": "string",
 ///      "maxLength": 8000
 ///    },
+///    "executor": {
+///      "type": "object",
+///      "required": [
+///        "command",
+///        "configRef"
+///      ],
+///      "properties": {
+///        "command": {
+///          "type": "object",
+///          "required": [
+///            "argv",
+///            "cwd",
+///            "env",
+///            "stdin",
+///            "timeoutMs"
+///          ],
+///          "properties": {
+///            "argv": {
+///              "type": "array",
+///              "items": {
+///                "type": "string",
+///                "maxLength": 4096
+///              },
+///              "maxItems": 32,
+///              "minItems": 1
+///            },
+///            "cwd": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            },
+///            "env": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "type": "string",
+///                "maxLength": 4096
+///              },
+///              "propertyNames": {
+///                "type": "string",
+///                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///              }
+///            },
+///            "stdin": {
+///              "type": "string",
+///              "maxLength": 262144
+///            },
+///            "timeoutMs": {
+///              "type": "integer",
+///              "maximum": 120000.0,
+///              "exclusiveMinimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        },
+///        "configRef": {
+///          "type": "string",
+///          "maxLength": 128,
+///          "minLength": 1
+///        },
+///        "fallback": {
+///          "type": "object",
+///          "required": [
+///            "argv",
+///            "cwd",
+///            "env",
+///            "stdin",
+///            "timeoutMs"
+///          ],
+///          "properties": {
+///            "argv": {
+///              "type": "array",
+///              "items": {
+///                "type": "string",
+///                "maxLength": 4096
+///              },
+///              "maxItems": 32,
+///              "minItems": 1
+///            },
+///            "cwd": {
+///              "type": "string",
+///              "maxLength": 4096,
+///              "minLength": 1
+///            },
+///            "env": {
+///              "type": "object",
+///              "additionalProperties": {
+///                "type": "string",
+///                "maxLength": 4096
+///              },
+///              "propertyNames": {
+///                "type": "string",
+///                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///              }
+///            },
+///            "stdin": {
+///              "type": "string",
+///              "maxLength": 262144
+///            },
+///            "timeoutMs": {
+///              "type": "integer",
+///              "maximum": 120000.0,
+///              "exclusiveMinimum": 0.0
+///            }
+///          },
+///          "additionalProperties": false
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "history": {
 ///      "type": "array",
 ///      "items": {
@@ -189,6 +298,8 @@ pub struct AssistantReplyParams {
     #[serde(rename = "conversationId")]
     pub conversation_id: AssistantReplyParamsConversationId,
     pub digest: AssistantReplyParamsDigest,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub executor: ::std::option::Option<AssistantReplyParamsExecutor>,
     pub history: ::std::vec::Vec<AssistantReplyParamsHistoryItem>,
     pub limits: AssistantReplyParamsLimits,
     pub message: AssistantReplyParamsMessage,
@@ -230,7 +341,7 @@ impl ::std::convert::From<AssistantReplyParamsAccount> for ::std::string::String
 impl ::std::str::FromStr for AssistantReplyParamsAccount {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AssistantReplyParamsAccount {
@@ -395,6 +506,763 @@ impl ::std::convert::TryFrom<&str> for AssistantReplyParamsDigest {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutor`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "command",
+///    "configRef"
+///  ],
+///  "properties": {
+///    "command": {
+///      "type": "object",
+///      "required": [
+///        "argv",
+///        "cwd",
+///        "env",
+///        "stdin",
+///        "timeoutMs"
+///      ],
+///      "properties": {
+///        "argv": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 4096
+///          },
+///          "maxItems": 32,
+///          "minItems": 1
+///        },
+///        "cwd": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        },
+///        "env": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "type": "string",
+///            "maxLength": 4096
+///          },
+///          "propertyNames": {
+///            "type": "string",
+///            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///          }
+///        },
+///        "stdin": {
+///          "type": "string",
+///          "maxLength": 262144
+///        },
+///        "timeoutMs": {
+///          "type": "integer",
+///          "maximum": 120000.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    },
+///    "configRef": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "fallback": {
+///      "type": "object",
+///      "required": [
+///        "argv",
+///        "cwd",
+///        "env",
+///        "stdin",
+///        "timeoutMs"
+///      ],
+///      "properties": {
+///        "argv": {
+///          "type": "array",
+///          "items": {
+///            "type": "string",
+///            "maxLength": 4096
+///          },
+///          "maxItems": 32,
+///          "minItems": 1
+///        },
+///        "cwd": {
+///          "type": "string",
+///          "maxLength": 4096,
+///          "minLength": 1
+///        },
+///        "env": {
+///          "type": "object",
+///          "additionalProperties": {
+///            "type": "string",
+///            "maxLength": 4096
+///          },
+///          "propertyNames": {
+///            "type": "string",
+///            "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///          }
+///        },
+///        "stdin": {
+///          "type": "string",
+///          "maxLength": 262144
+///        },
+///        "timeoutMs": {
+///          "type": "integer",
+///          "maximum": 120000.0,
+///          "exclusiveMinimum": 0.0
+///        }
+///      },
+///      "additionalProperties": false
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantReplyParamsExecutor {
+    pub command: AssistantReplyParamsExecutorCommand,
+    #[serde(rename = "configRef")]
+    pub config_ref: AssistantReplyParamsExecutorConfigRef,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub fallback: ::std::option::Option<AssistantReplyParamsExecutorFallback>,
+}
+///`AssistantReplyParamsExecutorCommand`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "cwd",
+///    "env",
+///    "stdin",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "cwd": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "env": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "propertyNames": {
+///        "type": "string",
+///        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///      }
+///    },
+///    "stdin": {
+///      "type": "string",
+///      "maxLength": 262144
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 120000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantReplyParamsExecutorCommand {
+    pub argv: ::std::vec::Vec<AssistantReplyParamsExecutorCommandArgvItem>,
+    pub cwd: AssistantReplyParamsExecutorCommandCwd,
+    pub env: ::std::collections::HashMap<
+        AssistantReplyParamsExecutorCommandEnvKey,
+        AssistantReplyParamsExecutorCommandEnvValue,
+    >,
+    pub stdin: AssistantReplyParamsExecutorCommandStdin,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`AssistantReplyParamsExecutorCommandArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorCommandArgvItem(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorCommandArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorCommandArgvItem> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorCommandArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorCommandArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorCommandArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorCommandArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorCommandCwd`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorCommandCwd(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorCommandCwd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorCommandCwd> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorCommandCwd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorCommandCwd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_4(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorCommandCwd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorCommandCwd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorCommandEnvKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorCommandEnvKey(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorCommandEnvKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorCommandEnvKey> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorCommandEnvKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorCommandEnvKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_6(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorCommandEnvKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorCommandEnvKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorCommandEnvValue`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorCommandEnvValue(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorCommandEnvValue {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorCommandEnvValue> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorCommandEnvValue) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorCommandEnvValue {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorCommandEnvValue {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorCommandEnvValue {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorCommandStdin`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 262144
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorCommandStdin(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorCommandStdin {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorCommandStdin> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorCommandStdin) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorCommandStdin {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_2(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorCommandStdin {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorCommandStdin {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorConfigRef`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorConfigRef(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorConfigRef {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorConfigRef> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorConfigRef) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorConfigRef {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_0(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorConfigRef {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorConfigRef {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorFallback`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "argv",
+///    "cwd",
+///    "env",
+///    "stdin",
+///    "timeoutMs"
+///  ],
+///  "properties": {
+///    "argv": {
+///      "type": "array",
+///      "items": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "maxItems": 32,
+///      "minItems": 1
+///    },
+///    "cwd": {
+///      "type": "string",
+///      "maxLength": 4096,
+///      "minLength": 1
+///    },
+///    "env": {
+///      "type": "object",
+///      "additionalProperties": {
+///        "type": "string",
+///        "maxLength": 4096
+///      },
+///      "propertyNames": {
+///        "type": "string",
+///        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///      }
+///    },
+///    "stdin": {
+///      "type": "string",
+///      "maxLength": 262144
+///    },
+///    "timeoutMs": {
+///      "type": "integer",
+///      "maximum": 120000.0,
+///      "exclusiveMinimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantReplyParamsExecutorFallback {
+    pub argv: ::std::vec::Vec<AssistantReplyParamsExecutorFallbackArgvItem>,
+    pub cwd: AssistantReplyParamsExecutorFallbackCwd,
+    pub env: ::std::collections::HashMap<
+        AssistantReplyParamsExecutorFallbackEnvKey,
+        AssistantReplyParamsExecutorFallbackEnvValue,
+    >,
+    pub stdin: AssistantReplyParamsExecutorFallbackStdin,
+    #[serde(rename = "timeoutMs")]
+    pub timeout_ms: ::std::num::NonZeroU64,
+}
+///`AssistantReplyParamsExecutorFallbackArgvItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorFallbackArgvItem(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorFallbackArgvItem {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorFallbackArgvItem> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorFallbackArgvItem) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorFallbackArgvItem {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorFallbackArgvItem {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorFallbackArgvItem {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorFallbackCwd`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorFallbackCwd(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorFallbackCwd {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorFallbackCwd> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorFallbackCwd) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorFallbackCwd {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_4(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorFallbackCwd {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorFallbackCwd {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorFallbackEnvKey`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorFallbackEnvKey(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorFallbackEnvKey {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorFallbackEnvKey> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorFallbackEnvKey) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorFallbackEnvKey {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_6(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorFallbackEnvKey {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorFallbackEnvKey {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorFallbackEnvValue`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4096
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorFallbackEnvValue(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorFallbackEnvValue {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorFallbackEnvValue> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorFallbackEnvValue) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorFallbackEnvValue {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_3(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorFallbackEnvValue {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorFallbackEnvValue {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsExecutorFallbackStdin`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 262144
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsExecutorFallbackStdin(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsExecutorFallbackStdin {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsExecutorFallbackStdin> for ::std::string::String {
+    fn from(value: AssistantReplyParamsExecutorFallbackStdin) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsExecutorFallbackStdin {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_2(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsExecutorFallbackStdin {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsExecutorFallbackStdin {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -726,7 +1594,7 @@ impl ::std::convert::From<AssistantReplyParamsSession> for ::std::string::String
 impl ::std::str::FromStr for AssistantReplyParamsSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_2(value, Self)
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AssistantReplyParamsSession {
@@ -903,7 +1771,7 @@ impl ::std::convert::From<AssistantReplyParamsToolsItemName> for ::std::string::
 impl ::std::str::FromStr for AssistantReplyParamsToolsItemName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AssistantReplyParamsToolsItemName {
@@ -1113,7 +1981,7 @@ impl ::std::convert::From<AssistantReplyResultSession> for ::std::string::String
 impl ::std::str::FromStr for AssistantReplyResultSession {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_2(value, Self)
+        validate_string_4(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for AssistantReplyResultSession {
@@ -1327,7 +2195,7 @@ impl ::std::convert::From<CapabilityAssistantToolParamsName> for ::std::string::
 impl ::std::str::FromStr for CapabilityAssistantToolParamsName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityAssistantToolParamsName {
@@ -1504,7 +2372,7 @@ impl ::std::convert::From<CapabilityAssistantToolResultName> for ::std::string::
 impl ::std::str::FromStr for CapabilityAssistantToolResultName {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
+        validate_string_5(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityAssistantToolResultName {
@@ -1576,6 +2444,24 @@ fn validate_string_2<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 262144usize {
+        return Err("longer than 262144 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_3<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 4096usize {
+        return Err("longer than 4096 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_4<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     if value.chars().count() > 4096usize {
         return Err("longer than 4096 characters".into());
     }
@@ -1584,7 +2470,7 @@ fn validate_string_2<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_3<T>(
+fn validate_string_5<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -1593,6 +2479,17 @@ fn validate_string_3<T>(
     }
     if value.chars().count() < 1usize {
         return Err("shorter than 1 characters".into());
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_6<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+        ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[A-Za-z_][A-Za-z0-9_]*$").unwrap());
+    if PATTERN.find(value).is_none() {
+        return Err("doesn't match pattern \"^[A-Za-z_][A-Za-z0-9_]*$\"".into());
     }
     Ok(construct(value.to_string()))
 }

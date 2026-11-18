@@ -22,7 +22,7 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   main: () => import("./assistant/index"),
 }, {
   // The assistant's executor backend: runs the host-issued ask-mode `opencode run` command only.
-  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode"]}], reentrant: true, tier: "free"},
+  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
   main: () => import("./assistant-executor/index"),
 }, { manifest: manifestSchema.parse(sshManifest), main: () => import("./pacer-ssh/index") },
   { manifest: manifestSchema.parse(remoteCallerManifest), main: () => import("./pacer-remote-caller/index") },
