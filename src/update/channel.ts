@@ -7,12 +7,8 @@ export type UpdateChannel = "stable" | "nightly";
 export const UPDATE_CHANNELS: readonly UpdateChannel[] = ["stable", "nightly"];
 export const UPDATE_CHANNEL_ERROR = "update_channel must be stable or nightly";
 
-/** `<next-minor>-nightly.<YYYYMMDDHHmm UTC>`, e.g. 0.16.0-nightly.202611171700. */
-const NIGHTLY_VERSION = /^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)-nightly\.[1-9]\d{11}$/;
-
-export function isNightlyVersion(v: string): boolean {
-  return NIGHTLY_VERSION.test(v);
-}
+// Defined in the shared view model so the app bundle uses the same rule without node:fs.
+export { isNightlyVersion } from "../view-model/updates";
 
 /** The active strategy's text, or null when it cannot be read. Usable without the config stack (Node worker, Rust parity). */
 export function activeStrategyText(ctx: Pick<Ctx, "pacerHome">): string | null {
