@@ -468,7 +468,8 @@ export function pruneConversationDirs(ctx: Ctx): void {
   const root = join(ctx.pacerHome, "runs", "assistant", "conversations");
   if (!existsSync(root)) return;
   const live = new Set(assistantDatabase(ctx).query<{ id: string }, []>("SELECT id FROM assistant_conversations").all().map(r => r.id));
-  for (const name of readdirSync(root)) if (!live.has(name)) rmSync(join(root, name), { recursive: true, force: true });
+  // A running ask-mode check keeps its own directory without a conversation row.
+  for (const name of readdirSync(root)) if (!live.has(name) && !name.startsWith("selftest-")) rmSync(join(root, name), { recursive: true, force: true });
 }
 
 export function deleteConversations(ctx: Ctx, id?: string): { deleted: number } {

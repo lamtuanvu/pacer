@@ -186,10 +186,13 @@ describe("ask-mode turn lifetime", () => {
     await finished(ctx, first.turnId);
     const conv = join(ctx.pacerHome, "runs", "assistant", "conversations", first.conversationId);
     const stray = join(ctx.pacerHome, "runs", "assistant", "conversations", "conv-gone");
-    mkdirSync(stray, { recursive: true });
+    const canary = join(ctx.pacerHome, "runs", "assistant", "conversations", "selftest-abc");
+    mkdirSync(stray, { recursive: true }); mkdirSync(canary, { recursive: true });
     pruneConversationDirs(ctx);
     expect(existsSync(conv)).toBe(true);
     expect(existsSync(stray)).toBe(false);
+    // A running ask-mode check keeps its directory.
+    expect(existsSync(canary)).toBe(true);
     deleteConversations(ctx, first.conversationId);
     expect(existsSync(conv)).toBe(false);
   }, 60_000);
