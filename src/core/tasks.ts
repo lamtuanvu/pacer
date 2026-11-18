@@ -430,6 +430,7 @@ async function retryTask(
           ...(task.group ? { group: task.group } : {}),
           // The retry belongs to whoever the original belongs to, not to whoever retried it.
           ...(origin ? { origin } : {}),
+          ...(task.callerReach ? { callerReach: task.callerReach } : {}),
         };
         return {task,input,answering};
       });
