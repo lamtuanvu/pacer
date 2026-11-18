@@ -2,7 +2,8 @@
 import { existsSync, lstatSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { command, DISK_IMAGE_IDENTIFIER } from "./desktop-verify";
-import { desktopAssetName, desktopDiskImageName, stableVersion, digest, type DesktopArch } from "./desktop-feed";
+import { channelVersion, desktopAssetName, desktopDiskImageName, digest, type DesktopArch } from "./desktop-feed";
+import { desktopChannel } from "./desktop-release";
 import { stageDesktopPackage, verifyDesktopExecutable, verifyNativeLibrary } from "./desktop";
 import { signerRequirement } from "../../src/update/desktop/signer-requirement";
 import { encodePairManifest, measurePair, type ComponentDescriptor } from "../../src/update/desktop/build-identity";
@@ -29,7 +30,9 @@ export function signingConfig(env: NodeJS.ProcessEnv = process.env): SigningConf
 type Run = (argv: string[], timeout?: number) => Promise<string>;
 /** Operates only on a fresh complete staging copy. No credential discovery or unsigned fallback. */
 export async function signStagedDesktop(o: { root: string; stage: string; out: string; version: string; arch: DesktopArch; config: SigningConfig }, run: Run = command): Promise<string> {
-  stableVersion(o.version);
+  // Stable and nightly builds sign identically; only the version and asset names carry the channel.
+  const channel = desktopChannel(o.version);
+  channelVersion(channel, o.version);
   const app = join(o.stage, "pacer.app"), resources = join(app, "Contents/Resources"), c = o.config;
   const self = c.signer === "self" ? c : null, apple = c.signer === "self" ? null : c;
   for (const path of [c.keychain, c.signerKey, ...(apple ? [apple.notaryKey] : [])]) {
@@ -118,7 +121,7 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
     await run(["/usr/sbin/spctl", "--assess", "--type", "execute", app]);
   }
   mkdirSync(o.out, { recursive: true });
-  const artifact = join(o.out, desktopAssetName(o.version, o.arch)), image = join(o.out, desktopDiskImageName(o.version, o.arch));
+  const artifact = join(o.out, desktopAssetName(o.version, o.arch, channel)), image = join(o.out, desktopDiskImageName(o.version, o.arch, channel));
   if (existsSync(artifact) || existsSync(artifact + ".sig") || existsSync(image)) throw Error("Refusing to overwrite a desktop artifact");
   await run(["/usr/bin/tar", "--format=ustar", "-czf", artifact, "-C", o.stage, "pacer.app"], 120_000);
   await run([process.execPath, join(o.root, "desktop/node_modules/@tauri-apps/cli/tauri.js"), "signer", "sign", "--private-key-path", c.signerKey, "--app-version", o.version, artifact], 120_000);
