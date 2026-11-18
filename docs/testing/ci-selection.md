@@ -22,11 +22,29 @@ The selection and reason appear in the job summary.
 | Mapped CI and workflow files only | Focused CI/release tests, typecheck, UI source checks and host artifact smoke |
 | Shared inputs, other scripts or unmapped files | Full validation |
 
-Pull requests run only the OS-independent logic tests on Linux. `Test (macos-latest)`
-keeps its required name but runs on Ubuntu and skips every step except the readiness
-gate on PRs, `Rust` runs only on `ubuntu-latest`, and the OS-specific `Install, sign-in
-and delegation (macOS)` and `Linux service restart keeps running work` jobs skip.
-Main pushes, scheduled and manual runs keep the full macOS and Linux matrix and the
+General tests run on Linux and macOS-specific tests run on macOS, on pull requests,
+main pushes, scheduled and manual runs alike:
+
+- `Typecheck, UI policy and build` runs the UI source check, typecheck, `bun run build`
+  and the artifact smoke test once per workflow.
+- `Test (ubuntu-latest, shard N)` splits the full suite across eight Linux shards. A
+  focused or documentation-only run uses a single shard.
+- `Test (macos-latest, macOS-specific)` runs only the files that
+  `scripts/ci/macos-tests.txt` marks `only` or `mixed`, whenever the full suite is selected.
+
+`scripts/ci/shard-tests.py` packs files into shards by the durations in
+`scripts/ci/test-durations.json`; a file without a recorded duration counts as the
+median. Refresh the durations from a full CI run with
+`python3 scripts/ci/update-test-durations.py --run <run-id>`.
+
+The manifest marks each file that checks for darwin. `only` files need macOS for every
+test and leave the Linux shards, `mixed` files run on both, and `linux` files only pick
+per-OS expectations and stay on Linux. `test/ci-sharding.test.ts` fails when a file that
+checks for darwin is not listed.
+
+`Rust` runs only on `ubuntu-latest` for pull requests, and the OS-specific `Install,
+sign-in and delegation (macOS)` and `Linux service restart keeps running work` jobs skip
+on pull requests. Main pushes, scheduled and manual runs add `Rust` on macOS and those
 OS-specific jobs, using the selection above.
 
 The `Linux service restart keeps running work` job runs in full mode when Bun checks are selected outside PRs. It records UNVERIFIED instead of failing when the runner has no user service manager.
@@ -36,7 +54,9 @@ Bun builds still compile the Rust front door and build fixture plugins where
 required. Native desktop validation is not replaced by the Bun checks.
 
 Existing `Test (ubuntu-latest)` and `Test (macos-latest)` names remain always-running
-gates. Both use Ubuntu for documentation-only runs and pull requests, avoiding macOS allocation.
+gates on Ubuntu. Each passes only when change detection, every selected shard, the
+build job and the macOS job passed. Release publication requires both gates and also
+checks that the Linux shards and the macOS job executed their test steps.
 Documentation changes only run their inexpensive readiness step; they do
 not set up toolchains, install dependencies or compile. That gate rejects failed
 change detection and any required failed/missing UI or release evidence. Rust/e2e
