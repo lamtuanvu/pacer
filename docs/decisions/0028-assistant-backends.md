@@ -2,7 +2,7 @@
 
 Date: 2026-11-17
 
-Status: Proposed. Accepted when the maintainer merges it.
+Status: Accepted by the maintainer on 2026-11-18, with the design's proposed answers to its decisions.
 
 Source: [assistant backends design](../specs/2026-11-17-assistant-backends-design.md). Supersedes D1 and D3 of the
 [assistant extension point ADR](2026-10-28-assistant-extension-point.md). Its D2 and D4–D6 stand.
@@ -44,7 +44,7 @@ which runs its own loop, cannot serve it.
   ignored its configuration could read the user's files and write files in pacer's home directly. Through its grant it
   can only read through the pipeline and propose, for one turn. This changes the always-on spec's trust boundary ("the
   backend never gets a token"); the design and `docs/assistant.md` state the trade-off.
-- `assistant-pacer` is the first bundled native plugin. Its packaging and signing are open decision 1 of the design.
+- `assistant-pacer` is the first bundled native plugin. It is built and signed with `pacer-core` (decision 1 of the design).
 - The plugin protocol gains a method, a notification and a capability (additive, P14). The client protocol gains the
   `assistant.tool` op, and `backend` and `available` in assistant settings and candidates (additive, P4).
 - Making `assistant-pacer` a general executor is not decided here. If it is decided later, it is limited to light,
