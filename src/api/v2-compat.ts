@@ -152,6 +152,13 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_permission;
  delete (schemas['client.heartbeat'].params as {properties:Record<string,unknown>}).properties.notification_alerts;
  schemas['client.heartbeat'].description="Renew a client lease, which lapses after 45 seconds without a heartbeat.";
+ // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
+ schemas['notifications.get'].description="Current notification level.";
+ schemas['notifications.set'].description="Set notifications to off, important or all.";
+ const notifications=schemas['notifications.set'].params as {properties:Record<string,unknown>;required?:string[];additionalProperties?:boolean};
+ delete notifications.properties.sound;
+ const {additionalProperties:closed,...openNotifications}=notifications;
+ schemas['notifications.set'].params={...openNotifications,required:['level'],additionalProperties:closed} as typeof schemas['notifications.set']['params'];
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";
