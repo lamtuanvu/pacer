@@ -6,8 +6,8 @@
 //! is the documented escape hatch once default-on lands. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with
 //! live sealed call/find/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
-//! The owner's credential goes to the Core child alone ([`Guard::core_key`]):
-//! the native operations' environment never holds it.
+//! The owner's credential goes to the Core child alone, on its stdin
+//! ([`Guard::owner_key`]): no environment holds it.
 //! The shared owner is attached to the HTTP plugin service so native ops spawn
 //! children there instead of in TypeScript.
 //!
@@ -89,9 +89,9 @@ impl Guard {
         self.session.door_requests()
     }
 
-    /// The Core child's credential pair; add it to the Core child's env only.
-    pub(super) fn core_key(&self) -> (String, String) {
-        (HOST_SOCKET_KEY_ENV.to_owned(), self.session.key().to_hex())
+    /// The Core child's credential; it travels on the Core child's stdin only.
+    pub(super) fn owner_key(&self) -> String {
+        self.session.key().to_hex()
     }
 
     pub(super) async fn shutdown(self) {

@@ -7,7 +7,7 @@ import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { refreshAllUsage } from "../usage/refresh";
 import { refreshObservations } from "../dispatch/refresh";
 import { setOutboxCrossPost } from "../link/store";
-import { HOST_SOCKET_KEY_ENV, takeOwnerKey } from "../plugins/host-bridge";
+import { holdOwnerKey } from "../plugins/host-bridge";
 
 /**
  * The periodic work loop, owned by pacer serve (spec §5). All background loops
@@ -137,7 +137,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   if (msg.type !== "init") return;
   try {
     init = { env: msg.env, pacerHome: msg.pacerHome };
-    if (typeof msg.ownerKey === "string") takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: msg.ownerKey });
+    if (typeof msg.ownerKey === "string") holdOwnerKey(msg.ownerKey);
     pumpMs = typeof msg.pumpMs === "number" && Number.isFinite(msg.pumpMs) && msg.pumpMs > 0 ? msg.pumpMs : 0;
     heartbeatMs = typeof msg.heartbeatMs === "number" && Number.isFinite(msg.heartbeatMs) && msg.heartbeatMs > 0 ? msg.heartbeatMs : 5000;
     usageMs = typeof msg.usageMs === "number" && Number.isFinite(msg.usageMs) && msg.usageMs > 0 ? msg.usageMs : 15 * 60_000;

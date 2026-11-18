@@ -58,7 +58,8 @@ import { makeCtx } from "./ctx";
 import { computeStatus, displayName } from "./engine/status";
 import { runMcpStdio } from "./mcp/server";
 import { shutdownPlugins } from "./plugins";
-import { takeOwnerKey } from "./plugins/host-bridge";
+import { holdOwnerKey } from "./plugins/host-bridge";
+import { CORE_SECRETS_ENV, CORE_SECRETS_STDIN, LEGACY_CORE_SECRETS, legacyCoreSecrets, readCoreSecrets, scrubCoreSecrets, type CoreSecrets } from "./core-secrets";
 import { runStdio } from "./api/stdio";
 import { StringDecoder } from "node:string_decoder";
 import { renderHook } from "./render/hook";
@@ -445,15 +446,21 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
  }
 
  export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
-  // Only this Core may hold the plugin owner's credential: nothing it spawns inherits it.
-  takeOwnerKey(ctx.env);
+  // Only this Core may hold its secrets: no environment it passes on carries them.
+  let secretsOnStdin: boolean;
+  let secrets: CoreSecrets = {};
   let nativeBootstrap;
+  const legacySecrets = legacyCoreSecrets(ctx.env);
   try {
+    secretsOnStdin = scrubCoreSecrets(ctx.env);
     nativeBootstrap = consumeNativePairedBootstrap(ctx.env);
     if (nativeBootstrap && !(argv[0] === "serve" && argv.includes("--internal"))) {
       return {code:2,out:"",err:"Native bootstrap requires the internal service"};
     }
+    // A paired native Core authenticates its parent channel before it reads a byte from it.
+    if (secretsOnStdin && !nativeBootstrap) secrets = readCoreSecrets();
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
+  if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
   if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
@@ -653,6 +660,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "api": {
       if (rest[0] !== "--stdio") return apiCommand(rest, ctx);
       if (rest.length !== 1) return { code: 2, out: "", err: "usage: pacer api --stdio" };
+      if (legacySecrets) console.error(`pacer: ${LEGACY_CORE_SECRETS}`);
       async function* lines() {
         const decoder = new StringDecoder("utf8");
         let remainder = "";
@@ -667,10 +675,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         remainder += decoder.end();
         if (remainder) yield remainder;
       }
-      // Only Root's private post-edit hook holds this key; descendants must not inherit it.
-      const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-      delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-      delete process.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+      // Only Root's private post-edit hook holds this key.
+      const nativeConfigKey = secrets.nativeConfigSyncKey;
       const rechecks: Promise<void>[] = [];
       await runStdio(() => fresh(ctx), lines(), line => { process.stdout.write(line); }, { opDeps: { ...cliDeps, diagnosticRecheck: pending => { rechecks.push(pending); } }, nativeConfigKey });
       // A diagnostics recheck started by an accepted fix still uses the plugins.
@@ -682,20 +688,22 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       if (rest.includes("--help") || rest.includes("-h")) return { code: 0, out: `usage: pacer serve [--port <n>]\n\nLocal HTTP service (default port ${DEFAULT_PORT}).`, err: "" };
       const { opts } = parseFlags(rest, ["internal"]);
       const internal = opts.internal === true;
-      const internalToken = ctx.env.PACER_INTERNAL_TOKEN;
-      if (internal && (!internalToken || internalToken.length < 32)) {
-        return { code: 2, out: "", err: "pacer serve --internal requires PACER_INTERNAL_TOKEN in the environment (at least 32 characters)" };
-      }
+      const tokenRequired = `pacer serve --internal requires its credential in the secrets frame on stdin (${CORE_SECRETS_ENV}=${CORE_SECRETS_STDIN}); start it through the pacer front door${legacySecrets ? `; ${LEGACY_CORE_SECRETS}` : ""}`;
+      if (internal && !nativeBootstrap && !secrets.internalToken) return { code: 2, out: "", err: tokenRequired };
       // Load or create the machine identity once so activity and task records carry its id; stamping never creates it.
       // Loads are single-flight per home, so identity operations that arrive first share this load.
       void ensureIdentity(ctx).catch(e => console.error(`pacer: machine identity unavailable: ${e instanceof Error ? e.message : String(e)}`));
       try {
         if (internal) {
-          // Only this process may hold the internal credential: task runners and executors inherit the environment.
-          delete process.env.PACER_INTERNAL_TOKEN;
-          delete ctx.env.PACER_INTERNAL_TOKEN;
           const pairedNative = configuredPairedNativeBootstrap(ctx, Number(ctx.env.PACER_PORT ?? DEFAULT_PORT), nativeBootstrap);
-          const s = startServer(() => fresh(ctx), { internal: { token: internalToken! }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
+          // The authenticated parent channel carries the frame after its descriptors.
+          if (pairedNative && secretsOnStdin) {
+            secrets = readCoreSecrets();
+            if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
+          }
+          const internalToken = secrets.internalToken;
+          if (!internalToken) return { code: 2, out: "", err: tokenRequired };
+          const s = startServer(() => fresh(ctx), { internal: { token: internalToken }, supervisionWorker: true, backgroundWorker: true, ...(pairedNative ? {pairedNative} : {}) });
           // Best-effort cleanup starts only after the listener binds; the helper logs errors.
           void pruneUndoSnapshotsAtStartup(ctx);
           void terminalEnv(ctx.env, { cwd: ctx.home }).catch(() => undefined);

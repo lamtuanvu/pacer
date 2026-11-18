@@ -7,6 +7,7 @@ import { makeCtx } from "../../src/ctx";
 import { startServer } from "../../src/serve/http";
 import type { SpawnRunner } from "../../src/tasks/api";
 import { assertIsolatedEnv } from "../isolated-port";
+import { readCoreSecrets, scrubCoreSecrets } from "../../src/core-secrets";
 
 // TypeScript core for a front door (`api --stdio` or `serve --internal`): runner.check jobs run with
 // stubbed readiness steps, so no executor CLI, account sign-in or test task is ever reached. Each
@@ -16,6 +17,7 @@ import { assertIsolatedEnv } from "../isolated-port";
 const mode = process.argv.slice(2).join(" ");
 if (mode !== "api --stdio" && mode !== "serve --internal") throw Error("usage: runner-check-core api --stdio | serve --internal");
 assertIsolatedEnv(process.env);
+const secrets = scrubCoreSecrets(process.env) ? readCoreSecrets() : {};
 const ctx = makeCtx();
 const delay = Number(process.env.PACER_FIXTURE_DELAY_MS ?? 0);
 const record = (file: string, entry: Record<string, unknown>) => appendFileSync(join(ctx.pacerHome, file), `${JSON.stringify(entry)}\n`);
@@ -34,11 +36,9 @@ const fresh = () => ({ ...ctx, now: Date.now() / 1000 });
 
 if (mode === "api --stdio") {
   await runStdio(fresh, createInterface({ input: process.stdin }), line => { process.stdout.write(line); },
-    { opDeps: { runnerCheck }, nativeConfigKey: process.env.PACER_NATIVE_CONFIG_SYNC_KEY });
+    { opDeps: { runnerCheck }, nativeConfigKey: secrets.nativeConfigSyncKey });
 } else {
-  const token = process.env.PACER_INTERNAL_TOKEN!;
-  delete process.env.PACER_INTERNAL_TOKEN;
-  delete ctx.env.PACER_INTERNAL_TOKEN;
+  const token = secrets.internalToken!;
   const core = startServer(fresh, { internal: { token }, opDeps: { runnerCheck, spawnRunner } });
   const front = Bun.serve({ hostname: "127.0.0.1", port: 0, idleTimeout: 0, fetch: async request => {
     const url = new URL(request.url);

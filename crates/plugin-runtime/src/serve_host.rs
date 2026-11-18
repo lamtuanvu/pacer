@@ -226,8 +226,8 @@ impl NativeHostSession {
         &self.socket
     }
 
-    /// This start's credential. Hand it to the owner's own Core child only,
-    /// as [`crate::HOST_SOCKET_KEY_ENV`]; never to any other child.
+    /// This start's credential. Hand it to the owner's own Core child only, in
+    /// the secrets frame on its stdin; never to any other child.
     pub fn key(&self) -> &OwnerKey {
         &self.key
     }
