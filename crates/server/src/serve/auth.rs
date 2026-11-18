@@ -345,7 +345,11 @@ mod tests {
         );
         let enforcement = format!("pet_{HEX}");
         assert_eq!(
-            verdict(Method::POST, "/v3/ops/dispatch.enforcement.denied", &enforcement),
+            verdict(
+                Method::POST,
+                "/v3/ops/dispatch.enforcement.denied",
+                &enforcement
+            ),
             Verdict::Task
         );
         assert_eq!(
