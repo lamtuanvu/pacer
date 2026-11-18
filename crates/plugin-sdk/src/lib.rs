@@ -57,6 +57,7 @@ pub mod types {
         ExecutorStopParams, ExecutorStopParamsTaskId, ExecutorStopResult,
     };
 
+    pub use pacer_plugin_assistant_protocol::*;
     pub use pacer_plugin_hosts_protocol::*;
     pub use pacer_plugin_install_protocol::*;
     pub use pacer_plugin_protocol::*;
