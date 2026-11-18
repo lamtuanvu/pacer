@@ -74,7 +74,7 @@ export class PluginError extends Error {
   }
 }
 
-export const PROTOCOL = "1.10.0";
+export const PROTOCOL = "1.11.0";
 const HELLO = "plugin.hello", CANCEL = "$/cancel";
 type Json = Record<string, unknown>;
 

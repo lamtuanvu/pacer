@@ -16,7 +16,11 @@ test("desktop promotion requires the native signed build and standalone release 
   expect(jobs["desktop-build"].permissions.contents).toBe("read");
   expect(jobs["desktop-publish"].permissions.contents).toBe("write");
   expect(jobs["desktop-build"].if).toContain("PACER_DESKTOP_RELEASE_ENABLED");
-  expect(jobs["desktop-build"].if).toContain("!contains");
+  // Stable and nightly versions build and publish the desktop app; other prereleases never do.
+  for (const job of ["desktop-build", "desktop-publish"]) {
+    expect(jobs[job].if).toContain("(needs.verify.outputs.channel == 'stable' || needs.verify.outputs.channel == 'nightly')");
+    expect(jobs[job].if).not.toContain("!contains");
+  }
   expect(jobs["desktop-build"].if).toContain("'push'");
 });
 test("signed desktop builds use compile-time production trust, separate bundled CLI outputs, and unconditional credential cleanup", () => {

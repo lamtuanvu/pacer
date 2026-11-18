@@ -1288,6 +1288,13 @@ impl ::std::default::Default for AssistantSettingsGetParams {
 ///        }
 ///      ]
 ///    },
+///    "backend": {
+///      "type": "string",
+///      "enum": [
+///        "pacer",
+///        "executor"
+///      ]
+///    },
 ///    "expect_rev": {
 ///      "type": "integer",
 ///      "maximum": 9007199254740991.0,
@@ -1368,6 +1375,8 @@ impl ::std::default::Default for AssistantSettingsGetParams {
 #[serde(deny_unknown_fields)]
 pub struct AssistantSettingsSetParams {
     pub account: ::std::option::Option<AssistantSettingsSetParamsAccount>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub backend: ::std::option::Option<AssistantSettingsSetParamsBackend>,
     pub expect_rev: ::std::num::NonZeroU64,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub limits: ::std::option::Option<AssistantSettingsSetParamsLimits>,
@@ -1429,6 +1438,67 @@ impl<'de> ::serde::Deserialize<'de> for AssistantSettingsSetParamsAccount {
             .map_err(|e: self::error::ConversionError| {
                 <D::Error as ::serde::de::Error>::custom(e.to_string())
             })
+    }
+}
+///`AssistantSettingsSetParamsBackend`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "pacer",
+///    "executor"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AssistantSettingsSetParamsBackend {
+    #[serde(rename = "pacer")]
+    Pacer,
+    #[serde(rename = "executor")]
+    Executor,
+}
+impl ::std::convert::From<&Self> for AssistantSettingsSetParamsBackend {
+    fn from(value: &AssistantSettingsSetParamsBackend) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AssistantSettingsSetParamsBackend {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Pacer => f.write_str("pacer"),
+            Self::Executor => f.write_str("executor"),
+        }
+    }
+}
+impl ::std::str::FromStr for AssistantSettingsSetParamsBackend {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "pacer" => Ok(Self::Pacer),
+            "executor" => Ok(Self::Executor),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantSettingsSetParamsBackend {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
     }
 }
 ///`AssistantSettingsSetParamsLimits`

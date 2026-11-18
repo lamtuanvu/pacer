@@ -1,7 +1,7 @@
 import { z } from "zod";
 import { CoreError } from "../core/errors";
 import type { OpDef } from "./ops";
-import { assistantLimitsSchema, retentionSchema, scopeSchema } from "../assistant/types";
+import { assistantLimitsSchema, backendSchema, retentionSchema, scopeSchema } from "../assistant/types";
 
 const id = z.string().min(1).max(128);
 const op = <P extends z.ZodTypeAny>(definition: OpDef<P>) => definition as unknown as OpDef;
@@ -24,11 +24,11 @@ export const assistantOps: Record<string, OpDef> = {
     return turn;
   } }),
   "assistant.delete": op({ description: "Delete one conversation, or every conversation without an id. Usage figures stay, without the text.", params: z.object({ id: id.optional() }), handler: async (ctx, p) => (await svc()).deleteConversations(ctx, p.id) }),
-  "assistant.settings.get": op({ description: "The assistant's account, limits and retention, with a revision for assistant.settings.set.", params: z.object({}), handler: async ctx => (await store()).readSettings(ctx) }),
-  "assistant.settings.set": op({ description: "Choose the executor account the assistant runs on, and its limits and retention. Needs the current revision.",
-    params: z.object({ runner: z.string().min(1).max(128).nullable(), account: z.string().min(1).max(64).nullable(), limits: assistantLimitsSchema.partial().optional(), retention: retentionSchema.partial().optional(), expect_rev: z.number().int().positive() }),
+  "assistant.settings.get": op({ description: "The assistant's account, backend, limits and retention, with a revision for assistant.settings.set.", params: z.object({}), handler: async ctx => (await store()).readSettings(ctx) }),
+  "assistant.settings.set": op({ description: "Choose the account and backend the assistant answers on, and its limits and retention. Needs the current revision.",
+    params: z.object({ runner: z.string().min(1).max(128).nullable(), account: z.string().min(1).max(64).nullable(), limits: assistantLimitsSchema.partial().optional(), retention: retentionSchema.partial().optional(), expect_rev: z.number().int().positive(), backend: backendSchema.optional() }),
     handler: async (ctx, p) => (await svc()).saveSettings(ctx, p) }),
-  "assistant.candidates": op({ description: "Endpoint accounts the assistant could run on, and what it is allowed to read.", params: z.object({}), handler: async ctx => { const m = await svc(); return { accounts: m.candidates(ctx), reads: m.READS_SUMMARY }; } }),
+  "assistant.candidates": op({ description: "Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.", params: z.object({}), handler: async ctx => { const m = await svc(); return { accounts: m.candidates(ctx), reads: m.READS_SUMMARY }; } }),
   "assistant.card.record": op({ description: "Record the user's decision and the outcome on an action card in the conversation. The app runs the proposed op itself.", params: z.object({ turnId: id, cardId: id, state: z.enum(["done", "failed", "dismissed", "stale"]), result: z.string().max(500).optional() }),
     handler: async (ctx, p) => (await svc()).updateCard(ctx, p.turnId, p.cardId, { state: p.state, ...(p.result !== undefined ? { result: p.result } : {}) }) }),
   "assistant.card.refresh": op({ description: "Rebuild a card whose task changed, with the task's current revision.", params: z.object({ turnId: id, cardId: id }), handler: async (ctx, p) => (await svc()).refreshCard(ctx, p.turnId, p.cardId) }),

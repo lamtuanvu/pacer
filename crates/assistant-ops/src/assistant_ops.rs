@@ -240,7 +240,9 @@ fn candidates(strategy: &Value) -> Vec<Value> {
                 })
                 .collect();
             let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
-            json!({"account":name,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
+            // Phase 1 offers endpoint accounts on the `pacer` backend only; `reason` appears with a
+            // row that is not available (spec §5).
+            json!({"account":name,"backend":"pacer","available":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
         })
         .collect()
 }
@@ -386,7 +388,15 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             }
         }
         let write = with_db(ctx, |db| {
-            assistant::write_settings(db, p.runner, p.account, p.limits, p.retention, p.expect_rev)
+            assistant::write_settings(
+                db,
+                p.runner,
+                p.account,
+                p.backend,
+                p.limits,
+                p.retention,
+                p.expect_rev,
+            )
         })?;
         match write {
             SettingsWrite::Saved(settings) => Ok(settings.to_json()),

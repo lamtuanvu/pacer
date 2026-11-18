@@ -1,6 +1,6 @@
 # Assistant backends: pacer's own agent or an existing executor
 
-Date: 2026-11-17. Status: proposed, awaiting the maintainer's approval. Applies to:
+Date: 2026-11-17. Status: approved by the maintainer on 2026-11-18, with the proposed answer to each decision below. Applies to:
 - `src/plugins/protocol.ts` (`CAPABILITIES`), `src/plugins/host.ts` (turn-scoped capabilities), `src/plugins/ui-schema.ts` (`NOTIFICATIONS`), `src/plugins/registry.ts` (notification dispatch) and `docs/plugin-protocol*.{md,json}`
 - `src/api/ops-assistant.ts`, `src/api/ops.ts`, `src/api/caller-policy.ts`, `src/serve/http.ts` and `src/core/work.ts` (the assistant grant), `docs/protocol*.md`
 - `src/assistant/**`, `src/mcp/**`, `app/src/screens/settings/AssistantSettings.tsx`
@@ -175,7 +175,9 @@ Phases 2 and 3 are independent once phase 1 lands.
 - **Reviewers:** `.project/reviewers/security.md` (ask mode, grant, self-test, the trust-boundary change), `architecture.md` (extension point and backends), `protocol-compat.md` (plugin and client protocol, MCP), `ui-accessibility.md` (Settings) and `qa.md` (fixtures and live evidence).
 - **ADR:** [ADR 0028](../decisions/0028-assistant-backends.md) records the durable choices (P12, ARCH-9).
 
-## Open decisions
+## Decisions
+
+Approved by the maintainer on 2026-11-18 with the proposed answers.
 
 1. **Shipping a native plugin.** `assistant-pacer` is the first bundled plugin built as a native binary. How it is packaged and signed with the desktop app and the CLI release needs a decision. Proposed: build it with `pacer-core` and sign it on the same path.
 2. **Rig's version.** Rig is pre-1.0 and has breaking releases. Proposed: pin an exact version and upgrade deliberately, with the fake-endpoint tests as the gate.

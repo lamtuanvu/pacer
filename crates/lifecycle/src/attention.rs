@@ -289,7 +289,7 @@ pub fn derive(input: &Value, time: f64) -> Vec<Item> {
                 "stalled",
                 id,
                 goal,
-                &format!("Conversation stalled: {}", s(&t["liveness"]["reason"])),
+                &stalled_detail(&t["liveness"], time),
                 vec![open(
                     "Open messages",
                     json!({"view":"task","id":id,"tab":"messages"}),
@@ -695,4 +695,40 @@ fn raised(
         store[id] = json!({"since":time});
     }
     Ok(())
+}
+
+/// The stalled item's detail; a no-progress stall counts minutes from its last progress, as the TypeScript rules do.
+fn stalled_detail(liveness: &Value, now: f64) -> String {
+    let reason = liveness["reason"].as_str().unwrap_or("");
+    if reason == "no_progress" {
+        let since = liveness["since"].as_f64().unwrap_or(now);
+        return format!(
+            "No progress for {} min",
+            (((now - since) / 60.0).floor() as i64).max(1)
+        );
+    }
+    format!("Conversation stalled: {reason}")
+}
+
+#[cfg(test)]
+mod stalled_detail_tests {
+    use super::stalled_detail;
+    use serde_json::json;
+
+    #[test]
+    fn no_progress_counts_minutes_from_the_last_progress() {
+        let now = 1_000_000.0;
+        assert_eq!(
+            stalled_detail(&json!({"reason":"no_progress","since":now - 4500.0}), now),
+            "No progress for 75 min"
+        );
+        assert_eq!(
+            stalled_detail(&json!({"reason":"no_progress","since":now}), now),
+            "No progress for 1 min"
+        );
+        assert_eq!(
+            stalled_detail(&json!({"reason":"cycle","since":now}), now),
+            "Conversation stalled: cycle"
+        );
+    }
 }
