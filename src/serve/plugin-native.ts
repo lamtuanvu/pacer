@@ -39,7 +39,7 @@ const operation = z.enum([
  */
 const pluginMethod = z.enum(["diagnostic.ping", "ui.render", "ui.action", "ui.settings.validate"]);
 /** The exit reasons the native owner reports, as the registry's own `onExit` words them. */
-const CRASH_REASON = /^exited(?: with code -?\d{1,10}| on SIG[A-Z0-9]{1,12}| on signal \d{1,3})?$/;
+const CRASH_REASON = /^(?:exited(?: with code -?\d{1,10}| on SIG[A-Z0-9]{1,12}| on signal \d{1,3})?|plugin\.hello passed its \d+ ms deadline)$/;
 const observationGeneration = z.string().regex(/^[0-9a-f]{64}$/);
 const callResources = z.object({
   reads: z.array(z.object({ path: z.string(), kind: z.enum(["file", "codex-logs"]) }).strict()).default([]),

@@ -3814,11 +3814,30 @@
             "important",
             "all"
           ]
+        },
+        "sound": {
+          "type": "string",
+          "enum": [
+            "pacer",
+            "default",
+            "off",
+            "basso",
+            "blow",
+            "bottle",
+            "frog",
+            "funk",
+            "glass",
+            "hero",
+            "morse",
+            "ping",
+            "pop",
+            "purr",
+            "sosumi",
+            "submarine",
+            "tink"
+          ]
         }
       },
-      "required": [
-        "level"
-      ],
       "additionalProperties": false
     },
     "NotificationsTestParams": {
