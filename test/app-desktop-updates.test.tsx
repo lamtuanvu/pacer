@@ -106,11 +106,18 @@ test("progress is shown but only the phase is announced, and each update is a na
 
 const channelConfig = (value: "stable" | "nightly") => ({ keys: { update_channel: { value } }, planners: [] });
 const renderWithConfig = (status: UpdateStatus, config: ReturnType<typeof channelConfig>) => renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected: true, features: { readModel: true, ops: new Set(status.actions.map(action => `desktop.update.${action}`)) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><DesktopUpdate status={status} initialConfig={config}/></TaskContext.Provider>);
+test("the nightly warning is shown only while Nightly is selected", () => {
+  const warning = "Nightly builds are untested daily snapshots of main.";
+  const status = desktopStatus({ current: "0.16.0", actions: ["check"] });
+  expect(renderWithConfig(status, channelConfig("stable"))).not.toContain(warning);
+  const nightly = renderWithConfig(status, channelConfig("nightly"));
+  expect(nightly).toContain(warning); expect(nightly).toMatch(/data-strip-value="nightly" aria-pressed="true"/);
+});
 test("stable-channel nightly install shows the catch-up note", () => {
   const note = "You'll move to the next stable release when it's newer than this nightly.";
   const nightly = desktopStatus({ current: "0.16.0-nightly.202611171700", actions: ["check"] });
   const stableChannel = renderWithConfig(nightly, channelConfig("stable"));
-  expect(stableChannel).toContain("Update channel"); expect(stableChannel).toContain("Nightly builds are untested daily snapshots of main.");
+  expect(stableChannel).toContain("Update channel");
   expect(stableChannel).toContain(note);
   expect(stableChannel).toMatch(/data-strip-value="stable" aria-pressed="true"/);
   expect(renderWithConfig(nightly, channelConfig("nightly"))).not.toContain(note);
