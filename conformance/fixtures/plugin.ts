@@ -2,7 +2,7 @@
 import { appendFileSync, readFileSync, writeFileSync } from "node:fs";
 import { PluginError, pairingStart, serve, stdinLines, type PluginManifest } from "@pacer/plugin";
 
-interface Fixture { startDelayMs?: number; pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string; pingStderr?: string; pingStdout?: string }
+interface Fixture { startDelayMs?: number; pingProbe?: "serial" | "barrier"; barrierTimeoutMs?: number; pingDelayMs?: number; slowPings?: number; crashAfterPings?: number; exitAtStart?: boolean; ignoreCancel?: boolean; claimContributes?: string[]; callCapability?: string; capabilityParams?: Record<string, unknown>; capabilityResultFile?: string; renderDelayMs?: number; uiDocument?: unknown; renderCrash?: boolean; invalidateOnRender?: boolean; actionMessage?: string; validateErrors?: { path: string; message: string }[]; pairingResult?: unknown; pairingFile?: string; pingStderr?: string; pingStdout?: string; exitOnPing?: boolean }
 
 const manifest = JSON.parse(readFileSync("pacer-plugin.json", "utf8")) as PluginManifest;
 const fixture = JSON.parse(readFileSync("fixture.json", "utf8")) as Fixture;
@@ -36,6 +36,8 @@ await serve({
     "ui.action": async () => ({ result: "refresh", message: fixture.actionMessage ?? "done" }),
     "ui.settings.validate": async () => fixture.validateErrors ? { ok: false, errors: fixture.validateErrors } : { ok: true },
     "diagnostic.ping": async (_params, host, signal) => {
+      // Dies mid-call, after it answered the hello and before it answers the ping.
+      if (fixture.exitOnPing) process.exit(7);
       const ping = ++pings;
       const measured = fixture.pingProbe !== undefined && ping > 1;
       let entered = false, completed = false;
