@@ -36,10 +36,10 @@ linux test/api-read-model-summary.test.ts
 linux test/app-immediate-save-browser.test.tsx
 linux test/app-pacing-browser.test.ts
 linux test/app-terminal-browser.test.ts
-linux test/commands-account-wizard.test.ts
+mixed test/commands-account-wizard.test.ts
 linux test/install-ownership-handback.test.ts
 linux test/native-dispatch.test.ts
 linux test/native-plugin-ops-stdio.test.ts
-linux test/native-service-update-parity.test.ts
+mixed test/native-service-update-parity.test.ts
 linux test/plugins-planner-paths.test.ts
 linux test/setup-health-op.test.ts
