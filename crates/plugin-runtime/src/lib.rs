@@ -1,8 +1,9 @@
 //! Process-owner and reverse-bridge shell for the P4d serve cutover.
 //!
-//! Default `serve` leaves plugin children with TypeScript
-//! (`/_internal/plugins`) while [`serve_starts_reverse_bridge_by_default`] is
-//! false. Library callers may hold live [`PluginProcess`] children under
+//! Default `serve` starts the owner ([`serve_starts_reverse_bridge_by_default`]
+//! is true); an explicit `PACER_NATIVE_PLUGIN_HOST=0` leaves plugin children
+//! with TypeScript (`/_internal/plugins`). Library callers may hold live
+//! [`PluginProcess`] children under
 //! [`ProcessOwner::native_for_tests`]. Truthy [`NATIVE_PLUGIN_HOST_ENABLE_ENV`]
 //! / [`HOST_BRIDGE_ENABLE_ENV`] opt into a [`NativeHostSession`] that claims
 //! supervision, binds the reverse bridge with live sealed `_host.plugin.call`
