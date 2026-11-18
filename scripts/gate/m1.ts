@@ -87,7 +87,7 @@ export function shardTestFiles(root: string, env: NodeJS.ProcessEnv): string[] {
   if (!/^\d+$/.test(index) || !/^[1-9]\d*$/.test(count) || Number(index) >= Number(count)) {
     throw Error("Shard mode needs SHARD_INDEX below a positive SHARD_COUNT");
   }
-  const result = Bun.spawnSync(["python3", "scripts/ci/shard-tests.py"], { cwd: root, env: { ...process.env, SHARD_INDEX: index, SHARD_COUNT: count }, stdout: "pipe", stderr: "pipe" });
+  const result = Bun.spawnSync(["python3", "scripts/ci/shard-tests.py"], { cwd: root, env: { ...process.env, SHARD_INDEX: index, SHARD_COUNT: count, SHARD_EXCLUDE_MACOS: env.SHARD_EXCLUDE_MACOS ?? "" }, stdout: "pipe", stderr: "pipe" });
   if (result.exitCode !== 0) throw Error(`Cannot list shard test files: ${result.stderr.toString().trim()}`);
   const files = JSON.parse(result.stdout.toString()) as string[];
   if (!files.length) throw Error(`Shard ${index} of ${count} has no test files`);
