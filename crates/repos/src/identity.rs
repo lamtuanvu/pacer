@@ -1,10 +1,11 @@
 //! `registerRepo` and `addRepo` from `src/core/repos.ts`: the git identity of an absolute
 //! checkout path (top level, shared git directory, `origin` key) and its registration in
 //! `state/repos.json`, with linked-checkout aliases in `state/repo-paths.json`.
-use super::{
-    basename, git::git_read, local_key, mark_unreachable, read_object, repo_for, state_file,
+use super::{basename, git::git_read, local_key, mark_unreachable, repo_for, state_file};
+use crate::{
+    probe::{absent, dirname, remember, resolve},
+    read::{Registry, quote, text},
 };
-use crate::probe::{absent, dirname, remember, resolve};
 use pacer_config::host::repo_key;
 use pacer_foundation::{
     Ctx,
@@ -12,7 +13,7 @@ use pacer_foundation::{
     fsutil::write_private,
     lock::{LockOptions, with_lock},
 };
-use pacer_js_json::{js_semantics::trim, stringify};
+use pacer_js_json::{js_semantics::trim, quoted, stringify};
 use serde_json::{Value, json};
 use std::{path::Path, sync::mpsc, thread, time::Duration};
 

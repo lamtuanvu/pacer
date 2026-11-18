@@ -26,7 +26,8 @@ use pacer_foundation::{
     lock::{LockOptions, with_lock},
 };
 use pacer_js_json::{js_semantics::truthy, stringify};
-use serde_json::{Map, Value, json};
+use read::{Entry, Registry, newest_first};
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::{
     collections::{HashMap, HashSet},
@@ -266,9 +267,8 @@ fn prune(ctx: &Ctx, stale: &[String]) -> Result<(), CoreError> {
         if needs_core || file.is_dir() {
             return Ok(());
         }
-        let mut map = read_object(&file);
-        map.retain(|path, _| !stale.contains(path));
-        write_private(&file, stringify(&Value::Object(map)).as_bytes()).map_err(internal)
+        reg.retain(|name, _| !stale.contains(name));
+        write_private(&file, stringify(&Value::Object(reg)).as_bytes()).map_err(internal)
     })
     .map_err(internal)?
 }
