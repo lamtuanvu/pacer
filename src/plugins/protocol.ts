@@ -204,6 +204,14 @@ export const assistantRespondResult = z.object({
 /** The host caps an `assistant.respond` call at this long, whatever `limits.deadlineMs` asks for. */
 export const ASSISTANT_MAX_DEADLINE_MS = 120_000;
 
+/** One host-issued ask-mode command (`assistant.reply` executor turns): exactly what the plugin echoes to spawn. */
+const assistantAskCommand = z.object({
+  argv: z.array(z.string().max(4096)).min(1).max(32),
+  cwd: z.string().min(1).max(4096),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(4096)),
+  stdin: z.string().max(262144),
+  timeoutMs: z.number().int().positive().max(ASSISTANT_MAX_DEADLINE_MS),
+}).strict();
 /** One turn of the stored conversation, for a backend that keeps no live session of its own. */
 const assistantHistoryEntry = z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(200_000) }).strict();
 /**
@@ -221,6 +229,16 @@ export const assistantReplyParams = z.object({
   history: z.array(assistantHistoryEntry).max(40),
   message: z.string().min(1).max(4000),
   session: z.string().min(1).max(4096).optional(),
+  /**
+   * Executor backend only: the host-issued `opencode run` commands for this turn, as the plugin
+   * must echo them to `capability.process.spawn`. Their config, which carries the turn's grant, is
+   * not here: the plugin passes `{ secretRef: configRef }` and the host resolves it at spawn time.
+   */
+  executor: z.object({
+    configRef: z.string().min(1).max(128),
+    command: assistantAskCommand,
+    fallback: assistantAskCommand.optional(),
+  }).strict().optional(),
   limits: z.object({
     maxInputTokens: z.number().int().min(1000).max(200_000),
     maxOutputTokens: z.number().int().positive().max(32_000),

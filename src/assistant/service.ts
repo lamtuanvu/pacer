@@ -12,6 +12,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
+import { ASK_CONFIG_REF, askTurn, type AskTurn } from "./ask-mode";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
 import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
@@ -72,6 +73,13 @@ function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
 
 function endpointFor(strategy: Strategy, settings: AssistantSettings) {
   const account = settings.account ? strategy.accounts[settings.account] : undefined;
+  // The executor backend runs the account through its agent CLI (opencode), which holds the
+  // connection itself; any endpoint account it drives qualifies, and opencode picks the default model.
+  if (settings.backend === "executor") {
+    if (!account || account.kind !== "endpoint") return null;
+    const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
+    return { name: settings.account!, account, model: runner?.model ?? account.model ?? account.connection?.models[0]?.id ?? null, baseUrl: "" };
+  }
   if (!account || account.kind !== "endpoint" || !account.connection) return null;
   const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
   const model = runner?.model ?? account.model ?? account.connection.models[0]?.id ?? null;
@@ -301,7 +309,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   const entry = live.get(turn.turnId)!;
   let state: TurnView["state"] = "done", answer = "", error: string | null = null, measured = 0, calls = 0, reported: Coverage | null = null;
   // Closers for the turn's tools and its `pag_` grant; both run the moment the turn ends.
-  let closeTurn: (() => void) | null = null, grant: string | null = null;
+  let closeTurn: (() => void) | null = null, grant: string | null = null, ask: AskTurn | null = null;
   try {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
     const endpoint = endpointFor(strategy, settings);
@@ -339,15 +347,26 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       // Resume the backend's own session only on the account and backend it belongs to (spec §6).
       const stored = readBackendSession(ctx, turn.conversationId);
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
+      // Executor turns: the host builds the restricted `opencode run` commands and their config, which
+      // carries the grant; the plugin gets the command shapes and a reference, never the config.
+      if (settings.backend === "executor" && grant)
+        ask = askTurn(ctx, { turnId: turn.turnId, grant, model: endpoint.model, ...(session ? { session } : {}), system: `${system}\n\n${digest}`,
+          question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
-        backend: settings.backend, model: endpoint.model, system, digest, tools, history: transcript, message: question,
+        backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
+        ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
+      const askConfigText = ask?.config;
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({ argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin, secretEnv: { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } })) : [];
       emit(turn.turnId, { status: "Thinking…" });
       const raw = await Promise.race([
-        pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, { deadlineMs, signal: entry.abort.signal, assistantTurn }),
+        pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, {
+          deadlineMs, signal: entry.abort.signal, assistantTurn,
+          ...(ask ? { resources: { reads: [], commands: pins, stores: [] }, credentialBindings: [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText! }] } : {}),
+        }),
         entry.stopped,
       ]);
       const parsed = assistantReplyResult.safeParse(raw);
@@ -419,6 +438,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   // The turn ends here: its tools close and its `pag_` grant is revoked before the final state lands.
   closeTurn?.();
   if (grant) { revokeAssistantGrants(ctx, turn.turnId); turnGrants.delete(turn.turnId); }
+  ask?.cleanup();
   usage.coverage = reported ?? (calls === 0 || measured === 0 ? "unknown" : measured === calls ? "measured" : "partial");
   const citations: Citation[] = [...seenTasks].filter(id => answer.includes(id)).slice(0, 6).map(id => ({ label: id, href: `#/tasks/${encodeURIComponent(id)}` }));
   if (state === "cancelled") answer = "";

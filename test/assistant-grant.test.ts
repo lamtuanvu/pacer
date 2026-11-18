@@ -125,9 +125,10 @@ const fakeExecutor: BundledPlugin = {
 };
 
 function setup(backend: "pacer" | "executor", respond: unknown) {
-  const c = fakeCtx();
+  // No opencode here: the fake plugin answers itself, and the host's issued ask-mode pins resolve nothing.
+  const base = fakeCtx(), c = { ...base, which: (name: string) => name === "opencode" ? null : base.which(name) } as typeof base;
   pluginRegistry(c, {
-    bundled: backend === "executor" ? [...BUNDLED, fakeExecutor] : BUNDLED,
+    bundled: backend === "executor" ? [...BUNDLED.filter(p => p.manifest.id !== "assistant-executor"), fakeExecutor] : BUNDLED.filter(p => p.manifest.id !== "assistant-executor"),
     spawnBundled: (home, id) => id === "fx-reply"
       ? { argv: [process.execPath, new URL("./fixtures/assistant-reply/peer.ts", import.meta.url).pathname], cwd: home.home, env: {} }
       : bundledPluginSpawn(home, id),
