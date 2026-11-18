@@ -313,22 +313,28 @@ fn stringify(value: &Json) -> String {
     out
 }
 
-fn notification(value: &Json) -> Option<String> {
+fn string_value(value: &Json, key: &str) -> Option<String> {
     let Json::Object(items) = value else {
         return None;
     };
-    let (_, Json::String(level)) = items
+    let (_, Json::String(units)) = items
         .iter()
-        .find(|(k, _)| k == &"notifications".encode_utf16().collect::<Vec<_>>())?
+        .find(|(k, _)| k == &key.encode_utf16().collect::<Vec<_>>())?
     else {
         return None;
     };
-    String::from_utf16(level).ok()
+    String::from_utf16(units).ok()
 }
 pub(super) fn level(path: &Path) -> Option<String> {
-    notification(&read(path)?)
+    string_value(&read(path)?, "notifications")
 }
-pub(super) fn settings(path: &Path, level: &str) -> Vec<u8> {
+pub(super) fn sound(path: &Path) -> Option<String> {
+    string_value(&read(path)?, "notificationSound")
+}
+/// Serialize `settings.json` with each `(key, value)` set to a string, in
+/// order, preserving every other field (including individual UTF-16 units and
+/// integer-key order), like TypeScript's `{...settings, key: value}`.
+pub(super) fn settings_keys(path: &Path, pairs: &[(&str, &str)]) -> Vec<u8> {
     let mut entries = match read(path) {
         Some(Json::Object(items)) => items,
         Some(Json::Array(items)) => items
@@ -348,12 +354,17 @@ pub(super) fn settings(path: &Path, level: &str) -> Vec<u8> {
             .collect(),
         _ => Vec::new(),
     };
-    let key = "notifications".encode_utf16().collect::<Vec<_>>();
-    let value = Json::String(level.encode_utf16().collect());
-    if let Some((_, old)) = entries.iter_mut().find(|(k, _)| k == &key) {
-        *old = value;
-    } else {
-        entries.push((key, value));
+    for (key, value) in pairs {
+        let key = key.encode_utf16().collect::<Vec<_>>();
+        let value = Json::String(value.encode_utf16().collect());
+        if let Some((_, old)) = entries.iter_mut().find(|(k, _)| k == &key) {
+            *old = value;
+        } else {
+            entries.push((key, value));
+        }
     }
     stringify(&Json::Object(entries)).into_bytes()
+}
+pub(super) fn settings(path: &Path, level: &str) -> Vec<u8> {
+    settings_keys(path, &[("notifications", level)])
 }

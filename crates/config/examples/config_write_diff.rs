@@ -52,7 +52,9 @@ fn main() -> io::Result<()> {
                 }
             }
             Some("notifications.set") => {
-                match notifications::set_level(home, input["level"].as_str().unwrap_or("")) {
+                let level = input["level"].as_str();
+                let sound = input["sound"].as_str();
+                match notifications::set(home, level, sound) {
                     Ok(value) => json!({"ok":true,"value":value}),
                     Err(error) => json!({"ok":false,"error":error.to_string()}),
                 }
