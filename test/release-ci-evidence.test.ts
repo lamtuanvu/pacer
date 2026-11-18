@@ -84,7 +84,7 @@ test("a failing dispatched run fails the gate without dispatching again", async 
 test("a rerun of a checked run is examined again", async () => {
   const { ci, refs } = fake(tick => [ciRun(8, "push", tick === 1 ? "in_progress" : "completed")], {});
   let attempt = 0;
-  ci.jobs = async () => (attempt++ === 0 ? suite("failure") : suite());
+  ci.jobs = async () => (attempt++ === 0 ? suite("skipped") : suite());
   expect((await awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).id).toBe(8);
   expect(attempt).toBe(2);
   expect(refs).toEqual(["main"]);
@@ -128,4 +128,57 @@ test("CI_NO_DISPATCH=1 turns dispatch off and makes CI_REF optional", () => {
     env: { ...process.env, GITHUB_REPOSITORY: "", CI_SHA: SHA, CI_REF: "", CI_NO_DISPATCH: "1" }, stdout: "pipe", stderr: "pipe" });
   expect(result.exitCode).not.toBe(0);
   expect(result.stderr.toString()).toContain("GITHUB_REPOSITORY and CI_SHA are required");
+});
+
+test("a dispatched CI run has its own concurrency group, so a push to main cannot cancel it", () => {
+  const { concurrency } = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
+  // Evaluates the group and cancel expressions; GitHub's null-safe property access, `==`, `&&`, `||` and format() behave like these JS equivalents here.
+  const evaluate = (template: string, github: Record<string, any>) => String(template).replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) => {
+    const format = (pattern: string, ...values: string[]) => pattern.replace(/\{(\d+)\}/g, (_m, i) => values[Number(i)]!);
+    return String(new Function("github", "format", `return (${expression.replaceAll("'", '"').replaceAll(".", "?.")});`)(github, format));
+  });
+  const context = (event_name: string, sha: string, extra: Record<string, any> = {}) =>
+    ({ workflow: "CI", event_name, sha, ref: "refs/heads/main", event: {}, ...extra });
+  const push = context("push", "1".repeat(40));
+  const dispatch = context("workflow_dispatch", "1".repeat(40));
+  const pr = context("pull_request", "2".repeat(40), { ref: "refs/pull/7/merge", event: { pull_request: { number: 7 } } });
+  const group = (github: Record<string, any>) => evaluate(concurrency.group, github);
+  // Push and pull request groups are unchanged.
+  expect(group(push)).toBe("CI-refs/heads/main-");
+  expect(group(context("push", "3".repeat(40)))).toBe(group(push));
+  expect(group(pr)).toBe(`CI-7-${"2".repeat(40)}`);
+  expect(group(context("schedule", "1".repeat(40)))).toBe("CI-refs/heads/main-");
+  expect(group(dispatch)).toBe(`CI-refs/heads/main-dispatch-${"1".repeat(40)}`);
+  expect(group(dispatch)).not.toBe(group(push));
+  expect(evaluate(concurrency["cancel-in-progress"], push)).toBe("true");
+  expect(evaluate(concurrency["cancel-in-progress"], dispatch)).toBe("false");
+});
+
+test("a failed full suite on the commit skips instead of dispatching another run", async () => {
+  const { ci, refs } = fake(() => [ciRun(12, "push"), ciRun(13, "push")], { 12: suite("skipped"), 13: suite("failure") });
+  await expect(awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).rejects.toThrow("it failed (run/13); not dispatching");
+  expect(refs).toEqual([]);
+  // A suite that never ran (path filter, or a job that failed before the suite step) is no result, so CI is dispatched.
+  const unrun = fake((_, d) => d === undefined ? [ciRun(14, "push")] : [ciRun(14, "push"), ciRun(15, "workflow_dispatch", "completed", d)],
+    { 14: suite("skipped", undefined, "failure"), 15: suite() });
+  expect((await awaitCiEvidence(unrun.ci, SHA, "main", 1e9, () => {})).id).toBe(15);
+  expect(unrun.refs).toEqual(["main"]);
+});
+
+test("a ref that moves around the dispatch fails soon instead of waiting out the deadline", async () => {
+  const { ci, refs } = fake(() => [], {});
+  let calls = 0;
+  ci.refSha = async () => (calls++ === 0 ? SHA : "b".repeat(40));
+  const started = ci.now();
+  await expect(awaitCiEvidence(ci, SHA, "main", 90 * 60_000, () => {})).rejects.toThrow("the dispatch tested another commit");
+  expect(refs).toEqual(["main"]);
+  expect(ci.now() - started).toBeLessThanOrEqual(150_000);
+});
+
+test("a dispatched run on the commit is still awaited after the ref moves", async () => {
+  const { ci, refs } = fake((tick, d) => d === undefined ? [] : [ciRun(16, "workflow_dispatch", tick < 10 ? "in_progress" : "completed", d)], { 16: suite() });
+  let calls = 0;
+  ci.refSha = async () => (calls++ === 0 ? SHA : "b".repeat(40));
+  expect((await awaitCiEvidence(ci, SHA, "main", 1e9, () => {})).id).toBe(16);
+  expect(refs).toEqual(["main"]);
 });

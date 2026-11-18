@@ -19,17 +19,28 @@ export function fullSuitePassed(jobs: CiJob[]): boolean {
   return SUITE_JOBS.every(name => jobs.some(job => job.name === name && job.conclusion === "success" && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "success")));
 }
 
+/** A suite step that ran and failed is a full-suite result; a skipped or missing step (path filter, earlier failure) is not. */
+export function fullSuiteFailed(jobs: CiJob[]): boolean {
+  return jobs.some(job => SUITE_JOBS.includes(job.name) && job.steps?.some(step => step.name === SUITE_STEP && step.conclusion === "failure"));
+}
+
+/** A dispatched run normally appears within seconds; past this grace, a moved ref means the dispatch tested another commit. */
+const DISPATCH_GRACE_MS = 120_000;
+
 export type CiEvidenceOptions = { dispatch: boolean };
 
 /** Waits for a passing full suite on `sha`. With `dispatch` off (release.yml for a nightly tag), missing evidence fails instead of starting CI on `ref`. */
 export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline: number, log = console.log, options: CiEvidenceOptions = { dispatch: true }): Promise<CiRun> {
   const checked = new Set<number>();
   let dispatchedAt: number | undefined;
+  let failed: string | undefined;
   while (ci.now() < deadline) {
     const runs = (await ci.runs(sha)).filter(run => run.event !== "pull_request").sort((a, b) => b.id - a.id);
     for (const run of runs.filter(run => run.status === "completed" && !checked.has(run.id))) {
       checked.add(run.id);
-      if (fullSuitePassed(await ci.jobs(run.id))) return run;
+      const jobs = await ci.jobs(run.id);
+      if (fullSuitePassed(jobs)) return run;
+      if (fullSuiteFailed(jobs)) failed = run.html_url;
       log(`CI run without a passing full suite on both OSes: ${run.html_url}`);
     }
     const pending = runs.filter(run => run.status !== "completed");
@@ -37,6 +48,9 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
     if (pending.length) log(`Waiting for CI: ${pending.map(run => run.html_url).join(", ")}`);
     else if (!options.dispatch) {
       throw Error(`no CI evidence for ${sha}: no CI run passed the full suite on both OSes, and dispatch is off`);
+    } else if (failed && dispatchedAt === undefined) {
+      // A failed full suite is the answer for this commit: dispatching again would retry until it passes.
+      throw Error(`CI ran the full suite on ${sha} and it failed (${failed}); not dispatching another run`);
     } else if (dispatchedAt === undefined) {
       const head = await ci.refSha(ref);
       if (head !== sha) throw Error(`${ref} now points at ${head}, not ${sha}; CI dispatched there would test another commit`);
@@ -45,6 +59,10 @@ export async function awaitCiEvidence(ci: Ci, sha: string, ref: string, deadline
       dispatchedAt = ci.now();
     } else if (runs.some(run => run.event === "workflow_dispatch" && Date.parse(run.created_at) >= dispatchedAt! - 60_000)) {
       throw Error(`Dispatched CI for ${sha} finished without a passing full suite on both OSes`);
+    } else if (ci.now() - dispatchedAt >= DISPATCH_GRACE_MS) {
+      // No run on the commit appeared after the dispatch: if the ref moved, the dispatch ran on another commit.
+      const head = await ci.refSha(ref);
+      if (head !== sha) throw Error(`${ref} moved to ${head} and no dispatched CI run appeared for ${sha}; the dispatch tested another commit`);
     }
     await ci.sleep(30_000);
   }

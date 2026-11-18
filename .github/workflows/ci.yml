@@ -15,7 +15,8 @@ permissions:
 concurrency:
   # Include commit SHA for PR events to prevent duplicate-run cancellation race.
   # Each (PR, commit) pair gets its own group; cancel-in-progress only for push to main.
-  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.sha || '' }}
+  # A dispatched run (the release and nightly CI gates) gets its own per-commit group, so a push to main cannot cancel it.
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}-${{ github.event_name == 'pull_request' && github.sha || github.event_name == 'workflow_dispatch' && format('dispatch-{0}', github.sha) || '' }}
   cancel-in-progress: ${{ github.event_name == 'push' }}
 
 jobs:
