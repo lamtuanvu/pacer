@@ -28,8 +28,22 @@ export const assistantOps: Record<string, OpDef> = {
   "assistant.settings.set": op({ description: "Choose the account and backend the assistant answers on, and its limits and retention. Needs the current revision.",
     params: z.object({ runner: z.string().min(1).max(128).nullable(), account: z.string().min(1).max(64).nullable(), limits: assistantLimitsSchema.partial().optional(), retention: retentionSchema.partial().optional(), expect_rev: z.number().int().positive(), backend: backendSchema.optional() }),
     handler: async (ctx, p) => (await svc()).saveSettings(ctx, p) }),
+  "assistant.selftest": op({ description: "Run the fail-closed ask-mode check for one account the executor backend drives: canary turns in ask mode must attempt and be denied a shell command, a file read outside the run directory and a URL fetch, on a first and a resumed turn. Records the result for that account and the installed CLI version. Runs the agent CLI and spends the account's tokens.", params: z.object({ account: z.string().min(1).max(64) }).strict(), handler: async (ctx, p) => (await svc()).selfTest(ctx, p.account) }),
   "assistant.candidates": op({ description: "Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.", params: z.object({}), handler: async ctx => { const m = await svc(); return { accounts: m.candidates(ctx), reads: m.READS_SUMMARY }; } }),
   "assistant.card.record": op({ description: "Record the user's decision and the outcome on an action card in the conversation. The app runs the proposed op itself.", params: z.object({ turnId: id, cardId: id, state: z.enum(["done", "failed", "dismissed", "stale"]), result: z.string().max(500).optional() }),
     handler: async (ctx, p) => (await svc()).updateCard(ctx, p.turnId, p.cardId, { state: p.state, ...(p.result !== undefined ? { result: p.result } : {}) }) }),
   "assistant.card.refresh": op({ description: "Rebuild a card whose task changed, with the task's current revision.", params: z.object({ turnId: id, cardId: id }), handler: async (ctx, p) => (await svc()).refreshCard(ctx, p.turnId, p.cardId) }),
+  "assistant.tool": op({
+    description: "Run one assistant tool for the turn in progress: the host's read pipeline (permitted op, parameter parsing, scope, projection, redaction and size cap), with propose_action becoming a card and its result as delimited data. The turn's assistant grant is the only caller, only while it is live and only for its own turnId; it shares one tool-round budget with capability.assistant.tool, and a call after the turn has ended is refused.",
+    params: z.object({ turnId: id, name: z.string().min(1).max(64), params: z.record(z.string(), z.unknown()).optional() }),
+    handler: async (ctx, p) => {
+      const { assistantTurnById } = await import("../assistant/turn-tools");
+      const turn = assistantTurnById(p.turnId);
+      if (!turn) throw new CoreError("not_allowed", "That assistant turn has ended; its tools are closed.");
+      const { runAssistantTool } = await import("../assistant/service");
+      const out = await runAssistantTool(ctx, { id: p.turnId, name: p.name, arguments: p.params ?? {} },
+        { read: turn.read, scope: turn.scope, redactor: turn.redactor, cards: turn.cards, state: turn.state });
+      return { name: p.name, content: out.content, ok: out.ok };
+    },
+  }),
 };

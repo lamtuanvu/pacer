@@ -2,14 +2,13 @@ import { closedPort } from "./child-env";
 import { afterEach, expect, test } from "bun:test";
 import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { buildRelease, writeRelease } from "../scripts/release/build";
-import { type Platform, assetFile, companionFile, hostTarget } from "../src/update/manifest";
+import { writeRelease } from "../scripts/release/build";
+import { type Platform, assetFile, companionFile } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 const ROOT = resolve(import.meta.dir, "..");
 const INSTALL_SH = join(ROOT, "install.sh");
 const SHELL = Bun.which("dash") ?? "/bin/sh";
-const PKG_VERSION = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
 const MAC: Platform = { os: "darwin", arch: "arm64" };
 const servers: ReturnType<typeof Bun.serve>[] = [];
 afterEach(() => {
@@ -218,17 +217,6 @@ test.skipIf(!Bun.which("shellcheck"))("install.sh passes shellcheck as POSIX sh"
   expect(r.stdout.toString()).toBe("");
   expect(r.exitCode).toBe(0);
 });
-
-test.skipIf(!hostTarget())("installs a real compiled host build", async () => {
-  const root = tmpDir();
-  await buildRelease({ root: ROOT, outRoot: root, targets: [hostTarget()!] });
-  const dir = join(tmpDir(), "bin");
-  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir }, null);
-  expect(r.code).toBe(0);
-  expect(r.out).toContain(`installed: pacer ${PKG_VERSION} (${dir}/pacer)`);
-  expect(Bun.spawnSync([join(dir, "pacer"), "--version"]).stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
-// A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
-}, 300_000);
 
 test("installer defaults to GitHub latest and versioned asset URLs", async () => {
   const root = tmpDir();

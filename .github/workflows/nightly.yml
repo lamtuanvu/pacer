@@ -78,7 +78,7 @@ jobs:
             echo "::notice::main is unchanged since $last; no nightly tonight"
             echo "skip=true" >> "$GITHUB_OUTPUT"
           fi
-      - name: Require CI's full suite on both OSes for the commit
+      - name: Require CI's Linux and macOS test gates for the commit
         if: steps.skip.outputs.skip != 'true'
         env:
           GH_TOKEN: ${{ github.token }}

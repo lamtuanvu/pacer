@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **The plugin host is on by default.** `pacer serve` now starts the native plugin owner unless `PACER_NATIVE_PLUGIN_HOST=0` (or `PACER_HOST_BRIDGE=0`) says otherwise — `serve_starts_reverse_bridge_by_default` returns true. TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach children through Core's sealed owner call, proven by the PR 6 consumer matrix and CT-11 on the Rust front door; the flag-off path keeps its explicit-escape tests.
+
 ## [0.17.2] - 2026-11-18
 
 ### Added

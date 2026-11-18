@@ -1,6 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, realpathSync, writeFileSync } from "node:fs";
 import { basename, dirname, join } from "node:path";
+import { tmpdir } from "node:os";
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { StdioClientTransport } from "@modelcontextprotocol/sdk/client/stdio.js";
 import { tmpDir } from "./helpers";
@@ -440,13 +441,16 @@ test("TypeScript planner and grant MCP stdio tool contracts and results match ca
   expect(observed).toEqual(JSON.parse(readFileSync(goldenPath, "utf8")));
 }, 90_000);
 
-// A separate target avoids sharing Cargo artifacts with other pacer executors.
-const rustBinary = join(import.meta.dir, "..", "target", "mcp-slice", "debug", "examples", "mcp_stdio");
+// A separate target avoids sharing Cargo artifacts with other pacer executors, and it never
+// lands inside the worktree: the project's CARGO_TARGET_DIR gets its own slice of it, and
+// without one the build goes to a temporary directory instead of leaving a `target/` behind.
+const rustTarget = process.env.CARGO_TARGET_DIR ?? join(tmpdir(), "pacer-mcp-slice");
+const rustBinary = join(rustTarget, "debug", "examples", "mcp_stdio");
 let builtRust = false;
 async function buildRust() {
   if (builtRust) return;
   const proc = Bun.spawn(["cargo", "build", "--locked", "-p", "pacer-server", "--example", "mcp_stdio"], {
-    cwd: join(import.meta.dir, ".."), env: { ...process.env, CARGO_TARGET_DIR: join(import.meta.dir, "..", "target", "mcp-slice") },
+    cwd: join(import.meta.dir, ".."), env: { ...process.env, CARGO_TARGET_DIR: rustTarget },
     stdout: "ignore", stderr: "pipe",
   });
   const stderr = await new Response(proc.stderr).text();
