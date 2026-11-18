@@ -4,6 +4,7 @@ import { CoreError } from "../../core/errors";
 import { isVersion } from "../version";
 import { DESKTOP_IDENTIFIERS } from "./bundle-identity";
 import type { Candidate, Installation } from "./types";
+import type { UpdateChannel } from "../channel";
 
 export const MAX_FRAME_BYTES = 256 * 1024;
 export type HandoffState = "none" | "uncertain" | "acknowledged";
@@ -24,7 +25,8 @@ export type AdapterRejection = {
 };
 /** Private handoff classification MUST survive core error handling; uncertainty never permits releasing admission. */
 export class AdapterError extends CoreError {
-  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection) {
+  /** `beforeFrames`: the helper ended before sending any frame (for example a build that rejects an unknown request key). */
+  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection, public readonly beforeFrames = false) {
     super("not_allowed", messages[reason], handoff === "none"
       ? "Reconnect the verified desktop and retry."
       : "Retain the reservation and reconcile the private transaction journal before retrying.");
@@ -54,7 +56,7 @@ const binding = {
   transactionId: identifier.nullable(), revision: integer, nonce: hash,
 };
 const commandSchema = z.discriminatedUnion("command", [
-  z.object({ ...binding, command: z.literal("check"), transactionId: z.null() }).strict(),
+  z.object({ ...binding, command: z.literal("check"), transactionId: z.null(), channel: z.enum(["stable", "nightly"] as const satisfies readonly UpdateChannel[]).optional() }).strict(),
   z.object({ ...binding, command: z.literal("download"), transactionId: z.null(), candidate }).strict(),
   z.object({ ...binding, command: z.literal("install"), transactionId: identifier, candidate, target: installation }).strict(),
   z.object({ ...binding, command: z.literal("recover"), transactionId: identifier }).strict(),
@@ -76,7 +78,9 @@ const frameSchema = z.discriminatedUnion("kind", [
 const authorizationSchema = z.object({ ...binding, transactionId: identifier, kind: z.literal("authorize-install"), ...preparation }).strict();
 export type AdapterCommand = z.infer<typeof commandSchema>;
 export type AdapterRequest = { installationId: string; revision: number } & (
-  | { command: "check"; transactionId: null }
+  // Missing means stable. The service sends `channel` only for nightly, so a helper from before
+  // channels (attached services are not version-locked to the app) still accepts stable checks.
+  | { command: "check"; transactionId: null; channel?: UpdateChannel }
   | { command: "download"; transactionId: null; candidate: Candidate }
   | { command: "install"; transactionId: string; candidate: Candidate; target: Installation }
   | { command: "recover" | "recover-adoption"; transactionId: string }
@@ -213,7 +217,7 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
     stopped = true;
     // A partial authorization write may have reached the helper. Only recovery can resolve that uncertainty.
     if (handoff === "none" && pipe) void Promise.resolve().then(() => pipe!.abort()).catch(() => {});
-    cleanup(); reject(new AdapterError(reason, handoff, detail));
+    cleanup(); reject(new AdapterError(reason, handoff, detail, sequence === 0));
   };
   const cancel = () => fail("cancelled");
   const finish = () => {

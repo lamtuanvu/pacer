@@ -249,6 +249,11 @@ pub enum AdapterCommand {
     Check {
         #[serde(flatten)]
         binding: Binding,
+        /// Selects among compiled feeds. Optional and omitted for stable: an attached service
+        /// is not version-locked to the app's helper, so a check without `channel` stays valid
+        /// in both directions. Only nightly needs a channel-aware helper.
+        #[serde(default, skip_serializing_if = "super::trust::Channel::is_stable")]
+        channel: super::trust::Channel,
     },
     Download {
         #[serde(flatten)]
@@ -279,7 +284,7 @@ pub enum AdapterCommand {
 impl AdapterCommand {
     pub fn binding(&self) -> &Binding {
         match self {
-            Self::Check { binding }
+            Self::Check { binding, .. }
             | Self::Download { binding, .. }
             | Self::Install { binding, .. }
             | Self::Recover { binding }
@@ -712,7 +717,8 @@ impl WireMessage for AdapterCommand {
     }
     fn validate_shape(value: &Value) -> Result<()> {
         let extra: &[&str] = match value.get("command").and_then(Value::as_str) {
-            Some("check" | "recover" | "recover-adoption") => &["command"],
+            Some("check") => &["command", "channel"],
+            Some("recover" | "recover-adoption") => &["command"],
             Some("adopt") => &["command", "target"],
             Some("download") => &["command", "candidate"],
             Some("install") => &["command", "candidate", "target"],
@@ -1118,6 +1124,47 @@ mod tests {
     }
 
     #[test]
+    fn check_channel_selects_a_compiled_feed_and_never_a_url() {
+        use super::super::trust::{Channel, NIGHTLY_FEED, STABLE_FEED};
+        let channels: Vec<_> = adapter()["commands"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .filter(|c| c["command"] == "check")
+            .map(|c| match parse_command(&bytes(c)).unwrap() {
+                AdapterCommand::Check { channel, .. } => channel,
+                _ => unreachable!(),
+            })
+            .collect();
+        assert_eq!(channels, [Channel::Stable, Channel::Nightly]);
+        for accepted in adapter()["acceptedChecks"].as_array().unwrap() {
+            let command = parse_command(&bytes(&accepted["command"])).expect("accepted check");
+            let AdapterCommand::Check { channel, .. } = &command else {
+                unreachable!()
+            };
+            assert_eq!(
+                serde_json::to_value(channel).unwrap(),
+                accepted["channel"],
+                "{}",
+                accepted["case"]
+            );
+            // Stable is written without `channel`, so an older helper that predates
+            // channels still accepts every stable check.
+            let written = serde_json::to_value(&command).unwrap();
+            assert_eq!(
+                written.get("channel").is_some(),
+                *channel == Channel::Nightly,
+                "{}",
+                accepted["case"]
+            );
+        }
+        assert_eq!(Channel::Stable.feed(), STABLE_FEED);
+        assert_eq!(Channel::Nightly.feed(), NIGHTLY_FEED);
+        assert_eq!(Channel::Stable.fixture_file(), "stable.json");
+        assert_eq!(Channel::Nightly.fixture_file(), "nightly.json");
+    }
+
+    #[test]
     fn private_commands_reject_extra_authority_and_inconsistent_target() {
         let fixture = adapter();
         for (key, value) in [
@@ -1143,6 +1190,13 @@ mod tests {
             let mut command = fixture["commands"][2].clone();
             command[path][key] = value;
             assert!(parse_command(&bytes(&command)).is_err(), "{path}.{key}");
+        }
+        for rejected in fixture["rejectedCommands"].as_array().unwrap() {
+            assert!(
+                parse_command(&bytes(&rejected["command"])).is_err(),
+                "{}",
+                rejected["case"]
+            );
         }
         let mut authorization = fixture["continuations"][0].clone();
         authorization["reservationId"] = json!("other");

@@ -71,6 +71,16 @@
       "revision": 2,
       "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
       "command": "recover"
+    },
+    {
+      "schema": 1,
+      "commandId": "command-fixture",
+      "installationId": "fixture",
+      "transactionId": null,
+      "revision": 2,
+      "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+      "command": "check",
+      "channel": "nightly"
     }
   ],
   "continuations": [
@@ -134,6 +144,104 @@
       "sequence": 3,
       "kind": "outcome",
       "outcome": "committed"
+    }
+  ],
+  "rejectedCommands": [
+    {
+      "case": "unknown channel",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "beta"
+      }
+    },
+    {
+      "case": "check without channel carries an extra key",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "feed": "nightly"
+      }
+    },
+    {
+      "case": "check carries a feed url",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "stable",
+        "url": "https://evil.example/feed.json"
+      }
+    },
+    {
+      "case": "channel on a non-check command",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": "tx-1",
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "recover",
+        "channel": "nightly"
+      }
+    }
+  ],
+  "acceptedChecks": [
+    {
+      "case": "check without channel is stable",
+      "channel": "stable",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check"
+      }
+    },
+    {
+      "case": "explicit stable channel",
+      "channel": "stable",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "stable"
+      }
+    },
+    {
+      "case": "nightly channel",
+      "channel": "nightly",
+      "command": {
+        "schema": 1,
+        "commandId": "command-fixture",
+        "installationId": "fixture",
+        "transactionId": null,
+        "revision": 2,
+        "nonce": "cccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccccc",
+        "command": "check",
+        "channel": "nightly"
+      }
     }
   ]
 }

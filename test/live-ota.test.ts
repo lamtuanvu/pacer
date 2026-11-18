@@ -522,3 +522,31 @@ test("exercise guards accept only the exact recorded external service set", () =
   expect(exactFixtureExternal({ root, external: [...recorded.slice(0, 3), { ...recorded[3], path: "/tmp/elsewhere/external/takeover-pacer" }] })).toBe(false);
   expect(exactFixtureExternal({ root, external: [...recorded, file("extra")] })).toBe(false);
 });
+
+test("native build can publish the fixture feed as nightly.json and accepts exactly one feed", async () => {
+  const f = fixture(), state = reserveOtaBuild(f.session.id, "aarch64", "a".repeat(64), f.options);
+  for (const source of state.sources) {
+    for (const dir of ["MacOS", "Resources", "Frameworks"]) mkdirSync(join(source.path, "Contents", dir), { recursive: true });
+    writeFileSync(join(source.path, "Contents/Info.plist"), "fixture");
+    writeFileSync(join(source.path, "Contents/Resources/pacer"), "fixture cli");
+    writeFileSync(join(source.path, "Contents/Frameworks/libpacer-native.dylib"), "fixture shim");
+    writeFileSync(join(dirname(source.path), "takeover-pacer"), "fixture takeover cli");
+  }
+  expect(() => finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("feed") }, f.options, "beta" as never)).toThrow("channel");
+  finishOtaBuild(f.session.id, { archive: Buffer.from("archive"), feed: Buffer.from("nightly feed") }, f.options, "nightly");
+  const ready = readOtaRecord(f.session.id, f.options);
+  expect(ready.phase).toBe("prepared");
+  expect(ready.artifacts.map(asset => asset.path)).toContain(join(state.root, "feed/nightly.json"));
+  expect(existsSync(join(state.root, "feed/stable.json"))).toBe(false);
+  expect(readFileSync(join(state.root, "feed/nightly.json"), "utf8")).toBe("nightly feed");
+  // A second, unrecorded feed beside the recorded one is refused.
+  writeFileSync(join(state.root, "feed/stable.json"), "stray", { mode: 0o600 });
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("Unrecorded");
+  rmSync(join(state.root, "feed/stable.json"));
+  writeFileSync(join(state.root, "feed/nightly.json"), "changed");
+  expect(() => readOtaRecord(f.session.id, f.options)).toThrow("changed");
+  writeFileSync(join(state.root, "feed/nightly.json"), "nightly feed");
+  readOtaRecord(f.session.id, f.options);
+  await cleanupOta(f.session.id, f.options);
+  expect(existsSync(join(state.root, "feed"))).toBe(false);
+});
