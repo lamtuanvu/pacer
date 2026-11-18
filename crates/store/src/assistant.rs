@@ -181,6 +181,14 @@ pub fn database(store: &mut TaskStore) -> Result<&Connection> {
     if !columns.iter().any(|column| column == "backend") {
         db.execute_batch("ALTER TABLE assistant_settings ADD COLUMN backend TEXT")?;
     }
+    // The backend's resume handle per conversation (spec §6), added the same way TypeScript adds it.
+    let mut probe = db.prepare("PRAGMA table_info(assistant_conversations)")?;
+    let columns = probe
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|column| column == "backend_session") {
+        db.execute_batch("ALTER TABLE assistant_conversations ADD COLUMN backend_session TEXT")?;
+    }
     db.execute_batch("PRAGMA foreign_keys = ON")?;
     Ok(db)
 }

@@ -29,11 +29,14 @@ function toolCall(turnId: string, name: string): Promise<{ name: string; content
 const notify = (method: string, params: Json) => write({ method, params });
 const delta = (turnId: string, kind: "text" | "activity", text: string) => notify("assistant.delta", { turnId, kind, text });
 
-interface Reply { conversationId: string; turnId: string; message: string; system: string; digest: string; tools: unknown[]; history: unknown[]; limits: { maxToolRounds: number; deadlineMs: number } }
+interface Reply { conversationId: string; turnId: string; session?: string; message: string; system: string; digest: string; tools: unknown[]; history: unknown[]; limits: { maxToolRounds: number; deadlineMs: number } }
 const usage = { input: 12, output: 3, coverage: "measured" as const };
 
-async function answer(p: Reply): Promise<{ message: string; usage: typeof usage }> {
+async function answer(p: Reply): Promise<{ message: string; session?: string; usage: { input: number; output: number; coverage: "measured" } }> {
   const scenario = p.message.trim();
+  // Continuity: echo the handle the host passed, and hand back a new one (or one past the input cap).
+  if (scenario === "session") return { message: `got=${p.session ?? "none"}`, session: `s-${p.turnId}`, usage };
+  if (scenario === "session big") return { message: `got=${p.session ?? "none"}`, session: "s-big", usage: { ...usage, input: 10_000_000 } };
   // A slow backend: the host's cancel or deadline aborts it, and its reply is dropped.
   if (scenario.startsWith("slow")) { await sleep(5000); return { message: "late", usage }; }
 

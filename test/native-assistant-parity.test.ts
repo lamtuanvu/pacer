@@ -32,7 +32,7 @@ const settings = (account: string | null, limits = '{"turnsPerDay":3}', retentio
   db(home).query("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep',?,?,?,?,4)").run(account, backend, limits, retention);
 function history(home: string) {
   db(home).exec(`
-    INSERT INTO assistant_conversations VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
+    INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
     INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES
       ('turn-1','c-a',1,1699999000.5,'How?','Like ${TASK}.','done',NULL,'ep','{"kind":"dispatch","days":7}','${CARDS.replaceAll("'", "''")}','[{"label":"${TASK}","href":"#/tasks/${TASK}"}]'),
       ('turn-2','c-a',2,1699999100,'Next',NULL,'running',NULL,NULL,'{"kind":"task","id":"${TASK}"}','[]','[]'),

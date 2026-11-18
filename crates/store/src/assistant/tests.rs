@@ -9,7 +9,7 @@ fn open() -> (tempfile::TempDir, TaskStore) {
 
 fn seed(db: &Connection) {
     db.execute_batch(
-        "INSERT INTO assistant_conversations VALUES('c-old','Old',1.0,100.0),('c-new','New',2.0,300.5),('c-mid','Mid',3.0,200.0);
+        "INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-old','Old',1.0,100.0),('c-new','New',2.0,300.5),('c-mid','Mid',3.0,200.0);
          INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES
            ('t-1','c-new',1,300.5,'q','a','done',NULL,'ep','{\"kind\":\"task\",\"id\":\"x\"}','[{\"id\":\"k\",\"b\":1,\"2\":0,\"1\":0,\"result\":\"r\"}]','[]'),
            ('t-2','c-new',2,301.0,'q2',NULL,'running',NULL,NULL,'{\"kind\":\"dispatch\",\"days\":7}','[]','[]');
@@ -152,4 +152,28 @@ fn card_updates_keep_key_positions() {
         update_card(db, "t-1", "nope", |_| {}, stringify).unwrap(),
         CardUpdate::UnknownCard
     ));
+}
+
+#[test]
+fn an_older_store_gains_the_backend_columns() {
+    let (_dir, mut store) = open();
+    {
+        let db = store.connection().unwrap();
+        db.execute_batch(
+            "CREATE TABLE assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
+             CREATE TABLE assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);",
+        )
+        .unwrap();
+    }
+    let db = database(&mut store).unwrap();
+    let columns = |table: &str| {
+        db.prepare(&format!("PRAGMA table_info({table})"))
+            .unwrap()
+            .query_map([], |row| row.get::<_, String>(1))
+            .unwrap()
+            .collect::<rusqlite::Result<Vec<_>>>()
+            .unwrap()
+    };
+    assert!(columns("assistant_settings").contains(&"backend".to_owned()));
+    assert!(columns("assistant_conversations").contains(&"backend_session".to_owned()));
 }

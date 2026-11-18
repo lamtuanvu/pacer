@@ -14,7 +14,7 @@ import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
-import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeSettings } from "./store";
+import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
 import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import type { AssistantToolState, AssistantToolTurn } from "./turn-tools";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
@@ -309,9 +309,13 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
       // The same arrays the loop fills, with the capability's own budget: one call per tool round.
       const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: { ...toolState, rounds: { used: 0, max: settings.limits.maxToolRounds } } };
+      // Resume the backend's own session only on the account and backend it belongs to (spec §6).
+      const stored = readBackendSession(ctx, turn.conversationId);
+      const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, model: endpoint.model, system, digest, tools, history: transcript, message: question,
+        ...(session ? { session } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
       emit(turn.turnId, { status: "Thinking…" });
@@ -326,6 +330,10 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       if (result.usage.cacheRead !== undefined) usage.cacheRead = result.usage.cacheRead;
       if (result.usage.cacheWrite !== undefined) usage.cacheWrite = result.usage.cacheWrite;
       reported = result.usage.coverage;
+      // Keep the handle for the next turn, unless the backend returned none or its context grew past
+      // the input cap: the next turn then starts a new session from the transcript.
+      if (!entry.cancelled) writeBackendSession(ctx, turn.conversationId, result.session && result.usage.input <= settings.limits.maxInputTokens
+        ? { handle: result.session, account: endpoint.name, backend: settings.backend } : null);
       if (entry.cancelled) state = "cancelled";
       else answer = redactor.text(result.message);
     } else {

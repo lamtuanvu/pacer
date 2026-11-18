@@ -13,7 +13,7 @@ import {
 import { admit, ask, cancel, candidates, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
 import { DIGEST_MAX_CHARS, buildDigest } from "../src/assistant/digest";
 import { createRedactor } from "../src/assistant/redact";
-import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
+import { conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import { answersTurn, assistantTurnFor, openAssistantTurn, type AssistantToolState } from "../src/assistant/turn-tools";
 import type { AssistantLimits, AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -279,6 +279,38 @@ describe("a turn answered by a plugin", () => {
     expect(turn.answer).toEndWith("\n</data>");
     expect(frames.some(frame => "delta" in frame && frame.delta.includes("dropped"))).toBe(false);
     expect(frames.at(-1)).toEqual({ done: { state: "done" } });
+  });
+
+  test("passes the backend's session handle on the next turn, only for the same account and backend", async () => {
+    const { ctx, deps } = setup({ respond: noLoop });
+    const first = await ask(ctx, { text: "session", scope, requestId: req() }, deps);
+    expect((await finished(ctx, first.turnId)).answer).toBe("got=none");
+    const conv = first.conversationId;
+    const second = await ask(ctx, { text: "session", conversationId: conv, scope, requestId: req() }, deps);
+    expect((await finished(ctx, second.turnId)).answer).toBe(`got=s-${first.turnId}`);
+    // The handle never reaches a client view.
+    expect(JSON.stringify(conversationTurns(ctx, conv))).not.toContain(`s-${second.turnId}`);
+    expect(JSON.stringify(listConversations(ctx))).not.toContain(`s-${second.turnId}`);
+    // A handle stored for another account or backend is not passed.
+    writeBackendSession(ctx, conv, { handle: "s-other", account: "elsewhere", backend: "pacer" });
+    const third = await ask(ctx, { text: "session", conversationId: conv, scope, requestId: req() }, deps);
+    expect((await finished(ctx, third.turnId)).answer).toBe("got=none");
+    writeBackendSession(ctx, conv, { handle: "s-other", account: readBackendSession(ctx, conv)!.account, backend: "executor" });
+    const fourth = await ask(ctx, { text: "session", conversationId: conv, scope, requestId: req() }, deps);
+    expect((await finished(ctx, fourth.turnId)).answer).toBe("got=none");
+  });
+
+  test("drops the session handle past the input cap and when a reply returns none", async () => {
+    const { ctx, deps } = setup({ respond: noLoop });
+    const big = await ask(ctx, { text: "session big", scope, requestId: req() }, deps);
+    await finished(ctx, big.turnId);
+    expect(readBackendSession(ctx, big.conversationId)).toBeNull();
+    const kept = await ask(ctx, { text: "session", conversationId: big.conversationId, scope, requestId: req() }, deps);
+    await finished(ctx, kept.turnId);
+    expect(readBackendSession(ctx, big.conversationId)?.handle).toBe(`s-${kept.turnId}`);
+    const none = await ask(ctx, { text: "tool", conversationId: big.conversationId, scope, requestId: req() }, deps);
+    await finished(ctx, none.turnId);
+    expect(readBackendSession(ctx, big.conversationId)).toBeNull();
   });
 
   test("caps tool rounds at the turn's maxToolRounds", async () => {

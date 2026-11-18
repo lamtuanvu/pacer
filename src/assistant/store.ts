@@ -22,6 +22,9 @@ export function assistantDatabase(ctx: Ctx) {
   // A store written before `backend` gained it at the end; the column is nullable and reads as `pacer`.
   if (!db.query<{ name: string }, []>("PRAGMA table_info(assistant_settings)").all().some(column => column.name === "backend"))
     db.run("ALTER TABLE assistant_settings ADD COLUMN backend TEXT");
+  // The backend's resume handle per conversation (spec §6), added the same way; never shown to clients.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(assistant_conversations)").all().some(column => column.name === "backend_session"))
+    db.run("ALTER TABLE assistant_conversations ADD COLUMN backend_session TEXT");
   db.run("PRAGMA foreign_keys = ON");
   return db;
 }
@@ -86,6 +89,24 @@ export function finishTurn(ctx: Ctx, turnId: string, input: { state: TurnView["s
     const conv = db.query<{ conversation_id: string }, [string]>("SELECT conversation_id FROM assistant_turns WHERE id=?").get(turnId);
     if (conv) db.query("UPDATE assistant_conversations SET updated_at=? WHERE id=?").run(ctx.now, conv.conversation_id);
   }).immediate();
+}
+
+/** A backend's resume handle for one conversation, with the account and backend it belongs to. */
+export interface BackendSession { handle: string; account: string; backend: AssistantBackend }
+
+/** The stored resume handle of a conversation, or null. A row that does not parse reads as none. */
+export function readBackendSession(ctx: Ctx, conversationId: string): BackendSession | null {
+  const row = assistantDatabase(ctx).query<{ backend_session: string | null }, [string]>("SELECT backend_session FROM assistant_conversations WHERE id=?").get(conversationId);
+  if (!row?.backend_session) return null;
+  try {
+    const v = JSON.parse(row.backend_session) as Partial<BackendSession>;
+    return typeof v.handle === "string" && typeof v.account === "string" && (v.backend === "pacer" || v.backend === "executor") ? { handle: v.handle, account: v.account, backend: v.backend } : null;
+  } catch { return null; }
+}
+
+/** Store or clear a conversation's resume handle. */
+export function writeBackendSession(ctx: Ctx, conversationId: string, value: BackendSession | null): void {
+  assistantDatabase(ctx).query("UPDATE assistant_conversations SET backend_session=? WHERE id=?").run(value ? JSON.stringify(value) : null, conversationId);
 }
 
 export function updateCard(ctx: Ctx, turnId: string, cardId: string, patch: Partial<Pick<ActionCard, "state" | "result" | "params" | "summary" | "title" | "editable">>): ActionCard {
