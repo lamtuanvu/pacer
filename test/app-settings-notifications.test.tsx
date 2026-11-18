@@ -246,3 +246,18 @@ test("on a non-macOS desktop Send test stays in the Desktop banners row and no s
     expect(await rowOf(dom.container, "Send test")).toBe("Desktop banners");
   }, "Linux x86_64");
 });
+
+test("the sound picker sizes its menu to the longest label and Saved follows Send test", async () => {
+  const { domText, findByText, until } = await import("./app-setup-health-dom");
+  await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async dom => {
+    await until(() => domText(dom.container).includes("Send test"));
+    type Node = typeof dom.container;
+    const hasClass = (node: Node, name: string) => (node.className ?? "").split(/\s+/).includes(name);
+    const ancestor = (node: Node | null, name: string) => { while (node && !hasClass(node, name)) node = node.parentNode; return node; };
+    // Content sizing lets the menu grow past the trigger, so "System default" is not cut off.
+    expect(ancestor(findByText(dom.container, "Glass"), "pc-choice-picker--content")).toBeTruthy();
+    // Send test is inside the save boundary's control, so the "Saved" status renders after it
+    // rather than between the picker and the button.
+    expect(ancestor(findByText(dom.container, "Send test"), "pc-immediate-save__control")).toBeTruthy();
+  });
+});

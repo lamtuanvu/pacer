@@ -470,16 +470,19 @@ export function NotificationsSection({
         </SettingRow>
         {platform.macos && (
           <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
-            <Cluster>
-              <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <ChoicePicker
+            {/* Send test sits inside the save boundary so the "Saved" status follows it
+                instead of pushing it sideways. */}
+            <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <Cluster>
+              <ChoicePicker
                 aria-label="Notification sound"
+                sizing="content"
                 value={value}
                 disabled={busy}
                 options={SOUND_OPTIONS}
                 onValueChange={change}
-              />}</ImmediateSetting>
+              />
               {testBesidePicker && <BannerAction api={api} reload={health.reload} level="ok" />}
-            </Cluster>
+            </Cluster>}</ImmediateSetting>
           </SettingRow>
         )}
         {platform.desktop && (
