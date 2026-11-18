@@ -8,6 +8,8 @@ export const IDLE_AFTER_S = 600;
 export const IDLE_FAIL_S = 1800;
 /** Seconds an agent may keep retrying a transient provider error without progress before its attempt ends. */
 export const TRANSIENT_RETRY_S = 600;
+/** Seconds a running executor may go without progress (a file change, commit or outgoing message) before the broker flags it. */
+export const NO_PROGRESS_S = 1800;
 export type ExecBackend = (typeof EXEC_BACKENDS)[number];
 export type WorktreeMode = (typeof WORKTREE_MODES)[number];
 
@@ -32,11 +34,12 @@ export interface ExecutionCfg {
   idleAfterS?: number;
   idleFailS?: number;
   transientRetryS?: number;
+  noProgressS?: number;
 }
 
 export const DEFAULT_EXECUTION: ExecutionCfg = { autoClean: true, localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null };
 
-const KEYS = ["auto_clean", "local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min", "transient_retry_min"];
+const KEYS = ["auto_clean", "local_max_tasks", "local_memory_pressure_limit", "local_load_limit", "launch_mode", "session", "session_log_mb", "session_retention_days", "backend", "worktree", "base_branch", "registerRepos", "register_repos", "idle_after_min", "idle_fail_min", "transient_retry_min", "no_progress_min"];
 
 export class ExecutionError extends Error {
   constructor(readonly problems: string[]) {
@@ -107,8 +110,9 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     }
     return v;
   };
-  const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min"), transientRetry = mins("transient_retry_min");
+  const idleAfter = mins("idle_after_min"), idleFail = mins("idle_fail_min"), transientRetry = mins("transient_retry_min"), noProgress = mins("no_progress_min");
   if ((idleFail ?? IDLE_FAIL_S / 60) <= (idleAfter ?? IDLE_AFTER_S / 60)) p.push("execution.idle_fail_min must be greater than execution.idle_after_min");
+  if (noProgress !== undefined && noProgress <= (idleAfter ?? IDLE_AFTER_S / 60)) p.push("execution.no_progress_min must be greater than execution.idle_after_min");
   if (raw.launch_mode !== undefined && !(LAUNCH_MODES as readonly unknown[]).includes(raw.launch_mode)) p.push("execution.launch_mode must be interactive or headless");
   if (raw.session !== undefined && raw.session !== "pty" && raw.session !== "pipe") p.push("execution.session must be pipe or pty");
   for (const [key, max] of [["session_log_mb", 256], ["session_retention_days", 3650]] as const) {
@@ -127,5 +131,14 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     ...(idleAfter !== undefined ? { idleAfterS: idleAfter * 60 } : {}),
     ...(idleFail !== undefined ? { idleFailS: idleFail * 60 } : {}),
     ...(transientRetry !== undefined ? { transientRetryS: transientRetry * 60 } : {}),
+    ...(noProgress !== undefined ? { noProgressS: noProgress * 60 } : {}),
   };
+}
+
+/**
+ * The no-progress window in seconds. Unset, it stays a minute past `idle_after_min`, so a silent run still becomes
+ * `idle_run` first when `idle_after_min` is 30 or more.
+ */
+export function noProgressSeconds(ex: ExecutionCfg): number {
+  return ex.noProgressS ?? Math.max(NO_PROGRESS_S, (ex.idleAfterS ?? IDLE_AFTER_S) + 60);
 }
