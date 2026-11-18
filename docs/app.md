@@ -208,7 +208,7 @@ Dismissed and snoozed items stay hidden. Web, tray and TUI use the same reasons
 and counts. Ordinary completed runs never escalate merely because no verdict
 was recorded, including planner-delegated work after ten minutes.
 
-**Tasks** contains running work and paginated execution history. Open a finished
+**Tasks** contains running work and paginated execution history. Each row names the agent, account and model behind the task, as text beside its status (the attempt in flight while running, else the latest one). Open a finished
 run to see its result, checks, changes and delivery information before the
 collapsed executor transcript. Selecting any task opens it beside a compact task
 navigator. The main Tasks link, the task header's Tasks link and browser history
