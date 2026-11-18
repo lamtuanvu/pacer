@@ -1,0 +1,77 @@
+name: Auto-approve
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions: {}
+
+concurrency:
+  group: auto-approve-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  approve:
+    name: Approve collaborator PR
+    # Only branches in this repository qualify: only collaborators can push to them,
+    # so the approval cannot carry over to commits pushed to a fork. Bots are
+    # skipped, and drafts are approved once they are marked ready.
+    if: >-
+      github.event.pull_request.draft == false &&
+      github.event.pull_request.user.type == 'User' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04
+    permissions:
+      pull-requests: write
+    steps:
+      # This privileged event reads PR metadata only; never check out PR code.
+      # Both the PR author and the account that triggered this run must hold
+      # write, maintain or admin on this repository.
+      - name: Approve when the author is a repository collaborator
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPO: ${{ github.repository }}
+          PR: ${{ github.event.pull_request.number }}
+          AUTHOR: ${{ github.event.pull_request.user.login }}
+          SENDER: ${{ github.event.sender.login }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -euo pipefail
+          # The legacy .permission field reports maintain as write; outside users read.
+          permission_of() {
+            local out
+            if out="$(gh api "repos/$REPO/collaborators/$1/permission" --jq '.permission' 2>&1)"; then
+              echo "$out"
+            elif [[ "$out" == *"HTTP 404"* ]]; then
+              echo none
+            else
+              echo "::error::Could not read the permission of $1: $out" >&2
+              return 1
+            fi
+          }
+          trusted() { case "$1" in admin|write) return 0 ;; *) return 1 ;; esac; }
+          permission="$(permission_of "$AUTHOR")"
+          if ! trusted "$permission"; then
+            echo "Author $AUTHOR has '$permission' access; leaving review to the maintainer."
+            exit 0
+          fi
+          if [ "$SENDER" != "$AUTHOR" ]; then
+            sender_permission="$(permission_of "$SENDER")"
+            if ! trusted "$sender_permission"; then
+              echo "This run was triggered by $SENDER with '$sender_permission' access; leaving review to the maintainer."
+              exit 0
+            fi
+          fi
+          approved="$(gh api --paginate "repos/$REPO/pulls/$PR/reviews" \
+            --jq "[.[] | select(.user.login == \"github-actions[bot]\" and .state == \"APPROVED\" and .commit_id == \"$HEAD_SHA\")] | length" \
+            | awk '{ n += $1 } END { print n + 0 }')"
+          if [ "$approved" -gt 0 ]; then
+            echo "Already approved at $HEAD_SHA."
+            exit 0
+          fi
+          gh api --method POST "repos/$REPO/pulls/$PR/reviews" \
+            -f commit_id="$HEAD_SHA" \
+            -f event=APPROVE \
+            -f body="Auto-approved: @$AUTHOR has $permission access to this repository." \
+            --silent
+          echo "Approved PR #$PR at $HEAD_SHA for $AUTHOR ($permission)."
