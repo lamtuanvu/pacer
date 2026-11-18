@@ -36,7 +36,8 @@ import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
-import { localHuman } from "./messaging/participants";
+import { callerParticipant, localHuman } from "./messaging/participants";
+import { callerReach } from "./messaging/caller-reach";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
@@ -339,7 +340,9 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
+    // This process is the caller's own, so its env can record how to reach it again.
+    const origin=localHuman(ctx), reach=origin?null:callerReach(ctx,callerParticipant(ctx).id);
+    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin,...(reach?{callerReach:reach}:{})},cliDeps.spawnRunner);
     const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
     if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;

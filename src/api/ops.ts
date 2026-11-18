@@ -92,7 +92,6 @@ import { EXECUTOR_DELEGATE_ERROR, type SpawnRunner, delegateSchema, parseDelegat
 import { readTask, updateTask, withTaskLock } from "../tasks/store";
 import type { Ctx } from "../types";
 import { callerParticipant } from "../messaging/participants";
-import { callerReach } from "../messaging/caller-reach";
 import { delegateDiagnosticFix, recheckDiagnostic, type RunDoctor } from "../core/doctor-fix";
 
 export const LEGACY_TASK_LIST = Symbol("legacy task summaries");
@@ -474,8 +473,8 @@ export const OPS: Record<string, OpDef> = {
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
       const participant=callerParticipant(ctx, deps).id;
-      const reach=callerReach(ctx, participant);
-      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant, ...(reach?{callerReach:reach}:{})}, deps.spawnRunner ?? spawnRunner);
+      // This handler runs in the service over HTTP, so ctx.env is not the caller's: record no reach.
+      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
