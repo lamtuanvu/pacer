@@ -3,7 +3,7 @@
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { gunzipSync } from "node:zlib";
-import { buildDesktopFeed, DESKTOP_ARCHES, desktopAssetName, desktopDiskImageName, digest, publishDesktopRelease, type DesktopReleaseOptions } from "./desktop-feed";
+import { buildDesktopFeed, DESKTOP_ARCHES, desktopAssetName, desktopDiskImageName, digest, publishDesktopRelease, type DesktopChannel, type DesktopReleaseOptions } from "./desktop-feed";
 import { localFixturePublisher } from "./desktop-publisher";
 import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 
@@ -13,7 +13,8 @@ export async function fixtureFeedDryRun(root: string) {
   // Still require a new output directory; never reuse an existing fixture.
   mkdirSync(root, { mode: 0o700 });
   const privateDir = join(root, "private"), release = join(root, "release"), version = "0.0.1", key = join(privateDir, "fixture.key");
-  mkdirSync(privateDir, { mode: 0o700 }); mkdirSync(release, { mode: 0o700 });
+  const nightlyRelease = join(root, "release-nightly"), nightlyVersion = "0.1.0-nightly.202611170000";
+  mkdirSync(privateDir, { mode: 0o700 }); mkdirSync(release, { mode: 0o700 }); mkdirSync(nightlyRelease, { mode: 0o700 });
   const cli = resolve(import.meta.dir, "../../desktop/node_modules/@tauri-apps/cli/tauri.js");
   async function signer(args: string[]) {
     const p = Bun.spawn([process.execPath, cli, ...args], { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { PATH: process.env.PATH, HOME: privateDir, CI: "true" } });
@@ -26,18 +27,21 @@ export async function fixtureFeedDryRun(root: string) {
     if (await signer(["--version"]) !== "tauri-cli 2.12.3") throw Error("Fixture requires pinned Tauri CLI 2.12.3");
     await signer(["signer", "generate", "--ci", "--password", "disposable-fixture", "--write-keys", key]);
     const publicKey = readFileSync(key + ".pub", "utf8").trim();
-    writeFileSync(join(release, `desktop-release-${version}.json`), JSON.stringify({ schema: 1, version, notes: "Explicit local release fixture; not an installable app", pub_date: "2026-10-19T00:00:00Z" }));
-    for (const arch of DESKTOP_ARCHES) {
-      const metadata = { schema: 1, version, arch, bundleId: FIXTURE_IDENTIFIERS.desktop, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true };
-      const artifact = join(release, desktopAssetName(version, arch));
-      // Build an explicit data fixture archive. No native manager or executable is represented as exercised.
-      const archive = new Bun.Archive({ "pacer.app/Contents/Resources/pacer-release.json": JSON.stringify(metadata), "FIXTURE-ONLY.txt": "Data-only release fixture; never install" }, { compress: "gzip" });
-      await Bun.write(artifact, await archive.blob());
-      // The data-only disk image fixture carries the same entries; it is never mounted.
-      await Bun.write(join(release, desktopDiskImageName(version, arch)), await archive.blob());
-      await signer(["signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", version, artifact]);
-      signatures++;
+    async function prepare(dir: string, version: string, channel: DesktopChannel) {
+      writeFileSync(join(dir, `desktop-release-${version}.json`), JSON.stringify({ schema: 1, version, notes: "Explicit local release fixture; not an installable app", pub_date: "2026-10-19T00:00:00Z" }));
+      for (const arch of DESKTOP_ARCHES) {
+        const metadata = { schema: 1, version, arch, bundleId: FIXTURE_IDENTIFIERS.desktop, protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true };
+        const artifact = join(dir, desktopAssetName(version, arch, channel));
+        // Build an explicit data fixture archive. No native manager or executable is represented as exercised.
+        const archive = new Bun.Archive({ "pacer.app/Contents/Resources/pacer-release.json": JSON.stringify(metadata), "FIXTURE-ONLY.txt": "Data-only release fixture; never install" }, { compress: "gzip" });
+        await Bun.write(artifact, await archive.blob());
+        // The data-only disk image fixture carries the same entries; it is never mounted.
+        await Bun.write(join(dir, desktopDiskImageName(version, arch, channel)), await archive.blob());
+        await signer(["signer", "sign", "--private-key-path", key, "--password", "disposable-fixture", "--app-version", version, artifact]);
+        signatures++;
+      }
     }
+    await prepare(release, version, "stable");
     const verify = async (bytes: Uint8Array) => {
       const file = (await new Bun.Archive(gunzipSync(bytes)).files()).get("pacer.app/Contents/Resources/pacer-release.json");
       if (!file) throw Error("Missing fixture metadata");
@@ -52,7 +56,18 @@ export async function fixtureFeedDryRun(root: string) {
     if ((await publisher.readFeed()).head !== first.head) throw Error("Fixture retry changed feed");
     const feed = await buildDesktopFeed(release, version, options);
     writeFileSync(join(root, "stable.json"), feed);
-    const report = { mode: "fixture", signatures, immutableRetry: "PASS", cas: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives and disk images, no Apple signing/notarization/native installation or remote publication" };
+    // Nightly pass: the same local feed repository gains nightly.json and keeps stable.json byte for byte.
+    await prepare(nightlyRelease, nightlyVersion, "nightly");
+    const nightlyPublisher = await localFixturePublisher(join(root, "local"), nightlyVersion, "nightly");
+    await publishDesktopRelease(nightlyRelease, nightlyVersion, nightlyPublisher, options, "nightly");
+    const nightlyFirst = await nightlyPublisher.readFeed();
+    await publishDesktopRelease(nightlyRelease, nightlyVersion, nightlyPublisher, options, "nightly");
+    if ((await nightlyPublisher.readFeed()).head !== nightlyFirst.head) throw Error("Fixture nightly retry changed feed");
+    if ((await publisher.readFeed()).feed !== feed) throw Error("Fixture nightly promotion changed stable.json");
+    const nightlyFeed = await buildDesktopFeed(nightlyRelease, nightlyVersion, options, "nightly");
+    if (nightlyFirst.feed !== nightlyFeed) throw Error("Fixture nightly feed mismatch");
+    writeFileSync(join(root, "nightly.json"), nightlyFeed);
+    const report = { mode: "fixture", signatures, immutableRetry: "PASS", cas: "PASS", nightly: "PASS", feedSha256: digest(Buffer.from(feed)), production: "UNVERIFIED", native: "UNVERIFIED", detail: "Real Tauri signatures and local Git CAS; data-only archives and disk images, no Apple signing/notarization/native installation or remote publication" };
     writeFileSync(join(root, "report.json"), JSON.stringify(report, null, 2) + "\n");
     return report;
   } finally { rmSync(privateDir, { recursive: true, force: true }); }

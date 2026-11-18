@@ -6,8 +6,16 @@ import { compareVersions } from "../../src/update/version";
 import { verifyProductionArchive, verifyProductionDiskImage } from "./desktop-verify";
 import { validSignerPins, type SignerPins } from "../../src/update/desktop/signer-requirement";
 import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
+import { isNightlyVersion } from "./nightly";
 
-export const DESKTOP_FEED_URL = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json";
+/** The desktop update channels. Each has one feed file on the `desktop-updates` branch and one compiled feed URL. */
+export type DesktopChannel = "stable" | "nightly";
+export const DESKTOP_FEED_FILE: Record<DesktopChannel, string> = { stable: "stable.json", nightly: "nightly.json" };
+export const DESKTOP_FEED_URLS: Record<DesktopChannel, string> = {
+  stable: "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/stable.json",
+  nightly: "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/nightly.json",
+};
+export const DESKTOP_FEED_URL = DESKTOP_FEED_URLS.stable;
 export const DESKTOP_ARCHES = ["aarch64", "x86_64"] as const;
 export type DesktopArch = typeof DESKTOP_ARCHES[number];
 export type BundleMetadata = { schema: number; version: string; arch: string; bundleId: string; protocolMajors: number[]; admissionProtocol: number; nativeTransportAbi: number; rollbackCompatible: boolean; fixture: boolean };
@@ -29,11 +37,16 @@ export interface DesktopPublisher {
   readFeed(): Promise<{ head: string | null; feed: string | null }>;
   compareAndSwap(expected: string | null, feed: string): Promise<void>;
 }
-export function desktopAssetName(version: string, arch: DesktopArch): string { stableVersion(version); return `desktop-pacer-${version}-darwin-${arch}.app.tar.gz`; }
+export function desktopAssetName(version: string, arch: DesktopArch, channel: DesktopChannel = "stable"): string { channelVersion(channel, version); return `desktop-pacer-${version}-darwin-${arch}.app.tar.gz`; }
 /** First-install download only; the updater feed never references it. */
-export function desktopDiskImageName(version: string, arch: DesktopArch): string { stableVersion(version); return `desktop-pacer-${version}-darwin-${arch}.dmg`; }
+export function desktopDiskImageName(version: string, arch: DesktopArch, channel: DesktopChannel = "stable"): string { channelVersion(channel, version); return `desktop-pacer-${version}-darwin-${arch}.dmg`; }
 export function stableVersion(version: string): void {
   if (!/^(0|[1-9]\d*)\.(0|[1-9]\d*)\.(0|[1-9]\d*)$/.test(version)) throw Error("Desktop stable releases require a stable semantic version");
+}
+/** Each feed accepts only its own channel's versions: `X.Y.Z` for stable, `X.Y.Z-nightly.N` for nightly. */
+export function channelVersion(channel: DesktopChannel, version: string): void {
+  if (channel === "stable") stableVersion(version);
+  else if (channel !== "nightly" || !isNightlyVersion(version)) throw Error("Desktop nightly releases require a nightly version (X.Y.Z-nightly.YYYYMMDDHHmm)");
 }
 export const digest = (bytes: Uint8Array) => createHash("sha256").update(bytes).digest("hex");
 function base64(text: string): Buffer {
@@ -41,8 +54,8 @@ function base64(text: string): Buffer {
   return Buffer.from(text, "base64");
 }
 /** Minisign ED prehash + global trusted-comment signature, matching minisign-verify0.3.0. */
-export function verifyUpdateSignature(bytes: Uint8Array, signature: string, publicKey: string, version: string): void {
-  stableVersion(version);
+export function verifyUpdateSignature(bytes: Uint8Array, signature: string, publicKey: string, version: string, channel: DesktopChannel = "stable"): void {
+  channelVersion(channel, version);
   const publicLines = base64(publicKey.trim()).toString("utf8").trimEnd().split("\n");
   const lines = base64(signature.trim()).toString("utf8").trimEnd().split("\n");
   if (publicLines.length !== 2 || lines.length !== 4 || !publicLines[0].startsWith("untrusted comment: ") || !lines[0].startsWith("untrusted comment: ") || !lines[2].startsWith("trusted comment: ")) throw Error("Invalid updater signature envelope");
@@ -66,8 +79,8 @@ function productionOptions(): DesktopReleaseOptions {
   if (!publicKey || !validSignerPins(pins)) throw Error("Production desktop trust inputs are not configured");
   return { mode: "production", publicKey, pins };
 }
-async function validate(releaseDir: string, version: string, options: DesktopReleaseOptions) {
-  stableVersion(version);
+async function validate(releaseDir: string, version: string, options: DesktopReleaseOptions, channel: DesktopChannel) {
+  channelVersion(channel, version);
   if (!options.publicKey || !validSignerPins(options.pins)) throw Error("Invalid desktop trust inputs");
   if (options.mode === "production" && (options.verifyArchive || options.verifyDiskImage)) throw Error("Production desktop validation cannot use a fixture verifier");
   const manifestName = `desktop-release-${version}.json`, manifestBytes = input(join(releaseDir, manifestName), 128 * 1024);
@@ -76,29 +89,29 @@ async function validate(releaseDir: string, version: string, options: DesktopRel
   const assets = new Map<string, Uint8Array>([[manifestName, manifestBytes]]);
   const platforms: Record<string, unknown> = {};
   for (const arch of DESKTOP_ARCHES) {
-    const name = desktopAssetName(version, arch), bytes = input(join(releaseDir, name)), signatureBytes = input(join(releaseDir, name + ".sig"), 8193), signature = signatureBytes.toString("utf8").trim();
+    const name = desktopAssetName(version, arch, channel), bytes = input(join(releaseDir, name)), signatureBytes = input(join(releaseDir, name + ".sig"), 8193), signature = signatureBytes.toString("utf8").trim();
     if (signature.length > 8192) throw Error("Desktop signature exceeds native wire limit");
-    verifyUpdateSignature(bytes, signature, options.publicKey, version);
+    verifyUpdateSignature(bytes, signature, options.publicKey, version, channel);
     const metadata = options.mode === "fixture" ? await options.verifyArchive?.(bytes, arch) : await verifyProductionArchive(bytes, arch, options.pins);
     if (!metadata || metadata.schema !== 1 || metadata.version !== version || metadata.arch !== arch || metadata.bundleId !== (options.mode === "fixture" ? FIXTURE_IDENTIFIERS.desktop : "dev.pacer.desktop") ||
         metadata.protocolMajors.length !== 1 || metadata.protocolMajors[0] !== 3 || metadata.admissionProtocol !== 1 || metadata.nativeTransportAbi !== 1 || !metadata.rollbackCompatible || metadata.fixture !== (options.mode === "fixture")) throw Error("Signed desktop metadata/identity mismatch");
     platforms[`darwin-${arch}`] = { url: `https://github.com/lamtuanvu/pacer/releases/download/v${version}/${name}`, signature, sha256: digest(bytes), bundleId: metadata.bundleId, protocolMajors: metadata.protocolMajors, admissionProtocol: 1, rollbackCompatible: true };
-    const imageName = desktopDiskImageName(version, arch), image = input(join(releaseDir, imageName));
+    const imageName = desktopDiskImageName(version, arch, channel), image = input(join(releaseDir, imageName));
     const mounted = options.mode === "fixture" ? await options.verifyDiskImage?.(image, arch) : await verifyProductionDiskImage(image, arch, options.pins);
     if (!mounted || !/^[a-f0-9]{64}$/.test(metadata.appTree) || mounted.appTree !== metadata.appTree) throw Error("Desktop disk image does not contain the signed update app");
     assets.set(name, bytes); assets.set(name + ".sig", signatureBytes); assets.set(imageName, image);
   }
   return { feed: JSON.stringify({ ...manifest, platforms }, null, 2) + "\n", assets };
 }
-export async function validateDesktopRelease(releaseDir: string, version: string, options = productionOptions()): Promise<void> { await validate(releaseDir, version, options); }
-export async function buildDesktopFeed(releaseDir: string, version: string, options = productionOptions()): Promise<string> { return (await validate(releaseDir, version, options)).feed; }
-export async function publishDesktopRelease(releaseDir: string, version: string, publisher: DesktopPublisher, options = productionOptions()): Promise<void> {
+export async function validateDesktopRelease(releaseDir: string, version: string, options = productionOptions(), channel: DesktopChannel = "stable"): Promise<void> { await validate(releaseDir, version, options, channel); }
+export async function buildDesktopFeed(releaseDir: string, version: string, options = productionOptions(), channel: DesktopChannel = "stable"): Promise<string> { return (await validate(releaseDir, version, options, channel)).feed; }
+export async function publishDesktopRelease(releaseDir: string, version: string, publisher: DesktopPublisher, options = productionOptions(), channel: DesktopChannel = "stable"): Promise<void> {
   if (publisher.mode !== options.mode) throw Error("A fixture cannot authorize production publication");
-  const validated = await validate(releaseDir, version, options);
+  const validated = await validate(releaseDir, version, options, channel);
   const previous = await publisher.readFeed();
   if (previous.feed) {
-    const old = JSON.parse(previous.feed); stableVersion(old.version);
-    if (compareVersions(old.version, version) > 0) throw Error("Desktop promotion cannot downgrade the stable feed");
+    const old = JSON.parse(previous.feed); channelVersion(channel, old.version);
+    if (compareVersions(old.version, version) > 0) throw Error(`Desktop promotion cannot downgrade the ${channel} feed`);
   }
   for (const [name, bytes] of validated.assets) {
     let existing = await publisher.readAsset(name);
