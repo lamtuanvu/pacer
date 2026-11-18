@@ -173,10 +173,10 @@ test("the Notification sound control writes only the sound key", () => withPlatf
 }));
 
 /** Mount the Notifications section in the macOS desktop shell with a fake service, and return the calls it made. */
-async function mountMacSettings(health: unknown, body: (dom: import("./app-setup-health-dom").TestDom, calls: { op: string; params: unknown }[]) => Promise<void>, navigatorPlatform = "MacIntel") {
+async function mountMacSettings(health: unknown, body: (dom: import("./app-setup-health-dom").TestDom, calls: { op: string; params: unknown }[]) => Promise<void>, navigatorPlatform = "MacIntel", holdSet?: Promise<void>) {
   const { installDom, mount, unmount } = await import("./app-setup-health-dom");
   const calls: { op: string; params: unknown }[] = [];
-  const api = { call: async (op: string, params: unknown) => { calls.push({ op, params }); return op === "notifications.health" ? health : op === "notifications.get" ? { level: "important", sound: "glass" } : {}; } } as any;
+  const api = { call: async (op: string, params: unknown) => { calls.push({ op, params }); if (op === "notifications.set" && holdSet) await holdSet; return op === "notifications.health" ? health : op === "notifications.get" ? { level: "important", sound: "glass" } : {}; } } as any;
   const host = globalThis as { __TAURI__?: unknown };
   const previous = host.__TAURI__;
   const dom = installDom();
@@ -245,4 +245,65 @@ test("on a non-macOS desktop Send test stays in the Desktop banners row and no s
     expect(domText(dom.container)).not.toContain("Notification sound");
     expect(await rowOf(dom.container, "Send test")).toBe("Desktop banners");
   }, "Linux x86_64");
+});
+
+test("the sound picker sizes its menu to the longest label and Saved follows Send test", async () => {
+  const { domText, findByText, until } = await import("./app-setup-health-dom");
+  await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async dom => {
+    await until(() => domText(dom.container).includes("Send test"));
+    type Node = typeof dom.container;
+    const hasClass = (node: Node, name: string) => (node.className ?? "").split(/\s+/).includes(name);
+    const ancestor = (node: Node | null, name: string) => { while (node && !hasClass(node, name)) node = node.parentNode; return node; };
+    // Content sizing lets the menu grow past the trigger, so "System default" is not cut off.
+    expect(ancestor(findByText(dom.container, "Glass"), "pc-choice-picker--content")).toBeTruthy();
+    // Send test is inside the save boundary's control, so the "Saved" status renders after it
+    // rather than between the picker and the button.
+    const send = findByText(dom.container, "Send test");
+    expect(ancestor(send, "pc-immediate-save__control")).toBeTruthy();
+    // In document order the status comes after Send test, never between it and the picker.
+    const order: Node[] = [];
+    const walk = (node: Node) => { order.push(node); node.childNodes.forEach(walk); };
+    walk(dom.container);
+    const status = order.find(node => hasClass(node, "pc-immediate-save__status") && ancestor(node, "pc-setting-row") === ancestor(send, "pc-setting-row"));
+    expect(status).toBeTruthy();
+    expect(order.indexOf(status!)).toBeGreaterThan(order.indexOf(send!));
+  });
+});
+
+test("Send test is inert with the picker while a sound save is in flight", async () => {
+  const { options } = await import("preact");
+  const { domText, findByText, until, tick } = await import("./app-setup-health-dom");
+  let change: ((value: string) => void) | undefined;
+  const old = options.vnode;
+  options.vnode = node => {
+    old?.(node);
+    const props = node.props as any;
+    if (props?.["aria-label"] === "Notification sound" && typeof props.onValueChange === "function") change = props.onValueChange;
+  };
+  let release!: () => void;
+  const hold = new Promise<void>(resolve => { release = resolve; });
+  try {
+    await mountMacSettings({ level: "ok", detail: "Banners allowed · not tested yet" }, async (dom, calls) => {
+      await until(() => domText(dom.container).includes("Send test"));
+      type Node = typeof dom.container;
+      const control = () => {
+        let node: Node | null = findByText(dom.container, "Send test");
+        while (node && !(node.className ?? "").split(/\s+/).includes("pc-immediate-save__control")) node = node.parentNode;
+        return node as (Node & { getAttribute(name: string): string | null }) | null;
+      };
+      expect(control()?.getAttribute("inert")).toBeNull();
+      change!("off");
+      await tick();
+      expect(calls).toContainEqual({ op: "notifications.set", params: { sound: "off" } });
+      // While the save is pending the whole control, Send test included, is inert and busy.
+      expect(control()?.getAttribute("inert")).not.toBeNull();
+      expect(control()?.getAttribute("aria-busy")).toBe("true");
+      release();
+      await until(() => control()?.getAttribute("inert") === null);
+      expect(control()?.getAttribute("aria-busy")).toBe("false");
+    }, "MacIntel", hold);
+  } finally {
+    release();
+    options.vnode = old;
+  }
 });
