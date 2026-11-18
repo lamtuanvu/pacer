@@ -196,6 +196,8 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("runner.check").get("runner.check").is_none());
     assert!(registry("").get("assistant.ask").is_none());
     assert!(registry("").get("assistant.cancel").is_none());
+    // `assistant.tool` is served by the TypeScript core: only it holds a live turn's tool context.
+    assert!(registry("").get("assistant.tool").is_none());
 }
 
 #[test]

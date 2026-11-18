@@ -1697,6 +1697,161 @@ impl ::std::default::Default for AssistantStatusParams {
         Self {}
     }
 }
+///`AssistantToolParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "name",
+///    "turnId"
+///  ],
+///  "properties": {
+///    "name": {
+///      "type": "string",
+///      "maxLength": 64,
+///      "minLength": 1
+///    },
+///    "params": {
+///      "type": "object",
+///      "additionalProperties": {},
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    },
+///    "turnId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantToolParams {
+    pub name: AssistantToolParamsName,
+    #[serde(default, skip_serializing_if = "::serde_json::Map::is_empty")]
+    pub params: ::serde_json::Map<::std::string::String, ::serde_json::Value>,
+    #[serde(rename = "turnId")]
+    pub turn_id: AssistantToolParamsTurnId,
+}
+///`AssistantToolParamsName`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 64,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantToolParamsName(::std::string::String);
+impl ::std::ops::Deref for AssistantToolParamsName {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantToolParamsName> for ::std::string::String {
+    fn from(value: AssistantToolParamsName) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantToolParamsName {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 64usize {
+            return Err("longer than 64 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantToolParamsName {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantToolParamsName {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`AssistantToolParamsTurnId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantToolParamsTurnId(::std::string::String);
+impl ::std::ops::Deref for AssistantToolParamsTurnId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantToolParamsTurnId> for ::std::string::String {
+    fn from(value: AssistantToolParamsTurnId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantToolParamsTurnId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantToolParamsTurnId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantToolParamsTurnId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`AssistantTurnParams`
 ///
 /// <details><summary>JSON schema</summary>

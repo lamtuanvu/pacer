@@ -2,11 +2,15 @@ import { describe, expect, test } from "bun:test";
 import { BUNDLED } from "../plugins/bundled";
 import { admit, ask, assistantGrantFor } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
-import { assistantTurnById } from "../src/assistant/turn-tools";
+import { createRedactor } from "../src/assistant/redact";
+import { assistantTurnById, assistantTurnFor, openAssistantTurn, openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "../src/assistant/turn-tools";
 import type { AssistantScope } from "../src/assistant/types";
 import { authorizeWorkOperation } from "../src/core/work";
-import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
+import { callOp } from "../src/api/ops";
+import { answerCapability } from "../src/plugins/host";
+import { createCallAuthority } from "../src/plugins/authority";
 import { manifestSchema } from "../src/plugins/protocol";
+import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
 import type { BundledPlugin } from "../src/plugins/types";
 import type { Status } from "../src/engine/status";
 import type { Strategy } from "../src/config/strategy";
@@ -227,5 +231,72 @@ describe("the assistant-turn identity", () => {
     const executor = { ...c, env: { ...c.env, PACER_WORK_GRANT: work, PACER_ROLE: "executor" } };
     expect(() => authorizeWorkOperation(executor, "assistant.tool", { turnId: TURN })).toThrow(/not allowed by this work grant|is not allowed/);
     expect(() => authorizeWorkOperation(executor, "task.get", { id: task.id })).not.toThrow();
+  });
+});
+
+describe("the assistant.tool op", () => {
+  const manifest = manifestSchema.parse({
+    id: "fx-tool", version: "1.0.0", publisher: "test", host: ">=1.11.0",
+    contributes: { assistant: { reply: true } }, capabilities: [{ name: "assistant.tool" }],
+  });
+  const granted = (c: Ctx, token: string) => ({ ...c, env: { ...c.env, PACER_ASSISTANT_GRANT: token } });
+  const openTurn = (c: Ctx, turnId: string, rounds = 6) => {
+    const state: AssistantToolState = { cards: [], notes: [], toolLog: [], seenTasks: new Set(), rounds: { used: 0, max: rounds } };
+    const turn: AssistantToolTurn = { turnId, scope, read, redactor: createRedactor([KEY], c.home), cards: { task: () => null }, state };
+    return { state, turn, close: openAssistantTurnFor(turnId, turn) };
+  };
+
+  test("runs the host's tool pipeline for its own turn, and closes with the turn", async () => {
+    const c = ctx();
+    const token = issueAssistantGrant(c, { turnId: TURN, conversationId: CONVERSATION, expiresAt: NOW + 60 });
+    const { state, close } = openTurn(c, TURN);
+    const out = await callOp(granted(c, token), "assistant.tool", { turnId: TURN, name: "snapshot", params: {} }) as { name: string; content: string; ok: boolean };
+    expect(out.name).toBe("snapshot");
+    expect(out.ok).toBe(true);
+    expect(out.content).toStartWith('<data tool="snapshot">');
+    expect(state.toolLog).toEqual([{ name: "snapshot", ok: true, args: {} }]);
+    // Another turn's tool call is refused even with a live grant, and a ended turn's context is gone.
+    await expect(callOp(granted(c, token), "assistant.tool", { turnId: "turn-another", name: "snapshot" })).rejects.toMatchObject({ code: "not_allowed" });
+    close();
+    await expect(callOp(granted(c, token), "assistant.tool", { turnId: TURN, name: "snapshot" })).rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("has ended") });
+  });
+
+  test("charges one shared round budget with capability.assistant.tool", async () => {
+    const c = ctx();
+    const token = issueAssistantGrant(c, { turnId: TURN, conversationId: CONVERSATION, expiresAt: NOW + 60 });
+    const { state, turn, close } = openTurn(c, TURN, 2);
+    const authority = createCallAuthority(c, { reads: [], commands: [], stores: [] }, { deadlineMs: Date.now() + 10_000, grants: ["assistant.tool"] });
+    const closeAuthority = openAssistantTurn(authority, turn);
+    const capability = () => answerCapability(c, { id: "fx-tool", manifest }, "capability.assistant.tool",
+      { turnId: TURN, name: "snapshot", params: {} }, authority) as Promise<{ ok: boolean }>;
+    const op = () => callOp(granted(c, token), "assistant.tool", { turnId: TURN, name: "snapshot", params: {} }) as Promise<{ ok: boolean }>;
+    // One counter, whichever path asks: the op, then the capability, then neither has a round left.
+    expect((await op()).ok).toBe(true);
+    expect((await capability()).ok).toBe(true);
+    expect(state.rounds).toEqual({ used: 2, max: 2 });
+    await expect(op()).rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("budget") });
+    await expect(capability()).rejects.toThrow(/tool-call budget/);
+    // The turn ends: both paths lose the context together.
+    close();
+    closeAuthority();
+    expect(assistantTurnById(TURN)).toBeNull();
+    expect(assistantTurnFor(authority)).toBeNull();
+  });
+
+  test("is refused to an executor session and to a work grant", async () => {
+    const c = ctx();
+    const { close } = openTurn(c, TURN);
+    // The executor refusals in ops.ts and caller-policy.ts stay as they are: an executor session
+    // cannot use the assistant at all, and a work grant's allow-list has no assistant op in it.
+    await expect(callOp({ ...c, env: { ...c.env, PACER_ROLE: "executor" } }, "assistant.tool", { turnId: TURN, name: "snapshot", params: {} }))
+      .rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("executors cannot use the assistant") });
+    const task = createTask(c, { brief: { goal: "g", repo: "/r" }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+    registerWork(c, task.id, { allowDelegation: true });
+    updateTask(c, task.id, t => { t.state = "running"; });
+    const work = issueWorkGrant(c, task.id, 1);
+    const executor = { ...c, env: { ...c.env, PACER_WORK_GRANT: work, PACER_ROLE: "executor" } };
+    await expect(callOp(executor, "assistant.tool", { turnId: TURN, name: "snapshot", params: {} }))
+      .rejects.toMatchObject({ code: "not_allowed", message: expect.stringContaining("not allowed by this work grant") });
+    close();
   });
 });

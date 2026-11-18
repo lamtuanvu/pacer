@@ -70,8 +70,13 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Which assistant ops the native handler declines so the core answers them. `assistant.ask`,
+/// `assistant.cancel` and `assistant.tool` are never native: they drive the assistant plugin, the
+/// in-process turn stream and the live turn's tool context.
 pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("assistant.") || matches!(op, "assistant.ask" | "assistant.cancel") {
+    if !op.starts_with("assistant.")
+        || matches!(op, "assistant.ask" | "assistant.cancel" | "assistant.tool")
+    {
         return false;
     }
     match refuse(ctx) {
