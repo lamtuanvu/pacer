@@ -13,11 +13,18 @@ test.skipIf(!signer)("explicit fixture driver uses real pinned signer and local 
   expect(report.mode).toBe("fixture");
   expect(report.production).toBe("UNVERIFIED");
   expect(report.native).toBe("UNVERIFIED");
-  expect(report.signatures).toBe(DESKTOP_ARCHES.length);
+  expect(report.signatures).toBe(DESKTOP_ARCHES.length * 2); // stable and nightly
   expect(existsSync(join(root, "private"))).toBe(false);
   const feed = JSON.parse(readFileSync(join(root, "stable.json"), "utf8"));
   expect(Object.keys(feed.platforms).sort()).toEqual(DESKTOP_ARCHES.map(arch => `darwin-${arch}`).sort());
   for (const platform of Object.values(feed.platforms) as { bundleId: string }[]) expect(platform.bundleId).toBe("dev.pacer.desktop.fixture");
   expect(existsSync(join(root, "local/feed.git"))).toBe(true);
+  expect(report.nightly).toBe("PASS");
+  const nightly = JSON.parse(readFileSync(join(root, "nightly.json"), "utf8"));
+  expect(nightly.version).toBe("0.1.0-nightly.202611170000");
+  expect(Object.keys(nightly.platforms).sort()).toEqual(DESKTOP_ARCHES.map(arch => `darwin-${arch}`).sort());
+  const show = (name: string) => Bun.spawnSync(["git", "--git-dir", join(root, "local/feed.git"), "show", `desktop-updates:${name}`], { stdout: "pipe" }).stdout.toString();
+  expect(show("nightly.json")).toBe(readFileSync(join(root, "nightly.json"), "utf8"));
+  expect(show("stable.json")).toBe(readFileSync(join(root, "stable.json"), "utf8"));
   await expect(fixtureFeedDryRun(root)).rejects.toThrow();
-}, 30000);
+}, 60000);
