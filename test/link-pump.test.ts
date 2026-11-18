@@ -7,6 +7,24 @@ import { latestPath } from "../src/link/paths";
 import { reduce } from "../src/link/envelope";
 const status = (mode = "normal") => ({ generatedAt: 1, strategy: "s", planner: "p", mode, disabled: false, calendarPace: false, providers: [], executors: { ranked: [], excluded: [] } }) as any;
 const task = (state: string, id = "t") => ({ id, state, brief: { goal: "goal" }, createdAt: 1, attempts: [{ executor: "codex", backend: "orca", startedAt: 2, endedAt: 3 }], result: { executor: "codex", backend: "orca", worktree: null } }) as any;
+test("task events carry the attempt's account and model", async () => {
+  const { taskData } = await import("../src/link/pump");
+  // A running task shows the in-flight attempt's account and chosen model.
+  const running = taskData({ ...task("running"), pendingAttempt: { usageAtStart: { account: "oc-glm" }, model: "opencode-go/glm-5.3-flash" } });
+  expect(running).toMatchObject({ account: "oc-glm", model: "opencode-go/glm-5.3-flash" });
+  // A settled task keeps the latest attempt's account and the launched model.
+  const settled = taskData({ ...task("done"), attempts: [{ executor: "codex", backend: "orca", startedAt: 2, endedAt: 3, usageAtStart: { account: "team" }, actualModel: "glm-5.3-flash" }] });
+  expect(settled).toMatchObject({ account: "team", model: "glm-5.3-flash" });
+  // Nothing known stays off the row, like every optional field.
+  expect("account" in taskData(task("done"))).toBe(false);
+  expect("model" in taskData(task("done"))).toBe(false);
+});
+test("published task events carry account and model", async () => {
+  const c = fakeCtx();
+  const deps: PumpDeps = { status: async () => status(), tasks: () => [{ ...task("running"), pendingAttempt: { usageAtStart: { account: "oc-glm" }, model: "opencode-go/glm-5.3-flash" } }], publish: async (_c, e) => { let s = (await import("../src/link/store")).readLatest(c); for (const x of e) s = reduce(s, x, c.now); writeJsonAtomic(latestPath(c), s); return { seq: 1, transports: ["outbox"], errors: [] }; } };
+  const out = await pumpOnce(c, deps);
+  expect(out.find(e => e.type === "task")?.data).toMatchObject({ account: "oc-glm", model: "opencode-go/glm-5.3-flash" });
+});
 test("first pump publishes budget and mode without alerts; unchanged input is quiet", async () => {
   const c = fakeCtx(); const sent: OutboxEvent[][] = []; const deps: PumpDeps = { status: async () => status(), tasks: () => [task("running")], publish: async (_c,e) => { sent.push(e); let s = (await import("../src/link/store")).readLatest(c); for (const x of e) s = reduce(s,x,c.now); writeJsonAtomic(latestPath(c),s); return { seq: 1, transports: [], errors: [] }; } };
   expect((await pumpOnce(c,deps)).map(e=>e.type)).toEqual(["budget","mode","task"]); expect((await pumpOnce(c,deps))).toEqual([]); expect(sent).toHaveLength(1);

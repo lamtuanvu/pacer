@@ -4,6 +4,7 @@ import { chromium, type Browser } from 'playwright-core';
 import { TaskTree } from '../app/src/ds/TaskTreeNode';
 import { TaskCard } from '../app/src/ds/TaskCard';
 import { scopedTaskTree, taskTree, workTasks, type TaskNodeView } from '../src/view-model/task-tree';
+import { emptySnapshot, parseOutboxEvent, reduce } from '../src/link/envelope';
 import { TaskNavigator } from '../app/src/screens/session/TaskNavigator';
 import snapshotFixture from './fixtures/ui/snapshot.json';
 import type { ClientSnapshot } from '../src/view-model/snapshot';
@@ -142,6 +143,16 @@ test('work_rows_carry_their_account_and_model_into_the_tree', () => {
   expect(nodes.find(node => node.id === 'w-done')!.runner).toEqual({ name: 'Codex', account: 'team' });
   // A 2.0 service sends neither field; the runner id still names the account.
   expect(nodes.find(node => node.id === 'w-old')!.runner).toEqual({ name: 'OpenCode', account: 'oc-glm' });
+});
+
+test('live_snapshot_rows_show_the_model_beside_the_status', () => {
+  // The Tasks page renders from the live link snapshot, so its task rows must carry the fields.
+  const event = parseOutboxEvent({ type: 'task', data: { id: 't-live', state: 'running', goal: 'Ship routing', title: 'Ship routing', executor: 'opencode#oc-glm', backend: null, worktree: null, updatedAt: 1, account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' } });
+  const snapshot = reduce(emptySnapshot(), event!, 1) as unknown as ClientSnapshot;
+  const node = scopedTaskTree(snapshot, { repo: null }, { now: 1 }).find(item => item.id === 't-live')!;
+  expect(node.runner).toEqual({ name: 'OpenCode', account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' });
+  const html = card(node);
+  expect(html).toContain('OpenCode · oc-glm · opencode-go/glm-5.3-flash');
 });
 
 test('filter_buckets_follow_attention_then_activity_then_outcome', () => {

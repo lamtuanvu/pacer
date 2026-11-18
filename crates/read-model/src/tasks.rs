@@ -408,6 +408,15 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
             }
         }
     }
+    // Live task events carry the attempt's account and model when known, so a
+    // client upserting the event (task-ops stop/review/dismiss) keeps the row.
+    let (account, model) = task_account_model(t);
+    if !account.is_null() {
+        row["account"] = account;
+    }
+    if !model.is_null() {
+        row["model"] = model;
+    }
     if truth(&t["attemptStartedAt"]) {
         row["attemptStartedAt"] = t["attemptStartedAt"].clone();
     }

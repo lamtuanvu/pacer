@@ -2,6 +2,7 @@ import { expect, test } from "bun:test";
 import fixture from "./fixtures/ui/snapshot.json";
 import { scopedTaskTree, taskTree, treeSummary, workTasks, type TaskNodeView, type TreeSnapshot, type TreeTask } from "../src/view-model/task-tree";
 import { taskStatus } from "../src/view-model/words";
+import { emptySnapshot, parseOutboxEvent, reduce } from "../src/link/envelope";
 
 const now = 1800000000;
 const snapshot = () => structuredClone(fixture) as unknown as TreeSnapshot;
@@ -310,4 +311,16 @@ test("rows_name_the_agent_account_and_model_behind_the_task", () => {
   // Queued work has no executor yet, so no runner words either.
   const queued = taskTree({ tasks: [] }, { now, extra: workTasks([workRow("t-5", { state: "queued", executor: null })]) });
   expect(queued[0]!.runner).toBeUndefined();
+});
+
+test("live_snapshot_rows_carry_account_and_model_into_the_runner", () => {
+  // The Tasks page renders from the live link snapshot, so its task rows must carry the fields.
+  const event = parseOutboxEvent({ type: "task", data: { id: "t-live", state: "running", goal: "g", executor: "opencode#oc-glm", backend: null, worktree: null, updatedAt: 1, account: "oc-glm", model: "opencode-go/glm-5.3-flash" } });
+  expect(event?.type).toBe("task");
+  const snapshot = reduce(emptySnapshot(), event!, now);
+  const nodes = scopedTaskTree(snapshot, { repo: null }, { now });
+  expect(nodes[0]!.runner).toEqual({ name: "OpenCode", account: "oc-glm", model: "opencode-go/glm-5.3-flash" });
+  // A 2.0 link snapshot without the fields still names the agent and the runner id's account.
+  const legacy = reduce(emptySnapshot(), parseOutboxEvent({ type: "task", data: { id: "t-old", state: "running", goal: "g", executor: "opencode#oc-glm@devbox", backend: null, worktree: null, updatedAt: 2 } })!, now);
+  expect(scopedTaskTree(legacy, { repo: null }, { now })[0]!.runner).toEqual({ name: "OpenCode", account: "oc-glm" });
 });
