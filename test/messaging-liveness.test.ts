@@ -131,6 +131,13 @@ test("a driving or needs-input task is never no_progress", () => {
   expect(analyzeLiveness(snap({ tasks: [node(working("working", { state: "done" }), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
 });
 
+test("a task in pacer's acceptance testing phase is never no_progress", () => {
+  expect(analyzeLiveness(snap({ tasks: [node(working("testing"), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+  // A run stuck starting is still flagged.
+  expect(analyzeLiveness(snap({ tasks: [node(working("starting"), { lastProgressAt: NOW - 7200 })] }), NOW))
+    .toEqual([expect.objectContaining({ reason: "no_progress" })]);
+});
+
 test("an outgoing message counts as progress", () => {
   const ctx = fakeCtx({ now: NOW });
   const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });

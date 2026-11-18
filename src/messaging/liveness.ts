@@ -26,8 +26,8 @@ export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; qu
 
 const WINDOW_S = 7 * 86400;
 const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", "needs_input"] as const;
-/** Phases in which a running task is idle (its own stall), waiting on someone else, or being driven. */
-const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving"]);
+/** Phases in which a running task is idle (its own stall), waiting on someone else, being driven, or in pacer's own acceptance run. */
+const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving", "testing"]);
 
 function noProgressS(ctx: Ctx): number {
   try { return validateExecution(loadStrategy(ctx).execution).noProgressS ?? NO_PROGRESS_S; } catch { return NO_PROGRESS_S; }
