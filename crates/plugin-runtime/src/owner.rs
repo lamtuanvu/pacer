@@ -122,6 +122,9 @@ pub struct PluginLane {
     ready: std::sync::Mutex<Option<Option<Value>>>,
     /// True once the child exited and its crash, if any, is on record.
     settled: watch::Sender<bool>,
+    /// Set by whichever of the lane monitor and a sealed call's hello timeout
+    /// handles this child's exit first, so exactly one records it.
+    exit_claimed: std::sync::atomic::AtomicBool,
     /// The child's observation generation and idle session.
     observation: Arc<LaneObservation>,
 }
@@ -140,6 +143,7 @@ impl PluginLane {
             hello: Mutex::new(()),
             ready: std::sync::Mutex::new(None),
             settled: watch::Sender::new(false),
+            exit_claimed: std::sync::atomic::AtomicBool::new(false),
             observation: Arc::new(LaneObservation::new(door, lane)),
         }
     }
@@ -155,6 +159,14 @@ impl PluginLane {
             return Err(OwnerError::Stopping);
         }
         Ok(())
+    }
+
+    /// True for the first caller only: that caller records the exit's crash (if
+    /// any) and settles the lane; every later caller leaves both alone.
+    pub(crate) fn claim_exit(&self) -> bool {
+        !self
+            .exit_claimed
+            .swap(true, std::sync::atomic::Ordering::SeqCst)
     }
 
     pub(crate) fn settle(&self) {

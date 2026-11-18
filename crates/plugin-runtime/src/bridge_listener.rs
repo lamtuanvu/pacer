@@ -677,13 +677,19 @@ async fn dispatch_call(
             .await
             {
                 Ok(result) => json!({"jsonrpc": "2.0", "id": id, "result": result}),
-                Err((failure, logs)) => {
+                Err(failed) => {
+                    let (failure, hello, logs) = *failed;
                     let mut data = json!({"code": failure.code});
                     if let Some(hint) = failure.hint {
                         data["hint"] = Value::String(hint);
                     }
                     if failure.from_plugin {
                         data["origin"] = Value::String("plugin".into());
+                    }
+                    // The hello a failed call still carried lets Core restore
+                    // readiness even when it gave up on the call that ran it.
+                    if hello.is_object() {
+                        data["hello"] = hello;
                     }
                     let mut reply = json!({
                         "jsonrpc": "2.0",
