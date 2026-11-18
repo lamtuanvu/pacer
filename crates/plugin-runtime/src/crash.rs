@@ -121,7 +121,7 @@ impl CrashBook {
             .unwrap_or_else(std::sync::PoisonError::into_inner) = sink;
     }
 
-    async fn report(&self, id: &str, reason: &str) {
+    pub(crate) async fn report(&self, id: &str, reason: &str) {
         let sink = self
             .sink
             .lock()
@@ -181,6 +181,11 @@ pub(crate) async fn monitor(book: Arc<CrashBook>, id: String, lane: Weak<PluginL
         return;
     };
     lane.observation().retire();
+    // A sealed call whose hello timed out claims the exit before it stops the
+    // child, then records, reports and settles it itself.
+    if !lane.claim_exit() {
+        return;
+    }
     if !lane.process().is_stopping() {
         book.record(&id);
         book.report(&id, &reason).await;

@@ -226,6 +226,38 @@ const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in
   for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
 }, 90000);
 
+// A diagnostic ping also writes malformed and over-1-MiB lines to stdout: the transport drops
+// each with the same note (as `[stderr]`) the TypeScript host writes to the plugin log.
+const TRANSPORT_TEXT = "this is not valid json\r\n" + "z".repeat(1024 * 1024 + 1) + "\n";
+let transportLines: string[] = [];
+const stdoutTransportCase: ConformanceCase = { name: "plugin log: malformed and oversized stdout lines get the TypeScript notes", async run(t) {
+  t.install("good", { fixture: { pingStdout: TRANSPORT_TEXT } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-good", grant: true });
+  assert((await doctor(h, "fx-good")).ok, "ping ok");
+  const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
+  const read = () => existsSync(log) ? readFileSync(log, "utf8") : "";
+  // The malformed note is a separate blocking-append task on the Rust doors, so it can land
+  // after the drop note: wait for both before the one read.
+  const both = () => { const text = read(); return text.includes("] dropped a line over 1 MiB\n") && text.includes("ignored a malformed JSON line on stdout"); };
+  for (const end = Date.now() + 5000; Date.now() < end && !both();) await t.sleep(20);
+  transportLines = read().split("\n")
+    .filter(line => line.includes("malformed JSON line on stdout") || line.includes("dropped a line over 1 MiB"))
+    .map(line => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z /, "<time> "));
+} };
+
+(front ? test : test.skip)("native owner conformance: malformed and oversized stdout notes match the TypeScript host", async () => {
+  const seen: Record<string, string[]> = {};
+  for (const { label, argv, door } of [tsDoor, ...doors]) {
+    transportLines = [];
+    await runCase(stdoutTransportCase, argv, root, door);
+    seen[label] = transportLines;
+  }
+  expect(seen.typescript).toContain("<time> [stderr] ignored a malformed JSON line on stdout");
+  expect(seen.typescript).toContain("<time> [stderr] dropped a line over 1 MiB");
+  for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
+}, 90000);
+
 // An undeclared identity.sign during a ping: the TypeScript host refuses it and audits the refusal.
 // The owner doors relay their doctor ping through Core's sealed owner call, as a flag-on serve that
 // keeps plugin.doctor in Core does, so Core refuses and audits it the same way.
@@ -270,13 +302,12 @@ const timed = async (call: () => Promise<unknown>) => {
   const seen = await call().catch(error => error instanceof HostError ? { code: error.code, message: error.message } : Promise.reject(error));
   return { afterMs: Date.now() - started, seen };
 };
-const HELLO_CRASH = "routed: PR 7 gate row 'owner hello-timeout crash accounting': flag-off stops a child whose hello missed the call's deadline and records a crash; the owner keeps the child";
-const FAILED_READY = "routed: PR 7 gate row 'readiness after a failed first sealed call': Core loses the hello summary when its deadline ends the sealed call, so plugin.list shows idle where flag-off shows ready";
-// Flag-off records whichever of the call's deadline and the hello's own deadline fires first.
+// Flag-off records whichever of the call's deadline and the hello's own deadline fires first, so the
+// crash's error is either wording; both mean the hello missed the call's deadline.
 const helloCrash = (error: string | null | undefined) =>
   error === "owning plugin call ended" || /^plugin\.hello passed its \d+ ms deadline$/.test(error ?? "") ? "<the hello missed the call's deadline>" : error;
-const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string } })[] = [
-  { name: "a 7 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: HELLO_CRASH }, async run(t) {
+const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string; reason: string | null } })[] = [
+  { name: "a 7 s hello fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "records a crash", reason: null }, async run(t) {
     t.install("good", { fixture: { startDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
@@ -285,7 +316,7 @@ const DEADLINES: (ConformanceCase & { deadlineMs: number; book?: { name: string;
     const entry = (await listed(h)).find(p => p.id === "fx-good") as { error?: string | null };
     deadline = { afterMs, call: { ok: report.ok, error: report.error }, book: { restarts: report.restarts, error: helloCrash(entry.error) } };
   } },
-  { name: "a 7 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: FAILED_READY }, async run(t) {
+  { name: "a 7 s ping fails the 5 s doctor ping", deadlineMs: 5000, book: { name: "lists the plugin ready", reason: null }, async run(t) {
     t.install("good", { fixture: { pingDelayMs: 7000 } });
     const h = await t.host();
     await h.call("plugin.enable", { id: "fx-good", grant: true });
@@ -322,7 +353,7 @@ for (const c of DEADLINES) {
       expect(seen[label]!.afterMs, label).toBeLessThan(c.deadlineMs + 1500);
     }
   }, 120000);
-  if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host [${c.book.reason.split(":")[0]}]`, async () => {
+  if (c.book) cases(c.book.reason)(`native owner conformance: ${c.name} and ${c.book.name} as on the TypeScript host${c.book.reason ? ` [${c.book.reason.split(":")[0]}]` : ""}`, async () => {
     const seen = await deadlineRun(c);
     for (const { label } of doors) expect({ label, book: seen[label]!.book }).toEqual({ label, book: seen.typescript!.book });
   }, 120000);

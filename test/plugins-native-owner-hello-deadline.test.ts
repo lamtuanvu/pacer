@@ -12,7 +12,9 @@ import { front, makeHome, ownerOn, serve, tsOwner, type Home, type Options } fro
 // A Core call with a long deadline gives `plugin.hello` 10 s (HELLO_DEADLINE_MS) flag-off and on the
 // native owner, and words a hello timeout the same way. Calls whose own deadline is shorter, such as
 // plugin.doctor's 5 s ping, expire as the call instead.
-// Flag-off records a hello timeout as a crash (`restarts`, backoff); the owner has no such accounting.
+// Flag-off records a hello timeout as a crash (`restarts`, backoff); the native
+// owner records the same on its crash book and reports it, so Core's `restarts`,
+// error and backoff match flag-off's.
 
 const manifest = (id: string) => manifestSchema.parse({ id, version: "1.0.0", publisher: "pacer", host: "^1.6", contributes: { diagnostic: {} }, capabilities: [], tier: "free" });
 /** Answers `plugin.hello` after `delay` ms, or never when it is `never`. */
@@ -60,6 +62,7 @@ async function doctors(options: Options, forward = ""): Promise<Record<string, D
   })));
 }
 const outcome = (seen: Record<string, Doctor>) => Object.fromEntries(Object.entries(seen).map(([id, { ok, error }]) => [id, { ok, error }]));
+const restartsOf = (seen: Record<string, Doctor>) => Object.fromEntries(Object.entries(seen).map(([id, { restarts }]) => [id, { restarts }]));
 
 test.skipIf(!front)("plugin.doctor's 5 s ping bounds the hello flag-off, and Core's doctor on the native owner matches", async () => {
   const off = await doctors(tsOwner);
@@ -68,6 +71,10 @@ test.skipIf(!front)("plugin.doctor's 5 s ping bounds the hello flag-off, and Cor
   const expired = { ok: false, error: "plugin_timeout: plugin call passed its absolute deadline" };
   expect(outcome(off)).toEqual({ "fx-slow": expired, "fx-silent": expired });
   expect(outcome(core)).toEqual(outcome(off));
+  // A hello that missed the call's deadline is recorded as a crash both flag-off
+  // and on the native owner, so Core's doctor reports `restarts` alike.
+  expect(restartsOf(off)).toEqual({ "fx-slow": { restarts: 1 }, "fx-silent": { restarts: 1 } });
+  expect(restartsOf(core)).toEqual(restartsOf(off));
 }, 90000);
 
 test.skipIf(!front)("plugin.hello gets 10 s and the same timeout text flag-off and on the native owner", async () => {
@@ -85,4 +92,35 @@ test.skipIf(!front)("plugin.hello gets 10 s and the same timeout text flag-off a
     expect(afterMs, mode).toBeGreaterThanOrEqual(10000);
     expect(afterMs, mode).toBeLessThan(15000);
   }
+}, 90000);
+
+type Listed = { state: string; error: string | null };
+
+/** `plugin.doctor` for a child that answers its hello and then dies during the ping, and the entry `plugin.list` shows after. */
+async function crashedCall(options: Options, forward = ""): Promise<{ doctor: Doctor; listed: Listed }> {
+  const h = makeHome();
+  cleanups.push(() => h.done());
+  installFixture("good", join(h.state, "plugins"), { manifest: { id: "fx-crash" }, fixture: { exitOnPing: true } });
+  const service = await serve(h, forward, options);
+  cleanups.push(() => service.stop());
+  await service.call("plugin.enable", { id: "fx-crash", grant: true });
+  const { ok, error, restarts } = (await service.call("plugin.doctor", { id: "fx-crash" })).json.result.reports[0];
+  const entry = (await service.call("plugin.list", {})).json.result.plugins.find((p: { id: string }) => p.id === "fx-crash");
+  return { doctor: { ok, error, restarts }, listed: { state: entry.state, error: entry.error } };
+}
+
+test.skipIf(!front)("a child that answered its hello and dies during the call is not listed ready, flag-off and on the native owner", async () => {
+  const off = await crashedCall(tsOwner);
+  const core = await crashedCall(ownerOn, "plugin.doctor");
+  console.log(JSON.stringify({ off, core }));
+  for (const [mode, seen] of Object.entries({ off, core })) {
+    expect(seen.doctor.ok, mode).toBe(false);
+    expect(["idle", "failing"], mode).toContain(seen.listed.state);
+    expect(seen.listed.error, mode).not.toBeNull();
+  }
+  // The owner records and reports the crash before the call fails, so Core's doctor already counts it.
+  // (Flag-off's doctor can answer before its own exit handler records the crash, so its count races.)
+  expect(core.doctor.restarts).toBeGreaterThanOrEqual(1);
+  // The crash failure carries no hello, so Core keeps the crash's state instead of marking the dead child ready.
+  expect(core.listed).toEqual(off.listed);
 }, 90000);
