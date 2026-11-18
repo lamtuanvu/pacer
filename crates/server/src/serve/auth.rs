@@ -174,14 +174,16 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
         .strip_prefix("Bearer ")
         .unwrap_or("");
     if bearer.len() == 68
-        && (bearer.starts_with("pwg_") || bearer.starts_with("pet_"))
+        && (bearer.starts_with("pwg_") || bearer.starts_with("pet_") || bearer.starts_with("pag_"))
         && bearer[4..]
             .bytes()
             .all(|b| b.is_ascii_hexdigit() && !b.is_ascii_uppercase())
     {
+        // The assistant grant (`pag_`) is a third, narrower credential: one operation, `assistant.tool`.
         if req.method() == "POST"
             && (bearer.starts_with("pwg_") && path.starts_with("/v3/ops/")
-                || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied")
+                || bearer.starts_with("pet_") && path == "/v3/ops/dispatch.enforcement.denied"
+                || bearer.starts_with("pag_") && path == "/v3/ops/assistant.tool")
         {
             return Decision::Forward {
                 auth: AuthKind::Task,
@@ -234,5 +236,135 @@ pub fn classify<B>(req: &Request<B>, port: u16, token: &str, ctx: &Ctx) -> Decis
     }
     Decision::Forward {
         auth: AuthKind::Cookie,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::unwrap_used)]
+    use super::*;
+    use axum::http::{Method, Request};
+    use std::collections::HashMap;
+
+    const PORT: u16 = 4317;
+    const SERVICE_TOKEN: &str = "service-token";
+    const HEX: &str = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[derive(Debug, PartialEq, Eq)]
+    enum Verdict {
+        /// Forwarded to the core with the task-grant header.
+        Task,
+        Rejected(StatusCode),
+        /// Bearer, cookie, health or app-auth: never a scoped credential.
+        Unscoped,
+    }
+
+    fn verdict(method: Method, path: &str, bearer: &str) -> Verdict {
+        let request = Request::builder()
+            .method(method)
+            .uri(path)
+            .header("host", format!("127.0.0.1:{PORT}"))
+            .header("authorization", format!("Bearer {bearer}"))
+            .body(())
+            .unwrap();
+        let ctx = Ctx::with(
+            "/nonexistent".into(),
+            "/nonexistent".into(),
+            HashMap::new(),
+            1.0,
+        );
+        match classify(&request, PORT, SERVICE_TOKEN, &ctx) {
+            Decision::Forward {
+                auth: AuthKind::Task,
+            } => Verdict::Task,
+            Decision::Forward { .. } | Decision::Health | Decision::AppAuth => Verdict::Unscoped,
+            Decision::Reject(response) => Verdict::Rejected(response.status()),
+        }
+    }
+
+    const ASSISTANT: &str = "pag_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
+
+    #[test]
+    fn assistant_grant_forwards_only_its_one_operation() {
+        assert_eq!(
+            verdict(Method::POST, "/v3/ops/assistant.tool", ASSISTANT),
+            Verdict::Task
+        );
+        for path in [
+            "/v3/ops/assistant.status",
+            "/v3/ops/assistant.ask",
+            "/v3/ops/task.get",
+            "/v3/ops/dispatch.child",
+            "/v3/snapshot",
+            "/v3/assistant/turns/turn-1/stream",
+            "/v2/ops/assistant.tool",
+        ] {
+            assert_eq!(
+                verdict(Method::POST, path, ASSISTANT),
+                Verdict::Rejected(StatusCode::FORBIDDEN),
+                "{path}"
+            );
+        }
+        assert_eq!(
+            verdict(Method::GET, "/v3/ops/assistant.tool", ASSISTANT),
+            Verdict::Rejected(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn a_malformed_assistant_grant_is_never_a_task_grant() {
+        // Wrong length, uppercase hex and a wrong prefix all fall through to the session path.
+        for bearer in [
+            "pag_0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcde".to_string(),
+            format!("pag_{}", "A".repeat(64)),
+            format!("pag_{}", HEX.replace('a', "g")),
+            format!("pwag_{HEX}"),
+        ] {
+            assert_ne!(
+                verdict(Method::POST, "/v3/ops/assistant.tool", &bearer),
+                Verdict::Task,
+                "{bearer}"
+            );
+        }
+    }
+
+    #[test]
+    fn work_and_enforcement_grants_keep_their_own_routes() {
+        let work = format!("pwg_{HEX}");
+        assert_eq!(
+            verdict(Method::POST, "/v3/ops/assistant.tool", &work),
+            Verdict::Task
+        );
+        assert_eq!(
+            verdict(Method::POST, "/v3/ops/task.get", &work),
+            Verdict::Task
+        );
+        assert_eq!(
+            verdict(Method::POST, "/v3/snapshot", &work),
+            Verdict::Rejected(StatusCode::FORBIDDEN)
+        );
+        let enforcement = format!("pet_{HEX}");
+        assert_eq!(
+            verdict(Method::POST, "/v3/ops/dispatch.enforcement.denied", &enforcement),
+            Verdict::Task
+        );
+        assert_eq!(
+            verdict(Method::POST, "/v3/ops/assistant.tool", &enforcement),
+            Verdict::Rejected(StatusCode::FORBIDDEN)
+        );
+    }
+
+    #[test]
+    fn the_service_bearer_still_authenticates_every_route() {
+        for (method, path) in [
+            (Method::POST, "/v3/ops/assistant.tool"),
+            (Method::GET, "/v3/snapshot"),
+        ] {
+            assert_eq!(
+                verdict(method, path, SERVICE_TOKEN),
+                Verdict::Unscoped,
+                "{path}"
+            );
+        }
     }
 }
