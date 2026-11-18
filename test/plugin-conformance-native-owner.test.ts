@@ -226,6 +226,38 @@ const stderrLogCase: ConformanceCase = { name: "plugin log: every stderr line in
   for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
 }, 90000);
 
+// A diagnostic ping also writes malformed and over-1-MiB lines to stdout: the transport drops
+// each with the same note (as `[stderr]`) the TypeScript host writes to the plugin log.
+const TRANSPORT_TEXT = "this is not valid json\r\n" + "z".repeat(1024 * 1024 + 1) + "\n";
+let transportLines: string[] = [];
+const stdoutTransportCase: ConformanceCase = { name: "plugin log: malformed and oversized stdout lines get the TypeScript notes", async run(t) {
+  t.install("good", { fixture: { pingStdout: TRANSPORT_TEXT } });
+  const h = await t.host();
+  await h.call("plugin.enable", { id: "fx-good", grant: true });
+  assert((await doctor(h, "fx-good")).ok, "ping ok");
+  const log = join(t.home, ".pacer", "logs", "plugins", "fx-good.log");
+  const read = () => existsSync(log) ? readFileSync(log, "utf8") : "";
+  // The malformed note is a separate blocking-append task on the Rust doors, so it can land
+  // after the drop note: wait for both before the one read.
+  const both = () => { const text = read(); return text.includes("] dropped a line over 1 MiB\n") && text.includes("ignored a malformed JSON line on stdout"); };
+  for (const end = Date.now() + 5000; Date.now() < end && !both();) await t.sleep(20);
+  transportLines = read().split("\n")
+    .filter(line => line.includes("malformed JSON line on stdout") || line.includes("dropped a line over 1 MiB"))
+    .map(line => line.replace(/^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d\.\d{3}Z /, "<time> "));
+} };
+
+(front ? test : test.skip)("native owner conformance: malformed and oversized stdout notes match the TypeScript host", async () => {
+  const seen: Record<string, string[]> = {};
+  for (const { label, argv, door } of [tsDoor, ...doors]) {
+    transportLines = [];
+    await runCase(stdoutTransportCase, argv, root, door);
+    seen[label] = transportLines;
+  }
+  expect(seen.typescript).toContain("<time> [stderr] ignored a malformed JSON line on stdout");
+  expect(seen.typescript).toContain("<time> [stderr] dropped a line over 1 MiB");
+  for (const { label } of doors) expect({ label, lines: seen[label] }).toEqual({ label, lines: seen.typescript! });
+}, 90000);
+
 // An undeclared identity.sign during a ping: the TypeScript host refuses it and audits the refusal.
 // The owner doors relay their doctor ping through Core's sealed owner call, as a flag-on serve that
 // keeps plugin.doctor in Core does, so Core refuses and audits it the same way.
