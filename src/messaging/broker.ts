@@ -23,7 +23,7 @@ export type CallerWakeResult = "sent" | "busy" | "gone" | "resumed" | "unavailab
 export interface BrokerDeps {
   spawnRunner?: SpawnRunner;
   mode: () => Promise<Mode | undefined>;
-  callerWake?: (ctx: Ctx, reach: CallerReach, text: string) => Promise<CallerWakeResult>;
+  callerWake?: (ctx: Ctx, reach: CallerReach, text: string, step: "ping" | "resume", taskId: string) => Promise<CallerWakeResult>;
 }
 
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
@@ -148,15 +148,22 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             const question = task ? snapshot.questions.find(m => m.taskId === task.id && m.to === node)?.id : undefined;
             const text = task && (task.state !== "needs_input" || question) ? callerText(task, question) : null;
             const reach = task?.callerReach;
-            // Only an open caller in a terminal pacer can type into is woken; tmux, uncontrolled and
-            // unknown liveness wait for the notification, and a closed caller is not resumed in this PR.
             const wake = deps.callerWake;
-            const state = wake && text && reach && reach.terminal.kind === "orca" && node !== "human" ? await callerAlive(ctx, reach) : null;
-            if (wake && state === "alive") {
-              const result = await wake(ctx, reach!, text!);
+            const taskId = task?.id ?? "";
+            // A human origin is never woken. An open caller in a controllable terminal is pinged;
+            // a closed caller (gone) is resumed in the background; unknown liveness never wakes.
+            let step: "ping" | "resume" | null = null;
+            if (wake && text && reach && node !== "human") {
+              const state = await callerAlive(ctx, reach);
+              if (state === "alive" && reach.terminal.kind === "orca") step = "ping";
+              else if (state === "gone") step = "resume";
+            }
+            if (step) {
+              const result = await wake!(ctx, reach!, text!, step, taskId);
               if (result === "sent" || result === "resumed") { row.nudges++; acted = true; }
               // A busy terminal is retried on the next tick without spending a wake.
               else if (result === "busy") { if (escalate) notify(); else row.nextAt = ctx.now; }
+              else if (result === "unavailable") { if (escalate) notify(); else row.nextAt = row.since + config.escalate_after_s; }
               else if (escalate) notify();
             } else if (escalate) notify();
           }
