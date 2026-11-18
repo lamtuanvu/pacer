@@ -51,3 +51,21 @@ export function answersTurn(authorities: Iterable<object>, turnId: string): bool
   for (const authority of authorities) if (open.get(authority)?.turnId === turnId) return true;
   return false;
 }
+
+/**
+ * The same tool context, addressable by `turnId` for the client op `assistant.tool`, which arrives on
+ * another request and so cannot hold the reply call's authority object. Both lookups name one object,
+ * so `capability.assistant.tool` and `assistant.tool` charge one shared round budget per turn.
+ * The closer runs when the turn ends, so a call after that is refused.
+ */
+const byTurnId = new Map<string, AssistantToolTurn>();
+
+export function openAssistantTurnFor(turnId: string, turn: AssistantToolTurn): () => void {
+  byTurnId.set(turnId, turn);
+  return () => { if (byTurnId.get(turnId) === turn) byTurnId.delete(turnId); };
+}
+
+/** The turn a `assistant.tool` call may run a tool for, or null: the turn ended, or never ran. */
+export function assistantTurnById(turnId: string): AssistantToolTurn | null {
+  return byTurnId.get(turnId) ?? null;
+}

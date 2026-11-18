@@ -1,7 +1,7 @@
 -- Shared dispatch schema from src/dispatch/store.ts.
 CREATE TABLE IF NOT EXISTS work_nodes(task_id TEXT PRIMARY KEY, parent_id TEXT, root_id TEXT NOT NULL, depth INTEGER NOT NULL, options TEXT NOT NULL, dependencies TEXT NOT NULL DEFAULT '[]');
     CREATE INDEX IF NOT EXISTS work_root ON work_nodes(root_id);
-    CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
+    CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, kind TEXT NOT NULL DEFAULT 'work', conversation_id TEXT NOT NULL DEFAULT '');
     CREATE TABLE IF NOT EXISTS enforcement_tokens(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0);
     CREATE TABLE IF NOT EXISTS enforcement_certificates(target TEXT PRIMARY KEY, fingerprint TEXT NOT NULL, probed_at REAL NOT NULL, expires REAL NOT NULL, evidence TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS work_events(seq INTEGER PRIMARY KEY AUTOINCREMENT, root_id TEXT NOT NULL, task_id TEXT NOT NULL, at REAL NOT NULL, kind TEXT NOT NULL, data TEXT NOT NULL);

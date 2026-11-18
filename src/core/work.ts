@@ -32,6 +32,9 @@ import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/stor
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
 
+// The assistant grant (`pag_`): the internal issue/revoke API the assistant service calls (spec §3).
+export { issueAssistantGrant, authorizeAssistantGrant, revokeAssistantGrants, ASSISTANT_GRANT_KIND, type AssistantGrant } from "../dispatch/work";
+
 export interface WorkInput {difficulty?: WorkOptions["difficulty"]; model?: string;goal:string;repo?:string;kind?:string;title?:string;acceptance?:string;acceptanceTimeoutMin?:number;context?:string;constraints?:string;executor?:string;options?:Partial<WorkOptions>;requestId?:string}
 const hash=(value:unknown)=>createHash("sha256").update(JSON.stringify(value)).digest("hex");
 
