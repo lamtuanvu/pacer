@@ -213,7 +213,8 @@ export async function httpOp(session: Session, op: string, params: unknown): Pro
 
 /**
  * Fixed stdio plugin exchange with the native host off and on, on the sandbox's Rust front door.
- * A running sandbox service decides the flag-on owner (attach when it runs `--native-plugin-host`);
+ * A running sandbox service decides the flag-on owner (attach when its owner is active — the
+ * `--native-plugin-host` flag or the default-on socket it starts itself);
  * a sandbox stopped with `down --keep` is a home without a service. Accepts no operation, path or
  * environment override.
  */
@@ -223,11 +224,14 @@ export async function exerciseNativePluginStdio(session: Session, stopService = 
   }
   const serviceLive = !session.stopped && await healthy(session);
   if (!session.stopped && !serviceLive) throw Error("native plugin stdio requires a healthy sandbox or one stopped with down --keep");
-  if (stopService && !(serviceLive && session.nativePluginHost)) throw Error("--stop-service requires a healthy --native-plugin-host sandbox");
   const home = join(session.root, "home");
+  // The owner decides attach, not the flag: since serve_starts_reverse_bridge_by_default
+  // flipped, a sandbox is flag-on by default and may never have passed the flag.
+  const ownerActive = session.nativePluginHost || existsSync(join(home, "run/host.sock"));
+  if (stopService && !(serviceLive && ownerActive)) throw Error("--stop-service requires a healthy sandbox with an active owner");
   if (!existsSync(join(home, "plugins", PLUGIN))) installFixture("ui", join(home, "plugins"));
-  const where = serviceLive ? `beside the sandbox service (native host ${session.nativePluginHost ? "on" : "off"})` : "on the sandbox home with its service stopped";
-  const flagOn: PluginOwnership = serviceLive && session.nativePluginHost ? "attach" : "own";
+  const where = serviceLive ? `beside the sandbox service (native host ${ownerActive ? "on" : "off"})` : "on the sandbox home with its service stopped";
+  const flagOn: PluginOwnership = serviceLive && ownerActive ? "attach" : "own";
   const runs: Array<["0" | "1", PluginOwnership]> = stopService ? [["1", "attach"]] : [["0", "core"], ["1", flagOn]];
   for (const [nativeHost, ownership] of runs) {
     const behavior = `Stdio plugin ops, native host ${nativeHost === "1" ? "on" : "off"} (${ownership})`;

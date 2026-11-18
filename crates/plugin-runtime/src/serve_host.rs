@@ -1,10 +1,10 @@
 //! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned until
-//! [`crate::serve_starts_reverse_bridge_by_default`] flips. Truthy
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! today; falsy values (`0` / `false` / `no`) are the documented escape hatch
-//! for the future default-on cutover. When enabled, serve claims a
+//! Default serve starts the owner
+//! ([`crate::serve_starts_reverse_bridge_by_default`] is true). Truthy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] still
+//! opt in; falsy values (`0` / `false` / `no`) are the documented escape back
+//! to the TypeScript path. When enabled, serve claims a
 //! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
@@ -277,9 +277,10 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off_with_zero_escape() {
-        assert!(!serve_starts_reverse_bridge_by_default());
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        // The default flipped on; an explicit zero still disables on either flag.
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
         assert!(!native_plugin_host_enabled(Some("0"), None));
         assert!(!native_plugin_host_enabled(None, Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
@@ -295,7 +296,8 @@ mod tests {
     #[test]
     fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        // No flags read = the default, which is now on; zeros below still win.
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());

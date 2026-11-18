@@ -193,6 +193,9 @@ function sandboxEnv(w: World, forward: string | undefined, extra: Record<string,
   return pinnedEnv({
     HOME: w.home, PACER_HOME: w.pacerHome, PATH: `${join(w.home, "bin")}:${process.env.PATH ?? "/usr/bin:/bin"}`, PACER_CORE_ARGV: CORE,
     PACER_BACKEND: "direct", PACER_ORCA_USER_DATA: join(w.home, "orca"), PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1",
+    // These are flag-off transport-parity tests: the default is on since the flip,
+    // so the half under test must say so explicitly.
+    PACER_NATIVE_PLUGIN_HOST: "0",
     PACER_DISCOVERY: "off", PACER_DEBUG_NATIVE: "1", PACER_PORT: CLOSED, ...(forward ? {PACER_FORWARD_OPS: forward} : {}), ...extra,
   });
 }
