@@ -18,6 +18,16 @@ test("transient retry minutes: optional, positive whole minutes", () => {
   }
 });
 
+test("no-progress minutes: optional whole minutes above idle_after_min", () => {
+  expect(validateExecution({ no_progress_min: 45 })).toMatchObject({ noProgressS: 2700 });
+  expect(validateExecution({}).noProgressS).toBeUndefined();
+  // An unset no_progress_min keeps existing configs with a long idle_after_min valid.
+  expect(validateExecution({ idle_after_min: 40, idle_fail_min: 50 }).noProgressS).toBeUndefined();
+  for (const bad of [{ no_progress_min: 0 }, { no_progress_min: 2.5 }, { no_progress_min: "30" }, { no_progress_min: 10 }, { idle_after_min: 20, idle_fail_min: 50, no_progress_min: 20 }]) {
+    expect(() => validateExecution(bad)).toThrow(ExecutionError);
+  }
+});
+
 test("a missing or empty execution section uses the defaults", () => {
   expect(validateExecution(undefined)).toEqual({ autoClean: true, localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null });
   expect(validateExecution(null)).toEqual(DEFAULT_EXECUTION);

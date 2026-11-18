@@ -1,3 +1,5 @@
+import { NO_PROGRESS_S, validateExecution } from "../config/execution";
+import { loadStrategy } from "../config/strategy";
 import { getWork } from "../dispatch/work";
 import { listTasksWhere } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
@@ -8,38 +10,51 @@ import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
 import type { Message } from "./types";
 
-export type StallReason = "undelivered" | "idle_run" | "unread_external" | "unread_human" | "cycle";
+export type StallReason = "undelivered" | "idle_run" | "no_progress" | "unread_external" | "unread_human" | "cycle";
 /**
  * A participant that holds the next move. `blocking` lists the nodes waiting on it; in a cycle, `waitingOn` is the
  * member it waits on and `deepest` the launched member with the greatest depth, if any.
  */
 export interface Stall { node: string; reason: StallReason; waitingOn?: string; blocking: string[]; deepest?: string }
-/** `parent` is the participant a task reports to; `depth` counts task hops from its tree's root (0). */
-export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number }
-export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean }
+/**
+ * `parent` is the participant a task reports to; `depth` counts task hops from its tree's root (0). `lastProgressAt` is the
+ * latest file change or commit, attempt start or outgoing message other than a nudge; terminal output is not progress.
+ */
+export interface SnapshotTask { task: TaskRecord; work: boolean; parent: string | null; depth: number; lastProgressAt: number }
+/** `noProgressS` is `execution.no_progress_min` in seconds. */
+export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; questions: Message[]; retryDelivery: boolean; noProgressS: number }
 
 const WINDOW_S = 7 * 86400;
 const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", "needs_input"] as const;
+/** Phases in which a running task is idle (its own stall), waiting on someone else, or being driven. */
+const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving"]);
+
+function noProgressS(ctx: Ctx): number {
+  try { return validateExecution(loadStrategy(ctx).execution).noProgressS ?? NO_PROGRESS_S; } catch { return NO_PROGRESS_S; }
+}
 
 /** Reads the open tasks, unread messages and unanswered questions the analysis needs. */
 export function buildSnapshot(ctx: Ctx): LivenessSnapshot {
+  const db = messagesDatabase(ctx);
+  const lastSent = db.query<{ at: number | null }, [string]>("SELECT MAX(created_at) AS at FROM messages WHERE sender=? AND kind<>'nudge'");
   const tasks = listTasksWhere(ctx, { states: [...OPEN_STATES], updatedSince: ctx.now - WINDOW_S }).filter(t => !isClosed(t)).map(task => {
     const self = `task:${task.id}`;
     const parent = parentOf(ctx, self);
     let depth = 0;
     for (let p = parent; p && taskOf(p) && depth < 64; p = parentOf(ctx, p)) depth++;
-    return { task, work: !!getWork(ctx, task.id), parent, depth };
+    const started = task.attemptStartedAt ?? task.run?.startedAt ?? task.createdAt;
+    const lastProgressAt = Math.max(task.progress?.lastChangeAt ?? 0, started, lastSent.get(self)?.at ?? 0);
+    return { task, work: !!getWork(ctx, task.id), parent, depth, lastProgressAt };
   });
-  const db = messagesDatabase(ctx);
   const ids = (sql: string, ...args: number[]) => db.query<{ id: string }, number[]>(sql).all(...args).map(r => getMessage(ctx, r.id)!).filter(Boolean);
   const unread = ids("SELECT id FROM messages WHERE status IN ('pending','delivered') ORDER BY id");
   const questions = ids(`SELECT id FROM messages q WHERE kind='question' AND status<>'held' AND created_at>=?
     AND NOT EXISTS (SELECT 1 FROM messages a WHERE a.reply_to=q.id AND a.kind='answer') ORDER BY id`, ctx.now - WINDOW_S);
-  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery };
+  return { tasks, unread, questions, retryDelivery: effectivePolicy(ctx).config.liveness.retry_delivery, noProgressS: noProgressS(ctx) };
 }
 
 /** Pure: who holds the next move in each open conversation that is not moving. Nodes without a stall are absent. */
-export function analyzeLiveness(snapshot: LivenessSnapshot, _now: number): Stall[] {
+export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[] {
   const open = new Map(snapshot.tasks.filter(n => !isClosed(n.task) && !n.task.archived).map(n => [`task:${n.task.id}`, n]));
   const known = (p: string) => taskOf(p) ? open.has(p) : p === "human" || p.startsWith("external:");
   const active = (p: string) => { const t = open.get(p)?.task; return !!t && (t.state === "queued" || t.state === "running" || !!t.pendingTurn); };
@@ -64,6 +79,10 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, _now: number): Stall
   for (const [p, n] of open) {
     const t = n.task;
     if (t.state === "running" && t.progress?.phase === "idle") stalls.set(p, { node: p, reason: "idle_run", blocking: blocking(p) });
+    // Output keeps a spinner or retry loop out of idle_run; only progress clears this. Without a progress record, output is unknown.
+    else if (t.state === "running" && t.progress && !NO_PROGRESS_EXEMPT.has(t.progress.phase) && now - n.lastProgressAt >= snapshot.noProgressS) {
+      stalls.set(p, { node: p, reason: "no_progress", blocking: blocking(p) });
+    }
     else if (!active(p) && (!n.work || snapshot.retryDelivery) && unread.some(m => m.to === p && m.status === "pending")) {
       stalls.set(p, { node: p, reason: "undelivered", blocking: blocking(p) });
     }

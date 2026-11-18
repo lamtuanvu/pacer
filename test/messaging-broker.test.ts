@@ -198,3 +198,20 @@ test("strict mode escalates an idle run instead of nudging it", async () => {
   expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
 });
+
+test("spinner output does not reset a no_progress stall", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "spin", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const spin = (at: number) => updateTask(ctx, task.id, t => {
+    t.state = "running"; t.attemptStartedAt = ctx.now - 3600;
+    t.progress = { phase: "working", lastOutputAt: at, lastChangeAt: ctx.now - 3600 } as typeof t.progress;
+  });
+  const node = `task:${task.id}`;
+  spin(ctx.now - 1);
+  await brokerTick(ctx, { mode });
+  const first = getLiveness(ctx, node);
+  expect(first).toMatchObject({ reason: "no_progress", since: ctx.now, nudges: 0 });
+  spin(ctx.now + 14);
+  await brokerTick({ ...ctx, now: ctx.now + 15 }, { mode });
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "no_progress", since: first!.since, nudges: first!.nudges, progressMark: first!.progressMark });
+});

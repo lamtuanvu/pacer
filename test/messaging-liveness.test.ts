@@ -42,8 +42,8 @@ function msg(from: string, to: string, o: Partial<Message> = {}): Message {
   return { id: `m-${String(seq).padStart(14, "0")}`, taskId: null, rootId: to, from, to, kind: "message", body: "x", replyTo: null, requestId: null,
     status: "pending", createdAt: NOW - 50, deliveredAt: null, readAt: null, turnId: null, ...o };
 }
-const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, ...o });
-const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, ...o });
+const node = (t: TaskRecord, o: Partial<SnapshotTask> = {}): SnapshotTask => ({ task: t, work: false, parent: "external:planner", depth: 1, lastProgressAt: NOW, ...o });
+const snap = (o: Partial<LivenessSnapshot>): LivenessSnapshot => ({ tasks: [], unread: [], questions: [], retryDelivery: true, noProgressS: 1800, ...o });
 
 test("a settled task with a pending message is undelivered", () => {
   const t = task("t-a");
@@ -108,6 +108,48 @@ test("a work node is undelivered only when retry_delivery applies", () => {
   const tasks = [node(t, { work: true, parent: "task:t-p", depth: 2 }), node(task("t-p", { state: "running" }))];
   expect(analyzeLiveness(snap({ tasks, unread, retryDelivery: true }), NOW)).toEqual([expect.objectContaining({ node: "task:t-w", reason: "undelivered" })]);
   expect(analyzeLiveness(snap({ tasks, unread, retryDelivery: false }), NOW)).toEqual([]);
+});
+
+const working = (phase: string, o: Partial<TaskRecord> = {}) =>
+  task("t-a", { state: "running", progress: { phase, lastOutputAt: NOW - 5, lastChangeAt: NOW - 3600 } as TaskRecord["progress"], ...o });
+
+test("a running task with output but no progress for 30 min is no_progress", () => {
+  expect(analyzeLiveness(snap({ tasks: [node(working("working"), { lastProgressAt: NOW - 1800 })] }), NOW))
+    .toEqual([expect.objectContaining({ node: "task:t-a", reason: "no_progress" })]);
+  expect(analyzeLiveness(snap({ tasks: [node(working("working"), { lastProgressAt: NOW - 1799 })] }), NOW)).toEqual([]);
+  // The configured window applies, and idle_run keeps precedence.
+  expect(analyzeLiveness(snap({ tasks: [node(working("working"), { lastProgressAt: NOW - 1800 })], noProgressS: 3600 }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(working("idle"), { lastProgressAt: NOW - 7200 })] }), NOW))
+    .toEqual([expect.objectContaining({ reason: "idle_run" })]);
+});
+
+test("a driving or needs-input task is never no_progress", () => {
+  for (const phase of ["driving", "needs-input"]) {
+    expect(analyzeLiveness(snap({ tasks: [node(working(phase), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+  }
+  // A settled task is not a run.
+  expect(analyzeLiveness(snap({ tasks: [node(working("working", { state: "done" }), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
+});
+
+test("an outgoing message counts as progress", () => {
+  const ctx = fakeCtx({ now: NOW });
+  const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, t.id, x => {
+    x.state = "running"; x.origin = "external:planner"; x.attemptStartedAt = NOW - 3600;
+    x.progress = { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: NOW - 3000 } as typeof x.progress;
+  });
+  const from = `task:${t.id}`;
+  const base = { taskId: t.id, rootId: from, from, to: "external:planner", body: "x", replyTo: null, requestId: null };
+  // A nudge is not progress.
+  store.insertMessage({ ...ctx, now: NOW - 600 }, { ...base, kind: "nudge" });
+  let s = buildSnapshot(ctx);
+  expect(s.noProgressS).toBe(1800);
+  expect(s.tasks[0]!.lastProgressAt).toBe(NOW - 3000);
+  expect(analyzeLiveness(s, NOW).filter(x => x.node === from)).toEqual([expect.objectContaining({ reason: "no_progress" })]);
+  store.insertMessage({ ...ctx, now: NOW - 300 }, { ...base, kind: "message" });
+  s = buildSnapshot(ctx);
+  expect(s.tasks[0]!.lastProgressAt).toBe(NOW - 300);
+  expect(analyzeLiveness(s, NOW).filter(x => x.node === from)).toEqual([]);
 });
 
 test("buildSnapshot reads open tasks, unread messages and unanswered questions", () => {

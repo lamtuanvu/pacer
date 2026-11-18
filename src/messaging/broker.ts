@@ -19,9 +19,11 @@ export interface BrokerReport { skipped?: "locked" | "mode_unavailable"; stalls?
 export interface BrokerDeps { spawnRunner?: SpawnRunner; mode: () => Promise<Mode | undefined> }
 
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
-  const task = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node)?.task;
+  const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, task?.progress?.lastOutputAt, last?.id]);
+  // A spinner moves lastOutputAt every tick; a no-progress stall resets only on progress.
+  const moved = stall.reason === "no_progress" ? n?.lastProgressAt : task?.progress?.lastOutputAt;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id]);
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
