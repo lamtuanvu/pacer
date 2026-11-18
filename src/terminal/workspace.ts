@@ -5,6 +5,7 @@ import { withLock } from "../core/lock";
 import { CoreError } from "../core/errors";
 import { readRun, startRun, stopRun, type RunSpec } from "../supervisor/run";
 import type { Ctx } from "../types";
+import { CORE_SECRET_ENV } from "../core-secrets";
 import { resolveLoginShell } from "./login-shell";
 import { hostVersionView, type HostVersionView } from "../session/protocol";
 
@@ -136,7 +137,7 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
     writePrivate(join(base, "requests.json"), reservations);
     const env: Record<string,string|undefined> = { ...process.env, ...ctx.env, ...(input.kind === "action" ? input.env : undefined), HOME: ctx.home, PACER_HOME: ctx.pacerHome };
     if (input.kind === "shell") env.SHELL = argv[0];
-    for (const name of ["PACER_AUTH_TOKEN","PACER_INTERNAL_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
+    for (const name of [...CORE_SECRET_ENV,"PACER_AUTH_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
     let started: ReturnType<Start>;
     try { started = (deps.start ?? startRun)({ dir, cwd, argv, env, session: "interactive", terminal: true }); }
     catch (error) { started = { error: String(error) }; }

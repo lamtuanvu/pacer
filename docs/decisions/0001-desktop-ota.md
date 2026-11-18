@@ -59,3 +59,8 @@ Until the project holds an Apple Developer ID, production builds may pin a proje
 
 Moving to Developer ID uses one bridge release that is signed with the self-signed certificate and pins both signers. Later releases pin only the Team ID.
 
+## Addendum 2026-11-17: nightly channel
+
+Status: Proposed with [ADR 0028](0028-nightly-update-channel.md). Accepted when the maintainer merges it.
+
+ADR 0028 extends this ADR's stable-release scope to signed nightly prereleases (`X.Y.Z-nightly.N`) for installations that set `update_channel: nightly`. The nightly feed URL is a compile-time constant beside the stable one, and the adapter's `check` command selects between them with a `stable` or `nightly` enum, never a URL. The native updater accepts `X.Y.Z-nightly.N` installed versions and `nightly.json` entries, while `stable.json` stays `X.Y.Z` only. Signing, the updater key, artifact pinning and the both-architecture gate are unchanged, and no channel ever downgrades.

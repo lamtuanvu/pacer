@@ -116,7 +116,7 @@ A per-connection proxy: the front door spawns one `pacer-core api --stdio` per c
 The front door listens on `127.0.0.1:<port>` and owns everything a client sees:
 
 - the token (`$PACER_HOME/token`, 0600, created as `ensureToken` does), the host-header check (421), `/health`, bearer auth, cookie sessions read from `app/sessions.json`, the `sec-fetch-site`, origin and `x-pacer-client` rules, exactly as `src/serve/http.ts` orders them;
-- a child `pacer-core serve --internal`, which binds `127.0.0.1:0`, prints `{"internal":{"port":N}}` as its first stdout line, trusts only `Authorization: Bearer <PACER_INTERNAL_TOKEN>` (from the environment, never argv), and keeps the pump, job, status and panel loops;
+- a child `pacer-core serve --internal`, which binds `127.0.0.1:0`, prints `{"internal":{"port":N}}` as its first stdout line, trusts only `Authorization: Bearer <internal token>` (from the secrets frame on its stdin, never the environment or argv; amended by ADR 0027 item 9), and keeps the pump, job, status and panel loops;
 - forwarding: `/v3/ops/<op>` native when in `NATIVE_OPS`, otherwise proxied; all other `/v2`, `/v3`, `/app` routes and the session WebSocket upgrade proxied. The front door adds `x-pacer-auth: bearer` or `x-pacer-auth: cookie` so the core keeps its `terminalPresetsOnly` rule.
 
 The child is supervised: restart with backoff (1 s doubling to 30 s), `502` with a plain message while it is down, SIGTERM then SIGKILL after 5 s on stop.

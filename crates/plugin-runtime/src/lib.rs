@@ -7,7 +7,8 @@
 //! / [`HOST_BRIDGE_ENABLE_ENV`] opt into a [`NativeHostSession`] that claims
 //! supervision, binds the reverse bridge with live sealed `_host.plugin.call`
 //! / `find` / `stop`, and exports [`HOST_SOCKET_ENV`] and the per-start
-//! credential [`HOST_SOCKET_KEY_ENV`] for Core alone ([`OwnerKey`]).
+//! credential ([`OwnerKey`]), which reaches Core alone in the secrets frame on
+//! its stdin.
 //! Falsy values (`0` / `false` / `no`) are the P4d-5 escape hatch for the
 //! future default-on cutover. Flag-on serve routes native plugin RPC through
 //! that owner so TypeScript does not also spawn the same plugin id. P4d-6/7

@@ -9,7 +9,9 @@ import { createInterface } from "node:readline";
 import { runStdio } from "../../src/api/stdio";
 import { makeCtx } from "../../src/ctx";
 import { startServer } from "../../src/serve/http";
+import { readCoreSecrets, scrubCoreSecrets } from "../../src/core-secrets";
 
+const secrets = scrubCoreSecrets(process.env) ? readCoreSecrets() : {};
 const ctx = makeCtx();
 const fresh = () => ({ ...ctx, now: Date.now() / 1000 });
 const record = (call: string) => appendFileSync(join(ctx.pacerHome, "core-calls.log"), `${call}\n`);
@@ -23,8 +25,7 @@ async function* methods() {
 
 const [command, flag] = process.argv.slice(2);
 if (command === "serve" && flag === "--internal") {
-  const token = ctx.env.PACER_INTERNAL_TOKEN!;
-  delete ctx.env.PACER_INTERNAL_TOKEN;
+  const token = secrets.internalToken!;
   const core = startServer(fresh, { internal: { token } });
   const logged = Bun.serve({
     hostname: "127.0.0.1", port: 0, idleTimeout: 0,
@@ -42,8 +43,7 @@ if (command === "serve" && flag === "--internal") {
   process.stdin.once("end", () => { logged.stop(true); void core.stop().finally(() => process.exit(0)); });
   process.stdin.resume();
 } else if (command === "api" && flag === "--stdio") {
-  const nativeConfigKey = ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
-  delete ctx.env.PACER_NATIVE_CONFIG_SYNC_KEY;
+  const nativeConfigKey = secrets.nativeConfigSyncKey;
   await runStdio(fresh, methods(), line => { process.stdout.write(line); }, { nativeConfigKey });
   process.exit(0);
 } else {

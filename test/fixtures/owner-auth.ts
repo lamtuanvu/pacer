@@ -1,6 +1,6 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { Socket } from "node:net";
-import { HOST_SOCKET_KEY_ENV, takeOwnerKey } from "../../src/plugins/host-bridge";
+import { holdOwnerKey } from "../../src/plugins/host-bridge";
 
 /**
  * The owner's side of the bridge credential (#918) for stand-in owners: Core in this test
@@ -11,7 +11,7 @@ let key: Buffer | undefined;
 /** Give in-process Core a fresh owner credential, as the owner does for its Core child. */
 export function useOwnerKey(): Buffer {
   key = randomBytes(32);
-  takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: key.toString("hex") });
+  holdOwnerKey(key.toString("hex"));
   return key;
 }
 

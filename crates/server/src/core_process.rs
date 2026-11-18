@@ -14,7 +14,8 @@ mod tests;
 
 /// Keys Core deletes from `process.env` at startup. Stripped on both doors,
 /// even where that door's Core keeps one, so no credential reaches a CLI.
-const CONSUMED: [&str; 4] = [
+const CONSUMED: [&str; 5] = [
+    crate::core_secrets::ANNOUNCE_ENV,
     "PACER_HOST_SOCKET_KEY",
     "PACER_INTERNAL_NATIVE_BOOTSTRAP",
     "PACER_INTERNAL_TOKEN",
