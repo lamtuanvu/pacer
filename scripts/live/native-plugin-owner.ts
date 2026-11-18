@@ -89,7 +89,7 @@ async function waitingServe(session: Session) {
  */
 export async function exerciseNativePluginOwner(session: Session): Promise<void> {
   if (session.frontDoor !== "rust" || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
-    throw Error("native plugin owner requires a --front-door rust --native-plugin-host sandbox without forwarding or real Keychain");
+    throw Error("native plugin owner requires a Rust-front-door sandbox (owner active) without forwarding or real Keychain");
   }
   const home = join(session.root, "home");
   const socket = join(home, "run/host.sock");
