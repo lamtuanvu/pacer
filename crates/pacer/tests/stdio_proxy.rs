@@ -85,7 +85,9 @@ fn core_exit_does_not_wait_for_client_eof() {
         &[
             "/bin/sh".into(),
             "-c".into(),
-            "printf 'done\\n'; exit 4".into(),
+            // Like Core, the stub consumes the secrets frame before writing;
+            // otherwise the door's frame write races this core's instant exit.
+            "IFS= read -r header || exit 11; printf 'done\\n'; exit 4".into(),
         ],
         home.path(),
     );
