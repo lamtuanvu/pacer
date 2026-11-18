@@ -28,11 +28,11 @@ const CARDS = `[${JSON.stringify(CARD)},{"id":"card-2","op":"navigate","params":
 
 const db = (home: string) => assistantDatabase(fakeCtx({pacerHome: home, home}));
 const strategy = (home: string) => writeFileSync(join(home, "strategy.yaml"), STRATEGY);
-const settings = (account: string | null, limits = '{"turnsPerDay":3}', retention = '{"conversations":200,"days":30}') => (home: string) =>
-  db(home).query("INSERT INTO assistant_settings VALUES(1,'opencode#ep',?,?,?,4)").run(account, limits, retention);
+const settings = (account: string | null, limits = '{"turnsPerDay":3}', retention = '{"conversations":200,"days":30}', backend: string | null = null) => (home: string) =>
+  db(home).query("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep',?,?,?,?,4)").run(account, backend, limits, retention);
 function history(home: string) {
   db(home).exec(`
-    INSERT INTO assistant_conversations VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
+    INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
     INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES
       ('turn-1','c-a',1,1699999000.5,'How?','Like ${TASK}.','done',NULL,'ep','{"kind":"dispatch","days":7}','${CARDS.replaceAll("'", "''")}','[{"label":"${TASK}","href":"#/tasks/${TASK}"}]'),
       ('turn-2','c-a',2,1699999100,'Next',NULL,'running',NULL,NULL,'{"kind":"task","id":"${TASK}"}','[]','[]'),
@@ -99,7 +99,15 @@ test("native assistant settings, history and cards match TypeScript results, err
     ["assistant.settings.set", {runner: 1, account: true, expect_rev: 1.5, limits: [], retention: null}],
     ["assistant.settings.set", {...base, expect_rev: -1e300, limits: {maxInputTokens: 1e300, maxToolRounds: -1e300, turnsPerDay: "x", deadlineMs: null}}],
     ["assistant.settings.set", {runner: "", account: "a".repeat(65), expect_rev: 0}],
+    // `backend` is additive: a valid value is stored, anything else is one zod issue, absent keeps the stored choice.
+    ["assistant.settings.set", {...base, backend: "pacer"}, strategy],
+    ["assistant.settings.set", {...base, backend: "executor"}, strategy],
+    ["assistant.settings.set", {...base, backend: "x"}, strategy],
+    ["assistant.settings.set", {...base, backend: 5}, strategy],
+    ["assistant.settings.set", {...base, backend: null}, strategy],
     ["assistant.settings.set", "x"],
+    ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor")],
+    ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "garbage")],
     ["assistant.candidates", {}, strategy],
     ["assistant.status", {}],
     ["assistant.status", {}, all(settings(null), history)],

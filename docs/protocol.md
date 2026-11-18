@@ -1111,7 +1111,7 @@ Params JSON Schema:
 
 ### `assistant.candidates`
 
-Endpoint accounts the assistant could run on, and what it is allowed to read.
+Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.
 
 Params JSON Schema:
 
@@ -1269,7 +1269,7 @@ Params JSON Schema:
 
 ### `assistant.settings.get`
 
-The assistant's account, limits and retention, with a revision for assistant.settings.set.
+The assistant's account, backend, limits and retention, with a revision for assistant.settings.set.
 
 Params JSON Schema:
 
@@ -1284,7 +1284,7 @@ Params JSON Schema:
 
 ### `assistant.settings.set`
 
-Choose the executor account the assistant runs on, and its limits and retention. Needs the current revision.
+Choose the account and backend the assistant answers on, and its limits and retention. Needs the current revision.
 
 Params JSON Schema:
 
@@ -1375,6 +1375,13 @@ Params JSON Schema:
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "pacer",
+        "executor"
+      ]
     }
   },
   "required": [

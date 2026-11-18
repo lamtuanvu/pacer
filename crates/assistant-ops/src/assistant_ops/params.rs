@@ -6,6 +6,7 @@ use pacer_store::assistant::{Field, LIMITS, RETENTION};
 use serde_json::{Map, Value};
 
 const STATES: [&str; 4] = ["done", "failed", "dismissed", "stale"];
+const BACKENDS: [&str; 2] = ["pacer", "executor"];
 
 pub(crate) struct SettingsParams {
     pub runner: Option<String>,
@@ -13,6 +14,7 @@ pub(crate) struct SettingsParams {
     pub limits: Option<Vec<i64>>,
     pub retention: Option<Vec<i64>>,
     pub expect_rev: i64,
+    pub backend: Option<String>,
 }
 
 pub(crate) enum Params {
@@ -190,12 +192,27 @@ pub(crate) fn parse(op: &str, params: Value) -> Result<Params, CoreError> {
             let limits = issues.fields("limits", p.get("limits"), &LIMITS);
             let retention = issues.fields("retention", p.get("retention"), &RETENTION);
             let expect_rev = issues.int("expect_rev", p.get("expect_rev"), 0, true, None);
+            // `backend: z.enum(["pacer","executor"]).optional()`: absent keeps the stored choice.
+            let backend = match p.get("backend") {
+                None => None,
+                Some(value) => match value.as_str() {
+                    Some(name) if BACKENDS.contains(&name) => Some(name.to_owned()),
+                    _ => {
+                        issues.push(
+                            "backend",
+                            "Invalid option: expected one of \"pacer\"|\"executor\"",
+                        );
+                        None
+                    }
+                },
+            };
             Params::Settings(SettingsParams {
                 runner,
                 account,
                 limits,
                 retention,
                 expect_rev: expect_rev.unwrap_or(0),
+                backend,
             })
         }
         "assistant.conversations" => {

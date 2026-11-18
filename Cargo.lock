@@ -1620,6 +1620,7 @@ name = "pacer-plugin"
 version = "0.2.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
+ "pacer-plugin-assistant-protocol",
  "pacer-plugin-decision-protocol",
  "pacer-plugin-exec-protocol",
  "pacer-plugin-hosts-protocol",
@@ -1638,6 +1639,16 @@ dependencies = [
  "regress",
  "serde",
  "serde_json",
+]
+
+[[package]]
+name = "pacer-plugin-assistant-protocol"
+version = "0.2.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
 ]
 
 [[package]]
