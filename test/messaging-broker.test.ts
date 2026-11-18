@@ -461,3 +461,63 @@ test("a human origin is only notified", async () => {
     expect(aliveSpy).not.toHaveBeenCalled();
   } finally { aliveSpy.mockRestore(); }
 });
+
+test("resumes a closed caller after the wake delay", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: { step: string; taskId: string }[] = [];
+  const callerWake = async (_c: any, _r: any, _text: any, step: any, taskId: any) => { calls.push({ step, taskId }); return "resumed" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].step).toBe("resume");
+    expect(calls[0].taskId).toBe(task.id);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges).toBe(1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("never resumes an open caller", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx, "external:claude-code:s1", "tmux");
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges ?? 0).toBe(0);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("resume unavailable falls through to notification", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, _t: any, step: any) => { calls.push(step); return "unavailable" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toContain("resume");
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, "external:claude-code:s1")?.stalledAt).toBe(1_000_900);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(1_000_900);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("strict mode never resumes", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "resumed" as const; };
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(aliveSpy).not.toHaveBeenCalled();
+    expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(ctx.now);
+  } finally { aliveSpy.mockRestore(); }
+});
