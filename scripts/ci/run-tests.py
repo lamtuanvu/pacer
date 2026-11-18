@@ -12,5 +12,7 @@ files = json.loads(listing)
 if not files:
     sys.exit("No test files selected")
 # Bun treats a bare path as a substring filter; ./ selects exactly that file.
-command = ["bun", "test", "--timeout", "30000", *(f"./{name}" for name in files)]
+# Linux shards run files in parallel; the macOS job keeps bun's default.
+jobs = [] if "--macos" in sys.argv[1:] else ["--jobs=4"]
+command = ["bun", "test", "--timeout", "30000", *jobs, *(f"./{name}" for name in files)]
 os.execvpe("bun", command, {**os.environ, "TZ": "Asia/Ho_Chi_Minh"})

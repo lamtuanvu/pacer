@@ -115,6 +115,16 @@ test("timings add up each file's test results from the shard logs", () => {
   expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ "test/a.test.ts": 2, "test/b.test.tsx": 0.25 });
 });
 
+test("Linux shards run four test jobs and the macOS job keeps bun's default", () => {
+  const root = fixture({ "test/a.test.ts": 1 }, "only test/a.test.ts\n");
+  mkdirSync(join(root, "bin"));
+  writeFileSync(join(root, "bin/bun"), '#!/bin/sh\nprintf "%s\\n" "$@"\n', { mode: 0o755 });
+  const args = (...flags: string[]) => Bun.spawnSync(["python3", resolve("scripts/ci/run-tests.py"), ...flags], { cwd: root, env: { PATH: `${join(root, "bin")}:${process.env.PATH}`,
+    SHARD_TIMINGS: join(root, "durations.json"), SHARD_MACOS_MANIFEST: join(root, "manifest.txt"), SHARD_INDEX: "0", SHARD_COUNT: "1" } }).stdout.toString().trim().split("\n");
+  expect(args()).toEqual(["test", "--timeout", "30000", "--jobs=4", "./test/a.test.ts"]);
+  expect(args("--macos")).toEqual(["test", "--timeout", "30000", "./test/a.test.ts"]);
+});
+
 const workflow = () => Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
 
 test("the shard matrix matches SHARD_COUNT and focused or docs-only runs use one shard", () => {
