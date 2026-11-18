@@ -35,7 +35,7 @@ export interface SettingsData {
   projects?: Resource<ProjectStrategy[]>;
   strategies?: Resource<{ name: string; active: boolean; summary: string; description?: string }[]>;
   update?: Resource<UpdateInfo>;
-  notifications?: Resource<{ level: string }>;
+  notifications?: Resource<{ level: string; sound: string }>;
 }
 export interface SettingsAccount {
   name: string; kind: string; label?: string; source?: string; runners?: string[]; executors?: string[];
@@ -93,4 +93,4 @@ export interface ScreenView {
 }
 
 /** The `update.check` result. */
-export interface UpdateInfo { current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean }
+export interface UpdateInfo { current: string; latest: string | null; available: boolean; error?: string; disabled?: boolean; managedBy?: "desktop" | "homebrew" | "npm"; managedHint?: string }

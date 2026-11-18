@@ -83,6 +83,8 @@ test('operation failures remain visible in words and still refetch setup', async
   expect(h.refreshes()).toBe(1);
   expect(renderToString(<ErrorMessage error={error} />)).toContain('Live validation D8: service.install changes the real user environment');
   expect(renderToString(<ErrorMessage error={new ApiError('conflict', 'Setup changed. Try again.', 'Refresh setup.')} />)).toContain('Refresh setup.');
+  const repeated = renderToString(<ErrorMessage error={new ApiError('not_allowed', 'use Settings → Updates', 'use Settings → Updates')} />);
+  expect(repeated.split('use Settings → Updates').length - 1).toBe(1);
 });
 test('Home banner requires complete but not ready; local dismissal changes when pending items change', () => {
   const complete = { ...check, complete: true };

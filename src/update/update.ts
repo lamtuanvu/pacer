@@ -91,8 +91,11 @@ export function defaultUpdateDeps(ctx: Ctx): UpdateDeps {
 const ok = (out: string): Result => ({ code: 0, out, err: "" });
 const fail = (code: number, msg: string): Result => ({ code, out: "", err: `pacer update: ${msg}` });
 
-function installHint(d: UpdateDeps): string | undefined {
-  if (d.env.PACER_INSTALL_METHOD === "npm") return "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest";
+/** An installation that another installer updates; `pacer update` must not replace it. */
+export interface UpdateManager { by: "desktop" | "homebrew" | "npm"; message: string }
+
+export function installManager(d: Pick<UpdateDeps, "env" | "execPath">): UpdateManager | undefined {
+  if (d.env.PACER_INSTALL_METHOD === "npm") return {by: "npm", message: "pacer was installed with npm; update with: npm install -g @lamtuanvu/pacer@latest"};
   let real: string;
   try { real = realpathSync(d.execPath); } catch { return undefined; }
   const prefixes = [d.env.HOMEBREW_PREFIX, d.env.HOMEBREW_CELLAR].filter((p): p is string => !!p);
@@ -100,11 +103,11 @@ function installHint(d: UpdateDeps): string | undefined {
     try { p = realpathSync(p); } catch { /* A configured prefix may not exist on this host. */ }
     return real.startsWith(`${p.replace(/\/+$/, "")}/`);
   })) {
-    return "pacer was installed with Homebrew; update with: brew upgrade pacer";
+    return {by: "homebrew", message: "pacer was installed with Homebrew; update with: brew upgrade pacer"};
   }
   // The desktop app updates its own bundled CLI with the complete app.
   if (isBundledExecutable(d.execPath) || /\.app\/Contents\/(MacOS|Resources)\/pacer$/.test(real)) {
-    return "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app";
+    return {by: "desktop", message: "this executable belongs to the desktop app; use Settings → Updates in the desktop to update the complete app"};
   }
   return undefined;
 }
@@ -114,7 +117,7 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     if (o.check || !d.migrateStrategy) return "";
     const lines = d.migrateStrategy(); return lines.length ? `\n${lines.join("\n")}` : "";
   };
-  const hint = installHint(d);
+  const hint = installManager(d)?.message;
   if (hint && !o.check) return fail(2, hint);
   const checked = (out: string): Result => ok(out + (hint ? `\n${hint}` : ""));
   const raw = o.base ?? (d.env.PACER_RELEASE_BASE || undefined);

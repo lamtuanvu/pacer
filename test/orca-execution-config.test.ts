@@ -10,6 +10,14 @@ test("idle minutes: optional integers, fail after idle", () => {
   }
 });
 
+test("transient retry minutes: optional, positive whole minutes", () => {
+  expect(validateExecution({ transient_retry_min: 5 })).toMatchObject({ transientRetryS: 300 });
+  expect(validateExecution({}).transientRetryS).toBeUndefined();
+  for (const bad of [{ transient_retry_min: 0 }, { transient_retry_min: -1 }, { transient_retry_min: 2.5 }, { transient_retry_min: "10" }]) {
+    expect(() => validateExecution(bad)).toThrow(ExecutionError);
+  }
+});
+
 test("a missing or empty execution section uses the defaults", () => {
   expect(validateExecution(undefined)).toEqual({ autoClean: true, localMaxTasks: null, localMemoryPressureLimit: "critical", localLoadLimit: null, backend: "auto", worktree: "child-of-current", baseBranch: null });
   expect(validateExecution(null)).toEqual(DEFAULT_EXECUTION);

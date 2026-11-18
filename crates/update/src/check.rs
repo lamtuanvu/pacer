@@ -26,7 +26,39 @@ fn current_version() -> &'static str {
 /// A cached `latest` that is an array passes `isVersion` through `String(array)` coercion in
 /// TypeScript and is then reported as is; only the reference reproduces that.
 pub(crate) fn stays_forwarded(ctx: &Ctx) -> bool {
-    checks_enabled(ctx) && cache_document(ctx).is_some_and(|doc| doc["latest"].is_array())
+    (checks_enabled(ctx) && cache_document(ctx).is_some_and(|doc| doc["latest"].is_array()))
+        || maybe_managed_elsewhere(ctx)
+}
+
+/// Whether `updateManager` in `src/api/ops.ts` may report `managedBy`: a desktop owner record,
+/// an npm or Homebrew install, or an app-bundled executable. Over-approximates, since a
+/// forwarded check is always the reference answer.
+fn maybe_managed_elsewhere(ctx: &Ctx) -> bool {
+    let set = |key: &str| ctx.env.get(key).is_some_and(|value| !value.is_empty());
+    if set("PACER_INSTALL_METHOD") || set("HOMEBREW_PREFIX") || set("HOMEBREW_CELLAR") {
+        return true;
+    }
+    let owner = fs::read_to_string(ctx.pacer_home.join("owner.json")).ok();
+    if owner
+        .and_then(|text| serde_json::from_str::<Value>(&text).ok())
+        .is_some_and(|doc| doc["owner"] == "desktop")
+    {
+        return true;
+    }
+    let bin = ctx
+        .env
+        .get("PACER_BIN")
+        .filter(|path| !path.is_empty())
+        .map(std::path::PathBuf::from);
+    let exe = std::env::current_exe().ok();
+    // Both the given and the resolved path, like `isBundledExecutable`, whose bundle match ignores case.
+    [bin, exe].into_iter().flatten().any(|path| {
+        let real = fs::canonicalize(&path).ok();
+        [Some(path), real].into_iter().flatten().any(|candidate| {
+            let text = candidate.to_string_lossy().to_lowercase();
+            text.contains("/cellar/pacer/") || text.contains(".app/contents/")
+        })
+    })
 }
 
 pub fn update_check(ctx: &Ctx, params: Value) -> OpFuture<'_> {

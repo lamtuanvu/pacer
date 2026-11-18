@@ -2,6 +2,6 @@
   "mainBinaryName": "pacer",
   "bundle": {
     "externalBin": ["binaries/pacer-permission-setup"],
-    "resources": { "PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy" }
+    "resources": { "PrivacyInfo.xcprivacy": "PrivacyInfo.xcprivacy", "sounds/pacer-drop.caf": "pacer-drop.caf" }
   }
 }

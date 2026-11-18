@@ -303,10 +303,14 @@ test.skipIf(!browserPath)("the shared notice sits above the status bar, the narr
   for (const [[width, height], launcher] of [[1440, 900], [1024, 700], [375, 700]].flatMap(size => ["closed", "open"].map(state => [size, state] as const))) {
     const { browser, page } = await mountNotice(width, height, launcher);
     try {
-      // The launcher stays visible and uncovered, closed or in its open-sheet position (narrow hides it while open).
+      // The launcher stays visible and uncovered, when shown (it hides while the sheet is open).
       const button = page.locator(".pc-aurora-launcher");
-      expect(await button.count()).toBe(width < 560 && launcher === "open" ? 0 : 1);
+      expect(await button.count()).toBe(launcher === "open" ? 0 : 1);
+      // An open sheet keeps its close control uncovered too.
+      const close = page.getByRole("button", { name: "Close assistant" });
+      expect(await close.count()).toBe(launcher === "open" && width >= 560 ? 1 : 0);
       if (await button.count()) expect(overlaps((await button.boundingBox())!, (await page.getByRole("complementary", { name: "Machine found" }).boundingBox())!), `${width} ${launcher}`).toBe(false);
+      if (await close.count()) expect(overlaps((await close.boundingBox())!, (await page.getByRole("complementary", { name: "Machine found" }).boundingBox())!), `${width} close`).toBe(false);
       const notice = await page.getByRole("complementary", { name: "Machine found" }).boundingBox();
       expect(notice!.x).toBeGreaterThanOrEqual(0);
       expect(notice!.x + notice!.width).toBeLessThanOrEqual(width);
