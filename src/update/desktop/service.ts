@@ -7,6 +7,7 @@ import { CoreError } from "../../core/errors";
 import type { Ctx } from "../../types";
 import { publish } from "../../link/publish";
 import { compareVersions } from "../version";
+import { updateChannel } from "../channel";
 import * as admission from "./admission";
 import { ownProcessIdentity, sameProcess, type ProcessIdentity } from "./process-identity";
 import { AdapterError, runAdapterCommand, type AdapterRequest, type PreparedFrame, type VerifiedPipeFactory } from "./adapter";
@@ -63,6 +64,8 @@ export interface DesktopUpdateRuntime {
   /** Internal lifecycle/testing drain, never a public operation. */
   settled(): Promise<void>;
 }
+/** Shown when a nightly check reaches a desktop helper that predates update channels. */
+export const NIGHTLY_HELPER_TOO_OLD = "This desktop app is too old for the nightly channel. Update the app or switch to Stable.";
 const unavailable = () => new CoreError("not_allowed", "Verified desktop update connection is unavailable", "Open a supported desktop connected to this service. Native update registration is required.");
 const conflict = () => new CoreError("conflict", "Desktop update state changed", "Read the current status and retry with a new request ID.");
 const superseded = (error: unknown) => error instanceof CoreError && (error.code === "conflict" || error.code === "not_allowed");
@@ -205,7 +208,10 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
         const value = record(id);
         if (value.phase === operation.phase) {
           const restored = resetAfterNetwork(value, operation.previous);
-          persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: { code: "update_failed", message: error instanceof AdapterError ? error.message : "Desktop update could not be verified" } });
+          // A helper that predates channels closes on the nightly `channel` key without sending a frame.
+          const tooOld = request.command === "check" && request.channel === "nightly" && error instanceof AdapterError && error.reason === "closed" && error.beforeFrames;
+          const message = tooOld ? NIGHTLY_HELPER_TOO_OLD : error instanceof AdapterError ? error.message : "Desktop update could not be verified";
+          persist({ ...restored, phase: restored.phase === "ready" ? "ready" : "error", error: { code: "update_failed", message } });
           const count = (failures.get(id) ?? 0) + 1; failures.set(id, count);
           nextCheck.set(id, clock.monotonicMs() + [60_000, 300_000, 900_000, 3_600_000, 21_600_000][Math.min(count - 1, 4)]! + jitter());
         }
@@ -237,7 +243,9 @@ export function createDesktopUpdateRuntime(getCtx: () => Ctx, deps: DesktopUpdat
       const operation: Active = { controller: new AbortController(), previous, phase: command === "check" ? "checking" : "downloading", transactionId: null };
       active.set(request.installationId, operation);
       const input: AdapterRequest = command === "check"
-        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null }
+        // Read on every check, so a channel change in Settings applies to the next check without a restart.
+        // Stable omits `channel`: a helper that predates channels rejects the key, and only nightly needs it.
+        ? { command, installationId: request.installationId, revision: value.revision, transactionId: null, ...(updateChannel(ctx()) === "nightly" ? { channel: "nightly" as const } : {}) }
         : { command, installationId: request.installationId, revision: value.revision, transactionId: null, candidate: value.candidate! };
       track(request.installationId, network(request.installationId, operation, input));
     }

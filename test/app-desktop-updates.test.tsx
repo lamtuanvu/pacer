@@ -103,3 +103,95 @@ test("progress is shown but only the phase is announced, and each update is a na
   expect(html).toMatch(/role="group" aria-label="pacer desktop 0\.2\.3"/);
   expect(html).not.toMatch(/<button[^>]*disabled=""[^>]*>Cancel update/);
 });
+
+const channelConfig = (value: "stable" | "nightly") => ({ keys: { update_channel: { value } }, planners: [] });
+const renderWithConfig = (status: UpdateStatus, config: ReturnType<typeof channelConfig>) => renderToString(<TaskContext.Provider value={{ api, state: { ...initialState(), connected: true, features: { readModel: true, ops: new Set(status.actions.map(action => `desktop.update.${action}`)) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } }}><DesktopUpdate status={status} initialConfig={config}/></TaskContext.Provider>);
+test("the nightly warning is shown only while Nightly is selected", () => {
+  const warning = "Nightly builds are untested daily snapshots of main.";
+  const status = desktopStatus({ current: "0.16.0", actions: ["check"] });
+  expect(renderWithConfig(status, channelConfig("stable"))).not.toContain(warning);
+  const nightly = renderWithConfig(status, channelConfig("nightly"));
+  expect(nightly).toContain(warning); expect(nightly).toMatch(/data-strip-value="nightly" aria-pressed="true"/);
+});
+test("stable-channel nightly install shows the catch-up note", () => {
+  const note = "You'll move to the next stable release when it's newer than this nightly.";
+  const nightly = desktopStatus({ current: "0.16.0-nightly.202611171700", actions: ["check"] });
+  const stableChannel = renderWithConfig(nightly, channelConfig("stable"));
+  expect(stableChannel).toContain("Update channel");
+  expect(stableChannel).toContain(note);
+  expect(stableChannel).toMatch(/data-strip-value="stable" aria-pressed="true"/);
+  expect(renderWithConfig(nightly, channelConfig("nightly"))).not.toContain(note);
+  expect(renderWithConfig(desktopStatus({ current: "0.16.0", actions: ["check"] }), channelConfig("stable"))).not.toContain(note);
+});
+
+type FakeNode = { nodeType: number; tagName: string; data?: string; childNodes: FakeNode[]; parentNode: FakeNode | null; attrs: Record<string, string>; style: Record<string, string>; dataset: Record<string, string>; _listeners: Record<string, (event?: unknown) => void>; [key: string]: unknown };
+const fakeNode = (tag: string): FakeNode => {
+  const node: FakeNode = {
+    nodeType: 1, tagName: tag, childNodes: [], parentNode: null, attrs: {}, style: {}, dataset: {}, _listeners: {},
+    // Preact keys its handler map by the lowercase DOM event name when the `on…` property exists.
+    onclick: null, oninput: null, onfocus: null, onblur: null, onkeydown: null, onchange: null,
+    addEventListener(type: string, fn: (event?: unknown) => void) { node._listeners[type] = fn; },
+    removeEventListener(type: string) { delete node._listeners[type]; },
+    setAttribute(name: string, value: unknown) { node.attrs[name] = String(value); if (name.startsWith("data-")) node.dataset[name.slice(5).replace(/-(\w)/g, (_, c: string) => c.toUpperCase())] = String(value); },
+    getAttribute(name: string) { return name in node.attrs ? node.attrs[name] : null; },
+    removeAttribute(name: string) { delete node.attrs[name]; },
+    appendChild(child: FakeNode) { place(node, child, null); return child; },
+    insertBefore(child: FakeNode, before: FakeNode | null) { place(node, child, before); return child; },
+    removeChild(child: FakeNode) { node.childNodes = node.childNodes.filter(c => c !== child); child.parentNode = null; return child; },
+    contains(other: unknown) { return other === node || node.childNodes.some(child => (child.contains as (o: unknown) => boolean)(other)); },
+    focus() {}, querySelector() { return null; }, querySelectorAll() { return []; }, matches() { return false; }, closest() { return null; },
+    getBoundingClientRect() { return { width: 0, height: 0 }; }, get isConnected() { return true; }, get ownerDocument() { return globalThis.document; },
+  };
+  return node;
+};
+const place = (parent: FakeNode, child: FakeNode, before: FakeNode | null) => {
+  if (child.parentNode) child.parentNode.childNodes = child.parentNode.childNodes.filter(c => c !== child);
+  const at = before ? parent.childNodes.indexOf(before) : -1;
+  if (at < 0) parent.childNodes.push(child); else parent.childNodes.splice(at, 0, child);
+  child.parentNode = parent;
+};
+const textOf = (node: FakeNode): string => node.nodeType === 3 ? node.data ?? "" : node.childNodes.map(textOf).join("");
+const findNode = (node: FakeNode, match: (n: FakeNode) => boolean): FakeNode | null => {
+  for (const child of node.childNodes) { if (match(child)) return child; const found = findNode(child, match); if (found) return found; }
+  return null;
+};
+test("channel control writes update_channel and requests a check", async () => {
+  const keys = ["document", "window", "CSSStyleSheet", "getComputedStyle", "requestAnimationFrame", "cancelAnimationFrame", "ResizeObserver"] as const;
+  const previous = Object.fromEntries(keys.map(key => [key, (globalThis as Record<string, unknown>)[key]]));
+  const doc = { adoptedStyleSheets: [], body: null, activeElement: null, createElement: fakeNode, createElementNS: (_ns: string, tag: string) => fakeNode(tag),
+    createTextNode: (text: string) => Object.assign(fakeNode("#text"), { nodeType: 3, data: text }),
+    dispatchEvent() {}, addEventListener() {}, removeEventListener() {}, getElementById: () => null, querySelector: () => null, contains: () => false };
+  Object.assign(globalThis, {
+    document: doc, CSSStyleSheet: class { replaceSync() {} }, getComputedStyle: () => ({ getPropertyValue: () => "0px" }),
+    window: { addEventListener() {}, removeEventListener() {}, innerHeight: 800, innerWidth: 1200, matchMedia: () => ({ matches: false }), setTimeout, clearTimeout },
+    requestAnimationFrame: () => 0, cancelAnimationFrame() {}, ResizeObserver: class { observe() {} disconnect() {} },
+  });
+  try {
+    const { h, render: mount } = await import("preact");
+    const { act } = await import("preact/test-utils");
+    const { ActionContext } = await import("../app/src/data/action-context");
+    const calls: { op: string; params: unknown }[] = [];
+    let channel = "stable";
+    const call = async <T,>(op: string, params: unknown): Promise<T> => {
+      calls.push({ op, params });
+      if (op === "config.set") channel = (params as { value: string }).value;
+      return (op === "config.get" ? channelConfig(channel as "stable") : {}) as T;
+    };
+    const live = { ...api, call };
+    const status = desktopStatus({ actions: ["check", "configure"] });
+    const runner = createActionRunner({ call, waitFor: async () => true, refetch() {}, navigate() {} });
+    const container = fakeNode("div");
+    const screen = h(TaskContext.Provider, { value: { api: live, state: { ...initialState(), connected: true, features: { readModel: true, ops: new Set(["desktop.update.check", "desktop.update.configure"]) }, snapshot: { ...emptySnapshot(), desktopUpdates: [status] } } } },
+      h(ActionContext.Provider, { value: runner }, h(DesktopUpdate, { status, initialConfig: channelConfig("stable") })));
+    await act(async () => { mount(screen as never, container as never); });
+    const nightly = findNode(container, n => n.tagName === "button" && textOf(n) === "Nightly");
+    expect(nightly).toBeTruthy();
+    await act(async () => { nightly!._listeners.click!.call(nightly, { type: "click", currentTarget: nightly }); });
+    for (let i = 0; i < 200 && !calls.some(c => c.op === "desktop.update.check"); i++) await act(async () => { await new Promise(r => setTimeout(r, 5)); });
+    const set = calls.findIndex(c => c.op === "config.set"), check = calls.findIndex(c => c.op === "desktop.update.check");
+    expect(calls[set]).toEqual({ op: "config.set", params: { key: "update_channel", value: "nightly" } });
+    expect(check).toBeGreaterThan(set);
+    expect(calls[check]!.params).toMatchObject({ installationId: status.installationId, expectRevision: status.revision });
+    await act(async () => { mount(null, container as never); });
+  } finally { Object.assign(globalThis, previous); }
+}, 15000);

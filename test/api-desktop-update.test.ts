@@ -1,5 +1,6 @@
 import { afterEach, expect, test } from "bun:test";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { callV2Op, v2Hello } from "../src/api/v2-compat";
 import { eventsSince, liveSnapshot } from "../src/api/events";
@@ -8,7 +9,7 @@ import { publish } from "../src/link/publish";
 import { startServer } from "../src/serve/http";
 import { HttpClient } from "../src/api/http-client";
 import { helloBody } from "../src/api/protocol";
-import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
+import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, NIGHTLY_HELPER_TOO_OLD, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
 import { FrameDecoder, encodeFrame, parseAdapterCommand, type VerifiedPipeFactory, type AdapterCommand } from "../src/update/desktop/adapter";
 import { requestRestart } from "../src/update/desktop/policy";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
@@ -19,14 +20,14 @@ const candidate: Candidate = { version: "1.1.0", arch: "aarch64", sha256: "a".re
 const cleanups: (() => void)[] = [];
 afterEach(() => { for (const fn of cleanups.splice(0)) fn(); });
 function deferred<T>() { let resolve!: (v:T) => void; const promise = new Promise<T>(r=>{resolve=r;}); return {promise,resolve}; }
-function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void> } = {}) {
+function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attached"; hold?: Promise<void>; afterAuthorized?: Promise<void>; authorize?: Promise<boolean>; late?: boolean; lostAck?: boolean; reservation?: Promise<void>; outcome?: "committed"|"restored"|"recovery-failed"; attempted?: boolean; publish?: (status: UpdateStatus) => Promise<void>; release?: () => Promise<void>; rejectChannel?: boolean } = {}) {
   const ctx = fakeCtx(); mkdirSync(ctx.pacerHome);
   const installation: Installation = { id: "desktop", appPath: "/tmp/private-desktop.app", bundleId:"dev.pacer.desktop", ownerUid:process.getuid?.()??0, arch:"aarch64", pacerHome:ctx.pacerHome, port:7433, serviceLabel:"com.pacer.serve", ownership:options.ownership??"managed", version:"1.0.0" };
   const closed=deferred<void>(); let visible=!options.late; let alive=true, boot="boot-1", now=100;
   const session: VerifiedNativeSession = { installation, desktopClientId:"native-desktop", sessionId:"native-session", bootId:boot,
     desktop:{pid:101,bootId:boot,birth:"desktop-birth"},service:{pid:102,bootId:boot,birth:"service-birth"}, alive:()=>alive, closed:closed.promise };
   const reserveEntered=deferred<void>();
-  const calls:string[]=[], commands:AdapterCommand[]=[], publications:unknown[]=[], scheduled:{delay:number;callback:()=>void}[]=[];
+  const calls:string[]=[], commands:AdapterCommand[]=[], raw:Record<string,unknown>[]=[], publications:unknown[]=[], scheduled:{delay:number;callback:()=>void}[]=[];
   const native: NativeAuthorityProvider = { sessions:()=>visible?[session]:[], subscribe:()=>()=>{}, reverify:async()=>{if(!alive)throw Error("gone");},
     authorizeInstall:async()=>options.authorize ? options.authorize : true,
     verifyOutcome:async(_s,_r,outcome)=>({ installation:{ ...installation, version:outcome==="committed"?candidate.version:installation.version }, attempted:options.attempted??true }),
@@ -40,6 +41,9 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
     return {identity:{version:"1.0.0",bundleId:"dev.pacer.desktop",arch:"aarch64"},stdout:new ReadableStream({start(c){out=c;}}),exited:exited.promise,abort(){calls.push("abort");},stdin:new WritableStream({async write(bytes){
       for(const value of decoder.push(bytes)){
         if((value as any).kind==="authorize-install") {if(options.lostAck){finish();continue;}emit({kind:"authorized",reservationId:command.transactionId,journalSha256:"b".repeat(64)});await options.afterAuthorized;emit({kind:"outcome",outcome:options.outcome??"committed"});finish();continue;}
+        raw.push(value as Record<string,unknown>);
+        // A helper from before channels fails the strict shape check and exits without a frame.
+        if(options.rejectChannel&&"channel" in (value as object)){out.close();exited.resolve(1);continue;}
         command=parseAdapterCommand(value);commands.push(command);emit({kind:"hello",version:"1.0.0",bundleId:"dev.pacer.desktop",arch:"aarch64"});
         await options.hold;
         if(command.command==="check"){emit({kind:"checked",candidate});finish();}
@@ -55,7 +59,7 @@ function fixture(options: { autoDownload?:boolean; ownership?: "managed"|"attach
   });
   if(options.autoDownload===false){const record=readUpdate(ctx,installation.id);writeUpdate(ctx,{...record,autoDownload:false},record.revision);}
   const unbind=bindDesktopUpdateRuntime(ctx,runtime);cleanups.push(runtime.stop); cleanups.push(unbind);
-  return {ctx,runtime,session,native,factory,unbind,commands,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
+  return {ctx,runtime,session,native,factory,unbind,commands,raw,calls,publications,scheduled,reserveEntered:reserveEntered.promise,
     register(){visible=true;},
     seedPending(phase:"waiting"|"reserved"|"installing"){const value=readUpdate(ctx,"desktop");const ready=writeUpdate(ctx,{...value,phase:"ready",candidate,downloadedBytes:10,totalBytes:10,checkedAt:100},value.revision);const waiting=requestRestart(ready,{installationId:"desktop",requestId:"old-restart",expectRevision:ready.revision,version:candidate.version,clientId:"native-desktop"},boot);writeUpdate(ctx,{...waiting,phase},ready.revision);},
     stopDesktop(){alive=false;closed.resolve();},setBoot(value:string){boot=value;},setNow(value:number){now=value;},
@@ -550,4 +554,30 @@ test("recovery owns a reserved transaction even if its discovered desktop exits"
   hold.resolve(); await f.runtime.settled();
   expect(aborted).toBe(false);
   expect(f.runtime.status("desktop").phase).toBe("complete");
+});
+test("check request carries the configured channel", async()=>{
+  const f=fixture({autoDownload:false});writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: nightly\n");
+  await f.runtime.start();await f.runtime.check(f.request("nightly"));await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="check").map(c=>(c as {channel?:string}).channel)).toEqual(["nightly"]);
+  // The channel is read on each check, so a change in Settings applies to the next one.
+  writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: stable\n");
+  await f.runtime.check(f.request("stable"));await f.runtime.settled();
+  // Stable omits `channel` on the wire, so a helper that predates channels still accepts it.
+  expect(f.commands.filter(c=>c.command==="check").map(c=>"channel" in c ? c.channel : "omitted")).toEqual(["nightly","omitted"]);
+});
+test("channel defaults to stable when config is unreadable", async()=>{
+  const f=fixture({autoDownload:false});mkdirSync(join(f.ctx.pacerHome,"strategy.yaml"));
+  await f.runtime.start();await f.runtime.check(f.request("check"));await f.runtime.settled();
+  expect(f.commands.filter(c=>c.command==="check").map(c=>"channel" in c ? c.channel : "omitted")).toEqual(["omitted"]);
+});
+test("a helper that predates channels rejecting a nightly check surfaces an update-the-app message and backs off", async()=>{
+  const f=fixture({autoDownload:false,rejectChannel:true});writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: nightly\n");
+  await f.runtime.start();await f.runtime.check(f.request("nightly"));await f.runtime.settled();
+  const status=f.runtime.status("desktop");
+  expect(status.phase).toBe("error");expect(status.error?.code).toBe("update_failed");expect(status.target).toBeNull();
+  expect(status.error?.message).toBe(NIGHTLY_HELPER_TOO_OLD);
+  // One attempt only: the failure schedules the normal retry backoff instead of rechecking at once.
+  await f.runtime.tick();await f.runtime.settled();
+  expect(f.raw.filter(c=>c.command==="check")).toEqual([expect.objectContaining({channel:"nightly"})]);
+  expect(f.commands).toEqual([]);
 });

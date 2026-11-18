@@ -405,7 +405,8 @@ the other is used and the failed feed's error is reported. The nightly feed is
 or `<base>/cli-nightly.json` with `PACER_RELEASE_BASE`. `update-check.json` records the
 channel it was computed for, so switching channels refreshes the next check.
 
-`pacer config set update_channel stable` switches back. pacer never downgrades: an
+With the desktop app installed, Settings › Updates also offers a Stable/Nightly
+choice that sets the same key. `pacer config set update_channel stable` switches back. pacer never downgrades: an
 installed nightly stays until a stable release newer than it ships. `pacer update --to
 <version>` still installs exactly the version given, on either channel.
 
