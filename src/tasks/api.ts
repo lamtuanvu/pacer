@@ -107,7 +107,7 @@ export function summarizeTask(t: TaskRecord): Record<string, unknown> {
 export function attemptLine(t: TaskRecord): {executor: string; account: string | null; model: string | null} {
   if (t.pendingAttempt) return {executor: t.executor ?? "-", account: t.pendingAttempt.usageAtStart?.account ?? null, model: t.pendingAttempt.model ?? null};
   const last = t.attempts.at(-1);
-  if (t.result) return {executor: t.result.executor ?? "-", account: last?.usageAtStart?.account ?? null, model: t.result.model ?? last?.model ?? null};
+  if (t.result) return {executor: t.result.executor ?? t.executor ?? last?.executor ?? "-", account: last?.usageAtStart?.account ?? null, model: t.result.model ?? last?.model ?? null};
   return {executor: last?.executor ?? "-", account: last?.usageAtStart?.account ?? null, model: last?.model ?? null};
 }
 export function taskReview(ctx: Ctx, id: string, accepted: boolean, kind?: string, note?: string): {recorded:true} {
