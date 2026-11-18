@@ -3,7 +3,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { brokerTick } from "../src/messaging/broker";
 import { getLiveness } from "../src/messaging/liveness-store";
-import { byRequest, insertMessage, markRead } from "../src/messaging/store";
+import { byRequest, insertMessage, markRead, messagesDatabase } from "../src/messaging/store";
 import * as runs from "../src/supervisor/run";
 import * as turns from "../src/messaging/turns";
 import { apiTask } from "../src/api/read-model/tasks";
@@ -239,9 +239,9 @@ test("no_progress pings the executor through delivery with the exact body", asyn
   try {
     await brokerTick(ctx, { mode });
     await brokerTick({ ...ctx, now: ctx.now + 59 }, { mode });
-    expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
     await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
-    const ping = byRequest(ctx, "broker", `nudge:${node}:1`);
+    const ping = byRequest(ctx, "broker", `nudge:${node}:a1:1`);
     expect(ping).toMatchObject({ to: node, kind: "nudge",
       body: "pacer: no progress for 30 min. Report progress, ask your parent, or report a blocker." });
     expect(deliverPing.mock.calls.some(([, to]) => to === node)).toBe(true);
@@ -267,8 +267,8 @@ test("three unanswered pings stop the run and the task moves", async () => {
   const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
   try {
     for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
-    expect(byRequest(ctx, "broker", `nudge:${node}:3`)).not.toBeNull();
-    expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
     expect(stop.mock.calls).toEqual([[dir]]);
     expect(readTask(ctx, id)?.unresponsive).toEqual({ attempt: 1, pings: 3 });
     expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
@@ -283,12 +283,33 @@ test("a run replaced after the last ping is neither marked nor stopped", async (
   const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
   try {
     for (const at of [0, 60, 180, 420]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
-    expect(byRequest(ctx, "broker", `nudge:${node}:3`)).not.toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
     // The stalled attempt ended on its own and the next attempt started before the stop was due.
     updateTask(ctx, id, t => { t.attemptStartedAt = ctx.now + 800; t.run = { ...t.run!, dir: `${dir}-2`, attempt: 2, startedAt: ctx.now + 800 }; });
     await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
     expect(stop.mock.calls).toEqual([]);
     expect(readTask(ctx, id)?.unresponsive).toBeUndefined();
+  } finally { stop.mockRestore(); }
+});
+
+test("a retried attempt gets its own no_progress pings and stopped pings never resume the task", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const { id, node, dir } = spinning(ctx, "spin");
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(stop.mock.calls).toEqual([[dir]]);
+    // The stopped attempt's pings are read, so they cannot start a message turn on the task.
+    const unread = messagesDatabase(ctx).query<{ n: number }, [string]>(
+      "SELECT count(*) n FROM messages WHERE recipient=? AND kind='nudge' AND status<>'read'").get(node)!.n;
+    expect(unread).toBe(0);
+    // Attempt 2 starts and also makes no progress: it is pinged under its own ids.
+    const later = ctx.now + 900;
+    updateTask(ctx, id, t => {
+      t.attemptStartedAt = later - 3600; t.run = { ...t.run!, dir: `${dir}-2`, attempt: 2, startedAt: later - 3600 };
+    });
+    for (const at of [960, 1020]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    expect(byRequest(ctx, "broker", `nudge:${node}:a2:1`)).not.toBeNull();
   } finally { stop.mockRestore(); }
 });
 
@@ -298,7 +319,7 @@ test("strict mode escalates a no_progress stall instead of pinging it", async ()
   const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
   try {
     await brokerTick(ctx, { mode: async () => "strict" });
-    expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:1`)).toBeNull();
     expect(stop.mock.calls).toEqual([]);
     expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
     expect(attention(ctx, id, ctx.now).some(i => i.kind === "stalled" && i.taskId === id)).toBe(true);

@@ -11,7 +11,7 @@ import { analyzeLiveness, buildSnapshot, type Stall } from "./liveness";
 import { clearLiveness, getLiveness, listLiveness, upsertLiveness, type LivenessUpsert } from "./liveness-store";
 import { rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
-import { insertMessage } from "./store";
+import { insertMessage, markRead } from "./store";
 import { messagesDatabase } from "./store";
 import { deliver } from "./turns";
 
@@ -77,7 +77,8 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           else if (row.nudges < config.max_nudges) {
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: no progress for ${snapshot.noProgressS / 60} min. Report progress, ask your parent, or report a blocker.`,
-              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+              // Per attempt, so a retried task's pings are not taken for the previous attempt's.
+              replyTo: null, requestId: `nudge:${node}:a${seen?.task.run?.attempt ?? 0}:${row.nudges + 1}` });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           } else {
@@ -90,7 +91,14 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
               t.unresponsive = { attempt: t.run.attempt, pings: row.nudges };
               marked = true;
             });
-            if (marked && run) { acted = true; await stopRun(run.dir); }
+            if (marked && run) {
+              acted = true;
+              // Unanswered pings must not resume the task once its run is stopped.
+              const pings = messagesDatabase(ctx).query<{ id: string }, [string]>(
+                "SELECT id FROM messages WHERE sender='broker' AND recipient=? AND kind='nudge' AND status<>'read'").all(node).map(r => r.id);
+              markRead(ctx, node, pings);
+              await stopRun(run.dir);
+            }
           }
         } else if (nudged) {
           if ((stall.reason === "cycle" && !stall.deepest) || !allowed || row.nudges >= config.max_nudges) stallNow = true;
