@@ -25,7 +25,8 @@ export type AdapterRejection = {
 };
 /** Private handoff classification MUST survive core error handling; uncertainty never permits releasing admission. */
 export class AdapterError extends CoreError {
-  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection) {
+  /** `beforeFrames`: the helper ended before sending any frame (for example a build that rejects an unknown request key). */
+  constructor(public readonly reason: AdapterFailure, public readonly handoff: HandoffState = "none", public readonly rejection?: AdapterRejection, public readonly beforeFrames = false) {
     super("not_allowed", messages[reason], handoff === "none"
       ? "Reconnect the verified desktop and retry."
       : "Retain the reservation and reconcile the private transaction journal before retrying.");
@@ -216,7 +217,7 @@ export async function runAdapterCommand(factory: VerifiedPipeFactory | undefined
     stopped = true;
     // A partial authorization write may have reached the helper. Only recovery can resolve that uncertainty.
     if (handoff === "none" && pipe) void Promise.resolve().then(() => pipe!.abort()).catch(() => {});
-    cleanup(); reject(new AdapterError(reason, handoff, detail));
+    cleanup(); reject(new AdapterError(reason, handoff, detail, sequence === 0));
   };
   const cancel = () => fail("cancelled");
   const finish = () => {

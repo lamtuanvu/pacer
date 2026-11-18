@@ -9,7 +9,7 @@ import { publish } from "../src/link/publish";
 import { startServer } from "../src/serve/http";
 import { HttpClient } from "../src/api/http-client";
 import { helloBody } from "../src/api/protocol";
-import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
+import { createDesktopUpdateRuntime, bindDesktopUpdateRuntime, NIGHTLY_HELPER_TOO_OLD, type NativeAuthorityProvider, type VerifiedNativeSession } from "../src/update/desktop/service";
 import { FrameDecoder, encodeFrame, parseAdapterCommand, type VerifiedPipeFactory, type AdapterCommand } from "../src/update/desktop/adapter";
 import { requestRestart } from "../src/update/desktop/policy";
 import { readUpdate, writeUpdate } from "../src/update/desktop/store";
@@ -570,11 +570,12 @@ test("channel defaults to stable when config is unreadable", async()=>{
   await f.runtime.start();await f.runtime.check(f.request("check"));await f.runtime.settled();
   expect(f.commands.filter(c=>c.command==="check").map(c=>"channel" in c ? c.channel : "omitted")).toEqual(["omitted"]);
 });
-test("a helper that predates channels rejecting a nightly check surfaces the native error and backs off", async()=>{
+test("a helper that predates channels rejecting a nightly check surfaces an update-the-app message and backs off", async()=>{
   const f=fixture({autoDownload:false,rejectChannel:true});writeFileSync(join(f.ctx.pacerHome,"strategy.yaml"),"update_channel: nightly\n");
   await f.runtime.start();await f.runtime.check(f.request("nightly"));await f.runtime.settled();
   const status=f.runtime.status("desktop");
   expect(status.phase).toBe("error");expect(status.error?.code).toBe("update_failed");expect(status.target).toBeNull();
+  expect(status.error?.message).toBe(NIGHTLY_HELPER_TOO_OLD);
   // One attempt only: the failure schedules the normal retry backoff instead of rechecking at once.
   await f.runtime.tick();await f.runtime.settled();
   expect(f.raw.filter(c=>c.command==="check")).toEqual([expect.objectContaining({channel:"nightly"})]);
