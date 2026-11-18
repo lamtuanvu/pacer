@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.2] - 2026-11-18
+
 ### Added
 
 - New publishable generated crate `pacer-plugin-assistant-protocol` 0.2 (CRATE-3 split): the 1.11.0 `assistant.reply` and `capability.assistant.tool` types, re-exported through `pacer_plugin::types`.
