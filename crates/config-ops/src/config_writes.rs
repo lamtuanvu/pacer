@@ -332,8 +332,21 @@ fn run<'a>(ctx: &'a Ctx, op: &'static str, params: Value) -> OpFuture<'a> {
                     .map_err(|e| CoreError::new(Code::Internal, e.to_string()));
             }
             "notifications.set" => {
-                return notifications::set_level(home, p["level"].as_str().unwrap_or(""))
-                    .map_err(|e| CoreError::new(Code::InvalidInput, e.to_string()));
+                let level = p.get("level").and_then(Value::as_str);
+                let sound = p.get("sound").and_then(Value::as_str);
+                return notifications::set(home, level, sound).map_err(|e| {
+                    let code = if matches!(
+                        e,
+                        notifications::NotificationError::InvalidLevel
+                            | notifications::NotificationError::InvalidSound
+                            | notifications::NotificationError::Empty
+                    ) {
+                        Code::InvalidInput
+                    } else {
+                        Code::Internal
+                    };
+                    CoreError::new(code, e.to_string())
+                });
             }
             "config.set" => return super::config_set_ops::config_set(ctx, &p),
             _ => return Err(CoreError::new(Code::UnknownOp, op)),

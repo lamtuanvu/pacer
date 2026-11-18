@@ -6,7 +6,7 @@
 //! it alone reaps it, so a signal can never reach a reused pid, and it
 //! publishes the exit reason the TypeScript registry would record.
 
-use crate::plugin_log::{PluginLog, copy_stderr};
+use crate::plugin_log::{DROP_NOTE, MALFORMED_NOTE, PluginLog, copy_stderr};
 use pacer_plugin_host::{
     MAX_LINE_BYTES, ProcessError, ProcessFrame, SpawnSpec, frame, notification_frame, parse_frame,
 };
@@ -336,6 +336,7 @@ async fn write_frames(
     mut stdin: ChildStdin,
     mut writes: mpsc::Receiver<Write>,
     shared: Arc<Shared>,
+    log: Option<PluginLog>,
 ) {
     while let Some((bytes, ack)) = writes.recv().await {
         let written = stdin
@@ -347,19 +348,32 @@ async fn write_frames(
             let _ = ack.send(written);
         }
         if let Some(reason) = failed {
+            if let Some(log) = &log {
+                log.note_blocking(&format!("stdin error: {reason}"));
+            }
             shared.close(&reason);
             return;
         }
     }
 }
 
-async fn read_frames(stdout: ChildStdout, shared: Arc<Shared>, writes: mpsc::Sender<Write>) {
+async fn read_frames(
+    stdout: ChildStdout,
+    shared: Arc<Shared>,
+    writes: mpsc::Sender<Write>,
+    log: Option<PluginLog>,
+) {
     let mut stdout = BufReader::new(stdout);
     let (mut line, mut dropping) = (Vec::new(), false);
     loop {
         let bytes = match read_line_bounded(&mut stdout, &mut line, &mut dropping).await {
             Ok(bytes) => bytes,
-            Err(ProcessError::TooLarge) => continue,
+            Err(ProcessError::TooLarge) => {
+                if let Some(log) = &log {
+                    log.note_blocking(DROP_NOTE);
+                }
+                continue;
+            }
             Err(ProcessError::Unavailable(reason)) => return shared.close(&reason),
             Err(error) => return shared.close(&error.to_string()),
         };
@@ -385,7 +399,13 @@ async fn read_frames(stdout: ChildStdout, shared: Arc<Shared>, writes: mpsc::Sen
                     let _ = writes.try_send((bytes, None));
                 }
             }
-            Ok(ProcessFrame::Notification { .. }) | Err(_) => {}
+            Ok(ProcessFrame::Notification { .. }) | Err(_) => {
+                if let Some(log) = &log
+                    && serde_json::from_slice::<Value>(&bytes).is_err()
+                {
+                    log.note_blocking(MALFORMED_NOTE);
+                }
+            }
         }
     }
 }
@@ -419,9 +439,13 @@ impl PluginProcess {
                 Stdio::null()
             })
             .kill_on_drop(true);
-        let mut child = child
-            .spawn()
-            .map_err(|error| ProcessError::Unavailable(error.to_string()))?;
+        let mut child = child.spawn().map_err(|error| {
+            if let Some(log) = &log {
+                let _ = log.note(&format!("spawn error: {error}"));
+            }
+            ProcessError::Unavailable(error.to_string())
+        })?;
+        let transport_log = log.clone();
         let stdin = child
             .stdin
             .take()
@@ -441,8 +465,18 @@ impl PluginProcess {
             tokio::spawn(copy_stderr(stderr, log, exit.clone()));
         }
         let tasks = [
-            tokio::spawn(write_frames(stdin, queued, shared.clone())),
-            tokio::spawn(read_frames(stdout, shared.clone(), writes.clone())),
+            tokio::spawn(write_frames(
+                stdin,
+                queued,
+                shared.clone(),
+                transport_log.clone(),
+            )),
+            tokio::spawn(read_frames(
+                stdout,
+                shared.clone(),
+                writes.clone(),
+                transport_log,
+            )),
             tokio::spawn(watch_child(child, stop_rx, exit_tx)),
         ];
         Ok(Self {

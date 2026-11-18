@@ -437,7 +437,7 @@ test("settings offers browser notification permission once for important and all
   const state = { ...initialState(), snapshot: { executors: [], accounts: [], hosts: [], repos: [] } };
   const render = (level: string) => renderToString(h(TaskContext.Provider, {
     value: { state, api: { call: async () => ({}) } },
-  } as never, h(SettingsGeneral, { section: "app", initialData: { ...settings, notifications: { level } } })));
+  } as never, h(SettingsGeneral, { section: "app", initialData: { ...settings, notifications: { level, sound: "pacer" } } })));
   try {
     const html = render("important");
     expect(html).toContain("Allow browser notifications");

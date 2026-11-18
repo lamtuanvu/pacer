@@ -35,7 +35,7 @@ export interface SettingsData {
   projects?: Resource<ProjectStrategy[]>;
   strategies?: Resource<{ name: string; active: boolean; summary: string; description?: string }[]>;
   update?: Resource<UpdateInfo>;
-  notifications?: Resource<{ level: string }>;
+  notifications?: Resource<{ level: string; sound: string }>;
 }
 export interface SettingsAccount {
   name: string; kind: string; label?: string; source?: string; runners?: string[]; executors?: string[];
