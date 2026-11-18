@@ -277,9 +277,10 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off_with_zero_escape() {
-        assert!(!serve_starts_reverse_bridge_by_default());
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        // The default flipped on; an explicit zero still disables on either flag.
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
         assert!(!native_plugin_host_enabled(Some("0"), None));
         assert!(!native_plugin_host_enabled(None, Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
@@ -295,7 +296,8 @@ mod tests {
     #[test]
     fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        // No flags read = the default, which is now on; zeros below still win.
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());

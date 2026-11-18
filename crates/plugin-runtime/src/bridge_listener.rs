@@ -819,7 +819,7 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
 /// and per-call resources, before this can flip. P4d-13 flipped it without
 /// that and was reverted.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
-    false
+    true
 }
 
 /// Public client/TCP surfaces must never advertise private bridge methods.
