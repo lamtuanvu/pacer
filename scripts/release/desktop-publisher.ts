@@ -17,8 +17,12 @@ export function githubDesktopPublisher(version: string, token: string, channel: 
     if (value.tag_name !== `v${version}` || value.draft || value.prerelease !== (channel === "nightly") || !Number.isSafeInteger(value.id)) throw Error(`Desktop release tag is unavailable or not ${channel}`);
     return value;
   }
+  const ownedAssets = new Set([
+    ...["aarch64", "x86_64"].flatMap(arch => [".app.tar.gz", ".app.tar.gz.sig", ".dmg"].map(suffix => `desktop-pacer-${version}-darwin-${arch}${suffix}`)),
+    `desktop-release-${version}.json`,
+  ]);
   const assetName = (name: string) => {
-    if (!new RegExp(`^(desktop-pacer-${version.replaceAll(".", "\\.")}-darwin-(aarch64|x86_64)(\\.app\\.tar\\.gz(\\.sig)?|\\.dmg)|desktop-release-${version.replaceAll(".", "\\.")}\\.json)$`).test(name)) throw Error("Unowned desktop asset name");
+    if (!ownedAssets.has(name)) throw Error("Unowned desktop asset name");
   };
   return {
     mode: "production",

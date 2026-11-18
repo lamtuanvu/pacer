@@ -55,12 +55,12 @@ test("stable publisher still refuses a prerelease and nightly publisher refuses 
   const stable = mockGitHub({ tag_name: "v1.2.3", prerelease: true });
   try {
     await expect(githubDesktopPublisher("1.2.3", "fixture-token").createAsset("desktop-pacer-1.2.3-darwin-aarch64.dmg", new Uint8Array([1]))).rejects.toThrow();
-    expect(stable.requests.some(r => r.url.startsWith("https://uploads.github.com"))).toBe(false);
+    expect(stable.requests.some(r => new URL(r.url).origin === "https://uploads.github.com")).toBe(false);
   } finally { stable.restore(); }
   const nightly = mockGitHub({ tag_name: `v${NIGHTLY}`, prerelease: false });
   try {
     await expect(githubDesktopPublisher(NIGHTLY, "fixture-token", "nightly").createAsset(`desktop-pacer-${NIGHTLY}-darwin-aarch64.dmg`, new Uint8Array([1]))).rejects.toThrow();
-    expect(nightly.requests.some(r => r.url.startsWith("https://uploads.github.com"))).toBe(false);
+    expect(nightly.requests.some(r => new URL(r.url).origin === "https://uploads.github.com")).toBe(false);
   } finally { nightly.restore(); }
   expect(() => githubDesktopPublisher(NIGHTLY, "fixture-token")).toThrow();
   expect(() => githubDesktopPublisher("1.2.3", "fixture-token", "nightly")).toThrow();
