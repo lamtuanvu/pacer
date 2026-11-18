@@ -31,6 +31,8 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `test/` | Flat `bun:test` suite (`<area>-<topic>.test.ts`), `fixtures/`, `__snapshots__/`; `test/setup.ts` isolates `HOME`/`PACER_HOME` |
 | `crates/foundation` | `pacer-foundation`: ctx, file rules, lock, `CoreError`, op registry types |
 | `crates/js-json` | `pacer-js-json`: JavaScript JSON semantics: `JSON.parse` acceptance (exact `WireReply` documents and the quoted serde Value form), `JSON.stringify` bytes and JS value helpers; layer 1 |
+| `crates/models` | `pacer-models`: runner model listings and the `runner.set` model check (OpenCode listing cache, endpoint connection models, closest-model suggestions); OpenCode discovery lands here in M2 wave 4; layer 4 |
+| `crates/dispatch` | `pacer-dispatch`: the dispatch decision library (model inventory, candidates, decision hash, tier choice, ladder engine, read-only task store view, status-cache observations, learned fit, reason codes and the route explanation builders); library only, used by `pacer-dispatch-ops`; layer 6 |
 | `crates/client-control-protocol` | `pacer-client-control-protocol`: generated agent discovery and connected-page control types, split under CRATE-3 |
 | `crates/desktop-protocol` | `pacer-desktop-protocol`: generated desktop capture and update operation types, split under CRATE-3 |
 | `crates/limits-protocol` | `pacer-limits-protocol`: generated limits operation types, split under CRATE-3 |
@@ -46,6 +48,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `crates/cli` | `pacer-cli`: argv dispatch, core exec, status line, self-repair |
 | `crates/pacer` | `pacer`: the binary, start-up and dispatch only |
 | `crates/plugin-ops` | `pacer-plugin-ops`: native plugin list/diagnostic/UI-list/settings reads over the `pacer-js-json` codec; layer 5, target ≤ 5,000 LOC ([ADR 0020](../docs/decisions/0020-native-plugin-read-operations-crate.md)) |
+| `crates/plugin-capabilities` | `pacer-plugin-capabilities`: native capability brokers for plugin calls (broker, transfers, native read/process/HTTP/bundle/duplex/hosts/worktree/run/remote/Orca effects) over `pacer-plugin-host`'s call authority; layer 5, budget ≤ 7,500 LOC ([ADR 0026](../docs/decisions/0026-native-plugin-capability-crate.md)) |
 | `crates/plugin-sdk` | `pacer-plugin`: Rust plugin SDK |
 | `crates/fixtures` | `pacer-fixtures`: Rust conformance fixture plugins |
 | `crates/plugin-policy-protocol` | `pacer-plugin-policy-protocol`: generated policy/task-read/event contracts, CRATE-3 area split; standalone and unpublished until SDK adoption |
