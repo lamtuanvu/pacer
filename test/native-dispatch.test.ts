@@ -214,7 +214,7 @@ test.skipIf(!productionFront)("HTTP config environment matches the forwarded cor
           const response = await fetch(base+`/v3/ops/${op}`, {method:"POST", headers:{Authorization:`Bearer ${token}`, "Content-Type":"application/json"}, body:JSON.stringify(params), signal:AbortSignal.timeout(10000)});
           const body = await response.json(); expect(response.status, JSON.stringify(body)).toBe(200); return body;
         };
-        expect(await call("notifications.get", {})).toEqual({result:{level:"off"}});
+        expect(await call("notifications.get", {})).toEqual({result:{level:"off", sound:"pacer"}});
         const settings = readFileSync(join(fixture.env.PACER_HOME, "settings.json"), "utf8");
         const saved = await call("strategy.save", {name:"review", draft:{from:"default"}, reason:"environment parity"});
         const yaml = readFileSync(join(fixture.env.PACER_HOME, "strategies/review.yaml"), "utf8");

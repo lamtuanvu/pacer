@@ -158,6 +158,16 @@ test("native update.check matches TypeScript loopback HTTP feeds", async () => {
   } finally { server.stop(true); }
 }, 600_000);
 
+test("installations managed elsewhere keep update.check forwarded to the reference that reports managedBy", async () => {
+  const home = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-")));
+  homes.push(home);
+  expect(await native([check({}, {PACER_INSTALL_METHOD: "npm"}), check({}, {PACER_BIN: "/Applications/Pacer.APP/Contents/MacOS/pacer"})], home, "/usr/bin:/bin")).toEqual([{forwarded: true}, {forwarded: true}]);
+  writeFileSync(join(home, "owner.json"), JSON.stringify({schema: 1, owner: "desktop", executable: "/Applications/pacer.app/Contents/Resources/pacer", at: 1}));
+  expect(await native([check()], home, "/usr/bin:/bin")).toEqual([{forwarded: true}]);
+  const ctx = fakeCtx({pacerHome: home, home, now: NOW, env: {PACER_NO_UPDATE_CHECK: "1"}, run: defaultRun});
+  expect(await callOp(ctx, "update.check", {})).toMatchObject({managedBy: "desktop", managedHint: expect.stringContaining("managed by the pacer app")});
+}, 600_000);
+
 test("an array cached latest keeps update.check forwarded", async () => {
   const home = realpathSync(mkdtempSync(join(tmpdir(), "native-upd-")));
   homes.push(home);

@@ -32,7 +32,7 @@ import { minimalEnvironment, prepareSpawnAuthority } from "./capability-spawn";
 import { CallAdmission, SESSION_STREAM_SLOTS, SerialCalls } from "./admission";
 import { CallAuthority, createCallAuthority, type CallResources, type HostOperationResource } from "./authority";
 import { observationGeneration, sealCallAuthority, type CallAuthorityOptions, type HostSnapshotSeal } from "./native-call-authority";
-import { callNativeOwner, nativeOwnerCallFits, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
+import { callNativeOwner, nativeOwnerCallFits, nativeOwnerHello, type NativeOwnerCall, type NativeOwnerReply } from "./host-bridge";
 import { HostLeaseBroker, type HostFetchBinding, type HostFetchResult, type HostLeaseSnapshot } from "./host-lease";
 import { callMetadata } from "./protocol";
 import { PluginProcess, type CapabilityTransport, type SpawnSpec } from "./process";
@@ -2663,6 +2663,20 @@ export class PluginRegistry {
         };
         let reply: Awaited<ReturnType<typeof callNativeOwner>>;
         let value: unknown;
+        // A child that answered its hello tells Core `{protocol, served}` even when the
+        // call later fails (a deadline, a refused method, the owner stopping for a stop
+        // or restart), so Core restores readiness instead of staying `idle` on a child
+        // that is actually ready.
+        // Only an enabled plugin becomes ready, as flag-off's start() runs only for one and
+        // `nativeCrash` guards with the same set: a disabled, refused or needs_grant entry
+        // stays as it is. An empty protocol never marks ready, as flag-off refuses it
+        // (protocol major `Number("")` is not PLUGIN_PROTOCOL_MAJOR).
+        const markReadyFrom = (hello: NativeOwnerReply["hello"] | undefined) => {
+          if (hello?.protocol && ENABLED.has(e.state) && e.state !== "ready") {
+            this.nativeMarkReady(ctx, e.id, hello.protocol,
+              hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
+          }
+        };
         try {
           if (lease) {
             lease.bind(local!, method);
@@ -2684,7 +2698,24 @@ export class PluginRegistry {
           if (logReads) await prepareFilesystemAuthority(local!);
           if (writes) await prepareWriteAuthority(local!);
           if (issued?.stores.length) await prepareStateAuthority(local!);
-          reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          try {
+            reply = await callNativeOwner(socket, call, bridgeSignal, onRequest, local?.signal, writeLogs);
+          } catch (error) {
+            if (error instanceof CoreError) {
+              // A failed call's reply still carried the `hello` when the child answered it.
+              const hello = nativeOwnerHello.safeParse(error.data?.hello);
+              if (hello.success) markReadyFrom(hello.data);
+              // The hello rides the wire only to restore readiness; flag-off errors
+              // never carry it, so it must not reach the caller. An error whose data
+              // held nothing else loses `data` entirely, as flag-off has none.
+              if (error.data && Object.hasOwn(error.data, "hello")) {
+                delete error.data.hello;
+                if (!Object.keys(error.data).length)
+                  (error as unknown as { data?: Record<string, unknown> }).data = undefined;
+              }
+            }
+            throw error;
+          }
           writeLogs(reply.logs);
           value = reply.value;
           // A child that sent its result in `$/resultChunk` pieces ends with a
@@ -2708,10 +2739,7 @@ export class PluginRegistry {
         // Re-check after the reply: a revocation racing the final reply line must still fail
         // the call before the planner install/uninstall transaction commits any write.
         if (effects) await checkPlannerGeneration();
-        if (reply.hello && e.state !== "ready") {
-          this.nativeMarkReady(ctx, e.id, reply.hello.protocol,
-            reply.hello.served.filter(served => served === "diagnostic" || Object.hasOwn(manifest.contributes, served)));
-        }
+        markReadyFrom(reply.hello);
         const def = EXTENSION_METHODS[method]!;
         if (method === "usage.read" || method.startsWith("executor.")) {
           const output = def.result.safeParse(value);

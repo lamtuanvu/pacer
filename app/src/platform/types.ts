@@ -8,6 +8,8 @@ export type ConnectionStatus = 'connecting' | 'connected' | 'reconnecting' | 'di
 /** Transport construction stays here; protocol negotiation and retries stay with callers. */
 export interface Platform {
   readonly desktop: boolean;
+  /** The macOS desktop app, where native notification sounds play. */
+  readonly macos: boolean;
   subscribeDesktopConnection?(listener: (state: import('./ipc').DesktopConnection) => void): () => void;
   request(path: string, init?: RequestInit): Promise<Response>;
   subscribeEvents(path: string): EventSource;

@@ -14,6 +14,7 @@ export function createDesktopPlatform(host: PlatformHost): Platform {
     ...createBrowserPlatform(),
     ...createIpcTransport(host.__TAURI__?.core),
     desktop: true,
+    get macos() { return (globalThis.navigator?.platform ?? '').startsWith('Mac'); },
     openExternal: url => { (host.location ?? globalThis.location)?.assign(url); },
     openSystemSettings: async pane => { if (!invoke) throw Error('unsupported'); await invoke('open_system_settings', { pane }); },
     windowControls: native.windowControls(captured),

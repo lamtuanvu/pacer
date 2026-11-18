@@ -52,7 +52,7 @@ import { conversationFallback, type Excluded, rankExecutors, ruleFor } from "../
 import { balanceByLoad } from "../engine/balance";
 import { type Status, computeStatus } from "../engine/status";
 import { terminalEnv } from "../exec/login-env";
-import { brokenReason, markBroken, readBroken, repoFingerprint } from "../exec/broken";
+import { brokenReason, isProviderRetrying, markBroken, readBroken, repoFingerprint } from "../exec/broken";
 import { directBackend, selectBackend } from "../exec/backend";
 import { type AttemptOutcome, resumeAttempt } from "../exec/direct";
 import { killTree } from "../exec/process";
@@ -943,9 +943,14 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         markBroken({ ...ctx, now: Date.now()/1000 }, pick, out.attempt.brokenReason);
         lastBroken = { brokenExecutor: pick, brokenReason: out.attempt.brokenReason };
         if (pick === task.requestedExecutor) requestedUnavailable = `broken: ${out.attempt.brokenReason}`;
-        if (owned) return finish(ctx, id, { status: "failed", executor: pick,
+        // An owned launch failure settles here; an owned run stopped for a provider retry loop moves on like a limit.
+        if (owned && !isProviderRetrying(out.attempt.brokenReason)) return finish(ctx, id, { status: "failed", executor: pick,
           model: cfg.model, files: "", report: `executor not working: ${out.attempt.brokenReason}`,
           backend: attemptedBackend, ...lastBroken });
+        if (owned) task = updateTask(ctx, id, current => {
+          delete current.run; delete current.executorProvider; delete current.executor;
+          delete current.attemptStartedAt;
+        });
         continue;
       }
       lastBroken = undefined;
