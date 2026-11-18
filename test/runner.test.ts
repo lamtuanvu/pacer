@@ -613,3 +613,38 @@ for (const [minutes, milliseconds] of [[undefined, 600_000], [20, 1_200_000]] as
     expect(calls[0][3]).toBe(milliseconds);
   });
 }
+
+/** Records what the broker leaves on the current attempt just before it stops a run that made no progress. */
+const marking = (d: ReturnType<typeof deps>, id: string, attempts = 1) => {
+  const run = d.runAttempt!;
+  d.runAttempt = (ctx, cfg, task, onSpawn) => {
+    updateTask(ctx, id, t => {
+      if (t.attempts.length < attempts) t.unresponsive = { attempt: t.attempts.length + 1, pings: 3 };
+    });
+    return run(ctx, cfg, task, onSpawn);
+  };
+  return d;
+};
+
+test("an attempt stopped for no progress moves the task to the next executor", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx);
+  const d = marking(deps({ codex: outcomeFor("codex", 143), cursor: outcomeFor("cursor", 0) }), task.id);
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(result.state).toBe("done");
+  expect(result.attempts.map(a => a.executor)).toEqual(["codex", "cursor"]);
+  expect(result.attempts[0].unresponsive).toEqual({ pings: 3 });
+  expect(result.attempts[1].unresponsive).toBeUndefined();
+  expect(readTask(ctx, task.id)?.unresponsive).toBeUndefined();
+});
+
+test("a second unresponsive attempt fails the task", async () => {
+  const ctx = fakeCtx(), task = newTask(ctx);
+  const d = marking(deps({ codex: outcomeFor("codex", 143), cursor: outcomeFor("cursor", 143) }), task.id, 2);
+  const result = await runTask(ctx, task.id, d);
+  expect(d.calls).toEqual(["codex", "cursor"]);
+  expect(result.state).toBe("failed");
+  expect(result.attempts.map(a => a.executor)).toEqual(["codex", "cursor"]);
+  expect(result.attempts.map(a => a.unresponsive?.pings)).toEqual([3, 3]);
+  expect(result.result?.report).toBe("executor unresponsive: no progress after 3 pings");
+});
