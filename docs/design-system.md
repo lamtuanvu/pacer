@@ -462,8 +462,8 @@ association remain unchanged. Budget rows use this opt-in semantic structure.
 container), with a 32px desktop minimum height, 0/10px padding and 6px radius;
 the narrow layout retains the shared touch minimum height. It preserves
 the default menu keyboard and focus behavior. Its menu is at least the trigger's
-width and grows to its longest label. App Workspace Terminal, the Settings planner
-picker and the Notification sound picker use it.
+width and grows to its longest label. The Settings planner picker and the
+Notification sound picker use it.
 App Plugins composes DS Icon, Pill, Switch (small) and confirmation Dialog; its
 service-owned list uses 32px lane tiles, 8px tile radius, 12px gaps, 12px/16px row
 padding and a 12px list radius via the DS `radius-lg` token. The plugin glyph uses the nearest 16px token to
