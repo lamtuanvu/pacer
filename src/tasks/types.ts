@@ -196,9 +196,9 @@ export interface RunRef {
   idleAlertedAt?: number;
   /**
    * When the agent's screen first showed a transient provider retry banner without progress since; `fingerprint` is the
-   * worktree's git state then (lease renewals compare it for progress), `ended` the verdict a lease renewal stopped the run on.
+   * worktree's git state then, `ended` the verdict the plugin path's run monitor stopped the run on (an idle stop too).
    */
-  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" };
+  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" | "idle" };
 }
 
 export interface ReviewRequest { note: string; at: number }

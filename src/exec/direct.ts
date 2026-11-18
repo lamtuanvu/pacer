@@ -168,8 +168,11 @@ export async function retryLoopVerdict(ctx: Ctx, taskId: string, run: RunRef, no
   return null;
 }
 
-/** Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS. */
-export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
+/**
+ * Progress every poll (written at most every 10 s or on a phase change); git activity every 30 s; idle stop after idleFailS.
+ * A caller that acts on a "limit" verdict passes `watch` to read the banner that decided it.
+ */
+export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef, watch: RetryWatch = retryWatch()) {
   const ex = loadExec(ctx), scale = Number(ctx.env.PACER_IDLE_SCALE ?? "1") || 1; // PACER_IDLE_SCALE: test-only
   const idleAfter = (ex.idleAfterS ?? IDLE_AFTER_S) * scale, idleFail = (ex.idleFailS ?? IDLE_FAIL_S) * scale;
   const transientRetry = ex.transientRetryS ?? TRANSIENT_RETRY_S;
@@ -180,7 +183,6 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef) {
   let resumedAt = 0;
   let prev = readTask(ctx, task.id)?.progress;
   let limitCheckedBytes = -1;
-  const watch = retryWatch();
   const remember = (patch: {waitKey?: string | null; idleAlertedAt?: number}) => {
     if (patch.waitKey === null) delete run.waitKey; else if (patch.waitKey !== undefined) run.waitKey = patch.waitKey;
     if (patch.idleAlertedAt !== undefined) run.idleAlertedAt = patch.idleAlertedAt;
