@@ -10826,11 +10826,11 @@
       "expected": {
         "error": {
           "code": "invalid_input",
-          "message": "invalid execution section in the strategy:\n  - execution: unknown key \"bad\" (allowed: auto_clean, local_max_tasks, local_memory_pressure_limit, local_load_limit, launch_mode, session, session_log_mb, session_retention_days, backend, worktree, base_branch, registerRepos, register_repos, idle_after_min, idle_fail_min, transient_retry_min)"
+          "message": "invalid execution section in the strategy:\n  - execution: unknown key \"bad\" (allowed: auto_clean, local_max_tasks, local_memory_pressure_limit, local_load_limit, launch_mode, session, session_log_mb, session_retention_days, backend, worktree, base_branch, registerRepos, register_repos, idle_after_min, idle_fail_min, transient_retry_min, no_progress_min)"
         },
         "getError": {
           "code": "invalid_input",
-          "message": "invalid execution section in the strategy:\n  - execution: unknown key \"bad\" (allowed: auto_clean, local_max_tasks, local_memory_pressure_limit, local_load_limit, launch_mode, session, session_log_mb, session_retention_days, backend, worktree, base_branch, registerRepos, register_repos, idle_after_min, idle_fail_min, transient_retry_min)"
+          "message": "invalid execution section in the strategy:\n  - execution: unknown key \"bad\" (allowed: auto_clean, local_max_tasks, local_memory_pressure_limit, local_load_limit, launch_mode, session, session_log_mb, session_retention_days, backend, worktree, base_branch, registerRepos, register_repos, idle_after_min, idle_fail_min, transient_retry_min, no_progress_min)"
         }
       }
     },

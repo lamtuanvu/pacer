@@ -1,7 +1,12 @@
 import { createHash } from "node:crypto";
 
 export type Phase = "driving" | "testing" | "needs-input" | "starting" | "working" | "idle" | "lost-contact";
-export interface Progress { phase: Phase; lastOutputAt: number | null; lastChangeAt: number | null; files: number; commits: number; logBytes: number; host: string; updatedAt: number }
+/**
+ * `gitObserved`: this attempt's poller read the worktree's git state, so file changes and commits would show here.
+ * `controlled`: a human is typing in the run's terminal.
+ */
+export interface Progress { phase: Phase; lastOutputAt: number | null; lastChangeAt: number | null; files: number; commits: number; logBytes: number; host: string; updatedAt: number;
+  gitObserved?: true; controlled?: true }
 
 export function idleSeconds(p: Pick<Progress, "lastOutputAt" | "lastChangeAt">, startedAt: number, now: number): number {
   return now - Math.max(startedAt, p.lastOutputAt ?? 0, p.lastChangeAt ?? 0);

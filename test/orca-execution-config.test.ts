@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { DEFAULT_EXECUTION, ExecutionError, validateExecution } from "../src/config/execution";
+import { DEFAULT_EXECUTION, ExecutionError, noProgressSeconds, validateExecution } from "../src/config/execution";
 import { validateStrategy } from "../src/config/strategy";
 
 test("idle minutes: optional integers, fail after idle", () => {
@@ -16,6 +16,23 @@ test("transient retry minutes: optional, positive whole minutes", () => {
   for (const bad of [{ transient_retry_min: 0 }, { transient_retry_min: -1 }, { transient_retry_min: 2.5 }, { transient_retry_min: "10" }]) {
     expect(() => validateExecution(bad)).toThrow(ExecutionError);
   }
+});
+
+test("no-progress minutes: optional whole minutes above idle_after_min", () => {
+  expect(validateExecution({ no_progress_min: 45 })).toMatchObject({ noProgressS: 2700 });
+  expect(validateExecution({}).noProgressS).toBeUndefined();
+  // An unset no_progress_min keeps existing configs with a long idle_after_min valid.
+  expect(validateExecution({ idle_after_min: 40, idle_fail_min: 50 }).noProgressS).toBeUndefined();
+  for (const bad of [{ no_progress_min: 0 }, { no_progress_min: 2.5 }, { no_progress_min: "30" }, { no_progress_min: 10 }, { idle_after_min: 20, idle_fail_min: 50, no_progress_min: 20 }]) {
+    expect(() => validateExecution(bad)).toThrow(ExecutionError);
+  }
+});
+
+test("the no-progress window defaults to 30 min, and after idle_after_min when that is longer", () => {
+  expect(noProgressSeconds(validateExecution({}))).toBe(1800);
+  expect(noProgressSeconds(validateExecution({ idle_after_min: 29 }))).toBe(1800);
+  expect(noProgressSeconds(validateExecution({ idle_after_min: 40, idle_fail_min: 50 }))).toBe(2460);
+  expect(noProgressSeconds(validateExecution({ idle_after_min: 40, idle_fail_min: 50, no_progress_min: 45 }))).toBe(2700);
 });
 
 test("a missing or empty execution section uses the defaults", () => {
