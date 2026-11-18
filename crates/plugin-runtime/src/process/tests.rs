@@ -520,6 +520,51 @@ async fn read_owner_request_during_a_call_reaches_the_idle_handler() {
     child.terminate().await.unwrap();
 }
 
+/// A failed child spawn is noted in the plugin log as `spawn error: <message>`.
+#[tokio::test]
+async fn failed_spawn_records_a_spawn_error_note() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-bad").unwrap();
+    let spec = SpawnSpec {
+        argv: vec!["/nonexistent/pacer-definitely-missing-program".into()],
+        cwd: std::env::current_dir().unwrap(),
+        env: std::env::vars().collect(),
+    };
+    let result = PluginProcess::spawn_logged(&spec, Some(log));
+    assert!(result.is_err());
+    let text = std::fs::read_to_string(home.path().join("fx-bad.log")).unwrap();
+    assert!(text.contains("[stderr] spawn error: "), "{text}");
+}
+
+/// A write to a child's closed stdin fails and is noted as `stdin error: <message>`.
+#[tokio::test]
+async fn failed_stdin_write_records_a_stdin_error_note() {
+    let home = tempfile::tempdir().unwrap();
+    let log = crate::plugin_log::PluginLog::new(home.path(), "fx-in").unwrap();
+    let script = "await new Promise(r=>setTimeout(r,50));process.exit(0);";
+    let child = PluginProcess::spawn_logged(&peer(script), Some(log)).unwrap();
+    // The child exits and its stdin closes; a later write then fails and is noted.
+    child.terminate().await.unwrap();
+    let result = child
+        .notify_bounded("$/event", json!({"t":1}), Duration::from_secs(2), || Ok(()))
+        .await;
+    assert!(result.is_err());
+    let path = home.path().join("fx-in.log");
+    let deadline = std::time::Instant::now() + Duration::from_secs(5);
+    let text = loop {
+        let text = std::fs::read_to_string(&path).unwrap_or_default();
+        if text.contains("[stderr] stdin error: ") {
+            break text;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "the stdin error note never arrived"
+        );
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    };
+    drop(text);
+}
+
 /// `$/event` lines are written as `JSON.stringify` writes them.
 #[tokio::test]
 async fn bounded_notification_is_written_as_javascript_writes_it() {
