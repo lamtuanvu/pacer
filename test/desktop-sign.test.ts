@@ -5,10 +5,10 @@ import { join } from "node:path";
 import { tmpDir } from "./helpers";
 import { signStagedDesktop, signingConfig } from "../scripts/release/desktop-sign";
 
-function fixture() {
+function fixture(version = "1.2.3") {
   const stage = tmpDir(), app = join(stage, "pacer.app"), resources = join(app, "Contents/Resources"), calls: string[][] = [];
   mkdirSync(resources, { recursive: true });
-  writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, version: "1.2.3", arch: "aarch64", bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true }));
+  writeFileSync(join(resources, "pacer-release.json"), JSON.stringify({ schema: 1, version, arch: "aarch64", bundleId: "dev.pacer.desktop", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true }));
   mkdirSync(join(app, "Contents/Frameworks"));
   const dylib = Buffer.alloc(32); dylib.writeUInt32LE(0xfeedfacf, 0); dylib.writeUInt32LE(0x0100000c, 4); dylib.writeUInt32LE(6, 12);
   writeFileSync(join(app, "Contents/Frameworks/libpacer-native.dylib"), dylib, { mode: 0o755 });
@@ -16,9 +16,9 @@ function fixture() {
   for (const path of [config.keychain, config.notaryKey, config.signerKey]) writeFileSync(path, "fixture", { mode: 0o600 });
   const run = async (argv: string[]) => {
     calls.push(argv);
-    if (argv[1] === "--pacer-identity") return JSON.stringify({ fixture: false, otaMode: "production", appleTeamId: config.teamId, updaterKeySha256: createHash("sha256").update(config.publicKey).digest("hex"), role: argv[0].endsWith("helper") ? "update-helper" : argv[0].includes("/Resources/") ? "cli" : "desktop", version: "1.2.3", arch: "aarch64", bundleId: argv[0].endsWith("/Resources/pacer") ? "dev.pacer.cli" : "dev.pacer.desktop" });
-    if (argv[1] === "--pacer-native-transport-test") return JSON.stringify({ schema: 1, role: "cli", version: "1.2.3", arch: "aarch64", nativeTransportAbi: 1, transport: "unix-audit-token", verified: true });
-    if (argv[1] === "--pacer-helper-runtime-test") return JSON.stringify({ schema: 1, role: "update-helper", version: "1.2.3", arch: "aarch64", runtime: "tauri-updater", verified: true });
+    if (argv[1] === "--pacer-identity") return JSON.stringify({ fixture: false, otaMode: "production", appleTeamId: config.teamId, updaterKeySha256: createHash("sha256").update(config.publicKey).digest("hex"), role: argv[0].endsWith("helper") ? "update-helper" : argv[0].includes("/Resources/") ? "cli" : "desktop", version, arch: "aarch64", bundleId: argv[0].endsWith("/Resources/pacer") ? "dev.pacer.cli" : "dev.pacer.desktop" });
+    if (argv[1] === "--pacer-native-transport-test") return JSON.stringify({ schema: 1, role: "cli", version, arch: "aarch64", nativeTransportAbi: 1, transport: "unix-audit-token", verified: true });
+    if (argv[1] === "--pacer-helper-runtime-test") return JSON.stringify({ schema: 1, role: "update-helper", version, arch: "aarch64", runtime: "tauri-updater", verified: true });
     if (argv.includes("notarytool")) return JSON.stringify({ status: "Accepted", id: "fixture" });
     return "";
   };
@@ -292,4 +292,16 @@ test("paired manifest measures signed component bytes before the containing app 
     return value;
   };
   await signStagedDesktop({ root: "/fixture", stage: f.stage, out: tmpDir(), version: "1.2.3", arch: "aarch64", config: f.config }, run);
+});
+test("nightly versions sign with channel-named artifacts; other prereleases are refused", async () => {
+  const version = "0.16.0-nightly.202611171700", f = fixture(version), out = tmpDir();
+  const artifact = await signStagedDesktop({ root: "/fixture/root", stage: f.stage, out, version, arch: "aarch64", config: f.config }, f.run);
+  expect(artifact).toBe(join(out, `desktop-pacer-${version}-darwin-aarch64.app.tar.gz`));
+  const image = f.calls.find(a => a[0] === "/usr/bin/hdiutil" && a[1] === "create")!;
+  expect(image.at(-1)).toBe(join(out, `desktop-pacer-${version}-darwin-aarch64.dmg`));
+  const artifactSign = f.calls.find(a => a.includes("signer"))!;
+  expect(artifactSign[artifactSign.indexOf("--app-version") + 1]).toBe(version);
+  const rc = fixture("0.16.0-rc.1");
+  await expect(signStagedDesktop({ root: "/fixture/root", stage: rc.stage, out: tmpDir(), version: "0.16.0-rc.1", arch: "aarch64", config: rc.config }, rc.run)).rejects.toThrow("stable (X.Y.Z) or nightly");
+  expect(rc.calls).toEqual([]);
 });
