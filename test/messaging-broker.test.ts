@@ -204,7 +204,7 @@ test("spinner output does not reset a no_progress stall", async () => {
   const task = createTask(ctx, { brief: { goal: "spin", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   const spin = (at: number) => updateTask(ctx, task.id, t => {
     t.state = "running"; t.attemptStartedAt = ctx.now - 3600;
-    t.progress = { phase: "working", lastOutputAt: at, lastChangeAt: ctx.now - 3600 } as typeof t.progress;
+    t.progress = { phase: "working", lastOutputAt: at, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
   });
   const node = `task:${task.id}`;
   spin(ctx.now - 1);

@@ -139,3 +139,33 @@ test("a provider end fails the attempt as broken, not as a limit", async () => {
   expect(out.exec.code).not.toBe(0);
   expect(out.exec.stderr).toContain("pacer: cursor kept retrying a provider error for 11 min: Provider request failed with HTTP 524");
 });
+
+test("the poller marks a git progress signal only when it read the worktree", async () => {
+  const now = Date.now() / 1000;
+  const poll = async (o: {git: boolean; host?: string}) => {
+    const ctx = fakeCtx(), dir = tmpDir();
+    if (o.git) ctx.run = async () => ({code: 0, stdout: "", stderr: ""});
+    const task = createTask(ctx, {brief: {goal: "g", repo: dir}, kind: null, requestedExecutor: null, timeoutS: 600});
+    const run: import("../src/tasks/types").RunRef = {dir, attempt: 1, executor: "codex", startedAt: now - 120, mode: "current", workdir: dir, logFile: join(dir, "log"), ...(o.host ? {host: o.host} : {})};
+    updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; });
+    await progressPoller(ctx, task, run)({pid: null, startedAt: now - 120, exit: null, alive: true, stdoutBytes: 10, stderrBytes: 0, lastOutputAt: now});
+    return readTask(ctx, task.id)!.progress!;
+  };
+  expect((await poll({git: true})).gitObserved).toBe(true);
+  expect((await poll({git: false})).gitObserved).toBeUndefined();
+  expect((await poll({git: true, host: "devbox"})).gitObserved).toBeUndefined();
+});
+
+test("a human typing in the run's terminal is recorded on its progress", async () => {
+  const ctx = fakeCtx(), dir = tmpDir(), now = Date.now() / 1000;
+  const task = createTask(ctx, {brief: {goal: "g", repo: dir}, kind: null, requestedExecutor: null, timeoutS: 600});
+  const run: import("../src/tasks/types").RunRef = {dir, attempt: 1, executor: "codex", startedAt: now - 120, mode: "current", workdir: dir, logFile: join(dir, "log"), session: "interactive"};
+  updateTask(ctx, task.id, t => { t.state = "running"; t.run = run; });
+  const state = (controller: string | null) => ({pid: null, startedAt: now - 120, exit: null, alive: true, stdoutBytes: 10, stderrBytes: 0, lastOutputAt: now, interactive: true, controller});
+  const poll = progressPoller(ctx, task, run);
+  await poll(state("client-1"));
+  expect(readTask(ctx, task.id)!.progress).toMatchObject({phase: "working", controlled: true});
+  setSystemTime(new Date((now + 11) * 1000));
+  await poll(state(null));
+  expect(readTask(ctx, task.id)!.progress!.controlled).toBeUndefined();
+});

@@ -134,3 +134,11 @@ export function validateExecution(raw: unknown): ExecutionCfg {
     ...(noProgress !== undefined ? { noProgressS: noProgress * 60 } : {}),
   };
 }
+
+/**
+ * The no-progress window in seconds. Unset, it stays a minute past `idle_after_min`, so a silent run still becomes
+ * `idle_run` first when `idle_after_min` is 30 or more.
+ */
+export function noProgressSeconds(ex: ExecutionCfg): number {
+  return ex.noProgressS ?? Math.max(NO_PROGRESS_S, (ex.idleAfterS ?? IDLE_AFTER_S) + 60);
+}

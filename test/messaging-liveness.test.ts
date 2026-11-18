@@ -1,5 +1,7 @@
 // test/messaging-liveness.test.ts
 import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, updateTask } from "../src/tasks/store";
 import * as store from "../src/messaging/store";
@@ -111,7 +113,8 @@ test("a work node is undelivered only when retry_delivery applies", () => {
 });
 
 const working = (phase: string, o: Partial<TaskRecord> = {}) =>
-  task("t-a", { state: "running", progress: { phase, lastOutputAt: NOW - 5, lastChangeAt: NOW - 3600 } as TaskRecord["progress"], ...o });
+  task("t-a", { state: "running", progress: { phase, lastOutputAt: NOW - 5, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"], ...o });
+const stale = (t: TaskRecord) => analyzeLiveness(snap({ tasks: [node(t, { lastProgressAt: NOW - 7200 })] }), NOW);
 
 test("a running task with output but no progress for 30 min is no_progress", () => {
   expect(analyzeLiveness(snap({ tasks: [node(working("working"), { lastProgressAt: NOW - 1800 })] }), NOW))
@@ -138,12 +141,36 @@ test("a task in pacer's acceptance testing phase is never no_progress", () => {
     .toEqual([expect.objectContaining({ reason: "no_progress" })]);
 });
 
+test("a conversation waiting for its user is never no_progress", () => {
+  for (const activity of ["idle", "waiting"] as const) expect(stale(working("working", { conversation: { activity } }))).toEqual([]);
+  // A conversation whose agent is working (for example a provider retry loop) is still covered.
+  expect(stale(working("working", { conversation: { activity: "working" } }))).toEqual([expect.objectContaining({ reason: "no_progress" })]);
+});
+
+test("a run without a git progress signal is never no_progress", () => {
+  // Remote-host runs and runs whose worktree git cannot be read have no way to show file changes or commits.
+  expect(stale(working("working", { progress: { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: null, host: "devbox" } as TaskRecord["progress"] }))).toEqual([]);
+  expect(stale(working("working", { progress: { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: null, gitObserved: true } as TaskRecord["progress"] })))
+    .toEqual([expect.objectContaining({ reason: "no_progress" })]);
+});
+
+test("a human typing in the run's terminal is never no_progress", () => {
+  expect(stale(working("working", { progress: { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: null, gitObserved: true, controlled: true } as TaskRecord["progress"] }))).toEqual([]);
+});
+
+test("the default no-progress window stays after idle_after_min", () => {
+  const ctx = fakeCtx({ now: NOW });
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nexecution:\n  idle_after_min: 40\n  idle_fail_min: 50\n");
+  expect(buildSnapshot(ctx).noProgressS).toBe(40 * 60 + 60);
+});
+
 test("an outgoing message counts as progress", () => {
   const ctx = fakeCtx({ now: NOW });
   const t = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   updateTask(ctx, t.id, x => {
     x.state = "running"; x.origin = "external:planner"; x.attemptStartedAt = NOW - 3600;
-    x.progress = { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: NOW - 3000 } as typeof x.progress;
+    x.progress = { phase: "working", lastOutputAt: NOW - 5, lastChangeAt: NOW - 3000, gitObserved: true } as typeof x.progress;
   });
   const from = `task:${t.id}`;
   const base = { taskId: t.id, rootId: from, from, to: "external:planner", body: "x", replyTo: null, requestId: null };

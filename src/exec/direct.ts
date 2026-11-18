@@ -258,7 +258,10 @@ export function progressPoller(ctx: Ctx, task: TaskRecord, run: RunRef, watch: R
     }
     waiting = !!needsInput;
     if (run.takeover) p.phase = "driving";
-    if (p.phase !== prev?.phase || now - writtenAt >= 10) {
+    // The no-progress backstop needs a readable worktree, and leaves a run alone while a human types in it.
+    if (fingerprint !== undefined) p.gitObserved = true;
+    if (controlled) p.controlled = true;
+    if (p.phase !== prev?.phase || p.controlled !== prev?.controlled || now - writtenAt >= 10) {
       updateTask(ctx, task.id, t => { t.progress = p; });
       writtenAt = now;
     }

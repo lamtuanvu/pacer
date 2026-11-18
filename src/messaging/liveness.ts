@@ -1,4 +1,4 @@
-import { NO_PROGRESS_S, validateExecution } from "../config/execution";
+import { NO_PROGRESS_S, noProgressSeconds, validateExecution } from "../config/execution";
 import { loadStrategy } from "../config/strategy";
 import { getWork } from "../dispatch/work";
 import { listTasksWhere } from "../tasks/store";
@@ -30,7 +30,7 @@ const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", 
 const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving", "testing"]);
 
 function noProgressS(ctx: Ctx): number {
-  try { return validateExecution(loadStrategy(ctx).execution).noProgressS ?? NO_PROGRESS_S; } catch { return NO_PROGRESS_S; }
+  try { return noProgressSeconds(validateExecution(loadStrategy(ctx).execution)); } catch { return NO_PROGRESS_S; }
 }
 
 /** Reads the open tasks, unread messages and unanswered questions the analysis needs. */
@@ -79,8 +79,10 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[
   for (const [p, n] of open) {
     const t = n.task;
     if (t.state === "running" && t.progress?.phase === "idle") stalls.set(p, { node: p, reason: "idle_run", blocking: blocking(p) });
-    // Output keeps a spinner or retry loop out of idle_run; only progress clears this. Without a progress record, output is unknown.
-    else if (t.state === "running" && t.progress && !NO_PROGRESS_EXEMPT.has(t.progress.phase) && now - n.lastProgressAt >= snapshot.noProgressS) {
+    // Output keeps a spinner or retry loop out of idle_run; only progress clears this. A run without a readable worktree
+    // (remote, or git failing) cannot show progress; a human typing, or a conversation at its prompt, holds the move.
+    else if (t.state === "running" && t.progress?.gitObserved && !t.progress.controlled && !NO_PROGRESS_EXEMPT.has(t.progress.phase)
+      && t.conversation?.activity !== "idle" && t.conversation?.activity !== "waiting" && now - n.lastProgressAt >= snapshot.noProgressS) {
       stalls.set(p, { node: p, reason: "no_progress", blocking: blocking(p) });
     }
     else if (!active(p) && (!n.work || snapshot.retryDelivery) && unread.some(m => m.to === p && m.status === "pending")) {
