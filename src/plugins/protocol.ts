@@ -60,7 +60,8 @@ export type AssistantBackend = (typeof ASSISTANT_BACKENDS)[number];
  * existing manifest has it) and whether it serves the turn-level `assistant.reply` method. A
  * contribution without `reply` keeps serving the older host-driven `assistant.respond` loop.
  */
-export const assistantContribution = z.object({ reply: z.literal(true).optional(), backend: z.enum(ASSISTANT_BACKENDS).optional() }).strict();
+// Open like every other contribution before 1.11.0 (P14: a minor bump never narrows an accepted shape); only the two named keys are typed.
+export const assistantContribution = z.object({ reply: z.boolean().optional(), backend: z.enum(ASSISTANT_BACKENDS).optional() }).catchall(z.json());
 /** Keep the published manifest schema as strict as runtime validation. */
 export const manifestContributes = z.object({
   diagnostic: genericContribution.optional(),

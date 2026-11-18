@@ -425,8 +425,7 @@
               "type": "object",
               "properties": {
                 "reply": {
-                  "type": "boolean",
-                  "const": true
+                  "type": "boolean"
                 },
                 "backend": {
                   "type": "string",
@@ -436,7 +435,9 @@
                   ]
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": {
+                "$ref": "#/$defs/manifest___schema1"
+              }
             },
             "pairing": {
               "type": "object",
@@ -673,6 +674,37 @@
         }
       ]
     },
+    "manifest___schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/manifest___schema1"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/manifest___schema1"
+          }
+        }
+      ]
+    },
     "helloParams": {
       "type": "object",
       "properties": {
@@ -754,8 +786,7 @@
                   "type": "object",
                   "properties": {
                     "reply": {
-                      "type": "boolean",
-                      "const": true
+                      "type": "boolean"
                     },
                     "backend": {
                       "type": "string",
@@ -765,7 +796,9 @@
                       ]
                     }
                   },
-                  "additionalProperties": false
+                  "additionalProperties": {
+                    "$ref": "#/$defs/helloParams___schema1"
+                  }
                 },
                 "pairing": {
                   "type": "object",
@@ -986,7 +1019,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/helloParams___schema1"
+            "$ref": "#/$defs/helloParams___schema2"
           }
         },
         "grants": {
@@ -1082,6 +1115,37 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/helloParams___schema1"
+          }
+        }
+      ]
+    },
+    "helloParams___schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helloParams___schema2"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/helloParams___schema2"
           }
         }
       ]

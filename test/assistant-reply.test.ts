@@ -13,12 +13,13 @@ import {
 import { admit, ask, cancel, candidates, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
 import { DIGEST_MAX_CHARS, buildDigest } from "../src/assistant/digest";
 import { createRedactor } from "../src/assistant/redact";
-import { conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
+import { assistantDatabase, conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import { answersTurn, assistantTurnFor, openAssistantTurn, type AssistantToolState } from "../src/assistant/turn-tools";
 import type { AssistantLimits, AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
 import type { Ctx } from "../src/types";
+import { taskDatabase } from "../src/tasks/store";
 import { fakeCtx } from "./helpers";
 
 // Phase 1A of docs/specs/2026-11-17-assistant-backends-design.md: the turn-level plugin method,
@@ -63,10 +64,10 @@ const req = () => `r-${crypto.randomUUID()}`;
 /** Ask on the reply path: the host loop must never run, so a fallback is a loud failure. */
 const noLoop: AssistantDeps["respond"] = async () => { throw new Error("the assistant.respond loop must not run"); };
 
-function setup(o: { fake?: boolean; limits?: Partial<AssistantLimits>; respond?: AssistantDeps["respond"] } = {}) {
+function setup(o: { fake?: boolean; extra?: BundledPlugin[]; limits?: Partial<AssistantLimits>; respond?: AssistantDeps["respond"] } = {}) {
   const ctx = fakeCtx();
   if (o.fake !== false) pluginRegistry(ctx, {
-    bundled: [...BUNDLED, fake],
+    bundled: [...BUNDLED, fake, ...(o.extra ?? [])],
     spawnBundled: (c, id) => id === "fx-reply"
       ? { argv: [process.execPath, join(import.meta.dir, "fixtures", "assistant-reply", "peer.ts")], cwd: c.home, env: {} }
       : bundledPluginSpawn(c, id),
@@ -143,8 +144,9 @@ describe("the turn-level plugin interface", () => {
     // An empty contribution (every existing assistant manifest) and a named backend stay valid anywhere.
     expect(manifestSchema.safeParse({ ...base, contributes: { assistant: {} } }).success).toBe(true);
     expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { backend: "executor" } } }).success).toBe(true);
-    expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { reply: false } } }).success).toBe(false);
-    expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { other: 1 } } }).success).toBe(false);
+    // The contribution stays open, as it was before 1.11.0 (P14): unknown keys and reply:false still load.
+    expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { reply: false } } }).success).toBe(true);
+    expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { other: 1 } } }).success).toBe(true);
   });
 });
 
@@ -313,6 +315,17 @@ describe("a turn answered by a plugin", () => {
     expect(readBackendSession(ctx, big.conversationId)).toBeNull();
   });
 
+  test("redacts streamed text with the turn's redactor", async () => {
+    const { ctx, deps } = setup({ respond: noLoop });
+    const started = await ask(ctx, { text: "leak", scope, requestId: req() }, deps);
+    const frames: StreamFrame[] = [];
+    subscribeTurn(started.turnId, frame => frames.push(frame));
+    await finished(ctx, started.turnId);
+    const streamed = frames.filter(frame => "delta" in frame).map(frame => (frame as { delta: string }).delta).join("");
+    expect(streamed).toContain("key:");
+    expect(streamed).not.toContain(KEY);
+  });
+
   test("caps tool rounds at the turn's maxToolRounds", async () => {
     const { ctx, deps } = setup({ respond: noLoop, limits: { maxToolRounds: 2 } });
     const started = await ask(ctx, { text: "rounds", scope, requestId: req() }, deps);
@@ -388,6 +401,20 @@ describe("backend choice", () => {
     expect(replyProvider(ctx, "executor")).toBeNull();
   });
 
+  test("admission refuses an executor backend whose plugin serves it without assistant.reply", async () => {
+    const serving: BundledPlugin = {
+      manifest: manifestSchema.parse({ id: "fx-exec-noreply", version: "1.0.0", publisher: "test", host: ">=1.11.0", contributes: { assistant: { backend: "executor" } }, capabilities: [] }),
+      main: async () => ({ handlers: {} }),
+    };
+    const { ctx, deps } = setup({ respond: noLoop, extra: [serving] });
+    writeSettings(ctx, { runner: null, account: "ep", backend: "executor", expect_rev: readSettings(ctx).rev });
+    // Serving the backend is not enough: without assistant.reply the turn would run pacer's own loop.
+    expect(replyProvider(ctx, "executor")).toBeNull();
+    const refused = await admit(ctx, deps);
+    expect(refused.ok).toBe(false);
+    expect(refused.reason).toBe("No plugin answers the assistant's executor backend.");
+  });
+
   test("settings keep the stored backend when a save omits it, and read it back as pacer when absent", async () => {
     const { ctx } = setup({ respond: noLoop });
     writeSettings(ctx, { runner: null, account: "ep", backend: "executor", expect_rev: readSettings(ctx).rev });
@@ -400,6 +427,20 @@ describe("backend choice", () => {
     const bare = fakeCtx();
     writeSettings(bare, { runner: null, account: "ep", expect_rev: readSettings(bare).rev });
     expect(readSettings(bare).backend).toBe("pacer");
+  });
+
+  test("an older store gains the backend and backend_session columns", () => {
+    const ctx = fakeCtx();
+    taskDatabase(ctx).exec(`
+      CREATE TABLE assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
+      CREATE TABLE assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
+      INSERT INTO assistant_conversations VALUES('c-old','Old',1,2);
+    `);
+    const db = assistantDatabase(ctx);
+    const columns = (table: string) => db.query<{ name: string }, []>(`PRAGMA table_info(${table})`).all().map(c => c.name);
+    expect(columns("assistant_settings")).toContain("backend");
+    expect(columns("assistant_conversations")).toContain("backend_session");
+    expect(readBackendSession(ctx, "c-old")).toBeNull();
   });
 
   test("candidates name the backend and say they are available", async () => {

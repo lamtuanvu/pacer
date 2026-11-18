@@ -22,6 +22,8 @@ Protocol 1.9.0 adds `executor.run`, `executor.stop` and `executor.sessionState`,
 
 Protocol 1.10.0 adds the Orca terminal-worker executor. A provider may contribute `executor.backends: ["orca"]`; `executor.run` gains an `orca` variant carrying only the host-selected task revision, attempt, runner, model and timeout, and may return `{ orca: { fallback } }` or `{ orca: { refused } }` before any worker can exist, after which the host runs its logged direct route or records the refusal. The consented `orca` capability defines task-owned effects bound to the host-issued attempt of the owning call: `status`, `liveAnswer`, `prepare`, `place`, `terminal`, `abandon`, `start`, `lookup`, `adopt`, `unstarted`, `wait`, `settle`, `finish`, and `stop` and `sessionState` for the task's recorded live worker. The plugin supplies no argv, environment, path, worktree, terminal or credential: the host builds every Orca CLI argv and the shell-quoted `exec env ...agent` command for `orca terminal create --command`, then attaches the worker with `worker-start --terminal`; the brief travels only in `--spec`. The host persists one start intent before worker-start; an uncertain start is reconciled by the run's worker listing and is never replayed or replaced by a direct attempt. The host closes only the exact terminal it created and releases the work lease only on closure proof; if the provider fails, the host settles its own effects by phase. `executor.sessionState` reports `host: "orca"` with the live worker's terminal handle; it is staged in 1.10.0, and no host feature calls it for Orca yet. A manifest that declares `orca` or contributes an `orca` backend sets `host` to `>=1.10.0`. The bundled `pacer-exec-orca` provider is the only Orca executor; headless launches, strict managed work, connection accounts, unsupported agents, work grants and an unavailable Orca keep the direct route with the reason in the attempt log.
 
+Protocol 1.11.0 adds the turn-level assistant interface. A plugin whose `assistant` contribution sets `reply: true` answers a whole turn with `assistant.reply`; `backend` names the backend it serves (`pacer` when absent). The host builds the system prompt, a digest and the transcript, and may pass the backend's own `session` handle from the previous turn of the same conversation, account and backend; the result may return a new one. During the call, and only for its `turnId`, the plugin runs tools through `capability.assistant.tool`, which the host answers with its read pipeline under that call's authority, within `maxToolRounds`, and refuses once the call ends. The plugin may stream `assistant.delta` notifications (`text` or `activity`) into the turn it is answering; they are redacted, ephemeral and never written to the event outbox. A manifest that declares `assistant.tool` or sets `contributes.assistant.reply` sets `host` to `>=1.11.0`. The `assistant` contribution stays open: unknown keys are accepted, as before. Under the native plugin host (`PACER_NATIVE_PLUGIN_HOST=1`) child notifications are not relayed yet, so `assistant.delta` is dropped there, as `ui.invalidate` is.
+
 Peers explicitly negotiate `chunkedResults` in hello features. For a large usage result, the plugin sends sequential `$/resultChunk` requests containing the original numeric request id, contiguous byte offset and at most 256 KiB of base64 JSON bytes, with the original call metadata. It waits for each `{ bytes }` acknowledgement, then replies to the original request with `{ _chunkedResult: { bytes } }`. The host resolves only after exact-length complete JSON assembly under the original authority/deadline. Legacy peers keep ordinary replies; chunks never renew authority.
 
 Only a host-issued `hostRunner.stream` call may keep its request open without a whole-call deadline. Its owner signal and exact provider generation revoke it; each directional frame has a five-second acknowledgement deadline. The plugin emits one `$/progress` event with the original numeric request id and a bounded stream frame, then calls `$/streamAck` with the original call metadata. The host acknowledges only after consuming the frame. For viewer input, the host sends one `$/streamInput` notification, then waits for the plugin's `$/streamInputAck` after the brokered SSH write. Each direction has its own sequence starting at zero and one unacknowledged 64 KiB frame. Other progress callbacks keep their fire-and-forget behavior; other hostRunner methods retain finite deadlines. Open streams run in their own small pool and never hold the registry's shared call slots; when that pool is full the host refuses a new stream with `plugin_unavailable`.
@@ -106,8 +108,7 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
           "type": "object",
           "properties": {
             "reply": {
-              "type": "boolean",
-              "const": true
+              "type": "boolean"
             },
             "backend": {
               "type": "string",
@@ -117,7 +118,9 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
               ]
             }
           },
-          "additionalProperties": false
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
+          }
         },
         "pairing": {
           "type": "object",
@@ -350,6 +353,37 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    },
+    "__schema1": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema1"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema1"
           }
         }
       ]
@@ -1345,8 +1379,7 @@ Params:
               "type": "object",
               "properties": {
                 "reply": {
-                  "type": "boolean",
-                  "const": true
+                  "type": "boolean"
                 },
                 "backend": {
                   "type": "string",
@@ -1356,7 +1389,9 @@ Params:
                   ]
                 }
               },
-              "additionalProperties": false
+              "additionalProperties": {
+                "$ref": "#/$defs/__schema1"
+              }
             },
             "pairing": {
               "type": "object",
@@ -1577,7 +1612,7 @@ Params:
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema1"
+        "$ref": "#/$defs/__schema2"
       }
     },
     "grants": {
@@ -1673,6 +1708,37 @@ Params:
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema1"
+          }
+        }
+      ]
+    },
+    "__schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema2"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema2"
           }
         }
       ]

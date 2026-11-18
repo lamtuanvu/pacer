@@ -4,6 +4,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- Plugin protocol 1.11.0 (additive): the `assistant` point adds the turn-level `assistant.reply` method, the `capability.assistant.tool` capability (answered only under the owning reply call's authority, for its turn, within `maxToolRounds`) and the `assistant.delta` notification. A contribution names its `backend` (`pacer` or `executor`) and whether it provides `reply`; the contribution stays open to other keys.
+- Assistant settings and candidates gain an additive `backend` choice (`pacer` by default) and `available`. A stored `executor` backend is refused with a reason until a plugin answers it. Each conversation keeps the backend's resume handle for the same account and backend; clients never see it.
+
 ### Fixed
 
 - Settings → Updates and the TUI no longer offer a service Install that is always refused: `update.check` reports `managedBy` (`desktop`, `homebrew` or `npm`) with `managedHint` when another installer updates the installation, `update.apply` refuses a desktop-owned installation before anything else, and an error no longer repeats its hint.

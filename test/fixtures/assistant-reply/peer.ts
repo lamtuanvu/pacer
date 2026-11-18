@@ -35,6 +35,8 @@ const usage = { input: 12, output: 3, coverage: "measured" as const };
 async function answer(p: Reply): Promise<{ message: string; session?: string; usage: { input: number; output: number; coverage: "measured" } }> {
   const scenario = p.message.trim();
   // Continuity: echo the handle the host passed, and hand back a new one (or one past the input cap).
+  // Streamed text that carries a secret: the host must redact it before it reaches the sheet.
+  if (scenario === "leak") { delta(p.turnId, "text", `key: ${["sk", "-reply-test-key"].join("")}`); return { message: "done", usage }; }
   if (scenario === "session") return { message: `got=${p.session ?? "none"}`, session: `s-${p.turnId}`, usage };
   if (scenario === "session big") return { message: `got=${p.session ?? "none"}`, session: "s-big", usage: { ...usage, input: 10_000_000 } };
   // A slow backend: the host's cancel or deadline aborts it, and its reply is dropped.

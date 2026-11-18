@@ -132,8 +132,9 @@ export interface Admission { ok: boolean; reason?: string; hint?: string }
 export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admission> {
   const settings = readSettings(ctx);
   if (!settings.account) return { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
-  // A stored backend no plugin serves is refused like a missing account (spec §Phases 1).
-  if (settings.backend === "executor" && !assistantProvider(ctx, "executor"))
+  // A stored executor backend needs a plugin that answers it with assistant.reply; otherwise the
+  // turn would fall back to pacer's own loop, which is the other backend (spec §Phases 1).
+  if (settings.backend === "executor" && !replyProvider(ctx, "executor"))
     return { ok: false, reason: "No plugin answers the assistant's executor backend.", hint: "Choose pacer's agent in Settings › Assistant." };
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const endpoint = endpointFor(strategy, settings);
@@ -183,7 +184,7 @@ export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1
 // ---- Turns -----------------------------------------------------------------------------------------------------
 
 export type StreamFrame = { delta: string } | { status: string } | { done: { state: TurnView["state"]; error?: string } };
-interface Live { frames: StreamFrame[]; listeners: Set<(frame: StreamFrame) => void>; closed: boolean; cancelled: boolean; /** The backend streamed text itself, so the final answer must not be replayed as one more delta. */ streamed: boolean; stop: () => void; stopped: Promise<never>; abort: AbortController }
+interface Live { /** The turn's redactor, applied to streamed text as to the final answer; set once the turn has built it. */ redactor?: Redactor; frames: StreamFrame[]; listeners: Set<(frame: StreamFrame) => void>; closed: boolean; cancelled: boolean; /** The backend streamed text itself, so the final answer must not be replayed as one more delta. */ streamed: boolean; stop: () => void; stopped: Promise<never>; abort: AbortController }
 const live = new Map<string, Live>();
 const inflight = new Map<string, string>();
 
@@ -192,8 +193,11 @@ const inflight = new Map<string, string>();
 setAssistantDeltaSink((turnId, kind, text) => {
   const entry = live.get(turnId);
   if (!entry || entry.closed) return;
+  // Nothing streams before the turn's redactor exists, so no unredacted text reaches the sheet.
+  if (!entry.redactor) return;
+  const clean = entry.redactor.text(text);
   if (kind === "text") entry.streamed = true;
-  emit(turnId, kind === "text" ? { delta: text } : { status: text });
+  emit(turnId, kind === "text" ? { delta: clean } : { status: clean });
 });
 
 /** Subscribe to a turn's ephemeral stream. Frames replay from the start; nothing is persisted here. */
@@ -291,6 +295,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const endpoint = endpointFor(strategy, settings);
     if (!endpoint) throw new CoreError("not_allowed", "The account chosen for the assistant is no longer available.");
     const redactor = createRedactor(await (deps.keys ?? defaultKeys)(ctx, strategy), ctx.home);
+    entry.redactor = redactor;
     const read = deps.read ?? defaultRead(deps);
     const respond = deps.respond ?? (async (c: Ctx, params: unknown, deadlineMs: number, signal?: AbortSignal) => pluginRegistry(c).call(c, ASSISTANT_PLUGIN, "assistant.respond", params, { deadlineMs, signal }));
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
@@ -303,7 +308,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const transcript = history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]);
       const digest = await buildDigest(ctx, { read, scope, redactor, account: endpoint.name });
       // The input cap is the host's, enforced on the context it builds, before the call.
-      const inputTokens = () => approxTokens(system) + approxTokens(digest) + approxTokens(question) + transcript.reduce((n, m) => n + approxTokens(m.content), 0);
+      const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(tools)) + approxTokens(digest) + approxTokens(question) + transcript.reduce((n, m) => n + approxTokens(m.content), 0);
       while (transcript.length && inputTokens() > settings.limits.maxInputTokens) transcript.shift();
       if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
       const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
