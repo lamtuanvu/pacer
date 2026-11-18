@@ -110,7 +110,6 @@ test("native assistant settings, history and cards match TypeScript results, err
     ["assistant.settings.set", "x"],
     ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor")],
     ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "garbage")],
-    ["assistant.candidates", {}, strategy],
     ["assistant.status", {}],
     ["assistant.status", {}, all(settings(null), history)],
     ["assistant.status", {}, all(settings("gone"), strategy, history)],
@@ -155,7 +154,10 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   const cases: Case[] = [
     ["assistant.status", {}, all(settings("ep", "{}"), strategy, history)],
     ["assistant.status", {}, settings("ep")],
+    // Candidates and an executor backend's admission need the core's plugins and ask-mode check.
     ["assistant.candidates", {}],
+    ["assistant.candidates", {}, strategy],
+    ["assistant.status", {}, all(settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor"), strategy, history)],
     ["assistant.settings.set", {...base, account: "ep"}],
     ["assistant.settings.get", {}, unusable],
     ["assistant.settings.set", base, unusable],
@@ -172,7 +174,7 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   await expect(callOp(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
   // assistant.ask, assistant.cancel and assistant.tool are not registered natively: the first two
   // drive the plugin and the stream, the third needs a live turn's tool context in the core.
-  for (const op of ["assistant.ask", "assistant.cancel", "assistant.tool"]) {
+  for (const op of ["assistant.ask", "assistant.cancel", "assistant.tool", "assistant.selftest"]) {
     expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {turnId: "turn-1", name: "snapshot", params: {}}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
   }
 });

@@ -67,7 +67,7 @@ const noLoop: AssistantDeps["respond"] = async () => { throw new Error("the assi
 function setup(o: { fake?: boolean; extra?: BundledPlugin[]; limits?: Partial<AssistantLimits>; respond?: AssistantDeps["respond"] } = {}) {
   const ctx = fakeCtx();
   if (o.fake !== false) pluginRegistry(ctx, {
-    bundled: [...BUNDLED, fake, ...(o.extra ?? [])],
+    bundled: [...BUNDLED.filter(p => p.manifest.id !== "assistant-executor"), fake, ...(o.extra ?? [])],
     spawnBundled: (c, id) => id === "fx-reply"
       ? { argv: [process.execPath, join(import.meta.dir, "fixtures", "assistant-reply", "peer.ts")], cwd: c.home, env: {} }
       : bundledPluginSpawn(c, id),

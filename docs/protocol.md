@@ -1267,6 +1267,30 @@ Params JSON Schema:
 }
 ```
 
+### `assistant.selftest`
+
+Run the fail-closed ask-mode check for one account the executor backend drives: canary turns in ask mode must attempt and be denied a shell command, a file read outside the run directory and a URL fetch, on a first and a resumed turn. Records the result for that account and the installed CLI version. Runs the agent CLI and spends the account's tokens.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "account"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `assistant.settings.get`
 
 The assistant's account, backend, limits and retention, with a revision for assistant.settings.set.
