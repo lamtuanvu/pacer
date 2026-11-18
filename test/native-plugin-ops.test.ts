@@ -1,11 +1,8 @@
-import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, existsSync, linkSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, writeFileSync } from "node:fs";
-import { dirname, join, relative } from "node:path";
-import { installFixture } from "../conformance/install";
-import { tmpDir } from "./helpers";
+import { cpSync, existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { front, service, tsOwner } from "./native-plugin-ops-service";
 
-const front = process.env.PACER_TEST_FRONT_DOOR;
 const context = { route: "overview", theme: "light" };
 
 test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse boundaries", async () => {
@@ -60,66 +57,6 @@ test.skipIf(!front)("native raw JSON decoding matches fetch and JSON.parse bound
   }
   expect(results[0]).toEqual(results[1]);
 }, 60000);
-
-// Forwarded plugin calls need TypeScript to own plugin children; the native host refuses a second owner.
-const tsOwner = { nativeHost: "0" };
-
-async function service(forward = "", homeKind = "absolute", options: { nativeHost?: string } = {}) {
-  // host.sock must fit SUN_LEN (~104). Bun test redirects TMPDIR into a deep
-  // isolated home, so homes that may bind it allocate under /tmp directly.
-  const shortHome = options.nativeHost !== "0";
-  const home = shortHome ? realpathSync(mkdtempSync("/tmp/pnh-")) : realpathSync(tmpDir());
-  const state = join(home, ".pacer");
-  mkdirSync(state, { mode: 0o700 });
-  writeFileSync(join(state, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n# preserve this comment\n", { mode: 0o600 });
-  symlinkSync(join(import.meta.dir, "../node_modules"), join(home, "node_modules"), "dir");
-  const plugin = installFixture("ui", join(state, "plugins"));
-  const socket = Bun.serve({ hostname: "127.0.0.1", port: 0, fetch: () => new Response() });
-  const port = socket.port!; socket.stop(true);
-  let configuredHome = state;
-  if (homeKind.includes("symlink")) {
-    configuredHome = join(home, "linked");
-    symlinkSync(".pacer", configuredHome, "dir");
-  }
-  if (homeKind.includes("relative")) configuredHome = relative(process.cwd(), configuredHome);
-  const child = Bun.spawn([front!, "serve", "--port", String(port)], {
-    env: { ...childEnv(home, port), PACER_HOME: configuredHome, PATH: `${fakeServiceManager(home)}:${dirname(process.execPath)}:${process.env.PATH}`,
-      PACER_CORE_ARGV: JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]),
-      PACER_NO_UPDATE_CHECK: "1", PACER_NO_SELF_REPAIR: "1", PACER_DISCOVERY: "off",
-      PACER_DEBUG_NATIVE: "1", PACER_FORWARD_OPS: forward,
-      ...(options.nativeHost !== undefined ? { PACER_NATIVE_PLUGIN_HOST: options.nativeHost } : {}) },
-    stdin: "ignore", stdout: "ignore", stderr: "pipe",
-  });
-  const logs = new Response(child.stderr).text();
-  const base = `http://127.0.0.1:${port}`;
-  let token = "";
-  try {
-    for (let i = 0; i < 500; i++) {
-      try {
-        token = readFileSync(join(state, "token"), "utf8").trim();
-        const response = await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
-        if (response.ok) break;
-      } catch { /* Wait for this owned child only. */ }
-      if (child.exitCode !== null) throw Error(await logs);
-      await Bun.sleep(20);
-    }
-    if (!token) throw Error("native fixture did not become ready");
-  } catch (error) {
-    child.kill("SIGTERM"); await child.exited;
-    if (shortHome) rmSync(home, { recursive: true, force: true });
-    throw error;
-  }
-  const post = async (op: string, params: unknown) => {
-    const response = await fetch(`${base}/v3/ops/${op}`, { method: "POST", headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" }, body: JSON.stringify(params), signal: AbortSignal.timeout(15000) });
-    return await response.json() as any;
-  };
-  return { home, state, plugin, base, token, post, async stop() {
-    if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
-    const text = await logs;
-    if (shortHome) rmSync(home, { recursive: true, force: true });
-    return text;
-  } };
-}
 
 test.skipIf(!front)("native reads and mutations match forced TypeScript fallback", async () => {
   const results: unknown[][] = [];
@@ -265,53 +202,6 @@ await serve({manifest,input:stdinLines(),handlers:{'ui.action':async p=>{
   }
 }, 60000);
 
-test.skipIf(!front)("linked settings reads and atomic replacement match TypeScript", async () => {
-  for (const kind of ["symlink", "hardlink"]) {
-    const results: unknown[] = [];
-    for (const forward of ["", "*"]) {
-      const s = await service(forward, "absolute", tsOwner);
-      try {
-        await s.post("plugin.enable", { id: "fx-ui", grant: true });
-        const target = join(s.home, "settings-target.json"), name = join(s.state, "plugin-settings.json");
-        const text = JSON.stringify({ "fx-ui": { rev: 7, values: { required: true }, hidden: ["activity:checklist"] } });
-        writeFileSync(target, text, { mode: 0o600 });
-        if (kind === "symlink") symlinkSync(target, name); else linkSync(target, name);
-        const get = await s.post("plugin.settings.get", { plugin: "fx-ui" });
-        expect(get.result?.rev, JSON.stringify(get)).toBe(7);
-        results.push(get, await s.post("plugin.ui.list", {}));
-        const save = await s.post("plugin.settings.set", { plugin: "fx-ui", values: { required: false }, expect_rev: 7 });
-        expect(save.result?.rev).toBe(8); results.push(save);
-        expect(readFileSync(target, "utf8")).toBe(text);
-      } finally { await s.stop(); }
-    }
-    expect(results.slice(0, 3)).toEqual(results.slice(3));
-  }
-}, 60000);
-
-
-test.skipIf(!front)("configured symlinked and relative homes match TypeScript settings writes", async () => {
-  for (const kind of ["symlink", "relative", "relative-symlink"]) {
-    const results: unknown[][] = [];
-    for (const forward of ["", "*"]) {
-      const s = await service(forward, kind, tsOwner), actual: unknown[] = [];
-      try {
-        const enable = await s.post("plugin.enable", { id: "fx-ui", grant: true });
-        expect(enable.result?.state, JSON.stringify(enable)).toBe("idle"); actual.push(enable);
-        const save = await s.post("plugin.settings.set", { plugin: "fx-ui", values: { required: true }, expect_rev: 0 });
-        expect(save.result?.rev, JSON.stringify(save)).toBe(1); actual.push(save);
-        const hidden = await s.post("plugin.ui.visibility", { plugin: "fx-ui", surface: "activity", id: "checklist", visible: false, expect_rev: 1 });
-        expect(hidden.result?.rev, JSON.stringify(hidden)).toBe(2); actual.push(hidden);
-        actual.push(await s.post("plugin.settings.get", { plugin: "fx-ui" }));
-        const remove = await s.post("plugin.remove", { id: "fx-ui" });
-        expect(remove.result?.removed, JSON.stringify(remove)).toBe(true); actual.push(remove);
-        expect(JSON.parse(readFileSync(join(s.state, "plugin-settings.json"), "utf8"))["fx-ui"]).toBeUndefined();
-        results.push(actual);
-      } finally { await s.stop(); }
-    }
-    expect(results[0], kind).toEqual(results[1]);
-  }
-}, 60000);
-
 test.skipIf(!front)("lone UTF-16 units survive request, IPC, settings store and render", async () => {
   const results: unknown[][] = [];
   for (const forward of ["", "*"]) {
@@ -427,19 +317,6 @@ test.skipIf(!front)("filesystem and strategy edit errors retain TypeScript codes
     } finally { await s.stop(); }
   }
   expect(results[0]).toEqual(results[1]);
-}, 60000);
-
-test.skipIf(!front)("lock timeout names configured home rather than its canonical target", async () => {
-  for (const forward of ["", "*"]) {
-    const s = await service(forward, "symlink", tsOwner);
-    try {
-      await s.post("plugin.enable", { id: "fx-ui", grant: true });
-      writeFileSync(join(s.state, "orca/plugin-settings.lock"), "", { mode: 0o600 });
-      const response = await fetch(`${s.base}/v3/ops/plugin.settings.set`, { method: "POST", headers: { Authorization: `Bearer ${s.token}`, "Content-Type": "application/json" }, body: JSON.stringify({ plugin: "fx-ui", values: {}, expect_rev: 0 }), signal: AbortSignal.timeout(25000) });
-      expect(response.status).toBe(500);
-      expect(await response.json()).toEqual({ error: { code: "internal", message: `timed out waiting for ${join(s.home, "linked/orca/plugin-settings.lock")}` } });
-    } finally { await s.stop(); }
-  }
 }, 60000);
 
 test.skipIf(!front)("lone-surrogate action lengths use Zod code-point limits", async () => {
