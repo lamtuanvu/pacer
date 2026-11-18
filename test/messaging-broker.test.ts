@@ -79,18 +79,18 @@ test("cycle nudges the deepest task with exponential backoff and clears after an
   const qa = insertMessage(ctx, { taskId: a.id, rootId: `task:${a.id}`, from: `task:${a.id}`, to: `task:${b.id}`, kind: "question", body: "A?", replyTo: null, requestId: "qa" }).message;
   const qb = insertMessage(ctx, { taskId: b.id, rootId: `task:${b.id}`, from: `task:${b.id}`, to: `task:${a.id}`, kind: "question", body: "B?", replyTo: null, requestId: "qb" }).message;
   await brokerTick(ctx, { mode });
-  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   await brokerTick({ ...ctx, now: ctx.now + 59 }, { mode });
-  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect([a.id, b.id].some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
-  const target = [a.id, b.id].find(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))!;
+  const target = [a.id, b.id].find(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))!;
   expect(target).toBeDefined();
   const node = `task:${target}`;
   expect(getLiveness(ctx, node)?.attempts).toBe(1);
   await brokerTick({ ...ctx, now: ctx.now + 179 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:2`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:2`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:2`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:2`)).not.toBeNull();
   const ownQuestion = target === a.id ? qa : qb;
   insertMessage(ctx, { taskId: target, rootId: node, from: node, to: ownQuestion.to,
     kind: "answer", body: "answered", replyTo: target === a.id ? qb.id : qa.id, requestId: "answer" });
@@ -116,7 +116,7 @@ test("zero nudge cap escalates a cycle immediately without inserting a nudge", a
   const ids = cycle(ctx);
   await brokerTick(ctx, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
-  expect(ids.some(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))).toBe(false);
+  expect(ids.some(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))).toBe(false);
   expect(ids.map(id => getLiveness(ctx, `task:${id}`))).toContainEqual(expect.objectContaining({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now }));
 });
 
@@ -124,10 +124,10 @@ test("a cycle stops at max_nudges on the third nudge and the fourth tick inserts
   const ctx = fakeCtx({ now: 1_000_000 });
   const ids = cycle(ctx);
   for (const at of [0, 60, 180, 420, 900, 1800]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
-  const target = ids.find(id => byRequest(ctx, "broker", `nudge:task:${id}:1`))!;
+  const target = ids.find(id => byRequest(ctx, "broker", `nudge:task:${id}:a0:1`))!;
   const node = `task:${target}`;
-  expect(byRequest(ctx, "broker", `nudge:${node}:3`)).not.toBeNull();
-  expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:3`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:4`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
 });
 
@@ -140,7 +140,7 @@ test("zero nudge cap escalates an idle run immediately without inserting a nudge
   await brokerTick(ctx, { mode });
   const node = `task:${task.id}`;
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
   expect(getLiveness(ctx, node)?.nudges).toBe(0);
 });
@@ -151,13 +151,13 @@ test("idle run waits one interval before bounded recovery", async () => {
   updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
   const node = `task:${task.id}`;
   await brokerTick(ctx, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 60 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).not.toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).not.toBeNull();
   await brokerTick({ ...ctx, now: ctx.now + 180 }, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 420 }, { mode });
   await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode });
-  expect(byRequest(ctx, "broker", `nudge:${node}:4`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:4`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
 });
 
@@ -197,7 +197,7 @@ test("strict mode escalates an idle run instead of nudging it", async () => {
   updateTask(ctx, task.id, t => { t.state = "running"; t.progress = { phase: "idle", lastOutputAt: ctx.now - 500 } as typeof t.progress; });
   const node = `task:${task.id}`;
   await brokerTick(ctx, { mode: async () => "strict" as const });
-  expect(byRequest(ctx, "broker", `nudge:${node}:1`)).toBeNull();
+  expect(byRequest(ctx, "broker", `nudge:${node}:a0:1`)).toBeNull();
   expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
 });
 

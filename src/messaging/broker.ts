@@ -51,6 +51,8 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
         const allowed = config.nudge_in_modes.includes(mode);
         const old = getLiveness(ctx, node);
         const mark = progressMark(ctx, stall, snapshot), seen = snapshot.tasks.find(n => `task:${n.task.id}` === node);
+        // Per attempt, so a retried task's pings are not taken for the previous attempt's.
+        const pingId = (n: number) => `nudge:${node}:a${seen?.task.run?.attempt ?? 0}:${n}`;
         const changed = old?.progressMark !== mark || old.reason !== stall.reason;
         const row: LivenessUpsert = old && !changed ? { ...old } : {
           // A no_progress stall started at the last progress, which the attention detail counts from.
@@ -77,8 +79,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           else if (row.nudges < config.max_nudges) {
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: no progress for ${snapshot.noProgressS / 60} min. Report progress, ask your parent, or report a blocker.`,
-              // Per attempt, so a retried task's pings are not taken for the previous attempt's.
-              replyTo: null, requestId: `nudge:${node}:a${seen?.task.run?.attempt ?? 0}:${row.nudges + 1}` });
+              replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           } else {
@@ -107,7 +108,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             const chain = `${node} → ${stall.waitingOn ?? node} → ${node}`;
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: `pacer: your conversation is waiting on you (cycle: ${chain}). Answer the open question, ask your parent, or report.`,
-              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+              replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           } else if (stall.reason === "idle_run") {
@@ -116,7 +117,7 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
             if (task?.run?.dir) await stopRun(task.run.dir);
             insertMessage(ctx, { taskId: taskOf(node), rootId: rootOf(ctx, node), from: "broker", to: node,
               kind: "nudge", body: "pacer: your run was idle. Resume the work, ask for help, or report progress.",
-              replyTo: null, requestId: `nudge:${node}:${row.nudges + 1}` });
+              replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
           }
