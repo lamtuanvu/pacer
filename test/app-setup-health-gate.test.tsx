@@ -548,7 +548,8 @@ test("SetupHealthGate Allow notifications: the macOS prompt hint shows while wai
     await until(() => domText(dom.container).includes("Answer the macOS prompt…"));
     answer();
     await until(() => !domText(dom.container).includes("Answer the macOS prompt…"));
-    expect(domText(dom.container)).toContain("Allow notifications");
+    // Answering re-runs the checks; the repair returns once they finish.
+    await until(() => domText(dom.container).includes("Allow notifications"));
   } finally {
     answer();
     await unmount(dom);
