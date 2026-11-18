@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.22.0 (nightly update channel) proposed; amendment 0.21.0 (release from a pinned tag) proposed; amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.22.0 | Updated: 2026-11-17
+Status: Amendment 0.23.0 (general tests on Linux, macOS-specific tests on macOS) proposed; amendment 0.22.0 (nightly update channel) proposed; amendment 0.21.0 (release from a pinned tag) proposed; amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.23.0 | Updated: 2026-11-18
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -52,7 +52,7 @@ The maintainer owns every path (`* @lamtuanvu`). The dependency direction is: cl
 ## Validation and review agreements
 
 Established checks, run in CI on every PR and on pushes to `main` ([.github/workflows/ci.yml](../.github/workflows/ci.yml)):
-- `bun run typecheck`, `bun run test` and `bun run build`, on ubuntu and macOS.
+- `bun run typecheck`, `bun run test` and `bun run build`, on ubuntu. Amendment 0.23.0 (proposed) runs only the macOS-specific tests on macOS.
 - Amendment 0.4.0 adds `bun run ui:check` to the same CI job: every authored app TS/TSX/CSS subtree, including shell, terminal and tray, is checked without a violation baseline.
 - Gitleaks over the full history.
 - CodeQL for JS/TS.
@@ -151,10 +151,10 @@ run focused tests, typechecks and host artifact smoke checks, while scheduled an
 manual CI run full validation. Source mappings retain their affected integration jobs. Unknown
 or unresolvable changes select full validation. The Test check names, security
 scans, readiness gates, release validation and local CT-11 requirements remain.
-Pull requests run only the OS-independent logic tests on Linux; macOS Test and Rust
-work, the macOS install/sign-in/delegation e2e and the Linux service survival check
-run on main pushes, schedule and manual dispatch. Both required Test names still
-report on every PR.
+Pull requests run the general tests on Linux and, under amendment 0.23.0 (proposed),
+the macOS-specific tests on macOS; macOS Rust work, the macOS install/sign-in/delegation
+e2e and the Linux service survival check run on main pushes, schedule and manual
+dispatch. Both required Test names still report on every PR.
 See [CI selection](../docs/testing/ci-selection.md) for the current conservative
 mapping and coverage tradeoffs.
 
@@ -222,7 +222,7 @@ See "Open decisions" in [decisions.md](decisions.md). In short:
 Proposed; adopted only by the maintainer merging this amendment PR. It replaces amendment 0.6.0's release-PR flow.
 
 - **Prepare release** pins one commit when it starts and releases exactly that commit. The version bump is a commit on top of it, or none when the pinned commit already carries an untagged version. That commit is tagged directly. No release PR has to merge before tagging, so later merges to `main` can't invalidate a release, and **Release tag** recovery is removed.
-- `release.yml` on the tag is the only build and publish path. It requires CI's full suite on both OSes for the tagged commit (dispatching CI on the tag when none exists) and publishes from the tag.
+- `release.yml` on the tag is the only build and publish path. It requires CI's Linux full suite and macOS-specific suite (amendment 0.23.0, proposed) for the tagged commit (dispatching CI on the tag when none exists) and publishes from the tag.
 - The version bump reaches `main` through a separate `chore: release x.y.z` bookkeeping PR. It's an ordinary PR under the usual required checks, and merging it doesn't re-tag anything.
 - Unchanged from 0.6.0: `RELEASE_TOKEN` scope, tags are never moved, a tagged version is never re-tagged, and the UI-24 version-string exemption.
 
@@ -233,3 +233,13 @@ Proposed; adopted only by the maintainer merging this amendment PR. [ADR 0028](.
 - REL-5 is amended: nightly versions (`X.Y.Z-nightly.N`) use npm dist-tag `nightly`; other prereleases keep `next`.
 - REL-9 is added (proposed): `nightly.yml` stamps a nightly version onto a commit that is never merged into `main`, from a `main` commit with CI's full suite green, and pushes an immutable tag that runs `release.yml`. Nightlies publish only GitHub prereleases, the `nightly` dist-tag and the nightly feeds. Nightlies older than 14 days are pruned, except the newest 3 and any version a feed references.
 - Unchanged: REL-2's stable release flow and its never-moved tags, REL-3's both-architecture build and signing, and ADR 0001's compiled feed trust. Nightly feed URLs are compiled constants and the channel is an enum, so runtime input still cannot select a feed. No client downgrades when it leaves nightly.
+
+## Amendment 0.23.0 — general tests on Linux, macOS-specific tests on macOS
+
+Proposed; adopted only by the maintainer merging this amendment PR. The maintainer decided on 2026-11-18 that general tests run only on Linux and that macOS runs only macOS-specific tests, on pull requests and on `main` alike.
+
+- CI splits the full Bun suite across duration-balanced Linux shards. One job runs the typecheck, UI policy check and build once per workflow. One macOS job runs the files that `scripts/ci/macos-tests.txt` marks `only` or `mixed`, whenever the full suite is selected, so macOS-specific tests now run on pull requests.
+- `Test (ubuntu-latest)` and `Test (macos-latest)` stay the required check names. Each passes only when every selected job passed.
+- REL-2 release publication requires the Linux full suite and the macOS-specific suite to have run and passed on the tagged commit.
+- Accepted risk: a macOS-only regression in a general test is not caught by CI before a release, because general tests no longer run on macOS. A test that needs macOS coverage must be listed in the manifest; `test/ci-sharding.test.ts` fails when a file that checks for darwin is not.
+- This amendment doesn't relax the security scans, DCO, release artifact checks, REPO-10, CT-11 or the maintainer's merge authority. See [CI selection](../docs/testing/ci-selection.md).
