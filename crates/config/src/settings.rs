@@ -47,9 +47,13 @@ pub const CONFIG_KEYS: &[&str] = &[
     "pacing.fill_threshold",
     "pacing.balance",
     "update_check",
+    "update_channel",
     "terminal.app",
     "terminal.open",
 ];
+/// The `update_channel` values (`UPDATE_CHANNELS` in `src/update/channel.ts`).
+pub const UPDATE_CHANNELS: &[&str] = &["stable", "nightly"];
+pub const UPDATE_CHANNEL_ERROR: &str = "update_channel must be stable or nightly";
 const PRESETS: &[&str] = &[
     "ghostty",
     "iterm",
@@ -200,6 +204,7 @@ fn parse_setting(
         "execution.launch_mode" if !["interactive", "headless"].contains(&s) => {
             fail("execution.launch_mode must be interactive or headless")
         }
+        "update_channel" if !UPDATE_CHANNELS.contains(&s) => fail(UPDATE_CHANNEL_ERROR),
         "execution.backend" if !["orca", "direct"].contains(&s) => {
             fail("execution.backend must be orca or direct")
         }
@@ -315,6 +320,10 @@ fn effective(s: &Value, raw: &Value) -> Map<String, Value> {
     out.insert(
         "update_check".into(),
         fallback(raw.get("update_check"), json!(true)),
+    );
+    out.insert(
+        "update_channel".into(),
+        fallback(raw.get("update_channel"), json!("stable")),
     );
     out.insert(
         "terminal.app".into(),
@@ -582,7 +591,7 @@ fn set(
     if before != after {
         atomic_strategy_write(path, after)?;
     }
-    let mut result = json!({"key":key, "value":effective(&next,&next_raw)[key], "previous":previous, "diff":diff(path,&before,after), "undo":format!("pacer config set {key} {}",undo_value(&previous, ["update_check", "terminal.app"].contains(&key))), "notes":[]});
+    let mut result = json!({"key":key, "value":effective(&next,&next_raw)[key], "previous":previous, "diff":diff(path,&before,after), "undo":format!("pacer config set {key} {}",undo_value(&previous, ["update_check", "update_channel", "terminal.app"].contains(&key))), "notes":[]});
     if key == "execution.backend" && options.backend_env.is_some_and(|env| !env.is_empty()) {
         result["notes"] = json!([BACKEND_OVERRIDE_HINT]);
         result["hint"] = json!(BACKEND_OVERRIDE_HINT);

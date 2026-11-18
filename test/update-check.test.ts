@@ -2,7 +2,9 @@ import { expect, test } from "bun:test";
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { pathToFileURL } from "node:url";
-import { checkForUpdate, updateLine, UPDATE_CACHE_S } from "../src/update/check";
+import { checkForUpdate, readUpdateCheck, updateAvailable, updateLine, UPDATE_CACHE_S } from "../src/update/check";
+import { updateChannel } from "../src/update/channel";
+import { cliNightlyUrl } from "../src/update/manifest";
 import { compareVersions } from "../src/update/version";
 import { main } from "../src/cli";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -64,4 +66,94 @@ test("status appends cached update line only to text reports and respects opt-ou
  const text=await run([]);expect(text.code).toBe(0);expect(text.out).toContain("Update available: pacer 99.0.0");
  for(const flags of [["--line"],["--json"],["--hook","codex"]]){const result=await run(flags);expect(result.code).toBe(0);expect(result.out).not.toContain("Update available:");}
  ctx.env.PACER_NO_UPDATE_CHECK="1";expect((await run([])).out).not.toContain("Update available:");
+});
+
+const CLI_NIGHTLY = "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/cli-nightly.json";
+const LATEST = "https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json";
+function onChannel(channel: "stable" | "nightly") {
+  const ctx = fakeCtx(); mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: codex\nupdate_channel: ${channel} # chosen\n`);
+  return ctx;
+}
+function feeds(bodies: Record<string, string | Error>) {
+  const urls: string[] = [];
+  const fetch = async (url: string) => {
+    urls.push(url);
+    const body = bodies[url];
+    if (body instanceof Error) throw body;
+    return body === undefined ? new Response("missing", { status: 404 }) : new Response(body);
+  };
+  return { urls, fetch };
+}
+test("nightly channel offers the newer nightly over stable", async () => {
+  const ctx = onChannel("nightly"), f = feeds({ [LATEST]: '{"version":"0.15.1"}', [CLI_NIGHTLY]: '{"version":"0.16.0-nightly.202611170000"}' });
+  const check = await checkForUpdate(ctx, { current: "0.15.1", force: true, fetch: f.fetch });
+  expect(check).toMatchObject({ latest: "0.16.0-nightly.202611170000", current: "0.15.1" });
+  expect(check?.error).toBeUndefined();
+  expect(updateLine(check)).toContain("pacer 0.16.0-nightly.202611170000");
+  expect(f.urls.sort()).toEqual([LATEST, CLI_NIGHTLY].sort());
+  expect(readFileSync(join(ctx.pacerHome, "update-check.json"), "utf8")).toBe(`{"checkedAt":${ctx.now},"latest":"0.16.0-nightly.202611170000","current":"0.15.1","channel":"nightly"}\n`);
+});
+test("nightly channel offers stable when it is newer than every nightly", async () => {
+  const ctx = onChannel("nightly"), f = feeds({ [LATEST]: '{"version":"0.16.0"}', [CLI_NIGHTLY]: '{"version":"0.16.0-nightly.202611170000"}' });
+  expect((await checkForUpdate(ctx, { current: "0.16.0-nightly.202611170000", force: true, fetch: f.fetch }))?.latest).toBe("0.16.0");
+});
+test("nightly channel falls back to stable when cli-nightly.json is unreachable and records the error", async () => {
+  const ctx = onChannel("nightly"), f = feeds({ [LATEST]: '{"version":"0.15.2"}' });
+  const check = await checkForUpdate(ctx, { current: "0.15.1", force: true, fetch: f.fetch });
+  expect(check).toMatchObject({ latest: "0.15.2", error: `download failed: ${CLI_NIGHTLY} (HTTP 404)` });
+  expect(updateAvailable(check)).toBe(true);
+  // A stable version in the nightly feed is invalid there, and both feeds failing reports the nightly feed's error.
+  const g = feeds({ [LATEST]: "<html>", [CLI_NIGHTLY]: '{"version":"0.15.2"}' });
+  expect(await checkForUpdate(ctx, { current: "0.15.1", force: true, fetch: g.fetch })).toMatchObject({ latest: "0.15.2", error: 'cli-nightly.json has no valid nightly "version" (got "0.15.2")' });
+  const h = feeds({ [LATEST]: '{"version":"0.15.3"}', [CLI_NIGHTLY]: "<html>" });
+  expect((await checkForUpdate(ctx, { current: "0.15.1", force: true, fetch: h.fetch }))?.error).toStartWith("JSON Parse error");
+});
+test("stable channel never reads cli-nightly.json", async () => {
+  for (const ctx of [onChannel("stable"), fakeCtx()]) {
+    const f = feeds({ [LATEST]: '{"version":"0.15.1"}', [CLI_NIGHTLY]: '{"version":"0.16.0-nightly.202611170000"}' });
+    expect((await checkForUpdate(ctx, { current: "0.15.0", force: true, fetch: f.fetch }))?.latest).toBe("0.15.1");
+    expect(f.urls).toEqual([LATEST]);
+    expect(JSON.parse(readFileSync(join(ctx.pacerHome, "update-check.json"), "utf8")).channel).toBe("stable");
+  }
+});
+test("switching channel invalidates the cache", async () => {
+  const ctx = onChannel("stable"), path = join(ctx.pacerHome, "strategy.yaml");
+  const f = feeds({ [LATEST]: '{"version":"0.15.1"}', [CLI_NIGHTLY]: '{"version":"0.16.0-nightly.202611170000"}' });
+  await checkForUpdate(ctx, { current: "0.15.1", fetch: f.fetch });
+  writeFileSync(path, "planner: codex\nupdate_channel: 'nightly'\n");
+  expect(readUpdateCheck(ctx, "0.15.1")).toBeNull();
+  expect((await checkForUpdate(ctx, { current: "0.15.1", fetch: f.fetch }))?.latest).toBe("0.16.0-nightly.202611170000");
+  expect(f.urls).toHaveLength(3);
+  writeFileSync(path, "planner: codex\n");
+  // A failed check on the new channel does not keep the other channel's latest.
+  const offline = feeds({});
+  expect(await checkForUpdate(ctx, { current: "0.15.1", fetch: offline.fetch })).toMatchObject({ latest: null, error: `download failed: ${LATEST} (HTTP 404)` });
+  // Caches written before channels existed belong to the stable channel.
+  writeFileSync(join(ctx.pacerHome, "update-check.json"), JSON.stringify({ checkedAt: ctx.now, latest: "0.15.1", current: "0.15.1" }));
+  expect(readUpdateCheck(ctx, "0.15.1")?.latest).toBe("0.15.1");
+  writeFileSync(path, "update_channel: nightly\n");
+  expect(readUpdateCheck(ctx, "0.15.1")).toBeNull();
+});
+test("a nightly install on the stable channel is not offered an older stable", async () => {
+  const ctx = onChannel("stable"), f = feeds({ [LATEST]: '{"version":"0.15.2"}' });
+  const check = await checkForUpdate(ctx, { current: "0.16.0-nightly.202611170000", force: true, fetch: f.fetch });
+  expect(check?.latest).toBe("0.15.2");
+  expect(updateAvailable(check)).toBe(false);
+  expect(updateLine(check)).toBe("");
+});
+test("update_channel reads only a top-level nightly value and defaults to stable", () => {
+  const ctx = fakeCtx(); mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  expect(updateChannel(ctx)).toBe("stable");
+  for (const [text, channel] of [["update_channel: nightly", "nightly"], ['a: 1\nupdate_channel:\t"nightly"  # on\r\n', "nightly"], ["update_channel: 'nightly'", "nightly"],
+    ["update_channel: stable", "stable"], [" update_channel: nightly", "stable"], ["update_channel: nightly x", "stable"], ["update_channel: \"nightly'", "stable"], ["x:\n  update_channel: nightly", "stable"]] as const) {
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), text);
+    expect(updateChannel(ctx), text).toBe(channel);
+  }
+  writeFileSync(join(ctx.pacerHome, "active"), "work\n"); writeFileSync(join(ctx.pacerHome, "strategies/work.yaml"), "update_channel: stable\n");
+  expect(updateChannel(ctx)).toBe("stable");
+});
+test("the nightly feed URL follows the release base", () => {
+  expect(cliNightlyUrl()).toBe(CLI_NIGHTLY);
+  expect(cliNightlyUrl("file:///tmp/feed")).toBe("file:///tmp/feed/cli-nightly.json");
 });

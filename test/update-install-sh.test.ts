@@ -1,6 +1,6 @@
 import { closedPort } from "./child-env";
 import { afterEach, expect, test } from "bun:test";
-import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, symlinkSync, writeFileSync } from "node:fs";
+import { appendFileSync, chmodSync, mkdirSync, readFileSync, readdirSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildRelease, writeRelease } from "../scripts/release/build";
 import { type Platform, assetFile, companionFile, hostTarget } from "../src/update/manifest";
@@ -376,3 +376,78 @@ exec /bin/mv "$@"
     expect(readdirSync(dir).sort()).toEqual(hadCore ? ["pacer", "pacer-core"] : ["pacer"]);
   }
 }, 15000);
+
+const NIGHTLY = "0.3.0-nightly.202611170000";
+/** Stable 0.2.0 in latest.json and a newer nightly in cli-nightly.json. */
+function channelRoot(): string {
+  const root = tmpDir();
+  release(root, "0.2.0");
+  release(root, NIGHTLY);
+  writeFileSync(join(root, "latest.json"), `${JSON.stringify({ version: "0.2.0" })}\n`);
+  writeFileSync(join(root, "cli-nightly.json"), `${JSON.stringify({ version: NIGHTLY })}\n`);
+  return root;
+}
+
+test("PACER_INSTALL_CHANNEL=nightly installs the nightly from cli-nightly.json", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(r.err).toBe("");
+  expect(r.code).toBe(0);
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body(NIGHTLY, MAC));
+  expect(r.out).toContain(`installed: pacer ${NIGHTLY}`);
+  // Stable stays the default, and explicit stable ignores the nightly feed.
+  for (const channel of [undefined, "stable"]) {
+    const s = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, ...(channel ? { PACER_INSTALL_CHANNEL: channel } : {}) });
+    expect(s.code).toBe(0);
+    expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
+  }
+});
+
+test("PACER_INSTALL_CHANNEL=nightly takes a stable release that is newer than the nightly", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  release(root, "0.3.0");
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(r.code).toBe(0);
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.3.0", MAC));
+});
+
+test("PACER_INSTALL_CHANNEL=nightly falls back to the other feed when one fails", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  writeFileSync(join(root, "cli-nightly.json"), `${JSON.stringify({ version: "0.2.1" })}\n`);
+  const stable = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(stable.code).toBe(0);
+  expect(stable.err).toContain("warning: no valid nightly version in");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
+  writeFileSync(join(root, "cli-nightly.json"), `${JSON.stringify({ version: NIGHTLY })}\n`);
+  writeFileSync(join(root, "latest.json"), "<html>");
+  const nightly = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(nightly.code).toBe(0);
+  expect(nightly.err).toContain("warning: could not read a version from");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body(NIGHTLY, MAC));
+});
+
+test("unknown channel exits 2", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "beta" });
+  expect(r.code).toBe(2);
+  expect(r.err).toContain("PACER_INSTALL_CHANNEL must be stable or nightly (got: beta)");
+  expect(() => readdirSync(dir)).toThrow();
+});
+
+test("PACER_INSTALL_VERSION overrides the channel", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  rmSync(join(root, "cli-nightly.json"));
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly", PACER_INSTALL_VERSION: "0.2.0" });
+  expect(r.err).toBe("");
+  expect(r.code).toBe(0);
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body("0.2.0", MAC));
+});
+
+test("PACER_INSTALL_CHANNEL=nightly ignores a malformed stable version and installs the nightly", async () => {
+  const root = channelRoot(), dir = join(tmpDir(), "bin");
+  writeFileSync(join(root, "latest.json"), `${JSON.stringify({ version: "99.x" })}\n`);
+  const r = await runInstall({ PACER_RELEASE_BASE: `file://${root}`, PACER_INSTALL_DIR: dir, PACER_INSTALL_CHANNEL: "nightly" });
+  expect(r.code).toBe(0);
+  expect(r.err).toContain("warning: could not read a version from");
+  expect(readFileSync(join(dir, "pacer"), "utf8")).toBe(body(NIGHTLY, MAC));
+});

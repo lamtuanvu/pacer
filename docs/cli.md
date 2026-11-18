@@ -383,12 +383,31 @@ never check or display update notices.
 
 Set `PACER_NO_UPDATE_CHECK=1` or add top-level `update_check: false` to the active
 strategy YAML to disable checks (including explicit checks). No telemetry is sent:
-the only release request is a GET of `latest.json`. `PACER_RELEASE_BASE`, including
+the only release request is a GET of `latest.json` (and of `cli-nightly.json` on the
+nightly channel, below). `PACER_RELEASE_BASE`, including
 `file://` bases, works as it does for `pacer update`.
 
 In the dashboard, Settings › Updates checks immediately and asks to confirm before
 updating; Escape or `n` cancels. These checks never install a newer release
 automatically.
+
+#### Nightly channel
+
+`pacer config set update_channel nightly` subscribes this installation to nightly
+builds: signed prereleases of `main`, versioned `<next-minor>-nightly.<YYYYMMDDHHmm>`
+(for example `0.16.0-nightly.202611171700`). They are untested daily snapshots.
+`pacer update`, `pacer update --check`, the service's `update.check`, text
+`pacer status` and Settings › Updates then read both `latest.json` and
+`cli-nightly.json` and offer the newer release, so a stable release that is newer than
+every nightly is still offered. If one feed cannot be read or holds no valid version,
+the other is used and the failed feed's error is reported. The nightly feed is
+`https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/cli-nightly.json`,
+or `<base>/cli-nightly.json` with `PACER_RELEASE_BASE`. `update-check.json` records the
+channel it was computed for, so switching channels refreshes the next check.
+
+`pacer config set update_channel stable` switches back. pacer never downgrades: an
+installed nightly stays until a stable release newer than it ships. `pacer update --to
+<version>` still installs exactly the version given, on either channel.
 
 ## Console retirement
 
@@ -498,6 +517,7 @@ command. Account and runner list JSON are arrays (see the accounts guide).
 | pacing.fill_threshold | Percent, 50–100 (default 90) |
 | pacing.balance | `off` (default) or `least-loaded`; spread work across equally acceptable executors by current load |
 | update_check | `true` or `false` (default `true`) |
+| update_channel | `stable` (default) or `nightly`; which releases `pacer update`, update checks and Settings › Updates offer (see [Update checks](#update-checks)) |
 
 For example:
 

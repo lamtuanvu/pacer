@@ -1448,7 +1448,8 @@
         "local_memory_pressure_limit": "panic",
         "launch_mode": "auto"
       },
-      "task_retention_days": -1
+      "task_retention_days": -1,
+      "update_channel": "beta"
     },
     "problems": [
       "execution.auto_clean must be a boolean",
@@ -1456,6 +1457,7 @@
       "execution.local_memory_pressure_limit must be critical, warning or off",
       "execution.local_load_limit must be a positive number (load per CPU core) or \"off\"",
       "execution.launch_mode must be interactive or headless",
+      "update_channel must be stable or nightly",
       "task_retention_days must be a non-negative integer"
     ]
   },

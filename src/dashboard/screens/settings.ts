@@ -474,7 +474,11 @@ const updates: Build = (ctx, width) => {
     items.push({ id: "update:daily", primary: toggle, actions: [], keys: {} });
     rows.push(...fieldRows(field(ctx, width, "Check for updates", [span(configured ? "On" : "Off", { bold: true })], "once a day, in the background"), "update:daily"));
   }
-  return { rows, items };
+  const nightly = config?.value?.keys?.update_channel?.value === "nightly";
+  const channel = set(ctx, "Update channel", "update_channel", nightly ? "stable" : "nightly");
+  items.push({ id: "update:channel", actions: [], keys: channel ? { left: channel, right: channel } : {} });
+  rows.push(...fieldRows(field(ctx, width, "Update channel", [span(`${glyph(ctx.theme, "‹")} `, { fg: "muted" }), span(nightly ? "Nightly" : "Stable", { bold: true }), span(` ${glyph(ctx.theme, "›")}`, { fg: "muted" })], nightly ? "untested daily snapshots of main" : undefined), "update:channel"));
+  return { rows, items, hints: channel ? ["← → change"] : [] };
 };
 
 const notifications: Build = (ctx, width) => {

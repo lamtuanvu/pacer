@@ -1986,6 +1986,7 @@ Params JSON Schema:
         "pacing.fill_threshold",
         "pacing.balance",
         "update_check",
+        "update_channel",
         "terminal.app",
         "terminal.open"
       ]
