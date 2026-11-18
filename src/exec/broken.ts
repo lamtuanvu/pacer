@@ -21,6 +21,10 @@ const USAGE_ERRORS = [
   /\bENOENT\b|command not found|executable not found/i,
   /ConnectionRefused|ECONNREFUSED|connection refused/i,
 ];
+const PROVIDER_RETRYING = "provider retrying: ";
+/** The broken reason of an attempt stopped because its agent kept retrying a provider error. */
+export const providerRetryingReason = (reason: string): string => `${PROVIDER_RETRYING}${reason}`;
+export const isProviderRetrying = (reason: string): boolean => reason.startsWith(PROVIDER_RETRYING);
 /** CLI startup errors only: task failures and timeouts never qualify. */
 export function brokenReason(exec: ExecResult, durationS: number, unchanged: boolean | null): string | null {
   if (unchanged === false || durationS < 0 || durationS > 10 || exec.code === 0 || exec.timedOut) return null;

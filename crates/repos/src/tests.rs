@@ -190,7 +190,8 @@ fn branches_put_the_current_branch_first() {
 fn only_the_marking_git_read_marks_a_timed_out_path_unreachable() {
     let dir = tempfile::tempdir().unwrap();
     let path = dir.path().to_string_lossy().into_owned();
-    let args = ["rev-parse", "--git-dir"];
+    // A read that cannot finish within the zero timeout; a fast `rev-parse` sometimes did.
+    let args = ["-c", "alias.slow=!sleep 2", "slow"];
     assert_eq!(git_read_unmarked(&path, &args, Duration::ZERO), None);
     assert!(!cached_path(&path).unreachable);
     assert_eq!(git_read_within(&path, &args, Duration::ZERO), None);

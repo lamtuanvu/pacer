@@ -20,7 +20,7 @@ export { TaskBackendField } from "./Machines";
 import { AddExecutor } from "./AddExecutor";
 import { HostDetail } from "./Hosts";
 import { PairingView } from "./Pairing";
-import { UpdatesSection } from "./Updates";
+import { UpdatesSection, type UpdateReport } from "./Updates";
 import { LazyDispatcher } from "./LazyDispatcher";
 import { LazyAssistantSettings } from "./LazyAssistantSettings";
 import { LazyModelMatrix } from "./LazyModelMatrix";
@@ -29,7 +29,7 @@ import { withQuery, type RouteQuery } from "../../router";
 import { DensityContext } from "../../ds/Density";
 import { settingsPageId, settingsPageTitle } from "../../settings-pages";
 import { SettingRow } from "../../ds/SettingRow";
-import { Page, Stack } from "../../ds/Page";
+import { Cluster, Page, Stack } from "../../ds/Page";
 import { Card } from "../../ds/Patterns";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { modeWords, toneFor } from "../../../../src/view-model/words";
@@ -45,6 +45,7 @@ import {
   TextInput,
 } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
+import { notificationSoundOptions } from "../../../../src/view-model/notification-sounds";
 import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { useDialogs } from "../../ds/useDialogs";
@@ -100,15 +101,8 @@ export interface SettingsData {
   accounts?: Account[];
   routing?: RoutingRules;
   strategies?: StrategyRow[];
-  notifications?: { level: string };
-  updates?: {
-    current: string;
-    latest: string | null;
-    available: boolean;
-    error?: string;
-    disabled?: boolean;
-    checkedAt?: number;
-  };
+  notifications?: { level: string; sound: string };
+  updates?: UpdateReport;
 }
 /** The footer for pages whose changes reach routing; Overview, App preferences and Diagnostics have none. */
 export function settingsNote(section: string | undefined): string | null {
@@ -442,10 +436,11 @@ function PlannerConsent({
     </Dialog>
   );
 }
-function NotificationsSection({
+const SOUND_OPTIONS = notificationSoundOptions();
+export function NotificationsSection({
   initialData,
 }: {
-  initialData?: { level: string };
+  initialData?: { level: string; sound: string };
 }) {
   const { api } = useTaskContext();
   const query = useResource("notifications.get", {}, initialData);
@@ -453,6 +448,9 @@ function NotificationsSection({
   const check = health.data;
   const caption = notificationCaption(check);
   const remedy = check?.remedy;
+  // On macOS, Send test sits beside the sound picker; a permission remedy stays
+  // with the Desktop banners status it fixes.
+  const testBesidePicker = platform.macos && check?.level === "ok" && !remedy;
   return (
     <section id="notifications" className="pc-preferences-section" aria-labelledby="notifications-h">
       <h2 id="notifications-h" className="pc-settings-board__label">Notifications</h2>
@@ -470,6 +468,20 @@ function NotificationsSection({
             onChange={change}
           />}</ImmediateSetting>
         </SettingRow>
+        {platform.macos && (
+          <SettingRow variant="board" label="Notification sound" description="Sound played when a banner appears.">
+            <Cluster>
+              <ImmediateSetting value={query.data?.sound ?? "pacer"} operation={sound => ({op:"notifications.set",params:{sound}})} onSaved={query.reload}>{(value, change, busy) => <ChoicePicker
+                aria-label="Notification sound"
+                value={value}
+                disabled={busy}
+                options={SOUND_OPTIONS}
+                onValueChange={change}
+              />}</ImmediateSetting>
+              {testBesidePicker && <BannerAction api={api} reload={health.reload} level="ok" />}
+            </Cluster>
+          </SettingRow>
+        )}
         {platform.desktop && (
           <ResourceState resource={health}>
             <DesktopBanners
@@ -478,6 +490,7 @@ function NotificationsSection({
               caption={caption}
               remedy={remedy}
               api={api}
+              action={!testBesidePicker}
             />
           </ResourceState>
         )}
@@ -501,6 +514,7 @@ export function DesktopBanners({
   caption,
   remedy,
   refetchDelay = 3000,
+  action = true,
 }: {
   api: Pick<BrowserApi, "call">;
   reload: () => void;
@@ -508,6 +522,31 @@ export function DesktopBanners({
   caption: string;
   remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
   /** After Send test, caption refresh; injectable so tests avoid real waits. */
+  refetchDelay?: number;
+  /** False when Send test sits beside the macOS sound picker instead, so it is offered once. */
+  action?: boolean;
+}) {
+  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+    {action ? <BannerAction api={api} reload={reload} level={level} remedy={remedy} refetchDelay={refetchDelay} /> : null}
+  </SettingRow>;
+}
+
+/**
+ * The banner check's one action: its remedy when banners are not allowed, or
+ * Send test (a real banner with the chosen sound) when the check is ok. Each
+ * action refetches the health read so the Desktop banners caption follows.
+ */
+export function BannerAction({
+  api,
+  reload,
+  level,
+  remedy,
+  refetchDelay = 3000,
+}: {
+  api: Pick<BrowserApi, "call">;
+  reload: () => void;
+  level?: string;
+  remedy?: { label?: string; op?: string; params?: Record<string, unknown>; url?: string };
   refetchDelay?: number;
 }) {
   const [busy, setBusy] = useState(false);
@@ -530,7 +569,7 @@ export function DesktopBanners({
   };
   // "Send test" is offered only when the check is ok; every other state shows the caption only.
   const showSend = level === "ok";
-  return <SettingRow variant="board" label="Desktop banners" description={<span role="status" aria-live="polite">{caption}</span>}>
+  return <>
     {remedy ? (
       <Button size="sm" aria-disabled={busy || undefined} onClick={() => void run(async () => {
         if (remedy.url) await openRemedyUrl(remedy.url, platform);
@@ -548,7 +587,7 @@ export function DesktopBanners({
     ) : null}
     {progress && <span role="status" aria-live="polite" className="pc-diagnostic-caption">{progress}</span>}
     {callError && <ErrorMessage error={callError}/>}
-  </SettingRow>;
+  </>;
 }
 
 export function notificationCaption(

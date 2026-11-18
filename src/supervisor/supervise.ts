@@ -3,13 +3,13 @@ import type { RunState } from "./run";
 import { type RunIO, Unreachable } from "./io";
 import type { InteractionMode } from "../tasks/types";
 
-export type SuperviseEnd = { kind: "reported" | "exited" | "timeout" | "stopped" | "idle" | "asked" | "limit" | "lost"; code: number };
+export type SuperviseEnd = { kind: "reported" | "exited" | "timeout" | "stopped" | "idle" | "asked" | "limit" | "provider" | "lost"; code: number };
 
 export async function supervise(o: {
   interactionMode?: InteractionMode;
   runDir?: string;
   io: RunIO; unreachableGraceMs?: number; deadlineMs: number; isStopped: () => boolean; pollMs?: number; graceMs?: number;
-  now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle" | "asked" | "limit">;
+  now?: () => number; sleep?: (ms: number) => Promise<void>; onPoll?: (s: RunState) => Promise<"continue" | "idle" | "asked" | "limit" | "provider">;
 }): Promise<SuperviseEnd> {
   const now = o.now ?? (() => Date.now()), sleep = o.sleep ?? ((ms: number) => Bun.sleep(ms)), poll = o.pollMs ?? 2000;
   const stop = async (kind: SuperviseEnd["kind"]) => ({ kind, code: (await o.io.stop({ graceMs: o.graceMs ?? 5000, sleep })).code });
@@ -45,8 +45,8 @@ export async function supervise(o: {
     if (o.interactionMode !== "conversation" && (o.runDir ? activeDeadlineExpired(o.runDir, o.deadlineMs, s, now()) : !waiting && now() >= deadline)) return stop("timeout");
     // "asked": a delegated executor asked its parent and ended its turn; the run ends so the task can wait for the answer.
     const next = o.onPoll ? await o.onPoll(s) : "continue";
-    // A provider limit never clears inside the session, so it ends the run even while it looks like an input wait.
-    if (next === "limit" && o.interactionMode !== "conversation") return stop("limit");
+    // A provider limit or retry loop never clears inside the session, so it ends the run even while it looks like an input wait.
+    if ((next === "limit" || next === "provider") && o.interactionMode !== "conversation") return stop(next);
     if (next !== "continue" && !(s.interactive && next === "asked") && !waiting && o.interactionMode !== "conversation") return stop(next);
     await sleep(poll);
   }

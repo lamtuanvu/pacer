@@ -128,6 +128,7 @@ pub fn truthy(value: &Value) -> bool {
     }
 }
 
+
 pub fn json_option_equal(left: Option<&Value>, right: Option<&Value>) -> bool {
     match (left, right) {
         (None, None) => true,
