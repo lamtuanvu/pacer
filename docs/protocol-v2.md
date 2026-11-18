@@ -1700,7 +1700,7 @@ Params JSON Schema:
 
 ### `notifications.get`
 
-Current notification level and sound.
+Current notification level.
 
 Params JSON Schema:
 
@@ -1715,7 +1715,7 @@ Params JSON Schema:
 
 ### `notifications.set`
 
-Set notification level (off, important, all) and/or sound (pacer, default, off or a built-in macOS sound); only present fields are written.
+Set notifications to off, important or all.
 
 Params JSON Schema:
 
@@ -1731,30 +1731,11 @@ Params JSON Schema:
         "important",
         "all"
       ]
-    },
-    "sound": {
-      "type": "string",
-      "enum": [
-        "pacer",
-        "default",
-        "off",
-        "basso",
-        "blow",
-        "bottle",
-        "frog",
-        "funk",
-        "glass",
-        "hero",
-        "morse",
-        "ping",
-        "pop",
-        "purr",
-        "sosumi",
-        "submarine",
-        "tink"
-      ]
     }
   },
+  "required": [
+    "level"
+  ],
   "additionalProperties": false
 }
 ```
