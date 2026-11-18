@@ -24,6 +24,8 @@ import type { Ctx } from "../types";
 import { forgetSettings, readPluginSettings } from "./settings";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
+import { forwardAssistantDelta } from "../assistant/delta";
+import { answersTurn, openAssistantTurn, type AssistantToolTurn } from "../assistant/turn-tools";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { prepareStateAuthority } from "./usage-state";
 import { prepareWriteAuthority } from "./capability-write";
@@ -121,7 +123,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_PREPARE_RECOVER_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { /** The turn whose tools `capability.assistant.tool` may run, bound to this `assistant.reply` call's authority and revoked with it. */ assistantTurn?: AssistantToolTurn; plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_PREPARE_RECOVER_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export type SurfaceKind = "activity" | "panelTabs" | "settings" | "status";
 export interface SurfaceInfo { plugin: string; surface: SurfaceKind; id: string; title: string; icon: string | null; context: "global" | "task"; visible: boolean; state: PluginState }
 const KINDS: SurfaceKind[] = ["activity", "panelTabs", "settings", "status"];
@@ -2167,6 +2169,15 @@ export class PluginRegistry {
     if (!def || !e.served.includes(def.point)) return;
     const parsed = def.params.safeParse(params);
     if (!parsed.success) return;
+    // The assistant's streaming notification has no UI surface of its own: it goes straight to the
+    // turn's stream (the frames `subscribeTurn` delivers), ahead of the UI-surface check below and
+    // never into the event outbox. Only the plugin answering that turn may stream into it: a delta
+    // for another plugin's turn, or after this plugin's reply call ended, is dropped.
+    if (method === "assistant.delta") {
+      const { turnId, kind, text } = parsed.data as { turnId: string; kind: "text" | "activity"; text: string };
+      if (answersTurn(e.authorities.values(), turnId)) forwardAssistantDelta(turnId, kind, text);
+      return;
+    }
     const id = (parsed.data as { id?: string }).id ?? null;
     const ui = e.manifest ? uiOf(e.manifest) : null;
     if (!ui) return;
@@ -2388,9 +2399,13 @@ export class PluginRegistry {
     // An Orca attempt reports through its capability calls and has no progress owner: progress it sends fails the
     // attempt with the owner off, and the native owner drops it (child notifications are not relayed).
     if (method === "executor.run" && !options.onProgress && !options.resources?.orcaAttempt) throw new CoreError("invalid_input", "executor run requires a progress owner");
-    const parsed = method === "usage.read" || hostRunner || executorAvailable || executorAttempt || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
-    if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable || executorAttempt ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
+    const parsed = method === "usage.read" || hostRunner || executorAvailable || executorAttempt || method === "assistant.reply" || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
+    if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable || executorAttempt ? "invalid executor params" : method === "usage.read" ? "invalid usage reader params" : method === "assistant.reply" ? "invalid assistant reply params" : "invalid classifier params");
     let input = parsed?.success ? parsed.data : params;
+    // The tool context is bound to this exact call, so `capability.assistant.tool` can never name another turn.
+    const assistantTurn: AssistantToolTurn | undefined = method === "assistant.reply" ? options.assistantTurn : undefined;
+    if (assistantTurn && (input as { turnId?: unknown }).turnId !== assistantTurn.turnId)
+      throw new CoreError("invalid_input", "assistant reply params do not name their turn");
     let resources = options.resources;
     if (classifier && method === "classifier.ask") {
       const value = input as Record<string, unknown>;
@@ -2433,7 +2448,7 @@ export class PluginRegistry {
           throw new CoreError("capability_denied", "bound host provider process retired before request");
         if(options.plannerResources&&(method==="planner.install"||method==="planner.uninstall")&&!proc.supports("plannerInstallTransactions"))throw new CoreError("capability_denied","planner effects require negotiated transactions");
         const observationAdmission=["diagnostic.ping","policy.before"].includes(method)&&manifest.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
-        const needsAuthority = observationAdmission || method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined || manifest.capabilities.some(capability => capability.name === "hosts");
+        const needsAuthority = observationAdmission || method === "usage.read" || method === "assistant.reply" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined || manifest.capabilities.some(capability => capability.name === "hosts");
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
           { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome, ownerBoundStream,
@@ -2452,6 +2467,7 @@ export class PluginRegistry {
           const hostUsage = options[HOST_CALL_USAGE_ISSUER];
           if (hostUsage) this.hostCallerUsage.set(authority, hostUsage);
         }
+        let closeAssistantTurn: (() => void) | undefined;
         try {
           if (authority) {
             options.plannerResources?.bind(authority,method);
@@ -2465,6 +2481,8 @@ export class PluginRegistry {
               declaredScopes: endpointHttpScopes(this.canonicalEndpoint(e), method, manifest.capabilities.find(capability => capability.name === "net.http")?.scopes ?? [], authority.resources),
               explicitWildcardGrant: !e.bundled && grants.includes("net.http"),
             });
+            // The reply call's tool context: `capability.assistant.tool` is answered only while this lives.
+            if (assistantTurn) closeAssistantTurn = openAssistantTurn(authority, assistantTurn);
             authority.assertActive();
           }
           if(method==="policy.before"&&!proc.supports(POLICY_REDACTION_METADATA_FEATURE)) {
@@ -2525,6 +2543,7 @@ export class PluginRegistry {
           }
           return result;
         } finally {
+          closeAssistantTurn?.();
           if (authority) { try { await authority.revoke(); } finally { e.authorities.delete(authority.token); } }
         }
       };
@@ -2540,6 +2559,7 @@ export class PluginRegistry {
    */
   private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string, credentialBound = false): Promise<T> {
     const lease = options.plannerResources;
+    const assistantTurn = method === "assistant.reply" ? options.assistantTurn : undefined;
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
       ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
@@ -2596,8 +2616,9 @@ export class PluginRegistry {
         // answers an undeclared signature request, so its identity audit records the refusal as flag-off does.
         const declares = (name: string) => manifest.capabilities.some(capability => capability.name === name);
         const coreMethods = [...scopedCoreMethods, ...(declares("secrets.resolve") ? ["capability.secrets.resolve"] : []),
+          ...(assistantTurn && declares("assistant.tool") ? ["capability.assistant.tool"] : []),
           "capability.identity.sign"];
-        const local = scopedCoreMethods.length ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
+        const local = scopedCoreMethods.length || assistantTurn ? createCallAuthority(ctx, { reads: logReads ? issued!.reads : [], commands: [], stores: issued?.stores ?? [],
           ...(writes ? { writes } : {}), ...(orcaAttempt ? { orcaAttempt } : {}), ...(orcaLive ? { orcaLive } : {}),
           ...(detachedStop ? { detachedStop } : {}), ...(detachedInspect ? { detachedInspect } : {}),
           ...(remoteStop ? { remoteStop } : {}) }, {
@@ -2607,6 +2628,8 @@ export class PluginRegistry {
         // Register `local` so a grant revocation or planner config change (refresh()'s
         // e.authorities revoke loop) reaches this in-flight call, same as flag-off's `authority`.
         if (local) e.authorities.set(local.token, local);
+        // The reply call's tool context: `capability.assistant.tool` is answered only while this lives.
+        const closeAssistantTurn = local && assistantTurn ? openAssistantTurn(local, assistantTurn) : undefined;
         // Tie the bridge exchange to `local`'s abort so revoking it closes the socket and the
         // owner compensates, instead of only taking effect after the call has already settled.
         const bridgeSignal = local ? AbortSignal.any([signal, local.signal]) : signal;
@@ -2734,6 +2757,7 @@ export class PluginRegistry {
             throw new CoreError("plugin_refused", "incomplete or unnegotiated chunked result");
           }
         } finally {
+          closeAssistantTurn?.();
           if (local) { try { await local.revoke(); } finally { e.authorities.delete(local.token); } }
         }
         // Re-check after the reply: a revocation racing the final reply line must still fail

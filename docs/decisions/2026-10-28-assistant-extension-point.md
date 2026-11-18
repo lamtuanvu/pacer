@@ -1,6 +1,6 @@
 # The assistant is a bundled plugin extension point — 2026-10-28
 
-Status: implemented with the first assistant PR; the open decisions in the spec still await the maintainer. D1 and D3 are superseded by [ADR 0028](0028-assistant-backends.md) once it is accepted.
+Status: implemented with the first assistant PR; the open decisions in the spec still await the maintainer. D1 and D3 are superseded by [ADR 0028](0028-assistant-backends.md).
 Source: [always-on assistant design](../specs/2026-10-28-always-on-assistant-design.md). Builds on
 [plugin host and strangler migration](2026-10-19-plugin-host-and-rust-strangler.md).
 

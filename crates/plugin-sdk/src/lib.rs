@@ -57,11 +57,12 @@ pub mod types {
         ExecutorStopParams, ExecutorStopParamsTaskId, ExecutorStopResult,
     };
 
+    pub use pacer_plugin_assistant_protocol::*;
     pub use pacer_plugin_hosts_protocol::*;
     pub use pacer_plugin_install_protocol::*;
     pub use pacer_plugin_protocol::*;
     // Every protocol crate emits these; the entry crate's definitions take precedence.
-    pub use pacer_plugin_protocol::{PacerPluginProtocol1100, VERSION, error};
+    pub use pacer_plugin_protocol::{PacerPluginProtocol1110, VERSION, error};
 }
 
 pub use error::PluginError;

@@ -54,7 +54,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   }
   if (!def) throw new CoreError("capability_denied", `${name} is not available in this pacer yet`);
   // capability.secrets.resolve keeps its 1.3.0 assistant contract and needs no owning call; capability.secrets.check does.
-  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree", "orca"].includes(name) && method !== "capability.secrets.resolve") {
+  if (["fs.read", "fs.write", "process.spawn", "usage.state", "net.http", "secrets.resolve", "hosts", "worktree", "orca", "assistant.tool"].includes(name) && method !== "capability.secrets.resolve") {
     if (!(authority instanceof CallAuthority)) throw new CoreError("capability_denied", "scoped capability requires an active owning call");
     authority.assertGranted(name);
   }
@@ -151,6 +151,19 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));
   if (authority && method === "capability.secrets.check") return scoped(() => secretPresence(authority, (parsed.data as { ref: string }).ref));
+  // One tool of the turn the owning `assistant.reply` call is answering: same pipeline as the host's
+  // own loop, same budget, and refused the moment that call ends (its authority revokes first).
+  if (authority && method === "capability.assistant.tool") return scoped(async () => {
+    const input = parsed.data as { turnId: string; name: string; params: unknown };
+    const { assistantTurnFor } = await import("../assistant/turn-tools");
+    const turn = assistantTurnFor(authority);
+    if (!turn) throw new CoreError("capability_denied", "no assistant reply call is in progress for this plugin");
+    if (input.turnId !== turn.turnId) throw new CoreError("capability_denied", "that tool call names another turn");
+    const { runAssistantTool } = await import("../assistant/service");
+    const out = await runAssistantTool(authority.ctx, { id: input.turnId, name: input.name, arguments: (input.params ?? {}) as Record<string, unknown> },
+      { read: turn.read, scope: turn.scope, redactor: turn.redactor, cards: turn.cards, state: turn.state });
+    return { name: input.name, content: out.content, ok: out.ok };
+  });
   if (authority && name === "net.http") {
     if (!transport) throw new CoreError("capability_denied", "HTTP requires a captured transport envelope");
     return scoped(() => answerHttp(authority, method, params ?? {}, transport));

@@ -1,0 +1,178 @@
+name: Nightly
+
+# Builds one main commit as a nightly prerelease. It stamps the nightly
+# version on a commit whose parent is that main commit, and that never reaches
+# main, then pushes an immutable v<version> tag. The tag runs release.yml,
+# which publishes the nightly channel. The tag push goes through RELEASE_TOKEN
+# because GitHub does not start workflows for GITHUB_TOKEN pushes.
+on:
+  # Enabled in phase 7 after the first manual nightly succeeds
+  # schedule:
+  #   - cron: '0 17 * * *' # 00:00 UTC+7: build main's head
+  #   - cron: '0 18 * * 0' # weekly: prune old nightlies without building
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: main commit to build (default main's head when the run starts)
+        type: string
+        default: ''
+      dry_run:
+        description: Compute and stamp the version without pushing a tag
+        type: boolean
+        default: false
+
+permissions: {}
+
+concurrency:
+  group: nightly
+  cancel-in-progress: false
+
+jobs:
+  nightly:
+    if: github.event.schedule != '0 18 * * 0'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    permissions:
+      contents: read
+      actions: write # The CI gate dispatches CI on main when the commit has no full-suite run.
+      issues: write
+    env:
+      SHA: ${{ inputs.sha }}
+      DRY_RUN: ${{ inputs.dry_run == true }}
+    steps:
+      - name: Require main and the release token
+        env:
+          RELEASE_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main || { echo "::error::Run Nightly from main"; exit 1; }
+          test "$DRY_RUN" = true || test -n "$RELEASE_TOKEN" || { echo "::error::Add a RELEASE_TOKEN secret (see CONTRIBUTING.md, Releasing)"; exit 1; }
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # The version, the skip rule and the stamp read tags and main's history.
+          fetch-tags: true
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Select the main commit
+        id: select
+        run: |
+          set -euo pipefail
+          git fetch --quiet origin main --tags
+          target=$(git rev-parse --verify "${SHA:-origin/main}^{commit}")
+          git merge-base --is-ancestor "$target" origin/main \
+            || { echo "::error::$target is not on main"; exit 1; }
+          echo "target=$target" >> "$GITHUB_OUTPUT"
+          echo "Nightly of main commit $target" >> "$GITHUB_STEP_SUMMARY"
+      - name: Skip unchanged
+        id: skip
+        env:
+          TARGET: ${{ steps.select.outputs.target }}
+        run: |
+          set -euo pipefail
+          # Only a scheduled run skips; a manual run always builds.
+          test "$GITHUB_EVENT_NAME" = schedule || exit 0
+          last=$(git tag -l 'v*-nightly.*' --sort=-v:refname | head -n 1)
+          if test -n "$last" && test "$(git rev-parse "$last^{commit}^")" = "$TARGET"; then
+            echo "::notice::main is unchanged since $last; no nightly tonight"
+            echo "skip=true" >> "$GITHUB_OUTPUT"
+          fi
+      - name: Require CI's full suite on both OSes for the commit
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          CI_SHA: ${{ steps.select.outputs.target }}
+          # Waits for CI already running on the commit. A docs-only or focused push run on main skips
+          # the full suite, so without one this dispatches CI on main, which always runs the full suite.
+          # ci-evidence.ts dispatches only while main still points at the commit; if main moved, it fails.
+          CI_REF: main
+          CI_EVIDENCE_MINUTES: '90'
+        run: bun scripts/release/ci-evidence.ts
+      - name: Pick the nightly version
+        id: version
+        if: steps.skip.outputs.skip != 'true'
+        run: |
+          set -euo pipefail
+          version=$(bun scripts/release/nightly.ts version)
+          if git ls-remote --exit-code --tags origin "refs/tags/v$version" >/dev/null; then
+            echo "::error::v$version is already tagged; tags are never moved"; exit 1
+          fi
+          echo "version=$version" >> "$GITHUB_OUTPUT"
+      - name: Commit as the token's owner
+        if: steps.skip.outputs.skip != 'true'
+        # One author keeps DCO sign-off and attribution consistent with release-prepare.yml.
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+        run: |
+          if test -n "$GH_TOKEN"; then
+            read -r login id name <<< "$(gh api user --jq '"\(.login) \(.id) \(.name // .login)"')"
+          else
+            # A dry run without the token never pushes; the bot identity is enough to stamp.
+            login='github-actions[bot]' id=41898282 name='github-actions[bot]'
+          fi
+          { echo "GIT_AUTHOR_NAME=$name"; echo "GIT_COMMITTER_NAME=$name"
+            echo "GIT_AUTHOR_EMAIL=$id+$login@users.noreply.github.com"; echo "GIT_COMMITTER_EMAIL=$id+$login@users.noreply.github.com"; } >> "$GITHUB_ENV"
+      - name: Stamp the nightly version
+        if: steps.skip.outputs.skip != 'true'
+        env:
+          TARGET: ${{ steps.select.outputs.target }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git switch --quiet --detach "$TARGET"
+          # The dispatch checkout's install may not match the selected commit's bun.lock; app:build needs it to.
+          bun install --frozen-lockfile
+          bun scripts/release/nightly.ts stamp "$VERSION"
+          git add -A
+          git commit --quiet -s -m "chore: nightly $VERSION"
+          bun scripts/release/nightly.ts check-diff HEAD^ HEAD
+          echo "Stamped $VERSION on $TARGET" >> "$GITHUB_STEP_SUMMARY"
+      - name: Tag and push
+        if: steps.skip.outputs.skip != 'true' && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ secrets.RELEASE_TOKEN }}
+          VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          set -euo pipefail
+          git tag -a "v$VERSION" -m "pacer $VERSION"
+          auth="AUTHORIZATION: basic $(printf 'x-access-token:%s' "$GH_TOKEN" | base64 | tr -d '\n')"
+          # Only the tag is pushed; main never receives a nightly version commit.
+          git -c "http.extraheader=$auth" push origin "refs/tags/v$VERSION"
+          echo "Tagged v$VERSION; release.yml publishes it." >> "$GITHUB_STEP_SUMMARY"
+      - name: Report failure
+        if: failure() && !inputs.dry_run
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          url="$GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+          issue=$(gh issue list --repo "$GITHUB_REPOSITORY" --label nightly-failure --state open --json number --jq '.[0].number // empty')
+          if test -n "$issue"; then
+            gh issue comment "$issue" --repo "$GITHUB_REPOSITORY" --body "Nightly failed again: $url"
+          else
+            gh label create nightly-failure --repo "$GITHUB_REPOSITORY" --color B60205 --description "A nightly build failed" --force
+            gh issue create --repo "$GITHUB_REPOSITORY" --title "Nightly build failed" --label nightly-failure \
+              --body "The nightly build failed: $url. The next published nightly closes this issue."
+          fi
+
+  # Retention: nightlies older than 14 days go, except the newest 3 and any version a feed references.
+  prune:
+    needs: nightly
+    if: "!cancelled() && needs.nightly.result != 'failure' && !inputs.dry_run"
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Delete old nightly releases
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: bun scripts/release/nightly.ts prune --keep-days 14 --keep-min 3

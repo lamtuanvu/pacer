@@ -148,4 +148,6 @@ export const uiValidateResult = z.union([z.object({ ok: z.literal(true) }), z.ob
 /** Plugin → host notifications and the extension point that may send each. */
 export const NOTIFICATIONS: Record<string, { point: string; params: z.ZodTypeAny }> = {
   "ui.invalidate": { point: "ui", params: z.object({ id: surfaceId.optional() }).strict() },
+  /** Ephemeral text or activity of the turn in progress: forwarded to that turn's stream, never into the event outbox. */
+  "assistant.delta": { point: "assistant", params: z.object({ turnId: z.string().min(1).max(128), kind: z.enum(["text", "activity"]), text: z.string().min(1).max(4096) }).strict() },
 };
