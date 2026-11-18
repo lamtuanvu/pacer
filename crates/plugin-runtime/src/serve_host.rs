@@ -1,10 +1,10 @@
 //! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned until
-//! [`crate::serve_starts_reverse_bridge_by_default`] flips. Truthy
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! today; falsy values (`0` / `false` / `no`) are the documented escape hatch
-//! for the future default-on cutover. When enabled, serve claims a
+//! Default serve starts the owner
+//! ([`crate::serve_starts_reverse_bridge_by_default`] is true). Truthy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] still
+//! opt in; falsy values (`0` / `false` / `no`) are the documented escape back
+//! to the TypeScript path. When enabled, serve claims a
 //! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
 //! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own

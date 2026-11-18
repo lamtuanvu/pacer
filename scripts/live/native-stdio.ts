@@ -213,7 +213,8 @@ export async function httpOp(session: Session, op: string, params: unknown): Pro
 
 /**
  * Fixed stdio plugin exchange with the native host off and on, on the sandbox's Rust front door.
- * A running sandbox service decides the flag-on owner (attach when it runs `--native-plugin-host`);
+ * A running sandbox service decides the flag-on owner (attach when its owner is active — the
+ * `--native-plugin-host` flag or the default-on socket it starts itself);
  * a sandbox stopped with `down --keep` is a home without a service. Accepts no operation, path or
  * environment override.
  */

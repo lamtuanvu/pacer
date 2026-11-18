@@ -40,7 +40,7 @@ Two new rows are red, each with an expected-fail test in the same file. This PR 
 - **Transport notes in the plugin log** (#1072): spawn, stdin, malformed-stdout and oversized-stdout notes reach `logs/plugins/<id>.log` in the TypeScript format on every owner path; the conformance case compares all three doors' logs byte for byte, and a live run of the Rust front door with the owner on wrote `ignored a malformed JSON line on stdout` and `dropped a line over 1 MiB`.
 - **Core's secrets on stdin** (ADR 0027 item 9, before default-on, #1083): the owner key, internal bearer and config-sync key move out of Core's initial environment into the `pacer-core-secrets/1` frame announced by `PACER_CORE_SECRETS=stdin/1`; a KERN_PROCARGS2 read of a live flag-on Core's initial environment shows only the announce — no secret, no 64-hex value. #1083 also carries the #918 item-3 disposition (closed by maintainer decision, deferred hardening #973), the `docs/executors.md` rule for user-configured sandboxes, and the attended-codex-flags pin (`test/agent-session-adapters.test.ts`).
 
-Rows already green (PR A, I, G, H and R1) are unchanged. The flip itself (`serve_starts_reverse_bridge_by_default`) remains the maintainer's decision. Not in the preamble's gate list and still open: a flag-on remote stop's SSH legs need the host runner the owner does not serve (PR I).
+Rows already green (PR A, I, G, H and R1) are unchanged. The flip itself (`serve_starts_reverse_bridge_by_default`) landed in #1108. Not in the preamble's gate list and still open: a flag-on remote stop's SSH legs need the host runner the owner does not serve (PR I).
 
 | Operation | M2 P3-D route | Retained TypeScript caller or reason |
 | --- | --- | --- |
@@ -665,12 +665,14 @@ remain later. See inventories under `.work/reviews/`.
   + `PACER_HOST_SOCKET`. Default remains TS child ownership.
 - **P4d-2 landed (flag-gated):** live `_host.plugin.call` / `find` against
   serve-owned children.
-- **Blocked on later P4d:** flipping `serve_starts_reverse_bridge_by_default`
-  (needs TypeScript plugin consumers to reach the owner over the bridge),
-  deleting remaining `/_internal/plugins` kinds (still needed for
-  prepare/spawn_spec/call_authority/ready/changed/publish/log), stdio native
-  plugin ops, executor-class call resources, observation/hosts/orca on the
-  native owner, and CT-11 live evidence.
+- **Default-on flip landed (2026-11-18, #1108):** `serve_starts_reverse_bridge_by_default`
+  returns true; unset env starts the owner and `PACER_NATIVE_PLUGIN_HOST=0`
+  escapes. Its precondition — TypeScript plugin consumers reaching the owner
+  over the bridge — held via the PR 6 consumer matrix and the PR 7 gate rows.
+- **Blocked on later P4d:** deleting remaining `/_internal/plugins` kinds
+  (still needed for prepare/spawn_spec/call_authority/ready/changed/publish/log),
+  stdio native plugin ops, executor-class call resources, and
+  observation/hosts/orca on the native owner.
 - **Still deferred:** Rust signed archive inspection/extraction and publisher
   trust (crypto dependency tree). TypeScript archive/publisher remain.
 
