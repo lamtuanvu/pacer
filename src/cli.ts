@@ -344,9 +344,11 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     const origin=localHuman(ctx), reach=origin?null:callerReach(ctx,callerParticipant(ctx).id);
     const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin,...(reach?{callerReach:reach}:{})},cliDeps.spawnRunner);
     const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
+    // The caller reach is a delivery hint for the broker, not part of the task the caller sees.
+    const shown = ({ callerReach: _reach, ...rest }: typeof t) => rest;
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(shown(t), null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
-    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: warning };
+    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(shown(done), null, 1) : renderTask(done), err: warning };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }
