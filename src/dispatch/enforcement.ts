@@ -13,6 +13,7 @@ import { opencodeConfigPath } from "../install/opencode";
 import { launchFor, launchModeFor } from "../exec/launch";
 import { validateExecution } from "../config/execution";
 import { execProcess } from "../exec/process";
+import { CORE_SECRET_ENV } from "../core-secrets";
 import pkg from "../../package.json";
 import { pacerArgv } from "../install/self";
 import { shellCommand } from "../install/fsx";
@@ -327,10 +328,9 @@ export async function probeNativeControl(ctx:Ctx,strategy:Strategy,runnerId:stri
         const argv=target.agent==="claude-code"?strictClaudeLaunch(ctx,launch.argv,root):launch.argv;
         const env:Record<string,string|undefined>={...ctx.env,PACER_ROLE:"executor",PACER_ENFORCEMENT_MODE:"strict",PACER_ENFORCEMENT_TOKEN:"pet_"+"0".repeat(64),PACER_CANARY_MARKER:marker};
         delete env.PACER_WORK_GRANT;
-        delete env.PACER_INTERNAL_TOKEN;
         delete env.PACER_AUTH_TOKEN;
         delete env.PACER_HOST_SOCKET;
-        delete env.PACER_HOST_SOCKET_KEY;
+        for(const name of CORE_SECRET_ENV)delete env[name];
         delete env.CLAUDE_CONFIG_DIR;
         delete env.CODEX_HOME;
         // A default account runs strict work in the service's own folder (no login profile), as certified here.

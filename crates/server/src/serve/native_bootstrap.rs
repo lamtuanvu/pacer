@@ -36,9 +36,12 @@ impl Drop for Helpers {
 
 /// Keep the sender's socket alive until Core confirms installed descriptors.
 /// An unpolled broker owns its arguments and is dropped on every failed receipt.
+/// `secrets` (Core's secrets frame) is written only after that confirmation,
+/// which Core sends once it has authenticated this channel.
 pub(super) fn monitor<F>(
     parent: UnixStream,
     remote: UnixStream,
+    secrets: Vec<u8>,
     broker: F,
     stop: Arc<Notify>,
     deadline: Instant,
@@ -46,8 +49,9 @@ pub(super) fn monitor<F>(
 where
     F: Future<Output = ()> + Send + 'static,
 {
+    use tokio::io::AsyncWriteExt;
     parent.set_nonblocking(true)?;
-    let channel = tokio::net::UnixStream::from_std(parent)?;
+    let mut channel = tokio::net::UnixStream::from_std(parent)?;
     Ok(tokio::spawn(async move {
         let remote = remote;
         if Instant::now() >= deadline
@@ -56,6 +60,12 @@ where
                 Ok(Ok(b'A'))
             )
         {
+            return;
+        }
+        if !matches!(
+            tokio::time::timeout_at(deadline, channel.write_all(&secrets)).await,
+            Ok(Ok(()))
+        ) {
             return;
         }
         drop(remote);

@@ -88,6 +88,7 @@ async fn bootstrap_does_not_activate_helper_before_ack() {
     let task = monitor(
         parent,
         remote,
+        Vec::new(),
         broker(active.clone(), dropped.clone()),
         Arc::new(Notify::new()),
         deadline(),
@@ -122,6 +123,7 @@ async fn coalesced_ack_shutdown_is_accepted_but_other_controls_are_not() {
         let task = monitor(
             parent,
             remote,
+            Vec::new(),
             std::future::pending(),
             stop.clone(),
             deadline(),
@@ -154,6 +156,7 @@ async fn malformed_eof_timeout_and_abort_drop_unstarted_broker_and_retained_remo
         let task = monitor(
             parent,
             remote,
+            Vec::new(),
             broker(active.clone(), dropped.clone()),
             stop.clone(),
             Instant::now() + Duration::from_millis(50),
@@ -200,6 +203,7 @@ async fn delayed_two_right_receipt_survives_and_core_death_is_visible_after_ack(
     let task = monitor(
         parent,
         remote,
+        Vec::new(),
         async move {
             helpers.set_nonblocking(true).unwrap();
             let mut helpers = tokio::net::UnixStream::from_std(helpers).unwrap();
@@ -251,6 +255,84 @@ async fn delayed_two_right_receipt_survives_and_core_death_is_visible_after_ack(
 }
 
 #[tokio::test]
+async fn secrets_frame_follows_only_the_ack_and_survives_one_byte_receipt() {
+    if isolated("secrets_frame_follows_only_the_ack_and_survives_one_byte_receipt") {
+        return;
+    }
+    use nix::sys::socket::{ControlMessageOwned, MsgFlags, UnixAddr, recv, recvmsg};
+    let frame = crate::core_secrets::CoreSecrets {
+        internal_token: Some("a".repeat(64)),
+        owner_key: Some("b".repeat(64)),
+        native_config_sync_key: None,
+    }
+    .frame();
+    for ack in [b'A', b'X', 0] {
+        let (parent, mut child) = UnixStream::pair().unwrap();
+        let (listener, _listener_peer) = UnixStream::pair().unwrap();
+        let (_helpers, remote) = UnixStream::pair().unwrap();
+        send(&parent, &listener, &remote).unwrap();
+        let task = monitor(
+            parent,
+            remote,
+            frame.clone(),
+            std::future::pending(),
+            Arc::new(Notify::new()),
+            deadline(),
+        )
+        .unwrap();
+        settle().await;
+        // Core's shim receives `B` into a one-byte buffer, as `pacer_receive_parent_channels` does.
+        let mut marker = [0];
+        let mut vectors = [io::IoSliceMut::new(&mut marker)];
+        let mut storage = nix::cmsg_space!([i32; 2]);
+        let message = recvmsg::<UnixAddr>(
+            child.as_raw_fd(),
+            &mut vectors,
+            Some(&mut storage),
+            MsgFlags::empty(),
+        )
+        .unwrap();
+        assert_eq!(message.bytes, 1);
+        for control in message.cmsgs().unwrap() {
+            if let ControlMessageOwned::ScmRights(fds) = control {
+                for fd in fds {
+                    nix::unistd::close(fd).unwrap();
+                }
+            }
+        }
+        assert_eq!(marker, *b"B");
+        // Nothing follows `B` until Core has authenticated the channel and acknowledged.
+        let mut byte = [0];
+        assert_eq!(
+            recv(child.as_raw_fd(), &mut byte, MsgFlags::MSG_DONTWAIT).unwrap_err(),
+            nix::errno::Errno::EAGAIN
+        );
+        match ack {
+            0 => child.shutdown(std::net::Shutdown::Write).unwrap(),
+            ack => child.write_all(&[ack]).unwrap(),
+        }
+        if ack == b'A' {
+            use tokio::io::AsyncReadExt;
+            child.set_nonblocking(true).unwrap();
+            let mut child = tokio::net::UnixStream::from_std(child).unwrap();
+            let mut received = vec![0; frame.len()];
+            tokio::time::timeout(Duration::from_secs(2), child.read_exact(&mut received))
+                .await
+                .unwrap()
+                .unwrap();
+            assert_eq!(received, frame);
+            drop(child);
+            joined(task).await;
+        } else {
+            joined(task).await;
+            let mut received = Vec::new();
+            child.read_to_end(&mut received).unwrap();
+            assert!(received.is_empty(), "no acknowledgement, no frame");
+        }
+    }
+}
+
+#[tokio::test]
 async fn ancillary_rights_are_rejected_and_all_100_or_254_delivered_fds_are_closed() {
     if isolated("ancillary_rights_are_rejected_and_all_100_or_254_delivered_fds_are_closed") {
         return;
@@ -267,6 +349,7 @@ async fn ancillary_rights_are_rejected_and_all_100_or_254_delivered_fds_are_clos
             let task = monitor(
                 parent,
                 remote,
+                Vec::new(),
                 broker(active.clone(), dropped.clone()),
                 stop.clone(),
                 deadline(),
@@ -326,6 +409,7 @@ async fn expired_deadline_rejects_even_buffered_ack_and_abort_retires_active_bro
         let task = monitor(
             parent,
             remote,
+            Vec::new(),
             broker(active.clone(), dropped.clone()),
             Arc::new(Notify::new()),
             deadline,

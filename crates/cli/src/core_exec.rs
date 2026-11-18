@@ -55,6 +55,9 @@ pub fn child_env(env: &HashMap<String, String>, exe: &Path) -> HashMap<String, S
     child.remove("BUN_OPTIONS");
     child.remove("NODE_OPTIONS");
     child.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
+    // Only the door that writes a secrets frame announces one; an inherited
+    // announcement would leave Core waiting on a stdin that never carries it.
+    child.remove("PACER_CORE_SECRETS");
     child
         .entry("PACER_BIN".into())
         .or_insert_with(|| exe.to_string_lossy().into_owned());
@@ -84,5 +87,11 @@ mod tests {
         let env = HashMap::from([("PACER_INTERNAL_NATIVE_BOOTSTRAP".into(), "untrusted".into())]);
         let child = child_env(&env, Path::new("/tmp/pacer"));
         assert!(!child.contains_key("PACER_INTERNAL_NATIVE_BOOTSTRAP"));
+    }
+    #[test]
+    fn child_environment_drops_an_inherited_secrets_announcement() {
+        let env = HashMap::from([("PACER_CORE_SECRETS".into(), "stdin/1".into())]);
+        let child = child_env(&env, Path::new("/tmp/pacer"));
+        assert!(!child.contains_key("PACER_CORE_SECRETS"));
     }
 }

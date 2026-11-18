@@ -75,21 +75,36 @@ A pacer home has at most one native plugin owner that other front doors attach t
      `run/host.key` (0600, through a 0600 temporary file and a rename inside the 0700 run
      directory) once `host.sock` is bound, and removes the file at shutdown if it still holds
      this start's key. An owning stdio connection keeps its key in memory only.
-   - *Transport.* The owner hands the key to its own Core child as `PACER_HOST_SOCKET_KEY`,
-     beside `PACER_HOST_SOCKET`. An attaching stdio connection reads `run/host.key` after the
+   - *Transport.* The owner hands the key to its own Core child on Core's stdin, never in its
+     environment, because any same-user process can read another process's initial environment
+     (`sysctl(KERN_PROCARGS2)` on macOS, `/proc/<pid>/environ` on Linux), sandboxed or not.
+     `PACER_HOST_SOCKET` stays in the environment; it is not a secret. The stdin frame carries
+     Core's other secrets as well: serve's per-generation internal bearer (once
+     `PACER_INTERNAL_TOKEN`) and the stdio door's config-sync key (once
+     `PACER_NATIVE_CONFIG_SYNC_KEY`). The frame is `pacer-core-secrets/1 <length>\n` followed by
+     that many bytes of JSON, announced by the non-secret `PACER_CORE_SECRETS=stdin/1`. Core reads
+     exactly those bytes once, at startup, before anything else reads stdin, and refuses to start
+     when the frame is missing, malformed or repeats a key, when stdin is a terminal, or when no
+     frame arrives within 10 seconds. Doors drop an inherited announcement from every other
+     child, so only a parent that writes a frame announces one. The door and Core must come from
+     the same build; a Core that sees another frame version, or an older door's environment
+     secrets, says so. A signed paired Core receives the descriptor byte on its parent channel,
+     authenticates the channel and acknowledges; serve writes the frame only after that
+     acknowledgement. An attaching stdio connection reads `run/host.key` after the
      peer check in item 2: the file must be a regular file opened without following symlinks,
      owned by the current user with no group or other access, and written no earlier than the
      socket. It waits up to 2 seconds for a restarting serve to publish it; otherwise it treats
      the owner as untrusted (item 7). It hands the key to its Core child and uses it for its own
-     `_host.plugin.stop` frames. A door strips an inherited key from every Core child it does
-     not hand one, and serve strips it before deciding whether to start an owner.
-   - *Who holds it.* Core takes the key out of its environment as its first step, before it
-     starts anything, and keeps it in memory. It passes it to its own worker threads (task
-     supervision and background work, which run stop reconciliation and periodic plugin calls)
-     and to nothing else. Plugin children, `_run` runners, executors and hooks never inherit it;
-     executor environments also drop it explicitly. Another same-user process can still read
-     `run/host.key` and Core's initial environment; the consequence on the assistant's endpoint
-     key below states that accepted residual and its follow-ups.
+     `_host.plugin.stop` frames. A door strips an inherited key from every Core child's
+     environment, and serve strips it before deciding whether to start an owner.
+   - *Who holds it.* Core reads the key from its stdin frame as its first step, before it
+     starts anything, and keeps it in memory. It also removes all three secret names from its
+     environment, whether or not a frame came, so nothing it spawns inherits them. It passes
+     the key to its own worker threads (task supervision and background work, which run stop
+     reconciliation and periodic plugin calls) and to nothing else. Plugin children, `_run`
+     runners, executors and hooks never inherit it; executor environments also drop it
+     explicitly. Another same-user process can still read `run/host.key`; the consequence on the
+     assistant's endpoint key below states that accepted residual and its follow-ups.
    - *Verification.* Before its first request, each connection runs a mutual HMAC-SHA256
      challenge. The caller sends a nonce, and the owner answers with its own nonce and a proof
      over both. The caller checks that proof in constant time and only then answers with its
@@ -108,9 +123,9 @@ A pacer home has at most one native plugin owner that other front doors attach t
      callers.
 
 The private stdio channel is `_internal.plugins`. Core answers it only when the request
-carries the connection's sync key (`PACER_NATIVE_CONFIG_SYNC_KEY`, which Core removes from
-its environment before plugin children start), the session negotiated protocol 3, and no
-work grant is set. It carries the same request kinds as HTTP's `/_internal/plugins`.
+carries the connection's sync key (which the door hands Core in the stdin frame of item 9,
+never in its environment), the session negotiated protocol 3, and no work grant is set. It
+carries the same request kinds as HTTP's `/_internal/plugins`.
 `relay` is every door's own plugin call with the native host on: serve's door sends it over
 `/_internal/plugins`, and an attached or owning stdio connection over `_internal.plugins`.
 Core runs its sealed owner call on its own `PACER_HOST_SOCKET`, which is that door's owner,
@@ -205,21 +220,20 @@ to serve's Core.
   signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
   stand in for the socket, and Core then answered that process. Now a peer without the key
   cannot start, stop or call into a lane, and Core sends nothing to an owner that cannot prove
-  the key. The accepted residual is a same-user process that reads `run/host.key`, reads Core's
-  initial environment through the operating system's process inspection, or replaces a socket
-  in `run/` or in the per-user directory of item 5. Such a process can also relay without
-  learning the key: it accepts Core's connection on the replaced path, dials the real owner and
-  passes the handshake lines through, so both sides verify, and it then sees and can alter the
-  session. Any such process could already read the same secrets: the Keychain items have no
-  access list, and file and environment keys are readable by the same user. Follow-ups:
-  - hand Core the key on stdin instead of its environment (in progress before default-on);
-  - #918 item 3 closed by maintainer decision: executors run unsandboxed by design, so there is
-    no executor sandbox profile to deny `run/`. The deferred hardening (binding a sealed call to
-    its spawn spec, owner-side spawn-spec validation, a `pacer doctor` warning for agent
-    configurations that allow Unix sockets, and a pacer-applied profile if pacer offers confined
-    executors) is #973;
+  the key. The accepted residual is a same-user process that reads `run/host.key`, or replaces
+  a socket in `run/` or in the per-user directory of item 5. Such a process can also relay
+  without learning the key: it accepts Core's connection on the replaced path, dials the real
+  owner and passes the handshake lines through, so both sides verify, and it then sees and can
+  alter the session. Any such process could already read the same secrets: the Keychain items
+  have no access list, and file and environment keys are readable by the same user. Core's
+  initial environment is no longer a route: the key travels on Core's stdin (item 9). Follow-ups:
   - a peer check: the door hands Core the owner's pid and Core verifies it on each connection,
-    since the relay outlasts the other two.
+    since the relay outlasts the other residuals;
+  - the hardening deferred past default-on
+    ([#973](https://github.com/lamtuanvu/pacer/issues/973)): bind a sealed call to a lane
+    started from the same spawn spec, validate sealed spawn specs in the owner, warn in
+    `pacer doctor` about agent sandbox settings that allow Unix sockets under `$PACER_HOME`, and
+    confined executors if pacer decides to offer them.
 - **The doors' own plugin calls go through Core.** A door's `plugin.doctor` ping and its
   `plugin.ui.render`, `plugin.ui.action` and settings-check calls are the private `relay`, so
   Core seals them as it seals its own calls: it answers `secrets.resolve` and `identity.sign`
@@ -239,6 +253,23 @@ to serve's Core.
   owning stdio connection run the owner and stop their lanes in process. No door call reaches
   a plugin any other way: the owner refuses a connection without the key and an unsealed
   `_host.plugin.call`.
+- **Executors run unsandboxed, by design (#918 item 3).** Every task executor pacer launches
+  (direct and Orca, headless and interactive, resume, remote, plugin executors and the owner's
+  detached runs) turns off its agent CLI's own sandbox, and pacer ships no sandbox profile of
+  its own. Such an executor is a same-user process: it can already read `$PACER_HOME`, the
+  Keychain items and the service token, so the owner adds nothing it could not reach. The one
+  sandbox pacer controls is a user-attended Codex session (`plugins/agent-session`), which runs
+  with `-s workspace-write`; that sandbox denies `connect()` to the owner's socket, and a test
+  pins that the launch adds no Unix-socket, network or configuration override. A user who turns
+  on an agent's own sandbox for work that reaches pacer must not allow Unix sockets under
+  `$PACER_HOME/run` or the per-user directory of item 5 (allowing all Unix sockets allows
+  these). With such an allowance a sandboxed process can read `run/host.key` and drive the
+  owner, which then starts processes outside that sandbox. Core's secrets travel on its stdin,
+  so on macOS a sandbox that denies reads of the home also keeps them from a sandboxed process.
+  On Linux that alone is not enough: a same-user process allowed to ptrace Core (the check that
+  guards `/proc/<pid>/environ`) can open `/proc/<core>/fd/0` and race Core for the frame while
+  Core starts. Core then refuses to start, so the race is visible; the sandbox must also hide
+  other processes' `/proc` entries ([#973](https://github.com/lamtuanvu/pacer/issues/973)).
 - **Detached stop, inspection and remote stop grants stay in Core.** Serve's supervision stops an
   orphaned direct-executor attempt with a one-use `detachedStop` grant, inspects one with
   `detachedInspect`, and stops a remote one with `remoteStop`. Core does not seal these grants

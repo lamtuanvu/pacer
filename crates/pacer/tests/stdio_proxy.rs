@@ -60,7 +60,8 @@ fn proxy(core: &[String], home: &std::path::Path) -> Command {
 fn forwards_original_bytes_and_drains_on_eof() {
     let home = tempfile::tempdir().unwrap();
     let script = home.path().join("core");
-    fs::write(&script, "#!/bin/sh\n[ \"$1\" = prefix ] && [ \"$2\" = api ] && [ \"$3\" = --stdio ] && [ -n \"$PACER_BIN\" ] || exit 9\ncat\nprintf 'final response without newline'\nexit 7\n").unwrap();
+    // Like Core, the stub reads exactly its secrets frame before the forwarded bytes.
+    fs::write(&script, "#!/bin/sh\n[ \"$1\" = prefix ] && [ \"$2\" = api ] && [ \"$3\" = --stdio ] && [ -n \"$PACER_BIN\" ] || exit 9\n[ \"$PACER_CORE_SECRETS\" = stdin/1 ] && [ -z \"${PACER_NATIVE_CONFIG_SYNC_KEY+set}\" ] || exit 10\nIFS= read -r header || exit 11\ncase \"$header\" in \"pacer-core-secrets/1 \"*) ;; *) exit 12 ;; esac\ndd bs=1 count=\"${header#pacer-core-secrets/1 }\" of=/dev/null 2>/dev/null || exit 13\ncat\nprintf 'final response without newline'\nexit 7\n").unwrap();
     fs::set_permissions(&script, fs::Permissions::from_mode(0o755)).unwrap();
     let mut input = b"  { \"method\" : \"forward\", \"id\": 1 }\r\ninvalid\n\xff\n".to_vec();
     // The server has no line cap, including for invalid JSON and partial lines.
@@ -84,7 +85,9 @@ fn core_exit_does_not_wait_for_client_eof() {
         &[
             "/bin/sh".into(),
             "-c".into(),
-            "printf 'done\\n'; exit 4".into(),
+            // Like Core, the stub consumes the secrets frame before writing;
+            // otherwise the door's frame write races this core's instant exit.
+            "IFS= read -r header || exit 11; printf 'done\\n'; exit 4".into(),
         ],
         home.path(),
     );

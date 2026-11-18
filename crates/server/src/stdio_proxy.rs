@@ -1,3 +1,4 @@
+use crate::core_secrets::{self, CoreSecrets};
 use crate::native::{call_native, service_registry};
 use crate::stdio_plugins::{self, Done, Line, Ownership, PluginLink};
 use pacer_foundation::{
@@ -58,6 +59,7 @@ impl CoreBuild<'_> {
                         .args(self.prefix)
                         .arg("--pacer-component-descriptor")
                         .envs(self.env)
+                        .env_remove(core_secrets::ANNOUNCE_ENV)
                         .stdin(Stdio::null())
                         .stderr(Stdio::inherit())
                         .kill_on_drop(true)
@@ -1159,6 +1161,7 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
     let mut ctx = Ctx::from_env();
     // Only the HTTP front door may assert how a message caller authenticated.
     ctx.env.remove(crate::native::msg_ops::CALLER_AUTH_ENV);
+    ctx.env.remove(core_secrets::ANNOUNCE_ENV);
     // The core child's env fixes who owns plugin processes for this connection.
     let (ownership, host_socket) = Ownership::start(&env, &ctx.pacer_home, scoped_work).await?;
     crate::core_process::record_stdio(&env, &host_socket);
@@ -1184,20 +1187,26 @@ async fn proxy(core: Vec<String>, env: HashMap<String, String>) -> io::Result<i3
         tasks: tokio::task::JoinSet::new(),
         ids: HashMap::new(),
     };
+    let secrets = CoreSecrets {
+        internal_token: None,
+        owner_key: host_socket.owner_key(),
+        native_config_sync_key: Some(sync_key.clone()),
+    };
     let session = async {
         let mut command = Command::new(program);
-        let mut child = host_socket
+        host_socket
             .apply(command.args(prefix).args(["api", "--stdio"]).envs(&env))
-            .env("PACER_NATIVE_CONFIG_SYNC_KEY", &sync_key)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::inherit())
-            .kill_on_drop(true)
-            .spawn()?;
-        let input = child
+            .kill_on_drop(true);
+        let mut child = core_secrets::announce(&mut command).spawn()?;
+        let mut input = child
             .stdin
             .take()
             .ok_or_else(|| io::Error::other("missing core stdin"))?;
+        // Before any forwarded line: Core reads the frame first.
+        core_secrets::send(&mut input, &secrets).await?;
         let output = child
             .stdout
             .take()
