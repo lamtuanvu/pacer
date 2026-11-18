@@ -1855,6 +1855,28 @@ impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsTurnId {
 ///      "maxLength": 4096,
 ///      "minLength": 1
 ///    },
+///    "tools": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "status",
+///          "tool"
+///        ],
+///        "properties": {
+///          "status": {
+///            "type": "string",
+///            "maxLength": 32
+///          },
+///          "tool": {
+///            "type": "string",
+///            "maxLength": 128
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 64
+///    },
 ///    "usage": {
 ///      "type": "object",
 ///      "required": [
@@ -1905,6 +1927,8 @@ pub struct AssistantReplyResult {
     pub message: AssistantReplyResultMessage,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub session: ::std::option::Option<AssistantReplyResultSession>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub tools: ::std::vec::Vec<AssistantReplyResultToolsItem>,
     pub usage: AssistantReplyResultUsage,
 }
 ///`AssistantReplyResultMessage`
@@ -1991,6 +2015,133 @@ impl ::std::convert::TryFrom<&str> for AssistantReplyResultSession {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AssistantReplyResultSession {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyResultToolsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "status",
+///    "tool"
+///  ],
+///  "properties": {
+///    "status": {
+///      "type": "string",
+///      "maxLength": 32
+///    },
+///    "tool": {
+///      "type": "string",
+///      "maxLength": 128
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantReplyResultToolsItem {
+    pub status: AssistantReplyResultToolsItemStatus,
+    pub tool: AssistantReplyResultToolsItemTool,
+}
+///`AssistantReplyResultToolsItemStatus`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 32
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyResultToolsItemStatus(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyResultToolsItemStatus {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyResultToolsItemStatus> for ::std::string::String {
+    fn from(value: AssistantReplyResultToolsItemStatus) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyResultToolsItemStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 32usize {
+            return Err("longer than 32 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyResultToolsItemStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyResultToolsItemStatus {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyResultToolsItemTool`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyResultToolsItemTool(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyResultToolsItemTool {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyResultToolsItemTool> for ::std::string::String {
+    fn from(value: AssistantReplyResultToolsItemTool) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyResultToolsItemTool {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyResultToolsItemTool {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyResultToolsItemTool {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,

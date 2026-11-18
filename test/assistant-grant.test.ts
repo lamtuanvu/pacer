@@ -137,6 +137,7 @@ function setup(backend: "pacer" | "executor", respond: unknown) {
   const deps = {
     strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
     respond: respond as never,
+      selfTest: () => ({ ok: true }),
   };
   return { ctx: c, deps };
 }

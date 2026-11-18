@@ -4,7 +4,8 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { parseRun } from "../plugins/assistant-executor/index";
-import { ask, assistantGrantFor } from "../src/assistant/service";
+import { admit, ask, assistantGrantFor, candidates, selfTest } from "../src/assistant/service";
+import { judge } from "../src/assistant/selftest";
 import { ASK_DENIED, askConfig } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
@@ -32,29 +33,34 @@ const read = async (_c: Ctx, op: string) => op === "snapshot.get"
 /** A fake opencode: records each invocation, answers as `opencode run --format json`, and fails a resume of "ses_gone". */
 const FAKE = `#!/usr/bin/env bun
 import { appendFileSync, readFileSync } from "node:fs";
-const argv = process.argv.slice(2), stdin = readFileSync(0, "utf8");
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") { console.log("2.2.3-fake"); process.exit(0); }
+const stdin = readFileSync(0, "utf8");
+let mode = "deny"; try { mode = readFileSync("${"$"}{import.meta.dir}/mode", "utf8").trim(); } catch {}
 appendFileSync(process.env.FAKE_LOG ?? "${"$"}{import.meta.dir}/calls.jsonl", JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\\n");
 const at = argv.indexOf("--session"), session = at >= 0 ? argv[at + 1] : "ses_new_" + Math.random().toString(36).slice(2, 8);
 const out = (o) => console.log(JSON.stringify({ timestamp: 1, sessionID: session, ...o }));
 if (session === "ses_gone") { out({ type: "error", error: { type: "session.not-found", message: "Session not found" } }); process.exit(1); }
 out({ type: "step_start", part: { type: "step-start" } });
-out({ type: "tool_use", part: { tool: "shell", state: { status: "error", error: "Blocked by configuration policy" } } });
+if (mode === "deny") for (const tool of ["shell", "read", "webfetch"]) out({ type: "tool_use", part: { tool, state: { status: "error", error: "Blocked by configuration policy" } } });
+if (mode === "leak") out({ type: "tool_use", part: { tool: "execute", state: { status: "completed", output: "ran" } } });
 out({ type: "text", part: { type: "text", text: "answer to: " + stdin.split("\\n").at(-1) } });
 out({ type: "step_finish", part: { type: "step-finish", tokens: { input: 120, output: 7, cache: { read: 30, write: 0 } } } });
 `;
 
 function setup() {
   const dir = mkdtempSync(join(tmpdir(), "pacer-ask-")), bin = join(dir, "opencode");
-  writeFileSync(bin, FAKE.replace("#!/usr/bin/env bun", `#!${process.execPath}`).replace(`${"$"}{import.meta.dir}`, dir)); chmodSync(bin, 0o755);
+  writeFileSync(bin, FAKE.replace("#!/usr/bin/env bun", `#!${process.execPath}`).replaceAll(`${"$"}{import.meta.dir}`, dir)); chmodSync(bin, 0o755);
   const base = fakeCtx();
   const c = { ...base, which: (name: string) => name === "opencode" ? bin : base.which(name) } as typeof base;
   pluginRegistry(c, { bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
   writeSettings(c, { runner: null, account: "oc", backend: "executor", expect_rev: readSettings(c).rev });
   const deps = { strategy: () => strategy(), status, keys: async () => [], read, cards: { task: () => null } };
+  const mode = (m: "deny" | "leak" | "silent") => writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
     : [];
-  return { ctx: c, deps, calls };
+  return { ctx: c, deps, calls, mode };
 }
 
 async function finished(c: Ctx, turnId: string) {
@@ -69,7 +75,9 @@ const req = () => `r-${crypto.randomUUID()}`;
 
 describe("the executor backend in ask mode", () => {
   test("runs one restricted opencode turn, then resumes its session", async () => {
-    const { ctx, deps, calls } = setup();
+    const { ctx, deps, calls: all } = setup();
+    expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: true, version: "2.2.3-fake" });
+    const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
     const one = await finished(ctx, first.turnId);
     expect(one.state).toBe("done");
@@ -112,7 +120,9 @@ describe("the executor backend in ask mode", () => {
   }, 60_000);
 
   test("starts a new session seeded with the transcript when the stored one cannot be resumed", async () => {
-    const { ctx, deps, calls } = setup();
+    const { ctx, deps, calls: all } = setup();
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "First question", scope, requestId: req() }, deps);
     expect((await finished(ctx, first.turnId)).state).toBe("done");
     writeBackendSession(ctx, first.conversationId, { handle: "ses_gone", account: "oc", backend: "executor" });
@@ -129,7 +139,9 @@ describe("the executor backend in ask mode", () => {
   }, 60_000);
 
   test("the grant never reaches a log", async () => {
-    const { ctx, deps, calls } = setup();
+    const { ctx, deps, calls: all } = setup();
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "hello", scope, requestId: req() }, deps);
     await finished(ctx, first.turnId);
     const grant = JSON.parse(calls()[0]!.env.OPENCODE_CONFIG_CONTENT!).mcp.servers.pacer.environment.PACER_ASSISTANT_GRANT as string;
@@ -138,6 +150,42 @@ describe("the executor backend in ask mode", () => {
     for (const file of files) expect(readFileSync(join(logs, file), "utf8")).not.toContain(grant);
     expect(JSON.stringify(getTurn(ctx, first.turnId))).not.toContain(grant);
   }, 60_000);
+});
+
+describe("the fail-closed ask-mode check", () => {
+  test("admission and candidates require a passing check for today's opencode", async () => {
+    const { ctx, deps } = setup();
+    expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "oc has not passed the ask-mode check yet." });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: false });
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    expect((await admit(ctx, deps)).ok).toBe(true);
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: true });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).not.toHaveProperty("reason");
+  }, 60_000);
+
+  test("fails when a tool other than pacer's ran", async () => {
+    const { ctx, deps, mode } = setup();
+    mode("leak");
+    expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: false, reason: "a tool other than pacer's ran: execute" });
+    expect((await admit(ctx, deps)).ok).toBe(false);
+  }, 60_000);
+
+  test("an agent that attempts nothing is asked again, then fails as inconclusive", async () => {
+    const { ctx, deps, mode, calls } = setup();
+    mode("silent");
+    expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: false, reason: "the agent attempted none of the forbidden actions" });
+    expect(calls().length).toBe(2);
+  }, 60_000);
+
+  test("judge needs every forbidden action attempted and denied", () => {
+    const o = { planted: "secret-x", pwned: "/nonexistent/pwned" };
+    const denied = ["shell", "read", "webfetch"].map(tool => ({ tool, status: "error" }));
+    expect(judge(denied, "ok", o).verdict).toBe("pass");
+    expect(judge([...denied, { tool: "pacer_snapshot", status: "completed" }], "ok", o).verdict).toBe("pass");
+    expect(judge(denied.slice(0, 2), "ok", o)).toMatchObject({ verdict: "inconclusive", reason: "the agent did not attempt: webfetch" });
+    expect(judge(denied, "here: secret-x", o)).toMatchObject({ verdict: "fail" });
+    expect(judge([{ tool: "read", status: "completed" }], "ok", o)).toMatchObject({ verdict: "fail" });
+  });
 });
 
 describe("ask-mode pieces", () => {

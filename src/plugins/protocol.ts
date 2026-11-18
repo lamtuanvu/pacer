@@ -249,6 +249,8 @@ export const assistantReplyParams = z.object({
 export const assistantReplyResult = z.object({
   message: z.string().max(200_000),
   session: z.string().min(1).max(4096).optional(),
+  /** Executor backend: the agent CLI's tool attempts, as evidence for the ask-mode self-test. */
+  tools: z.array(z.object({ tool: z.string().max(128), status: z.string().max(32) }).strict()).max(64).optional(),
   usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative(), cacheRead: z.number().int().nonnegative().optional(), cacheWrite: z.number().int().nonnegative().optional(), coverage: z.enum(["measured", "partial", "unknown"]) }).strict(),
 }).strict();
 /** `capability.assistant.tool`: run one tool of the turn in progress through the host's pipeline. */

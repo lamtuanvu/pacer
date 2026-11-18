@@ -13,6 +13,7 @@ import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
 import { ASK_CONFIG_REF, askTurn, type AskTurn } from "./ask-mode";
+import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
 import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
@@ -33,6 +34,8 @@ export interface AssistantDeps {
   cards?: CardDeps;
   keys?: (ctx: Ctx, strategy: Strategy) => Promise<string[]>;
   strategy?: (ctx: Ctx) => Strategy;
+  /** Whether ask mode may run on an account; defaults to the recorded self-test (src/assistant/selftest.ts). */
+  selfTest?: (ctx: Ctx, account: string) => { ok: boolean; reason?: string };
 }
 
 const cachedStatus = (ctx: Ctx, strategy: Strategy) => computeStatus({ ...ctx, readOnly: true }, strategy, { cacheOnly: true });
@@ -148,6 +151,11 @@ export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admissi
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const endpoint = endpointFor(strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
+  // Ask mode runs only on an account that passed the fail-closed check with today's opencode (spec §3).
+  if (settings.backend === "executor") {
+    const check = (deps.selfTest ?? selfTestStatus)(ctx, endpoint.name);
+    if (!check.ok) return { ok: false, reason: check.reason, hint: "Run the ask-mode check in Settings › Assistant." };
+  }
   if (turnsToday(ctx) >= settings.limits.turnsPerDay) return { ok: false, reason: `The assistant reached its limit of ${settings.limits.turnsPerDay} turns today.`, hint: "The limit resets at midnight, or raise it in Settings." };
   const status = await (deps.status ?? cachedStatus)(ctx, strategy);
   const row = status.accounts?.find(a => a.name === settings.account);
@@ -478,6 +486,22 @@ export function refreshCard(ctx: Ctx, turnId: string, cardId: string, deps: Assi
  * the `pacer` backend; an executor row arrives with the plugin that can serve it (spec §5). */
 export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
+  const runnersOf = (name: string) => Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model }));
+  // Executor rows (spec §5): every account the executor backend's agent CLI drives, available only
+  // after it passed the ask-mode check with today's CLI.
+  const executor = replyProvider(ctx, "executor") ? Object.entries(strategy.accounts).flatMap(([name, account]) => {
+    if (account.kind !== "endpoint") return [];
+    const check = (deps.selfTest ?? selfTestStatus)(ctx, name);
+    return [{
+      account: name, backend: "executor" as AssistantBackend, available: check.ok, ...(check.ok ? {} : { reason: check.reason }),
+      models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
+      runners: runnersOf(name), isPlanner: strategy.planner.account === name,
+    }];
+  }) : [];
+  return [...pacerRows(strategy), ...executor];
+}
+
+function pacerRows(strategy: Strategy) {
   return Object.entries(strategy.accounts).flatMap(([name, account]) => account.kind === "endpoint" && account.connection ? [{
     account: name,
     backend: "pacer" as AssistantBackend,
@@ -495,3 +519,13 @@ export const READS_SUMMARY = [
   "Cached usage, pace and reset times for your accounts. It never refreshes a reading.",
   "Reviewed outcomes with sample sizes, recent activity entries, and strategy names and summaries.",
 ];
+
+/** Run the ask-mode self-test for one account the executor backend drives (`assistant.selftest`). */
+export async function selfTest(ctx: Ctx, account: string, deps: AssistantDeps = {}): Promise<SelfTestRecord> {
+  const strategy = (deps.strategy ?? loadStrategy)(ctx);
+  const plugin = replyProvider(ctx, "executor");
+  if (!plugin) throw new CoreError("not_allowed", "No plugin answers the assistant's executor backend.");
+  const target = endpointFor(strategy, { ...readSettings(ctx), account, backend: "executor", runner: null });
+  if (!target) throw new CoreError("not_found", `${account} is not an account the executor backend can run.`);
+  return runSelfTest(ctx, account, { model: target.model, plugin });
+}

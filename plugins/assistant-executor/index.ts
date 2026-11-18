@@ -16,6 +16,7 @@ export interface ExecutorReplyParams {
 export interface ReplyResult {
   message: string;
   session?: string;
+  tools?: { tool: string; status: string }[];
   usage: { input: number; output: number; cacheRead?: number; cacheWrite?: number; coverage: "measured" | "partial" | "unknown" };
 }
 
@@ -87,7 +88,7 @@ export async function reply(p: ExecutorReplyParams, host: Pick<HostClient, "call
   }
   if (raw.timedOut) throw new PluginError("plugin_timeout", "The agent did not answer in time.");
   if (!out.text) throw new PluginError("plugin_unavailable", out.error ?? `The agent exited ${raw.code} without an answer.`);
-  return { message: out.text, ...(out.session ? { session: out.session } : {}), usage: out.usage };
+  return { message: out.text, ...(out.session ? { session: out.session } : {}), ...(out.tools.length ? { tools: out.tools.slice(0, 64) } : {}), usage: out.usage };
 }
 
 export const handlers = {

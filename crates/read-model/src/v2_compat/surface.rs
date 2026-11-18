@@ -130,6 +130,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "assistant.card.record",
     "assistant.card.refresh",
     "assistant.tool",
+    "assistant.selftest",
     "msg.send",
     "msg.inbox",
     "msg.wait",

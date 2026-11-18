@@ -9910,6 +9910,28 @@ Result:
       "minLength": 1,
       "maxLength": 4096
     },
+    "tools": {
+      "maxItems": 64,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "tool": {
+            "type": "string",
+            "maxLength": 128
+          },
+          "status": {
+            "type": "string",
+            "maxLength": 32
+          }
+        },
+        "required": [
+          "tool",
+          "status"
+        ],
+        "additionalProperties": false
+      }
+    },
     "usage": {
       "type": "object",
       "properties": {

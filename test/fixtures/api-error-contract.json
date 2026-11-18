@@ -25,6 +25,7 @@
     "assistant.conversation",
     "assistant.conversations",
     "assistant.delete",
+    "assistant.selftest",
     "assistant.settings.get",
     "assistant.settings.set",
     "assistant.status",

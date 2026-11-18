@@ -826,6 +826,20 @@
       },
       "additionalProperties": false
     },
+    "AssistantSelftestParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "account"
+      ],
+      "additionalProperties": false
+    },
     "AssistantSettingsGetParams": {
       "type": "object",
       "properties": {},
