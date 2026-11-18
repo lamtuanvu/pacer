@@ -17,14 +17,15 @@
     "typescript": "^7.0.2",
     "ws": "8.22.0"
   },
-  "version": "0.17.0",
+  "version": "0.17.2",
   "bin": {
     "pacer": "src/cli.ts"
   },
   "scripts": {
     "test": "TZ=Asia/Ho_Chi_Minh bun test --timeout 30000",
     "test:sandbox": "TZ=Asia/Ho_Chi_Minh bun scripts/test-sandbox.ts",
-    "test:sharded": "python3 scripts/ci/shard-tests.py | python3 -c \"import sys, json; print(' '.join(json.load(sys.stdin)))\" | TZ=Asia/Ho_Chi_Minh xargs bun test --timeout 30000 --jobs=4",
+    "test:sharded": "python3 scripts/ci/run-tests.py",
+    "test:macos": "python3 scripts/ci/run-tests.py --macos",
     "live": "bun scripts/live/cli.ts",
     "perf": "bun scripts/perf/run.ts",
     "perf:tick": "bun scripts/perf/pump-tick.ts",

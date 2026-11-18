@@ -60,7 +60,7 @@ The workflow then does the rest, all on one commit:
 1. It pins the commit to release: `main`'s head when the run starts, or the commit you enter (it must be on `main`). Nothing merged to `main` afterwards affects this release.
 2. It picks the version. If the pinned commit's `package.json` version has no tag yet (its bump merged earlier), that version is released as is. Otherwise `scripts/release/next-version.ts` picks the next version and requires at least one commit since the tag.
 3. For a new version, `bun run release:prepare <version>` updates `package.json`, the desktop app versions and the embedded app assets, and moves Unreleased into a dated section. It commits `chore: release <version>` (DCO-signed) on top of the pinned commit. That commit is not pushed to `main`.
-4. It tags that commit `v<version>` and pushes only the tag. The tag runs `release.yml`, which typechecks and tests, builds every platform, requires CI's full suite on both OSes for the tagged commit (dispatching CI on the tag when none has run) and publishes. All of it runs from the tag.
+4. It tags that commit `v<version>` and pushes only the tag. The tag runs `release.yml`, which typechecks and tests, builds every platform, requires CI's Linux full suite and macOS-specific suite for the tagged commit (dispatching CI on the tag when none has run) and publishes. All of it runs from the tag.
 5. It opens a `chore: release <version>` bookkeeping PR from `release/v<version>` to bring the bump to `main`, with auto-merge on. It's an ordinary PR under the usual required checks. The release doesn't wait for it, and merging it tags nothing.
 
 Only one release runs at a time, and a version whose tag already exists is never re-tagged.
@@ -81,6 +81,15 @@ GitHub doesn't run workflows for pushes and PRs made with the built-in `GITHUB_T
 4. Save it as the repository secret `RELEASE_TOKEN` (Settings → Secrets and variables → Actions), or run `gh secret set RELEASE_TOKEN -R lamtuanvu/pacer` and paste it.
 
 Renew it before it expires; Prepare release fails with a clear error without it.
+
+### Nightly builds
+
+Nightlies are signed prereleases of a `main` commit, published to the `nightly` channel ([distribution](docs/distribution.md#nightly-builds)). To run one by hand, open **Actions → Nightly → Run workflow** on `main`:
+
+1. Run it with `dry_run` checked first. It selects the commit, waits for CI evidence (dispatching CI on `main` when the commit has no full-suite run), picks the version and stamps it, but pushes no tag.
+2. Then run it again without `dry_run`. Leave `sha` empty to build `main`'s head, or enter a commit on `main`. The pushed `v<version>` tag (for example `v0.16.0-nightly.202611171700`) runs `release.yml`.
+
+Nightly uses the same `RELEASE_TOKEN` as Prepare release. A nightly never adds commits to `main` and never touches `CHANGELOG.md`. A failed nightly is fixed like a failed release: rerun the failed jobs of the **Release** run for that tag, or run Nightly again for a new version. The scheduled midnight run stays off until the first manual nightly has succeeded.
 
 ### Interrupted releases
 

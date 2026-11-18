@@ -1,4 +1,5 @@
 import { connectClient } from "../api/client";
+import { HttpClient } from "../api/http-client";
 import {callOp} from "../api/ops";
 import { previewInputSchema } from "../dispatch/types";
 import { randomUUID } from "node:crypto";
@@ -6,10 +7,12 @@ import { isAbsolute } from "node:path";
 import { resolveRepoInput } from "../core/repos";
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import { CallToolRequestSchema, ListToolsRequestSchema } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import pkg from "../../package.json";
 import { KINDS } from "../config/strategy";
 import * as core from "../core";
+import { toolDefinitions } from "../assistant/tools";
 import { isExecutorSession } from "../install/role";
 import { callerParticipant } from "../messaging/participants";
 import { MSG_KINDS } from "../messaging/types";
@@ -27,7 +30,53 @@ const json = (value: Record<string, unknown>) => ({
 
 export { summarizeTask } from "../tasks/api";
 
-export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner } = {}): McpServer {
+/**
+ * `pacer mcp --assistant`: the assistant's own tool set, forwarded to the client op `assistant.tool`.
+ * It reads the service address, the grant and the turn from the environment only — never a token
+ * file, so it works with `PACER_HOME` pointing at an empty directory. Without a live grant it
+ * registers nothing usable and every call errors (spec §2, validation).
+ */
+interface AssistantLink { base: string; grant: string; turnId: string }
+function assistantLink(getCtx: () => Ctx): AssistantLink | null {
+  const env = getCtx().env;
+  const grant = env.PACER_ASSISTANT_GRANT ?? "";
+  const turnId = env.PACER_ASSISTANT_TURN ?? "";
+  // No default address: the host that issued the grant names its service, or nothing is usable.
+  const base = env.PACER_ASSISTANT_URL ?? "";
+  if (!/^pag_[0-9a-f]{64}$/.test(grant)) return null;
+  if (!/^[A-Za-z0-9_-]{1,128}$/.test(turnId)) return null;
+  if (!/^http:\/\/127\.0\.0\.1:[0-9]+\/?$/.test(base)) return null;
+  return { base, grant, turnId };
+}
+
+function assistantMcpServer(getCtx: () => Ctx): McpServer {
+  const server = new McpServer({ name: "pacer", version: pkg.version });
+  const tools = toolDefinitions();
+  const link = assistantLink(getCtx);
+  server.server.registerCapabilities({ tools: { listChanged: false } });
+  server.server.setRequestHandler(ListToolsRequestSchema, () => ({
+    tools: (link ? tools.map(tool => ({ name: tool.name, description: tool.description, inputSchema: tool.parameters })) : []) as never,
+  }));
+  server.server.setRequestHandler(CallToolRequestSchema, async request => {
+    const refuse = (error: string) => ({ ...json({ error }), isError: true });
+    if (!link) return refuse("This assistant MCP server has no live grant.");
+    const name = request.params.name;
+    if (!tools.some(tool => tool.name === name)) return refuse(`Unknown tool ${name}.`);
+    try {
+      const client = new HttpClient(link.base, link.grant, { protocol: 3 });
+      try {
+        return json(await client.call<Record<string, unknown>>("assistant.tool",
+          { turnId: link.turnId, name, params: request.params.arguments ?? {} }));
+      } finally { client.close(); }
+    } catch (error) {
+      return refuse(error instanceof Error ? error.message : "assistant.tool failed");
+    }
+  });
+  return server;
+}
+
+export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRunner; assistant?: boolean } = {}): McpServer {
+  if (opts.assistant) return assistantMcpServer(getCtx);
   const server = new McpServer({ name: "pacer", version: pkg.version });
   // Each MCP server (one per connected planner) is its own client instance for the task_send driving lease.
   const instance = { label: "mcp/stdio", id: `${process.pid}-${randomUUID().slice(0, 8)}` };
@@ -197,6 +246,6 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   return server;
 }
 
-export async function runMcpStdio(getCtx: () => Ctx = () => makeCtx()): Promise<void> {
-  await createMcpServer(getCtx).connect(new StdioServerTransport());
+export async function runMcpStdio(getCtx: () => Ctx = () => makeCtx(), opts: { assistant?: boolean } = {}): Promise<void> {
+  await createMcpServer(getCtx, opts).connect(new StdioServerTransport());
 }

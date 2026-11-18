@@ -34,9 +34,11 @@ whichever occurs first. It cannot authorize subsequent changes or deployments.
 
 | Date | Decision | Rules affected | Decided by | Source |
 |------|----------|----------------|------------|--------|
-| 2026-11-13 | The release workflow no longer reruns the full Bun suite against the release artifacts. Publication requires a CI run on the exact release commit in which all eight full-suite shard jobs (Linux and macOS) ran and passed; `ci-suite` reuses, awaits or dispatches it once on the release ref. The build jobs keep the M1 gate's other checks: against the shipped pair (manifest, startup benchmark, conformance, transport parity) and on the source (native registry, Rust tests, LOC/deps). Trade-off accepted: the Bun suite exercises CI's build of the same commit, not the release-built binaries; this changes the release validation that proposed amendments 0.11.0 and 0.20.0 left unchanged. | REL-2; CT-1/3/5; ADR 0004 point 10 (artifact checks retained) | @lamtuanvu (chose this option in conversation on 2026-11-13) | [Distribution](../docs/distribution.md); release dry run 43401538809, where macOS shard 2 failed load-sensitive tests (self-update, HTTP front door) that passed in CI on the same commit; its shard-0 failure also failed in CI |
+| 2026-11-18 | Proposed amendment 0.24.0: API-5a names the assistant grant (`pag_`) as a distinct credential — one assistant turn, `assistant.tool` only, mapped to an assistant-turn identity that is neither the operator nor an executor session, and refused with `not_allowed` when it is unknown, expired or revoked. | API-5 (new API-5a); constitution amendment process | Proposed; adopted only by maintainer merge | [assistant backends design](../docs/specs/2026-11-17-assistant-backends-design.md) §2–§3 |
+| 2026-11-18 | Proposed amendment 0.23.0: general tests run only on Linux and macOS runs only macOS-specific tests (`scripts/ci/macos-tests.txt`), on pull requests and on `main`. Release publication requires the Linux full suite and the macOS-specific suite on the release commit. Accepted risk: a macOS-only regression in a general test is not caught before a release; macOS CI no longer runs typecheck, build or the artifact smoke test (the release workflow still builds and checks macOS artifacts); and the manifest check finds darwin branches in tests only, not in `src/`. | REL-2; constitution 0.20.0, 0.21.0 and 0.23.0; CT-1/3/5 | @lamtuanvu (decided 2026-11-18; adoption on merge) | [CI selection](../docs/testing/ci-selection.md) |
+| 2026-11-13 | The release workflow no longer reruns the full Bun suite against the release artifacts. Publication requires a CI run on the exact release commit in which all eight full-suite shard jobs (Linux and macOS; proposed amendment 0.23.0 replaces these with the Linux shards and the macOS-specific job) ran and passed; `ci-suite` reuses, awaits or dispatches it once on the release ref. The build jobs keep the M1 gate's other checks: against the shipped pair (manifest, startup benchmark, conformance, transport parity) and on the source (native registry, Rust tests, LOC/deps). Trade-off accepted: the Bun suite exercises CI's build of the same commit, not the release-built binaries; this changes the release validation that proposed amendments 0.11.0 and 0.20.0 left unchanged. | REL-2; CT-1/3/5; ADR 0004 point 10 (artifact checks retained) | @lamtuanvu (chose this option in conversation on 2026-11-13) | [Distribution](../docs/distribution.md); release dry run 43401538809, where macOS shard 2 failed load-sensitive tests (self-update, HTTP front door) that passed in CI on the same commit; its shard-0 failure also failed in CI |
 | 2026-11-05 | Proposed amendment 0.21.0: UI-28 — screens fill shell `FrameSlot` left/right for side content; page-local side columns are forbidden. | UI-28; constitution 0.21.0 | Proposed; adopted by maintainer merge | [ADR 0022](../docs/decisions/0022-shell-owned-page-regions.md) |
-| 2026-11-03 | Amendment 0.20.0 extended: pull requests run only OS-independent logic tests on Linux. `Test (macos-latest)` stays as a required name but runs as an Ubuntu no-op on PRs; Rust runs only on Linux; macOS e2e and Linux service survival run on main pushes, schedule and dispatch. Security scans, DCO, title, CodeQL and release gates are unchanged. | Constitution 0.20.0; CT-1/3/5 | Maintainer decision | [CI selection](../docs/testing/ci-selection.md) |
+| 2026-11-03 | Amendment 0.20.0 extended: pull requests run only OS-independent logic tests on Linux. `Test (macos-latest)` stays as a required name but runs as an Ubuntu no-op on PRs (proposed amendment 0.23.0 runs the macOS-specific tests on PRs and keeps the name as a gate); Rust runs only on Linux; macOS e2e and Linux service survival run on main pushes, schedule and dispatch. Security scans, DCO, title, CodeQL and release gates are unchanged. | Constitution 0.20.0; CT-1/3/5 | Maintainer decision | [CI selection](../docs/testing/ci-selection.md) |
 | 2026-11-02 | Proposed amendment 0.20.0: mapped CI/workflow changes and audited PR source modifications use focused tests and artifact smoke; scheduled/manual runs remain full, with full fallback for unmapped changes. | Constitution 0.20.0; CT-1/3/5; SEC-9; REL-2/3 | Maintainer request; adoption on merge | [CI selection](../docs/testing/ci-selection.md) |
 | 2026-11-01 | Proposed amendment 0.19.0: desktop UI delivery. The desktop app ships the shared `app/` source as a bundled build and reaches the service only through its Rust client, forwarding allow-listed public operations, events and terminal streams over an app session (owner token used only for the exchange). SEC-8 replacement proposed: bundled-origin-only windows with exact static capabilities and no runtime grants to service origins. | D4 (clients ADR); SEC-8; constitution 0.19.0 | Proposed; adopted by maintainer merge | [persistent workbench design](../docs/specs/2026-10-31-persistent-workbench-design.md) §5, §9; #527 |
 | 2026-10-31 | Amendment 0.18.0 adopted: the maintainer merged #523. ARCH-4 and P8 now state the plugin boundary (`src/core` never imports the Orca execution adapter or `plugins/pacer-exec-orca`), and ADR 0018 is accepted. | ARCH-4; P8; constitution 0.18.0 | @lamtuanvu (merged #523 on 2026-10-31) | [ADR 0018](../docs/decisions/0018-orca-terminal-worker-executor-extraction.md) |
@@ -87,6 +89,30 @@ Design approved in conversation on 2026-10-19; adopted on 2026-10-19 when the ma
 Draft-readiness clarification in the same proposed amendment: require current report metadata and honest verdicts on drafts, but enforce all-PASS review readiness after leaving draft. Rerun CI on both draft transitions. This lets draft code tests run without misrepresenting incomplete native/manual evidence; no completion criterion or pre-merge requirement is waived.
 
 ## Exceptions
+
+### CT11-1092 — nightly channel, live checks deferred to the first nightly
+
+Granted by @lamtuanvu on 2026-11-18. The maintainer told the planner to complete and merge the nightly update channel PRs (#1089, #1092, #1093).
+
+Scope: PRs #1092 and #1093 only. The following CT-11 observations may be deferred until the first manual nightly after these merge:
+- the real desktop app following the nightly channel (the native updater checks both feeds, offers the newer version and never downgrades);
+- the fixture-app OTA scenarios 1–4, blocked by pinned fixture versions (#1091);
+- an interactive TUI render of the channel row;
+- the real `nightly.json` and `cli-nightly.json` feeds.
+
+What was verified instead:
+- CLI and API `update_channel` set, get and reject, checked live in a sandbox;
+- the embedded Settings › Updates control, against a stubbed desktop status;
+- the CLI update check against local fixture feeds;
+- TUI golden frames;
+- native updater unit and wire tests (`cargo test`).
+
+Independent code, UI/accessibility and QA reviews passed. This entry does not turn the deferred observations into a tested PASS, and it waives nothing else: later edits, failed checks, DCO and other evidence stay required. It expires when the first nightly is published, or on 2026-12-02, whichever comes first.
+
+Follow-up: after the first nightly, the maintainer confirms the following, and #1091 tracks the fixture scenarios:
+- an installation on `update_channel: nightly` is offered the nightly by `pacer update --check`;
+- the desktop app offers it in Settings › Updates;
+- switching back to stable does not downgrade.
 
 ### CT11-1063 — service update restart banner, live restart deferred
 

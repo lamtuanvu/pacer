@@ -70,9 +70,22 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
+/// Which assistant ops the native handler declines so the core answers them. `assistant.ask`,
+/// `assistant.cancel`, `assistant.tool` and `assistant.selftest` are never native: they drive the
+/// assistant plugin, the in-process turn stream, the live turn's tool context and the agent CLI.
+/// `assistant.candidates` stays with the core: its rows depend on the executor backend's plugin and
+/// its recorded ask-mode check, which only the core knows.
 pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("assistant.") || matches!(op, "assistant.ask" | "assistant.cancel") {
+    if !op.starts_with("assistant.")
+        || matches!(
+            op,
+            "assistant.ask" | "assistant.cancel" | "assistant.tool" | "assistant.selftest"
+        )
+    {
         return false;
+    }
+    if op == "assistant.candidates" {
+        return true;
     }
     match refuse(ctx) {
         Ok(()) => {}
@@ -92,8 +105,8 @@ pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
                 .is_some_and(|a| !a.is_empty());
             !usable() || (account && strategy(ctx).is_none())
         }
-        "assistant.candidates" => strategy(ctx).is_none(),
-        "assistant.status" => !matches!(status(ctx), Ok(Some(_))),
+        // An executor backend's admission needs its ask-mode check, which the core keeps.
+        "assistant.status" => executor_backend(ctx) || !matches!(status(ctx), Ok(Some(_))),
         "assistant.card.refresh" => {
             refresh_task(ctx, params).is_ok_and(|task| task.is_some_and(|t| !titled(&t)))
         }
@@ -240,7 +253,9 @@ fn candidates(strategy: &Value) -> Vec<Value> {
                 })
                 .collect();
             let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
-            json!({"account":name,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
+            // Phase 1 offers endpoint accounts on the `pacer` backend only; `reason` appears with a
+            // row that is not available (spec §5).
+            json!({"account":name,"backend":"pacer","available":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
         })
         .collect()
 }
@@ -278,6 +293,14 @@ fn local_midnight(now: f64, zone: chrono_tz::Tz) -> Option<f64> {
 }
 
 /// `assistantStatus` where admission needs no cached usage status; `None` otherwise.
+/// Whether the stored settings choose the executor backend.
+fn executor_backend(ctx: &Ctx) -> bool {
+    with_db(ctx, |db| {
+        Ok(assistant::read_settings(db)?.is_some_and(|s| s.backend == "executor"))
+    })
+    .unwrap_or(true)
+}
+
 fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
     let Some(zone) = local_zone(ctx) else {
         return Ok(None);
@@ -386,7 +409,15 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             }
         }
         let write = with_db(ctx, |db| {
-            assistant::write_settings(db, p.runner, p.account, p.limits, p.retention, p.expect_rev)
+            assistant::write_settings(
+                db,
+                p.runner,
+                p.account,
+                p.backend,
+                p.limits,
+                p.retention,
+                p.expect_rev,
+            )
         })?;
         match write {
             SettingsWrite::Saved(settings) => Ok(settings.to_json()),

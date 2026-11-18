@@ -160,9 +160,9 @@ async fn conformance_fixture_handshake_and_ping() {
     spec.argv = vec!["bun".into(), "main.ts".into()];
     spec.cwd = dir.clone();
     let child = PluginProcess::spawn(&spec).unwrap();
-    let hello = child.request("plugin.hello", json!({"protocol":"1.10.0","pacer":"0.2.0","manifest":manifest,"config":{},"grants":[],"features":[]}), Duration::from_secs(5), None).await.unwrap();
+    let hello = child.request("plugin.hello", json!({"protocol":"1.11.0","pacer":"0.2.0","manifest":manifest,"config":{},"grants":[],"features":[]}), Duration::from_secs(5), None).await.unwrap();
     assert_eq!(hello["id"], "fx-serial");
-    assert_eq!(hello["protocol"], "1.10.0");
+    assert_eq!(hello["protocol"], "1.11.0");
     let ping = child
         .request_with_handler(
             "diagnostic.ping",
@@ -543,26 +543,30 @@ async fn failed_stdin_write_records_a_stdin_error_note() {
     let log = crate::plugin_log::PluginLog::new(home.path(), "fx-in").unwrap();
     let script = "await new Promise(r=>setTimeout(r,50));process.exit(0);";
     let child = PluginProcess::spawn_logged(&peer(script), Some(log)).unwrap();
-    // The child exits and its stdin closes; a later write then fails and is noted.
+    // The child exits and its stdin closes. A write right after can still be
+    // accepted before the closed pipe is seen, so keep writing until one fails;
+    // the failure is what gets noted.
     child.terminate().await.unwrap();
-    let result = child
-        .notify_bounded("$/event", json!({"t":1}), Duration::from_secs(2), || Ok(()))
-        .await;
-    assert!(result.is_err());
     let path = home.path().join("fx-in.log");
     let deadline = std::time::Instant::now() + Duration::from_secs(5);
-    let text = loop {
+    let mut failed = false;
+    loop {
+        if !failed {
+            failed = child
+                .notify_bounded("$/event", json!({"t":1}), Duration::from_secs(2), || Ok(()))
+                .await
+                .is_err();
+        }
         let text = std::fs::read_to_string(&path).unwrap_or_default();
-        if text.contains("[stderr] stdin error: ") {
-            break text;
+        if failed && text.contains("[stderr] stdin error: ") {
+            break;
         }
         assert!(
             std::time::Instant::now() < deadline,
-            "the stdin error note never arrived"
+            "no failed write and stdin error note: failed={failed} log={text}"
         );
         tokio::time::sleep(Duration::from_millis(20)).await;
-    };
-    drop(text);
+    }
 }
 
 /// `$/event` lines are written as `JSON.stringify` writes them.

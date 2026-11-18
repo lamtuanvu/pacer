@@ -116,6 +116,8 @@ export interface Attempt {
   limitHit: boolean;
   log: string;
   brokenReason?: string;
+  /** The attempt was stopped after its pings for progress went unanswered; the task moves to another executor. */
+  unresponsive?: { pings: number };
 }
 
 export interface Verification {
@@ -196,9 +198,9 @@ export interface RunRef {
   idleAlertedAt?: number;
   /**
    * When the agent's screen first showed a transient provider retry banner without progress since; `fingerprint` is the
-   * worktree's git state then (lease renewals compare it for progress), `ended` the verdict a lease renewal stopped the run on.
+   * worktree's git state then, `ended` the verdict the plugin path's run monitor stopped the run on (an idle stop too).
    */
-  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" };
+  retryBanner?: { since: number; reason: string; fingerprint?: string; ended?: "limit" | "provider" | "idle" };
 }
 
 export interface ReviewRequest { note: string; at: number }
@@ -256,6 +258,8 @@ export interface TaskRecord {
   /** A stop request is not terminal until the exact executor exit is verified. */
   stopPending?: { attempt: number; requestedAt: number; cleanupStartedAt?: number; providerId: string; graceMs: number;
     reason?: "user" | "deadline" };
+  /** The broker stopped this attempt after `pings` no-progress pings went unanswered; the runner classifies the end from it. */
+  unresponsive?: { attempt: number; pings: number };
   sessionDraftId?: string;
   interactionMode?: InteractionMode;
   conversation?: ConversationState;

@@ -129,6 +129,8 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "assistant.candidates",
     "assistant.card.record",
     "assistant.card.refresh",
+    "assistant.tool",
+    "assistant.selftest",
     "msg.send",
     "msg.inbox",
     "msg.wait",
@@ -214,6 +216,13 @@ pub fn op_schemas(input: &Value) -> Value {
             map.shift_remove(field);
         }
     }
+    // `update_channel` is a protocol 3 addition; 2.x keeps its frozen config.set keys.
+    if let Some(keys) = out
+        .pointer_mut("/config.set/params/properties/key/enum")
+        .and_then(Value::as_array_mut)
+    {
+        keys.retain(|key| key != "update_channel");
+    }
     out["task.list"]["description"] = json!(
         "Recent tasks, newest first. Cursor/filter params return a page; limit alone keeps the legacy array until 3.0."
     );
@@ -226,6 +235,20 @@ pub fn op_schemas(input: &Value) -> Value {
         json!("Preview agent integration files and the undo command before consenting.");
     out["agent.connect"]["description"] =
         json!("Connect an agent after explicit consent to write its integration files.");
+    // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
+    out["notifications.get"]["description"] = json!("Current notification level.");
+    out["notifications.set"]["description"] = json!("Set notifications to off, important or all.");
+    let notifications = &mut out["notifications.set"]["params"];
+    if let Some(map) = notifications.as_object_mut() {
+        if let Some(properties) = map.get_mut("properties").and_then(Value::as_object_mut) {
+            properties.shift_remove("sound");
+        }
+        let closed = map.shift_remove("additionalProperties");
+        map.insert("required".into(), json!(["level"]));
+        if let Some(closed) = closed {
+            map.insert("additionalProperties".into(), closed);
+        }
+    }
     let review = &mut out["task.review"]["params"];
     review["properties"]["accepted"] = json!({"type":"boolean"});
     let source = review["properties"].clone();

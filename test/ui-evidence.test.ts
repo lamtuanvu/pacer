@@ -207,7 +207,7 @@ describe("UI PR evidence manifest", () => {
     expect(tests.name).toBe("Test (${{ matrix.os }}, shard ${{ matrix.shard }})");
     expect(tests.needs).toEqual(["changes", "ui-evidence", "release-readiness"]);
     expect(tests.if).toBe("${{ always() }}");
-    expect(tests.steps.some((step: { run?: string }) => step.run === "bun run ui:check --source-only")).toBe(true);
+    expect(workflow.jobs.checks.steps.some((step: { run?: string }) => step.run === "bun run ui:check --source-only")).toBe(true);
     const gate = tests.steps.at(-1);
     expect(gate.if).toBe("${{ always() }}");
     expect(gate.env.UI_EVIDENCE_RESULT).toBe("${{ needs.ui-evidence.result }}");

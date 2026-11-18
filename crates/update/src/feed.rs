@@ -1,7 +1,10 @@
 //! The release feed's `latest.json`: `normalizeBase`, `fetchText` and `parseLatest` from
 //! `src/update/`, under the three-second `checkForUpdate` deadline. Errors are the messages
 //! TypeScript stores in `update-check.json`.
-use crate::{check::is_version, js};
+use crate::{
+    check::{compare_versions, is_nightly_version, is_version},
+    js,
+};
 use pacer_foundation::js_semantics::js_trim;
 use serde_json::Value;
 use std::{
@@ -14,28 +17,84 @@ const MAX_BYTES: u64 = 1024 * 1024;
 const MAX_REDIRECTS: usize = 5;
 const TIMED_OUT: &str = "update check timed out";
 const DEFAULT_URL: &str = "https://github.com/lamtuanvu/pacer/releases/latest/download/latest.json";
+const NIGHTLY_URL: &str =
+    "https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/cli-nightly.json";
+
+/// The release channel (`UpdateChannel` in `src/update/channel.ts`).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub(crate) enum Channel {
+    Stable,
+    Nightly,
+}
+
+impl Channel {
+    pub(crate) fn as_str(self) -> &'static str {
+        match self {
+            Channel::Stable => "stable",
+            Channel::Nightly => "nightly",
+        }
+    }
+}
 
 /// The latest released version, or the error message TypeScript would record.
+#[cfg(test)]
 pub(crate) fn latest(base: Option<&str>) -> Result<String, String> {
+    latest_for(base, Channel::Stable).map(|(version, _)| version)
+}
+
+/// `latestForChannel`: stable reads `latest.json`. Nightly also reads `cli-nightly.json` and takes
+/// the newer; when one feed fails it uses the other and returns that feed's error beside it, and
+/// when both fail the nightly feed's error is the result.
+pub(crate) fn latest_for(
+    base: Option<&str>,
+    channel: Channel,
+) -> Result<(String, Option<String>), String> {
     let deadline = Instant::now() + TIMEOUT;
-    let url = match base {
-        Some(raw) => format!("{}/latest.json", normalize_base(raw)?),
-        None => DEFAULT_URL.into(),
-    };
+    let base = base.map(normalize_base).transpose()?;
+    let stable_url = base
+        .as_ref()
+        .map_or_else(|| DEFAULT_URL.into(), |b| format!("{b}/latest.json"));
+    let stable = || read_feed(&stable_url, deadline).and_then(|v| parse_latest(&v));
+    if channel == Channel::Stable {
+        return stable().map(|version| (version, None));
+    }
+    let nightly_url = base
+        .as_ref()
+        .map_or_else(|| NIGHTLY_URL.into(), |b| format!("{b}/cli-nightly.json"));
+    // Both feeds are read at once under the one deadline, like `Promise.allSettled`.
+    let (s, n) = std::thread::scope(|scope| {
+        let nightly =
+            scope.spawn(|| read_feed(&nightly_url, deadline).and_then(|v| parse_cli_nightly(&v)));
+        let s = stable();
+        let n = nightly
+            .join()
+            .unwrap_or_else(|_| Err(failed(&nightly_url, "reader panicked")));
+        (s, n)
+    });
+    match (s, n) {
+        (Ok(s), Ok(n)) => Ok((if compare_versions(&n, &s) > 0 { n } else { s }, None)),
+        (Ok(s), Err(error)) => Ok((s, Some(error))),
+        (Err(error), Ok(n)) => Ok((n, Some(error))),
+        (Err(_), Err(error)) => Err(error),
+    }
+}
+
+/// `fetchText` then `JSON.parse` for one feed URL.
+fn read_feed(url: &str, deadline: Instant) -> Result<Value, String> {
     let bytes = if url.starts_with("file://") {
-        read_file(&url)?
+        read_file(url)?
     } else {
-        fetch(&url, deadline)?
+        fetch(url, deadline)?
     };
     if bytes.len() as u64 > MAX_BYTES {
-        return Err(failed(&url, &format!("exceeds {MAX_BYTES} byte limit")));
+        return Err(failed(url, &format!("exceeds {MAX_BYTES} byte limit")));
     }
     if Instant::now() >= deadline {
         return Err(TIMED_OUT.into());
     }
     let text = String::from_utf8_lossy(&bytes);
     let text = text.strip_prefix('\u{feff}').unwrap_or(&text);
-    parse_latest(&parse_json(text)?)
+    parse_json(text)
 }
 
 fn failed(url: &str, detail: &str) -> String {
@@ -211,6 +270,21 @@ pub(crate) fn parse_latest(raw: &Value) -> Result<String, String> {
     }
     Err(format!(
         "latest.json has no valid \"version\" (got {})",
+        js::stringify(version.unwrap_or(&Value::Null))
+    ))
+}
+
+/// `parseCliNightly`: like `parseLatest`, but only a nightly version is valid.
+pub(crate) fn parse_cli_nightly(raw: &Value) -> Result<String, String> {
+    let version = raw.as_object().and_then(|o| o.get("version"));
+    let text = version
+        .and_then(Value::as_str)
+        .map_or("", |v| v.strip_prefix('v').unwrap_or(v));
+    if is_nightly_version(text) {
+        return Ok(text.to_owned());
+    }
+    Err(format!(
+        "cli-nightly.json has no valid nightly \"version\" (got {})",
         js::stringify(version.unwrap_or(&Value::Null))
     ))
 }

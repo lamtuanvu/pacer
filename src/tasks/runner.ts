@@ -274,6 +274,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
     let requestedUnavailable: string | undefined;
     let policyChanges = 0;
     let lastBroken: { brokenExecutor: string; brokenReason: string } | undefined;
+    let lastUnresponsive: { executor: string; pings: number } | undefined;
 
     const managedWork = getWork(ctx, id);
     const attemptBudget = managedWork
@@ -774,7 +775,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             if (localPlacement) current.placement = { requested: current.placement?.requested ?? "auto",
               ...current.placement, mode: localPlacement.mode, why: localPlacement.why };
           });
-          // No poller writes owned progress, so the mark a lost owner left would outlive this reattach.
+          // A reattached owner starts a new monitor; the lost-contact mark the lost owner left must not outlive it.
           else task = updateTask(ctx, id, current => {
             if (current.progress?.phase === "lost-contact") delete current.progress;
           });
@@ -856,6 +857,13 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         return finish(ctx, id, { status: deadline ? "failed" : "stopped", executor: pick, model: cfg.model,
           files: "", report: out.report, backend: "direct" });
       }
+      const marked = readTask(ctx, id);
+      if (marked?.unresponsive) {
+        // The broker stopped this run for pings that went unanswered; consume the mark and carry it on the attempt.
+        if (marked.unresponsive.attempt === (marked.run?.attempt ?? marked.attempts.length + 1))
+          out.attempt.unresponsive = { pings: marked.unresponsive.pings };
+        updateTask(ctx, id, current => { delete current.unresponsive; });
+      }
       const failureMarker=executionCtx.env.PACER_GUARD_FAILURE_MARKER;
       if(work?.options.delegationEnforcement==="strict"&&failureMarker&&existsSync(failureMarker)){
         rmSync(failureMarker,{force:true});
@@ -891,7 +899,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
           ...(classification === "quota" ? { until: exhaustUntil(byId[pick], cfg, out.attempt.endedAt, text) } : {}),
         });
       }
-      if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; }
+      if (takeover) { delete out.attempt.brokenReason; out.attempt.limitHit = false; delete out.attempt.unresponsive; }
       const duration = out.attempt.endedAt - out.attempt.startedAt;
       if (!takeover && out.backend !== "orca" && out.exec.code !== 0 && !out.exec.timedOut && duration <= 10) {
         const isolated = !!out.worktree && realpathSafe(out.worktree) !== realpathSafe(task.brief.repo);
@@ -954,6 +962,22 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         continue;
       }
       lastBroken = undefined;
+      lastUnresponsive = undefined;
+      if (out.attempt.unresponsive) {
+        // One unresponsive attempt moves the task to another executor; a second one ends it.
+        const pings = out.attempt.unresponsive.pings;
+        if (task.attempts.slice(0, -1).some(a => a.unresponsive)) {
+          updateTask(ctx, id, current => { delete current.unresponsive; });
+          return finish(ctx, id, { status: "failed", executor: pick, model: cfg.model, files: "",
+            report: `executor unresponsive: no progress after ${pings} pings`, backend: attemptedBackend });
+        }
+        task = updateTask(ctx, id, current => {
+          delete current.unresponsive;
+          if (owned) { delete current.run; delete current.executorProvider; delete current.executor; delete current.attemptStartedAt; }
+        });
+        lastUnresponsive = { executor: pick, pings };
+        continue;
+      }
       if (out.attempt.limitHit) {
         lastLimitReport = out.report;
         markExhausted({ ...ctx, now: out.attempt.endedAt }, resolveRunner(s, pick)?.account ?? pick, exhaustUntil(byId[pick], cfg, Date.now() / 1000, `${out.exec.stderr}\n${out.exec.stdout}\n${out.report}`), { scope: outcomeScope });
@@ -992,6 +1016,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         ? `every executor tried hit a limit (${[...tried].join(", ")})`
         : `no executor available (${excluded.map((e) => `${e.id}: ${e.reason}`).join(", ") || "none configured"})`;
     const unavailableBroken = Object.entries(readBroken({ ...ctx, now: Date.now()/1000 })).find(([id]) => (!req || id === req) && excluded.some(e => e.id === id));
+    // An unresponsive last attempt with no executor left ends the task for that reason, not as a limit.
+    if (lastUnresponsive && !lastBroken) return finish(ctx, id, { status: "failed", executor: lastUnresponsive.executor, model: attemptedModel,
+      files: "", report: `executor unresponsive: no progress after ${lastUnresponsive.pings} pings`, backend: attemptedBackend });
     const failure = lastBroken ?? (unavailableBroken && (tried.size === 0 || req === unavailableBroken[0]) ? { brokenExecutor: unavailableBroken[0], brokenReason: unavailableBroken[1].reason } : undefined);
     return finish(ctx, id, { status: failure || !excluded.some(e => e.reason === "exhausted" || e.eligibility?.budget === "exhausted") && !lastLimitReport ? "failed" : "limit", executor: failure?.brokenExecutor ?? attemptedExecutor, model: attemptedModel, files: "", report: failure ? `executor not working: ${failure.brokenReason}` : [why, lastLimitReport].filter(Boolean).join("\n\n"), backend: attemptedBackend, ...failure });
   } catch (error) {

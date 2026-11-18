@@ -1,5 +1,6 @@
 import { ReleaseError } from "./errors";
-import { isVersion } from "./version";
+import { type UpdateChannel, isNightlyVersion } from "./channel";
+import { compareVersions, isVersion } from "./version";
 
 export type ReleaseOs = "darwin" | "linux";
 export type ReleaseArch = "arm64" | "x64";
@@ -119,6 +120,40 @@ export const GITHUB_RELEASE_BASE = `https://github.com/${GITHUB_REPO}/releases`;
 
 export function latestUrl(base?: string): string {
   return base === undefined ? `https://github.com/${GITHUB_REPO}/releases/latest/download/latest.json` : `${base}/latest.json`;
+}
+
+/** The nightly CLI feed, beside the desktop feeds on the `desktop-updates` branch (ADR 0028). */
+export const CLI_NIGHTLY_URL = `https://raw.githubusercontent.com/${GITHUB_REPO}/desktop-updates/cli-nightly.json`;
+
+export function cliNightlyUrl(base?: string): string {
+  return base === undefined ? CLI_NIGHTLY_URL : `${base}/cli-nightly.json`;
+}
+
+/** `cli-nightly.json`: the `latest.json` shape, holding only a nightly version. */
+export function parseCliNightly(raw: unknown): string {
+  const v = typeof raw === "object" && raw !== null ? (raw as { version?: unknown }).version : undefined;
+  const s = typeof v === "string" ? v.replace(/^v/, "") : "";
+  if (!isNightlyVersion(s)) throw new ReleaseError(`cli-nightly.json has no valid nightly "version" (got ${JSON.stringify(v ?? null)})`);
+  return s;
+}
+
+export interface ChannelLatest { latest: string; error?: string }
+
+/**
+ * The newest release for a channel. Stable reads `latest.json`. Nightly reads it and
+ * `cli-nightly.json` and takes the newer; when one feed fails it uses the other and reports
+ * that feed's error, and when both fail it throws the nightly feed's error.
+ * `latest_for` in `crates/update/src/feed.rs` mirrors this.
+ */
+export async function latestForChannel(channel: UpdateChannel, base: string | undefined, read: (url: string) => Promise<string>): Promise<ChannelLatest> {
+  const stable = read(latestUrl(base)).then(text => parseLatest(JSON.parse(text)));
+  if (channel === "stable") return { latest: await stable };
+  const [s, n] = await Promise.allSettled([stable, read(cliNightlyUrl(base)).then(text => parseCliNightly(JSON.parse(text)))]);
+  const message = (r: PromiseRejectedResult) => r.reason instanceof Error ? r.reason.message : String(r.reason);
+  if (s.status === "fulfilled" && n.status === "fulfilled") return { latest: compareVersions(n.value, s.value) > 0 ? n.value : s.value };
+  if (s.status === "fulfilled") return { latest: s.value, error: message(n as PromiseRejectedResult) };
+  if (n.status === "fulfilled") return { latest: n.value, error: message(s) };
+  throw (n as PromiseRejectedResult).reason;
 }
 
 export function releaseUrl(base: string | undefined, version: string, file: string): string {

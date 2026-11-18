@@ -3,7 +3,7 @@ import { createHash, generateKeyPairSync, sign } from "node:crypto";
 import { mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { tmpDir } from "./helpers";
-import { buildDesktopFeed, desktopAssetName, desktopDiskImageName, publishDesktopRelease, verifyUpdateSignature, DESKTOP_ARCHES, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
+import { buildDesktopFeed, desktopAssetName, desktopDiskImageName, publishDesktopRelease, verifyUpdateSignature, DESKTOP_ARCHES, DESKTOP_FEED_FILE, DESKTOP_FEED_URL, DESKTOP_FEED_URLS, type DesktopChannel, type DesktopReleaseOptions } from "../scripts/release/desktop-feed";
 
 function signingFixture() {
   const keys = generateKeyPairSync("ed25519"), id = Buffer.from("fixture1");
@@ -17,18 +17,19 @@ function signingFixture() {
   };
   return { publicKey, signature };
 }
-function fixture() {
+const channelOf = (version: string): DesktopChannel => version.includes("-nightly.") ? "nightly" : "stable";
+function fixture(version = "1.2.3") {
   const dir = tmpDir(), signing = signingFixture();
-  writeFileSync(join(dir, "desktop-release-1.2.3.json"), JSON.stringify({ schema: 1, version: "1.2.3", notes: "release", pub_date: "2026-10-19T00:00:00Z" }));
+  writeFileSync(join(dir, `desktop-release-${version}.json`), JSON.stringify({ schema: 1, version, notes: "release", pub_date: "2026-10-19T00:00:00Z" }));
   for (const arch of DESKTOP_ARCHES) {
-    const bytes = Buffer.from(`signed fixture archive ${arch}`), name = desktopAssetName("1.2.3", arch);
-    writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes));
-    writeFileSync(join(dir, desktopDiskImageName("1.2.3", arch)), Buffer.from(`fixture disk image ${arch}`));
+    const bytes = Buffer.from(`signed fixture archive ${arch}`), name = desktopAssetName(version, arch, channelOf(version));
+    writeFileSync(join(dir, name), bytes); writeFileSync(join(dir, name + ".sig"), signing.signature(bytes, version));
+    writeFileSync(join(dir, desktopDiskImageName(version, arch, channelOf(version))), Buffer.from(`fixture disk image ${arch}`));
   }
   const options: DesktopReleaseOptions = {
     mode: "fixture", publicKey: signing.publicKey, pins: { appleTeamId: "FIXTURE123" },
-    verifyArchive: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
-    verifyDiskImage: async (_bytes, arch) => ({ schema: 1, version: "1.2.3", arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
+    verifyArchive: async (_bytes, arch) => ({ schema: 1, version, arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
+    verifyDiskImage: async (_bytes, arch) => ({ schema: 1, version, arch, bundleId: "dev.pacer.desktop.fixture", protocolMajors: [3], admissionProtocol: 1, nativeTransportAbi: 1, rollbackCompatible: true, fixture: true, appTree: "a".repeat(64) }),
   };
   let promotions = 0;
   const assets = new Map<string, Uint8Array>();
@@ -193,4 +194,66 @@ test("fixture-mode feeds carry and require the fixture desktop identifier", asyn
   for (const arch of DESKTOP_ARCHES) expect(feed.platforms[`darwin-${arch}`].bundleId).toBe("dev.pacer.desktop.fixture");
   const releaseIdentified: DesktopReleaseOptions = { ...f.options, verifyArchive: async (bytes, arch) => ({ ...(await f.options.verifyArchive!(bytes, arch)), bundleId: "dev.pacer.desktop" }) };
   await expect(buildDesktopFeed(f.dir, "1.2.3", releaseIdentified)).rejects.toThrow("Signed desktop metadata/identity mismatch");
+});
+
+const NIGHTLY = "1.3.0-nightly.202611170000";
+function feedGit(root: string, ...args: string[]): string {
+  const result = Bun.spawnSync(["git", "--git-dir", join(root, "feed.git"), ...args], { stdout: "pipe", stderr: "pipe" });
+  if (result.exitCode !== 0) throw Error(result.stderr.toString());
+  return result.stdout.toString();
+}
+
+test("each channel has its own feed file and compiled URL", () => {
+  expect(DESKTOP_FEED_FILE).toEqual({ stable: "stable.json", nightly: "nightly.json" });
+  expect(DESKTOP_FEED_URLS.nightly).toBe("https://raw.githubusercontent.com/lamtuanvu/pacer/desktop-updates/nightly.json");
+  expect(DESKTOP_FEED_URL).toBe(DESKTOP_FEED_URLS.stable);
+});
+
+test("nightly feed promotes a nightly version to nightly.json and leaves stable.json untouched", async () => {
+  const { localFixturePublisher } = await import("../scripts/release/desktop-publisher");
+  const root = tmpDir(), stable = fixture();
+  await publishDesktopRelease(stable.dir, "1.2.3", await localFixturePublisher(root, "1.2.3"), stable.options);
+  const stableFeed = feedGit(root, "show", "desktop-updates:stable.json");
+  const nightly = fixture(NIGHTLY);
+  await publishDesktopRelease(nightly.dir, NIGHTLY, await localFixturePublisher(root, NIGHTLY, "nightly"), nightly.options, "nightly");
+  const feed = feedGit(root, "show", "desktop-updates:nightly.json");
+  expect(feed).toBe(await buildDesktopFeed(nightly.dir, NIGHTLY, nightly.options, "nightly"));
+  expect(JSON.parse(feed).platforms["darwin-aarch64"].url).toBe(`https://github.com/lamtuanvu/pacer/releases/download/v${NIGHTLY}/desktop-pacer-${NIGHTLY}-darwin-aarch64.app.tar.gz`);
+  expect(feedGit(root, "show", "desktop-updates:stable.json")).toBe(stableFeed);
+  expect(feedGit(root, "log", "-1", "--format=%s", "desktop-updates").trim()).toBe(`release: desktop nightly ${NIGHTLY}`);
+  // A later stable promotion keeps nightly.json too.
+  const next = fixture("1.2.4");
+  await publishDesktopRelease(next.dir, "1.2.4", await localFixturePublisher(root, "1.2.4"), next.options);
+  expect(feedGit(root, "show", "desktop-updates:nightly.json")).toBe(feed);
+  expect(JSON.parse(feedGit(root, "show", "desktop-updates:stable.json")).version).toBe("1.2.4");
+});
+
+test("stable feed refuses a nightly version and nightly feed refuses a stable or rc version", async () => {
+  for (const [version, channel] of [[NIGHTLY, "stable"], ["1.2.3", "nightly"], ["1.2.3-rc.1", "nightly"], ["1.2.3-beta.1", "nightly"], ["1.2.3-beta.1", "stable"]] as [string, DesktopChannel][]) {
+    const f = fixture(version.includes("-nightly.") || !version.includes("-") ? version : "1.2.3");
+    await expect(publishDesktopRelease(f.dir, version, f.publisher, f.options, channel)).rejects.toThrow();
+    expect(f.promotions()).toBe(0); expect(f.assets.size).toBe(0);
+  }
+  expect(() => desktopAssetName(NIGHTLY, "aarch64")).toThrow();
+  expect(() => desktopAssetName("1.2.3", "aarch64", "nightly")).toThrow();
+  expect(desktopAssetName(NIGHTLY, "aarch64", "nightly")).toBe(`desktop-pacer-${NIGHTLY}-darwin-aarch64.app.tar.gz`);
+});
+
+test("nightly feed refuses downgrade by timestamp", async () => {
+  const f = fixture(NIGHTLY);
+  const newer = { ...f.publisher, readFeed: async () => ({ head: "newer", feed: '{"version":"1.3.0-nightly.202611180000"}' }) };
+  await expect(publishDesktopRelease(f.dir, NIGHTLY, newer, f.options, "nightly")).rejects.toThrow("cannot downgrade the nightly feed");
+  // A stable version in nightly.json is never a valid previous feed.
+  const foreign = { ...f.publisher, readFeed: async () => ({ head: "old", feed: '{"version":"1.2.3"}' }) };
+  await expect(publishDesktopRelease(f.dir, NIGHTLY, foreign, f.options, "nightly")).rejects.toThrow();
+  expect(f.promotions()).toBe(0); expect(f.assets.size).toBe(0);
+});
+
+test("identical nightly retry is a no-op", async () => {
+  const f = fixture(NIGHTLY);
+  await publishDesktopRelease(f.dir, NIGHTLY, f.publisher, f.options, "nightly");
+  const before = await f.publisher.readFeed();
+  await publishDesktopRelease(f.dir, NIGHTLY, f.publisher, f.options, "nightly");
+  expect(f.promotions()).toBe(1);
+  expect(await f.publisher.readFeed()).toEqual(before);
 });

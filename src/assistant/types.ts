@@ -1,4 +1,9 @@
 import { z } from "zod";
+import { ASSISTANT_BACKENDS, type AssistantBackend } from "../plugins/protocol";
+
+export { type AssistantBackend };
+/** Which backend answers: pacer's own agent, or an executor in ask mode. Absent settings read as `pacer`. */
+export const backendSchema = z.enum(ASSISTANT_BACKENDS);
 
 /** Limits the host enforces on every turn. All are configurable within these bounds. */
 export const assistantLimitsSchema = z.object({
@@ -13,7 +18,7 @@ export type AssistantLimits = z.infer<typeof assistantLimitsSchema>;
 export const retentionSchema = z.object({ days: z.number().int().min(1).max(365).default(30), conversations: z.number().int().min(1).max(1000).default(200) });
 export type AssistantRetention = z.infer<typeof retentionSchema>;
 
-export interface AssistantSettings { runner: string | null; account: string | null; limits: AssistantLimits; retention: AssistantRetention; rev: number }
+export interface AssistantSettings { runner: string | null; account: string | null; backend: AssistantBackend; limits: AssistantLimits; retention: AssistantRetention; rev: number }
 
 export const scopeSchema = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("dispatch"), days: z.number().int().min(1).max(90).default(7) }),

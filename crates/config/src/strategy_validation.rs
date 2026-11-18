@@ -1440,6 +1440,14 @@ pub(crate) fn validate_strategy(
     {
         p.push("execution.launch_mode must be interactive or headless".into());
     }
+    if let Some(v) = raw.get("update_channel")
+        && !v.is_null()
+        && !v
+            .as_str()
+            .is_some_and(|c| crate::settings::UPDATE_CHANNELS.contains(&c))
+    {
+        p.push(crate::settings::UPDATE_CHANNEL_ERROR.into());
+    }
     let retention = raw
         .get("task_retention_days")
         .filter(|v| !v.is_null())

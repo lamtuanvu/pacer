@@ -10,10 +10,12 @@ import {assistantDatabase} from "../src/assistant/store";
 import {fakeCtx} from "./helpers";
 
 let binary: string;
+/** Cargo never leaves a `target/` in the worktree: the project's own target dir, else a temporary one. */
+const cargoEnv = () => ({ ...process.env, CARGO_TARGET_DIR: process.env.CARGO_TARGET_DIR ?? join(tmpdir(), "pacer-native-as") });
 function driver() {
   if (!binary) {
-    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"]);
-    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"]).toString());
+    execFileSync("cargo", ["build", "-q", "-p", "pacer-server", "--example", "config_ops_diff", "--locked"], { env: cargoEnv() });
+    const metadata = JSON.parse(execFileSync("cargo", ["metadata", "--no-deps", "--format-version", "1", "--locked"], { env: cargoEnv() }).toString());
     binary = join(metadata.target_directory, "debug/examples/config_ops_diff");
   }
   return binary;
@@ -28,11 +30,11 @@ const CARDS = `[${JSON.stringify(CARD)},{"id":"card-2","op":"navigate","params":
 
 const db = (home: string) => assistantDatabase(fakeCtx({pacerHome: home, home}));
 const strategy = (home: string) => writeFileSync(join(home, "strategy.yaml"), STRATEGY);
-const settings = (account: string | null, limits = '{"turnsPerDay":3}', retention = '{"conversations":200,"days":30}') => (home: string) =>
-  db(home).query("INSERT INTO assistant_settings VALUES(1,'opencode#ep',?,?,?,4)").run(account, limits, retention);
+const settings = (account: string | null, limits = '{"turnsPerDay":3}', retention = '{"conversations":200,"days":30}', backend: string | null = null) => (home: string) =>
+  db(home).query("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,'opencode#ep',?,?,?,?,4)").run(account, backend, limits, retention);
 function history(home: string) {
   db(home).exec(`
-    INSERT INTO assistant_conversations VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
+    INSERT INTO assistant_conversations(id,title,created_at,updated_at) VALUES('c-a','Alpha',1699990000,1699999000.5),('c-b','Beta',1699000000,1699500000),('c-old','Old',1690000000,1690000000);
     INSERT INTO assistant_turns(id,conversation_id,seq,at,question,answer,state,error,account,scope,cards,citations) VALUES
       ('turn-1','c-a',1,1699999000.5,'How?','Like ${TASK}.','done',NULL,'ep','{"kind":"dispatch","days":7}','${CARDS.replaceAll("'", "''")}','[{"label":"${TASK}","href":"#/tasks/${TASK}"}]'),
       ('turn-2','c-a',2,1699999100,'Next',NULL,'running',NULL,NULL,'{"kind":"task","id":"${TASK}"}','[]','[]'),
@@ -99,8 +101,15 @@ test("native assistant settings, history and cards match TypeScript results, err
     ["assistant.settings.set", {runner: 1, account: true, expect_rev: 1.5, limits: [], retention: null}],
     ["assistant.settings.set", {...base, expect_rev: -1e300, limits: {maxInputTokens: 1e300, maxToolRounds: -1e300, turnsPerDay: "x", deadlineMs: null}}],
     ["assistant.settings.set", {runner: "", account: "a".repeat(65), expect_rev: 0}],
+    // `backend` is additive: a valid value is stored, anything else is one zod issue, absent keeps the stored choice.
+    ["assistant.settings.set", {...base, backend: "pacer"}, strategy],
+    ["assistant.settings.set", {...base, backend: "executor"}, strategy],
+    ["assistant.settings.set", {...base, backend: "x"}, strategy],
+    ["assistant.settings.set", {...base, backend: 5}, strategy],
+    ["assistant.settings.set", {...base, backend: null}, strategy],
     ["assistant.settings.set", "x"],
-    ["assistant.candidates", {}, strategy],
+    ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor")],
+    ["assistant.settings.get", {}, settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "garbage")],
     ["assistant.status", {}],
     ["assistant.status", {}, all(settings(null), history)],
     ["assistant.status", {}, all(settings("gone"), strategy, history)],
@@ -145,7 +154,10 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   const cases: Case[] = [
     ["assistant.status", {}, all(settings("ep", "{}"), strategy, history)],
     ["assistant.status", {}, settings("ep")],
+    // Candidates and an executor backend's admission need the core's plugins and ask-mode check.
     ["assistant.candidates", {}],
+    ["assistant.candidates", {}, strategy],
+    ["assistant.status", {}, all(settings("ep", '{"turnsPerDay":3}', '{"conversations":200,"days":30}', "executor"), strategy, history)],
     ["assistant.settings.set", {...base, account: "ep"}],
     ["assistant.settings.get", {}, unusable],
     ["assistant.settings.set", base, unusable],
@@ -160,8 +172,9 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   const home = mkdtempSync(join(tmpdir(), "native-as-"));
   unusable(home);
   await expect(callOp(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
-  // assistant.ask and assistant.cancel are not registered natively.
-  for (const op of ["assistant.ask", "assistant.cancel"]) {
-    expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
+  // assistant.ask, assistant.cancel and assistant.tool are not registered natively: the first two
+  // drive the plugin and the stream, the third needs a live turn's tool context in the core.
+  for (const op of ["assistant.ask", "assistant.cancel", "assistant.tool", "assistant.selftest"]) {
+    expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {turnId: "turn-1", name: "snapshot", params: {}}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
   }
 });

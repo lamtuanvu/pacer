@@ -67,7 +67,7 @@ npm trusted publishing can only be configured for packages that already exist, s
 
 5. Set the repository Actions variable `NPM_TRUSTED_PUBLISHING` to `true` after configuring all five trusted publishers.
 
-After that, CI publishes without any npm token. Until the variable is enabled, the npm job is skipped. Exact package versions already present on npm are skipped on retries; prereleases use the `next` dist-tag. Trusted publishing requires npm CLI 11.5.1+ and Node 22.14.0+, `permissions: id-token: write`, and a GitHub-hosted runner. Each package's `repository` field must match `github.com/lamtuanvu/pacer` exactly, including case ([npm docs](https://docs.npmjs.com/trusted-publishers), [provenance](https://docs.npmjs.com/generating-provenance-statements)).
+After that, CI publishes without any npm token. Until the variable is enabled, the npm job is skipped. Exact package versions already present on npm are skipped on retries; nightlies use the `nightly` dist-tag, other prereleases use `next`, and stable releases use `latest`. Trusted publishing requires npm CLI 11.5.1+ and Node 22.14.0+, `permissions: id-token: write`, and a GitHub-hosted runner. Each package's `repository` field must match `github.com/lamtuanvu/pacer` exactly, including case ([npm docs](https://docs.npmjs.com/trusted-publishers), [provenance](https://docs.npmjs.com/generating-provenance-statements)).
 
 ## Homebrew
 
@@ -81,6 +81,10 @@ Tap setup:
 
 The release workflow commits `Formula/pacer.rb` to the tap’s `main` branch with a sign-off. It skips prereleases, does nothing when the formula is unchanged, and prints `skipped: HOMEBREW_TAP_TOKEN not set` while the secret is missing.
 
+## crates.io
+
+The `crates` job publishes the Rust crates to crates.io for stable versions only. Prereleases (`-rc.N`, `-beta.N` and nightlies) are not published to crates.io; before the nightly channel, regular prereleases were.
+
 ## Dry-run release validation
 
 From a checkout whose package version, app assets and changelog are prepared for the version, run:
@@ -89,9 +93,41 @@ From a checkout whose package version, app assets and changelog are prepared for
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The workflow checks the input against `package.json` and typechecks. Its macOS and Linux build jobs run the M1 gate checks against the verified host release pair. Publishing also requires a CI run that executed and passed the full Bun suite on both OSes for the release commit: `ci-suite` reuses one if it exists, waits for one in progress, or otherwise dispatches CI once on the release ref, which must still point at that commit. A failed CI run on the commit therefore gets one fresh run before publication fails. The workflow also builds all four target pairs, smoke-tests each runner’s native pair, writes metadata, and prints asset SHA-256 hashes and release notes. The Rust SDK testing-feature check remains in verify. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
+The workflow checks the input against `package.json` and typechecks. Its macOS and Linux build jobs run the M1 gate checks against the verified host release pair. Publishing also requires a CI run that executed and passed the full Bun suite on Linux and the macOS-specific suite on macOS for the release commit: `ci-suite` reuses one if it exists, waits for one in progress, or otherwise dispatches CI once on the release ref, which must still point at that commit. A run whose suite executed and failed is a result: publication fails without dispatching another run. Only a commit without a full-suite result (focused or docs-only CI) gets one dispatched run. The workflow also builds all four target pairs, smoke-tests each runner’s native pair, writes metadata, and prints asset SHA-256 hashes and release notes. The Rust SDK testing-feature check remains in verify. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
+
+## Nightly builds
+
+Nightly builds are signed prereleases of a `main` commit. They use the same build, signing, smoke-test, checksum and provenance steps as a stable release ([design](specs/2026-11-17-nightly-channel-design.md)).
+
+**Versions.** A nightly version is the minor after the latest stable tag, plus the UTC build minute: `0.16.0-nightly.202611171700` after `0.15.1`. It sorts above the current stable release and below the next minor release, so nightly users move to `0.16.0` when it ships. The tag `v<version>` is annotated and never moved. Its commit changes only the version files (`package.json`, `desktop/src-tauri/tauri.conf.json`, `desktop/src-tauri/Cargo.toml`, `desktop/src-tauri/Cargo.lock` and `src/app/assets.generated.ts`) on top of the selected `main` commit. That commit never reaches `main`, and `CHANGELOG.md` is not touched.
+
+**Workflow.** `.github/workflows/nightly.yml` selects `main`'s head (or the `sha` input, which must be on `main`). It requires CI's full Bun suite on Linux and the macOS-specific suite on macOS for that commit and waits up to 90 minutes for it. A run in progress is awaited. When the commit has no full-suite result (focused CI skips the suite on docs-only and some CI-only pushes), the workflow dispatches CI on `main` once, but only while `main` still points at that commit; if `main` has moved, the nightly fails and reports it. It then stamps the version and pushes the tag with `RELEASE_TOKEN`, which runs `release.yml`. A scheduled run skips the night when `main` has not moved since the newest nightly; a manual run always builds. Only one nightly runs at a time. A failure in `nightly.yml`, or in any required `release.yml` job for a nightly tag, opens or comments on a single issue labelled `nightly-failure`; the next published nightly closes it. The midnight schedule (`0 17 * * *`, 00:00 UTC+7) is not enabled yet; until the first manual nightly succeeds, nightlies run only by hand.
+
+**Release path.** `release.yml` classifies the tag's version with `scripts/release/nightly.ts classify`. For a nightly it:
+
+- checks that the tagged commit changes only the version files;
+- checks that the tagged commit's parent is on `main`;
+- takes CI evidence for the parent `main` commit, without dispatching CI;
+- writes release notes from the commit titles since the previous nightly's parent (or the latest stable tag), instead of a CHANGELOG section;
+- publishes a GitHub prerelease that never becomes latest;
+- publishes npm packages under the `nightly` dist-tag (`npm install -g @lamtuanvu/pacer@nightly`);
+- skips crates.io and Homebrew;
+- builds and publishes the signed macOS desktop app, then compare-and-swaps `nightly.json`;
+- compare-and-swaps `cli-nightly.json` only after the desktop feed has advanced.
+
+**Feeds.** On the `desktop-updates` branch, `stable.json` stays stable-only. `nightly.json` is the desktop nightly feed, and `cli-nightly.json` (`{"version":"<version>"}`) is the CLI nightly feed. No feed ever moves to an older version.
+
+**Retention.** After each nightly run, a prune job deletes nightly GitHub Releases and their tags older than 14 days. It always keeps the newest 3, and never deletes a version that `nightly.json` or `cli-nightly.json` references. Once the schedule is enabled, the prune also runs weekly. npm versions are never unpublished; the `nightly` dist-tag simply moves. The prune lists releases, not tags, so a nightly tag whose `release.yml` failed before creating its GitHub release stays until it is deleted by hand.
+
+**Run one by hand.** Open **Actions → Nightly → Run workflow** on `main`, or run:
+
+```sh
+gh workflow run nightly.yml -f dry_run=true              # check the version and stamp without tagging
+gh workflow run nightly.yml                              # build main's head
+gh workflow run nightly.yml -f sha=<main commit>         # build a chosen main commit
+```
 
 ## Signed macOS desktop updates
 

@@ -97,14 +97,43 @@ export function issueWorkGrant(ctx:Ctx,id:string,attempt:number):string {
   const work=getWork(ctx,id), task=readTask(ctx,id);
   if(!work?.options.allowDelegation||task?.state!=="running")throw new CoreError("not_allowed","Task cannot receive a delegation grant");
   const token=`pwg_${randomBytes(32).toString("hex")}`;
-  dispatchDatabase(ctx).query("INSERT INTO work_grants(hash,task_id,attempt,expires) VALUES(?,?,?,?)").run(tokenHash(token),id,attempt,Math.min(ctx.now+task.timeoutS,work.options.expiresAt??Infinity));return token;
+  dispatchDatabase(ctx).query("INSERT INTO work_grants(hash,task_id,attempt,expires,kind) VALUES(?,?,?,?, 'work')").run(tokenHash(token),id,attempt,Math.min(ctx.now+task.timeoutS,work.options.expiresAt??Infinity));return token;
 }
 export function authorizeWorkGrant(ctx:Ctx,token:string):WorkNode {
   if(!/^pwg_[0-9a-f]{64}$/.test(token))throw new CoreError("not_allowed","Invalid work grant");
-  const row=dispatchDatabase(ctx).query<{task_id:string;attempt:number;expires:number;revoked:number},[string]>("SELECT * FROM work_grants WHERE hash=?").get(tokenHash(token));
+  const row=dispatchDatabase(ctx).query<{task_id:string;attempt:number;expires:number;revoked:number;kind?:string},[string]>("SELECT * FROM work_grants WHERE hash=?").get(tokenHash(token));
   const task=row?readTask(ctx,row.task_id):null;
-  if(!row||row.revoked||row.expires<=ctx.now||task?.state!=="running"||row.attempt!==task.attempts.length+1)throw new CoreError("not_allowed","Expired or revoked work grant");
+  if(!row||row.kind!==undefined&&row.kind!=="work"||row.revoked||row.expires<=ctx.now||task?.state!=="running"||row.attempt!==task.attempts.length+1)throw new CoreError("not_allowed","Expired or revoked work grant");
   return getWork(ctx,row.task_id)!;
+}
+// ---- The assistant grant (`pag_`): one turn, `assistant.tool` only, never an executor (spec §2) ----
+/** The grant store's distinct kind, so a work-grant row can never answer as an assistant grant or the reverse. */
+export const ASSISTANT_GRANT_KIND = "assistant";
+/** What a live `pag_` token is bound to: one turn of one conversation, until its deadline. */
+export interface AssistantGrant { turnId: string; conversationId: string; expiresAt: number }
+/**
+ * Issue the per-turn assistant grant, hashed at rest exactly like a work grant. The host issues it
+ * when a turn whose backend is `executor` starts and revokes it when the turn ends, is cancelled
+ * or reaches the deadline this bounds it by.
+ */
+export function issueAssistantGrant(ctx:Ctx,input:{turnId:string;conversationId:string;expiresAt:number}):string {
+  if(!input.turnId||!input.conversationId)throw new CoreError("invalid_input","An assistant grant binds one turn of one conversation");
+  if(!(input.expiresAt>ctx.now))throw new CoreError("invalid_input","An assistant grant must expire after now");
+  const token=`pag_${randomBytes(32).toString("hex")}`;
+  dispatchDatabase(ctx).query("INSERT INTO work_grants(hash,task_id,attempt,expires,revoked,kind,conversation_id) VALUES(?,?,0,?,0,?,?)")
+    .run(tokenHash(token),input.turnId,input.expiresAt,ASSISTANT_GRANT_KIND,input.conversationId);
+  return token;
+}
+/** Resolve a `pag_` token. An unknown, malformed, expired or revoked one is refused, never anyone else's identity. */
+export function authorizeAssistantGrant(ctx:Ctx,token:string):AssistantGrant {
+  if(!/^pag_[0-9a-f]{64}$/.test(token))throw new CoreError("not_allowed","Invalid assistant grant");
+  const row=dispatchDatabase(ctx).query<{task_id:string;conversation_id:string;expires:number;revoked:number;kind?:string},[string]>("SELECT * FROM work_grants WHERE hash=?").get(tokenHash(token));
+  if(!row||row.kind!==ASSISTANT_GRANT_KIND||row.revoked||row.expires<=ctx.now)throw new CoreError("not_allowed","Expired or revoked assistant grant");
+  return {turnId:row.task_id,conversationId:row.conversation_id,expiresAt:row.expires};
+}
+/** End of turn, cancellation or the deadline: the grant stops answering at once. */
+export function revokeAssistantGrants(ctx:Ctx,turnId:string):void {
+  dispatchDatabase(ctx).query("UPDATE work_grants SET revoked=1 WHERE task_id=? AND kind=?").run(turnId,ASSISTANT_GRANT_KIND);
 }
 export function revokeWorkGrants(ctx:Ctx,id:string):void {dispatchDatabase(ctx).query("UPDATE work_grants SET revoked=1 WHERE task_id=?").run(id);}
 export function requireWorkScope(ctx:Ctx,token:string,id:string,review=false):WorkNode {

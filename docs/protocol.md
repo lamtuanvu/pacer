@@ -1111,7 +1111,7 @@ Params JSON Schema:
 
 ### `assistant.candidates`
 
-Endpoint accounts the assistant could run on, and what it is allowed to read.
+Endpoint accounts the assistant could run on, each with the backend it answers on, whether it is available and why not, and what the assistant is allowed to read.
 
 Params JSON Schema:
 
@@ -1267,9 +1267,33 @@ Params JSON Schema:
 }
 ```
 
+### `assistant.selftest`
+
+Run the fail-closed ask-mode check for one account the executor backend drives: canary turns in ask mode must attempt and be denied a shell command, a file read outside the run directory and a URL fetch, on a first and a resumed turn. Records the result for that account and the installed CLI version. Runs the agent CLI and spends the account's tokens.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "account": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "account"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `assistant.settings.get`
 
-The assistant's account, limits and retention, with a revision for assistant.settings.set.
+The assistant's account, backend, limits and retention, with a revision for assistant.settings.set.
 
 Params JSON Schema:
 
@@ -1284,7 +1308,7 @@ Params JSON Schema:
 
 ### `assistant.settings.set`
 
-Choose the executor account the assistant runs on, and its limits and retention. Needs the current revision.
+Choose the account and backend the assistant answers on, and its limits and retention. Needs the current revision.
 
 Params JSON Schema:
 
@@ -1375,6 +1399,13 @@ Params JSON Schema:
       "type": "integer",
       "exclusiveMinimum": 0,
       "maximum": 9007199254740991
+    },
+    "backend": {
+      "type": "string",
+      "enum": [
+        "pacer",
+        "executor"
+      ]
     }
   },
   "required": [
@@ -1397,6 +1428,43 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `assistant.tool`
+
+Run one assistant tool for the turn in progress: the host's read pipeline (permitted op, parameter parsing, scope, projection, redaction and size cap), with propose_action becoming a card and its result as delimited data. The turn's assistant grant is the only caller, only while it is live and only for its own turnId; it shares one tool-round budget with capability.assistant.tool, and a call after the turn has ended is refused.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "turnId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "name": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "params": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {}
+    }
+  },
+  "required": [
+    "turnId",
+    "name"
+  ],
   "additionalProperties": false
 }
 ```
@@ -1979,6 +2047,7 @@ Params JSON Schema:
         "pacing.fill_threshold",
         "pacing.balance",
         "update_check",
+        "update_channel",
         "terminal.app",
         "terminal.open"
       ]

@@ -36,7 +36,7 @@ for (const op of ["insights.summary"]) V3_ONLY_OPS.add(op);
 for (const op of ["machine.get", "machine.set", "machine.rotate"]) V3_ONLY_OPS.add(op);
 for (const op of ["discovery.list", "discovery.set", "discovery.respond", "discovery.network.get", "discovery.network.set"]) V3_ONLY_OPS.add(op);
 for (const op of ["terminal.list", "terminal.create", "terminal.rename", "terminal.close"]) V3_ONLY_OPS.add(op);
-for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh"]) V3_ONLY_OPS.add(op);
+for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.tool", "assistant.selftest"]) V3_ONLY_OPS.add(op);
 for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status", "liveness.status"]) V3_ONLY_OPS.add(op);
 for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
 
@@ -105,6 +105,9 @@ export function v2Params(name:string,params:unknown):unknown {
  // (additionalProperties: false) and rejects it like any unrecognized key.
  if(name==='task.list'&&params&&typeof params==='object'&&!Array.isArray(params)&&'q' in params)
   throw new CoreError('invalid_input','params: Unrecognized key: "q"');
+ // `update_channel` is a protocol 3 addition; the frozen 2.x config.set keys stay as documented.
+ if(name==='config.set'&&params&&typeof params==='object'&&!Array.isArray(params)&&(params as {key?:unknown}).key==='update_channel')
+  throw new CoreError('invalid_input','key: "update_channel" requires protocol 3');
  if(name!=='task.review'||!params||typeof params!=='object'||Array.isArray(params))return params;
  const p=params as Record<string,unknown>;
  if(p.accepted!==undefined&&typeof p.accepted!=='boolean')throw new CoreError('invalid_input','accepted: expected boolean');
@@ -159,6 +162,9 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  delete notifications.properties.sound;
  const {additionalProperties:closed,...openNotifications}=notifications;
  schemas['notifications.set'].params={...openNotifications,required:['level'],additionalProperties:closed} as typeof schemas['notifications.set']['params'];
+ // `update_channel` is a protocol 3 addition; 2.x keeps its frozen config.set keys.
+ const configKey=(schemas['config.set'].params as unknown as {properties:{key:{enum:string[]}}}).properties.key;
+ configKey.enum=configKey.enum.filter(key=>key!=='update_channel');
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";

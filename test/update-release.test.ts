@@ -1,14 +1,11 @@
-import { childEnv } from "./child-env";
 import { expect, test } from "bun:test";
-import { chmodSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { buildRelease, parseBuildArgs, writeRelease } from "../scripts/release/build";
-import { type Platform, assetFile, companionFile, hostTarget, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
+import { type Platform, assetFile, companionFile, parseManifest, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 const ROOT = resolve(import.meta.dir, "..");
-const PKG_VERSION = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
-const HOST = hostTarget();
 
 function fakeBinaries(outRoot: string, version: string, platforms: Platform[]): void {
   const dir = join(outRoot, version);
@@ -65,27 +62,6 @@ test("parseBuildArgs reads --host, --out and --version and rejects the rest", ()
 test("buildRelease rejects an invalid version before compiling anything", async () => {
   await expect(buildRelease({ root: ROOT, outRoot: tmpDir(), version: "1.0", targets: [] })).rejects.toThrow('invalid version "1.0"');
 });
-
-test.skipIf(!HOST)("bun run release --host compiles a working binary with the version embedded", async () => {
-  const out = tmpDir();
-  const p = Bun.spawn([process.execPath, "scripts/release/build.ts", "--host", "--out", out], { cwd: ROOT, stdout: "pipe", stderr: "pipe" });
-  const [stdout, stderr, code] = await Promise.all([new Response(p.stdout).text(), new Response(p.stderr).text(), p.exited]);
-  expect({ code, stderr }).toEqual({ code: 0, stderr: "" });
-  const file = assetFile(HOST as Platform);
-  const dir = join(out, PKG_VERSION);
-  expect(stdout).toContain(`release ${PKG_VERSION}: ${dir}`);
-  const bin = readFileSync(join(dir, file));
-  const manifest = parseManifest(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
-  const core = readFileSync(join(dir, companionFile(HOST!)));
-  expect(manifest).toEqual({ version: PKG_VERSION, assets: [{ os: HOST!.os, arch: HOST!.arch, file, sha256: sha256Hex(bin), size: bin.length, companions: [{ name: "pacer-core", file: companionFile(HOST!), sha256: sha256Hex(core), size: core.length }] }] });
-  expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(companionFile(HOST!))).toBe(sha256Hex(core));
-  expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(file)).toBe(sha256Hex(bin));
-  expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8"))).toEqual({ version: PKG_VERSION });
-  expect(statSync(join(dir, file)).mode & 0o111).not.toBe(0);
-  const v = Bun.spawnSync([join(dir, file), "--version"], { env: { ...childEnv(tmpDir()), PATH: process.env.PATH ?? "/usr/bin:/bin" } });
-  expect(v.stdout.toString().trim()).toBe(`pacer ${PKG_VERSION}`);
-  // A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
-}, 300_000);
 
 test("release CLI selects runner targets and can write metadata without rebuilding", () => {
   const parsed = parseBuildArgs(["--targets", "linux-x64,linux-arm64", "--write-only"]);

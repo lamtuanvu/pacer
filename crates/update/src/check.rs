@@ -1,5 +1,9 @@
 //! `update.check`: `checkForUpdate` in `src/update/check.ts`, then the `update` config publication.
-use crate::{Code, CoreError, feed, js, object, received, refuse_enforcement};
+use crate::{
+    Code, CoreError,
+    feed::{self, Channel},
+    js, object, received, refuse_enforcement,
+};
 use pacer_foundation::{Ctx, api::OpFuture, js_semantics::js_trim};
 use pacer_store::publish_config_change;
 use serde_json::{Map, Value, json};
@@ -109,7 +113,8 @@ async fn check_for_update(ctx: &Ctx, force: bool) -> Option<Check> {
     if !checks_enabled(ctx) {
         return None;
     }
-    let cached = read_cache(ctx);
+    let channel = update_channel(ctx);
+    let cached = read_cache(ctx, channel);
     if !force
         && cached
             .as_ref()
@@ -124,8 +129,9 @@ async fn check_for_update(ctx: &Ctx, force: bool) -> Option<Check> {
         .filter(|b| !b.is_empty())
         .cloned();
     let (latest, error) =
-        match tokio::task::spawn_blocking(move || feed::latest(base.as_deref())).await {
-            Ok(Ok(version)) => (Some(version), None),
+        match tokio::task::spawn_blocking(move || feed::latest_for(base.as_deref(), channel)).await
+        {
+            Ok(Ok((version, error))) => (Some(version), error),
             Ok(Err(message)) => (latest, Some(message)),
             Err(e) => (latest, Some(e.to_string())),
         };
@@ -134,15 +140,12 @@ async fn check_for_update(ctx: &Ctx, force: bool) -> Option<Check> {
         latest,
         error: error.map_or(Value::Null, Value::String),
     };
-    write_cache(ctx, &check);
+    write_cache(ctx, &check, channel);
     Some(check)
 }
 
-/// `updateChecksEnabled`: the env opt-out, then a top-level `update_check: false` in the active strategy text.
-fn checks_enabled(ctx: &Ctx) -> bool {
-    if ctx.env.get("PACER_NO_UPDATE_CHECK").map(String::as_str) == Some("1") {
-        return false;
-    }
+/// `activeStrategyText`: the named active strategy, else `strategy.yaml`; `None` when unreadable.
+fn strategy_text(ctx: &Ctx) -> Option<String> {
     let active = fs::read_to_string(ctx.pacer_home.join("active"))
         .map(|text| js_trim(&text).to_owned())
         .unwrap_or_default();
@@ -157,8 +160,42 @@ fn checks_enabled(ctx: &Ctx) -> bool {
     } else {
         ctx.pacer_home.join("strategy.yaml")
     };
-    fs::read(&path).map_or(true, |bytes| {
-        !update_check_false(&String::from_utf8_lossy(&bytes))
+    fs::read(&path)
+        .ok()
+        .map(|bytes| String::from_utf8_lossy(&bytes).into_owned())
+}
+
+/// `updateChecksEnabled`: the env opt-out, then a top-level `update_check: false` in the active strategy text.
+fn checks_enabled(ctx: &Ctx) -> bool {
+    if ctx.env.get("PACER_NO_UPDATE_CHECK").map(String::as_str) == Some("1") {
+        return false;
+    }
+    strategy_text(ctx).is_none_or(|text| !update_check_false(&text))
+}
+
+/// `updateChannel`: nightly only for a top-level `update_channel: nightly` (plain or quoted).
+fn update_channel(ctx: &Ctx) -> Channel {
+    if strategy_text(ctx).is_some_and(|text| update_channel_nightly(&text)) {
+        Channel::Nightly
+    } else {
+        Channel::Stable
+    }
+}
+
+/// `/^update_channel:[ \t]*(["']?)nightly\1[ \t]*(?:#.*)?$/m`.
+pub(crate) fn update_channel_nightly(text: &str) -> bool {
+    let blank = |c: char| c == ' ' || c == '\t';
+    text.split(js::line_end).any(|line| {
+        let Some(rest) = line.strip_prefix("update_channel:") else {
+            return false;
+        };
+        let rest = rest.trim_start_matches(blank);
+        ["nightly", "\"nightly\"", "'nightly'"].iter().any(|value| {
+            rest.strip_prefix(value).is_some_and(|tail| {
+                let tail = tail.trim_start_matches(blank);
+                tail.is_empty() || tail.starts_with('#')
+            })
+        })
     })
 }
 
@@ -193,8 +230,9 @@ fn cache_document(ctx: &Ctx) -> Option<Map<String, Value>> {
     }
 }
 
-/// `readUpdateCheck`: a finite `checkedAt` and a `latest` that is null or a version.
-fn read_cache(ctx: &Ctx) -> Option<Check> {
+/// `readUpdateCheck`: a finite `checkedAt`, a `latest` that is null or a version, and the
+/// current channel (a record without one is stable).
+fn read_cache(ctx: &Ctx, channel: Channel) -> Option<Check> {
     let doc = cache_document(ctx)?;
     let checked_at = doc.get("checkedAt")?.as_f64()?;
     let latest = match doc.get("latest") {
@@ -202,6 +240,14 @@ fn read_cache(ctx: &Ctx) -> Option<Check> {
         Some(Value::String(v)) if is_version(v) => Some(v.clone()),
         _ => return None,
     };
+    let same_channel = match doc.get("channel") {
+        None | Some(Value::Null) => channel == Channel::Stable,
+        Some(Value::String(c)) => c == channel.as_str(),
+        Some(_) => false,
+    };
+    if !same_channel {
+        return None;
+    }
     Some(Check {
         checked_at,
         latest,
@@ -210,12 +256,13 @@ fn read_cache(ctx: &Ctx) -> Option<Check> {
 }
 
 /// `JSON.stringify(result) + "\n"` through a temporary file and rename; failures are ignored.
-fn write_cache(ctx: &Ctx, check: &Check) {
+fn write_cache(ctx: &Ctx, check: &Check, channel: Channel) {
     let mut text = format!(
-        "{{\"checkedAt\":{},\"latest\":{},\"current\":{}",
+        "{{\"checkedAt\":{},\"latest\":{},\"current\":{},\"channel\":\"{}\"",
         js::number_text(check.checked_at),
         check.latest.as_deref().map_or(Value::Null, Value::from),
         Value::from(current_version()),
+        channel.as_str(),
     );
     if let Value::String(error) = &check.error {
         text.push_str(&format!(",\"error\":{}", Value::from(error.as_str())));
@@ -258,6 +305,22 @@ fn semver(v: &str) -> Option<(&str, &str, &str, Option<&str>)> {
 
 fn identifier(part: &str) -> bool {
     !part.is_empty() && part.bytes().all(|b| b.is_ascii_alphanumeric() || b == b'-')
+}
+
+/// `isNightlyVersion`: `X.Y.Z-nightly.<12 digits, no leading zero>` (`src/update/channel.ts`).
+pub(crate) fn is_nightly_version(v: &str) -> bool {
+    let Some((core, stamp)) = v.split_once("-nightly.") else {
+        return false;
+    };
+    let numeric = |n: &str| {
+        !n.is_empty() && n.bytes().all(|b| b.is_ascii_digit()) && (n == "0" || !n.starts_with('0'))
+    };
+    let mut parts = core.split('.');
+    let core_ok = (0..3).all(|_| parts.next().is_some_and(numeric)) && parts.next().is_none();
+    core_ok
+        && stamp.len() == 12
+        && stamp.bytes().all(|b| b.is_ascii_digit())
+        && !stamp.starts_with('0')
 }
 
 /// `isVersion`: the SEMVER pattern of `src/update/version.ts`.

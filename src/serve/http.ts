@@ -2,7 +2,7 @@ import { autoCleanSweep } from "../core/tasks";
 import { pluginNativeRoute } from "./plugin-native";
 import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
-import { authorizeWorkGrant } from "../dispatch/work";
+import { authorizeWorkGrant, authorizeAssistantGrant } from "../dispatch/work";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
@@ -51,6 +51,8 @@ export { DEFAULT_PORT } from "./constants";
 export const STATUS_WARMUP_WAIT_MS = 300;
 /** Upper bound for one batch of LAN observations from the radio. */
 const DISCOVERY_BODY_MAX = 256 * 1024;
+/** The single operation an assistant grant (`pag_`) may reach. */
+const ASSISTANT_TOOL_ROUTE = "/v3/ops/assistant.tool";
 
 export function ensureToken(ctx: Ctx): string {
   const p = join(ctx.pacerHome, "token");
@@ -165,6 +167,7 @@ export function startServer(
       let bearer: boolean;
       let workGrant: string | undefined;
       let enforcementToken: string | undefined;
+      let assistantGrant: string | undefined;
       if (opts.internal) {
         if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
           return new Response("unauthorized\n", { status: 401 });
@@ -176,7 +179,11 @@ export function startServer(
           const forwarded = req.headers.get("x-pacer-work-grant") ?? "";
           const scoped = forwarded.startsWith("Bearer ") ? forwarded.slice(7) : undefined;
           if (!scoped || req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
-          if(scoped.startsWith("pet_"))enforcementToken=scoped;else workGrant=scoped;
+          // The assistant grant is not a work grant: it reaches `assistant.tool` and nothing else.
+          if (scoped.startsWith("pag_")) {
+            if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
+            assistantGrant = scoped;
+          } else if(scoped.startsWith("pet_"))enforcementToken=scoped;else workGrant=scoped;
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
         if (req.method === "GET" && pathname === "/health") return Response.json({ ok: true, pid: process.pid });
@@ -570,11 +577,15 @@ export function startServer(
         if (pathname === "/app/auth") return appRoute(req, getCtx());
         bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
         const candidate = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-        if (!bearer && /^(?:pwg|pet)_[0-9a-f]{64}$/.test(candidate)) {
+        if (!bearer && /^(?:pwg|pet|pag)_[0-9a-f]{64}$/.test(candidate)) {
           if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
-          if(candidate.startsWith("pet_"))enforcementToken=candidate;else workGrant=candidate;
+          // The assistant grant is accepted for `assistant.tool` alone; any other route or op is refused here.
+          if (candidate.startsWith("pag_")) {
+            if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
+            assistantGrant = candidate;
+          } else if(candidate.startsWith("pet_"))enforcementToken=candidate;else workGrant=candidate;
         }
-        if (!bearer && !workGrant && !enforcementToken) {
+        if (!bearer && !workGrant && !enforcementToken && !assistantGrant) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -589,9 +600,15 @@ export function startServer(
         }
       }
       const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}})
-        : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}}) : getCtx;
+        : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}})
+        // The assistant-turn identity: not the operator, not an executor session, and no PACER_ROLE.
+        : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}}) : getCtx;
       if (workGrant) {
         try { authorizeWorkGrant(requestCtx(), workGrant); }
+        catch { return new Response("forbidden\n", { status: 403 }); }
+      }
+      if (assistantGrant) {
+        try { authorizeAssistantGrant(requestCtx(), assistantGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
       }
       if(enforcementToken){
@@ -619,7 +636,7 @@ export function startServer(
         // terminals and settings keep bearer behavior.
         const session = req.headers.get("x-pacer-session") ?? "";
         const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant&&!assistantGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }

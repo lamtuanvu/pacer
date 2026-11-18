@@ -167,7 +167,7 @@ bun run release:host
 PACER_RELEASE_BASE="file://$PWD/dist/release" sh install.sh
 ```
 
-The installer detects OS/CPU, verifies SHA-256 checksums, checks the staged binary version and installs to `$HOME/.local/bin`. `PACER_INSTALL_DIR` changes the destination; `PACER_INSTALL_VERSION` selects a version instead of reading `latest.json`. macOS and Linux support arm64/x64; musl-based Linux is not supported. Run `pacer update --check` to check for updates, or `pacer update` to install the latest release. `pacer update --to <version>` selects a specific release, including prereleases.
+The installer detects OS/CPU, verifies SHA-256 checksums, checks the staged binary version and installs to `$HOME/.local/bin`. `PACER_INSTALL_DIR` changes the destination; `PACER_INSTALL_VERSION` selects a version instead of reading `latest.json`. `PACER_INSTALL_CHANNEL=nightly` installs the newest nightly build instead: the installer also reads `cli-nightly.json` (from the `desktop-updates` branch, or `$PACER_RELEASE_BASE/cli-nightly.json`) and installs the newer of it and `latest.json`. `PACER_INSTALL_VERSION` wins over the channel, and any channel other than `stable` or `nightly` exits with code 2. Run `pacer config set update_channel nightly` afterwards so `pacer update` keeps following nightlies (see [CLI: nightly channel](cli.md#nightly-channel)). macOS and Linux support arm64/x64; musl-based Linux is not supported. Run `pacer update --check` to check for updates, or `pacer update` to install the latest release. `pacer update --to <version>` selects a specific release, including prereleases.
 
 ## npm and Homebrew
 
@@ -179,7 +179,7 @@ npm install -g @lamtuanvu/pacer
 brew install lamtuanvu/tap/pacer
 ```
 
-For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`; for Homebrew installs, use `brew upgrade pacer`. `pacer update` detects these install methods and exits with code 2 and the matching command instead of replacing a managed binary. `pacer update --check` still reports the available release and the same update hint.
+`npm install -g @lamtuanvu/pacer@nightly` installs the newest nightly build. For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`, or `@nightly` when `update_channel` is `nightly`; for Homebrew installs, use `brew upgrade pacer`. `pacer update` detects these install methods and exits with code 2 and the matching command instead of replacing a managed binary. `pacer update --check` still reports the available release and the same update hint.
 
 ## Connect a planner
 
@@ -209,7 +209,7 @@ On Linux the generated unit sets `KillMode=process`, and upgrades rewrite an old
 
 `pacer update --check --json` reports versions without installing. Disable checks with
 `PACER_NO_UPDATE_CHECK=1` or top-level `update_check: false` in the active strategy.
-Checks only GET `latest.json`, time out after three seconds, and cache in
+Checks only GET `latest.json` (plus `cli-nightly.json` when `update_channel` is `nightly`), time out after three seconds, and cache in
 `~/.pacer/update-check.json`; CLI cache reuse lasts 24 hours.
 `PACER_RELEASE_BASE` selects a private or unpublished release folder (HTTPS,
 `file://`, or HTTP on `127.0.0.1`/`localhost`) laid out as `latest.json`,

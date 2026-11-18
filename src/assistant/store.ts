@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { taskDatabase } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
-import { type ActionCard, type AssistantLimits, type AssistantRetention, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ConversationView, type TurnView, assistantLimitsSchema, retentionSchema } from "./types";
+import { type ActionCard, type AssistantBackend, type AssistantLimits, type AssistantRetention, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ConversationView, type TurnView, assistantLimitsSchema, retentionSchema } from "./types";
 
 /** Assistant tables live in the service's private SQLite store (0600, WAL, secure_delete) under PACER_HOME. */
 export function assistantDatabase(ctx: Ctx) {
   const db = taskDatabase(ctx);
   db.run("PRAGMA secure_delete = ON");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, backend TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS assistant_conversations_updated ON assistant_conversations(updated_at);
     CREATE TABLE IF NOT EXISTS assistant_turns(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, at REAL NOT NULL,
@@ -19,26 +19,33 @@ export function assistantDatabase(ctx: Ctx) {
       cache_read INTEGER, cache_write INTEGER, coverage TEXT NOT NULL DEFAULT 'unknown' CHECK(coverage IN ('measured','partial','unknown')));
     CREATE INDEX IF NOT EXISTS assistant_usage_at ON assistant_usage(at);
   `);
+  // A store written before `backend` gained it at the end; the column is nullable and reads as `pacer`.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(assistant_settings)").all().some(column => column.name === "backend"))
+    db.run("ALTER TABLE assistant_settings ADD COLUMN backend TEXT");
+  // The backend's resume handle per conversation (spec §6), added the same way; never shown to clients.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(assistant_conversations)").all().some(column => column.name === "backend_session"))
+    db.run("ALTER TABLE assistant_conversations ADD COLUMN backend_session TEXT");
   db.run("PRAGMA foreign_keys = ON");
   return db;
 }
 
-const defaults = (): AssistantSettings => ({ runner: null, account: null, limits: assistantLimitsSchema.parse({}), retention: retentionSchema.parse({}), rev: 1 });
+const defaults = (): AssistantSettings => ({ runner: null, account: null, backend: "pacer", limits: assistantLimitsSchema.parse({}), retention: retentionSchema.parse({}), rev: 1 });
 
 export function readSettings(ctx: Ctx): AssistantSettings {
-  const row = assistantDatabase(ctx).query<{ runner: string | null; account: string | null; limits: string; retention: string; rev: number }, []>("SELECT runner,account,limits,retention,rev FROM assistant_settings WHERE id=1").get();
+  const row = assistantDatabase(ctx).query<{ runner: string | null; account: string | null; backend: string | null; limits: string; retention: string; rev: number }, []>("SELECT runner,account,backend,limits,retention,rev FROM assistant_settings WHERE id=1").get();
   if (!row) return defaults();
-  return { runner: row.runner, account: row.account, limits: assistantLimitsSchema.parse(JSON.parse(row.limits)), retention: retentionSchema.parse(JSON.parse(row.retention)), rev: row.rev };
+  return { runner: row.runner, account: row.account, backend: row.backend === "executor" ? "executor" : "pacer", limits: assistantLimitsSchema.parse(JSON.parse(row.limits)), retention: retentionSchema.parse(JSON.parse(row.retention)), rev: row.rev };
 }
 
-export function writeSettings(ctx: Ctx, input: { runner: string | null; account: string | null; limits?: Partial<AssistantLimits>; retention?: Partial<AssistantRetention>; expect_rev: number }): AssistantSettings {
+export function writeSettings(ctx: Ctx, input: { runner: string | null; account: string | null; backend?: AssistantBackend; limits?: Partial<AssistantLimits>; retention?: Partial<AssistantRetention>; expect_rev: number }): AssistantSettings {
   const db = assistantDatabase(ctx);
   return db.transaction(() => {
     const current = readSettings(ctx);
     if (current.rev !== input.expect_rev) throw new CoreError("conflict", "Assistant settings changed since you loaded them.", "Reload the settings and try again.", { rev: current.rev });
-    const next: AssistantSettings = { runner: input.runner, account: input.account, limits: assistantLimitsSchema.parse({ ...current.limits, ...input.limits }), retention: retentionSchema.parse({ ...current.retention, ...input.retention }), rev: current.rev + 1 };
-    db.query("INSERT INTO assistant_settings(id,runner,account,limits,retention,rev) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev")
-      .run(next.runner, next.account, JSON.stringify(next.limits), JSON.stringify(next.retention), next.rev);
+    // Absent keeps the stored choice, so an older client's save never moves a turn to another backend.
+    const next: AssistantSettings = { runner: input.runner, account: input.account, backend: input.backend ?? current.backend, limits: assistantLimitsSchema.parse({ ...current.limits, ...input.limits }), retention: retentionSchema.parse({ ...current.retention, ...input.retention }), rev: current.rev + 1 };
+    db.query("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,backend=excluded.backend,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev")
+      .run(next.runner, next.account, next.backend, JSON.stringify(next.limits), JSON.stringify(next.retention), next.rev);
     return next;
   }).immediate();
 }
@@ -82,6 +89,24 @@ export function finishTurn(ctx: Ctx, turnId: string, input: { state: TurnView["s
     const conv = db.query<{ conversation_id: string }, [string]>("SELECT conversation_id FROM assistant_turns WHERE id=?").get(turnId);
     if (conv) db.query("UPDATE assistant_conversations SET updated_at=? WHERE id=?").run(ctx.now, conv.conversation_id);
   }).immediate();
+}
+
+/** A backend's resume handle for one conversation, with the account and backend it belongs to. */
+export interface BackendSession { handle: string; account: string; backend: AssistantBackend }
+
+/** The stored resume handle of a conversation, or null. A row that does not parse reads as none. */
+export function readBackendSession(ctx: Ctx, conversationId: string): BackendSession | null {
+  const row = assistantDatabase(ctx).query<{ backend_session: string | null }, [string]>("SELECT backend_session FROM assistant_conversations WHERE id=?").get(conversationId);
+  if (!row?.backend_session) return null;
+  try {
+    const v = JSON.parse(row.backend_session) as Partial<BackendSession>;
+    return typeof v.handle === "string" && typeof v.account === "string" && (v.backend === "pacer" || v.backend === "executor") ? { handle: v.handle, account: v.account, backend: v.backend } : null;
+  } catch { return null; }
+}
+
+/** Store or clear a conversation's resume handle. */
+export function writeBackendSession(ctx: Ctx, conversationId: string, value: BackendSession | null): void {
+  assistantDatabase(ctx).query("UPDATE assistant_conversations SET backend_session=? WHERE id=?").run(value ? JSON.stringify(value) : null, conversationId);
 }
 
 export function updateCard(ctx: Ctx, turnId: string, cardId: string, patch: Partial<Pick<ActionCard, "state" | "result" | "params" | "summary" | "title" | "editable">>): ActionCard {

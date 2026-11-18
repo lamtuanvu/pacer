@@ -36,7 +36,7 @@ fn hello(capability: &str, scopes: &[&str]) -> Value {
     json!({
         "protocol":"1.10.0","pacer":"0.2.0",
         "manifest":{
-            "id":"fx-owning","version":"1.0.0","publisher":"fixture","host":">=1.10.0",
+            "id":"fx-owning","version":"1.0.0","publisher":"fixture","host":">=1.11.0",
             "capabilities":[declared],
             "contributes":{"diagnostic":{}}
         },

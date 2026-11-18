@@ -1091,6 +1091,27 @@ pub fn build(ctx: &Ctx) -> View {
                             "update:daily",
                         );
                     }
+                    let nightly = val("update_channel") == "nightly";
+                    field(
+                        &mut body,
+                        w,
+                        "Update channel",
+                        vec![
+                            "‹ ".into(),
+                            if nightly { "Nightly" } else { "Stable" }.into(),
+                            " ›".into(),
+                        ],
+                        if nightly {
+                            "untested daily snapshots of main"
+                        } else {
+                            ""
+                        },
+                        "update:channel",
+                    );
+                    v.items.push(Item::new("update:channel", None, 0, &[]));
+                    if ctx.supports("config.set") {
+                        hints.push("← → change".into());
+                    }
                 }
             }
             "notifications" => {

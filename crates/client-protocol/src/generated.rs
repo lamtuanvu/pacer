@@ -4465,6 +4465,7 @@ impl ::std::default::Default for ConfigGetParams {
 ///        "pacing.fill_threshold",
 ///        "pacing.balance",
 ///        "update_check",
+///        "update_channel",
 ///        "terminal.app",
 ///        "terminal.open"
 ///      ]
@@ -4587,6 +4588,7 @@ impl ::std::convert::TryFrom<&str> for ConfigSetParamsIntegrations {
 ///    "pacing.fill_threshold",
 ///    "pacing.balance",
 ///    "update_check",
+///    "update_channel",
 ///    "terminal.app",
 ///    "terminal.open"
 ///  ]
@@ -4640,6 +4642,8 @@ pub enum ConfigSetParamsKey {
     PacingBalance,
     #[serde(rename = "update_check")]
     UpdateCheck,
+    #[serde(rename = "update_channel")]
+    UpdateChannel,
     #[serde(rename = "terminal.app")]
     TerminalApp,
     #[serde(rename = "terminal.open")]
@@ -4672,6 +4676,7 @@ impl ::std::fmt::Display for ConfigSetParamsKey {
             Self::PacingFillThreshold => f.write_str("pacing.fill_threshold"),
             Self::PacingBalance => f.write_str("pacing.balance"),
             Self::UpdateCheck => f.write_str("update_check"),
+            Self::UpdateChannel => f.write_str("update_channel"),
             Self::TerminalApp => f.write_str("terminal.app"),
             Self::TerminalOpen => f.write_str("terminal.open"),
         }
@@ -4698,6 +4703,7 @@ impl ::std::str::FromStr for ConfigSetParamsKey {
             "pacing.fill_threshold" => Ok(Self::PacingFillThreshold),
             "pacing.balance" => Ok(Self::PacingBalance),
             "update_check" => Ok(Self::UpdateCheck),
+            "update_channel" => Ok(Self::UpdateChannel),
             "terminal.app" => Ok(Self::TerminalApp),
             "terminal.open" => Ok(Self::TerminalOpen),
             _ => Err("invalid value".into()),

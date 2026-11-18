@@ -30,7 +30,7 @@ export * from "./ui-schema";
 import { observationMethodSchema, observationScopeSchema, observationSchema, decisionRequestSchema, proposalSchema } from "../dispatch/types";
 
 /** Plugin protocol version; independent of the client protocol (P4 applies to both). */
-export const PLUGIN_PROTOCOL_VERSION = "1.10.0";
+export const PLUGIN_PROTOCOL_VERSION = "1.11.0";
 /** Release that added the #503 policy redaction metadata and `kind:name` secret references. */
 export const PLUGIN_HARDENING_PROTOCOL_VERSION = "1.8.0";
 export const PLUGIN_PROTOCOL_MAJOR = 1;
@@ -38,7 +38,7 @@ export const PLUGIN_PROTOCOL_MAJOR = 1;
 export const EXTENSION_POINTS = ["diagnostic", "agentSession", "observation", "decision", "ui", "assistant", "pairing", "usage", "classifier", "notifier", "endpoint", "planner", "policy", "hostRunner", "remoteCaller", "executor"] as const;
 export type ExtensionPoint = (typeof EXTENSION_POINTS)[number];
 
-export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "worktree", "usage.state", "hosts", "orca"] as const;
+export const CAPABILITIES = ["tasks.read", "events.subscribe", "process.spawn", "fs.read", "net.http", "secrets.resolve", "config.get", "entitlement.report", "log", "identity.sign", "net.p2p", "fs.write", "worktree", "usage.state", "hosts", "orca", "assistant.tool"] as const;
 export type Capability = (typeof CAPABILITIES)[number];
 /** Extension points and capabilities added in 1.6.0; a manifest that uses one gates on that host. */
 export const M0_EXTENSION_POINTS = ["usage", "classifier", "notifier", "endpoint", "planner", "policy"] as const satisfies readonly ExtensionPoint[];
@@ -52,6 +52,21 @@ export const PLUGIN_ID = /^[a-z0-9][a-z0-9-]{1,63}$/;
 export const RESERVED_PLUGIN_IDS = ["pacer"] as const;
 const SEMVER_RANGE = /^(\^|~|>=)?\d+(\.\d+){0,2}$|^\*$/;
 const genericContribution = z.record(z.string(), z.json());
+/** The two ways one turn can be answered; a plugin's `assistant` contribution names the one it serves. */
+export const ASSISTANT_BACKENDS = ["pacer", "executor"] as const;
+export type AssistantBackend = (typeof ASSISTANT_BACKENDS)[number];
+/**
+ * `contributes.assistant`: which backend this plugin serves (`pacer` when absent, as every
+ * existing manifest has it) and whether it serves the turn-level `assistant.reply` method. A
+ * contribution without `reply` keeps serving the older host-driven `assistant.respond` loop.
+ */
+// Open like every other contribution before 1.11.0 (P14: a minor bump never narrows an accepted shape); only the two named keys are typed.
+export const assistantContribution = z.object({
+  /** `true` when the plugin answers whole turns with `assistant.reply`; any other value keeps the older `assistant.respond` loop. */
+  reply: z.json().optional(),
+  /** `executor` when the plugin serves the executor backend; any other value, or none, serves `pacer`. */
+  backend: z.json().optional(),
+}).catchall(z.json());
 /** Keep the published manifest schema as strict as runtime validation. */
 export const manifestContributes = z.object({
   diagnostic: genericContribution.optional(),
@@ -59,7 +74,7 @@ export const manifestContributes = z.object({
   observation: genericContribution.optional(),
   decision: genericContribution.optional(),
   ui: genericContribution.optional(),
-  assistant: genericContribution.optional(),
+  assistant: assistantContribution.optional(),
   pairing: genericContribution.optional(),
   usage: genericContribution.optional(),
   classifier: genericContribution.optional(),
@@ -93,6 +108,10 @@ export const manifestSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with worktree sets host to >=1.9.0" });
   if ((m.capabilities.some(c => c.name === "orca") || m.contributes.executor?.backends[0] === "orca") && !hostFloorAtLeast(m.host, "1.10.0"))
     ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the orca capability or an orca executor backend sets host to >=1.10.0" });
+  if (m.capabilities.some(c => c.name === "assistant.tool") && !hostFloorAtLeast(m.host, "1.11.0"))
+    ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with assistant.tool sets host to >=1.11.0" });
+  if (m.contributes.assistant?.reply === true && !hostFloorAtLeast(m.host, "1.11.0"))
+    ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.assistant.reply sets host to >=1.11.0" });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
     if (!m.capabilities.some(c => c.name === "net.p2p")) ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with contributes.pairing declares net.p2p" });
@@ -185,6 +204,59 @@ export const assistantRespondResult = z.object({
 /** The host caps an `assistant.respond` call at this long, whatever `limits.deadlineMs` asks for. */
 export const ASSISTANT_MAX_DEADLINE_MS = 120_000;
 
+/** One host-issued ask-mode command (`assistant.reply` executor turns): exactly what the plugin echoes to spawn. */
+const assistantAskCommand = z.object({
+  argv: z.array(z.string().max(4096)).min(1).max(32),
+  cwd: z.string().min(1).max(4096),
+  env: z.record(z.string().regex(/^[A-Za-z_][A-Za-z0-9_]*$/), z.string().max(4096)),
+  stdin: z.string().max(262144),
+  timeoutMs: z.number().int().positive().max(ASSISTANT_MAX_DEADLINE_MS),
+}).strict();
+/** One turn of the stored conversation, for a backend that keeps no live session of its own. */
+const assistantHistoryEntry = z.object({ role: z.enum(["user", "assistant"]), content: z.string().max(200_000) }).strict();
+/**
+ * `assistant.reply`: one turn handed to the plugin whole. The host builds `system`, `digest` and
+ * `history`, runs every tool the plugin asks for through `capability.assistant.tool`, and caps the
+ * call at `ASSISTANT_MAX_DEADLINE_MS`. Strict: an unknown key is refused.
+ */
+export const assistantReplyParams = z.object({
+  conversationId: z.string().min(1).max(128), turnId: z.string().min(1).max(128),
+  account: z.string().min(1).max(64), backend: z.enum(ASSISTANT_BACKENDS), model: z.string().min(1).max(256).optional(),
+  system: z.string().max(50_000),
+  /** Host-built summary of at most ~2,000 tokens: counts, attention, mode and pause, the chosen account's cached budget and the scope. */
+  digest: z.string().max(8_000),
+  tools: z.array(z.object({ name: z.string().min(1).max(64), description: z.string().max(1000), parameters: z.unknown() }).strict()).max(32),
+  history: z.array(assistantHistoryEntry).max(40),
+  message: z.string().min(1).max(4000),
+  session: z.string().min(1).max(4096).optional(),
+  /**
+   * Executor backend only: the host-issued `opencode run` commands for this turn, as the plugin
+   * must echo them to `capability.process.spawn`. Their config, which carries the turn's grant, is
+   * not here: the plugin passes `{ secretRef: configRef }` and the host resolves it at spawn time.
+   */
+  executor: z.object({
+    configRef: z.string().min(1).max(128),
+    command: assistantAskCommand,
+    fallback: assistantAskCommand.optional(),
+  }).strict().optional(),
+  limits: z.object({
+    maxInputTokens: z.number().int().min(1000).max(200_000),
+    maxOutputTokens: z.number().int().positive().max(32_000),
+    maxToolRounds: z.number().int().min(0).max(6),
+    deadlineMs: z.number().int().min(1000).max(120_000),
+  }).strict(),
+}).strict();
+export const assistantReplyResult = z.object({
+  message: z.string().max(200_000),
+  session: z.string().min(1).max(4096).optional(),
+  /** Executor backend: the agent CLI's tool attempts, as evidence for the ask-mode self-test. */
+  tools: z.array(z.object({ tool: z.string().max(128), status: z.string().max(32) }).strict()).max(64).optional(),
+  usage: z.object({ input: z.number().int().nonnegative(), output: z.number().int().nonnegative(), cacheRead: z.number().int().nonnegative().optional(), cacheWrite: z.number().int().nonnegative().optional(), coverage: z.enum(["measured", "partial", "unknown"]) }).strict(),
+}).strict();
+/** `capability.assistant.tool`: run one tool of the turn in progress through the host's pipeline. */
+export const assistantToolParams = z.object({ turnId: z.string().min(1).max(128), name: z.string().min(1).max(64), params: z.unknown() }).strict();
+export const assistantToolResult = z.object({ name: z.string().min(1).max(64), content: z.string().max(40_000), ok: z.boolean() }).strict();
+
 export const pairingStartResult = z.object({ accepted: z.boolean() });
 
 /** Host → plugin. Keys are `<extensionPoint>.<method>`; every plugin serves `diagnostic`. */
@@ -209,6 +281,7 @@ export const EXTENSION_METHODS: Record<string, MethodDef> = {
   "agentSession.prepare": method({description: "Prepare an interactive argument vector without credentials or spawning.", params: agentPrepareParams, result: agentLaunchResult, deadlineMs: 5000}),
   "agentSession.attachment": method({description: "Prepare native attachment arguments or an explicit reference without submitting input.", params: agentAttachmentParams, result: agentAttachmentResult, deadlineMs: 5000}),
   "assistant.respond": method({description: "Answer one assistant turn from the messages and tool results the host provides. The host runs every read tool and calls again with the results, up to maxToolRounds. A returned toolCall is a request, not an action.", params: assistantRespondParams, result: assistantRespondResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
+  "assistant.reply": method({description: "Answer one whole assistant turn: the host has already built the system prompt, the digest and the transcript, and runs every tool the plugin asks for through capability.assistant.tool under this call's authority, up to limits.maxToolRounds. The plugin may stream assistant.delta notifications while it runs, and cancellation aborts the call. Used when the plugin serves the chosen backend and provides it; otherwise the host keeps its assistant.respond loop.", params: assistantReplyParams, result: assistantReplyResult, deadlineMs: ASSISTANT_MAX_DEADLINE_MS}),
   "ui.render": method({description:"Return the view document for one surface.",params:uiRenderParams,result:uiRenderResult,deadlineMs:2000}),
   "ui.action": method({description:"Handle a user action on a surface; the host has already shown any confirmation.",params:uiActionParams,result:uiActionResult,deadlineMs:10000}),
   "ui.settings.validate": method({description:"Check settings values the host already validated against the manifest schema.",params:uiValidateParams,result:uiValidateResult,deadlineMs:2000}),
@@ -231,6 +304,7 @@ export const CAPABILITY_METHODS: Record<string, MethodDef> = {
   ...ORCA_CAPABILITY_METHODS,
   ...FS_WRITE_METHODS,
   ...HTTP_CAPABILITY_METHODS,
+  "capability.assistant.tool": method({ description: "Run one assistant tool for the assistant.reply call in progress: the host's read pipeline (permitted op, parameter parsing, scope, projection, redaction and size cap), with propose_action becoming a card. Answered only under the authority of that call, for its turnId, and only within its tool-round budget.", params: assistantToolParams, result: assistantToolResult, deadlineMs: 30000 }),
   "capability.log": method({ description: "Append a line to the plugin's log file under PACER_HOME/logs/plugins.", params: z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string().max(4096) }), result: z.object({ ok: z.literal(true) }), deadlineMs: 1000 }),
   "capability.secrets.resolve": method({ description: "Resolve the key of the endpoint account the user chose for the assistant. endpoint/<id> remains accepted for compatibility.", params: z.object({ ref: secretReference }), result: z.object({ value: z.string().nullable() }), deadlineMs: 5000 }),
   "capability.config.get": method({ description: "The plugin's own config slice (plugins.config.<id> in the strategy file).", params: z.object({}), result: z.object({ config: z.record(z.string(), z.json()) }), deadlineMs: 1000 }),

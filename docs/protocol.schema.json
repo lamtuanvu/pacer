@@ -826,6 +826,20 @@
       },
       "additionalProperties": false
     },
+    "AssistantSelftestParams": {
+      "type": "object",
+      "properties": {
+        "account": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        }
+      },
+      "required": [
+        "account"
+      ],
+      "additionalProperties": false
+    },
     "AssistantSettingsGetParams": {
       "type": "object",
       "properties": {},
@@ -916,6 +930,13 @@
           "type": "integer",
           "exclusiveMinimum": 0,
           "maximum": 9007199254740991
+        },
+        "backend": {
+          "type": "string",
+          "enum": [
+            "pacer",
+            "executor"
+          ]
         }
       },
       "required": [
@@ -928,6 +949,33 @@
     "AssistantStatusParams": {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    },
+    "AssistantToolParams": {
+      "type": "object",
+      "properties": {
+        "turnId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 64
+        },
+        "params": {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      },
+      "required": [
+        "turnId",
+        "name"
+      ],
       "additionalProperties": false
     },
     "AssistantTurnParams": {
@@ -1368,6 +1416,7 @@
             "pacing.fill_threshold",
             "pacing.balance",
             "update_check",
+            "update_channel",
             "terminal.app",
             "terminal.open"
           ]
