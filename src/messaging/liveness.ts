@@ -10,7 +10,7 @@ import { getMessage, messagesDatabase } from "./store";
 import { isClosed } from "./turns";
 import type { Message } from "./types";
 
-export type StallReason = "undelivered" | "idle_run" | "no_progress" | "unread_external" | "unread_human" | "cycle";
+export type StallReason = "undelivered" | "idle_run" | "no_progress" | "unread_external" | "unread_human" | "cycle" | "caller_decision";
 /**
  * A participant that holds the next move. `blocking` lists the nodes waiting on it; in a cycle, `waitingOn` is the
  * member it waits on and `deepest` the launched member with the greatest depth, if any.
@@ -26,6 +26,16 @@ export interface LivenessSnapshot { tasks: SnapshotTask[]; unread: Message[]; qu
 
 const WINDOW_S = 7 * 86400;
 const OPEN_STATES = ["queued", "running", "done", "partial", "failed", "limit", "needs_input"] as const;
+/** States in which a task is settled or waiting, so its caller still owes the next move. */
+const DECISION_STATES = ["done", "partial", "failed", "limit", "needs_input"] as const;
+/**
+ * A settled task that owes its caller a verdict, an answer or a stop: no review yet, not superseded by a
+ * retry, not dismissed, and started by a real caller rather than an executor subtask.
+ */
+export function owesDecision(t: TaskRecord): boolean {
+  return (DECISION_STATES as readonly string[]).includes(t.state) && !t.review && !t.retriedBy && !t.dismissed
+    && (t.origin === "human" || !!t.origin?.startsWith("external:"));
+}
 /** Phases in which a running task is idle (its own stall), waiting on someone else, being driven, or in pacer's own acceptance run. */
 const NO_PROGRESS_EXEMPT = new Set(["idle", "needs-input", "driving", "testing"]);
 
@@ -100,9 +110,19 @@ export function analyzeLiveness(snapshot: LivenessSnapshot, now: number): Stall[
       stalls.set(p, { node: p, reason: "cycle", waitingOn, blocking: blocking(p), ...(launched[0] ? { deepest: launched[0] } : {}) });
     }
   }
+  // The caller owes the next move on a settled task it has not decided yet (design §3). A message it
+  // already sent means the conversation moved, so the task node reports that instead.
+  for (const [p, n] of open) {
+    const t = n.task, caller = n.parent;
+    if (!owesDecision(t) || !caller || taskOf(caller) || unread.some(m => m.from === caller && m.to === p)) continue;
+    const prev = stalls.get(caller);
+    if (prev?.reason === "cycle") continue;
+    stalls.set(caller, { node: caller, reason: "caller_decision",
+      blocking: [...new Set([...(prev?.blocking ?? []), p])].sort(),
+      ...(prev?.waitingOn ? { waitingOn: prev.waitingOn } : {}), ...(prev?.deepest ? { deepest: prev.deepest } : {}) });
+  }
   return [...stalls.values()].sort((a, b) => a.node.localeCompare(b.node));
 }
-
 /** Strongly connected components with more than one member (Tarjan). */
 function cycles(out: Map<string, Set<string>>): string[][] {
   let index = 0;

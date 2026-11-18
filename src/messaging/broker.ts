@@ -4,10 +4,12 @@ import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
 import { publish } from "../link/publish";
 import { readTask, updateTask } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
 import { stopRun } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
-import { analyzeLiveness, buildSnapshot, type Stall } from "./liveness";
+import { callerAlive, type CallerReach } from "./caller-reach";
+import { analyzeLiveness, buildSnapshot, owesDecision, type Stall } from "./liveness";
 import { clearLiveness, getLiveness, listLiveness, upsertLiveness, type LivenessUpsert } from "./liveness-store";
 import { rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
@@ -16,7 +18,13 @@ import { messagesDatabase } from "./store";
 import { deliver } from "./turns";
 
 export interface BrokerReport { skipped?: "locked" | "mode_unavailable"; stalls?: number; actions?: number }
-export interface BrokerDeps { spawnRunner?: SpawnRunner; mode: () => Promise<Mode | undefined> }
+/** The wake step for a caller that owes a decision, injected so src/messaging never names a host or a planner. */
+export type CallerWakeResult = "sent" | "busy" | "gone" | "resumed" | "unavailable";
+export interface BrokerDeps {
+  spawnRunner?: SpawnRunner;
+  mode: () => Promise<Mode | undefined>;
+  callerWake?: (ctx: Ctx, reach: CallerReach, text: string) => Promise<CallerWakeResult>;
+}
 
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
   const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
@@ -28,6 +36,13 @@ function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildS
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
   void publish(ctx, [{ type: "entity", data: { kind: "liveness", id: node, ...(row ? { value: row } : { removed: true }) } }]);
+}
+
+/** The one line typed into the caller's terminal or handed to its resume prompt (design §3). */
+function callerText(t: TaskRecord, question: string | undefined): string {
+  return t.state === "needs_input"
+    ? `pacer: task ${t.id} asked a question. Answer with pacer msg send ${t.id} --answer ${question}.`
+    : `pacer: task ${t.id} is ${t.state}. Review and decide: pacer review ${t.id} --accept|--reject, or pacer msg inbox.`;
 }
 
 /** One bounded reconciliation pass. The file lock also prevents a second service process from acting on the same stall. */
@@ -120,6 +135,30 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
               replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
+          }
+        } else if (stall.reason === "caller_decision") {
+          // Hooks hold the message first; the caller itself is woken only once caller_wake_after_s has passed.
+          const notify = () => { stallNow = true; acted = true; };
+          const due = ctx.now >= row.since + config.caller_wake_after_s;
+          const escalate = ctx.now >= row.since + config.escalate_after_s;
+          if (!allowed) notify();
+          else if (!due || row.nudges >= config.max_nudges) { if (escalate) notify(); }
+          else {
+            const task = snapshot.tasks.find(n => n.task.origin === node && owesDecision(n.task))?.task;
+            const question = task ? snapshot.questions.find(m => m.taskId === task.id && m.to === node)?.id : undefined;
+            const text = task && (task.state !== "needs_input" || question) ? callerText(task, question) : null;
+            const reach = task?.callerReach;
+            // Only an open caller in a terminal pacer can type into is woken; tmux, uncontrolled and
+            // unknown liveness wait for the notification, and a closed caller is not resumed in this PR.
+            const wake = deps.callerWake;
+            const state = wake && text && reach && reach.terminal.kind === "orca" ? await callerAlive(ctx, reach) : null;
+            if (wake && state === "alive") {
+              const result = await wake(ctx, reach!, text!);
+              if (result === "sent" || result === "resumed") { row.nudges++; acted = true; }
+              // A busy terminal is retried on the next tick without spending a wake.
+              else if (result === "busy") { if (escalate) notify(); else row.nextAt = ctx.now; }
+              else if (escalate) notify();
+            } else if (escalate) notify();
           }
         } else if (stall.reason === "unread_external") {
           if (!allowed || ctx.now >= row.since + config.escalate_after_s) {

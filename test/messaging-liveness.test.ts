@@ -67,6 +67,22 @@ test("a planner with an unread report is unread_external", () => {
   expect(stalls).toEqual([{ node: "external:planner", reason: "unread_external", blocking: ["task:t-a"] }]);
 });
 
+test("a settled task owes its caller a decision", () => {
+  const owed = task("t-a", { origin: "external:planner" });
+  expect(analyzeLiveness(snap({ tasks: [node(owed)] }), NOW))
+    .toEqual([{ node: "external:planner", reason: "caller_decision", blocking: ["task:t-a"] }]);
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "human" }), { parent: "human" })] }), NOW))
+    .toEqual([{ node: "human", reason: "caller_decision", blocking: ["task:t-a"] }]);
+  // A running task, a retried task and a caller that already wrote owe nothing yet.
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", state: "running" }))] }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", retriedBy: "t-b" }))] }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(owed)], unread: [msg("external:planner", "task:t-a")] }), NOW))
+    .toEqual([expect.objectContaining({ node: "task:t-a", reason: "undelivered" })]);
+  // A verdict or a dismissal closes the task before the analysis ever sees it.
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", review: { accepted: true, kind: null, note: null, at: 1 } }))] }), NOW)).toEqual([]);
+  expect(analyzeLiveness(snap({ tasks: [node(task("t-a", { origin: "external:planner", dismissed: true }))] }), NOW)).toEqual([]);
+});
+
 test("a question to the human is unread_human", () => {
   const t = task("t-a", { state: "needs_input", question: { text: "?", at: NOW - 10 } });
   const q = msg("task:t-a", "human", { kind: "question", status: "delivered" });

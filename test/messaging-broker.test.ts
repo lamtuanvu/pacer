@@ -1,9 +1,12 @@
 import { expect, spyOn, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { brokerTick } from "../src/messaging/broker";
+import { brokerTick, type BrokerDeps } from "../src/messaging/broker";
+import type { CallerReach } from "../src/messaging/caller-reach";
 import { getLiveness } from "../src/messaging/liveness-store";
 import { byRequest, insertMessage, markRead, messagesDatabase } from "../src/messaging/store";
+import { ownProcessIdentity } from "../src/update/desktop/process-identity";
+import type { Ctx } from "../src/types";
 import * as runs from "../src/supervisor/run";
 import * as turns from "../src/messaging/turns";
 import { apiTask } from "../src/api/read-model/tasks";
