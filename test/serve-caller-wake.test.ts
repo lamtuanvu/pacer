@@ -1,9 +1,12 @@
-import { expect, spyOn, test } from "bun:test";
+import { expect, spyOn, test, afterEach } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import type { CallerReach } from "../src/messaging/caller-reach";
 import * as callerReach from "../src/messaging/caller-reach";
 import * as callerPing from "../src/exec/orca/caller-ping";
 import * as plannerResume from "../src/install/planner-resume";
+import { setResumeEnabled } from "../src/serve/caller-wake";
+
+afterEach(() => setResumeEnabled(false));
 import { callerWake } from "../src/serve/caller-wake";
 
 test("an orca reach is pinged through pingOrcaCaller", async () => {
@@ -44,7 +47,17 @@ test("an error becomes unavailable", async () => {
   }
 });
 
+test("resume stays off in production: a closed caller is unavailable and nothing is spawned", async () => {
+  const resumeSpy = spyOn(plannerResume, "resumeCaller").mockResolvedValue("resumed");
+  try {
+    const reach = { participant: "external:claude-code:s1", session: "s1", cwd: "/tmp", terminal: { kind: "uncontrolled" as const }, at: 0 };
+    expect(await callerWake(fakeCtx(), reach, "text", "resume", "task-9")).toBe("unavailable");
+    expect(resumeSpy).not.toHaveBeenCalled();
+  } finally { resumeSpy.mockRestore(); }
+});
+
 test("resume derives the planner kind and refuses while the caller is not gone", async () => {
+  setResumeEnabled(true);
   {
     const ctx = fakeCtx();
     const reach: CallerReach = { participant: "external:codex:th-9", session: "th-9", cwd: tmpDir(), terminal: { kind: "orca", handle: "h" }, at: 1 };
