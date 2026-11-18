@@ -28,6 +28,8 @@ export function agentInfo(agent: string): AgentInfo {
 }
 /** The agent part of a runner id such as "codex#team@devbox". */
 export const runnerAgent = (id: string): string => id.split("@")[0]!.split("#")[0]!;
+/** The account part of a runner id such as "opencode#oc-glm@devbox", when the id spells it out. */
+export const runnerAccount = (id: string): string | undefined => id.split("@")[0]!.split("#")[1] ?? undefined;
 /** Which mark to draw for a runner: an OpenCode executor on a known account (BytePlus, a local model) shows that account's mark. */
 export function markAgent(id: string, account?: string): string {
   const agent = runnerAgent(id), acct = account ?? id.split("@")[0]!.split("#")[1];

@@ -290,3 +290,24 @@ test("a_settled_root_with_a_running_subtask_counts_as_running", () => {
   const nodes = taskTree({ tasks: [plain("root", { state: "done" }), plain("kid", { parentId: "root", state: "running" })] }, { now });
   expect(nodes[0]!.bucket).toBe("running");
 });
+
+test("rows_name_the_agent_account_and_model_behind_the_task", () => {
+  // A running opencode row carries the in-flight attempt's account and chosen model, as readable words.
+  const workRow = (id: string, over: Partial<Parameters<typeof workTasks>[0][number]> = {}) =>
+    ({ id, parentId: null, rootId: id, depth: 0, title: id, state: "done", executor: null, rev: 1, ...over });
+  const running = taskTree({ tasks: [] }, { now, extra: workTasks([workRow("t-1", { state: "running", executor: "opencode#oc-glm", account: "oc-glm", model: "opencode-go/glm-5.3-flash" })]) });
+  expect(running[0]!.runner).toEqual({ name: "OpenCode", account: "oc-glm", model: "opencode-go/glm-5.3-flash" });
+  expect(running[0]!.agents).toEqual(["opencode"]);
+  // A settled row keeps its account and shows no model when none was recorded.
+  const settled = taskTree({ tasks: [] }, { now, extra: workTasks([workRow("t-2", { executor: "codex#team", account: "team", model: null })]) });
+  expect(settled[0]!.runner).toEqual({ name: "Codex", account: "team" });
+  // A 2.0 service without the new fields still names the agent and the account spelled out in the runner id.
+  const legacy = taskTree({ tasks: [] }, { now, extra: workTasks([workRow("t-3", { executor: "opencode#oc-glm@devbox" })]) });
+  expect(legacy[0]!.runner).toEqual({ name: "OpenCode", account: "oc-glm" });
+  // Snapshot tasks carry the same fields as work rows.
+  const snapshotRow = taskTree({ tasks: [plain("t-4", { state: "running", executor: "opencode#oc-glm", account: "oc-glm", model: "opencode-go/glm-5.3-flash" })] }, { now });
+  expect(snapshotRow[0]!.runner).toEqual({ name: "OpenCode", account: "oc-glm", model: "opencode-go/glm-5.3-flash" });
+  // Queued work has no executor yet, so no runner words either.
+  const queued = taskTree({ tasks: [] }, { now, extra: workTasks([workRow("t-5", { state: "queued", executor: null })]) });
+  expect(queued[0]!.runner).toBeUndefined();
+});
