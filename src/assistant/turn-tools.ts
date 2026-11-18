@@ -45,3 +45,9 @@ export function openAssistantTurn(authority: object, turn: AssistantToolTurn): (
 export function assistantTurnFor(authority: object): AssistantToolTurn | null {
   return open.get(authority) ?? null;
 }
+
+/** Whether one of a plugin's live call authorities is answering `turnId`: who may stream `assistant.delta` into it. */
+export function answersTurn(authorities: Iterable<object>, turnId: string): boolean {
+  for (const authority of authorities) if (open.get(authority)?.turnId === turnId) return true;
+  return false;
+}

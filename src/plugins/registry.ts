@@ -25,7 +25,7 @@ import { forgetSettings, readPluginSettings } from "./settings";
 import { type PluginGrant, pluginsConfig, setPluginDisabled, setPluginGrant } from "./config";
 import { answerCapability, appendPluginLog } from "./host";
 import { forwardAssistantDelta } from "../assistant/delta";
-import { openAssistantTurn, type AssistantToolTurn } from "../assistant/turn-tools";
+import { answersTurn, openAssistantTurn, type AssistantToolTurn } from "../assistant/turn-tools";
 import { hostRangeAccepts, readManifestFile } from "./manifest";
 import { prepareStateAuthority } from "./usage-state";
 import { prepareWriteAuthority } from "./capability-write";
@@ -2171,10 +2171,11 @@ export class PluginRegistry {
     if (!parsed.success) return;
     // The assistant's streaming notification has no UI surface of its own: it goes straight to the
     // turn's stream (the frames `subscribeTurn` delivers), ahead of the UI-surface check below and
-    // never into the event outbox. A turn that is not running drops it.
+    // never into the event outbox. Only the plugin answering that turn may stream into it: a delta
+    // for another plugin's turn, or after this plugin's reply call ended, is dropped.
     if (method === "assistant.delta") {
       const { turnId, kind, text } = parsed.data as { turnId: string; kind: "text" | "activity"; text: string };
-      forwardAssistantDelta(turnId, kind, text);
+      if (answersTurn(e.authorities.values(), turnId)) forwardAssistantDelta(turnId, kind, text);
       return;
     }
     const id = (parsed.data as { id?: string }).id ?? null;

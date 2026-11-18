@@ -14,7 +14,7 @@ import { admit, ask, cancel, candidates, replyProvider, runAssistantTool, subscr
 import { DIGEST_MAX_CHARS, buildDigest } from "../src/assistant/digest";
 import { createRedactor } from "../src/assistant/redact";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
-import { assistantTurnFor, openAssistantTurn, type AssistantToolState } from "../src/assistant/turn-tools";
+import { answersTurn, assistantTurnFor, openAssistantTurn, type AssistantToolState } from "../src/assistant/turn-tools";
 import type { AssistantLimits, AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
@@ -80,6 +80,17 @@ function setup(o: { fake?: boolean; limits?: Partial<AssistantLimits>; respond?:
 }
 
 describe("the turn-level plugin interface", () => {
+  test("only a plugin with an open reply call for a turn may stream into it", () => {
+    const answering = {}, idle = {};
+    const turn = { turnId: "turn-a" } as Parameters<typeof openAssistantTurn>[1];
+    const close = openAssistantTurn(answering, turn);
+    expect(answersTurn([idle, answering], "turn-a")).toBe(true);
+    expect(answersTurn([idle], "turn-a")).toBe(false);
+    expect(answersTurn([answering], "turn-b")).toBe(false);
+    close();
+    expect(answersTurn([answering], "turn-a")).toBe(false);
+  });
+
   test("assistant.reply is strict, 1.11.0, and capped at the host's deadline ceiling", () => {
     expect(PLUGIN_PROTOCOL_VERSION).toBe("1.11.0");
     expect(EXTENSION_METHODS["assistant.reply"]!.deadlineMs).toBe(ASSISTANT_MAX_DEADLINE_MS);
