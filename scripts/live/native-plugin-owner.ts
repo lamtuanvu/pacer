@@ -87,12 +87,17 @@ async function waitingServe(session: Session) {
  * call in flight. Accepts no operation or override.
  */
 export async function exerciseNativePluginOwner(session: Session): Promise<void> {
-  if (session.frontDoor !== "rust" || !session.nativePluginHost || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
-    throw Error("native plugin owner requires a --front-door rust --native-plugin-host sandbox without forwarding or real Keychain");
+  if (session.frontDoor !== "rust" || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
+    throw Error("native plugin owner requires a Rust-front-door sandbox without forwarding or real Keychain");
   }
   if (session.stopped || !await healthy(session)) throw Error("native plugin owner requires a healthy sandbox");
   const home = join(session.root, "home");
   const socket = join(home, "run/host.sock");
+  // The owner must be running: the sandbox asked for it with the flag, or serve
+  // started it by default since serve_starts_reverse_bridge_by_default flipped.
+  if (!session.nativePluginHost && !existsSync(socket)) {
+    throw Error("native plugin owner requires an active owner: pass --native-plugin-host or use a sandbox whose serve started the owner");
+  }
   if (!existsSync(join(home, "plugins", PLUGIN))) installFixture("ui", join(home, "plugins"));
 
   let behavior = "Plugin config publications through the native owner";
