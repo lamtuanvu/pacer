@@ -3,7 +3,7 @@ import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { installFixture } from "../conformance/install";
 import { CoreError } from "../src/core/errors";
-import { HOST_SOCKET_KEY_ENV, takeOwnerKey } from "../src/plugins/host-bridge";
+import { holdOwnerKey } from "../src/plugins/host-bridge";
 import { manifestSchema } from "../src/plugins/protocol";
 import { PluginRegistry } from "../src/plugins/registry";
 import { fakeCtx } from "./helpers";
@@ -28,7 +28,7 @@ type Outcome = { ok: true } | { code: string; message: string; afterMs: number }
 
 async function pings(h: Home, socket?: string): Promise<Record<string, Outcome>> {
   // In-process Core proves the owner's per-start key, as serve's Core child does.
-  if (socket) takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: readFileSync(join(h.state, "run", "host.key"), "utf8").trim() });
+  if (socket) holdOwnerKey(readFileSync(join(h.state, "run", "host.key"), "utf8").trim());
   const ctx = fakeCtx({ home: h.home, pacerHome: h.state, env: { PATH: process.env.PATH!, ...(socket ? { PACER_HOST_SOCKET: socket } : {}) } });
   const registry = new PluginRegistry({ bundled: Object.keys(DELAYS).map(id => ({ manifest: manifest(id), main: async () => ({ handlers: {} }) })),
     spawnBundled: (_ctx, id) => ({ argv: [process.execPath, "-e", child(DELAYS[id]!)], cwd: h.home, env: {} }), eventPumpMs: 0 });

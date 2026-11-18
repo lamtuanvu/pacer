@@ -1,5 +1,5 @@
 import { makeCtx } from "../ctx";
-import { HOST_SOCKET_KEY_ENV, takeOwnerKey } from "../plugins/host-bridge";
+import { holdOwnerKey } from "../plugins/host-bridge";
 import { superviseTasks } from "./api";
 import { reconcileTaskJson } from "./store";
 
@@ -64,7 +64,7 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   if (msg.type === "init") {
     try {
       init = { env: msg.env, pacerHome: msg.pacerHome };
-      if (typeof msg.ownerKey === "string") takeOwnerKey({ [HOST_SOCKET_KEY_ENV]: msg.ownerKey });
+      if (typeof msg.ownerKey === "string") holdOwnerKey(msg.ownerKey);
       if (!Array.isArray(msg.selfCommand) || !msg.selfCommand.length || msg.selfCommand.some(part => typeof part !== "string" || !part))
         throw new Error("missing service self command");
       const { spawnRunnerWith } = await import("./api");
