@@ -917,38 +917,44 @@ mod tests {
         // The production per-feed deadline leaves the service's 30 s check budget room for
         // helper startup and the other feed.
         assert!(FEED_TIMEOUT <= std::time::Duration::from_secs(15));
-        // A stalled feed never answers. The other feed's result must arrive within one
-        // per-feed deadline, not after the stalled one. A short deadline keeps the test fast.
-        let short = std::time::Duration::from_millis(200);
+        // A stalled feed never answers. Both feeds must be in flight at once: each fetch waits
+        // on a two-party barrier before doing anything, so a sequential implementation would
+        // leave the first feed waiting until its deadline and the fallback result would be lost.
+        // No wall-clock bound is involved; the deadline only limits how long a failure takes.
+        let short = std::time::Duration::from_secs(5);
         for stalled in [Channel::Stable, Channel::Nightly] {
+            let barrier = std::sync::Arc::new(tokio::sync::Barrier::new(2));
             let fetch = |channel: Channel| -> FeedFuture {
+                let barrier = barrier.clone();
                 if channel == stalled {
-                    Box::pin(std::future::pending())
+                    Box::pin(async move {
+                        barrier.wait().await;
+                        std::future::pending().await
+                    })
                 } else {
                     let version = match channel {
                         Channel::Stable => "0.16.0",
                         Channel::Nightly => "0.17.0-nightly.202611170000",
                     };
-                    // A slow but live feed: run one after the other, the two feeds would
-                    // take longer than the bound below.
                     Box::pin(async move {
-                        tokio::time::sleep(short * 3 / 4).await;
+                        barrier.wait().await;
                         offer(version, "0.15.1", channel)
                     })
                 }
             };
-            let started = tokio::time::Instant::now();
             let offered = select_feeds(Channel::Nightly, short, &fetch).await;
-            assert!(started.elapsed() < short * 3 / 2, "{stalled:?}");
             assert!(offered.unwrap().is_some(), "{stalled:?}");
         }
         let both = |_| -> FeedFuture { Box::pin(std::future::pending()) };
-        let started = tokio::time::Instant::now();
         assert_eq!(
-            select_feeds(Channel::Nightly, short, &both).await,
+            select_feeds(
+                Channel::Nightly,
+                std::time::Duration::from_millis(50),
+                &both
+            )
+            .await,
             Err(OtaError::Timeout)
         );
-        assert!(started.elapsed() < short * 3 / 2);
     }
     #[cfg(target_os = "macos")]
     #[tokio::test]
