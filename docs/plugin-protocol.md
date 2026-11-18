@@ -108,18 +108,14 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
           "type": "object",
           "properties": {
             "reply": {
-              "type": "boolean"
+              "$ref": "#/$defs/__schema1"
             },
             "backend": {
-              "type": "string",
-              "enum": [
-                "pacer",
-                "executor"
-              ]
+              "$ref": "#/$defs/__schema2"
             }
           },
           "additionalProperties": {
-            "$ref": "#/$defs/__schema1"
+            "$ref": "#/$defs/__schema3"
           }
         },
         "pairing": {
@@ -384,6 +380,68 @@ SDKs: `@pacer/plugin` (TypeScript) and `pacer-plugin` (Rust).
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema1"
+          }
+        }
+      ]
+    },
+    "__schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema2"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema2"
+          }
+        }
+      ]
+    },
+    "__schema3": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema3"
           }
         }
       ]
@@ -1379,18 +1437,14 @@ Params:
               "type": "object",
               "properties": {
                 "reply": {
-                  "type": "boolean"
+                  "$ref": "#/$defs/__schema1"
                 },
                 "backend": {
-                  "type": "string",
-                  "enum": [
-                    "pacer",
-                    "executor"
-                  ]
+                  "$ref": "#/$defs/__schema2"
                 }
               },
               "additionalProperties": {
-                "$ref": "#/$defs/__schema1"
+                "$ref": "#/$defs/__schema3"
               }
             },
             "pairing": {
@@ -1612,7 +1666,7 @@ Params:
         "type": "string"
       },
       "additionalProperties": {
-        "$ref": "#/$defs/__schema2"
+        "$ref": "#/$defs/__schema4"
       }
     },
     "grants": {
@@ -1739,6 +1793,68 @@ Params:
           },
           "additionalProperties": {
             "$ref": "#/$defs/__schema2"
+          }
+        }
+      ]
+    },
+    "__schema3": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema3"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema3"
+          }
+        }
+      ]
+    },
+    "__schema4": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema4"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema4"
           }
         }
       ]

@@ -10182,7 +10182,7 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///    "config": {
 ///      "type": "object",
 ///      "additionalProperties": {
-///        "$ref": "#/$defs/helloParams___schema1"
+///        "$ref": "#/$defs/helloParams___schema4"
 ///      },
 ///      "propertyNames": {
 ///        "type": "string"
@@ -10294,18 +10294,15 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 ///              "type": "object",
 ///              "properties": {
 ///                "backend": {
-///                  "type": "string",
-///                  "enum": [
-///                    "pacer",
-///                    "executor"
-///                  ]
+///                  "$ref": "#/$defs/helloParams___schema2"
 ///                },
 ///                "reply": {
-///                  "type": "boolean",
-///                  "const": true
+///                  "$ref": "#/$defs/helloParams___schema1"
 ///                }
 ///              },
-///              "additionalProperties": false
+///              "additionalProperties": {
+///                "$ref": "#/$defs/helloParams___schema3"
+///              }
 ///            },
 ///            "classifier": {
 ///              "type": "object",
@@ -10510,7 +10507,7 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct HelloParams {
-    pub config: ::std::collections::HashMap<::std::string::String, HelloParamsSchema1>,
+    pub config: ::std::collections::HashMap<::std::string::String, HelloParamsSchema4>,
     #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
     pub features: ::std::vec::Vec<HelloParamsFeaturesItem>,
     pub grants: ::std::vec::Vec<HelloParamsGrantsItem>,
@@ -10777,18 +10774,15 @@ impl ::std::convert::TryFrom<&str> for HelloParamsGrantsItem {
 ///          "type": "object",
 ///          "properties": {
 ///            "backend": {
-///              "type": "string",
-///              "enum": [
-///                "pacer",
-///                "executor"
-///              ]
+///              "$ref": "#/$defs/helloParams___schema2"
 ///            },
 ///            "reply": {
-///              "type": "boolean",
-///              "const": true
+///              "$ref": "#/$defs/helloParams___schema1"
 ///            }
 ///          },
-///          "additionalProperties": false
+///          "additionalProperties": {
+///            "$ref": "#/$defs/helloParams___schema3"
+///          }
 ///        },
 ///        "classifier": {
 ///          "type": "object",
@@ -11250,18 +11244,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloParamsManifestCapabilitiesItemScope
 ///      "type": "object",
 ///      "properties": {
 ///        "backend": {
-///          "type": "string",
-///          "enum": [
-///            "pacer",
-///            "executor"
-///          ]
+///          "$ref": "#/$defs/helloParams___schema2"
 ///        },
 ///        "reply": {
-///          "type": "boolean",
-///          "const": true
+///          "$ref": "#/$defs/helloParams___schema1"
 ///        }
 ///      },
-///      "additionalProperties": false
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema3"
+///      }
 ///    },
 ///    "classifier": {
 ///      "type": "object",
@@ -11531,97 +11522,26 @@ impl ::std::default::Default for HelloParamsManifestContributes {
 ///  "type": "object",
 ///  "properties": {
 ///    "backend": {
-///      "type": "string",
-///      "enum": [
-///        "pacer",
-///        "executor"
-///      ]
+///      "$ref": "#/$defs/helloParams___schema2"
 ///    },
 ///    "reply": {
-///      "type": "boolean",
-///      "const": true
+///      "$ref": "#/$defs/helloParams___schema1"
 ///    }
 ///  },
-///  "additionalProperties": false
+///  "additionalProperties": {
+///    "$ref": "#/$defs/helloParams___schema3"
+///  }
 ///}
 /// ```
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct HelloParamsManifestContributesAssistant {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub backend: ::std::option::Option<HelloParamsManifestContributesAssistantBackend>,
+    pub backend: ::std::option::Option<HelloParamsSchema2>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub reply: ::std::option::Option<bool>,
-}
-impl ::std::default::Default for HelloParamsManifestContributesAssistant {
-    fn default() -> Self {
-        Self {
-            backend: Default::default(),
-            reply: Default::default(),
-        }
-    }
-}
-///`HelloParamsManifestContributesAssistantBackend`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "enum": [
-///    "pacer",
-///    "executor"
-///  ]
-///}
-/// ```
-/// </details>
-#[derive(
-    ::serde::Deserialize,
-    ::serde::Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum HelloParamsManifestContributesAssistantBackend {
-    #[serde(rename = "pacer")]
-    Pacer,
-    #[serde(rename = "executor")]
-    Executor,
-}
-impl ::std::convert::From<&Self> for HelloParamsManifestContributesAssistantBackend {
-    fn from(value: &HelloParamsManifestContributesAssistantBackend) -> Self {
-        value.clone()
-    }
-}
-impl ::std::fmt::Display for HelloParamsManifestContributesAssistantBackend {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Pacer => f.write_str("pacer"),
-            Self::Executor => f.write_str("executor"),
-        }
-    }
-}
-impl ::std::str::FromStr for HelloParamsManifestContributesAssistantBackend {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "pacer" => Ok(Self::Pacer),
-            "executor" => Ok(Self::Executor),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for HelloParamsManifestContributesAssistantBackend {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
+    pub reply: ::std::option::Option<HelloParamsSchema1>,
+    #[serde(flatten)]
+    pub extra: ::std::collections::HashMap<::std::string::String, HelloParamsSchema3>,
 }
 ///`HelloParamsManifestContributesExecutor`
 ///
@@ -12204,6 +12124,231 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Hel
         Self::Variant5(value)
     }
 }
+///`HelloParamsSchema2`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/helloParams___schema2"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema2"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum HelloParamsSchema2 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<HelloParamsSchema2>),
+    Variant5(::std::collections::HashMap<::std::string::String, HelloParamsSchema2>),
+}
+impl ::std::convert::From<&Self> for HelloParamsSchema2 {
+    fn from(value: &HelloParamsSchema2) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for HelloParamsSchema2 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for HelloParamsSchema2 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<HelloParamsSchema2>> for HelloParamsSchema2 {
+    fn from(value: ::std::vec::Vec<HelloParamsSchema2>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, HelloParamsSchema2>>
+    for HelloParamsSchema2
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, HelloParamsSchema2>) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`HelloParamsSchema3`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/helloParams___schema3"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema3"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum HelloParamsSchema3 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<HelloParamsSchema3>),
+    Variant5(::std::collections::HashMap<::std::string::String, HelloParamsSchema3>),
+}
+impl ::std::convert::From<&Self> for HelloParamsSchema3 {
+    fn from(value: &HelloParamsSchema3) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for HelloParamsSchema3 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for HelloParamsSchema3 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<HelloParamsSchema3>> for HelloParamsSchema3 {
+    fn from(value: ::std::vec::Vec<HelloParamsSchema3>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, HelloParamsSchema3>>
+    for HelloParamsSchema3
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, HelloParamsSchema3>) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`HelloParamsSchema4`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/helloParams___schema4"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/helloParams___schema4"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum HelloParamsSchema4 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<HelloParamsSchema4>),
+    Variant5(::std::collections::HashMap<::std::string::String, HelloParamsSchema4>),
+}
+impl ::std::convert::From<&Self> for HelloParamsSchema4 {
+    fn from(value: &HelloParamsSchema4) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for HelloParamsSchema4 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for HelloParamsSchema4 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<HelloParamsSchema4>> for HelloParamsSchema4 {
+    fn from(value: ::std::vec::Vec<HelloParamsSchema4>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, HelloParamsSchema4>>
+    for HelloParamsSchema4
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, HelloParamsSchema4>) -> Self {
+        Self::Variant5(value)
+    }
+}
 ///`HelloResult`
 ///
 /// <details><summary>JSON schema</summary>
@@ -12380,18 +12525,15 @@ impl<'de> ::serde::Deserialize<'de> for HelloResultFeaturesItem {
 ///          "type": "object",
 ///          "properties": {
 ///            "backend": {
-///              "type": "string",
-///              "enum": [
-///                "pacer",
-///                "executor"
-///              ]
+///              "$ref": "#/$defs/manifest___schema2"
 ///            },
 ///            "reply": {
-///              "type": "boolean",
-///              "const": true
+///              "$ref": "#/$defs/manifest___schema1"
 ///            }
 ///          },
-///          "additionalProperties": false
+///          "additionalProperties": {
+///            "$ref": "#/$defs/manifest___schema3"
+///          }
 ///        },
 ///        "classifier": {
 ///          "type": "object",
@@ -12853,18 +12995,15 @@ impl<'de> ::serde::Deserialize<'de> for ManifestCapabilitiesItemScopesItem {
 ///      "type": "object",
 ///      "properties": {
 ///        "backend": {
-///          "type": "string",
-///          "enum": [
-///            "pacer",
-///            "executor"
-///          ]
+///          "$ref": "#/$defs/manifest___schema2"
 ///        },
 ///        "reply": {
-///          "type": "boolean",
-///          "const": true
+///          "$ref": "#/$defs/manifest___schema1"
 ///        }
 ///      },
-///      "additionalProperties": false
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema3"
+///      }
 ///    },
 ///    "classifier": {
 ///      "type": "object",
@@ -13134,97 +13273,26 @@ impl ::std::default::Default for ManifestContributes {
 ///  "type": "object",
 ///  "properties": {
 ///    "backend": {
-///      "type": "string",
-///      "enum": [
-///        "pacer",
-///        "executor"
-///      ]
+///      "$ref": "#/$defs/manifest___schema2"
 ///    },
 ///    "reply": {
-///      "type": "boolean",
-///      "const": true
+///      "$ref": "#/$defs/manifest___schema1"
 ///    }
 ///  },
-///  "additionalProperties": false
+///  "additionalProperties": {
+///    "$ref": "#/$defs/manifest___schema3"
+///  }
 ///}
 /// ```
 /// </details>
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
 pub struct ManifestContributesAssistant {
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub backend: ::std::option::Option<ManifestContributesAssistantBackend>,
+    pub backend: ::std::option::Option<ManifestSchema2>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub reply: ::std::option::Option<bool>,
-}
-impl ::std::default::Default for ManifestContributesAssistant {
-    fn default() -> Self {
-        Self {
-            backend: Default::default(),
-            reply: Default::default(),
-        }
-    }
-}
-///`ManifestContributesAssistantBackend`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "enum": [
-///    "pacer",
-///    "executor"
-///  ]
-///}
-/// ```
-/// </details>
-#[derive(
-    ::serde::Deserialize,
-    ::serde::Serialize,
-    Clone,
-    Copy,
-    Debug,
-    Eq,
-    Hash,
-    Ord,
-    PartialEq,
-    PartialOrd,
-)]
-pub enum ManifestContributesAssistantBackend {
-    #[serde(rename = "pacer")]
-    Pacer,
-    #[serde(rename = "executor")]
-    Executor,
-}
-impl ::std::convert::From<&Self> for ManifestContributesAssistantBackend {
-    fn from(value: &ManifestContributesAssistantBackend) -> Self {
-        value.clone()
-    }
-}
-impl ::std::fmt::Display for ManifestContributesAssistantBackend {
-    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
-        match *self {
-            Self::Pacer => f.write_str("pacer"),
-            Self::Executor => f.write_str("executor"),
-        }
-    }
-}
-impl ::std::str::FromStr for ManifestContributesAssistantBackend {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        match value {
-            "pacer" => Ok(Self::Pacer),
-            "executor" => Ok(Self::Executor),
-            _ => Err("invalid value".into()),
-        }
-    }
-}
-impl ::std::convert::TryFrom<&str> for ManifestContributesAssistantBackend {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
+    pub reply: ::std::option::Option<ManifestSchema1>,
+    #[serde(flatten)]
+    pub extra: ::std::collections::HashMap<::std::string::String, ManifestSchema3>,
 }
 ///`ManifestContributesExecutor`
 ///
@@ -13662,6 +13730,231 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Man
     for ManifestSchema0
 {
     fn from(value: ::std::collections::HashMap<::std::string::String, ManifestSchema0>) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`ManifestSchema1`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/manifest___schema1"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema1"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ManifestSchema1 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<ManifestSchema1>),
+    Variant5(::std::collections::HashMap<::std::string::String, ManifestSchema1>),
+}
+impl ::std::convert::From<&Self> for ManifestSchema1 {
+    fn from(value: &ManifestSchema1) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for ManifestSchema1 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for ManifestSchema1 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ManifestSchema1>> for ManifestSchema1 {
+    fn from(value: ::std::vec::Vec<ManifestSchema1>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, ManifestSchema1>>
+    for ManifestSchema1
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, ManifestSchema1>) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`ManifestSchema2`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/manifest___schema2"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema2"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ManifestSchema2 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<ManifestSchema2>),
+    Variant5(::std::collections::HashMap<::std::string::String, ManifestSchema2>),
+}
+impl ::std::convert::From<&Self> for ManifestSchema2 {
+    fn from(value: &ManifestSchema2) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for ManifestSchema2 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for ManifestSchema2 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ManifestSchema2>> for ManifestSchema2 {
+    fn from(value: ::std::vec::Vec<ManifestSchema2>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, ManifestSchema2>>
+    for ManifestSchema2
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, ManifestSchema2>) -> Self {
+        Self::Variant5(value)
+    }
+}
+///`ManifestSchema3`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string"
+///    },
+///    {
+///      "type": "number"
+///    },
+///    {
+///      "type": "boolean"
+///    },
+///    {
+///      "type": "null"
+///    },
+///    {
+///      "type": "array",
+///      "items": {
+///        "$ref": "#/$defs/manifest___schema3"
+///      }
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {
+///        "$ref": "#/$defs/manifest___schema3"
+///      },
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum ManifestSchema3 {
+    Variant0(::std::string::String),
+    Variant1(f64),
+    Variant2(bool),
+    Variant3,
+    Variant4(::std::vec::Vec<ManifestSchema3>),
+    Variant5(::std::collections::HashMap<::std::string::String, ManifestSchema3>),
+}
+impl ::std::convert::From<&Self> for ManifestSchema3 {
+    fn from(value: &ManifestSchema3) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<f64> for ManifestSchema3 {
+    fn from(value: f64) -> Self {
+        Self::Variant1(value)
+    }
+}
+impl ::std::convert::From<bool> for ManifestSchema3 {
+    fn from(value: bool) -> Self {
+        Self::Variant2(value)
+    }
+}
+impl ::std::convert::From<::std::vec::Vec<ManifestSchema3>> for ManifestSchema3 {
+    fn from(value: ::std::vec::Vec<ManifestSchema3>) -> Self {
+        Self::Variant4(value)
+    }
+}
+impl ::std::convert::From<::std::collections::HashMap<::std::string::String, ManifestSchema3>>
+    for ManifestSchema3
+{
+    fn from(value: ::std::collections::HashMap<::std::string::String, ManifestSchema3>) -> Self {
         Self::Variant5(value)
     }
 }

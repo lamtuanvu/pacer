@@ -425,18 +425,14 @@
               "type": "object",
               "properties": {
                 "reply": {
-                  "type": "boolean"
+                  "$ref": "#/$defs/manifest___schema1"
                 },
                 "backend": {
-                  "type": "string",
-                  "enum": [
-                    "pacer",
-                    "executor"
-                  ]
+                  "$ref": "#/$defs/manifest___schema2"
                 }
               },
               "additionalProperties": {
-                "$ref": "#/$defs/manifest___schema1"
+                "$ref": "#/$defs/manifest___schema3"
               }
             },
             "pairing": {
@@ -705,6 +701,68 @@
         }
       ]
     },
+    "manifest___schema2": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/manifest___schema2"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/manifest___schema2"
+          }
+        }
+      ]
+    },
+    "manifest___schema3": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/manifest___schema3"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/manifest___schema3"
+          }
+        }
+      ]
+    },
     "helloParams": {
       "type": "object",
       "properties": {
@@ -786,18 +844,14 @@
                   "type": "object",
                   "properties": {
                     "reply": {
-                      "type": "boolean"
+                      "$ref": "#/$defs/helloParams___schema1"
                     },
                     "backend": {
-                      "type": "string",
-                      "enum": [
-                        "pacer",
-                        "executor"
-                      ]
+                      "$ref": "#/$defs/helloParams___schema2"
                     }
                   },
                   "additionalProperties": {
-                    "$ref": "#/$defs/helloParams___schema1"
+                    "$ref": "#/$defs/helloParams___schema3"
                   }
                 },
                 "pairing": {
@@ -1019,7 +1073,7 @@
             "type": "string"
           },
           "additionalProperties": {
-            "$ref": "#/$defs/helloParams___schema2"
+            "$ref": "#/$defs/helloParams___schema4"
           }
         },
         "grants": {
@@ -1146,6 +1200,68 @@
           },
           "additionalProperties": {
             "$ref": "#/$defs/helloParams___schema2"
+          }
+        }
+      ]
+    },
+    "helloParams___schema3": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helloParams___schema3"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/helloParams___schema3"
+          }
+        }
+      ]
+    },
+    "helloParams___schema4": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/helloParams___schema4"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/helloParams___schema4"
           }
         }
       ]

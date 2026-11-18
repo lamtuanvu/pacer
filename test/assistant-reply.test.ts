@@ -147,6 +147,7 @@ describe("the turn-level plugin interface", () => {
     // The contribution stays open, as it was before 1.11.0 (P14): unknown keys and reply:false still load.
     expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { reply: false } } }).success).toBe(true);
     expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { other: 1 } } }).success).toBe(true);
+    expect(manifestSchema.safeParse({ ...base, contributes: { assistant: { backend: "x", reply: "yes" } } }).success).toBe(true);
   });
 });
 

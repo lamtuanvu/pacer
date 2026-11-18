@@ -61,7 +61,12 @@ export type AssistantBackend = (typeof ASSISTANT_BACKENDS)[number];
  * contribution without `reply` keeps serving the older host-driven `assistant.respond` loop.
  */
 // Open like every other contribution before 1.11.0 (P14: a minor bump never narrows an accepted shape); only the two named keys are typed.
-export const assistantContribution = z.object({ reply: z.boolean().optional(), backend: z.enum(ASSISTANT_BACKENDS).optional() }).catchall(z.json());
+export const assistantContribution = z.object({
+  /** `true` when the plugin answers whole turns with `assistant.reply`; any other value keeps the older `assistant.respond` loop. */
+  reply: z.json().optional(),
+  /** `executor` when the plugin serves the executor backend; any other value, or none, serves `pacer`. */
+  backend: z.json().optional(),
+}).catchall(z.json());
 /** Keep the published manifest schema as strict as runtime validation. */
 export const manifestContributes = z.object({
   diagnostic: genericContribution.optional(),
@@ -105,7 +110,7 @@ export const manifestSchema = z.object({
     ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the orca capability or an orca executor backend sets host to >=1.10.0" });
   if (m.capabilities.some(c => c.name === "assistant.tool") && !hostFloorAtLeast(m.host, "1.11.0"))
     ctx.addIssue({ code: "custom", path: ["capabilities"], message: "a manifest with assistant.tool sets host to >=1.11.0" });
-  if (m.contributes.assistant?.reply && !hostFloorAtLeast(m.host, "1.11.0"))
+  if (m.contributes.assistant?.reply === true && !hostFloorAtLeast(m.host, "1.11.0"))
     ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with contributes.assistant.reply sets host to >=1.11.0" });
   if (m.capabilities.some(c => c.name === "identity.sign") && !hostFloorAtLeast(m.host, "1.4.0")) ctx.addIssue({ code: "custom", path: ["host"], message: "a manifest with the identity.sign capability sets host to >=1.4.0" });
   if (Object.hasOwn(m.contributes, "pairing")) {
