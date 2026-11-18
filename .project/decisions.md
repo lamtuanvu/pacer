@@ -88,6 +88,30 @@ Draft-readiness clarification in the same proposed amendment: require current re
 
 ## Exceptions
 
+### CT11-1092 — nightly channel, live checks deferred to the first nightly
+
+Granted by @lamtuanvu on 2026-11-18. The maintainer told the planner to complete and merge the nightly update channel PRs (#1089, #1092, #1093).
+
+Scope: PRs #1092 and #1093 only. The following CT-11 observations may be deferred until the first manual nightly after these merge:
+- the real desktop app following the nightly channel (the native updater checks both feeds, offers the newer version and never downgrades);
+- the fixture-app OTA scenarios 1–4, blocked by pinned fixture versions (#1091);
+- an interactive TUI render of the channel row;
+- the real `nightly.json` and `cli-nightly.json` feeds.
+
+What was verified instead:
+- CLI and API `update_channel` set, get and reject, checked live in a sandbox;
+- the embedded Settings › Updates control, against a stubbed desktop status;
+- the CLI update check against local fixture feeds;
+- TUI golden frames;
+- native updater unit and wire tests (`cargo test`).
+
+Independent code, UI/accessibility and QA reviews passed. This entry does not turn the deferred observations into a tested PASS, and it waives nothing else: later edits, failed checks, DCO and other evidence stay required. It expires when the first nightly is published, or on 2026-12-02, whichever comes first.
+
+Follow-up: after the first nightly, the maintainer confirms the following, and #1091 tracks the fixture scenarios:
+- an installation on `update_channel: nightly` is offered the nightly by `pacer update --check`;
+- the desktop app offers it in Settings › Updates;
+- switching back to stable does not downgrade.
+
 ### CT11-1063 — service update restart banner, live restart deferred
 
 Granted by @lamtuanvu on 2026-11-17. The maintainer merged PR #1063 at `b6c77e3` (merge `5674e74`) with the real-restart CT-11 observation still reported as UNVERIFIED in its evidence, then told the planner to proceed with recording the exception.
