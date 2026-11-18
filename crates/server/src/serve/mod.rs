@@ -783,11 +783,8 @@ pub async fn run_serve(
     ctx.env = env.clone();
     // Runtime environment cannot turn a generic front door into a native owner.
     env.remove("PACER_INTERNAL_NATIVE_BOOTSTRAP");
-    // After `ctx.env`: the owner's credential reaches the Core child alone.
-    if let Some(host) = &native_host {
-        let (name, key) = host.core_key();
-        env.insert(name, key);
-    }
+    // The owner's credential reaches the Core child alone, on its stdin.
+    let owner_key = native_host.as_ref().map(native_host::Guard::owner_key);
     #[cfg(target_os = "macos")]
     let native =
         native_context::NativeContext::prepare(&ctx.pacer_home, port, &core, _version, &_argv)?;
@@ -797,11 +794,11 @@ pub async fn run_serve(
     crate::core_process::record_serve(&env);
     #[cfg(target_os = "macos")]
     let core = Arc::new(match &native {
-        Some(native) => core_child::CoreChild::spawn_native(core, env, native.clone()),
-        None => core_child::CoreChild::spawn(core, env),
+        Some(native) => core_child::CoreChild::spawn_native(core, env, owner_key, native.clone()),
+        None => core_child::CoreChild::spawn(core, env, owner_key),
     });
     #[cfg(not(target_os = "macos"))]
-    let core = Arc::new(core_child::CoreChild::spawn(core, env));
+    let core = Arc::new(core_child::CoreChild::spawn(core, env, owner_key));
     if let Some(host) = &native_host {
         let core = core.clone();
         let link = move || {

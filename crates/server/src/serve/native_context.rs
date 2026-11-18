@@ -59,7 +59,13 @@ impl NativeContext {
     pub async fn shutdown_requested(&self) {
         self.stop.notified().await;
     }
-    pub fn start(&self, command: &mut Command) -> io::Result<(Child, JoinHandle<()>)> {
+    /// `secrets` follows Core's acknowledgement of the `B` descriptor byte on
+    /// the parent channel, so Core reads it only after authenticating the channel.
+    pub fn start(
+        &self,
+        command: &mut Command,
+        secrets: Vec<u8>,
+    ) -> io::Result<(Child, JoinHandle<()>)> {
         use std::process::Stdio;
         let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(10);
         let (parent, child_input) = UnixStream::pair()?;
@@ -87,6 +93,7 @@ impl NativeContext {
         let control = super::native_bootstrap::monitor(
             parent,
             remote,
+            secrets,
             broker.run(helpers),
             self.stop.clone(),
             deadline,
