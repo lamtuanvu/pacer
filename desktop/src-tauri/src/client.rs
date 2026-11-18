@@ -14,7 +14,7 @@ use pacer_desktop::ota::control::NativeConnection;
 #[cfg(feature = "native-socket")]
 use std::sync::Arc;
 
-fn pacer_home() -> PathBuf {
+pub(crate) fn pacer_home() -> PathBuf {
     std::env::var_os("PACER_HOME")
         .map(PathBuf::from)
         .unwrap_or_else(|| {
