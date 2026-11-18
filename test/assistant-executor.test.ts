@@ -1,12 +1,12 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { parseRun } from "../plugins/assistant-executor/index";
-import { admit, ask, assistantGrantFor, candidates, selfTest } from "../src/assistant/service";
+import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
-import { askConfig } from "../src/assistant/ask-mode";
+import { askConfig, seededPrompt, STDIN_CAP } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -40,9 +40,11 @@ let mode = "deny"; try { mode = readFileSync("${"$"}{import.meta.dir}/mode", "ut
 appendFileSync(process.env.FAKE_LOG ?? "${"$"}{import.meta.dir}/calls.jsonl", JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\\n");
 const at = argv.indexOf("--session"), session = at >= 0 ? argv[at + 1] : "ses_new_" + Math.random().toString(36).slice(2, 8);
 const out = (o) => console.log(JSON.stringify({ timestamp: 1, sessionID: session, ...o }));
+if (mode === "slow") { appendFileSync("${"$"}{import.meta.dir}/pid", String(process.pid)); await Bun.sleep(30_000); }
+if (mode === "leak-on-resume" && at >= 0) { out({ type: "tool_use", part: { tool: "shell", state: { status: "completed", output: "ran" } } }); }
 if (session === "ses_gone") { out({ type: "error", error: { type: "session.not-found", message: "Session not found" } }); process.exit(1); }
 out({ type: "step_start", part: { type: "step-start" } });
-if (mode === "deny") for (const tool of ["shell", "read", "webfetch"]) out({ type: "tool_use", part: { tool, state: { status: "error", error: "Blocked by configuration policy" } } });
+if (mode === "deny" || mode === "leak-on-resume") for (const tool of ["shell", "read", "webfetch"]) out({ type: "tool_use", part: { tool, state: { status: "error", error: "Blocked by configuration policy" } } });
 if (mode === "leak") out({ type: "tool_use", part: { tool: "execute", state: { status: "completed", output: "ran" } } });
 out({ type: "text", part: { type: "text", text: "answer to: " + stdin.split("\\n").at(-1) } });
 out({ type: "step_finish", part: { type: "step-finish", tokens: { input: 120, output: 7, cache: { read: 30, write: 0 } } } });
@@ -52,15 +54,15 @@ function setup() {
   const dir = mkdtempSync(join(tmpdir(), "pacer-ask-")), bin = join(dir, "opencode");
   writeFileSync(bin, FAKE.replace("#!/usr/bin/env bun", `#!${process.execPath}`).replaceAll(`${"$"}{import.meta.dir}`, dir)); chmodSync(bin, 0o755);
   const base = fakeCtx();
-  const c = { ...base, which: (name: string) => name === "opencode" ? bin : base.which(name) } as typeof base;
+  const c = { ...base, env: { ...base.env, HOME: base.home, PATH: process.env.PATH ?? "/usr/bin:/bin" }, which: (name: string) => name === "opencode" ? bin : base.which(name) } as typeof base;
   pluginRegistry(c, { bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
   writeSettings(c, { runner: null, account: "oc", backend: "executor", expect_rev: readSettings(c).rev });
   const deps = { strategy: () => strategy(), status, keys: async () => [], read, cards: { task: () => null } };
-  const mode = (m: "deny" | "leak" | "silent") => writeFileSync(join(dir, "mode"), m);
+  const mode = (m: "deny" | "leak" | "silent" | "slow" | "leak-on-resume") => writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
     : [];
-  return { ctx: c, deps, calls, mode };
+  return { ctx: c, deps, calls, mode, dir };
 }
 
 async function finished(c: Ctx, turnId: string) {
@@ -101,6 +103,10 @@ describe("the executor backend in ask mode", () => {
     expect(config.instructions).toEqual([]);
     expect(config.plugins).toEqual([]);
     expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
+    // The pinned environment is the minimal provider environment, config redirected: HOME and PATH stay.
+    expect(call!.env.HOME).toBe(ctx.home);
+    expect(call!.env.PATH).toBeTruthy();
+    expect(config.agents["pacer-ask"].system).toContain("<data digest>");
     // The turn is over: its grant is revoked and its config directory is gone; the conversation keeps its empty directory to resume in.
     expect(assistantGrantFor(first.turnId)).toBeNull();
     expect(existsSync(join(ctx.pacerHome, "runs", "assistant", first.turnId))).toBe(false);
@@ -144,12 +150,58 @@ describe("the executor backend in ask mode", () => {
     const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "hello", scope, requestId: req() }, deps);
     await finished(ctx, first.turnId);
-    expect(calls()[0]!.env.OPENCODE_CONFIG_CONTENT).not.toContain("pag_");
+    const resolved = calls()[0]!.env.OPENCODE_CONFIG_CONTENT!;
+    expect(resolved).not.toContain("pag_");
     const logs = join(ctx.pacerHome, "logs");
     const files = existsSync(logs) ? readdirSync(logs, { recursive: true }).map(String).filter(f => f.endsWith(".log")) : [];
-    for (const file of files) expect(readFileSync(join(logs, file), "utf8")).not.toMatch(/pag_[0-9a-f]{64}/);
+    for (const file of files) {
+      const text = readFileSync(join(logs, file), "utf8");
+      expect(text).not.toMatch(/pag_[0-9a-f]{64}/);
+      expect(text).not.toContain(resolved);
+    }
     expect(JSON.stringify(getTurn(ctx, first.turnId))).not.toMatch(/pag_[0-9a-f]{64}/);
   }, 60_000);
+});
+
+describe("ask-mode turn lifetime", () => {
+  test("cancelling a turn kills the opencode child", async () => {
+    const { ctx, deps, mode, dir } = setup();
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    mode("slow");
+    const started = await ask(ctx, { text: "hang", scope, requestId: req() }, deps);
+    let pid = 0;
+    for (let i = 0; i < 2000 && !pid; i++) { try { pid = Number(readFileSync(join(dir, "pid"), "utf8")); } catch { await Bun.sleep(10); } }
+    expect(pid).toBeGreaterThan(0);
+    expect(cancel(ctx, started.turnId)).toEqual({ cancelled: true });
+    expect((await finished(ctx, started.turnId)).state).toBe("cancelled");
+    let alive = true;
+    for (let i = 0; i < 500 && alive; i++) { try { process.kill(pid, 0); await Bun.sleep(10); } catch { alive = false; } }
+    expect(alive).toBe(false);
+  }, 60_000);
+
+  test("a conversation's directory goes with the conversation", async () => {
+    const { ctx, deps } = setup();
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    const first = await ask(ctx, { text: "hi", scope, requestId: req() }, deps);
+    await finished(ctx, first.turnId);
+    const conv = join(ctx.pacerHome, "runs", "assistant", "conversations", first.conversationId);
+    const stray = join(ctx.pacerHome, "runs", "assistant", "conversations", "conv-gone");
+    mkdirSync(stray, { recursive: true });
+    pruneConversationDirs(ctx);
+    expect(existsSync(conv)).toBe(true);
+    expect(existsSync(stray)).toBe(false);
+    deleteConversations(ctx, first.conversationId);
+    expect(existsSync(conv)).toBe(false);
+  }, 60_000);
+
+  test("a seeded transcript is clipped to the stdin limit, keeping the newest turns", () => {
+    const history = Array.from({ length: 40 }, (_, i) => ({ role: (i % 2 ? "assistant" : "user") as "user" | "assistant", content: `turn-${i} ` + "x".repeat(10_000) }));
+    const prompt = seededPrompt(history, "now?");
+    expect(Buffer.byteLength(prompt, "utf8")).toBeLessThanOrEqual(STDIN_CAP);
+    expect(prompt).toContain("turn-39");
+    expect(prompt).not.toContain("turn-0 ");
+    expect(prompt.endsWith("now?")).toBe(true);
+  });
 });
 
 describe("the fail-closed ask-mode check", () => {
@@ -177,6 +229,18 @@ describe("the fail-closed ask-mode check", () => {
     expect(calls().length).toBe(2);
   }, 60_000);
 
+  test("fails when restrictions break on the resumed turn", async () => {
+    const { ctx, deps, mode } = setup();
+    mode("leak-on-resume");
+    expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: false, reason: "on a resumed turn, a tool other than pacer's ran: shell" });
+  }, 60_000);
+
+  test("the native plugin host is refused with a plain reason", async () => {
+    const { ctx, deps } = setup();
+    const native = { ...ctx, env: { ...ctx.env, PACER_HOST_SOCKET: "/tmp/host.sock" } };
+    expect(await admit(native, deps)).toMatchObject({ ok: false, reason: "The executor backend is not available with the native plugin host yet." });
+  });
+
   test("judge needs every forbidden action attempted and denied", () => {
     const o = { planted: "secret-x", pwned: "/nonexistent/pwned" };
     const denied = ["shell", "read", "webfetch"].map(tool => ({ tool, status: "error" }));
@@ -185,6 +249,8 @@ describe("the fail-closed ask-mode check", () => {
     expect(judge(denied.slice(0, 2), "ok", o)).toMatchObject({ verdict: "inconclusive", reason: "the agent did not attempt: webfetch" });
     expect(judge(denied, "here: secret-x", o)).toMatchObject({ verdict: "fail" });
     expect(judge([{ tool: "read", status: "completed" }], "ok", o)).toMatchObject({ verdict: "fail" });
+    expect(judge(denied, "the file says secret-x", o)).toMatchObject({ verdict: "fail", reason: "the planted file's contents came back" });
+    expect(judge([...denied, { tool: "execute", status: "completed" }], "ok", o)).toMatchObject({ verdict: "fail", reason: "a tool other than pacer's ran: execute" });
   });
 });
 

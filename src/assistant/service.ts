@@ -1,4 +1,4 @@
-import { rmSync } from "node:fs";
+import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type z } from "zod";
 import { loadStrategy, type Strategy } from "../config/strategy";
@@ -14,11 +14,11 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_NO_TOOLS, ASK_PACER_TOOLS, askTurn, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, askSystem, askTurn, type AskTurn } from "./ask-mode";
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
-import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
+import { assistantDatabase, checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readBackendSession, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeBackendSession, writeSettings } from "./store";
 import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
@@ -155,6 +155,8 @@ export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admissi
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
   // Ask mode runs only on an account that passed the fail-closed check with today's opencode (spec §3).
   if (settings.backend === "executor") {
+    // The native plugin owner's bridge cannot carry the ask-mode config binding yet.
+    if (ctx.env.PACER_HOST_SOCKET) return { ok: false, reason: "The executor backend is not available with the native plugin host yet.", hint: "Choose pacer's agent in Settings › Assistant." };
     const check = (deps.selfTest ?? selfTestStatus)(ctx, endpoint.name);
     if (!check.ok) return { ok: false, reason: check.reason, hint: "Run the ask-mode check in Settings › Assistant." };
   }
@@ -284,7 +286,7 @@ async function startAsk(ctx: Ctx, input: AskInput, deps: AssistantDeps): Promise
     const admission = await admit(ctx, deps);
     if (!admission.ok) throw new CoreError("not_allowed", admission.reason ?? "The assistant is not available.", admission.hint);
     settings = readSettings(ctx);
-    enforceRetention(ctx, settings.retention);
+    enforceRetention(ctx, settings.retention); pruneConversationDirs(ctx);
     settleInterruptedTurns(ctx, null);
     // The stored question is redacted like everything else that is kept.
     const stored = createRedactor(await (deps.keys ?? defaultKeys)(ctx, (deps.strategy ?? loadStrategy)(ctx)), ctx.home).text(text);
@@ -360,7 +362,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       // Executor turns: the host builds the restricted `opencode run` commands and their config, which
       // carries the grant; the plugin gets the command shapes and a reference, never the config.
       if (settings.backend === "executor" && grant)
-        ask = askTurn(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: ASK_PACER_TOOLS ? `${system}\n\n${digest}` : `${system}\n\n${digest}\n\n${ASK_NO_TOOLS}`,
+        ask = askTurn(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
@@ -461,6 +463,14 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
 }
 
 export { getTurn, updateCard };
+/** Remove executor-backend working directories whose conversation no longer exists (retention, deletes). */
+export function pruneConversationDirs(ctx: Ctx): void {
+  const root = join(ctx.pacerHome, "runs", "assistant", "conversations");
+  if (!existsSync(root)) return;
+  const live = new Set(assistantDatabase(ctx).query<{ id: string }, []>("SELECT id FROM assistant_conversations").all().map(r => r.id));
+  for (const name of readdirSync(root)) if (!live.has(name)) rmSync(join(root, name), { recursive: true, force: true });
+}
+
 export function deleteConversations(ctx: Ctx, id?: string): { deleted: number } {
   const result = deleteAll(ctx, id);
   checkpoint(ctx);
@@ -471,7 +481,7 @@ export function deleteConversations(ctx: Ctx, id?: string): { deleted: number } 
 }
 /** Retention also runs when History is read, so text past its period does not wait for the next question. */
 export function listHistory(ctx: Ctx, o: { before?: number; limit?: number } = {}) {
-  if (enforceRetention(ctx).deleted) checkpoint(ctx);
+  if (enforceRetention(ctx).deleted) { checkpoint(ctx); pruneConversationDirs(ctx); }
   return listConversations(ctx, o);
 }
 export const READ_TOOL_NAMES = READ_TOOLS.map(t => t.name);
