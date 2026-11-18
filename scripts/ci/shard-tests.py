@@ -4,7 +4,7 @@
 Prints a JSON list of test files. Environment:
   SHARD_COUNT, SHARD_INDEX   which shard to print (default: shard 0 of 8)
   SHARD_EXCLUDE_MACOS=1      leave out files that only do work on macOS
-  SHARD_TIMINGS              durations file (default: test-durations.json here)
+  SHARD_TIMINGS              durations file (default: test-timings.json here)
   SHARD_MACOS_MANIFEST       macOS manifest (default: macos-tests.txt here)
 
 --macos prints the files the macOS job runs. --check-macos-manifest fails when a
@@ -82,7 +82,7 @@ def manifest_problems(manifest, test_files):
 
 def main():
     manifest_path = os.environ.get("SHARD_MACOS_MANIFEST", HERE / "macos-tests.txt")
-    timings_path = os.environ.get("SHARD_TIMINGS", HERE / "test-durations.json")
+    timings_path = os.environ.get("SHARD_TIMINGS", HERE / "test-timings.json")
     arguments = sys.argv[1:]
     if arguments not in ([], ["--macos"], ["--check-macos-manifest"]):
         sys.exit("usage: shard-tests.py [--macos | --check-macos-manifest]")

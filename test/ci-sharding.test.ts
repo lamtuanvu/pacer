@@ -96,21 +96,23 @@ test("the repository's macOS manifest covers every file that checks for darwin",
   expect(result.exitCode).toBe(0);
 });
 
-test("durations are read from each file's log group until the next file or the summary", () => {
+test("timings add up each file's test results from the shard logs", () => {
   const root = fixture({});
   mkdirSync(join(root, "logs"));
-  writeFileSync(join(root, "logs/shard.log"), [
-    "﻿2026-11-18T03:00:00.0000000Z ##[group]Run bun run test:sharded",
+  writeFileSync(join(root, "logs/shard0.log"), [
     "2026-11-18T03:00:01.0000000Z ##[group]test/a.test.ts:",
-    "2026-11-18T03:00:01.5000000Z (pass) a [1.00ms]",
-    "2026-11-18T03:00:02.0000000Z ##[endgroup]",
-    "2026-11-18T03:00:04.2500000Z ##[group]test/b.test.tsx:",
-    "2026-11-18T03:00:09.2500000Z Ran 2 tests across 2 files. [8.00s]",
+    "2026-11-18T03:00:01.5000000Z (pass) first [1.50s]",
+    "2026-11-18T03:00:02.0000000Z (fail) second [500.00ms]",
+    "2026-11-18T03:00:02.5000000Z ##[endgroup]",
+    "2026-11-18T03:00:03.0000000Z (pass) outside any file [9.00s]",
+    "2026-11-18T03:00:04.0000000Z ##[group]test/b.test.tsx:",
+    "2026-11-18T03:00:04.2500000Z (pass) third [250.00ms]",
+    "2026-11-18T03:00:04.5000000Z (skip) fourth",
   ].join("\n"));
   const output = join(root, "out.json");
-  const update = Bun.spawnSync(["python3", resolve("scripts/ci/update-test-durations.py"), "--logs", join(root, "logs"), "--output", output]);
-  expect(update.exitCode).toBe(0);
-  expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ "test/a.test.ts": 3.25, "test/b.test.tsx": 5 });
+  const extract = Bun.spawnSync(["python3", resolve("scripts/ci/extract-test-timings.py"), join(root, "logs"), output]);
+  expect(extract.exitCode).toBe(0);
+  expect(JSON.parse(readFileSync(output, "utf8"))).toEqual({ "test/a.test.ts": 2, "test/b.test.tsx": 0.25 });
 });
 
 const workflow = () => Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;

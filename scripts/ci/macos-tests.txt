@@ -12,7 +12,6 @@ only test/desktop-update-helper-channel.test.ts
 only test/desktop-update-helper-failure.test.ts
 only test/desktop-update-helper-receipt.test.ts
 only test/desktop-update-native-compiled.test.ts
-only test/live-control-browser.test.ts
 only test/live-control-native-observer.test.ts
 only test/live-control-permission-chip.test.ts
 only test/live-ota-control-resolver.test.ts
@@ -23,6 +22,7 @@ mixed test/desktop-disk-image.test.ts
 mixed test/desktop-native-paired-bootstrap.test.ts
 mixed test/desktop-update-native.test.ts
 mixed test/identity-per-home.test.ts
+mixed test/live-control-browser.test.ts
 mixed test/live-harness.test.ts
 mixed test/live-ota-build.test.ts
 mixed test/live-ota-paired-build.test.ts

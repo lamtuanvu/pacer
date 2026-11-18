@@ -33,9 +33,10 @@ main pushes, scheduled and manual runs alike:
   `scripts/ci/macos-tests.txt` marks `only` or `mixed`, whenever the full suite is selected.
 
 `scripts/ci/shard-tests.py` packs files into shards by the durations in
-`scripts/ci/test-durations.json`; a file without a recorded duration counts as the
-median. Refresh the durations from a full CI run with
-`python3 scripts/ci/update-test-durations.py --run <run-id>`.
+`scripts/ci/test-timings.json`; a file without a recorded duration counts as the
+median. To refresh the durations, save each Linux shard's log from a full CI run with
+`gh run view --job <job-id> --log > <dir>/shard<N>.log`, then run
+`python3 scripts/ci/extract-test-timings.py <dir> scripts/ci/test-timings.json`.
 
 The manifest marks each file that checks for darwin. `only` files need macOS for every
 test and leave the Linux shards, `mixed` files run on both, and `linux` files only pick
