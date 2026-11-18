@@ -25,16 +25,17 @@ fn settings_default_parse_and_guard_revisions() {
     let defaults = read_settings(db).unwrap().unwrap();
     assert_eq!(
         defaults.to_json().to_string(),
-        r#"{"runner":null,"account":null,"limits":{"maxInputTokens":32000,"maxOutputTokens":8000,"maxToolRounds":6,"turnsPerDay":50,"deadlineMs":120000},"retention":{"days":30,"conversations":200},"rev":1}"#
+        r#"{"runner":null,"account":null,"backend":"pacer","limits":{"maxInputTokens":32000,"maxOutputTokens":8000,"maxToolRounds":6,"turnsPerDay":50,"deadlineMs":120000},"retention":{"days":30,"conversations":200},"rev":1}"#
     );
     assert!(matches!(
-        write_settings(db, None, None, None, None, 2).unwrap(),
+        write_settings(db, None, None, None, None, None, 2).unwrap(),
         SettingsWrite::Conflict(1)
     ));
     let SettingsWrite::Saved(saved) = write_settings(
         db,
         Some("r".into()),
         Some("ep".into()),
+        None,
         None,
         Some(vec![7, 9]),
         1,
@@ -66,7 +67,7 @@ fn settings_default_parse_and_guard_revisions() {
             .unwrap();
         assert!(read_settings(db).unwrap().is_none(), "{bad}");
         assert!(matches!(
-            write_settings(db, None, None, None, None, 2).unwrap(),
+            write_settings(db, None, None, None, None, None, 2).unwrap(),
             SettingsWrite::Unusable
         ));
     }

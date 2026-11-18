@@ -90,6 +90,23 @@ fn param_issues_match_zod_text_and_order() {
         ),
         "ok"
     );
+    // `backend: z.enum(["pacer","executor"]).optional()`: absent is fine, anything else is one issue, last.
+    assert_eq!(
+        message(
+            set,
+            json!({"runner":null,"account":null,"expect_rev":1,"backend":"executor"})
+        ),
+        "ok"
+    );
+    for backend in [json!("x"), json!(5), json!(null)] {
+        assert_eq!(
+            message(
+                set,
+                json!({"runner":null,"account":null,"expect_rev":1,"backend":backend})
+            ),
+            "backend: Invalid option: expected one of \"pacer\"|\"executor\""
+        );
+    }
 }
 
 #[test]
@@ -104,7 +121,7 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     assert!(!endpoint_ok(&strategy, "missing", None));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
-        r#"[{"account":"ep","models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
+        r#"[{"account":"ep","backend":"pacer","available":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
     );
     assert!(
         array_index("0") && array_index("42") && !array_index("01") && !array_index("4294967295")

@@ -12,7 +12,7 @@ use serde_json::{Map, Value, json};
 type Result<T> = std::result::Result<T, StoreError>;
 
 const SCHEMA: &str = "
-    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, backend TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS assistant_conversations_updated ON assistant_conversations(updated_at);
     CREATE TABLE IF NOT EXISTS assistant_turns(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, at REAL NOT NULL,
@@ -56,6 +56,8 @@ pub const RETENTION: [Field; 2] = [
 pub struct Settings {
     pub runner: Option<String>,
     pub account: Option<String>,
+    /// `pacer` unless the stored row names `executor`; a row written before the column exists reads as `pacer`.
+    pub backend: String,
     pub limits: Vec<i64>,
     pub retention: Vec<i64>,
     pub rev: i64,
@@ -65,6 +67,7 @@ impl Settings {
         Self {
             runner: None,
             account: None,
+            backend: "pacer".to_owned(),
             limits: LIMITS.iter().map(|f| f.default).collect(),
             retention: RETENTION.iter().map(|f| f.default).collect(),
             rev: 1,
@@ -90,7 +93,7 @@ impl Settings {
     }
     /// `AssistantSettings` as `readSettings` returns it.
     pub fn to_json(&self) -> Value {
-        json!({"runner":self.runner,"account":self.account,"limits":self.limits_json(),"retention":self.retention_json(),"rev":self.rev})
+        json!({"runner":self.runner,"account":self.account,"backend":self.backend,"limits":self.limits_json(),"retention":self.retention_json(),"rev":self.rev})
     }
 }
 
@@ -170,6 +173,14 @@ pub fn database(store: &mut TaskStore) -> Result<&Connection> {
     let db = store.connection()?;
     db.execute_batch("PRAGMA secure_delete = ON")?;
     db.execute_batch(SCHEMA)?;
+    // A store written before `backend` gained it at the end; the column is nullable and reads as `pacer`.
+    let mut probe = db.prepare("PRAGMA table_info(assistant_settings)")?;
+    let columns = probe
+        .query_map([], |row| row.get::<_, String>(1))?
+        .collect::<rusqlite::Result<Vec<_>>>()?;
+    if !columns.iter().any(|column| column == "backend") {
+        db.execute_batch("ALTER TABLE assistant_settings ADD COLUMN backend TEXT")?;
+    }
     db.execute_batch("PRAGMA foreign_keys = ON")?;
     Ok(db)
 }
@@ -178,7 +189,7 @@ pub fn database(store: &mut TaskStore) -> Result<&Connection> {
 pub fn read_settings(db: &Connection) -> Result<Option<Settings>> {
     let row = db
         .query_row(
-            "SELECT runner,account,limits,retention,rev FROM assistant_settings WHERE id=1",
+            "SELECT runner,account,backend,limits,retention,rev FROM assistant_settings WHERE id=1",
             [],
             |r| {
                 Ok((
@@ -187,11 +198,12 @@ pub fn read_settings(db: &Connection) -> Result<Option<Settings>> {
                     r.get::<_, SqlValue>(2)?,
                     r.get::<_, SqlValue>(3)?,
                     r.get::<_, SqlValue>(4)?,
+                    r.get::<_, SqlValue>(5)?,
                 ))
             },
         )
         .optional()?;
-    let Some((runner, account, limits, retention, rev)) = row else {
+    let Some((runner, account, backend, limits, retention, rev)) = row else {
         return Ok(Some(Settings::defaults()));
     };
     let text = |v: SqlValue| match v {
@@ -211,11 +223,20 @@ pub fn read_settings(db: &Connection) -> Result<Option<Settings>> {
         Some(Settings {
             runner: text(runner)?,
             account: text(account)?,
+            backend: backend_name(backend),
             limits: fields(limits, &LIMITS)?,
             retention: fields(retention, &RETENTION)?,
             rev: rev?,
         })
     })())
+}
+
+/// `row.backend === "executor" ? "executor" : "pacer"`.
+fn backend_name(value: SqlValue) -> String {
+    match value {
+        SqlValue::Text(name) if name == "executor" => name,
+        _ => "pacer".to_owned(),
+    }
 }
 
 pub enum SettingsWrite {
@@ -225,11 +246,13 @@ pub enum SettingsWrite {
 }
 
 /// `writeSettings`. A present `limits` or `retention` is already a full,
-/// default-filled object (`schema.partial()` applies field defaults).
+/// default-filled object (`schema.partial()` applies field defaults). An absent `backend`
+/// keeps the stored choice, so an older client's save never moves a turn to another backend.
 pub fn write_settings(
     db: &Connection,
     runner: Option<String>,
     account: Option<String>,
+    backend: Option<String>,
     limits: Option<Vec<i64>>,
     retention: Option<Vec<i64>>,
     expect_rev: i64,
@@ -244,12 +267,13 @@ pub fn write_settings(
     let next = Settings {
         runner,
         account,
+        backend: backend.unwrap_or(current.backend),
         limits: limits.unwrap_or(current.limits),
         retention: retention.unwrap_or(current.retention),
         rev: current.rev + 1,
     };
-    tx.execute("INSERT INTO assistant_settings(id,runner,account,limits,retention,rev) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev",
-        params![next.runner, next.account, next.limits_json().to_string(), next.retention_json().to_string(), next.rev])?;
+    tx.execute("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,backend=excluded.backend,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev",
+        params![next.runner, next.account, next.backend, next.limits_json().to_string(), next.retention_json().to_string(), next.rev])?;
     tx.commit()?;
     Ok(SettingsWrite::Saved(next))
 }

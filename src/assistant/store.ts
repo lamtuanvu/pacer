@@ -2,14 +2,14 @@ import { randomUUID } from "node:crypto";
 import { taskDatabase } from "../tasks/store";
 import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
-import { type ActionCard, type AssistantLimits, type AssistantRetention, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ConversationView, type TurnView, assistantLimitsSchema, retentionSchema } from "./types";
+import { type ActionCard, type AssistantBackend, type AssistantLimits, type AssistantRetention, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ConversationView, type TurnView, assistantLimitsSchema, retentionSchema } from "./types";
 
 /** Assistant tables live in the service's private SQLite store (0600, WAL, secure_delete) under PACER_HOME. */
 export function assistantDatabase(ctx: Ctx) {
   const db = taskDatabase(ctx);
   db.run("PRAGMA secure_delete = ON");
   db.exec(`
-    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
+    CREATE TABLE IF NOT EXISTS assistant_settings(id INTEGER PRIMARY KEY CHECK(id=1), runner TEXT, account TEXT, backend TEXT, limits TEXT NOT NULL, retention TEXT NOT NULL, rev INTEGER NOT NULL);
     CREATE TABLE IF NOT EXISTS assistant_conversations(id TEXT PRIMARY KEY, title TEXT NOT NULL, created_at REAL NOT NULL, updated_at REAL NOT NULL);
     CREATE INDEX IF NOT EXISTS assistant_conversations_updated ON assistant_conversations(updated_at);
     CREATE TABLE IF NOT EXISTS assistant_turns(id TEXT PRIMARY KEY, conversation_id TEXT NOT NULL REFERENCES assistant_conversations(id) ON DELETE CASCADE, seq INTEGER NOT NULL, at REAL NOT NULL,
@@ -19,26 +19,30 @@ export function assistantDatabase(ctx: Ctx) {
       cache_read INTEGER, cache_write INTEGER, coverage TEXT NOT NULL DEFAULT 'unknown' CHECK(coverage IN ('measured','partial','unknown')));
     CREATE INDEX IF NOT EXISTS assistant_usage_at ON assistant_usage(at);
   `);
+  // A store written before `backend` gained it at the end; the column is nullable and reads as `pacer`.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(assistant_settings)").all().some(column => column.name === "backend"))
+    db.run("ALTER TABLE assistant_settings ADD COLUMN backend TEXT");
   db.run("PRAGMA foreign_keys = ON");
   return db;
 }
 
-const defaults = (): AssistantSettings => ({ runner: null, account: null, limits: assistantLimitsSchema.parse({}), retention: retentionSchema.parse({}), rev: 1 });
+const defaults = (): AssistantSettings => ({ runner: null, account: null, backend: "pacer", limits: assistantLimitsSchema.parse({}), retention: retentionSchema.parse({}), rev: 1 });
 
 export function readSettings(ctx: Ctx): AssistantSettings {
-  const row = assistantDatabase(ctx).query<{ runner: string | null; account: string | null; limits: string; retention: string; rev: number }, []>("SELECT runner,account,limits,retention,rev FROM assistant_settings WHERE id=1").get();
+  const row = assistantDatabase(ctx).query<{ runner: string | null; account: string | null; backend: string | null; limits: string; retention: string; rev: number }, []>("SELECT runner,account,backend,limits,retention,rev FROM assistant_settings WHERE id=1").get();
   if (!row) return defaults();
-  return { runner: row.runner, account: row.account, limits: assistantLimitsSchema.parse(JSON.parse(row.limits)), retention: retentionSchema.parse(JSON.parse(row.retention)), rev: row.rev };
+  return { runner: row.runner, account: row.account, backend: row.backend === "executor" ? "executor" : "pacer", limits: assistantLimitsSchema.parse(JSON.parse(row.limits)), retention: retentionSchema.parse(JSON.parse(row.retention)), rev: row.rev };
 }
 
-export function writeSettings(ctx: Ctx, input: { runner: string | null; account: string | null; limits?: Partial<AssistantLimits>; retention?: Partial<AssistantRetention>; expect_rev: number }): AssistantSettings {
+export function writeSettings(ctx: Ctx, input: { runner: string | null; account: string | null; backend?: AssistantBackend; limits?: Partial<AssistantLimits>; retention?: Partial<AssistantRetention>; expect_rev: number }): AssistantSettings {
   const db = assistantDatabase(ctx);
   return db.transaction(() => {
     const current = readSettings(ctx);
     if (current.rev !== input.expect_rev) throw new CoreError("conflict", "Assistant settings changed since you loaded them.", "Reload the settings and try again.", { rev: current.rev });
-    const next: AssistantSettings = { runner: input.runner, account: input.account, limits: assistantLimitsSchema.parse({ ...current.limits, ...input.limits }), retention: retentionSchema.parse({ ...current.retention, ...input.retention }), rev: current.rev + 1 };
-    db.query("INSERT INTO assistant_settings(id,runner,account,limits,retention,rev) VALUES(1,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev")
-      .run(next.runner, next.account, JSON.stringify(next.limits), JSON.stringify(next.retention), next.rev);
+    // Absent keeps the stored choice, so an older client's save never moves a turn to another backend.
+    const next: AssistantSettings = { runner: input.runner, account: input.account, backend: input.backend ?? current.backend, limits: assistantLimitsSchema.parse({ ...current.limits, ...input.limits }), retention: retentionSchema.parse({ ...current.retention, ...input.retention }), rev: current.rev + 1 };
+    db.query("INSERT INTO assistant_settings(id,runner,account,backend,limits,retention,rev) VALUES(1,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET runner=excluded.runner,account=excluded.account,backend=excluded.backend,limits=excluded.limits,retention=excluded.retention,rev=excluded.rev")
+      .run(next.runner, next.account, next.backend, JSON.stringify(next.limits), JSON.stringify(next.retention), next.rev);
     return next;
   }).immediate();
 }

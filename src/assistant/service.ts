@@ -6,15 +6,18 @@ import { computeStatus, type Status } from "../engine/status";
 import { configuredSecrets, readKey } from "../endpoints/keys";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
-import { assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS } from "../plugins/protocol";
+import { assistantReplyResult, assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS, type AssistantBackend } from "../plugins/protocol";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
-import { createRedactor } from "./redact";
+import { setAssistantDeltaSink } from "./delta";
+import { buildDigest } from "./digest";
+import { createRedactor, type Redactor } from "./redact";
 import { checkpoint, conversationWindow, deleteConversations as deleteAll, enforceRetention, listConversations, finishTurn, getTurn, readSettings, settleInterruptedTurns, startTurn, turnsToday, updateCard, usageToday, writeSettings } from "./store";
 import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
-import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, scopeSchema } from "./types";
+import type { AssistantToolState, AssistantToolTurn } from "./turn-tools";
+import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
 
 export const ASSISTANT_PLUGIN = "pacer-assistant";
 
@@ -74,12 +77,64 @@ function endpointFor(strategy: Strategy, settings: AssistantSettings) {
   return model ? { name: settings.account!, account, model, baseUrl: account.connection.base_url } : null;
 }
 
+// ---- Which plugin answers, and how ------------------------------------------------------------
+
+/** The backend a plugin's `assistant` contribution serves; `pacer` when it names none, as before. */
+const backendOf = (contribution: Record<string, unknown>): AssistantBackend => (contribution.backend === "executor" ? "executor" : "pacer");
+
+/** The plugin serving `backend`, whether or not it provides `assistant.reply`. Null when none does. */
+export function assistantProvider(ctx: Ctx, backend: AssistantBackend): string | null {
+  try { return pluginRegistry(ctx).findAll(ctx, "assistant", c => backendOf(c) === backend)[0] ?? null; }
+  catch { return null; } // a plugin configuration this process cannot read serves no plugin
+}
+
+/** The plugin that answers this backend's turns with `assistant.reply`; null keeps today's loop. */
+export function replyProvider(ctx: Ctx, backend: AssistantBackend): string | null {
+  try {
+    return pluginRegistry(ctx).findAll(ctx, "assistant", c => c.reply === true && backendOf(c) === backend)[0] ?? null;
+  } catch { return null; }
+}
+
+/** Each round of the `assistant.respond` loop may ask for at most this many tool calls. */
+const MAX_TOOL_CALLS_PER_ROUND = 4;
+const TASK_ID = /\bt-\d{8}-\d{6}-[0-9a-f]{4}\b/g;
+
+/**
+ * Run one tool call of a turn, on both paths: `propose_action` becomes a card the user confirms,
+ * and every other call runs through the read pipeline (permitted op, parameter parsing, scope,
+ * projection, redaction, size cap) and comes back as delimited data. The call is charged to the
+ * turn's tool-round budget first, so one past `maxToolRounds` is refused. `capability.assistant.tool`
+ * and the `assistant.respond` loop both end here, so a card, a citation and a log line look the same
+ * whichever backend asked for the tool.
+ */
+export async function runAssistantTool(ctx: Ctx, call: ProposedCall, o: { read: ReadOp; scope: AssistantScope; redactor: Redactor; cards: CardDeps; state: AssistantToolState }): Promise<{ content: string; ok: boolean }> {
+  const state = o.state;
+  if (state.rounds.used >= state.rounds.max) throw new CoreError("not_allowed", "That turn has used its tool-call budget.");
+  state.rounds.used++;
+  if (call.name === "propose_action") {
+    const proposal = proposalSchema.safeParse(call.arguments);
+    const card = proposal.success ? buildCard(ctx, proposal.data, o.cards, o.redactor) : { ok: false as const, note: "A proposed action was dropped: it was malformed." };
+    state.toolLog.push({ name: call.name, op: proposal.success ? proposal.data.op : null });
+    if (card.ok) { state.cards.push(card.card); return { content: "The proposal is shown to the user as a card. It has not run.", ok: true }; }
+    state.notes.push(card.note);
+    return { content: card.note, ok: false };
+  }
+  const out = await runReadTool(ctx, call.name, call.arguments, { read: o.read, scope: o.scope, redactor: o.redactor });
+  for (const id of out.content.match(TASK_ID) ?? []) state.seenTasks.add(id);
+  state.toolLog.push({ name: call.name, ok: out.ok, args: o.redactor.json(call.arguments) });
+  // Tool results travel as delimited data, apart from the instructions.
+  return { content: `<data tool="${call.name}">\n${out.content}\n</data>`, ok: out.ok };
+}
+
 export interface Admission { ok: boolean; reason?: string; hint?: string }
 
 /** Pacing for one turn. A refused turn is never moved to another account. */
 export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admission> {
   const settings = readSettings(ctx);
   if (!settings.account) return { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
+  // A stored backend no plugin serves is refused like a missing account (spec §Phases 1).
+  if (settings.backend === "executor" && !assistantProvider(ctx, "executor"))
+    return { ok: false, reason: "No plugin answers the assistant's executor backend.", hint: "Choose pacer's agent in Settings › Assistant." };
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const endpoint = endpointFor(strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
@@ -128,9 +183,18 @@ export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1
 // ---- Turns -----------------------------------------------------------------------------------------------------
 
 export type StreamFrame = { delta: string } | { status: string } | { done: { state: TurnView["state"]; error?: string } };
-interface Live { frames: StreamFrame[]; listeners: Set<(frame: StreamFrame) => void>; closed: boolean; cancelled: boolean; stop: () => void; stopped: Promise<never>; abort: AbortController }
+interface Live { frames: StreamFrame[]; listeners: Set<(frame: StreamFrame) => void>; closed: boolean; cancelled: boolean; /** The backend streamed text itself, so the final answer must not be replayed as one more delta. */ streamed: boolean; stop: () => void; stopped: Promise<never>; abort: AbortController }
 const live = new Map<string, Live>();
 const inflight = new Map<string, string>();
+
+// `assistant.delta` notifications of a plugin serving the assistant point land on this turn's
+// stream: the frames `subscribeTurn` delivers, in memory only, never the event outbox.
+setAssistantDeltaSink((turnId, kind, text) => {
+  const entry = live.get(turnId);
+  if (!entry || entry.closed) return;
+  if (kind === "text") entry.streamed = true;
+  emit(turnId, kind === "text" ? { delta: text } : { status: text });
+});
 
 /** Subscribe to a turn's ephemeral stream. Frames replay from the start; nothing is persisted here. */
 export function subscribeTurn(turnId: string, listener: (frame: StreamFrame) => void): (() => void) | null {
@@ -159,7 +223,6 @@ const SYSTEM = (now: number, scope: AssistantScope) => [
 
 const OMITTED = "[omitted: over the input limit]";
 const approxTokens = (text: string) => Math.ceil(text.length / 4);
-const TASK_ID = /\bt-\d{8}-\d{6}-[0-9a-f]{4}\b/g;
 
 export interface AskInput { conversationId?: string; text: string; scope: AssistantScope; requestId: string }
 const requests = new Map<string, Promise<{ conversationId: string; turnId: string }>>();
@@ -201,7 +264,7 @@ async function startAsk(ctx: Ctx, input: AskInput, deps: AssistantDeps): Promise
   let stop = () => {};
   const stopped = new Promise<never>((_, reject) => { stop = () => reject(new CoreError("conflict", "Cancelled.")); });
   stopped.catch(() => undefined);
-  live.set(started.turnId, { frames: [], listeners: new Set(), closed: false, cancelled: false, stop, stopped, abort: new AbortController() });
+  live.set(started.turnId, { frames: [], listeners: new Set(), closed: false, cancelled: false, streamed: false, stop, stopped, abort: new AbortController() });
   void runTurn(ctx, started, text, scope, settings, deps).finally(() => { inflight.delete(ctx.pacerHome); });
   return started;
 }
@@ -219,8 +282,10 @@ export function cancel(ctx: Ctx, turnId: string): { cancelled: boolean } {
 async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string }, question: string, scope: AssistantScope, settings: AssistantSettings, deps: AssistantDeps): Promise<void> {
   const usage: AssistantUsage = { input: 0, output: 0, coverage: "unknown" };
   const cards: ActionCard[] = [], notes: string[] = [], toolLog: unknown[] = [], seenTasks = new Set<string>();
+  // One tool state for the turn: the loop charges rounds × calls, a plugin backend one call per round.
+  const toolState: AssistantToolState = { cards, notes, toolLog, seenTasks, rounds: { used: 0, max: settings.limits.maxToolRounds * MAX_TOOL_CALLS_PER_ROUND } };
   const entry = live.get(turn.turnId)!;
-  let state: TurnView["state"] = "done", answer = "", error: string | null = null, measured = 0, calls = 0;
+  let state: TurnView["state"] = "done", answer = "", error: string | null = null, measured = 0, calls = 0, reported: Coverage | null = null;
   try {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
     const endpoint = endpointFor(strategy, settings);
@@ -229,59 +294,83 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const read = deps.read ?? defaultRead(deps);
     const respond = deps.respond ?? (async (c: Ctx, params: unknown, deadlineMs: number, signal?: AbortSignal) => pluginRegistry(c).call(c, ASSISTANT_PLUGIN, "assistant.respond", params, { deadlineMs, signal }));
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
-    const messages: AssistantMessage[] = [...history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]), { role: "user", content: question }];
     const system = SYSTEM(ctx.now, scope);
-    // The input cap is the host's, enforced on the context it builds, before every call.
-    const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(toolDefinitions())) + messages.reduce((n, m) => n + approxTokens(m.content) + (m.toolCalls ? approxTokens(JSON.stringify(m.toolCalls)) : 0), 0);
-    while (inputTokens() > settings.limits.maxInputTokens && messages.length > 1) messages.shift();
-    if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-    const tools = toolDefinitions();
-    // Over the cap, the oldest tool results go first, then the oldest turns. The cap holds before every call.
-    const fit = () => {
-      while (inputTokens() > settings.limits.maxInputTokens) {
-        const tool = messages.find(m => m.role === "tool" && m.content !== OMITTED);
-        if (tool) { tool.content = OMITTED; continue; }
-        if (messages.length > 1) { messages.shift(); continue; }
-        break;
-      }
-    };
-    for (let round = 0; ; round++) {
-      if (entry.cancelled) { state = "cancelled"; break; }
-      fit();
+    const replyTo = replyProvider(ctx, settings.backend);
+    if (replyTo) {
+      // The plugin that serves this backend answers the whole turn: the host still builds the
+      // prompt, runs every tool through capability.assistant.tool, and owns the cards and accounting.
+      const tools = toolDefinitions();
+      const transcript = history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]);
+      const digest = await buildDigest(ctx, { read, scope, redactor, account: endpoint.name });
+      // The input cap is the host's, enforced on the context it builds, before the call.
+      const inputTokens = () => approxTokens(system) + approxTokens(digest) + approxTokens(question) + transcript.reduce((n, m) => n + approxTokens(m.content), 0);
+      while (transcript.length && inputTokens() > settings.limits.maxInputTokens) transcript.shift();
       if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
-      const final = round >= settings.limits.maxToolRounds || usage.output >= settings.limits.maxOutputTokens;
+      const deadlineMs = Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS);
+      // The same arrays the loop fills, with the capability's own budget: one call per tool round.
+      const assistantTurn: AssistantToolTurn = { turnId: turn.turnId, scope, read, redactor, cards: deps.cards ?? defaultCards, state: { ...toolState, rounds: { used: 0, max: settings.limits.maxToolRounds } } };
       const params = {
-        conversationId: turn.conversationId, turnId: turn.turnId, messages, tools: final ? [] : tools,
-        context: { system, backend: { kind: "endpoint" as const, account: endpoint.name, model: endpoint.model, baseUrl: endpoint.baseUrl } },
-        limits: { maxOutputTokens: Math.max(100, settings.limits.maxOutputTokens - usage.output), maxToolRounds: final ? 0 : settings.limits.maxToolRounds - round, deadlineMs: Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS) },
+        conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
+        backend: settings.backend, model: endpoint.model, system, digest, tools, history: transcript, message: question,
+        limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
-      emit(turn.turnId, { status: round === 0 ? "Thinking…" : "Reading…" });
-      const raw = await Promise.race([respond(ctx, params, params.limits.deadlineMs, entry.abort.signal), entry.stopped]);
-      const parsed = assistantRespondResult.safeParse(raw);
+      emit(turn.turnId, { status: "Thinking…" });
+      const raw = await Promise.race([
+        pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, { deadlineMs, signal: entry.abort.signal, assistantTurn }),
+        entry.stopped,
+      ]);
+      const parsed = assistantReplyResult.safeParse(raw);
       if (!parsed.success) throw new CoreError("plugin_refused", "The assistant backend returned an invalid answer.");
-      const result: z.infer<typeof assistantRespondResult> = parsed.data;
-      usage.input += result.usage.input; usage.output += result.usage.output;
-      if (result.usage.cacheRead !== undefined) usage.cacheRead = (usage.cacheRead ?? 0) + result.usage.cacheRead;
-      if (result.usage.coverage === "measured") measured++;
-      calls++;
-      if (entry.cancelled) { state = "cancelled"; break; }
-      const requested = final ? [] : (result.toolCalls ?? []).slice(0, 4);
-      if (!requested.length) { answer = redactor.text(result.message); break; }
-      messages.push({ role: "assistant", content: result.message, toolCalls: requested as ProposedCall[] });
-      for (const call of requested) {
-        if (call.name === "propose_action") {
-          const proposal = proposalSchema.safeParse(call.arguments);
-          const card = proposal.success ? buildCard(ctx, proposal.data, deps.cards ?? defaultCards, redactor) : { ok: false as const, note: "A proposed action was dropped: it was malformed." };
-          if (card.ok) { cards.push(card.card); messages.push({ role: "tool", toolCallId: call.id, content: "The proposal is shown to the user as a card. It has not run." }); }
-          else { notes.push(card.note); messages.push({ role: "tool", toolCallId: call.id, content: card.note }); }
-          toolLog.push({ name: call.name, op: proposal.success ? proposal.data.op : null });
-          continue;
+      const result: z.infer<typeof assistantReplyResult> = parsed.data;
+      usage.input = result.usage.input; usage.output = result.usage.output;
+      if (result.usage.cacheRead !== undefined) usage.cacheRead = result.usage.cacheRead;
+      if (result.usage.cacheWrite !== undefined) usage.cacheWrite = result.usage.cacheWrite;
+      reported = result.usage.coverage;
+      if (entry.cancelled) state = "cancelled";
+      else answer = redactor.text(result.message);
+    } else {
+      const messages: AssistantMessage[] = [...history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]), { role: "user", content: question }];
+      // The input cap is the host's, enforced on the context it builds, before every call.
+      const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(toolDefinitions())) + messages.reduce((n, m) => n + approxTokens(m.content) + (m.toolCalls ? approxTokens(JSON.stringify(m.toolCalls)) : 0), 0);
+      while (inputTokens() > settings.limits.maxInputTokens && messages.length > 1) messages.shift();
+      if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
+      const tools = toolDefinitions();
+      // Over the cap, the oldest tool results go first, then the oldest turns. The cap holds before every call.
+      const fit = () => {
+        while (inputTokens() > settings.limits.maxInputTokens) {
+          const tool = messages.find(m => m.role === "tool" && m.content !== OMITTED);
+          if (tool) { tool.content = OMITTED; continue; }
+          if (messages.length > 1) { messages.shift(); continue; }
+          break;
         }
-        const out = await runReadTool(ctx, call.name, call.arguments, { read, scope, redactor });
-        for (const id of out.content.match(TASK_ID) ?? []) seenTasks.add(id);
-        toolLog.push({ name: call.name, ok: out.ok, args: redactor.json(call.arguments) });
-        // Tool results travel as delimited data, apart from the instructions.
-        messages.push({ role: "tool", toolCallId: call.id, content: `<data tool="${call.name}">\n${out.content}\n</data>` });
+      };
+      for (let round = 0; ; round++) {
+        if (entry.cancelled) { state = "cancelled"; break; }
+        fit();
+        if (inputTokens() > settings.limits.maxInputTokens) throw new CoreError("invalid_input", "That question is longer than the assistant's input limit.");
+        const final = round >= settings.limits.maxToolRounds || usage.output >= settings.limits.maxOutputTokens;
+        const params = {
+          conversationId: turn.conversationId, turnId: turn.turnId, messages, tools: final ? [] : tools,
+          context: { system, backend: { kind: "endpoint" as const, account: endpoint.name, model: endpoint.model, baseUrl: endpoint.baseUrl } },
+          limits: { maxOutputTokens: Math.max(100, settings.limits.maxOutputTokens - usage.output), maxToolRounds: final ? 0 : settings.limits.maxToolRounds - round, deadlineMs: Math.min(settings.limits.deadlineMs, ASSISTANT_MAX_DEADLINE_MS) },
+        };
+        emit(turn.turnId, { status: round === 0 ? "Thinking…" : "Reading…" });
+        const raw = await Promise.race([respond(ctx, params, params.limits.deadlineMs, entry.abort.signal), entry.stopped]);
+        const parsed = assistantRespondResult.safeParse(raw);
+        if (!parsed.success) throw new CoreError("plugin_refused", "The assistant backend returned an invalid answer.");
+        const result: z.infer<typeof assistantRespondResult> = parsed.data;
+        usage.input += result.usage.input; usage.output += result.usage.output;
+        if (result.usage.cacheRead !== undefined) usage.cacheRead = (usage.cacheRead ?? 0) + result.usage.cacheRead;
+        if (result.usage.coverage === "measured") measured++;
+        calls++;
+        if (entry.cancelled) { state = "cancelled"; break; }
+        const requested = final ? [] : (result.toolCalls ?? []).slice(0, MAX_TOOL_CALLS_PER_ROUND);
+        if (!requested.length) { answer = redactor.text(result.message); break; }
+        messages.push({ role: "assistant", content: result.message, toolCalls: requested as ProposedCall[] });
+        for (const call of requested) {
+          const out = await runAssistantTool(ctx, call, { read, scope, redactor, cards: deps.cards ?? defaultCards, state: toolState });
+          messages.push({ role: "tool", toolCallId: call.id, content: out.content });
+        }
       }
     }
     if (state === "done" && !answer) answer = "I could not put an answer together within my limits. Try a narrower question.";
@@ -292,11 +381,12 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const core = e instanceof CoreError ? e : null;
     error = core ? core.message : "The assistant could not answer.";
   }
-  usage.coverage = calls === 0 || measured === 0 ? "unknown" : measured === calls ? "measured" : "partial";
+  usage.coverage = reported ?? (calls === 0 || measured === 0 ? "unknown" : measured === calls ? "measured" : "partial");
   const citations: Citation[] = [...seenTasks].filter(id => answer.includes(id)).slice(0, 6).map(id => ({ label: id, href: `#/tasks/${encodeURIComponent(id)}` }));
   if (state === "cancelled") answer = "";
   finishTurn(ctx, turn.turnId, { state, answer: answer || null, error, cards, citations, toolCalls: toolLog, usage });
-  if (answer) emit(turn.turnId, { delta: answer });
+  // A backend that streamed text already showed it; replaying the whole answer would show it twice.
+  if (answer && !entry.streamed) emit(turn.turnId, { delta: answer });
   emit(turn.turnId, { done: { state, ...(error ? { error } : {}) } });
   // The outbox carries no text: other windows only learn that History changed.
   await publish(ctx, [{ type: "assistant", data: { turnId: turn.turnId, conversationId: turn.conversationId, state: state === "done" ? "done" : state === "cancelled" ? "cancelled" : "error" } }]);
@@ -326,11 +416,14 @@ export function refreshCard(ctx: Ctx, turnId: string, cardId: string, deps: Assi
   return updateCard(ctx, turnId, cardId, { state: "pending", result: undefined, params: { ...card.params, expect_rev: task.rev } });
 }
 
-/** Endpoint accounts the assistant could run on, with the models each offers. */
+/** Endpoint accounts the assistant could run on, with the models each offers. Phase 1 offers only
+ * the `pacer` backend; an executor row arrives with the plugin that can serve it (spec §5). */
 export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   return Object.entries(strategy.accounts).flatMap(([name, account]) => account.kind === "endpoint" && account.connection ? [{
     account: name,
+    backend: "pacer" as AssistantBackend,
+    available: true,
     models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
     runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
     isPlanner: strategy.planner.account === name,

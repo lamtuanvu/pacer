@@ -1,6 +1,7 @@
 {
   "refusal": "scoped capability requires an active owning call",
   "scoped": {
+    "capability.assistant.tool": "assistant.tool",
     "capability.fs.beginWrite": "fs.write",
     "capability.fs.commitWrite": "fs.write",
     "capability.fs.list": "fs.read",

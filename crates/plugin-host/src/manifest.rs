@@ -501,6 +501,21 @@ pub fn parse_manifest(raw: Value) -> Result<ParsedManifest, ManifestError> {
     if (has_capability("orca") || orca_backend) && !floor_at_least([1, 10, 0]) {
         return Err(ManifestError::Invalid("orca requires host >=1.10.0".into()));
     }
+    if has_capability("assistant.tool") && !floor_at_least([1, 11, 0]) {
+        return Err(ManifestError::Invalid(
+            "assistant.tool requires host >=1.11.0".into(),
+        ));
+    }
+    let assistant_reply = contributes
+        .and_then(|points| points.get("assistant"))
+        .and_then(|value| value.get("reply"))
+        .and_then(Value::as_bool)
+        == Some(true);
+    if assistant_reply && !floor_at_least([1, 11, 0]) {
+        return Err(ManifestError::Invalid(
+            "assistant reply requires host >=1.11.0".into(),
+        ));
+    }
     if has_capability("identity.sign") && !floor_at_least([1, 4, 0]) {
         return Err(ManifestError::Invalid(
             "identity.sign requires host >=1.4.0".into(),
