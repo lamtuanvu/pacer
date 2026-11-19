@@ -147,6 +147,22 @@ function loadDefinition(ctx: Ctx, run: RunRow): WorkflowDef | null {
 
 const isTerminal = (run: RunRow | null): boolean => !run || RUN_TERMINAL.includes(run.status);
 
+/** A step's outgoing edges whose `when` holds for `result` (an edge without one
+ *  always fires), with their definition indexes. Never throws: a malformed
+ *  condition or result evaluates to false (condition.ts). */
+function matchedEdges(def: WorkflowDef, run: RunRow, stepId: string, result: unknown): { edge: WorkflowDef["edges"][number]; index: number }[] {
+  const matched: { edge: WorkflowDef["edges"][number]; index: number }[] = [];
+  def.edges.forEach((edge, index) => {
+    if (edge.from !== stepId) return;
+    if (edge.when !== undefined) {
+      const parsed = parseCondition(edge.when);
+      if (!parsed.ast || !evalCondition(parsed.ast, { result, brief: run.brief })) return;
+    }
+    matched.push({ edge, index });
+  });
+  return matched;
+}
+
 /** Attaches a delegated task to its step row and settles at once when the task is
  *  already terminal (a fast settle, or the request-id dedupe returned a prior task).
  *  The settlement is claimed atomically inside onTaskSettled, so a concurrent tick
@@ -503,10 +519,12 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
  *  the successor row, the back-edge loop patch and the edge's trigger land in one
  *  transaction, and an edge whose trigger already exists is skipped — so a
  *  concurrent or replayed advancement can neither re-increment a loop counter nor
- *  start a successor twice (Review Focus: run correctness 8). Delegation happens
- *  after the transaction. The end decision and failRun are naturally idempotent and
- *  stay outside it. Once every edge is decided, the step row records `advanced_at`,
- *  the "nothing left to do" marker the tick's re-advance query reads. */
+ *  start a successor twice (Review Focus: run correctness 8). A skipped edge still
+ *  counts as started, so a replay never evaluates the end edges the original pass
+ *  dropped (round 4 review). Delegation happens after the transaction. The end
+ *  decision and failRun are naturally idempotent and stay outside it. Once every
+ *  edge is decided, the step row records `advanced_at`, the "nothing left to do"
+ *  marker the tick's re-advance query reads. */
 async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: StepRow, result: unknown, e: EngineOptions): Promise<void> {
   const run = getRun(ctx, runId);
   if (isTerminal(run)) return;
@@ -522,15 +540,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     try { updateStep(ctx, keyOf(settled), { advancedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
   };
   const back = backEdgeIndexes(def);
-  const matched: { edge: (typeof def.edges)[number]; index: number }[] = [];
-  def.edges.forEach((edge, index) => {
-    if (edge.from !== stepId) return;
-    if (edge.when !== undefined) {
-      const parsed = parseCondition(edge.when);
-      if (!parsed.ast || !evalCondition(parsed.ast, { result, brief: run!.brief })) return;
-    }
-    matched.push({ edge, index });
-  });
+  const matched = matchedEdges(def, run!, stepId, result);
   if (matched.length === 0) {
     await failRun(ctx, runId, `no edge matched after ${stepId}`, undefined, e.deps);
     markAdvanced();
@@ -561,7 +571,18 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       ...(target.type === "fanout" ? { branches: target.branches } : {}),
       ...(back.has(index) ? { back: { key: `${edge.from}->${edge.to}`, maxLoops: edge.maxLoops ?? 0 } } : {}),
     });
-    if (outcome.kind === "handled") continue; // this edge already fired: no loop increment, no delegate
+    if (outcome.kind === "handled") {
+      // An already-fired edge still owns the run's continuation: the original pass
+      // may have crashed before it evaluated its end edges, so a replay must not
+      // fall through to them (round 4 review). A human successor whose row is
+      // waiting re-asserts the run's waiting status, idempotently — the original
+      // pass may have crashed before its patchRun (round 4 review).
+      if (target.type === "human" && getRun(ctx, runId)?.status === "running") {
+        await patchRun(ctx, runId, { status: "waiting" });
+      }
+      started = true; // handled or fired, a started successor owns the continuation
+      continue;
+    }
     if (outcome.kind === "loop-limit") {
       await failRun(ctx, runId, `loop limit ${edge.from}->${edge.to}`, outcome.loops, e.deps);
       markAdvanced();
@@ -603,9 +624,27 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     // the finishing step's settlement.
     const rows = stepsOfRun(ctx, runId);
     const busy = rows.some(s => {
-      if (s.status !== "running" && s.status !== "waiting") return false;
-      if (s.branch === undefined) return true;
-      return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+      const same = s.runId === settled.runId && s.stepId === settled.stepId && s.attempt === settled.attempt
+        && (s.branch ?? undefined) === (settled.branch ?? undefined);
+      if (same) return false; // the row currently being advanced: its own end is being decided here
+      if (s.status === "running" || s.status === "waiting") {
+        if (s.branch === undefined) return true;
+        return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+      }
+      // A done row whose advancement never landed (advanced_at unset) may still
+      // fire its successors — or fail the run — so the end waits until its own
+      // advancement recorded advanced_at (round 4 review). Branch rows are covered
+      // by their attempt's join row, as above. A branch-less row that would fire
+      // only end edges no longer holds work back: counting it busy forever would
+      // let two rows defer on each other and stall the run, so the end applies —
+      // the row's own end decision reaches the same outcome.
+      if (s.status !== "done" || s.advancedAt !== undefined) return false;
+      if (s.branch !== undefined) return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+      const sibling = matchedEdges(def, run!, s.stepId, s.result);
+      return sibling.length === 0 || sibling.some(({ edge }) => {
+        const to = def.steps[edge.to];
+        return !to || to.type !== "end";
+      });
     });
     if (busy) return;
     await patchRun(ctx, runId, { status: "done" });

@@ -978,3 +978,128 @@ test("two concurrent joins of the same attempt leave one join row and a healthy 
   expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "check" && s.branch === undefined)).toHaveLength(1);
   expect(getRun(ctx, r.id)!.status).toBe("done");
 });
+
+// An end edge must not finish the run while a sibling is done but not yet advanced
+// (advanced_at unset): its own advanceFrom may still fire successors or fail the
+// run (round 4 review).
+const deferredEnd: WorkflowDef = {
+  id: "t/defer-end",
+  version: 1,
+  steps: {
+    kick: { type: "agent", kind: "research", prompt: "Kick" },
+    a: { type: "agent", kind: "research", prompt: "A" },
+    h: { type: "human", question: { text: "H?", kind: "yes_no" } },
+    b: { type: "agent", kind: "research", prompt: "B" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "kick", to: "a" },
+    { from: "kick", to: "h" },
+    { from: "kick", to: "done" },
+    { from: "a", to: "done" },
+    { from: "h", to: "b" },
+    { from: "b", to: "done" },
+  ],
+  entry: "kick",
+};
+
+test("a deferred end does not finish the run while a done sibling has not advanced yet", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, deferredEnd, "source");
+  const { deps, stopped } = fakeDeps();
+  const r = await start(ctx, "t/defer-end", deps, "B");
+  const kick = stepsOfRun(ctx, r.id).find(s => s.stepId === "kick")!;
+  recordStepResult(ctx, kick.taskId!, { ok: 0 });
+  settle(ctx, kick.taskId!);
+  await onTaskSettled(ctx, kick.taskId!, undefined, deps); // a and h start; kick's end edge is skipped
+  // a reaches its end edge first: it is deferred while h is still waiting, so a is
+  // done but never advanced.
+  const a = stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!;
+  recordStepResult(ctx, a.taskId!, { ok: 1 });
+  settle(ctx, a.taskId!);
+  await onTaskSettled(ctx, a.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting"); // h is waiting; a's end edge is deferred
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!.advancedAt).toBeUndefined();
+  // h is answered; while its advanceFrom has not yet fired its successor b, the
+  // tick re-advances a. h is done but not advanced: the end stays deferred, the
+  // run keeps running, and b starts.
+  const answered = answerHumanStep(ctx, r.id, "h", "yes", getRun(ctx, r.id)!.rev, deps);
+  await Promise.resolve(); // one microtask: h's answer is claimed, its advance still pending
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!, undefined, deps);
+  await answered;
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  const b = stepsOfRun(ctx, r.id).find(s => s.stepId === "b")!;
+  expect(b.status).toBe("running");
+  expect(stopped).toEqual([]); // b's task was never stopped by a premature end
+  // b settles and the run ends normally.
+  recordStepResult(ctx, b.taskId!, { ok: 2 });
+  settle(ctx, b.taskId!);
+  await onTaskSettled(ctx, b.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+});
+
+// A replay whose successor edge was already handled must not evaluate the end
+// edges the original pass dropped: the handled edge counts as started
+// (round 4 review).
+const replayEnd: WorkflowDef = {
+  id: "t/replay-end",
+  version: 1,
+  steps: {
+    a: { type: "agent", kind: "research", prompt: "A" },
+    b: { type: "agent", kind: "research", prompt: "B" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "a", to: "b" },
+    { from: "a", to: "done" },
+    { from: "b", to: "done" },
+  ],
+  entry: "a",
+};
+
+test("a replayed advancement whose successor edge was already fired skips the end edge", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, replayEnd, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/replay-end", deps, "B");
+  const a = stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!;
+  recordStepResult(ctx, a.taskId!, { ok: 1 });
+  settle(ctx, a.taskId!);
+  await onTaskSettled(ctx, a.taskId!, undefined, deps); // b started; a's end edge was skipped
+  const b = stepsOfRun(ctx, r.id).find(s => s.stepId === "b")!;
+  recordStepResult(ctx, b.taskId!, { ok: 2 });
+  settle(ctx, b.taskId!);
+  // b's settlement is claimed but never advanced (the crash before advanceFrom).
+  expect(claimStepSettlement(ctx, { runId: r.id, stepId: "b", attempt: 1 }, { status: "done", endedAt: ctx.now })?.status).toBe("done");
+  // The crash on a: its edges already fired (b's trigger exists), advanced_at lost.
+  workflowDatabase(ctx).query("UPDATE workflow_steps SET advanced_at = NULL WHERE run_id = ? AND step_id = 'a'").run(r.id);
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!, undefined, deps);
+  // The replay finds a->b already handled: it counts as started, so a->end is not
+  // evaluated and the run is not finished while b's advancement is still owed.
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  expect(inputs).toHaveLength(2); // no successor was delegated again
+  // b's re-advance finishes the run normally.
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "b")!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+});
+
+test("a replayed human edge re-asserts the run's waiting status", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/demo", deps, "B");
+  const s1 = stepsOfRun(ctx, r.id)[0]!;
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  await onTaskSettled(ctx, s1.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  // The crash: the human edge already fired (the approve row exists, waiting) but
+  // the run patch to waiting was lost — the run is back to running.
+  workflowDatabase(ctx).query("UPDATE workflow_runs SET status = 'running' WHERE id = ?").run(r.id);
+  workflowDatabase(ctx).query("UPDATE workflow_steps SET advanced_at = NULL WHERE run_id = ? AND step_id = 'draft'").run(r.id);
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "draft")!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting"); // the replay re-asserted waiting, idempotently
+  // and the human step still answers normally afterwards
+  await answerHumanStep(ctx, r.id, "approve", "approve", getRun(ctx, r.id)!.rev, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+});
