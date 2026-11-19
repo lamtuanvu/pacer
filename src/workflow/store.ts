@@ -258,6 +258,12 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   return row ? stepFromRow(row) : null;
 }
 
+/** Running step rows without a task id, oldest first: the orphans (a crash between
+ *  writing the row and attaching the delegated task) that every tick reconciles. */
+export function orphanSteps(ctx: Ctx): StepRow[] {
+  return workflowDatabase(ctx).query<StepDbRow, []>("SELECT * FROM workflow_steps WHERE status = 'running' AND task_id IS NULL ORDER BY started_at").all().map(stepFromRow);
+}
+
 /** Attaches the delegated task id to a step row that was inserted before
  *  delegation (engine.ts startAgentStep/startFanout). */
 export function attachStepTask(ctx: Ctx, key: StepKey, taskId: string): StepRow {

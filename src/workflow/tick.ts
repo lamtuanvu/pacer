@@ -11,8 +11,9 @@ import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import type { TaskState } from "../tasks/types";
 import { taskChangesSince } from "../tasks/changes";
-import { attachStepTask, getCursor, listRuns, setCursor, stepByTask, stepsOfRun, taskByRequestId } from "./store";
-import { defaultEngineDeps, failRun, onTaskSettled, stepRequestId, type EngineDeps } from "./engine";
+import { attachStepTask, getCursor, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun, taskByRequestId, type StepRow } from "./store";
+import { defaultEngineDeps, failRun, onTaskSettled, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
+import type { StepRow } from "./store";
 
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 
@@ -52,6 +53,29 @@ async function settleOne(ctx: Ctx, taskId: string, runId: string | undefined, sp
 
 interface RescanOutcome { handled: number; aborted: boolean }
 
+/** Reconciles orphan step rows (status running, no task id) on every tick, not only
+ *  after a cursor gap (Review Focus: run correctness 2): a task reserved under the
+ *  row's request id is attached and settled, and a row older than 60 seconds without
+ *  a task is delegated again under the same attempt and request id. With no orphans
+ *  this is one cheap indexed query. */
+async function reconcileOrphans(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<RescanOutcome> {
+  const orphans = orphanSteps(ctx);
+  let handled = 0;
+  for (const row of orphans) {
+    try {
+      const outcome = await reconcileOrphanStep(ctx, row, spawn, deps);
+      if (outcome === "attached" || outcome === "redelegated") handled++;
+    } catch (err) {
+      if (isTransientError(err)) return { handled, aborted: true };
+      // A deterministic re-delegation failure fails the run, like a failed start in
+      // advanceFrom; a failing failRun leaves the row for the next tick.
+      try { await failRun(ctx, row.runId, `re-delegate failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+      catch { /* the next tick retries the row */ }
+    }
+  }
+  return { handled, aborted: false };
+}
+
 /** Persists the cursor; a lock failure only delays it, since settlements are idempotent. */
 function saveCursor(ctx: Ctx, seq: number): void {
   try { setCursor(ctx, seq); } catch { /* the next tick retries from the last saved seq */ }
@@ -88,6 +112,11 @@ async function rescanRunningSteps(ctx: Ctx, spawn: SpawnRunner | undefined, deps
 export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<{ handled: number; rescanned: boolean }> {
   let cursor = getCursor(ctx);
   let handled = 0;
+  // Orphan reconciliation first, on every tick (not only after a gap): a recovered
+  // step may then also have its own change waiting in the log below, which is a no-op.
+  const orphans = await reconcileOrphans(ctx, spawn, deps);
+  if (orphans.aborted) return { handled: handled + orphans.handled, rescanned: false };
+  handled += orphans.handled;
   for (;;) {
     const { changes, head, gap } = taskChangesSince(ctx, cursor);
     if (gap) {

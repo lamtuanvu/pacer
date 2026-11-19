@@ -17,7 +17,9 @@ import type { WorkflowDef } from "../src/workflow/schema";
  *  brief and a request-id dedupe, so tasks settle through updateTask. */
 function fakeDeps() {
   const byRequest = new Map<string, TaskRecord>();
+  const inputs: Parameters<EngineDeps["delegate"]>[1][] = [];
   const delegate: EngineDeps["delegate"] = async (ctx, input) => {
+    inputs.push(input);
     const prior = input.requestId ? byRequest.get(input.requestId) : undefined;
     if (prior) return readTask(ctx, prior.id) ?? prior;
     const task = createTask(ctx, {
@@ -35,7 +37,7 @@ function fakeDeps() {
     delegate,
     stopTask: (ctx, id) => updateTask(ctx, id, t => { t.state = "stopped"; }),
   };
-  return { deps };
+  return { deps, inputs };
 }
 
 const settle = (ctx: Ctx, taskId: string, state: TaskState = "done") => updateTask(ctx, taskId, t => { t.state = state; });
@@ -184,8 +186,53 @@ test("a backlog longer than one change page still settles steps after row 500", 
   expect(getCursor(ctx)).toBe(head); // the cursor drained the whole backlog
 });
 
-test("a step row written before its delegation attaches its task during a gap rescan", async () => {
+test("an orphan step row is reconciled on every tick, without a gap", async () => {
   const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
+  const task = createTask(ctx, {
+    brief: { goal: "Draft", repo: tmpDir() }, kind: "research", requestedExecutor: null, timeoutS: 600,
+    requestId: `wf:${run.id}:draft:1:`,
+  });
+  // The crash: the step row exists with no task id, the task already settled.
+  insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
+  updateStep(ctx, { runId: run.id, stepId: "draft", attempt: 1 }, { result: { ok: true } });
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  // No cursor gap: the cursor sits at head, so reconciliation must happen anyway.
+  const head = taskChangesSince(ctx, getCursor(ctx)).head;
+  setCursor(ctx, head);
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.rescanned).toBe(false);
+  const row = stepsOfRun(ctx, run.id).find(s => s.stepId === "draft")!;
+  expect(row.taskId).toBe(task.id);
+  expect(row.status).toBe("done");
+  expect(getRun(ctx, run.id)!.status).toBe("waiting"); // the recovered step advanced the run
+});
+
+test("an orphan without a task is re-delegated after 60 seconds, and not before", async () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home });
+  addDefinition(ctx, demo, "source");
+  const { deps, inputs } = fakeDeps();
+  const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
+  insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
+  await advanceRuns(ctx, undefined, deps);
+  expect(inputs).toHaveLength(0); // the delegation may still be in flight: nothing happens
+  const young = stepsOfRun(ctx, run.id).find(s => s.stepId === "draft")!;
+  expect(young.status).toBe("running");
+  expect(young.taskId).toBeUndefined();
+
+  const ctx2 = fakeCtx({ home, now: ctx.now + 61 });
+  await advanceRuns(ctx2, undefined, deps);
+  expect(inputs).toHaveLength(1); // delegated again, once
+  const row = stepsOfRun(ctx2, run.id).find(s => s.stepId === "draft")!;
+  expect(row.taskId).toBeDefined();
+  expect(row.attempt).toBe(1); // the same attempt, so the request id stays consistent
+  expect(readTask(ctx2, row.taskId!)!.requestId).toBe(`wf:${run.id}:draft:1:`);
+});
+
+test("a step row written before its delegation attaches its task during a gap rescan", async () => {  const ctx = fakeCtx();
   addDefinition(ctx, demo, "source");
   const { deps } = fakeDeps();
   const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });

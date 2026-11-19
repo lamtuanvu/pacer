@@ -276,6 +276,40 @@ async function startFanout(ctx: Ctx, run: RunRow, stepId: string, stepDef: Fanou
   return first!;
 }
 
+/** Reconciles one orphan step row (status running, no task id) outside a cursor gap
+ *  (Review Focus: run correctness 2): the task reserved under the row's request id is
+ *  attached, and settled at once when it is already terminal; when no task exists and
+ *  the row is older than 60 seconds (the delegation it waited for is long gone), the
+ *  step is delegated again under the same attempt and request id. Returns what it did. */
+export async function reconcileOrphanStep(
+  ctx: Ctx,
+  row: StepRow,
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+): Promise<"attached" | "redelegated" | "pending" | "skipped"> {
+  const run = getRun(ctx, row.runId);
+  if (!run || isTerminal(run)) return "skipped";
+  const key: StepKey = { runId: row.runId, stepId: row.stepId, attempt: row.attempt, ...(row.branch !== undefined ? { branch: row.branch } : {}) };
+  const prior = taskByRequestId(ctx, stepRequestId(row.runId, row.stepId, row.attempt, row.branch));
+  if (prior) {
+    await attachAndSettle(ctx, key, prior.id, { deps, spawn });
+    return "attached";
+  }
+  if (ctx.now - row.startedAt < 60) return "pending"; // the delegation may still be in flight
+  const def = loadDefinition(ctx, run);
+  const stepDef = def?.steps[row.stepId];
+  if (!def || !stepDef) return "skipped";
+  if (stepDef.type === "fanout") {
+    if (row.branch === undefined) return "skipped"; // a fan-out's branch-less row is its join marker, never a task
+    await startFanoutBranch(ctx, run, row.stepId, stepDef, row.branch, row.attempt, { deps, spawn });
+  } else if (stepDef.type === "agent") {
+    await startAgentStep(ctx, run, def, row.stepId, stepDef, row.branch, row.attempt, { deps, spawn });
+  } else {
+    return "skipped";
+  }
+  return "redelegated";
+}
+
 /** Starts a run: creates the run record and starts its entry step. A failing start
  *  fails the run (never leaves it silently stuck) and rethrows. */
 export async function startRun(
