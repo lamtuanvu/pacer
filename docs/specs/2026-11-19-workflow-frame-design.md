@@ -30,7 +30,7 @@ Everything in this design applies only to **runs**: work started with `run.start
 
 How this is enforced:
 
-- A task belongs to a run only if the engine created it. The marker is a `run` reference on the task or work node, and no other path sets it.
+- A task belongs to a run only if the engine created it. The marker is the link from the task to a step instance in the engine's own tables (`workflow_steps`), written only by the engine; task records themselves are not changed.
 - Every new behaviour is gated on that marker: the engine's settlement handler, the run grant, the wider messaging default, structured-question routing to an orchestrator, merging into the run branch, run priority and pausing. A task without the marker never enters any of them.
 - Run priorities map onto the existing numeric task priority, so ordering between run tasks and other tasks uses the existing rule. No new scheduling logic touches ordinary tasks.
 - The structured question form is additive. An ordinary task can still use plain `ask`/`answer` exactly as today, and its questions go where they go today.
@@ -175,7 +175,7 @@ The engine is an event handler on task settlement plus a few tables. Its whole j
 6. Start child runs for `choose_workflow` and `generate`, and finish the parent step with the child's result.
 7. Apply the run's policies (re-plan, auto mode).
 
-Each step instance is a dispatcher work node under the run's root, so dispatcher limits, dependency waits, capacity, executor choice, fallback and liveness apply unchanged. The engine owns the graph's shape; the dispatcher owns who runs each task and when. A generated plan's dependencies become dispatcher dependency edges.
+From Phase 3 (generated plans), each step instance is a dispatcher work node under the run's root; Phase 1 starts steps as plain delegated tasks, because it has no dependencies to express. Either way, dispatcher limits, dependency waits, capacity, executor choice, fallback and liveness apply unchanged. The engine owns the graph's shape; the dispatcher owns who runs each task and when. A generated plan's dependencies become dispatcher dependency edges.
 
 **Returning a step result.** An agent reports its result through a new operation, `step.result` (CLI `pacer step result`, and an MCP tool), with a JSON body. The engine validates it at once against the schema the workflow declares and returns the errors to the caller, so the agent can fix it in the same turn. A task that settles without a valid result is failed with the validation error, and the orchestrator decides (retry with the error, send back, or escalate). Results are not parsed out of the free-text report.
 
