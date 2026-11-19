@@ -53,8 +53,7 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   (Rust front door; also on a sandbox stopped with down --keep);
                                   --stop-service stops an attached sandbox service mid-session
   native-plugin-owner --id <id>   crash, backoff, second-serve refusal and restart cycle of the
-                                  service's plugin owner (any Rust-front-door sandbox; the owner
-                                  starts by default, and --native-plugin-host is still accepted)
+                                  service's plugin owner (--native-plugin-host sandbox)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout

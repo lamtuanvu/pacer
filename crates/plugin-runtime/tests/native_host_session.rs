@@ -133,10 +133,9 @@ async fn shutdown_stops_children_while_a_caller_holds_the_owner() {
 }
 
 #[test]
-fn explicit_zero_leaves_default_serve_dark() {
-    // The default is on now; the documented escape keeps a serve dark.
-    assert!(serve_starts_reverse_bridge_by_default());
-    assert!(!native_plugin_host_enabled(Some("0"), None));
+fn flag_off_leaves_default_serve_dark() {
+    assert!(!serve_starts_reverse_bridge_by_default());
+    assert!(!native_plugin_host_enabled(None, None));
     assert!(env::var_os(HOST_SOCKET_ENV).is_none());
 }
 

@@ -1,9 +1,9 @@
 //! Optional P4d-1/P4d-4/P4d-5 native plugin-host wiring for serve.
 //!
-//! Default serve starts this path (`serve_starts_reverse_bridge_by_default`
-//! is true since the TypeScript plugin consumers reached the owner). `PACER_NATIVE_PLUGIN_HOST`
-//! / `PACER_HOST_BRIDGE` still opt in explicitly; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
-//! is the documented escape back to the TypeScript path. When enabled,
+//! Default serve does not start this path (`serve_starts_reverse_bridge_by_default`
+//! stays false until TypeScript plugin consumers reach the owner). Truthy `PACER_NATIVE_PLUGIN_HOST`
+//! / `PACER_HOST_BRIDGE` opt in; `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`)
+//! is the documented escape hatch once default-on lands. When enabled,
 //! [`maybe_start`] claims a native ProcessOwner, binds the reverse bridge with
 //! live sealed call/find/stop, and returns Core env pairs (`PACER_HOST_SOCKET`).
 //! The owner's credential goes to the Core child alone, on its stdin
