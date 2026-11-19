@@ -9,7 +9,8 @@ import subprocess
 KEYS = ("bun", "rust", "e2e", "ui", "codeql")
 CI_TESTS = ("test/ci-selection.test.ts", "test/ci-sharding.test.ts", "test/ci-service-survival.test.ts",
             "test/release-automation.test.ts", "test/release-workflow.test.ts",
-            "test/desktop-release-workflow.test.ts", "test/release-ci-evidence.test.ts")
+            "test/desktop-release-workflow.test.ts", "test/release-ci-evidence.test.ts",
+            "test/release-main-ci-evidence.test.ts")
 
 
 def select(paths):
@@ -169,6 +170,10 @@ def git_paths(event, event_name):
         base, head = pr["base"]["sha"], pr["head"]["sha"]
         separator = "..."
     elif event_name == "push":
+        # Validation runs post-merge on main (amendment 0.24.0, proposed): every main commit gets the
+        # full suite, so Prepare release can require a complete green run for whichever commit it pins.
+        if event.get("ref") == "refs/heads/main":
+            raise ValueError("push to main requires full validation")
         base, head = event["before"], event["after"]
         separator = ".."
     else:
