@@ -521,10 +521,12 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
  *  concurrent or replayed advancement can neither re-increment a loop counter nor
  *  start a successor twice (Review Focus: run correctness 8). A skipped edge still
  *  counts as started, so a replay never evaluates the end edges the original pass
- *  dropped (round 4 review). Delegation happens after the transaction. The end
- *  decision and failRun are naturally idempotent and stay outside it. Once every
- *  edge is decided, the step row records `advanced_at`, the "nothing left to do"
- *  marker the tick's re-advance query reads. */
+ *  dropped (round 4 review), and fireEdge re-checks inside its transaction that the
+ *  run is still live, so a stop landing in between leaves no successor behind.
+ *  Delegation happens after the transaction. The end decision and failRun are
+ *  naturally idempotent and stay outside it. Once every edge is decided, the step
+ *  row records `advanced_at`, the "nothing left to do" marker the tick's re-advance
+ *  query reads. */
 async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: StepRow, result: unknown, e: EngineOptions): Promise<void> {
   const run = getRun(ctx, runId);
   if (isTerminal(run)) return;
@@ -583,6 +585,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       started = true; // handled or fired, a started successor owns the continuation
       continue;
     }
+    if (outcome.kind === "terminal") return; // the run was stopped while the edge fired: nothing to start
     if (outcome.kind === "loop-limit") {
       await failRun(ctx, runId, `loop limit ${edge.from}->${edge.to}`, outcome.loops, e.deps);
       markAdvanced();

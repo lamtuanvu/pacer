@@ -335,6 +335,7 @@ export interface EdgeFire {
 
 export type EdgeFireResult =
   | { kind: "handled" }
+  | { kind: "terminal" }
   | { kind: "loop-limit"; loops: Record<string, number> }
   | { kind: "fired"; rows: StepRow[]; loops?: Record<string, number> };
 
@@ -358,6 +359,13 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
   for (let tryn = 0; ; tryn++) {
     try {
       return db.transaction((): EdgeFireResult => {
+        // Re-checked inside the transaction: a stop can land between the caller's
+        // terminal check and this fire (the tick and run.answer run on different
+        // connections), so a run that is no longer live inserts nothing and reports
+        // terminal instead of leaving a running successor row behind
+        // (round 4 review).
+        const runRow = db.query<{ status: string }, [string]>("SELECT status FROM workflow_runs WHERE id = ?").get(fire.runId);
+        if (!runRow || (runRow.status !== "running" && runRow.status !== "waiting")) return { kind: "terminal" };
         if (db.query("SELECT 1 FROM workflow_steps WHERE trigger = ?").get(trigger)) return { kind: "handled" };
         let loops: Record<string, number> | undefined;
         if (fire.back) {

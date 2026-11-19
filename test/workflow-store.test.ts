@@ -184,3 +184,19 @@ test("the join row insert is atomic: the loser of two concurrent joins returns n
   expect(insertJoinStep(ctx, r.id, "check", 1, "done", result)).toBeNull();
   expect(stepsOfRun(ctx, r.id).filter(s => s.branch === undefined)).toHaveLength(1);
 });
+
+test("fireEdge refuses to start a successor in a run that is no longer live", () => {
+  const ctx = fakeCtx();
+  const r = insertRun(ctx, newRun());
+  insertStep(ctx, { runId: r.id, stepId: "a", attempt: 1, status: "running" });
+  // The stop lands between the caller's terminal check and the fire: inside the
+  // trigger transaction the run is re-checked, nothing is inserted and the fire
+  // reports terminal (round 4 review).
+  updateRun(ctx, r.id, r.rev, { status: "stopped" });
+  const outcome = fireEdge(ctx, { runId: r.id, from: { stepId: "a", attempt: 1 }, edgeIndex: 0, stepId: "b", status: "running" });
+  expect(outcome.kind).toBe("terminal");
+  expect(stepsOfRun(ctx, r.id)).toHaveLength(1); // no running successor row in the stopped run
+  // A vanished run behaves the same.
+  workflowDatabase(ctx).query("DELETE FROM workflow_runs WHERE id = ?").run(r.id);
+  expect(fireEdge(ctx, { runId: r.id, from: { stepId: "a", attempt: 1 }, edgeIndex: 1, stepId: "b", status: "running" }).kind).toBe("terminal");
+});
