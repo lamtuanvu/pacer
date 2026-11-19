@@ -13,6 +13,8 @@
   },
   "kind": "feature",
   "host": null,
+  "account": "team",
+  "model": "gpt-5.1-codex",
   "rev": 3,
   "acceptance": {
     "cmd": "bun test",

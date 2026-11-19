@@ -175,6 +175,9 @@ impl WorkReads<'_> {
                 "executor",
                 coalesce(task.get("executor"), task.get("requestedExecutor")),
             );
+            let (account, model) = task_account_model(&task);
+            item.insert("account".into(), account);
+            item.insert("model".into(), model);
             put(&mut item, "createdAt", task.get("createdAt"));
             item.insert("review".into(), or_null(task.get("review")));
             item.insert("branch".into(), list_branch(&task));
@@ -1180,6 +1183,38 @@ fn attempts_of(task: &Value) -> &[Value] {
     task.get("attempts")
         .and_then(Value::as_array)
         .map_or(&[], Vec::as_slice)
+}
+
+/// TS `taskAccountModel` (`src/tasks/account-model.ts`): the in-flight attempt's
+/// account and chosen model while running, the latest attempt's otherwise, with
+/// `model` preferring the actually launched model. The account comes from the
+/// attempt's usage pool, else the account spelled out in the runner id.
+fn task_account_model(task: &Value) -> (Value, Value) {
+    let last = attempts_of(task).last().cloned().unwrap_or(Value::Null);
+    if task.get("state").and_then(Value::as_str) == Some("running") {
+        let pending = task.get("pendingAttempt");
+        return (
+            or_null(coalesce(
+                field(field(pending, "usageAtStart"), "account"),
+                task.get("executor").and_then(runner_account).as_ref(),
+            )),
+            or_null(field(pending, "model")),
+        );
+    }
+    let executor = coalesce(
+        coalesce(field(task.get("result"), "executor"), task.get("executor")),
+        coalesce(field(Some(&last), "executor"), task.get("requestedExecutor")),
+    );
+    (
+        or_null(coalesce(
+            field(field(Some(&last), "usageAtStart"), "account"),
+            executor.and_then(runner_account).as_ref(),
+        )),
+        or_null(coalesce(
+            coalesce(field(Some(&last), "actualModel"), field(Some(&last), "model")),
+            field(task.get("result"), "model"),
+        )),
+    )
 }
 
 fn title(task: &Value) -> Option<&Value> {
