@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release 0.17.3 was tagged but not published.** Its plugin conformance and M1 gate failed because the native plugin owner had just become the default. This release reverts that default (the plugin owner is opt-in again, as in 0.17.2) and ships everything listed under 0.17.3: OpenCode tasks run on the chosen model, and `pacer tasks` and the Tasks page show each task's agent, account and model.
+
 ## [0.17.3] - 2026-11-19
 
 ### Fixed
