@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.3] - 2026-11-19
+
 ### Fixed
 
 - **Interactive OpenCode tasks run on the model pacer chose.** Interactive OpenCode takes its model only from `OPENCODE_CONFIG_CONTENT`, and pacer filled it with the executor's default model, so a task recorded as `glm-5.3-flash` could run on the default. The task's chosen model now wins; takeover session discovery keeps the attempt's model.
