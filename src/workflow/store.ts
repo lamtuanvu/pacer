@@ -21,10 +21,22 @@ export function workflowDatabase(ctx: Ctx): Database {
     CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
     CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
   `);
-  // Added after the first schema; existing databases gain the column in place
+  // Added after the first schema; existing databases gain the columns in place
   // (pattern: src/messaging/store.ts). advanced_at records when a done step's
-  // outgoing edges were processed, so advancement survives a crash in between.
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
+  // outgoing edges were processed ("nothing left to do" for the re-advance query),
+  // so advancement survives a crash in between; a database that predates the
+  // column has its finished rows backfilled as already advanced, so an upgrade
+  // does not replay every historical step's edges once.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
+    db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
+    db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
+  }
+  // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
+  // The unique index makes firing an edge exclusive: a second attempt to insert a
+  // successor for an already-fired edge fails instead of duplicating the work
+  // (NULLs are allowed — entry steps and join rows have no trigger).
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec("ALTER TABLE workflow_steps ADD COLUMN trigger TEXT NULL");
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps(trigger)");
   ready.add(db);
   return db;
 }
@@ -61,6 +73,10 @@ export interface StepRow {
   /** When the step's outgoing edges were processed; unset means advancement may
    *  still be owed (a crash between marking the step done and advancing). */
   advancedAt?: number;
+  /** What caused this row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>' of the
+   *  predecessor instance and the edge that started it. Unique, so an edge fires
+   *  at most one successor; unset for entry steps and join rows. */
+  trigger?: string;
 }
 
 export type NewRun = { workflow: string; version: number; repo: string; brief: string; title?: string };
@@ -86,7 +102,7 @@ interface RunDbRow {
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
-  status: string; result: string | null; error: string | null; started_at: number; ended_at: number | null; advanced_at: number | null;
+  status: string; result: string | null; error: string | null; started_at: number; ended_at: number | null; advanced_at: number | null; trigger: string | null;
 }
 
 function runFromRow(row: RunDbRow): RunRow {
@@ -119,6 +135,7 @@ function stepFromRow(row: StepDbRow): StepRow {
     startedAt: row.started_at,
     endedAt: row.ended_at ?? undefined,
     advancedAt: row.advanced_at ?? undefined,
+    trigger: row.trigger ?? undefined,
   };
 }
 
@@ -270,6 +287,84 @@ export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): S
   const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
     .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
   return result.changes === 1 ? merged : null;
+}
+
+export interface EdgeFire {
+  runId: string;
+  /** The settled predecessor instance the edge fires from. */
+  from: { stepId: string; attempt: number; branch?: string };
+  /** The edge's position in the definition; part of the trigger. */
+  edgeIndex: number;
+  /** The successor step id. */
+  stepId: string;
+  /** The successor's initial status: waiting for a human step, running otherwise. */
+  status: "running" | "waiting";
+  /** Branch names for a fan-out target: one successor row per branch. */
+  branches?: string[];
+  /** Back-edge loop bookkeeping: the counter key and the edge's maxLoops. */
+  back?: { key: string; maxLoops: number };
+}
+
+export type EdgeFireResult =
+  | { kind: "handled" }
+  | { kind: "loop-limit"; loops: Record<string, number> }
+  | { kind: "fired"; rows: StepRow[]; loops?: Record<string, number> };
+
+const edgeTrigger = (fire: EdgeFire): string =>
+  `${fire.runId}/${fire.from.stepId}#${fire.from.attempt}/${fire.from.branch ?? ""}@${fire.edgeIndex}`;
+
+/** Fires one outgoing edge of a settled step exclusively and idempotently, in ONE
+ *  immediate transaction: if a row with this edge's trigger already exists, the
+ *  edge was already handled by an earlier or concurrent advancement and is skipped
+ *  (no loop increment, no successor). Otherwise the back-edge loop counter is read
+ *  and written directly inside the transaction — with no expect-rev check against a
+ *  possibly stale rev, so a loop patch can never fail a healthy run over a rev
+ *  conflict from the request thread; the immediate transaction (and the rev bump)
+ *  is what serializes it against updateRun — and the successor row(s) are inserted
+ *  with the trigger recorded. Delegation happens after the transaction, exactly
+ *  like the insert-row-then-delegate start path, so a crash before it is an
+ *  ordinary orphan the reconciliation recovers. */
+export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
+  const db = workflowDatabase(ctx);
+  const trigger = edgeTrigger(fire);
+  for (let tryn = 0; ; tryn++) {
+    try {
+      return db.transaction((): EdgeFireResult => {
+        if (db.query("SELECT 1 FROM workflow_steps WHERE trigger = ?").get(trigger)) return { kind: "handled" };
+        let loops: Record<string, number> | undefined;
+        if (fire.back) {
+          const row = db.query<{ loops: string | null }, [string]>("SELECT loops FROM workflow_runs WHERE id = ?").get(fire.runId);
+          if (!row) throw new CoreError("not_found", `unknown run ${fire.runId}`);
+          const current: Record<string, number> = row.loops ? JSON.parse(row.loops) : {};
+          const next = { ...current, [fire.back.key]: (current[fire.back.key] ?? 0) + 1 };
+          db.query("UPDATE workflow_runs SET loops = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
+            .run(JSON.stringify(next), ctx.now, fire.runId);
+          loops = next;
+          if (next[fire.back.key]! > fire.back.maxLoops) return { kind: "loop-limit", loops: next };
+        }
+        const attempt = (db.query<{ n: number | null }, [string, string]>("SELECT MAX(attempt) AS n FROM workflow_steps WHERE run_id = ? AND step_id = ?")
+          .get(fire.runId, fire.stepId)?.n ?? 0) + 1;
+        const rows: StepRow[] = [];
+        const branches = fire.branches ?? [undefined];
+        branches.forEach((branch, i) => {
+          // The first successor row carries the edge trigger; a fan-out's further
+          // branch rows carry it suffixed with their branch so every row stays unique.
+          const rowTrigger = i === 0 ? trigger : `${trigger}/${branch}`;
+          db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, trigger) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, ?)")
+            .run(fire.runId, fire.stepId, attempt, branch ?? "", fire.status, ctx.now, rowTrigger);
+          rows.push({ runId: fire.runId, stepId: fire.stepId, attempt, branch, status: fire.status, startedAt: ctx.now, trigger: rowTrigger });
+        });
+        return { kind: "fired", rows, ...(loops ? { loops } : {}) };
+      }).immediate();
+    } catch (err) {
+      // A concurrent advancement of the same predecessor inserted the same successor
+      // first (trigger or step key UNIQUE): retry the decision from fresh state —
+      // the attempt must be recomputed — and treat an existing trigger as handled.
+      if (`${err instanceof Error ? err.message : err}`.includes("UNIQUE constraint failed") && tryn < 2) continue;
+      if (db.query("SELECT 1 FROM workflow_steps WHERE trigger = ?").get(trigger)) return { kind: "handled" };
+      throw err;
+    }
+  }
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at

@@ -6,8 +6,8 @@ import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
-import { addDefinition, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep } from "../src/workflow/store";
-import { answerHumanStep, onTaskSettled, recordStepResult, startRun, startStep, stopRun, type EngineDeps } from "../src/workflow/engine";
+import { addDefinition, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep, workflowDatabase } from "../src/workflow/store";
+import { answerHumanStep, onTaskSettled, readvanceStep, recordStepResult, startRun, startStep, stopRun, type EngineDeps } from "../src/workflow/engine";
 import type { FanoutStep, WorkflowDef } from "../src/workflow/schema";
 
 /** Delegation stubbed like the real one: createTask with the input's brief and a
@@ -720,4 +720,121 @@ test("the 64 KiB cap measures UTF-8 bytes, not characters", async () => {
   }
   // A result of exactly 65536 UTF-8 bytes stays under the cap.
   recordStepResult(ctx, row.taskId!, { blob: "x".repeat(64 * 1024 - 11) }); // '{"blob":"…"}' adds 11 bytes
+});
+
+// Advancement is idempotent and exclusive (Review Focus: run correctness 8): each
+// successor row carries the trigger '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'
+// of the predecessor instance and edge that started it, inserted together with the
+// back-edge loop patch in one transaction, so a concurrent or replayed advancement
+// skips an already-fired edge instead of re-incrementing loops or re-delegating.
+const loopback: WorkflowDef = {
+  id: "t/loopback",
+  version: 1,
+  steps: {
+    w: { type: "human", question: { text: "Go again?", kind: "single" } },
+    ask: { type: "agent", kind: "research", prompt: "Ask" },
+  },
+  edges: [
+    { from: "w", to: "ask", when: "result.answer == 'again'" },
+    { from: "ask", to: "w", maxLoops: 1 },
+  ],
+  entry: "w",
+};
+
+const settleChain: WorkflowDef = {
+  id: "t/settle-chain",
+  version: 1,
+  steps: {
+    one: { type: "agent", kind: "research", prompt: "One" },
+    two: { type: "agent", kind: "research", prompt: "Two" },
+    sign: { type: "human", question: { text: "Sign?", kind: "approve_revise" } },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "one", to: "two" },
+    { from: "two", to: "sign" },
+    { from: "sign", to: "done", when: "result.answer == 'approve'" },
+  ],
+  entry: "one",
+};
+
+const fanoutAfter: WorkflowDef = {
+  id: "t/fanout-after",
+  version: 1,
+  steps: {
+    kick: { type: "agent", kind: "research", prompt: "Kick" },
+    check: { type: "fanout", branches: ["a", "b"], each: { type: "agent", kind: "review", prompt: "Check {{branch}}" }, join: "all" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "kick", to: "check" },
+    { from: "check", to: "done" },
+  ],
+  entry: "kick",
+};
+
+test("a replayed advancement is exclusive: one loop increment and one successor", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, loopback, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/loopback", deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting"); // the entry step is the human step
+  await answerHumanStep(ctx, r.id, "w", "again", getRun(ctx, r.id)!.rev, deps); // one answer starts ask#1
+  const ask = stepsOfRun(ctx, r.id).find(s => s.stepId === "ask")!;
+  recordStepResult(ctx, ask.taskId!, { ok: true });
+  settle(ctx, ask.taskId!);
+  // The crash: the settlement was claimed (the row is done, no advanced_at) but
+  // advanceFrom never ran, so the back edge and its successor never happened.
+  expect(claimStepSettlement(ctx, { runId: r.id, stepId: "ask", attempt: 1 }, { status: "done", endedAt: ctx.now })?.status).toBe("done");
+  const row = stepsOfRun(ctx, r.id).find(s => s.stepId === "ask")!;
+  expect(row.advancedAt).toBeUndefined();
+  // Two concurrent replays (a tick re-advance racing itself): the trigger
+  // transaction keeps the edge single-fire — one increment, one successor.
+  await Promise.all([readvanceStep(ctx, row, undefined, deps), readvanceStep(ctx, row, undefined, deps)]);
+  const run = getRun(ctx, r.id)!;
+  expect(run.status).toBe("waiting"); // healthy: never failed on the loop limit
+  expect(run.loops).toEqual({ "ask->w": 1 });
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "w").map(s => s.attempt)).toEqual([1, 2]); // exactly one new w attempt
+});
+
+test("a successor that already settled is not re-delegated by its predecessor's re-advance", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, settleChain, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/settle-chain", deps);
+  const one = stepsOfRun(ctx, r.id).find(s => s.stepId === "one")!;
+  recordStepResult(ctx, one.taskId!, { n: 1 });
+  settle(ctx, one.taskId!);
+  await onTaskSettled(ctx, one.taskId!, undefined, deps); // two#1 started
+  const two = stepsOfRun(ctx, r.id).find(s => s.stepId === "two")!;
+  recordStepResult(ctx, two.taskId!, { n: 2 });
+  settle(ctx, two.taskId!);
+  // two's settlement is claimed but never advanced (the crash before advanceFrom),
+  // so the run stays live with the human step still to come.
+  expect(claimStepSettlement(ctx, { runId: r.id, stepId: "two", attempt: 1 }, { status: "done", endedAt: ctx.now })?.status).toBe("done");
+  // The simulated crash on one: its edges already fired, advanced_at was lost.
+  workflowDatabase(ctx).query("UPDATE workflow_steps SET advanced_at = NULL WHERE run_id = ? AND step_id = 'one'").run(r.id);
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "one")!, undefined, deps);
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "two")).toHaveLength(1); // no attempt 2 of two
+  expect(inputs).toHaveLength(2); // no task was delegated again
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+});
+
+test("replaying a fan-out successor does not create a second fan-out attempt", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, fanoutAfter, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/fanout-after", deps);
+  const kick = stepsOfRun(ctx, r.id).find(s => s.stepId === "kick")!;
+  recordStepResult(ctx, kick.taskId!, { ok: true });
+  settle(ctx, kick.taskId!);
+  await onTaskSettled(ctx, kick.taskId!, undefined, deps); // the fan-out's branches started
+  // The crash: the kick row is done but its edges may replay (no advanced_at).
+  workflowDatabase(ctx).query("UPDATE workflow_steps SET advanced_at = NULL WHERE run_id = ? AND step_id = 'kick'").run(r.id);
+  const inputsBefore = inputs.length;
+  await readvanceStep(ctx, stepsOfRun(ctx, r.id).find(s => s.stepId === "kick")!, undefined, deps);
+  expect(inputs).toHaveLength(inputsBefore); // no branch task was delegated again
+  const branches = stepsOfRun(ctx, r.id).filter(s => s.stepId === "check");
+  expect(branches).toHaveLength(2); // one attempt, two branches: no second fan-out
+  expect(new Set(branches.map(s => s.attempt))).toEqual(new Set([1]));
 });

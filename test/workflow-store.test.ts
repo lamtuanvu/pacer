@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { taskDatabase } from "../src/tasks/store";
 import {
-  addDefinition, getDefinition, listDefinitions, getCursor, setCursor, getRun, insertRun, insertStep,
+  addDefinition, fireEdge, getDefinition, listDefinitions, getCursor, setCursor, getRun, insertRun, insertStep,
   listRuns, stepByTask, stepsOfRun, updateRun, updateStep, workflowDatabase,
   type NewRun, type RunStatus, type StepRow,
 } from "../src/workflow/store";
@@ -120,4 +120,51 @@ test("the cursor persists and defaults to zero", () => {
   expect(getCursor(ctx)).toBe(42);
   setCursor(ctx, 43);
   expect(getCursor(ctx)).toBe(43);
+});
+
+test("firing an edge is exclusive and records the trigger on the successor", () => {
+  const ctx = fakeCtx();
+  const r = insertRun(ctx, newRun());
+  insertStep(ctx, { runId: r.id, stepId: "a", attempt: 1, status: "running" }); // an entry step: no trigger
+  const fire = { runId: r.id, from: { stepId: "a", attempt: 1 }, edgeIndex: 3, stepId: "b", status: "running" as const };
+  const fired = fireEdge(ctx, fire);
+  expect(fired.kind).toBe("fired");
+  const row = stepsOfRun(ctx, r.id).find(s => s.stepId === "b")!;
+  expect(row.trigger).toBe(`${r.id}/a#1/@3`);
+  expect(row.attempt).toBe(1);
+  // A second firing of the same edge is skipped: the trigger already exists.
+  expect(fireEdge(ctx, fire).kind).toBe("handled");
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "b")).toHaveLength(1);
+  // A different edge of the same predecessor fires its own successor and attempt.
+  const other = fireEdge(ctx, { ...fire, edgeIndex: 4 });
+  expect(other.kind).toBe("fired");
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "b" && s.trigger === `${r.id}/a#1/@4`)!.attempt).toBe(2);
+});
+
+test("a back-edge loop patch is written inside the trigger transaction, without a rev check", () => {
+  const ctx = fakeCtx();
+  const r = insertRun(ctx, newRun());
+  insertStep(ctx, { runId: r.id, stepId: "a", attempt: 1, status: "running" });
+  updateRun(ctx, r.id, r.rev, { status: "waiting" }); // the rev moves on, like a concurrent run.answer
+  const stale = getRun(ctx, r.id)!.rev - 1; // a rev the caller read before the patch above
+  const fired = fireEdge(ctx, {
+    runId: r.id,
+    from: { stepId: "a", attempt: 1 },
+    edgeIndex: 0,
+    stepId: "w",
+    status: "waiting",
+    back: { key: "a->w", maxLoops: 2 },
+  });
+  if (fired.kind !== "fired") throw new Error(`expected fired, got ${fired.kind}`);
+  expect(fired.loops).toEqual({ "a->w": 1 }); // a healthy loop never fails over a stale rev
+  expect(getRun(ctx, r.id)!.loops).toEqual({ "a->w": 1 });
+  const secondLoop = fireEdge(ctx, { runId: r.id, from: { stepId: "a", attempt: 2 }, edgeIndex: 0, stepId: "w", status: "waiting", back: { key: "a->w", maxLoops: 2 } });
+  const thirdLoop = fireEdge(ctx, { runId: r.id, from: { stepId: "a", attempt: 3 }, edgeIndex: 0, stepId: "w", status: "waiting", back: { key: "a->w", maxLoops: 2 } });
+  expect(thirdLoop.kind).toBe("loop-limit"); // 3 > maxLoops 2: no successor, the run fails
+  if (thirdLoop.kind !== "loop-limit") throw new Error(`expected loop-limit, got ${thirdLoop.kind}`);
+  expect(thirdLoop.loops).toEqual({ "a->w": 3 });
+  if (secondLoop.kind !== "fired") throw new Error(`expected fired, got ${secondLoop.kind}`);
+  expect(secondLoop.loops).toEqual({ "a->w": 2 });
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "w")).toHaveLength(2); // only the two fired loops started w
+  expect(stale).toBeLessThan(getRun(ctx, r.id)!.rev); // the loop patches bumped the rev past the stale one
 });

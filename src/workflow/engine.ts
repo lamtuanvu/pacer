@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepSettlement, fireEdge, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { isPlainObject, type AgentStep, type FanoutStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
@@ -191,13 +191,38 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
   return startAgentStep(ctx, run, def, stepId, stepDef, branch, attempt, e);
 }
 
-async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: string, stepDef: AgentStep, branch: string | undefined, attempt: number, e: EngineOptions): Promise<StepRow> {
+/** Delegates the task for an already-inserted agent step row and attaches it (with
+ *  an at-most-once fast settle when the task is already terminal). Used both by the
+ *  start path and by the trigger-transaction advancement, which inserts the row
+ *  first and delegates after the transaction, so a crash before the delegation is
+ *  an ordinary orphan the reconciliation recovers. */
+async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
   const prompt = renderPrompt(stepDef.prompt, {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
-    branch,
-    run: { id: run.id, stepId },
+    branch: row.branch,
+    run: { id: run.id, stepId: row.stepId },
   });
+  const key = keyOf(row);
+  const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
+  const task = await e.deps.delegate(ctx, {
+    brief: { goal: prompt, repo: run.repo },
+    kind: stepDef.kind,
+    ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
+    title: stepTitle(run, row.stepId, row.branch),
+    requestId,
+  }, e.spawn);
+  // Re-read after the await: the run may have gone terminal while the delegation was
+  // pending; then the task is stopped and nothing else happens.
+  if (isTerminal(getRun(ctx, run.id))) {
+    try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }
+    try { updateStep(ctx, key, { status: "stopped", error: "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
+    return updateStep(ctx, key, {});
+  }
+  return attachAndSettle(ctx, key, task.id, e);
+}
+
+async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: string, stepDef: AgentStep, branch: string | undefined, attempt: number, e: EngineOptions): Promise<StepRow> {
   const key: StepKey = { runId: run.id, stepId, attempt, ...(branch !== undefined ? { branch } : {}) };
   const requestId = stepRequestId(run.id, stepId, attempt, branch);
   // The row exists before the delegation, so a crash in between leaves a recoverable
@@ -214,15 +239,27 @@ async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: s
   } else {
     row = insertStep(ctx, { ...key, status: "running" });
   }
+  return delegateAgentRow(ctx, getRun(ctx, run.id)!, row, stepDef, e);
+}
+
+/** Delegates the task for an already-inserted fan-out branch row (see
+ *  delegateAgentRow for the insert-first-then-delegate rationale). */
+async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<StepRow> {
+  const branch = row.branch!;
+  const prompt = renderPrompt(stepDef.each.prompt, {
+    brief: run.brief,
+    steps: stepResults(ctx, run.id),
+    branch,
+    run: { id: run.id, stepId: row.stepId },
+  });
+  const key = keyOf(row);
   const task = await e.deps.delegate(ctx, {
     brief: { goal: prompt, repo: run.repo },
-    kind: stepDef.kind,
-    ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
-    title: stepTitle(run, stepId, branch),
-    requestId,
+    kind: stepDef.each.kind,
+    ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
+    title: stepTitle(run, row.stepId, branch),
+    requestId: stepRequestId(run.id, row.stepId, row.attempt, branch),
   }, e.spawn);
-  // Re-read after the await: the run may have gone terminal while the delegation was
-  // pending; then the task is stopped and nothing else happens.
   if (isTerminal(getRun(ctx, run.id))) {
     try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }
     try { updateStep(ctx, key, { status: "stopped", error: "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
@@ -232,28 +269,8 @@ async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: s
 }
 
 async function startFanoutBranch(ctx: Ctx, run: RunRow, stepId: string, stepDef: FanoutStep, branch: string, attempt: number, e: EngineOptions): Promise<StepRow> {
-  const prompt = renderPrompt(stepDef.each.prompt, {
-    brief: run.brief,
-    steps: stepResults(ctx, run.id),
-    branch,
-    run: { id: run.id, stepId },
-  });
-  const key: StepKey = { runId: run.id, stepId, attempt, branch };
-  let row = insertStep(ctx, { ...key, status: "running" });
-  const task = await e.deps.delegate(ctx, {
-    brief: { goal: prompt, repo: run.repo },
-    kind: stepDef.each.kind,
-    ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
-    title: stepTitle(run, stepId, branch),
-    requestId: stepRequestId(run.id, stepId, attempt, branch),
-  }, e.spawn);
-  if (isTerminal(getRun(ctx, run.id))) {
-    try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }
-    try { updateStep(ctx, key, { status: "stopped", error: "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
-    return updateStep(ctx, key, {});
-  }
-  row = await attachAndSettle(ctx, key, task.id, e);
-  return row;
+  const row = insertStep(ctx, { runId: run.id, stepId, attempt, branch, status: "running" });
+  return delegateFanoutBranch(ctx, run, row, stepDef, e);
 }
 
 async function startFanout(ctx: Ctx, run: RunRow, stepId: string, stepDef: FanoutStep, attempt: number, e: EngineOptions): Promise<StepRow> {
@@ -448,14 +465,23 @@ async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: Step
  *  the end target is evaluated last, and only when no branch-less step row of the
  *  run is still running or waiting (Review Focus: run correctness 7).
  *
- *  Once the step's advancement is decided (successors started, or the run marked
- *  done or failed by it), the step row records it in `advanced_at`, so a crash in
- *  between is recovered by the tick's re-advance instead of replaying the edges
- *  blindly (Review Focus: run correctness 4). */
+ *  Each ordinary edge fires through the store's trigger transaction (fireEdge):
+ *  the successor row, the back-edge loop patch and the edge's trigger land in one
+ *  transaction, and an edge whose trigger already exists is skipped — so a
+ *  concurrent or replayed advancement can neither re-increment a loop counter nor
+ *  start a successor twice (Review Focus: run correctness 8). Delegation happens
+ *  after the transaction. The end decision and failRun are naturally idempotent and
+ *  stay outside it. Once every edge is decided, the step row records `advanced_at`,
+ *  the "nothing left to do" marker the tick's re-advance query reads. */
 async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: StepRow, result: unknown, e: EngineOptions): Promise<void> {
   const run = getRun(ctx, runId);
   if (isTerminal(run)) return;
   const stepId = settled.stepId;
+  // One yield before the edges fire: concurrent advancements (a settlement racing a
+  // tick re-advance, say) then both decide from the same state, and it is the
+  // trigger transaction below — not the luck of synchronous execution — that keeps
+  // each edge single-fire.
+  await Promise.resolve();
   // Marks the step row advanced, best effort: a failure leaves the row for the
   // tick's re-advance, which replays the same (idempotent) decision.
   const markAdvanced = (): void => {
@@ -478,7 +504,6 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
   }
   const ends: typeof matched = [];
   const nexts: typeof matched = [];
-  let started = false;
   for (const match of matched) {
     const target = def.steps[match.edge.to];
     if (!target) {
@@ -488,22 +513,39 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     }
     (target.type === "end" ? ends : nexts).push(match);
   }
+  let started = false;
   for (const { edge, index } of nexts) {
     const current = getRun(ctx, runId);
     if (isTerminal(current)) return; // another edge's settle or a stop ended the run
-    if (back.has(index)) {
-      const key = `${edge.from}->${edge.to}`;
-      const loops = { ...current!.loops, [key]: (current!.loops[key] ?? 0) + 1 };
-      if (loops[key] > (edge.maxLoops ?? 0)) {
-        await failRun(ctx, runId, `loop limit ${key}`, loops, e.deps);
-        markAdvanced();
-        return;
-      }
-      await patchRun(ctx, runId, { loops });
+    const target = def.steps[edge.to]!;
+    const outcome = fireEdge(ctx, {
+      runId,
+      from: { stepId: settled.stepId, attempt: settled.attempt, branch: settled.branch },
+      edgeIndex: index,
+      stepId: edge.to,
+      status: target.type === "human" ? "waiting" : "running",
+      ...(target.type === "fanout" ? { branches: target.branches } : {}),
+      ...(back.has(index) ? { back: { key: `${edge.from}->${edge.to}`, maxLoops: edge.maxLoops ?? 0 } } : {}),
+    });
+    if (outcome.kind === "handled") continue; // this edge already fired: no loop increment, no delegate
+    if (outcome.kind === "loop-limit") {
+      await failRun(ctx, runId, `loop limit ${edge.from}->${edge.to}`, outcome.loops, e.deps);
+      markAdvanced();
+      return;
     }
+    if (outcome.loops) await publishRunChange(ctx, getRun(ctx, runId)); // the loop counters changed
+    started = true; // a started step owns the run's continuation from here
+    const fresh = getRun(ctx, runId)!;
+    if (isTerminal(fresh)) return;
     try {
-      await startStep(ctx, getRun(ctx, runId)!, def, edge.to, undefined, e);
-      started = true; // a started step owns the run's continuation from here
+      if (target.type === "human") {
+        if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "waiting" });
+        continue;
+      }
+      for (const row of outcome.rows) {
+        if (target.type === "fanout") await delegateFanoutBranch(ctx, fresh, row, target, e);
+        else await delegateAgentRow(ctx, fresh, row, target as AgentStep, e); // nexts never hold end targets
+      }
     } catch (err) {
       // A start failure ends the run (no eligible executor, validation, …): it
       // must never escape advanceFrom, where it would stall the change cursor
