@@ -185,6 +185,7 @@ test("a self-loop still needs max_loops", () => {
   const clean = loopDef([
     { from: "a", to: "a", maxLoops: 1 },
     { from: "a", to: "done" },
+    { from: "b", to: "done" },
   ]);
   expect(validateWorkflow(clean)).toEqual([]);
   expect(backEdgeIndexes(clean)).toEqual(new Set([0]));
@@ -192,6 +193,7 @@ test("a self-loop still needs max_loops", () => {
   const missing = loopDef([
     { from: "a", to: "a" },
     { from: "a", to: "done" },
+    { from: "b", to: "done" },
   ]);
   expect(validateWorkflow(missing)).toEqual([{ path: "edges[0]", message: "back edge needs max_loops" }]);
 });

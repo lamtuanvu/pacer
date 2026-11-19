@@ -88,6 +88,37 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
     return errors;
   }
   const entry = typeof def.entry === "string" && hasOwn(steps, def.entry) ? def.entry : names[0];
+  if (typeof def.entry === "string" && def.entry !== "" && !hasOwn(steps, def.entry)) {
+    errors.push({ path: "entry", message: `unknown step '${def.entry}'` });
+  }
+
+  // Step ids and fan-out branch names go into delegate request ids (128 characters
+  // with the run id, attempt and separators), so they are capped at 48 characters.
+  // Fan-out joins must be consistent with their branches, and every step that runs
+  // must be able to leave.
+  for (const [id, value] of Object.entries(steps)) {
+    if (id.length > 48) errors.push({ path: `steps.${id}`, message: `step id '${id}' is longer than 48 characters` });
+    if (!isPlainObject(value)) continue;
+    const rawBranches = Array.isArray(value.branches) ? value.branches : [];
+    if (value.type === "fanout") {
+      const seen = new Set<string>();
+      let named = 0;
+      rawBranches.forEach((branch, index) => {
+        if (typeof branch !== "string") return;
+        named++;
+        if (branch.length > 48) errors.push({ path: `steps.${id}.branches[${index}]`, message: `branch name '${branch}' is longer than 48 characters` });
+        if (seen.has(branch)) errors.push({ path: `steps.${id}.branches[${index}]`, message: `duplicate branch name '${branch}'` });
+        seen.add(branch);
+      });
+      const join = value.join;
+      if (named > 0 && isPlainObject(join) && typeof join.quorum === "number" && join.quorum > named) {
+        errors.push({ path: `steps.${id}.join`, message: `join quorum ${join.quorum} is greater than the branch count ${named}` });
+      }
+    }
+    if (value.type !== "end" && !candidates.some(c => c.edge.from === id)) {
+      errors.push({ path: `steps.${id}`, message: `step ${id} has no outgoing edge` });
+    }
+  }
 
   const adjacency = new Map<string, string[]>();
   for (const { edge } of candidates) {

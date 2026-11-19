@@ -243,6 +243,8 @@ function resolveValue(v: CondValue, scope: CondScope): Resolved {
       let cur = root === "result" ? scope.result : scope.brief;
       for (const seg of rest) {
         if (cur === null || cur === undefined || typeof cur !== "object") return { found: false, value: undefined };
+        // Own properties only: prototype keys like `constructor` never resolve.
+        if (!Object.hasOwn(cur as Record<string, unknown>, seg)) return { found: false, value: undefined };
         cur = (cur as Record<string, unknown>)[seg];
       }
       if (cur === undefined) return { found: false, value: undefined };

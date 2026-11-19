@@ -44,6 +44,13 @@ test("missing fields and type mismatches are false, never throw", () => {
   expect(parseCondition("result.list[0] == 'a'").error).toMatch(/unexpected '\['/); // [ ] indexing is not in the grammar
 });
 
+test("condition paths walk own properties only", () => {
+  expect(ev("result.constructor", {})).toBe(false); // prototype keys never resolve
+  expect(ev("result.constructor == 'x'", {})).toBe(false);
+  expect(ev("result.verdict == 'pass'", { verdict: "pass" })).toBe(true);
+  expect(ev("result.route in ['a']", { route: "a" })).toBe(true);
+});
+
 test("parse errors name the position", () => {
   expect(parseCondition("result.x ==").error).toMatch(/position 11/);
   expect(parseCondition("result.x ==").ast).toBeUndefined();
