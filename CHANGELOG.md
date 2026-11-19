@@ -4,6 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Interactive OpenCode tasks run on the model pacer chose.** Interactive OpenCode takes its model only from `OPENCODE_CONFIG_CONTENT`, and pacer filled it with the executor's default model, so a task recorded as `glm-5.3-flash` could run on the default. The task's chosen model now wins; takeover session discovery keeps the attempt's model.
+
+### Added
+
+- **`pacer tasks` shows who runs a task.** Task summaries list each attempt's `model` and `account`, and `current_attempt` for an attempt in flight; the text output shows `executor · account · model`.
+
 ### Changed
 
 - **The plugin host is on by default.** `pacer serve` now starts the native plugin owner unless `PACER_NATIVE_PLUGIN_HOST=0` (or `PACER_HOST_BRIDGE=0`) says otherwise — `serve_starts_reverse_bridge_by_default` returns true. TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach children through Core's sealed owner call, proven by the PR 6 consumer matrix and CT-11 on the Rust front door; the flag-off path keeps its explicit-escape tests.

@@ -78,8 +78,11 @@ async function takeoverTaskAdmitted(ctx: Ctx, id: string, by?: string) {
     try {
       const cfg = loadStrategy(ctx).providers[run.executor];
       if (cfg) {
+        // Session discovery runs with the attempt's own model, not the runner's current default.
+        const attemptModel = task.pendingAttempt?.model ?? task.attempts.at(-1)?.model ?? null;
+        const withModel = attemptModel ? {...cfg, model: attemptModel} : cfg;
         const base = await terminalEnv(ctx.env, {cwd: ctx.home, workdir: run.workdir});
-        const env = executorEnv(base.env, await providerEnv(ctx, cfg), id, profileKeys(base));
+        const env = executorEnv(base.env, await providerEnv(ctx, withModel), id, profileKeys(base));
         const list = await execProcess({argv:["opencode", "session", "list", "--standalone", "--format", "json", "-n", "20"], cwd:run.workdir, env, timeoutMs:5000});
         const found = list.code === 0 ? parseOpencodeSessions(list.stdout, id) : undefined;
         if (found) session = {id:found, source:"lookup"};
