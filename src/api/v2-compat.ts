@@ -81,7 +81,8 @@ export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='discovery.found'||e.type==='control')return null;
+ // Workflow runs are v3-only: their entity events never reach v2 clients.
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};

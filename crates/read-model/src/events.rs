@@ -57,6 +57,8 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         "assistant",
         "machine",
         "message",
+        // Workflow runs are v3-only: their entity events never reach v2 clients.
+        "run",
         "discovery.found",
         "control",
     ]
@@ -162,7 +164,7 @@ pub fn events_since(
     let mut converted = Vec::new();
     for e in raw {
         if protocol == 2 {
-            if e["type"] == "planner" || e["type"] == "desktop.update" || v3_only(&e) {
+            if e["type"] == "planner" || e["type"] == "desktop.update" || e["type"] == "run" || v3_only(&e) {
                 continue;
             }
             {

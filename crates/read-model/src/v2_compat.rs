@@ -144,7 +144,7 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
     }
     if matches!(
         kind,
-        "planner" | "assistant" | "machine" | "message" | "discovery.found"
+        "planner" | "assistant" | "machine" | "message" | "run" | "discovery.found"
     ) || kind == "config"
         && matches!(
             string(&value["data"]["area"]).as_str(),
