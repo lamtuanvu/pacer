@@ -168,6 +168,11 @@
     "routing.route",
     "routing.set",
     "routing.status",
+    "run.answer",
+    "run.get",
+    "run.list",
+    "run.start",
+    "run.stop",
     "runner.add",
     "runner.block",
     "runner.check",
@@ -204,6 +209,7 @@
     "setup.init",
     "setup.skip",
     "snapshot.get",
+    "step.result",
     "strategy.build",
     "strategy.list",
     "strategy.preview",
@@ -240,7 +246,10 @@
     "tree.status",
     "update.apply",
     "update.check",
-    "version.get"
+    "version.get",
+    "workflow.add",
+    "workflow.list",
+    "workflow.validate"
   ],
   "codes": [
     {

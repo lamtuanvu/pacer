@@ -164,7 +164,11 @@ pub fn events_since(
     let mut converted = Vec::new();
     for e in raw {
         if protocol == 2 {
-            if e["type"] == "planner" || e["type"] == "desktop.update" || e["type"] == "run" || v3_only(&e) {
+            if e["type"] == "planner"
+                || e["type"] == "desktop.update"
+                || e["type"] == "run"
+                || v3_only(&e)
+            {
                 continue;
             }
             {
