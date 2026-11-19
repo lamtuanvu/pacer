@@ -21,7 +21,9 @@ fn runner_account(id: &str) -> Option<&str> {
                 .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
     };
     let (main, host) = id.split_once('@').map_or((id, None), |(m, h)| (m, Some(h)));
-    let (agent, account) = main.split_once('#').map_or((main, None), |(a, b)| (a, Some(b)));
+    let (agent, account) = main
+        .split_once('#')
+        .map_or((main, None), |(a, b)| (a, Some(b)));
     (segment(agent)
         && account.is_none_or(segment)
         && host.is_none_or(segment)
@@ -40,7 +42,10 @@ fn task_account_model(task: &Value) -> (Value, Value) {
             .find(|v| !v.is_null())
             .map_or(Value::Null, |v| (*v).clone())
     };
-    let last = array(&task["attempts"]).last().cloned().unwrap_or(Value::Null);
+    let last = array(&task["attempts"])
+        .last()
+        .cloned()
+        .unwrap_or(Value::Null);
     if text(&task["state"]) == "running" {
         let pending = &task["pendingAttempt"];
         let parsed = runner_account(text(&task["executor"]))
@@ -62,7 +67,11 @@ fn task_account_model(task: &Value) -> (Value, Value) {
         .unwrap_or(Value::Null);
     (
         coalesce(&[&last["usageAtStart"]["account"], &parsed]),
-        coalesce(&[&last["actualModel"], &last["model"], &task["result"]["model"]]),
+        coalesce(&[
+            &last["actualModel"],
+            &last["model"],
+            &task["result"]["model"],
+        ]),
     )
 }
 
