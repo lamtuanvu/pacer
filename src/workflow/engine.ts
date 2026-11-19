@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { isPlainObject, type AgentStep, type FanoutStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
@@ -148,7 +148,9 @@ function loadDefinition(ctx: Ctx, run: RunRow): WorkflowDef | null {
 const isTerminal = (run: RunRow | null): boolean => !run || RUN_TERMINAL.includes(run.status);
 
 /** Attaches a delegated task to its step row and settles at once when the task is
- *  already terminal (a fast settle, or the request-id dedupe returned a prior task). */
+ *  already terminal (a fast settle, or the request-id dedupe returned a prior task).
+ *  The settlement is claimed atomically inside onTaskSettled, so a concurrent tick
+ *  settlement of the same task can never advance the run twice. */
 async function attachAndSettle(ctx: Ctx, key: StepKey, taskId: string, e: EngineOptions): Promise<StepRow> {
   const attached = attachStepTask(ctx, key, taskId);
   const task = readTask(ctx, taskId);
@@ -366,7 +368,9 @@ export function recordStepResult(ctx: Ctx, taskId: string, result: unknown): Ste
 
 /** Settles the step instance a task belongs to and advances its run. A no-op when
  *  the task has no step row, the task is not settled yet, or the step already
- *  settled (Review Focus 1 and 3). */
+ *  settled (Review Focus 1 and 3). The settlement itself is claimed atomically in
+ *  the store (claimStepSettlement), so the tick thread and the request thread can
+ *  both observe the same settled task and only one of them advances the run. */
 export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<void> {
   const step = stepByTask(ctx, taskId);
   if (!step) return;
@@ -379,7 +383,9 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
   if (!def) return;
   const done = task.state === "done" && step.result !== undefined;
   const error = done ? undefined : task.state === "done" ? "no step result" : task.state;
-  const row = updateStep(ctx, keyOf(step), done ? { status: "done", endedAt: ctx.now } : { status: "failed", error, endedAt: ctx.now });
+  const claimed = claimStepSettlement(ctx, keyOf(step), done ? { status: "done", endedAt: ctx.now } : { status: "failed", error, endedAt: ctx.now });
+  if (!claimed) return; // another caller settled this step: the run advances exactly once
+  const row = claimed;
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // every settlement publishes the run
   if (isTerminal(getRun(ctx, run.id))) return; // A terminal run only records the bookkeeping.
   const stepDef = def.steps[step.stepId];

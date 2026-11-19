@@ -6,7 +6,7 @@ import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
-import { addDefinition, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep } from "../src/workflow/store";
+import { addDefinition, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep } from "../src/workflow/store";
 import { answerHumanStep, onTaskSettled, recordStepResult, startRun, startStep, stopRun, type EngineDeps } from "../src/workflow/engine";
 import type { FanoutStep, WorkflowDef } from "../src/workflow/schema";
 
@@ -587,6 +587,40 @@ test("parallel matched edges start their targets first and end the run last", as
   settle(ctx, side.taskId!);
   await onTaskSettled(ctx, side.taskId!, undefined, deps);
   expect(getRun(ctx, r.id)!.status).toBe("done");
+});
+
+test("claimStepSettlement is atomic: only the first caller settles a running row", () => {
+  const ctx = fakeCtx();
+  const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
+  insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
+  const key = { runId: run.id, stepId: "draft", attempt: 1 };
+  const winner = claimStepSettlement(ctx, key, { status: "done", endedAt: ctx.now });
+  expect(winner?.status).toBe("done");
+  const loser = claimStepSettlement(ctx, key, { status: "failed", error: "lost race", endedAt: ctx.now });
+  expect(loser).toBeNull(); // the row is no longer running: the second claim never lands
+  const row = stepsOfRun(ctx, run.id).find(s => s.stepId === "draft")!;
+  expect(row.status).toBe("done");
+  expect(row.error).toBeUndefined(); // the losing patch did not clobber the winning one
+});
+
+test("a task settled through attachAndSettle and onTaskSettled advances the run exactly once", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
+  const task = createTask(ctx, {
+    brief: { goal: "Draft", repo: tmpDir() }, kind: "research", requestedExecutor: null, timeoutS: 600,
+    requestId: `wf:${run.id}:draft:1:`,
+  });
+  // The crash: the row exists without its task id and the task already settled, so
+  // both the attach path and the tick's settlement path see the same terminal task.
+  insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
+  updateStep(ctx, { runId: run.id, stepId: "draft", attempt: 1 }, { result: { ok: true } });
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  await startStep(ctx, getRun(ctx, run.id)!, getDefinition(ctx, "t/demo")!, "draft", undefined, { deps }); // attachAndSettle
+  await onTaskSettled(ctx, task.id, undefined, deps); // the tick settles the same task again
+  expect(getRun(ctx, run.id)!.status).toBe("waiting"); // advanced once, healthy
+  expect(stepsOfRun(ctx, run.id)).toHaveLength(2); // exactly one human step was started
 });
 
 test("required ['constructor'] is not satisfied by {}", async () => {

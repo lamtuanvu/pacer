@@ -249,6 +249,21 @@ export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {
   return merged;
 }
 
+/** Atomically claims the settlement of a running step row: the write lands only when
+ *  the row is still `running`, so of two concurrent settlers (the request thread's
+ *  attachAndSettle and the tick thread's onTaskSettled) exactly one wins and advances
+ *  the run. Returns the settled row, or null when another caller already claimed it. */
+export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row || row.status !== "running") return null;
+  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt });
+  const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
+    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
+  return result.changes === 1 ? merged : null;
+}
+
 export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {
   return workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE run_id = ? ORDER BY started_at, step_id, attempt, branch").all(runId).map(stepFromRow);
 }
