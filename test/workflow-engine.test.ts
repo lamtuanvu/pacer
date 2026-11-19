@@ -663,9 +663,19 @@ test("a task settled through attachAndSettle and onTaskSettled advances the run 
   insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
   updateStep(ctx, { runId: run.id, stepId: "draft", attempt: 1 }, { result: { ok: true } });
   updateTask(ctx, task.id, t => { t.state = "done"; });
-  await startStep(ctx, getRun(ctx, run.id)!, getDefinition(ctx, "t/demo")!, "draft", undefined, { deps }); // attachAndSettle
-  await onTaskSettled(ctx, task.id, undefined, deps); // the tick settles the same task again
-  expect(getRun(ctx, run.id)!.status).toBe("waiting"); // advanced once, healthy
+  // Both callers read the row while it is still running (the engine yields before
+  // the claim), and the tick's read sees a task that meanwhile went failed: the
+  // two settlement patches disagree, so only the claim can decide the winner.
+  // Without claimStepSettlement the second, unconditional write would land the
+  // failed patch over the done one and fail the healthy run.
+  const attach = startStep(ctx, getRun(ctx, run.id)!, getDefinition(ctx, "t/demo")!, "draft", undefined, { deps }); // reads the task as done, then yields
+  updateTask(ctx, task.id, t => { t.state = "failed"; }); // the task re-settles while the attach path is mid-flight
+  const tick = onTaskSettled(ctx, task.id, undefined, deps); // reads the failed task and the still-running row, then yields
+  await Promise.all([attach, tick]);
+  const run2 = getRun(ctx, run.id)!;
+  expect(run2.status).toBe("waiting"); // advanced once, from the winning done settlement
+  expect(run2.reason).toBeUndefined(); // the losing failed patch never landed
+  expect(stepsOfRun(ctx, run.id).find(s => s.stepId === "draft")!.status).toBe("done");
   expect(stepsOfRun(ctx, run.id)).toHaveLength(2); // exactly one human step was started
 });
 

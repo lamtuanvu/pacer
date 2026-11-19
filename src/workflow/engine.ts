@@ -398,6 +398,11 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
   if (step.status !== "running") return;
   const def = loadDefinition(ctx, run);
   if (!def) return;
+  // One yield before the claim: a concurrent settlement (the request thread's
+  // attach path and the tick, say) can then read the row as still running too, and
+  // it is the claim below — not the luck of synchronous execution — that makes the
+  // settlement exclusive and the run advanced exactly once (Review Focus 6).
+  await Promise.resolve();
   const done = task.state === "done" && step.result !== undefined;
   const error = done ? undefined : task.state === "done" ? "no step result" : task.state;
   const claimed = claimStepSettlement(ctx, keyOf(step), done ? { status: "done", endedAt: ctx.now } : { status: "failed", error, endedAt: ctx.now });
