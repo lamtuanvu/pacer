@@ -1,6 +1,6 @@
 # pacer Constitution
 
-Status: Amendment 0.23.0 (general tests on Linux, macOS-specific tests on macOS) proposed; amendment 0.22.0 (nightly update channel) proposed; amendment 0.21.0 (release from a pinned tag) proposed; amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.23.0 | Updated: 2026-11-18
+Status: Amendment 0.24.0 (release builds only; validation post-merge) proposed; amendment 0.23.0 (general tests on Linux, macOS-specific tests on macOS) proposed; amendment 0.22.0 (nightly update channel) proposed; amendment 0.21.0 (release from a pinned tag) proposed; amendment 0.20.0 (focused CI) proposed; amendment 0.19.0 (desktop UI delivery) proposed; amendment 0.17.0 (paired machines) proposed; amendment 0.16.0 (Rust front door and coexistence) proposed; amendment 0.15.0 (agent work routing) proposed; amendment 0.14.0 (scoped work delegation) proposed; amendment 0.13.0 (UI readiness procedure and preflight) proposed; amendment 0.12.0 (spacing ownership) proposed; amendment 0.11.0 (affected-area CI selection) proposed; amendment 0.10.0 (portable skills and mandatory project review) proposed; amendment 0.9.0 (compact UI density) proposed; amendment 0.8.0 (plugin system: P13–P15) proposed; amendment 0.7.0 (Rust crate structure and size rules) proposed; amendment 0.6.0 (automated releases) proposed; established rules remain in force. The maintainer adopts the amendment by merging its PR. Amendment 0.18.0 (Orca executor extraction) was adopted on 2026-10-31 by merging #523; amendment 0.5.0 on 2026-10-20 by merging #209; amendment 0.4.0 on 2026-10-19 by merging #193. | Version: 0.24.0 | Updated: 2026-11-19
 Decision authority: the single maintainer, @lamtuanvu ([GOVERNANCE.md](../GOVERNANCE.md), [.github/CODEOWNERS](../.github/CODEOWNERS)). AI reviewers give advice; they do not approve.
 
 ## Purpose and scope
@@ -59,7 +59,7 @@ Established checks, run in CI on every PR and on pushes to `main` ([.github/work
 - The Conventional Commit PR title check.
 
 Established before a release:
-- `release.yml` verifies that the tag matches `package.json` and smoke-tests every native binary.
+- `release.yml` verifies that the tag matches `package.json` and smoke-tests every native binary. The full CI suite and the M1 gate against the built release artifacts run post-merge on `main` in CI, not on the release commit (amendment 0.24.0, proposed).
 - Live tests on remote hosts need separate maintainer approval (ADR remote-hosts-ssh).
 
 The maintainer's approval is the merge decision. Reviewers identify violations and evidence; they cannot approve a merge, grant an exception or accept an amendment.
@@ -243,3 +243,12 @@ Proposed; adopted only by the maintainer merging this amendment PR. The maintain
 - REL-2 release publication requires the Linux full suite and the macOS-specific suite to have run and passed on the tagged commit.
 - Accepted risk: a macOS-only regression in a general test is not caught by CI before a release, because general tests no longer run on macOS. A test that needs macOS coverage must be listed in the manifest; `test/ci-sharding.test.ts` fails when a file that checks for darwin is not.
 - This amendment doesn't relax the security scans, DCO, release artifact checks, REPO-10, CT-11 or the maintainer's merge authority. See [CI selection](../docs/testing/ci-selection.md).
+
+## Amendment 0.24.0 — release builds only; validation post-merge
+
+Proposed; adopted only by the maintainer merging this amendment PR. The maintainer decided on 2026-11-19 that the release workflow only builds and publishes, and that validation runs post-merge on `main`, after v0.17.5 spent 39 of its 51 release minutes re-running CI on the release commit.
+
+- `release.yml` drops the `ci-suite` job, the M1 gate against the built host release artifacts and the Rust plugin SDK testing-feature test. It keeps the tag/package.json verification and channel classification, the typecheck, both-architecture release builds with native smoke tests, checksums, provenance, and every publishing job (npm, Homebrew, crates, desktop, feeds).
+- CI gains a post-merge job on push to `main` (ubuntu and macOS) that builds the host release pair exactly as the release build job does, builds the Rust fixture plugin and runs `bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip`, uploading its log as an artifact. CI's Rust job still runs the SDK harness feature test.
+- Trade-off accepted: a release can tag a `main` commit whose post-merge CI is red; the maintainer must check `main`'s CI before running Prepare release. `nightly.yml` still requires CI's full suite for the commit it stamps.
+- This supersedes the release-validation bullets of amendments 0.21.0 and 0.23.0 and the 2026-11-13 decision in [decisions.md](decisions.md). It doesn't relax the security scans, DCO, release artifact checks (REL-3), REPO-10, CT-11 or the maintainer's merge authority.
