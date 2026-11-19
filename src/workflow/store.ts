@@ -35,8 +35,13 @@ export function workflowDatabase(ctx: Ctx): Database {
   // The unique index makes firing an edge exclusive: a second attempt to insert a
   // successor for an already-fired edge fails instead of duplicating the work
   // (NULLs are allowed — entry steps and join rows have no trigger).
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec("ALTER TABLE workflow_steps ADD COLUMN trigger TEXT NULL");
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps(trigger)");
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
+  // The tick runs every second and reads steps by live status (orphans, re-advance,
+  // recovery); partial indexes keep those scans cheap as the step history grows
+  // (round 4 review).
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
   ready.add(db);
   return db;
 }
@@ -214,6 +219,13 @@ export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
   return rows.map(runFromRow);
 }
 
+/** Live runs only (running or waiting), oldest first: the tick's rescan, recovery
+ *  and re-advance walks run every second, so the status filter lives in the SQL
+ *  instead of walking every run ever recorded (round 4 review). */
+export function liveRuns(ctx: Ctx): RunRow[] {
+  return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
+}
+
 export type RunPatch = Partial<Pick<RunRow, "status" | "reason" | "title" | "loops">>;
 
 /** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict.
@@ -366,7 +378,7 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
         // (round 4 review).
         const runRow = db.query<{ status: string }, [string]>("SELECT status FROM workflow_runs WHERE id = ?").get(fire.runId);
         if (!runRow || (runRow.status !== "running" && runRow.status !== "waiting")) return { kind: "terminal" };
-        if (db.query("SELECT 1 FROM workflow_steps WHERE trigger = ?").get(trigger)) return { kind: "handled" };
+        if (db.query(`SELECT 1 FROM workflow_steps WHERE "trigger" = ?`).get(trigger)) return { kind: "handled" };
         let loops: Record<string, number> | undefined;
         if (fire.back) {
           const row = db.query<{ loops: string | null }, [string]>("SELECT loops FROM workflow_runs WHERE id = ?").get(fire.runId);
@@ -386,7 +398,7 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
           // The first successor row carries the edge trigger; a fan-out's further
           // branch rows carry it suffixed with their branch so every row stays unique.
           const rowTrigger = i === 0 ? trigger : `${trigger}/${branch}`;
-          db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, trigger) VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, ?)")
+          db.query(`INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, "trigger") VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, ?)`)
             .run(fire.runId, fire.stepId, attempt, branch ?? "", fire.status, ctx.now, rowTrigger);
           rows.push({ runId: fire.runId, stepId: fire.stepId, attempt, branch, status: fire.status, startedAt: ctx.now, trigger: rowTrigger });
         });
@@ -397,7 +409,7 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
       // first (trigger or step key UNIQUE): retry the decision from fresh state —
       // the attempt must be recomputed — and treat an existing trigger as handled.
       if (`${err instanceof Error ? err.message : err}`.includes("UNIQUE constraint failed") && tryn < 2) continue;
-      if (db.query("SELECT 1 FROM workflow_steps WHERE trigger = ?").get(trigger)) return { kind: "handled" };
+      if (db.query(`SELECT 1 FROM workflow_steps WHERE "trigger" = ?`).get(trigger)) return { kind: "handled" };
       throw err;
     }
   }

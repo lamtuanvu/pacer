@@ -3,7 +3,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 import { taskDatabase } from "../src/tasks/store";
 import {
   addDefinition, fireEdge, getDefinition, insertJoinStep, listDefinitions, getCursor, setCursor, getRun, insertRun, insertStep,
-  listRuns, stepByTask, stepsOfRun, updateRun, updateStep, workflowDatabase,
+  listRuns, liveRuns, stepByTask, stepsOfRun, updateRun, updateStep, workflowDatabase,
   type NewRun, type RunStatus, type StepRow,
 } from "../src/workflow/store";
 import type { WorkflowDef } from "../src/workflow/schema";
@@ -199,4 +199,18 @@ test("fireEdge refuses to start a successor in a run that is no longer live", ()
   // A vanished run behaves the same.
   workflowDatabase(ctx).query("DELETE FROM workflow_runs WHERE id = ?").run(r.id);
   expect(fireEdge(ctx, { runId: r.id, from: { stepId: "a", attempt: 1 }, edgeIndex: 1, stepId: "b", status: "running" }).kind).toBe("terminal");
+});
+
+test("liveRuns filters by status in SQL and the per-second step queries have partial indexes", () => {
+  const ctx = fakeCtx();
+  const live = insertRun(ctx, newRun());
+  const done = insertRun(ctx, { ...newRun(), workflow: "t/other" });
+  const stopped = insertRun(ctx, { ...newRun(), workflow: "t/third" });
+  updateRun(ctx, done.id, done.rev, { status: "done" });
+  updateRun(ctx, stopped.id, stopped.rev, { status: "stopped" });
+  expect(liveRuns(ctx).map(run => run.id)).toEqual([live.id]); // terminal runs are filtered out in SQL
+  const indexSql = (name: string): string =>
+    (workflowDatabase(ctx).query<{ sql: string | null }, [string]>("SELECT sql FROM sqlite_master WHERE name = ?").get(name)?.sql ?? "");
+  expect(indexSql("workflow_steps_live")).toContain("WHERE status IN ('running', 'waiting')");
+  expect(indexSql("workflow_steps_unadvanced")).toContain("status = 'done' AND advanced_at IS NULL");
 });

@@ -21,7 +21,7 @@ import type { TaskState } from "../tasks/types";
 import { readTask } from "../tasks/store";
 import { taskChangesSince } from "../tasks/changes";
 import {
-  attachStepTask, getCursor, getDefinition, getRun, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
+  attachStepTask, getCursor, getDefinition, getRun, liveRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
   taskByRequestId, unadvancedDoneSteps, updateStep, type StepRow,
 } from "./store";
 import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
@@ -169,7 +169,7 @@ function saveCursor(ctx: Ctx, seq: number): void {
  *  reserved. */
 async function rescanRunningSteps(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<RescanOutcome> {
   let handled = 0;
-  for (const run of listRuns(ctx)) {
+  for (const run of liveRuns(ctx)) { // live runs only, filtered in SQL (round 4 review)
     for (const row of stepsOfRun(ctx, run.id)) {
       if (row.status !== "running") continue;
       let taskId = row.taskId;
@@ -247,8 +247,7 @@ async function processChanges(ctx: Ctx, from: number, spawn: SpawnRunner | undef
  *  for the next tick when transient) and the loop moves on. */
 async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
   let handled = 0;
-  for (const run of listRuns(ctx)) {
-    if (run.status === "done" || run.status === "failed" || run.status === "stopped") continue;
+  for (const run of liveRuns(ctx)) { // live runs only, filtered in SQL (round 4 review)
     try {
       const rows = stepsOfRun(ctx, run.id);
       // (a) A claimed failure whose failRun never landed.
