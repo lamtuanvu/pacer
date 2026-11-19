@@ -4,10 +4,12 @@
 // that belongs to a step instance settles that step, and a gap in the log (pruned
 // past, or a cursor ahead of a restored database) triggers a full rescan of running
 // steps so no settlement is lost. A settlement error never propagates: transient
-// SQLite lock errors stop the tick with the cursor at the last fully handled change
-// and are retried next tick, at most five times per change before the change is
-// treated as a deterministic failure; only deterministic errors fail the affected
-// run, and one broken run cannot block every other run's settlement (Review Focus 3).
+// SQLite lock errors are retried next tick within a per-key budget (five attempts
+// per change, and the same budget for the orphan and re-advance row work); a
+// transient error in the orphan reconciliation or the re-advance never stops the
+// tick — it continues to the change loop (Review Focus: run correctness 11); only
+// deterministic errors fail the affected run, and one broken run cannot block every
+// other run's settlement (Review Focus 3).
 // Each tick also re-advances done steps whose outgoing edges were never processed
 // (Review Focus: run correctness 4), and recovers settlements that a lock error
 // lost at the exact point: a claimed failure whose failRun never landed, a fan-out
@@ -41,11 +43,32 @@ export function isTransientError(err: unknown): boolean {
  *  MAX_TRANSIENT_RETRIES attempts for the same task the change is treated as a
  *  deterministic failure. Deterministic errors are recorded on the run and swallowed
  *  so the batch keeps going; even recording the error must not break the batch, and
- *  a failing failRun must never block the cursor forever. */
-const MAX_TRANSIENT_RETRIES = 5;
+ *  a failing failRun must never block the cursor forever. */const MAX_TRANSIENT_RETRIES = 5;
 /** Transient retry counts, in memory per task id (Review Focus: run correctness 6);
- *  a successful or given-up settlement clears its entry. */
+ *  the map is in-memory only and resets on restart. An entry is pruned when the key
+ *  settles by any path: a successful settlement, or the change given up as a
+ *  deterministic failure. */
 const transientRetries = new Map<string, number>();
+/** The same budget for the tick's background row work — orphan re-delegation and
+ *  re-advance (Review Focus: run correctness 11) — keyed per step row: one locked
+ *  row may not stall every tick, so after MAX_TRANSIENT_RETRIES attempts for the
+ *  same row its error is treated as a deterministic failure of that row's work.
+ *  The map is in-memory only and resets on restart; an entry is pruned when the
+ *  row settles by any path (handled, or its run failed). */
+const transientRowRetries = new Map<string, number>();
+
+const rowRetryKey = (row: StepRow): string => `${row.runId}/${row.stepId}#${row.attempt}/${row.branch ?? ""}`;
+
+/** Records one transient failure of a row's reconciliation work. Returns "retry"
+ *  while the budget lasts, or "give-up" once it is spent (the entry is pruned). */
+function rowTransient(row: StepRow): "retry" | "give-up" {
+  const key = rowRetryKey(row);
+  const count = (transientRowRetries.get(key) ?? 0) + 1;
+  transientRowRetries.set(key, count);
+  if (count <= MAX_TRANSIENT_RETRIES) return "retry";
+  transientRowRetries.delete(key);
+  return "give-up";
+}
 
 async function settleOne(ctx: Ctx, taskId: string, runId: string | undefined, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<"settled" | "transient"> {
   try {
@@ -82,23 +105,29 @@ interface RescanOutcome { handled: number; aborted: boolean }
  *  after a cursor gap (Review Focus: run correctness 2): a task reserved under the
  *  row's request id is attached and settled, and a row older than 60 seconds without
  *  a task is delegated again under the same attempt and request id. With no orphans
- *  this is one cheap indexed query. */
-async function reconcileOrphans(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<RescanOutcome> {
+ *  this is one cheap indexed query. A transient error never stops the tick
+ *  (Review Focus: run correctness 11): the row retries next tick within its
+ *  per-row budget, the loop moves on, and the tick continues to the change loop. */
+async function reconcileOrphans(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
   const orphans = orphanSteps(ctx);
   let handled = 0;
   for (const row of orphans) {
     try {
       const outcome = await reconcileOrphanStep(ctx, row, spawn, deps);
-      if (outcome === "attached" || outcome === "redelegated") handled++;
+      if (outcome === "attached" || outcome === "redelegated") {
+        transientRowRetries.delete(rowRetryKey(row)); // the row settled: prune its retries
+        handled++;
+      }
     } catch (err) {
-      if (isTransientError(err)) return { handled, aborted: true };
-      // A deterministic re-delegation failure fails the run, like a failed start in
-      // advanceFrom; a failing failRun leaves the row for the next tick.
+      if (isTransientError(err) && rowTransient(row) === "retry") continue; // the tick goes on; this row retries next tick
+      // The budget is spent, or the error is deterministic: the row's work failed
+      // like a failed start in advanceFrom — the run fails, and a failing failRun
+      // leaves the row for the next tick.
       try { await failRun(ctx, row.runId, `re-delegate failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
       catch { /* the next tick retries the row */ }
     }
   }
-  return { handled, aborted: false };
+  return handled;
 }
 
 /** Re-advances done steps whose outgoing edges may never have been processed
@@ -106,22 +135,28 @@ async function reconcileOrphans(ctx: Ctx, spawn: SpawnRunner | undefined, deps: 
  *  run answer whose patch conflicted — Review Focus: run correctness 4). Rows older
  *  than 5 seconds only, so a settlement that its own caller is still advancing is
  *  never raced. A deferred end (Review Focus 5) whose busy siblings are gone ends
- *  the run here. */
-async function readvanceStalled(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<RescanOutcome> {
+ *  the run here. A transient error never stops the tick (Review Focus: run
+ *  correctness 11): the row retries next tick within its per-row budget, the loop
+ *  moves on, and the tick continues to the change loop. */
+async function readvanceStalled(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
   const stalled = unadvancedDoneSteps(ctx, ctx.now - 5);
   let handled = 0;
   for (const row of stalled) {
     try {
-      if (await readvanceStep(ctx, row, spawn, deps)) handled++;
+      if (await readvanceStep(ctx, row, spawn, deps)) {
+        transientRowRetries.delete(rowRetryKey(row)); // the row advanced: prune its retries
+        handled++;
+      }
     } catch (err) {
-      if (isTransientError(err)) return { handled, aborted: true };
-      // A deterministic re-advance failure fails the run, like a failed start in
-      // advanceFrom; a failing failRun leaves the row for the next tick.
+      if (isTransientError(err) && rowTransient(row) === "retry") continue; // the tick goes on; this row retries next tick
+      // The budget is spent, or the error is deterministic: the row's re-advance
+      // failed like a failed start in advanceFrom — the run fails, and a failing
+      // failRun leaves the row for the next tick.
       try { await failRun(ctx, row.runId, `re-advance failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
       catch { /* the next tick retries the row */ }
     }
   }
-  return { handled, aborted: false };
+  return handled;
 }
 
 /** Persists the cursor; a lock failure only delays it, since settlements are idempotent. */
@@ -237,6 +272,7 @@ async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, 
         if (!task || !SETTLE_STATES.includes(task.state)) continue;
         try {
           await onTaskSettled(ctx, row.taskId, spawn, deps);
+          transientRetries.delete(row.taskId); // the key settled by this path: prune its retries
           progressed = true;
         } catch (err) {
           if (isTransientError(err)) { transient = true; break; } // the next tick retries; the change loop owns the retry budget
@@ -291,15 +327,14 @@ export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDep
   let handled = 0;
   // Orphan reconciliation first, on every tick (not only after a gap): a recovered
   // step may then also have its own change waiting in the log below, which is a no-op.
-  const orphans = await reconcileOrphans(ctx, spawn, deps);
-  if (orphans.aborted) return { handled: orphans.handled, rescanned: false };
-  handled += orphans.handled;
+  // A transient error in it never stops the tick: the tick continues to the change
+  // loop (Review Focus: run correctness 11).
+  handled += await reconcileOrphans(ctx, spawn, deps);
   // Then the stalled advancements (Review Focus: run correctness 4): a step that is
   // done but was never advanced gets its edges replayed, and a deferred end whose
-  // siblings are gone finally ends the run.
-  const stalled = await readvanceStalled(ctx, spawn, deps);
-  if (stalled.aborted) return { handled: handled + stalled.handled, rescanned: false };
-  handled += stalled.handled;
+  // siblings are gone finally ends the run. A transient error here never stops the
+  // tick either (Review Focus: run correctness 11).
+  handled += await readvanceStalled(ctx, spawn, deps);
   const walk = await processChanges(ctx, getCursor(ctx), spawn, deps);
   handled += walk.handled;
   // Recovery last: the change loop settles what the log still holds; the recovery

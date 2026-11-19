@@ -476,3 +476,39 @@ test("a running step whose task is already terminal is settled by the tick", asy
   expect(rows.find(s => s.stepId === "one")!.advancedAt).toBeDefined();
   expect(rows.find(s => s.stepId === "two")!.taskId).toBeDefined();
 });
+
+test("a persistently failing re-advance does not stop the tick; the healthy run still settles, and the budget fails the stuck run", async () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home });
+  addDefinition(ctx, chain, "source");
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r1 = await startRun(ctx, { workflow: "t/chain", repo: tmpDir(), brief: "A" }, undefined, deps);
+  const r2 = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  // Run 1: a done row that never advanced. Every INSERT for its rows aborts with a
+  // lock error, so its re-advance (which inserts the successor) fails transiently.
+  const s1 = stepsOfRun(ctx, r1.id)[0];
+  recordStepResult(ctx, s1.taskId!, { n: 1 });
+  settle(ctx, s1.taskId!);
+  claimStepSettlement(ctx, { runId: r1.id, stepId: "one", attempt: 1 }, { status: "done", endedAt: ctx.now });
+  // Run 2: a healthy settlement waiting in the same tick's change log.
+  const s2 = stepsOfRun(ctx, r2.id)[0];
+  recordStepResult(ctx, s2.taskId!, { n: 2 });
+  settle(ctx, s2.taskId!);
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_lock_advance BEFORE INSERT ON workflow_steps WHEN NEW.run_id = '${r1.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  const ctx2 = fakeCtx({ home, now: ctx.now + 6 }); // the stalled row is old enough to re-advance
+  // Ticks 1–5: the re-advance retries within its per-row budget, and the tick still
+  // reaches the change loop: run 2's settlement lands in the very first tick.
+  for (let i = 0; i < 5; i++) {
+    await advanceRuns(ctx2, undefined, deps);
+    expect(getRun(ctx2, r2.id)!.status).toBe("waiting"); // the healthy run was never blocked
+    expect(stepsOfRun(ctx2, r2.id)).toHaveLength(2);
+    expect(getRun(ctx2, r1.id)!.status).toBe("running"); // the stuck run is not failed yet
+  }
+  // Tick 6: the per-row budget is spent; the stuck re-advance is a deterministic
+  // failure and run 1 is failed like any settlement error.
+  await advanceRuns(ctx2, undefined, deps);
+  expect(getRun(ctx2, r1.id)!.status).toBe("failed");
+  expect(getRun(ctx2, r1.id)!.reason).toBe("re-advance failed: database is locked");
+  expect(getRun(ctx2, r2.id)!.status).toBe("waiting");
+});
