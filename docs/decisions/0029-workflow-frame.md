@@ -19,7 +19,10 @@ pacer runs and tracks single tasks, and the work dispatcher ([ADR 0006](0006-int
 5. **Only runs are in scope.** A task belongs to a run only if the engine created it. Everything new is gated on that link. Delegated and dispatched tasks, interactive lanes started outside a run, and the existing screens keep their current behaviour.
 6. **One orchestrator per root run.** pacer launches it with the configured planner agent (P3). It does not run continuously: the engine resumes its session for one metered turn per event. It acts only through engine and task operations, and each action is recorded with its reason, so an agent's decisions stay traceable, in line with the [dispatcher design](../specs/2026-10-24-intelligent-work-dispatcher-design.md)'s non-goal of opaque model-made dispatch decisions. A run grant gives it review, send-back, retry, stop, skip, escalate and sub-workflow submission inside its own run. Executor grants are unchanged. The run grant is a new credential and needs the API-5b amendment below.
 7. **The person's decisions cannot be loosened.** A workflow marks each human step `must` or `auto`. In auto mode the orchestrator may answer `auto` steps only. The person can make any step stricter. The frame forces no approval step of its own ([ADR 0002](0002-actionable-attention.md)).
-8. **A run branch carries the code.** A run that changes code gets one branch. Task worktrees start from its tip, accepted tasks are merged into it one at a time, conflicts become a task for the orchestrator, and the pull request is opened from it.
+8. **A run branch carries the code.** A run that changes code gets one branch. Task worktrees start from its tip, accepted tasks are merged into it one at a time, conflicts become a task for the orchestrator, and the pull request is opened from it. For a run task, `review --accept` merges the task's branch first and records the verdict only after a clean merge; ordinary tasks' accept is unchanged. Publishing (push and PR) runs under the person's own git and `gh` configuration, only after a `must` approval or a draft opt-in.
+9. **Orchestrator cost is bounded per run.** Wake-ups and turns are durable rows, only decision points wake the orchestrator, and each root run has a turn and cross-run message budget that pacing modes tighten.
+10. **Executors gain one workflow operation.** Besides `step.result`, an executor whose task belongs to a run may call `step.artifact` for its own step. No other executor grant changes.
+11. **Workflow plugins extend consent.** A plugin's consent records the workflows it contributes, and a version that adds a workflow asks again. This extends the [plugin system design](../specs/2026-10-19-plugin-system-design.md)'s rule, which asks again only for new capabilities.
 
 ## Rule amendment API-5b (needs maintainer approval)
 
@@ -27,7 +30,7 @@ API-5 lets an executor delegate only through a service-issued task/attempt grant
 
 - a `prg_` bearer (`prg_` + 64 lowercase hex), bound to one root run id and one orchestrator turn (turn id and deadline), stored SHA-256-hashed in the existing grant store under its own `kind`;
 - issued when an orchestrator turn starts; it expires at the turn's deadline and is revoked when the turn settles or the run ends or is stopped;
-- it authorizes only review, send-back, retry, stop, skip, escalate, sub-workflow submission, workflow choice, step results and answers, and only on tasks, steps and questions of its own run. `authorizeWorkOperation` answers for it first and refuses everything else;
+- it authorizes only review, send-back, retry, stop, skip, escalate, sub-workflow submission, workflow choice, step results, step artifacts and answers, and from Phase 5 `run.sync_base` and `run.publish`, and only on tasks, steps and questions of its own run. `run.publish` also checks its own publishing gate (a recorded `must` approval, or the person's draft opt-in), so the grant alone never publishes. `authorizeWorkOperation` answers for it first and refuses everything else;
 - an unknown, expired or revoked `prg_` fails closed (403 at the HTTP gate, `not_allowed` from the core) and is never treated as an executor or the operator.
 
 ## Amendments to [ADR 0011](0011-agent-messaging.md) (need maintainer approval)
@@ -37,7 +40,8 @@ API-5 lets an executor delegate only through a service-issued task/attempt grant
 
 ## Consequences
 
-- New tables in the task store: workflow definitions, runs, step instances, generated graphs, decisions and questions.
+- New tables in the task store: workflow definitions, runs, step instances, the change cursor, generated graphs, decisions, questions, wake-ups and turns.
+- Plugin protocol 1.12.0 adds the `workflow` contribution and the paged `workflow.definitions` call.
 - New additive `/v3` operations (`workflow.*`, `run.*`, `step.result`, `question.*`) and CLI commands. ARCH-8 holds: the CLI and TUI can do everything.
 - A new plugin extension point, `workflow`, and a bundled `pacer-dev` plugin that can be disabled or replaced.
 - Orchestrator wake-ups are metered turns. Priority and pausing under strict pacing bound how much planner budget several runs use.

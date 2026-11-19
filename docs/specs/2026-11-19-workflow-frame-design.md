@@ -199,7 +199,7 @@ Exactly-once rules:
 - **Loop counts do not use `expect_rev`.** The increment is read and written inside the immediate transaction and bumps the run's `rev`, so a client holding an older rev gets `conflict` and rereads, but a loop update never fails a healthy run over a rev the request thread changed.
 - **An `end` edge waits.** A run does not end while a fan-out is unresolved or a sibling step is still busy; the deferred end lands on the tick that finds them gone.
 
-Errors: SQLite lock errors (`SQLITE_BUSY` and its relatives) are transient. They are retried on later ticks, at most five times per change and five times per orphan or re-advance row, counted in memory. After that, and for any other error, the error is deterministic: the affected run fails with an `engine error: …` reason and the tick moves on.
+Errors: SQLite lock errors (`SQLITE_BUSY` and its relatives) are transient. They are retried on later ticks, at most five times per change and five times per orphan or re-advance row, counted in memory. After that, and for any other error, the error is deterministic: the affected run fails with a reason beginning `engine error`, `re-delegate failed` or `re-advance failed`, and the tick moves on. The retry counts live in memory, so a service restart gives a stuck row another five tries.
 
 Data from agents is bounded and fenced:
 
@@ -231,7 +231,7 @@ Rules: no cycles except bounded retry edges that the limits allow; nesting depth
 
 One orchestrator per root run. pacer launches it with the configured planner agent (any agent in `PLANNERS`; P3) and keeps one native session for the run's life, so its context stays on one piece of work. Role detection (`isExecutorSession`) gains this third role.
 
-**Lifetime: event-driven turns, not a long-lived process.** A run can wait days on a `must` step, so the orchestrator does not stay `running`. It settles between events and the engine resumes its session for one turn per event: a step settled, a step result was invalid, a question was escalated to it, a re-plan is due, the person sent it a message, or the person returned to the run (for the "since you last looked" summary). Each wake-up is a metered turn and is billed like any other. A paused or background run simply raises no wake-ups. Because the orchestrator is not `running` between turns, step tasks are not its dispatcher children: each run has a root work node owned by the engine, and step tasks are children of that node.
+**Lifetime: event-driven turns, not a long-lived process.** A run can wait days on a `must` step, so the orchestrator does not stay `running`. It settles between events and the engine resumes its session for one turn per event: a step settled, a step result was invalid, a question was escalated to it, a re-plan is due, the person sent it a message, or the person returned to the run (for the "since you last looked" summary). Each wake-up is a metered turn and is billed like any other. A paused or background run simply raises no wake-ups. Because the orchestrator is not `running` between turns, step tasks are not its dispatcher children: from Phase 3 each run has a root work node owned by the engine, and step tasks are children of that node (Phase 1 and Phase 2 start steps as plain tasks; see "From plain tasks to work nodes").
 
 **Steps with `role: orchestrator` are turns in its session**, not new tasks. The step instance records the turn id, and a retry is another turn. A step may set `interactive: true` (brainstorming does), and then that turn runs in the orchestrator's interactive lane, so the person sees and can type in its terminal. Otherwise the turn is headless. This is an exception to [ADR 0011](../decisions/0011-agent-messaging.md) decision 6 (managed roots default to headless launches), limited to orchestrator turns of steps marked interactive.
 
@@ -244,7 +244,7 @@ It acts only through engine and task operations, each recorded with a reason:
 
 The person talks to a run through its orchestrator (for example, brainstorming happens in its session) and can still open any executor's session directly.
 
-**Grant.** A new run grant, scoped to one root run, allows: review, send-back, retry, stop, skip, escalate, submit a sub-workflow, choose a workflow, report step results, and answer questions inside that run. Executors keep their existing grants.
+**Grant.** A new run grant, scoped to one root run, allows: review, send-back, retry, stop, skip, escalate, submit a sub-workflow, choose a workflow, report step results, attach step artifacts, answer questions, and, from Phase 5, update the run branch from base (`run.sync_base`) and publish it (`run.publish`), all inside that run. Budget, priority, auto mode and planner changes stay with the person. Executors keep their existing grants, with one addition: an executor whose task has a step row may call `step.artifact` for its own step, gated by task identity exactly like `step.result`.
 
 This is a new credential, so it needs a rule amendment, proposed here as **API-5b**, modelled on API-5a:
 
@@ -314,7 +314,7 @@ Rule: **agents talk and read freely; only the owning orchestrator acts on a task
 Each run has a priority: `urgent`, `normal` (default) or `background`.
 
 - The dispatcher fills free executors by priority, then by the existing order.
-- Under strict or emergency pacing, `background` runs pause at their next step boundary and their orchestrators go idle until the budget recovers. Paused runs show why.
+- Under strict or emergency pacing, `background` runs pause at their next step boundary and their orchestrators go idle until the budget recovers; under emergency, `normal` runs pause too (see the table under "Cost control"). Paused runs show why.
 - The attention queue ranks by what an answer unblocks (stops the run, stops a branch, informational), then by run priority, then by age. Items carry their run's identity so clients can group and colour them.
 - Each run keeps a "since you last looked" summary that its orchestrator writes when the person returns to it.
 
@@ -335,7 +335,7 @@ How pacing modes apply:
 | strict | `urgent` runs as above; for `normal` runs, wake-ups the person did not cause wait in a 10-minute window and share a turn | `background` runs pause at their next step boundary (already in this design) |
 | emergency | only wake-ups the person causes, and those of `urgent` runs | `normal` and `background` runs pause at their next step boundary |
 
-A paused run resumes when the mode loosens. The run shows which rule paused it.
+A paused run resumes when the mode loosens. The run shows which rule paused it. The strict-mode window and the emergency pause of `normal` runs are proposals, decided together with the urgent-run rule in D4.
 
 ### Run branch: how parallel code comes together
 
@@ -354,10 +354,10 @@ The frame gives every run that changes code a **run branch**, created from the r
 
 **Accepting a run task merges, then accepts.** Today `pacer review --accept` records the verdict, and cleanup then removes the reviewed task's worktree; local branches stay. For a task with a step row in a run that has a branch, the `review` op with verdict `accept` does this instead:
 
-1. It refuses with `invalid_state` if the task's worktree has uncommitted changes, so the orchestrator sends the task back to commit them.
+1. It refuses with `invalid_input` ("uncommitted changes in the task worktree") if the task's worktree has uncommitted changes, so the orchestrator sends the task back to commit them.
 2. It merges the task's *branch* (not its worktree) into the run branch in the integration worktree.
 3. Only after a clean merge does it record the accept. Worktree cleanup then works exactly as it does today, because the merge no longer needs the worktree.
-4. On a conflict it records no verdict. It aborts the merge, leaves the run branch untouched, creates the conflict-resolution task described above, and returns `conflict` with that task's id. The task stays reviewable, and its dependents keep waiting.
+4. On a conflict it records no verdict. It aborts the merge, leaves the run branch untouched, creates the conflict-resolution task described above, and returns normally with `{ accepted: false, merge: "conflict", resolution_task: <id> }`. It does not use the `conflict` error code, which means a stale rev, so clients never mistake a merge conflict for "reread and retry". The task stays reviewable, and its dependents keep waiting.
 
 Ordinary tasks' accept is unchanged.
 
@@ -376,9 +376,14 @@ pacer never deletes a remote branch.
 
 **Base moves on.** `run.sync_base { id, expect_rev }` merges the base branch's current tip into the run branch in the integration worktree, with the same conflict path. A workflow calls it from a step before publishing.
 
-**Publishing: the PR step's identity and credentials.** `run.publish { id, draft, title, body, expect_rev }` pushes the run branch to the repo's `origin` and opens the PR with `gh pr create --head <run branch>`. The engine runs both in the integration worktree, under the service user's own git and `gh` configuration, so the author and the pusher are the person. pacer stores no forge token and never asks for one. A workflow's PR step is an agent step that writes the title and body and then calls `run.publish` under its grant. The PR URL is stored on the run and returned in the step result.
+**Publishing: the PR step's identity and credentials.** `run.publish { id, draft, title, body, expect_rev }` pushes the run branch to the repo's `origin` and opens the PR with `gh pr create --head <run branch>`. The engine runs both in the integration worktree, under the service user's own git and `gh` configuration, so the author and the pusher are the person. pacer stores no forge token and never asks for one. A workflow's PR step is a `role: orchestrator` step: it writes the title and body and then calls `run.publish` under its `prg_` grant. Executors cannot publish. The title and body are agent-written text, so they reach `gh` only as `--title <arg>` and `--body-file -` on stdin (SEC-5), never through a shell. The PR URL is stored on the run and returned in the step result.
 
-Publishing is outward-facing, so the frame lets `run.publish` run only when one of these holds: a `must` human step in this run approved publishing, or the person turned on `publish: draft` for this run at `run.start`, which allows draft PRs only. A workflow cannot loosen this. The default is listed under "Decisions needed".
+Publishing is outward-facing, so `run.publish` checks a gate itself; holding the grant is not enough. It runs only when one of these holds:
+
+- **An approval step.** A `human` step may declare `approves: publish`. The validator requires such a step to be `decision: must`, and the engine records its approving answer as a `publish_approved` decision on the run. `run.publish` requires that decision, newer than the run branch's last change, so a later merge needs a new approval.
+- **A draft opt-in.** The person passed `publish: draft` to `run.start`, which allows draft PRs only.
+
+A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The workflow sketch above shows the older order, with `open_pr` before `merge`; the first plugin uses approve, then publish. The default is listed under "Decisions needed".
 
 **Merge commits** are made with `git merge --no-ff`. When the repository requires sign-off (as pacer does), a repository setting adds `--signoff`, so merge commits carry the person's sign-off. Squash-merging the PR upstream is the repository's own choice.
 
@@ -390,7 +395,7 @@ Writes that clients and agents make to a run (`run.answer`, `run.stop`, and the 
 
 ### Operations, events and clients
 
-Core operations (additive, `/v3/ops`): `workflow.list`, `workflow.validate`, `run.start` (brief, workflow or `auto`, priority, auto mode), `run.get`, `run.list`, `run.pause`, `run.resume`, `run.stop`, `run.set_priority`, `run.set_auto`, `run.decide`, `run.submit_graph`, `step.retry`, `step.skip`, `question.ask`, `question.answer`, `question.escalate`. Events: run, step, decision and question entities on the existing SSE stream.
+Core operations (additive, `/v3/ops`): `workflow.list`, `workflow.validate`, `workflow.add`, `run.start` (repo, brief, workflow or `auto`, title, priority, auto mode, budget override, `publish: draft`), `run.answer`, `step.result`, `step.artifact`, `run.get`, `run.list`, `run.pause`, `run.resume`, `run.stop`, `run.set_priority`, `run.set_auto`, `run.decide`, `run.submit_graph`, `step.retry`, `step.skip`, `question.ask`, `question.answer`, `question.escalate`. Events: run, step, decision and question entities on the existing SSE stream.
 
 Phase 1 shipped `workflow.validate`, `workflow.add`, `workflow.list`, `run.start`, `run.get`, `run.list`, `run.answer`, `run.stop` and `step.result`, all `/v3`-only. `workflow.add` installs a definition by hand until plugins supply them (Phase 7). `run.answer` answers a human step by its step id. From Phase 4 it remains as a thin form of `question.answer` for the question that step raised. Later phases add `run.set_planner` and `run.set_budget` (Phase 2); `run.sync_base`, `run.publish`, `run.cleanup` and `step.artifact` (Phase 5); and the `workflow.definitions` plugin call (Phase 7).
 
@@ -411,7 +416,7 @@ The workflow ops are TS-forwarded: the Rust front door passes them to the TypeSc
 
 #### TUI (Phase 8)
 
-The dashboard gains a **Runs** view next to the task views, opened with `R`.
+The dashboard gains a **Runs** screen in the existing tab cycle, after Sessions, reached with Tab or with the next free number key (`6`). `R` keeps its current meaning, refresh. The keys below apply only on the Runs screen and in its run view.
 
 - **Run list.** Open run questions sit at the top, ranked like the attention queue. Below them is one line per run: its fixed letter (the same letter the app uses), title, workflow, status, what it waits on, priority and age. Background runs are dimmed, and paused runs show why.
 - **Run view.** Enter opens a run as an indented tree of the engine's graph. A step line reads, for example, `● review  running  3/4  2m`. Fan-out branches are children of their step, and a generated plan is a subtree under its `generate` step. A `?` marker shows a step that waits on the person, and the orchestrator's block (`planner at limit until 18:00`) is the first line. A details pane shows the selected step's result summary, its decisions with their reasons, and its questions.
@@ -460,10 +465,11 @@ Workflow plugins install through the existing plugin system: installed plugins a
 Workflows use the existing plugin protocol ([plugin system design](2026-10-19-plugin-system-design.md), [protocol reference](../plugin-protocol.md)). Nothing in the format changes, and no plugin code runs in the engine.
 
 - **Manifest.** A plugin declares `contributes.workflow: { "<name>": { "title"?: string } }`. The workflow's id is `<plugin id>/<name>`, and the host refuses an id that does not start with the plugin's own id.
-- **One host-to-plugin call.** `workflow.definitions()` returns `{ workflows: [{ name, version, source, prompts: { "<path>": "<text>" } }] }`. It is pure data, so the plugin needs no capability grant to serve it. The caps are 256 KiB per source, 64 KiB per prompt and 2 MiB per reply. The call works the same over every transport and from the TypeScript and Rust SDKs, and bundled plugins embed their files at build time.
+- **One host-to-plugin call.** `workflow.definitions()` returns `{ workflows: [{ name, version, source, prompts: { "<path>": "<text>" } }] }`. It is pure data, so the plugin needs no capability grant to serve it. The transport carries one JSON object per line with a 1 MiB cap, so the call is paged: `workflow.definitions({ after? })` returns at most one workflow per reply, with its prompts, plus `next` when more remain. The caps are 256 KiB per source and 64 KiB per prompt, and a reply must stay under 960 KiB; a larger workflow is a plugin diagnostic. The host's deadline is 10 seconds per page. The call works the same over every transport and from the TypeScript and Rust SDKs, and bundled plugins embed their files at build time.
 - **When the host calls it.** At plugin enable, upgrade and start-up. The host validates every workflow, including that each `prompt:` path is in the reply's `prompts`. It stores valid ones in `workflow_defs`, with a new `origin` column (`plugin:<id>@<version>`), and the prompts with them. A version that already exists with the same source is a no-op, as `workflow.add` is today. Invalid workflows are reported as plugin diagnostics and never stored.
 - **Disable and uninstall.** These mark the plugin's definitions `disabled`, so new runs cannot use them. Nothing is deleted: running runs are pinned to their version and finish on it.
-- **Consent.** Bundled plugins are trusted. An installed plugin's one-time consent lists its workflows and says what they can do: start agents in the person's repositories, ask questions, and publish only within the publishing rule above. A later version that adds a workflow asks again, the same way a version that asks for more capabilities does.
+- **Protocol version.** This is an additive minor change to the plugin protocol (1.11.0 to 1.12.0). A manifest with `contributes.workflow` sets `host` to `>=1.12.0`, and `bun run plugin:protocol` regenerates the reference.
+- **Consent.** Bundled plugins are trusted. An installed plugin's one-time consent lists its workflows and says what they can do: start agents in the person's repositories, ask questions, and publish only within the publishing rule above. A later version that adds a workflow asks again. This extends the plugin design's rule, under which a new version asks again only when it asks for more capabilities. The consent record stores, besides the capabilities, the list of workflow names consented to, and a version whose `contributes.workflow` adds a name prompts. ADR 0029 records the extension.
 - **The router.** `run.start` with `workflow: auto` runs the workflow named in the `workflows.router` setting. Its default is `pacer-dev/router`.
 - **Rust parity.** The new extension point's types are generated into a CRATE-3 area crate, `crates/plugin-workflow-protocol`, by `cargo xtask gen`. The Rust SDK (`pacer-plugin`) gets a typed handler, and a Rust fixture plugin in `crates/fixtures` serves one workflow. The conformance suite gains a `workflow` case that both SDKs pass. The native plugin reads in `crates/plugin-ops` (`plugin.list`, diagnostics) learn the `workflow` contribution key, so the Rust and TypeScript listings stay identical.
 
@@ -543,6 +549,8 @@ These choices are the maintainer's. Each lists the options, with the recommendat
 - Accept for a run task merges the task's branch before the verdict is recorded; merges happen in an engine-owned integration worktree; `run.stop` never touches the run branch.
 - Plugins supply workflows through one data-only call, `workflow.definitions`; disabled definitions are kept for running runs.
 - The agent-driven test evidence shape, the run artifact store and its size limits.
+- The publishing gate: `approves: publish` on a `must` human step, checked by `run.publish` itself; the PR step is an orchestrator step.
+- A merge conflict on accept is a normal result (`accepted: false`), not the `conflict` error code.
 
 ## Follow-ups
 
