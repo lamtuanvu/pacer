@@ -4,6 +4,17 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-11-19
+
+### Changed
+
+- Release 0.17.4 (#1122).
+- Cargo fmt the task row model and account changes (#1123).
+
+### Fixed
+
+- Repair main after the task-row runner changes (#1125).
+
 ## [0.17.4] - 2026-11-19
 
 ### Fixed
