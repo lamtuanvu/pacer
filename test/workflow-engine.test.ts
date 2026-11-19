@@ -74,6 +74,21 @@ const reviseLoop: WorkflowDef = {
   entry: "draft",
 };
 
+const chain: WorkflowDef = {
+  id: "t/chain",
+  version: 1,
+  steps: {
+    one: { type: "agent", kind: "research", prompt: "One" },
+    two: { type: "agent", kind: "research", prompt: "Two" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "one", to: "two" },
+    { from: "two", to: "done" },
+  ],
+  entry: "one",
+};
+
 const gate: WorkflowDef = {
   id: "t/gate",
   version: 1,
@@ -375,4 +390,25 @@ test("onTaskSettled ignores tasks without a step, unsettled tasks and double set
   await onTaskSettled(ctx, s1.taskId!, undefined, deps); // the step already settled
   expect(getRun(ctx, r.id)!.status).toBe("waiting");
   expect(stepsOfRun(ctx, r.id)).toHaveLength(2);
+});
+
+test("a next-step start failure fails the run instead of throwing", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, chain, "source");
+  const { deps: base } = fakeDeps();
+  const deps: EngineDeps = {
+    delegate: (c, input, spawn) => input.brief.goal.includes("Two")
+      ? Promise.reject(new Error("no executor available"))
+      : base.delegate(c, input, spawn),
+    stopTask: base.stopTask,
+  };
+  const r = await start(ctx, "t/chain", deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  await onTaskSettled(ctx, s1.taskId!, undefined, deps); // resolves, never throws
+  const run = getRun(ctx, r.id)!;
+  expect(run.status).toBe("failed");
+  expect(run.reason).toBe("start failed: two: no executor available");
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "two")).toBeUndefined();
 });

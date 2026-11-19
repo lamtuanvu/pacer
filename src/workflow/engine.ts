@@ -88,7 +88,8 @@ function patchRun(ctx: Ctx, runId: string, patch: RunPatch): RunRow {
   return updateRun(ctx, runId, run.rev, patch);
 }
 
-function failRun(ctx: Ctx, runId: string, reason: string, loops?: Record<string, number>): void {
+/** Fails a run with a reason (and optionally the loop counters that led there). */
+export function failRun(ctx: Ctx, runId: string, reason: string, loops?: Record<string, number>): void {
   patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) });
 }
 
@@ -318,7 +319,15 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: st
       patchRun(ctx, runId, { status: "done" });
       return;
     }
-    await startStep(ctx, getRun(ctx, runId)!, def, edge.to, undefined, e);
+    try {
+      await startStep(ctx, getRun(ctx, runId)!, def, edge.to, undefined, e);
+    } catch (err) {
+      // A start failure ends the run (no eligible executor, validation, …): it
+      // must never escape advanceFrom, where it would stall the change cursor
+      // and block every other run's settlement (Review Focus 3).
+      failRun(ctx, runId, `start failed: ${edge.to}: ${err instanceof Error ? err.message : String(err)}`);
+      return;
+    }
   }
 }
 

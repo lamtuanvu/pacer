@@ -8,6 +8,7 @@ import type { TaskRecord } from "../src/tasks/types";
 import { addDefinition, getCursor, getRun, setCursor, stepsOfRun } from "../src/workflow/store";
 import { answerHumanStep, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { advanceRuns } from "../src/workflow/tick";
+import { taskChangesSince } from "../src/tasks/changes";
 import type { WorkflowDef } from "../src/workflow/schema";
 
 /** The same delegation stub the engine tests use: createTask with the input's
@@ -128,4 +129,34 @@ test("restart: a fresh ctx on the same home resumes from the stored cursor", asy
   expect(out.handled).toBe(1); // only the new settlement, not the replayed history
   expect(getRun(ctx2, r.id)!.status).toBe("done");
   expect(stepsOfRun(ctx2, r.id)).toHaveLength(2);
+});
+
+test("one run's start failure does not block another run in the same batch", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, chain, "source");
+  addDefinition(ctx, demo, "source");
+  const { deps: base } = fakeDeps();
+  const deps: EngineDeps = {
+    delegate: (c, input, spawn) => input.brief.goal.includes("Two")
+      ? Promise.reject(new Error("no executor available"))
+      : base.delegate(c, input, spawn),
+    stopTask: base.stopTask,
+  };
+  const r1 = await startRun(ctx, { workflow: "t/chain", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const r2 = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r1.id)[0];
+  recordStepResult(ctx, s1.taskId!, { n: 1 });
+  settle(ctx, s1.taskId!);
+  const s2 = stepsOfRun(ctx, r2.id)[0];
+  recordStepResult(ctx, s2.taskId!, { n: 2 });
+  settle(ctx, s2.taskId!);
+  const head = taskChangesSince(ctx, getCursor(ctx)).head;
+
+  const out = await advanceRuns(ctx, undefined, deps); // one call handles both changes
+  const failed = getRun(ctx, r1.id)!;
+  expect(failed.status).toBe("failed");
+  expect(failed.reason).toBe("start failed: two: no executor available");
+  expect(getRun(ctx, r2.id)!.status).toBe("waiting"); // run 2 still advanced
+  expect(stepsOfRun(ctx, r2.id)).toHaveLength(2);
+  expect(getCursor(ctx)).toBe(head); // the cursor reached head despite run 1's error
 });
