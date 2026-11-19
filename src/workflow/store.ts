@@ -21,6 +21,10 @@ export function workflowDatabase(ctx: Ctx): Database {
     CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
     CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
   `);
+  // Added after the first schema; existing databases gain the column in place
+  // (pattern: src/messaging/store.ts). advanced_at records when a done step's
+  // outgoing edges were processed, so advancement survives a crash in between.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
   ready.add(db);
   return db;
 }
@@ -54,6 +58,9 @@ export interface StepRow {
   error?: string;
   startedAt: number;
   endedAt?: number;
+  /** When the step's outgoing edges were processed; unset means advancement may
+   *  still be owed (a crash between marking the step done and advancing). */
+  advancedAt?: number;
 }
 
 export type NewRun = { workflow: string; version: number; repo: string; brief: string; title?: string };
@@ -79,7 +86,7 @@ interface RunDbRow {
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
-  status: string; result: string | null; error: string | null; started_at: number; ended_at: number | null;
+  status: string; result: string | null; error: string | null; started_at: number; ended_at: number | null; advanced_at: number | null;
 }
 
 function runFromRow(row: RunDbRow): RunRow {
@@ -111,6 +118,7 @@ function stepFromRow(row: StepDbRow): StepRow {
     error: row.error ?? undefined,
     startedAt: row.started_at,
     endedAt: row.ended_at ?? undefined,
+    advancedAt: row.advanced_at ?? undefined,
   };
 }
 
@@ -236,16 +244,16 @@ export function insertStep(ctx: Ctx, s: NewStep): StepRow {
   return row;
 }
 
-export type StepPatch = Partial<Pick<StepRow, "status" | "result" | "error" | "endedAt">>;
+export type StepPatch = Partial<Pick<StepRow, "status" | "result" | "error" | "endedAt" | "advancedAt">>;
 
 export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
   const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
   if (!row) throw new CoreError("not_found", `unknown step ${key.stepId}#${key.attempt} of ${key.runId}`);
-  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt });
-  db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql}`)
-    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
+  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt, advanced_at: patch.advancedAt === undefined ? row.advanced_at : patch.advancedAt });
+  db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ?, advanced_at = ? WHERE ${where.sql}`)
+    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, merged.advancedAt ?? null, ...where.bindings);
   return merged;
 }
 
@@ -262,6 +270,18 @@ export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): S
   const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
     .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
   return result.changes === 1 ? merged : null;
+}
+
+/** Done step rows whose outgoing edges may never have been processed (advanced_at
+ *  unset), in live runs, completed before `before`: the stalled advancements each
+ *  tick re-advances. Fan-out branch rows are excluded here and by the caller: their
+ *  branch-less join row owns the advancement. */
+export function unadvancedDoneSteps(ctx: Ctx, before: number): StepRow[] {
+  return workflowDatabase(ctx).query<StepDbRow, [number]>(
+    `SELECT s.* FROM workflow_steps s JOIN workflow_runs r ON r.id = s.run_id
+     WHERE s.status = 'done' AND s.advanced_at IS NULL AND s.branch = ''
+       AND r.status IN ('running', 'waiting') AND COALESCE(s.ended_at, s.started_at) < ?
+     ORDER BY s.started_at`).all(before).map(stepFromRow);
 }
 
 export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {

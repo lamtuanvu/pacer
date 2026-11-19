@@ -589,6 +589,52 @@ test("parallel matched edges start their targets first and end the run last", as
   expect(getRun(ctx, r.id)!.status).toBe("done");
 });
 
+const branches: WorkflowDef = {
+  id: "t/branches",
+  version: 1,
+  steps: {
+    kick: { type: "agent", kind: "research", prompt: "Kick" },
+    p1: { type: "agent", kind: "research", prompt: "P1" },
+    p2: { type: "agent", kind: "research", prompt: "P2" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "kick", to: "p1" },
+    { from: "kick", to: "p2" },
+    { from: "p1", to: "done" },
+    { from: "p2", to: "done" },
+  ],
+  entry: "kick",
+};
+
+test("an end edge waits while another branch of the run is still running", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, branches, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/branches", deps, "B");
+  // kick starts both branches; its own end edge does not end the run, and its
+  // advancement is recorded once the successors are started.
+  const kick = stepsOfRun(ctx, r.id).find(s => s.stepId === "kick")!;
+  recordStepResult(ctx, kick.taskId!, { ok: true });
+  settle(ctx, kick.taskId!);
+  await onTaskSettled(ctx, kick.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "kick")!.advancedAt).toBeDefined();
+
+  const p1 = stepsOfRun(ctx, r.id).find(s => s.stepId === "p1")!;
+  recordStepResult(ctx, p1.taskId!, { ok: 1 });
+  settle(ctx, p1.taskId!);
+  await onTaskSettled(ctx, p1.taskId!, undefined, deps);
+  // p1 reaches the end first, while p2 is still running: the run stays running.
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+
+  const p2 = stepsOfRun(ctx, r.id).find(s => s.stepId === "p2")!;
+  recordStepResult(ctx, p2.taskId!, { ok: 2 });
+  settle(ctx, p2.taskId!);
+  await onTaskSettled(ctx, p2.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done"); // the last busy sibling ends the run
+});
+
 test("claimStepSettlement is atomic: only the first caller settles a running row", () => {
   const ctx = fakeCtx();
   const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });

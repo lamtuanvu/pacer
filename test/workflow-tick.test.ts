@@ -7,7 +7,7 @@ import type { DelegateInput } from "../src/tasks/api";
 import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { addDefinition, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep } from "../src/workflow/store";
+import { addDefinition, claimStepSettlement, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep } from "../src/workflow/store";
 import { answerHumanStep, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { advanceRuns } from "../src/workflow/tick";
 import { taskChangesSince } from "../src/tasks/changes";
@@ -230,6 +230,63 @@ test("an orphan without a task is re-delegated after 60 seconds, and not before"
   expect(row.taskId).toBeDefined();
   expect(row.attempt).toBe(1); // the same attempt, so the request id stays consistent
   expect(readTask(ctx2, row.taskId!)!.requestId).toBe(`wf:${run.id}:draft:1:`);
+});
+
+test("a step marked done but never advanced is re-advanced by the next tick", async () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home });
+  addDefinition(ctx, chain, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/chain", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { n: 1 });
+  settle(ctx, s1.taskId!);
+  // The crash: the settlement was claimed (the row is done) but advanceFrom never
+  // ran, so the successor never started and the row has no advanced_at.
+  const claimed = claimStepSettlement(ctx, { runId: r.id, stepId: "one", attempt: 1 }, { status: "done", endedAt: ctx.now });
+  expect(claimed?.status).toBe("done");
+  // A tick right away is too early: the row is younger than 5 seconds, so its own
+  // caller may still be advancing it.
+  await advanceRuns(ctx, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  expect(stepsOfRun(ctx, r.id)).toHaveLength(1);
+
+  const ctx2 = fakeCtx({ home, now: ctx.now + 6 });
+  await advanceRuns(ctx2, undefined, deps);
+  expect(getRun(ctx2, r.id)!.status).toBe("running"); // advanced to step two
+  const rows = stepsOfRun(ctx2, r.id);
+  expect(rows).toHaveLength(2);
+  expect(rows.find(s => s.stepId === "one")!.advancedAt).toBeDefined(); // the replay recorded itself
+  const two = rows.find(s => s.stepId === "two")!;
+  expect(two.status).toBe("running");
+  // The recovered chain finishes normally.
+  recordStepResult(ctx2, two.taskId!, { n: 2 });
+  settle(ctx2, two.taskId!);
+  await advanceRuns(ctx2, undefined, deps);
+  expect(getRun(ctx2, r.id)!.status).toBe("done");
+});
+
+test("a run answer whose run patch conflicted still ends with the run advanced after a tick", async () => {
+  const home = tmpDir();
+  const ctx = fakeCtx({ home });
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "Do X" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  await advanceRuns(ctx, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  // The crash on the answer path: the human step was marked done with its answer,
+  // but the run patch (and the advance) conflicted, so the run is still waiting and
+  // the row has no advanced_at.
+  updateStep(ctx, { runId: r.id, stepId: "approve", attempt: 1 }, { status: "done", result: { answer: "approve" }, endedAt: ctx.now });
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "approve")!.advancedAt).toBeUndefined();
+
+  const ctx2 = fakeCtx({ home, now: ctx.now + 6 });
+  await advanceRuns(ctx2, undefined, deps);
+  expect(getRun(ctx2, r.id)!.status).toBe("done"); // the answer was recovered, not lost
+  expect(stepsOfRun(ctx2, r.id).find(s => s.stepId === "approve")!.advancedAt).toBeDefined();
 });
 
 test("a step row written before its delegation attaches its task during a gap rescan", async () => {  const ctx = fakeCtx();

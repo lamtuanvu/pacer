@@ -397,7 +397,7 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     await failRun(ctx, run.id, `step ${step.stepId} ${error}`, undefined, deps);
     return;
   }
-  await advanceFrom(ctx, run.id, def, step.stepId, step.result, { deps, spawn });
+  await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn });
 }
 
 /** Evaluates the join rule across a fan-out attempt's branches; a resolved join is
@@ -438,18 +438,29 @@ async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: Step
     await failRun(ctx, run.id, `step ${settled.stepId} ${failed[0]?.error ?? "failed"}`, undefined, e.deps);
     return;
   }
-  await advanceFrom(ctx, run.id, def, settled.stepId, result, e);
+  await advanceFrom(ctx, run.id, def, joinRow, result, e);
 }
 
 /** Follows a finished step's outgoing edges: every edge whose `when` holds (an edge
  *  without one always fires) starts its target; a back edge counts against
  *  `maxLoops`; no match or an exceeded loop fails the run; an `end` target ends it.
  *  With several matched edges the ordinary targets start first (in edge order) and
- *  the end target is evaluated last, and only when no step row of the run is still
- *  running or waiting (Review Focus: run correctness 7). */
-async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: string, result: unknown, e: EngineOptions): Promise<void> {
+ *  the end target is evaluated last, and only when no branch-less step row of the
+ *  run is still running or waiting (Review Focus: run correctness 7).
+ *
+ *  Once the step's advancement is decided (successors started, or the run marked
+ *  done or failed by it), the step row records it in `advanced_at`, so a crash in
+ *  between is recovered by the tick's re-advance instead of replaying the edges
+ *  blindly (Review Focus: run correctness 4). */
+async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: StepRow, result: unknown, e: EngineOptions): Promise<void> {
   const run = getRun(ctx, runId);
   if (isTerminal(run)) return;
+  const stepId = settled.stepId;
+  // Marks the step row advanced, best effort: a failure leaves the row for the
+  // tick's re-advance, which replays the same (idempotent) decision.
+  const markAdvanced = (): void => {
+    try { updateStep(ctx, keyOf(settled), { advancedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
+  };
   const back = backEdgeIndexes(def);
   const matched: { edge: (typeof def.edges)[number]; index: number }[] = [];
   def.edges.forEach((edge, index) => {
@@ -462,6 +473,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: st
   });
   if (matched.length === 0) {
     await failRun(ctx, runId, `no edge matched after ${stepId}`, undefined, e.deps);
+    markAdvanced();
     return;
   }
   const ends: typeof matched = [];
@@ -471,6 +483,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: st
     const target = def.steps[match.edge.to];
     if (!target) {
       await failRun(ctx, runId, `unknown step '${match.edge.to}' after ${stepId}`, undefined, e.deps);
+      markAdvanced();
       return;
     }
     (target.type === "end" ? ends : nexts).push(match);
@@ -483,6 +496,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: st
       const loops = { ...current!.loops, [key]: (current!.loops[key] ?? 0) + 1 };
       if (loops[key] > (edge.maxLoops ?? 0)) {
         await failRun(ctx, runId, `loop limit ${key}`, loops, e.deps);
+        markAdvanced();
         return;
       }
       await patchRun(ctx, runId, { loops });
@@ -495,16 +509,41 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, stepId: st
       // must never escape advanceFrom, where it would stall the change cursor
       // and block every other run's settlement (Review Focus 3).
       await failRun(ctx, runId, `start failed: ${edge.to}: ${err instanceof Error ? err.message : String(err)}`, undefined, e.deps);
+      markAdvanced();
       return;
     }
   }
   if (ends.length > 0 && !started) {
     const current = getRun(ctx, runId);
     if (isTerminal(current)) return;
-    // Parallel matched edges: a target started by this pass settles into its own
-    // advanceFrom, so the run is done only when this pass started nothing.
+    // An end edge does not finish a run while other step rows of the run are still
+    // running or waiting — every row of the run, not only the successors started in
+    // this call: their settlements own the run's ending (Review Focus: run
+    // correctness 5). Fan-out branch rows are exempt: their attempt's branch-less
+    // join row owns the fan-out's advancement, so a resolved quorum or any join may
+    // end the run while its leftover branches are still settling. The deferred end
+    // is retried by this step's own re-advance or the finishing step's settlement.
+    const busy = stepsOfRun(ctx, runId).some(s =>
+      s.branch === undefined && (s.status === "running" || s.status === "waiting"));
+    if (busy) return;
     await patchRun(ctx, runId, { status: "done" });
   }
+  markAdvanced();
+}
+
+/** Re-advances a done step row whose outgoing edges may never have been processed
+ *  (advanced_at unset: a crash between marking the step done and advancing, or an
+ *  answer whose run patch conflicted). Only live runs, and never fan-out branch rows,
+ *  whose branch-less join row owns the advancement. */
+export async function readvanceStep(ctx: Ctx, row: StepRow, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<boolean> {
+  if (row.status !== "done" || row.advancedAt !== undefined) return false;
+  if (row.branch !== undefined) return false;
+  const run = getRun(ctx, row.runId);
+  if (!run || isTerminal(run)) return false;
+  const def = loadDefinition(ctx, run);
+  if (!def || !def.steps[row.stepId]) return false;
+  await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn });
+  return true;
 }
 
 /** Answers a waiting human step: the answer becomes the step's result
@@ -522,7 +561,7 @@ export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, a
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
   updateStep(ctx, keyOf(row), { status: "done", result: { answer }, endedAt: ctx.now });
   if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "running" });
-  await advanceFrom(ctx, runId, def, stepId, { answer }, { deps, spawn: undefined });
+  await advanceFrom(ctx, runId, def, { ...row, status: "done", result: { answer } }, { answer }, { deps, spawn: undefined });
   return getRun(ctx, runId)!;
 }
 

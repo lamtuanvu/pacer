@@ -7,13 +7,14 @@
 // SQLite lock errors stop the tick with the cursor at the last fully handled change
 // and are retried next tick, only deterministic errors fail the affected run, and
 // one broken run cannot block every other run's settlement (Review Focus 3).
+// Each tick also re-advances done steps whose outgoing edges were never processed
+// (Review Focus: run correctness 4).
 import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import type { TaskState } from "../tasks/types";
 import { taskChangesSince } from "../tasks/changes";
-import { attachStepTask, getCursor, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun, taskByRequestId, type StepRow } from "./store";
-import { defaultEngineDeps, failRun, onTaskSettled, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
-import type { StepRow } from "./store";
+import { attachStepTask, getCursor, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun, taskByRequestId, unadvancedDoneSteps, type StepRow } from "./store";
+import { defaultEngineDeps, failRun, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
 
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 
@@ -76,6 +77,29 @@ async function reconcileOrphans(ctx: Ctx, spawn: SpawnRunner | undefined, deps: 
   return { handled, aborted: false };
 }
 
+/** Re-advances done steps whose outgoing edges may never have been processed
+ *  (advanced_at unset: a crash between marking the step done and advancing, or a
+ *  run answer whose patch conflicted — Review Focus: run correctness 4). Rows older
+ *  than 5 seconds only, so a settlement that its own caller is still advancing is
+ *  never raced. A deferred end (Review Focus 5) whose busy siblings are gone ends
+ *  the run here. */
+async function readvanceStalled(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<RescanOutcome> {
+  const stalled = unadvancedDoneSteps(ctx, ctx.now - 5);
+  let handled = 0;
+  for (const row of stalled) {
+    try {
+      if (await readvanceStep(ctx, row, spawn, deps)) handled++;
+    } catch (err) {
+      if (isTransientError(err)) return { handled, aborted: true };
+      // A deterministic re-advance failure fails the run, like a failed start in
+      // advanceFrom; a failing failRun leaves the row for the next tick.
+      try { await failRun(ctx, row.runId, `re-advance failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+      catch { /* the next tick retries the row */ }
+    }
+  }
+  return { handled, aborted: false };
+}
+
 /** Persists the cursor; a lock failure only delays it, since settlements are idempotent. */
 function saveCursor(ctx: Ctx, seq: number): void {
   try { setCursor(ctx, seq); } catch { /* the next tick retries from the last saved seq */ }
@@ -117,6 +141,12 @@ export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDep
   const orphans = await reconcileOrphans(ctx, spawn, deps);
   if (orphans.aborted) return { handled: handled + orphans.handled, rescanned: false };
   handled += orphans.handled;
+  // Then the stalled advancements (Review Focus: run correctness 4): a step that is
+  // done but was never advanced gets its edges replayed, and a deferred end whose
+  // siblings are gone finally ends the run.
+  const stalled = await readvanceStalled(ctx, spawn, deps);
+  if (stalled.aborted) return { handled: handled + stalled.handled, rescanned: false };
+  handled += stalled.handled;
   for (;;) {
     const { changes, head, gap } = taskChangesSince(ctx, cursor);
     if (gap) {
