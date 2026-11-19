@@ -8,10 +8,10 @@ import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { addDefinition, claimStepSettlement, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep, workflowDatabase } from "../src/workflow/store";
-import { answerHumanStep, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
+import { answerHumanStep, onTaskSettled, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { advanceRuns } from "../src/workflow/tick";
 import { taskChangesSince } from "../src/tasks/changes";
-import type { WorkflowDef } from "../src/workflow/schema";
+import type { FanoutStep, WorkflowDef } from "../src/workflow/schema";
 
 /** The same delegation stub the engine tests use: createTask with the input's
  *  brief and a request-id dedupe, so tasks settle through updateTask. */
@@ -70,6 +70,17 @@ const chain: WorkflowDef = {
     { from: "two", to: "done" },
   ],
   entry: "one",
+};
+
+const fanoutDef: WorkflowDef = {
+  id: "t/fanout",
+  version: 1,
+  steps: {
+    check: { type: "fanout", branches: ["a", "b", "c"], each: { type: "agent", kind: "review", prompt: "Check {{branch}}" }, join: "all" as FanoutStep["join"] },
+    done: { type: "end" },
+  },
+  edges: [{ from: "check", to: "done" }],
+  entry: "check",
 };
 
 test("settling a step task advances its run once", async () => {
@@ -324,8 +335,7 @@ test("a change whose settlement keeps failing transiently is given up after 5 re
   expect(stepsOfRun(ctx, r2.id)).toHaveLength(2);
 });
 
-test("a step row written before its delegation attaches its task during a gap rescan", async () => {  const ctx = fakeCtx();
-  addDefinition(ctx, demo, "source");
+test("a step row written before its delegation attaches its task during a gap rescan", async () => {  const ctx = fakeCtx();  addDefinition(ctx, demo, "source");
   const { deps } = fakeDeps();
   const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
   const task = createTask(ctx, {
@@ -384,4 +394,85 @@ test("a tick settlement publishes the run entity", async () => {
   expect(runs.length).toBeGreaterThanOrEqual(2); // the start and the settlement
   const last = JSON.parse(JSON.stringify((runs.at(-1)!.envelope.data as { value: { status: string } }).value));
   expect(last.status).toBe("waiting");
+});
+
+// Lost settlements recovered by the tick (Review Focus: run correctness 10): a lock
+// error at the exact point of a settlement leaves live state behind, and the next
+// clean tick repairs it.
+const driveBranch = async (ctx: Ctx, runId: string, branch: string, deps: EngineDeps, result: unknown) => {
+  const row = stepsOfRun(ctx, runId).find(s => s.stepId === "check" && s.branch === branch)!;
+  recordStepResult(ctx, row.taskId!, result);
+  settle(ctx, row.taskId!);
+  await onTaskSettled(ctx, row.taskId!, undefined, deps);
+};
+
+test("a claimed failure whose failRun was lost to a lock error fails the run on the next tick", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  settle(ctx, s1.taskId!); // no result: the step settles as failed
+  // The exact point: the settlement is claimed, then failRun's run patch hits a lock.
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_lock_fail BEFORE UPDATE ON workflow_runs WHEN OLD.id = '${r.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.handled).toBe(0);
+  expect(getRun(ctx, r.id)!.status).toBe("running"); // the run is still live
+  expect(stepsOfRun(ctx, r.id)[0]!.status).toBe("failed"); // the row was claimed
+  workflowDatabase(ctx).exec("DROP TRIGGER wf_lock_fail");
+  const out2 = await advanceRuns(ctx, undefined, deps);
+  const run = getRun(ctx, r.id)!;
+  expect(run.status).toBe("failed"); // the lost failRun was recovered
+  expect(run.reason).toBe("step draft no step result");
+  expect(stepsOfRun(ctx, r.id)[0]!.advancedAt).toBeDefined(); // recorded, so no repeat
+});
+
+test("a fan-out whose branches all settled without a join row is joined by the tick", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, fanoutDef, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/fanout", repo: tmpDir(), brief: "B" }, undefined, deps);
+  await driveBranch(ctx, r.id, "a", deps, { v: "va" });
+  await driveBranch(ctx, r.id, "b", deps, { v: "vb" });
+  // The exact point: the last branch settles, then the join row's INSERT hits a lock.
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_lock_join BEFORE INSERT ON workflow_steps WHEN NEW.branch = '' AND NEW.run_id = '${r.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  const c = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === "c")!;
+  recordStepResult(ctx, c.taskId!, { v: "vc" });
+  settle(ctx, c.taskId!);
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.handled).toBe(2); // a's and b's already-settled changes are no-ops; c's settlement hit the lock
+  expect(getRun(ctx, r.id)!.status).toBe("running"); // the join was lost, the run is live
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "check" && s.branch === undefined)).toHaveLength(0);
+  workflowDatabase(ctx).exec("DROP TRIGGER wf_lock_join");
+  await advanceRuns(ctx, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done"); // the tick evaluated the join
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "check" && s.branch === undefined)!;
+  expect(join.status).toBe("done");
+  expect(join.result).toEqual({ branches: { a: { v: "va" }, b: { v: "vb" }, c: { v: "vc" } }, done: 3, failed: 0 });
+});
+
+test("a running step whose task is already terminal is settled by the tick", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, chain, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/chain", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { n: 1 });
+  settle(ctx, s1.taskId!);
+  // The exact point: the change-loop settlement's claim on the step row hits a lock.
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_lock_settle BEFORE UPDATE ON workflow_steps WHEN OLD.run_id = '${r.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.handled).toBe(0);
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  expect(stepsOfRun(ctx, r.id)).toHaveLength(1);
+  workflowDatabase(ctx).exec("DROP TRIGGER wf_lock_settle");
+  // The change is gone (given up after its retry budget, or pruned): only the
+  // recovery path can still settle the running row from its task state.
+  setCursor(ctx, taskChangesSince(ctx, getCursor(ctx)).head);
+  await advanceRuns(ctx, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("running"); // advanced to step two
+  const rows = stepsOfRun(ctx, r.id);
+  expect(rows).toHaveLength(2);
+  expect(rows.find(s => s.stepId === "one")!.advancedAt).toBeDefined();
+  expect(rows.find(s => s.stepId === "two")!.taskId).toBeDefined();
 });

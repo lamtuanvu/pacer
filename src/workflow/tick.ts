@@ -9,13 +9,20 @@
 // treated as a deterministic failure; only deterministic errors fail the affected
 // run, and one broken run cannot block every other run's settlement (Review Focus 3).
 // Each tick also re-advances done steps whose outgoing edges were never processed
-// (Review Focus: run correctness 4).
+// (Review Focus: run correctness 4), and recovers settlements that a lock error
+// lost at the exact point: a claimed failure whose failRun never landed, a fan-out
+// whose branches are all settled without a join row, and a running step whose task
+// is already terminal (Review Focus: run correctness 10).
 import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import type { TaskState } from "../tasks/types";
+import { readTask } from "../tasks/store";
 import { taskChangesSince } from "../tasks/changes";
-import { attachStepTask, getCursor, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun, taskByRequestId, unadvancedDoneSteps, type StepRow } from "./store";
-import { defaultEngineDeps, failRun, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
+import {
+  attachStepTask, getCursor, getDefinition, getRun, listRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
+  taskByRequestId, unadvancedDoneSteps, updateStep, type StepRow,
+} from "./store";
+import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
 
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 
@@ -150,31 +157,25 @@ async function rescanRunningSteps(ctx: Ctx, spawn: SpawnRunner | undefined, deps
   return { handled, aborted: false };
 }
 
-export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<{ handled: number; rescanned: boolean }> {
-  let cursor = getCursor(ctx);
+interface TickWalk { cursor: number; handled: number; stopped: boolean; rescanned: boolean }
+
+/** Walks the change log from `from`, settling every terminal change of a task that
+ *  belongs to a step instance, and persists the cursor at the last fully handled
+ *  change. `stopped` is true when a gap rescan or a transient settlement error left
+ *  work for the next tick. */
+async function processChanges(ctx: Ctx, from: number, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<TickWalk> {
+  let cursor = from;
   let handled = 0;
-  // Orphan reconciliation first, on every tick (not only after a gap): a recovered
-  // step may then also have its own change waiting in the log below, which is a no-op.
-  const orphans = await reconcileOrphans(ctx, spawn, deps);
-  if (orphans.aborted) return { handled: handled + orphans.handled, rescanned: false };
-  handled += orphans.handled;
-  // Then the stalled advancements (Review Focus: run correctness 4): a step that is
-  // done but was never advanced gets its edges replayed, and a deferred end whose
-  // siblings are gone finally ends the run.
-  const stalled = await readvanceStalled(ctx, spawn, deps);
-  if (stalled.aborted) return { handled: handled + stalled.handled, rescanned: false };
-  handled += stalled.handled;
   for (;;) {
     const { changes, head, gap } = taskChangesSince(ctx, cursor);
     if (gap) {
       const outcome = await rescanRunningSteps(ctx, spawn, deps);
-      if (outcome.aborted) return { handled: handled + outcome.handled, rescanned: true };
       saveCursor(ctx, head);
-      return { handled: handled + outcome.handled, rescanned: true };
+      return { cursor: head, handled: outcome.handled, stopped: outcome.aborted, rescanned: true };
     }
     if (changes.length === 0) {
       saveCursor(ctx, head);
-      return { handled, rescanned: false };
+      return { cursor: head, handled, stopped: false, rescanned: false };
     }
     let transient = false;
     for (const change of changes) {
@@ -190,9 +191,121 @@ export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDep
       // The cursor stays at the last fully handled change; the rest is next tick's work.
       // The write itself may hit the same lock: the next tick then retries unchanged.
       saveCursor(ctx, cursor);
-      return { handled, rescanned: false };
+      return { cursor, handled, stopped: true, rescanned: false };
     }
     saveCursor(ctx, cursor);
-    if (cursor >= head) return { handled, rescanned: false };
+    if (cursor >= head) return { cursor, handled, stopped: false, rescanned: false };
   }
+}
+
+/** Recovers settlements a lock error lost at the exact point, in live runs only
+ *  (Review Focus: run correctness 10):
+ *  a. a non-branch step row with status failed and no advanced_at is a settlement
+ *     that was claimed and whose failRun never landed — the run is failed and the
+ *     row recorded advanced so the recovery does not repeat every tick;
+ *  b. a fan-out attempt whose branches are all settled but which has no join row is
+ *     joined (the branch settlement was claimed, then the join evaluation lost);
+ *  c. a running step row whose task id is attached and whose task is already
+ *     terminal (a settlement given up after its retry budget, or any missed change)
+ *     is settled — cheaply: only rows of live runs, and only the task state.
+ *  One broken run never blocks the others: per-run errors fail that run (or wait
+ *  for the next tick when transient) and the loop moves on. */
+async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<number> {
+  let handled = 0;
+  for (const run of listRuns(ctx)) {
+    if (run.status === "done" || run.status === "failed" || run.status === "stopped") continue;
+    try {
+      const rows = stepsOfRun(ctx, run.id);
+      // (a) A claimed failure whose failRun never landed.
+      const lostFailures = rows.filter(r => r.branch === undefined && r.status === "failed" && r.advancedAt === undefined);
+      if (lostFailures.length > 0) {
+        const first = lostFailures[0]!;
+        await failRun(ctx, run.id, `step ${first.stepId} ${first.error ?? "failed"}`, undefined, deps);
+        for (const row of lostFailures) {
+          try { updateStep(ctx, { runId: run.id, stepId: row.stepId, attempt: row.attempt }, { advancedAt: ctx.now }); }
+          catch { /* the row may have changed meanwhile; the run is terminal now anyway */ }
+        }
+        handled += lostFailures.length;
+        continue; // the run is terminal now; the rest of the recovery does not apply
+      }
+      // (c) Settled tasks whose step row never claimed its settlement.
+      let progressed = false;
+      let transient = false;
+      for (const row of rows) {
+        if (row.status !== "running" || !row.taskId) continue;
+        const task = readTask(ctx, row.taskId);
+        if (!task || !SETTLE_STATES.includes(task.state)) continue;
+        try {
+          await onTaskSettled(ctx, row.taskId, spawn, deps);
+          progressed = true;
+        } catch (err) {
+          if (isTransientError(err)) { transient = true; break; } // the next tick retries; the change loop owns the retry budget
+          try { await failRun(ctx, run.id, `engine error: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+          catch { /* the next tick retries the row */ }
+          break;
+        }
+      }
+      if (transient) continue;
+      if (progressed) handled++;
+      // (b) Fan-out attempts whose branches are all settled without a join row.
+      const current = getRun(ctx, run.id)!;
+      if (current.status === "done" || current.status === "failed" || current.status === "stopped") continue;
+      const fresh = progressed ? stepsOfRun(ctx, run.id) : rows;
+      const def = getDefinition(ctx, `${current.workflow}@${current.version}`) ?? getDefinition(ctx, current.workflow);
+      if (!def) continue;
+      const attempts = new Map<string, { stepId: string; attempt: number; joined: boolean; branches: StepRow[] }>();
+      for (const row of fresh) {
+        const key = `${row.stepId}#${row.attempt}`;
+        const attempt = attempts.get(key) ?? { stepId: row.stepId, attempt: row.attempt, joined: false, branches: [] };
+        if (row.branch === undefined) attempt.joined = true;
+        else attempt.branches.push(row);
+        attempts.set(key, attempt);
+      }
+      for (const attempt of attempts.values()) {
+        if (attempt.joined || attempt.branches.length === 0) continue;
+        if (attempt.branches.some(b => b.status === "running" || b.status === "waiting")) continue;
+        const stepDef = def.steps[attempt.stepId];
+        if (stepDef?.type !== "fanout") continue;
+        try {
+          await joinFanout(ctx, current, def, attempt.branches[0]!, stepDef, { deps, spawn });
+          handled++;
+        } catch (err) {
+          // A concurrent join (the change loop, say) may have inserted the join row
+          // first: its UNIQUE conflict is the join already resolved, not a failure.
+          const joined = stepsOfRun(ctx, run.id).some(j => j.branch === undefined && j.stepId === attempt.stepId && j.attempt === attempt.attempt);
+          if (!joined) throw err;
+        }
+      }
+    } catch (err) {
+      // Transient errors retry next tick; deterministic ones fail the run like any
+      // settlement error, and a failing failRun leaves the run for the next tick.
+      if (isTransientError(err)) continue;
+      try { await failRun(ctx, run.id, `recovery failed: ${err instanceof Error ? err.message : String(err)}`, undefined, deps); }
+      catch { /* the next tick retries */ }
+    }
+  }
+  return handled;
+}
+
+export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<{ handled: number; rescanned: boolean }> {
+  let handled = 0;
+  // Orphan reconciliation first, on every tick (not only after a gap): a recovered
+  // step may then also have its own change waiting in the log below, which is a no-op.
+  const orphans = await reconcileOrphans(ctx, spawn, deps);
+  if (orphans.aborted) return { handled: orphans.handled, rescanned: false };
+  handled += orphans.handled;
+  // Then the stalled advancements (Review Focus: run correctness 4): a step that is
+  // done but was never advanced gets its edges replayed, and a deferred end whose
+  // siblings are gone finally ends the run.
+  const stalled = await readvanceStalled(ctx, spawn, deps);
+  if (stalled.aborted) return { handled: handled + stalled.handled, rescanned: false };
+  handled += stalled.handled;
+  const walk = await processChanges(ctx, getCursor(ctx), spawn, deps);
+  handled += walk.handled;
+  // Recovery last: the change loop settles what the log still holds; the recovery
+  // then repairs what a lock error took out of it (Review Focus: run correctness 10).
+  // It is skipped when the walk stopped early (a transient or an aborted rescan):
+  // the next tick re-processes the log first, then recovers.
+  if (!walk.stopped) handled += await recoverLostSettlements(ctx, spawn, deps);
+  return { handled, rescanned: walk.rescanned };
 }

@@ -419,8 +419,9 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
 
 /** Evaluates the join rule across a fan-out attempt's branches; a resolved join is
  *  recorded as the attempt's branch-less row, which is both the joined result and
- *  the marker that the fan-out already advanced. */
-async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<void> {
+ *  the marker that the fan-out already advanced. Exported for the tick's recovery
+ *  of a fan-out whose join evaluation was lost to a lock error. */
+export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<void> {
   const rows = stepsOfRun(ctx, run.id).filter(s => s.stepId === settled.stepId && s.attempt === settled.attempt);
   const branches = rows.filter(s => s.branch !== undefined);
   const join = rows.find(s => s.branch === undefined);
