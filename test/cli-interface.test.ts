@@ -53,6 +53,31 @@ test("task, list, wait, stop and review JSON contracts; review and dismiss persi
  const other=createTask(ctx,{brief:{goal:"h",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  expect((await main(["dismiss",t.id,other.id],ctx)).code).toBe(0);expect(readTask(ctx,t.id)?.dismissed).toBe(true);expect(readTask(ctx,other.id)?.dismissed).toBe(true);
 });
+test("task summaries expose the attempt's model and account, and an in-flight current_attempt",async()=>{
+  const ctx=setup(),t=createTask(ctx,{brief:{goal:"g",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,t.id,x=>{
+    x.state="running";x.executor="local";x.backend="direct";x.attemptStartedAt=1000;
+    x.attempts.push({executor:"claude-code",model:"claude-sonnet-5",usageAtStart:{account:"claude-code",usedPct:8,window:"day",at:895},startedAt:900,endedAt:950,exitCode:0,timedOut:false,limitHit:false,log:""});
+    x.pendingAttempt={model:"local/q",usageAtStart:{account:"local",usedPct:12,window:"day",at:995}};
+  });
+  const summary=JSON.parse((await main(["tasks",t.id,"--json"],ctx)).out);
+  expect(summary.attempts[0]).toMatchObject({executor:"claude-code",model:"claude-sonnet-5",account:"claude-code"});
+  expect(summary.current_attempt).toEqual({executor:"local",account:"local",model:"local/q",started_at:1000});
+  // Once settled, the account still comes from the attempt's usage reading.
+  updateTask(ctx,t.id,x=>{x.pendingAttempt=undefined;});
+  const settled=JSON.parse((await main(["tasks",t.id,"--json"],ctx)).out);
+  expect(settled.attempts[0]).toMatchObject({account:"claude-code"});
+  expect(settled).not.toHaveProperty("current_attempt");
+  // A task that has only a pending attempt (no attempt row yet) is still visible.
+  const fresh=createTask(ctx,{brief:{goal:"h",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
+  updateTask(ctx,fresh.id,x=>{x.state="running";x.executor="local";x.backend="direct";x.attemptStartedAt=2000;
+    x.pendingAttempt={model:"local/q",usageAtStart:{account:"local",usedPct:12,window:"day",at:1995}};});
+  expect(JSON.parse((await main(["tasks",fresh.id,"--json"],ctx)).out).current_attempt)
+    .toEqual({executor:"local",account:"local",model:"local/q",started_at:2000});
+  // Text output shows executor · account · model for the in-flight attempt.
+  expect((await main(["tasks",fresh.id],ctx)).out).toContain("executor: local · local · local/q");
+  expect((await main(["tasks"],ctx)).out).toContain(`${"local".padEnd(12)}  local · local/q`);
+});
 test("wait times out with exit 2 and current status; validates timeout and missing task",async()=>{
  const ctx=setup(),t=createTask(ctx,{brief:{goal:"g",repo:ctx.home},kind:null,requestedExecutor:null,timeoutS:60});
  const r=await main(["wait",t.id,"--timeout","1","--json"],ctx);expect(r.code).toBe(2);expect(JSON.parse(r.out).state).toBe("queued");
