@@ -82,6 +82,8 @@ test("the answer card reports steered executors and the preview groups by behavi
   expect(html).toContain("Skipped by automatic dispatch");
   expect(html).toContain("Runs its default if picked directly");
   expect(html).not.toContain("Not used");
+  // The matrix stays one click away even when some executors are steered.
+  expect(html).toContain("Open model matrix");
 });
 
 test("an unsteered inventory explains why and points at the model matrix when that route exists", () => {
@@ -89,6 +91,12 @@ test("an unsteered inventory explains why and points at the model matrix when th
   expect(html).toContain("Task difficulty does not change any model yet");
   expect(html).toContain("Rate models in the model matrix");
   // The models section is now registered, so the link points at it.
+  expect(html).toContain("Open model matrix");
+});
+
+test("an empty inventory still offers the model matrix", () => {
+  const html = render(config.tierTargets, { models: [] });
+  expect(html).toContain("No executors in the model inventory yet");
   expect(html).toContain("Open model matrix");
 });
 
