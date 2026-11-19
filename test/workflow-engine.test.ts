@@ -625,3 +625,19 @@ test("a step result is capped at 64 KiB serialized", async () => {
   }
   recordStepResult(ctx, row.taskId!, { blob: "x".repeat(60 * 1024) }); // under the cap is fine
 });
+
+test("the 64 KiB cap measures UTF-8 bytes, not characters", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/demo", deps);
+  const row = stepsOfRun(ctx, r.id)[0];
+  // 40k 'é' characters are only ~40k UTF-16 units, but ~80k UTF-8 bytes: over the cap.
+  try { recordStepResult(ctx, row.taskId!, { blob: "é".repeat(40 * 1024) }); throw new Error("no throw"); }
+  catch (e) {
+    expect((e as CoreError).code).toBe("invalid_input");
+    expect((e as CoreError).message).toMatch(/8[0-9]{4} bytes/);
+  }
+  // A result of exactly 65536 UTF-8 bytes stays under the cap.
+  recordStepResult(ctx, row.taskId!, { blob: "x".repeat(64 * 1024 - 11) }); // '{"blob":"…"}' adds 11 bytes
+});

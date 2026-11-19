@@ -319,8 +319,11 @@ export function recordStepResult(ctx: Ctx, taskId: string, result: unknown): Ste
   const stepDef = loadDefinition(ctx, run)?.steps[step.stepId];
   const schema = stepDef?.type === "agent" ? stepDef.result : stepDef?.type === "fanout" ? stepDef.each.result : undefined;
   const serialized = JSON.stringify(result);
-  if (serialized !== undefined && serialized.length > 64 * 1024) {
-    throw new CoreError("invalid_input", `result is ${serialized.length} bytes; the limit is ${64 * 1024}`);
+  // The cap is on UTF-8 bytes, matching the message: a multibyte result can pass a
+  // character count while still exceeding the transport's byte limits.
+  const bytes = Buffer.byteLength(serialized ?? "", "utf8");
+  if (bytes > 64 * 1024) {
+    throw new CoreError("invalid_input", `result is ${bytes} bytes; the limit is ${64 * 1024}`);
   }
   const errors = resultErrors(result, schema);
   if (errors.length > 0) throw new CoreError("invalid_input", errors.join("; "));
