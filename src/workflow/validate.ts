@@ -27,27 +27,43 @@ function candidateEdges(edges: unknown[]): Candidate[] {
   return out;
 }
 
-/** Can `start` reach `target` following edges (conditions ignored)? A step reaches
- * itself, so a self-loop is a back edge. */
-function reaches(adjacency: Map<string, string[]>, start: string, target: string): boolean {
-  const seen = new Set<string>([start]);
-  const queue = [start];
-  while (queue.length > 0) {
-    const node = queue.shift()!;
-    if (node === target) return true;
-    for (const next of adjacency.get(node) ?? []) {
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-  return false;
-}
-
 function isEndStep(steps: Record<string, unknown>, id: string): boolean {
   const step = steps[id];
   return isPlainObject(step) && step.type === "end";
+}
+
+/** Depth-first search over usable edges, successors in edge order: an edge is a back
+ * edge when its target is on the DFS stack at the moment it is followed, so only the
+ * edge that closes a loop is classified, not every edge inside it (self-loops count).
+ * The search starts at `entry` and continues from every step it did not visit, in
+ * step order, so loops unreachable from the entry are classified too. */
+export function backEdgeIndexes(def: WorkflowDef): Set<number> {
+  const names = new Set(Object.keys(isPlainObject(def.steps) ? def.steps : {}));
+  const adjacency = new Map<string, { to: string; index: number }[]>();
+  (Array.isArray(def.edges) ? def.edges : []).forEach((edge, index) => {
+    if (typeof edge?.from !== "string" || typeof edge?.to !== "string") return;
+    if (!names.has(edge.from) || !names.has(edge.to)) return;
+    const list = adjacency.get(edge.from) ?? [];
+    list.push({ to: edge.to, index });
+    adjacency.set(edge.from, list);
+  });
+
+  const onStack = new Set<string>();
+  const visited = new Set<string>();
+  const back = new Set<number>();
+  const visit = (node: string): void => {
+    onStack.add(node);
+    for (const { to, index } of adjacency.get(node) ?? []) {
+      if (onStack.has(to)) back.add(index);
+      else if (!visited.has(to)) visit(to);
+    }
+    onStack.delete(node);
+    visited.add(node);
+  };
+  const entry = typeof def.entry === "string" && names.has(def.entry) ? def.entry : undefined;
+  if (entry !== undefined) visit(entry);
+  for (const name of names) if (!visited.has(name)) visit(name);
+  return back;
 }
 
 export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
@@ -95,10 +111,10 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
     errors.push({ path: "steps", message: `no end step is reachable from '${entry}'` });
   }
 
-  for (const { edge, index } of candidates) {
-    if (!hasOwn(steps, edge.from) || !hasOwn(steps, edge.to)) continue;
-    if (!reaches(adjacency, edge.to, edge.from)) continue;
-    if (typeof edge.maxLoops !== "number" || !Number.isInteger(edge.maxLoops) || edge.maxLoops < 1) {
+  for (const index of backEdgeIndexes(def)) {
+    const edge = candidates.find(c => c.index === index);
+    if (!edge) continue;
+    if (typeof edge.edge.maxLoops !== "number" || !Number.isInteger(edge.edge.maxLoops) || edge.edge.maxLoops < 1) {
       errors.push({ path: `edges[${index}]`, message: "back edge needs max_loops" });
     }
   }

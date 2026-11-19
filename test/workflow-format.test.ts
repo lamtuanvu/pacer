@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { parseWorkflow } from "../src/workflow/parse";
-import { validateWorkflow } from "../src/workflow/validate";
+import { validateWorkflow, backEdgeIndexes } from "../src/workflow/validate";
 import type { WorkflowDef } from "../src/workflow/schema";
 
 const FIXTURE_OK = `
@@ -144,4 +144,54 @@ test("a non-mapping document is rejected", () => {
   const { def, errors } = parseWorkflow("- just\n- a\n- list\n");
   expect(def).toBeUndefined();
   expect(errors).toEqual([{ path: "", message: "workflow must be a mapping" }]);
+});
+
+const LOOP_BASE = `
+id: t/loop
+version: 1
+steps:
+  a:
+    type: agent
+    kind: research
+    prompt: hi
+  b:
+    type: agent
+    kind: research
+    prompt: hi
+  done:
+    type: end
+`;
+
+const loopDef = (edges: WorkflowDef["edges"]): WorkflowDef => ({ ...parseWorkflow(LOOP_BASE).def!, edges });
+
+test("a two-node loop only flags the edge that closes it", () => {
+  const clean = loopDef([
+    { from: "a", to: "b" },
+    { from: "b", to: "a", maxLoops: 2 },
+    { from: "b", to: "done" },
+  ]);
+  expect(validateWorkflow(clean)).toEqual([]);
+  expect(backEdgeIndexes(clean)).toEqual(new Set([1]));
+
+  const missing = loopDef([
+    { from: "a", to: "b" },
+    { from: "b", to: "a" },
+    { from: "b", to: "done" },
+  ]);
+  expect(validateWorkflow(missing)).toEqual([{ path: "edges[1]", message: "back edge needs max_loops" }]);
+});
+
+test("a self-loop still needs max_loops", () => {
+  const clean = loopDef([
+    { from: "a", to: "a", maxLoops: 1 },
+    { from: "a", to: "done" },
+  ]);
+  expect(validateWorkflow(clean)).toEqual([]);
+  expect(backEdgeIndexes(clean)).toEqual(new Set([0]));
+
+  const missing = loopDef([
+    { from: "a", to: "a" },
+    { from: "a", to: "done" },
+  ]);
+  expect(validateWorkflow(missing)).toEqual([{ path: "edges[0]", message: "back edge needs max_loops" }]);
 });
