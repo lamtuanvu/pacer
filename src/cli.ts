@@ -67,7 +67,7 @@ import { lineFields, renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
-import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
+import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, attemptLine, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
 import { runTask } from "./tasks/runner";
 import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
@@ -294,8 +294,9 @@ const fallbackText = (f: NonNullable<TaskRecord["executorFallback"]>) => `reques
 
 function renderTask(t: TaskRecord): string {
   const r = t.result;
+  const shown = attemptLine(t), detail = [shown.account, shown.model].filter(Boolean).join(" · ");
   const lines = [
-    `${t.id}  ${t.state}  executor: ${r?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? "-"}`,
+    `${t.id}  ${t.state}  executor: ${shown.executor}${detail ? ` · ${detail}` : ""}`,
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
@@ -390,7 +391,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     code: 0,
     out: (await Promise.all(list.map(async (t) => {
       const control=await controlProgress(ctx,t);
-      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
+      const shown=attemptLine(t), detail=[shown.account,shown.model].filter(Boolean).join(" · ");
+      return `${t.id}  ${t.state.padEnd(8)}  ${shown.executor.padEnd(12)}${detail?`  ${detail}`:""}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
     }))).join("\n"),
     err: "",
   };

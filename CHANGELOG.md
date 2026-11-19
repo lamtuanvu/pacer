@@ -4,8 +4,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Interactive OpenCode tasks run on the model pacer chose.** Interactive OpenCode takes its model only from `OPENCODE_CONFIG_CONTENT`, and pacer filled it with the executor's default model, so a task recorded as `glm-5.3-flash` could run on the default. The task's chosen model now wins; takeover session discovery keeps the attempt's model.
+
 ### Added
 
+- **`pacer tasks` shows who runs a task.** Task summaries list each attempt's `model` and `account`, and `current_attempt` for an attempt in flight; the text output shows `executor · account · model`.
 - **Task rows say who runs the task.** Every row on the Tasks page shows the agent, account and model beside the status (for example "OpenCode · oc-glm · opencode-go/glm-5.3-flash"): the attempt in flight while running, the latest attempt otherwise, preferring the model that actually launched. The task read model and live task events carry `account` and `model`.
 
 ### Changed

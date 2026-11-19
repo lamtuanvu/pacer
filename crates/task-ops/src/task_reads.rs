@@ -536,6 +536,10 @@ pub fn summarize_api_task(task: &Value) -> Value {
         "attempts": task.get("attempts").and_then(Value::as_array).map(|attempts| {
             attempts.iter().map(|a| json!({
                 "executor": a.get("executor").cloned().unwrap_or(Value::Null),
+                "model": a.get("model").cloned().unwrap_or(Value::Null),
+                "account": a.pointer("/usageAtStart/account")
+                    .cloned()
+                    .unwrap_or(Value::Null),
                 "exit_code": a.get("exitCode").cloned().unwrap_or(Value::Null),
                 "limit_hit": a.get("limitHit").cloned().unwrap_or(Value::Null),
                 "timed_out": a.get("timedOut").cloned().unwrap_or(Value::Null),
@@ -563,6 +567,18 @@ pub fn summarize_api_task(task: &Value) -> Value {
         {
             out[dest] = value.clone();
         }
+    }
+    // The in-flight attempt lives only in `pendingAttempt` until its attempt row is pushed.
+    if let Some(pending) = task.get("pendingAttempt").filter(|p| p.is_object()) {
+        out["current_attempt"] = json!({
+            "executor": task.get("executor").cloned().unwrap_or(Value::Null),
+            "account": pending
+                .pointer("/usageAtStart/account")
+                .cloned()
+                .unwrap_or(Value::Null),
+            "model": pending.get("model").cloned().unwrap_or(Value::Null),
+            "started_at": task.get("attemptStartedAt").cloned().unwrap_or(Value::Null),
+        });
     }
     out
 }
