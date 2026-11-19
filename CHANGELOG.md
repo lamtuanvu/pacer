@@ -13,10 +13,6 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **`pacer tasks` shows who runs a task.** Task summaries list each attempt's `model` and `account`, and `current_attempt` for an attempt in flight; the text output shows `executor · account · model`.
 - **Task rows say who runs the task.** Every row on the Tasks page shows the agent, account and model beside the status (for example "OpenCode · oc-glm · opencode-go/glm-5.3-flash"): the attempt in flight while running, the latest attempt otherwise, preferring the model that actually launched. The task read model and live task events carry `account` and `model`.
 
-### Changed
-
-- **The plugin host is on by default.** `pacer serve` now starts the native plugin owner unless `PACER_NATIVE_PLUGIN_HOST=0` (or `PACER_HOST_BRIDGE=0`) says otherwise — `serve_starts_reverse_bridge_by_default` returns true. TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach children through Core's sealed owner call, proven by the PR 6 consumer matrix and CT-11 on the Rust front door; the flag-off path keeps its explicit-escape tests.
-
 ## [0.17.2] - 2026-11-18
 
 ### Added

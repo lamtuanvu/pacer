@@ -10,8 +10,6 @@ async fn flag_off_leaves_env_and_socket_untouched() {
     let home = tempfile::tempdir().unwrap();
     let mut env = HashMap::new();
     env.insert("PACER_HOME".into(), home.path().display().to_string());
-    // The default is on now; this test pins the documented escape.
-    env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
     // A credential only ever comes from the owner this serve starts.
     env.insert(HOST_SOCKET_KEY_ENV.into(), "ab".repeat(32));
     assert!(maybe_start(home.path(), &mut env).await.unwrap().is_none());

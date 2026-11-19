@@ -47,8 +47,8 @@ async fn dial_json(path: &Path, key: &OwnerKey, request: Value) -> Value {
 }
 
 #[test]
-fn default_serve_starts_the_bridge() {
-    assert!(serve_starts_reverse_bridge_by_default());
+fn default_serve_stays_dark() {
+    assert!(!serve_starts_reverse_bridge_by_default());
     assert!(
         env::var_os(HOST_SOCKET_ENV).is_none(),
         "test process must not inherit PACER_HOST_SOCKET"
