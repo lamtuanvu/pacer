@@ -1,4 +1,5 @@
 import { visibleTaskState } from "../tasks/types";
+import { taskAccountModel } from "../tasks/account-model";
 import { createHash, randomBytes } from "node:crypto";
 import { existsSync, readFileSync, statSync } from "node:fs";
 import { dirname, isAbsolute, join, resolve } from "node:path";
@@ -206,7 +207,7 @@ export function listWork(ctx:Ctx,filter:{relation?:"roots"|"children"|"all";stat
   "SELECT n.* FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE (?='all' OR (?='roots' AND n.parent_id IS NULL) OR (?='children' AND n.parent_id IS NOT NULL)) AND (?='' OR (CASE WHEN t.state='running' AND json_extract(t.record,'$.question.text') IS NOT NULL AND json_extract(t.record,'$.question.answer') IS NULL THEN 'needs_input' ELSE t.state END)=?) AND (?='' OR json_extract(t.record,'$.repo.key')=?) AND (?='' OR n.task_id<?) ORDER BY n.task_id DESC LIMIT ?"
  ).all(relation,relation,relation,filter.state??"",filter.state??"",filter.repo??"",filter.repo??"",filter.before??"",filter.before??"",limit+1);
  const page=rows.slice(0,limit);
- return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);return task?[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:visibleTaskState(task),rev:task.rev,executor:task.executor??task.requestedExecutor,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}]:[];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
+ return{tasks:page.flatMap(r=>{const task=readTask(ctx,r.task_id);if(!task)return[];const accountModel=taskAccountModel(task);return[{id:task.id,parentId:r.parent_id,rootId:r.root_id,depth:r.depth,title:task.title??task.brief.goal,state:visibleTaskState(task),rev:task.rev,executor:task.executor??task.requestedExecutor,account:accountModel.account,model:accountModel.model,createdAt:task.createdAt,review:task.review??null,branch:listBranch(task),tokens:listTokens(ctx,task.id,task.attempts)}];}),next:rows.length>limit?page.at(-1)?.task_id??null:null};
 }
 export function workTree(ctx:Ctx,id:string){
   const root=getWork(ctx,id);if(!root)throw new CoreError("unknown_task","Unknown work");

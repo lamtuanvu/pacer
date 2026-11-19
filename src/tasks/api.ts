@@ -96,10 +96,19 @@ export function parseDelegateBrief(raw: unknown, defaultRepo: string): DelegateI
 export function summarizeTask(t: TaskRecord): Record<string, unknown> {
   return { ...(t.difficultySource ? {difficulty:t.difficulty, difficultySource:t.difficultySource, ...(t.model ? {model:t.model} : {})} : {}), ...(t.archived ? {archived:true, archive_path:t.archivePath} : {}), task_id:t.id, title:taskTitle(t), goal:clip(t.brief.goal, LIMITS.goal), state:visibleTaskState(t), kind:t.kind, requested_executor:t.requestedExecutor, ...(t.executorFallback ? {executor_fallback:t.executorFallback} : {}), placement:t.placement??null, queue:t.queue??null,
     ...(t.stopPending ? {stop_pending:t.stopPending} : {}),
-    attempts:t.attempts.map(a=>({executor:a.executor,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
+    attempts:t.attempts.map(a=>({executor:a.executor,model:a.model??null,account:a.usageAtStart?.account??null,exit_code:a.exitCode,limit_hit:a.limitHit,timed_out:a.timedOut,log:a.log})),
+    ...(t.pendingAttempt ? {current_attempt:{executor:t.executor??null,account:t.pendingAttempt.usageAtStart?.account??null,model:t.pendingAttempt.model??null,started_at:t.attemptStartedAt??null}} : {}),
     ...(t.question ? {question:t.question} : {}),
     ...(t.reviewRequest ? {reviewRequest:t.reviewRequest} : {}),
     result:t.result??null, review:t.review??null, resolved:t.resolved??null };
+}
+
+/** executor · account · model of the in-flight attempt, else the settled result or the latest attempt. */
+export function attemptLine(t: TaskRecord): {executor: string; account: string | null; model: string | null} {
+  if (t.pendingAttempt) return {executor: t.executor ?? "-", account: t.pendingAttempt.usageAtStart?.account ?? null, model: t.pendingAttempt.model ?? null};
+  const last = t.attempts.at(-1);
+  if (t.result) return {executor: t.result.executor ?? t.executor ?? last?.executor ?? "-", account: last?.usageAtStart?.account ?? null, model: t.result.model ?? last?.model ?? null};
+  return {executor: last?.executor ?? "-", account: last?.usageAtStart?.account ?? null, model: last?.model ?? null};
 }
 export function taskReview(ctx: Ctx, id: string, accepted: boolean, kind?: string, note?: string): {recorded:true} {
   const t=taskStatus(ctx,id); if(!t)throw new Error(`unknown task ${id}`);

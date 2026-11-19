@@ -8,11 +8,9 @@
 //! Sockets are bound in a verified private directory and
 //! narrowed to 0600 by path; the process umask is never changed. A stdio
 //! connection's socket may live outside the home (`connection_dir`).
-//! Serve binds [`ReverseBridge::bind`] and exports [`crate::HOST_SOCKET_ENV`]
-//! when flag wiring is on — the default since
-//! [`crate::serve_starts_reverse_bridge_by_default`] flipped — or when
-//! `PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! explicitly; `PACER_NATIVE_PLUGIN_HOST=0` disables. This
+//! Default serve must not call [`ReverseBridge::bind`] or
+//! export [`crate::HOST_SOCKET_ENV`] unless flag wiring is explicitly enabled
+//! (`PACER_NATIVE_PLUGIN_HOST` and/or [`crate::HOST_BRIDGE_ENABLE_ENV`]). This
 //! module never binds TCP.
 //!
 //! Without a live [`SharedOwner`], call/find/stop stay dark stubs.
@@ -814,15 +812,14 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
 /// When true, unset env enables the native plugin host; set
 /// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
 ///
-/// Was `false`: with the host on, Core refuses to spawn plugin children, and
+/// Kept `false`: with the host on, Core refuses to spawn plugin children, and
 /// only native HTTP `plugin.*` operations start them through the owner. Every
 /// TypeScript plugin consumer (usage refresh, doctor, setup.health, planners)
-/// had to reach the owner over the bridge, with Core's spawn spec, call
-/// authority and per-call resources, before this could flip — P4d-13 tried and
-/// was reverted. The PR 6 consumer matrix and the PR 7 gate rows now hold, so
-/// the default is on.
+/// must reach the owner over the bridge, with Core's spawn spec, call authority
+/// and per-call resources, before this can flip. P4d-13 flipped it without
+/// that and was reverted.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
-    true
+    false
 }
 
 /// Public client/TCP surfaces must never advertise private bridge methods.

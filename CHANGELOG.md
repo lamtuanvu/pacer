@@ -4,9 +4,33 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.5] - 2026-11-19
+
 ### Changed
 
-- **The plugin host is on by default.** `pacer serve` now starts the native plugin owner unless `PACER_NATIVE_PLUGIN_HOST=0` (or `PACER_HOST_BRIDGE=0`) says otherwise — `serve_starts_reverse_bridge_by_default` returns true. TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach children through Core's sealed owner call, proven by the PR 6 consumer matrix and CT-11 on the Rust front door; the flag-off path keeps its explicit-escape tests.
+- Release 0.17.4 (#1122).
+- Cargo fmt the task row model and account changes (#1123).
+
+### Fixed
+
+- Repair main after the task-row runner changes (#1125).
+
+## [0.17.4] - 2026-11-19
+
+### Fixed
+
+- **Release 0.17.3 was tagged but not published.** Its plugin conformance and M1 gate failed because the native plugin owner had just become the default. This release reverts that default (the plugin owner is opt-in again, as in 0.17.2) and ships everything listed under 0.17.3: OpenCode tasks run on the chosen model, and `pacer tasks` and the Tasks page show each task's agent, account and model.
+
+## [0.17.3] - 2026-11-19
+
+### Fixed
+
+- **Interactive OpenCode tasks run on the model pacer chose.** Interactive OpenCode takes its model only from `OPENCODE_CONFIG_CONTENT`, and pacer filled it with the executor's default model, so a task recorded as `glm-5.3-flash` could run on the default. The task's chosen model now wins; takeover session discovery keeps the attempt's model.
+
+### Added
+
+- **`pacer tasks` shows who runs a task.** Task summaries list each attempt's `model` and `account`, and `current_attempt` for an attempt in flight; the text output shows `executor · account · model`.
+- **Task rows say who runs the task.** Every row on the Tasks page shows the agent, account and model beside the status (for example "OpenCode · oc-glm · opencode-go/glm-5.3-flash"): the attempt in flight while running, the latest attempt otherwise, preferring the model that actually launched. The task read model and live task events carry `account` and `model`.
 
 ## [0.17.2] - 2026-11-18
 
