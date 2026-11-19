@@ -463,7 +463,8 @@ async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: Step
  *  `maxLoops`; no match or an exceeded loop fails the run; an `end` target ends it.
  *  With several matched edges the ordinary targets start first (in edge order) and
  *  the end target is evaluated last, and only when no branch-less step row of the
- *  run is still running or waiting (Review Focus: run correctness 7).
+ *  run is still running or waiting and no fan-out of the run is unresolved (Review
+ *  Focus: run correctness 9).
  *
  *  Each ordinary edge fires through the store's trigger transaction (fireEdge):
  *  the successor row, the back-edge loop patch and the edge's trigger land in one
@@ -561,12 +562,18 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     // An end edge does not finish a run while other step rows of the run are still
     // running or waiting — every row of the run, not only the successors started in
     // this call: their settlements own the run's ending (Review Focus: run
-    // correctness 5). Fan-out branch rows are exempt: their attempt's branch-less
-    // join row owns the fan-out's advancement, so a resolved quorum or any join may
-    // end the run while its leftover branches are still settling. The deferred end
-    // is retried by this step's own re-advance or the finishing step's settlement.
-    const busy = stepsOfRun(ctx, runId).some(s =>
-      s.branch === undefined && (s.status === "running" || s.status === "waiting"));
+    // correctness 5). A fan-out attempt's branch rows are covered by its
+    // branch-less join row only once the fan-out resolved; before that the attempt
+    // is unresolved and its branches count as busy, so an end edge never finishes
+    // the run while one of its fan-outs is still in flight (Review Focus: run
+    // correctness 9). The deferred end is retried by this step's own re-advance or
+    // the finishing step's settlement.
+    const rows = stepsOfRun(ctx, runId);
+    const busy = rows.some(s => {
+      if (s.status !== "running" && s.status !== "waiting") return false;
+      if (s.branch === undefined) return true;
+      return !rows.some(j => j.branch === undefined && j.stepId === s.stepId && j.attempt === s.attempt);
+    });
     if (busy) return;
     await patchRun(ctx, runId, { status: "done" });
   }

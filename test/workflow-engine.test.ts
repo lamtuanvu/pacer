@@ -838,3 +838,50 @@ test("replaying a fan-out successor does not create a second fan-out attempt", a
   expect(branches).toHaveLength(2); // one attempt, two branches: no second fan-out
   expect(new Set(branches.map(s => s.attempt))).toEqual(new Set([1]));
 });
+
+// An end edge must not finish a run while one of the run's fan-outs is unresolved
+// (Review Focus: run correctness 9): branch rows count as busy until their attempt
+// has a branch-less join row.
+const endWithFanout: WorkflowDef = {
+  id: "t/end-fanout",
+  version: 1,
+  steps: {
+    a: { type: "agent", kind: "research", prompt: "A" },
+    b: { type: "agent", kind: "research", prompt: "B" },
+    f: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "review", prompt: "F {{branch}}" }, join: "all" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "a", to: "b" },
+    { from: "a", to: "f" },
+    { from: "b", to: "done" },
+    { from: "f", to: "done" },
+  ],
+  entry: "a",
+};
+
+test("an end edge waits while a fan-out of the run is unresolved", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, endWithFanout, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/end-fanout", deps);
+  const a = stepsOfRun(ctx, r.id).find(s => s.stepId === "a")!;
+  recordStepResult(ctx, a.taskId!, { ok: true });
+  settle(ctx, a.taskId!);
+  await onTaskSettled(ctx, a.taskId!, undefined, deps); // starts b and the fan-out branches
+  const b = stepsOfRun(ctx, r.id).find(s => s.stepId === "b")!;
+  recordStepResult(ctx, b.taskId!, { ok: true });
+  settle(ctx, b.taskId!);
+  await onTaskSettled(ctx, b.taskId!, undefined, deps);
+  // b reached the end first, while the fan-out has no join row yet: the run stays
+  // running and no branch task is left behind.
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  for (const branch of ["x", "y"] as const) {
+    const row = stepsOfRun(ctx, r.id).find(s => s.stepId === "f" && s.branch === branch)!;
+    recordStepResult(ctx, row.taskId!, { v: branch });
+    settle(ctx, row.taskId!);
+    await onTaskSettled(ctx, row.taskId!, undefined, deps);
+  }
+  expect(getRun(ctx, r.id)!.status).toBe("done"); // the joined fan-out reaches the end
+  expect(stepsOfRun(ctx, r.id).every(s => s.status !== "running" && s.status !== "waiting")).toBe(true);
+});
