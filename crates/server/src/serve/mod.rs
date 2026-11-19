@@ -285,6 +285,17 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 Err(error) => native_error(error),
             };
         }
+        if crate::native::handover_sync::uses_effects(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut effects = crate::native::handover_sync::HttpEffects {
+                target: state.core.target().await,
+            };
+            let result = crate::native::handover_sync::call(&ctx, op.name, params, &mut effects);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
         if op.name == "task.wait" {
             let Some(id) = params
                 .get("id")

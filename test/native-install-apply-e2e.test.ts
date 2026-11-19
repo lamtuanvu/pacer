@@ -1,9 +1,10 @@
 /**
- * `service.install` and `update.apply` through the real Rust front doors (`pacer serve`, `pacer api --stdio`) and the
- * real Core bridge, against the test core in fixtures/install-apply-core.ts: recorded effects instead of launchd,
- * systemd or a release, in a disposable HOME and PACER_HOME. Each scenario runs natively and with both ops in
- * PACER_FORWARD_OPS; the replies and the effects must match. `service.handover` and `service.work` are not native:
- * their replies through both front doors must be byte-identical to forcing them through PACER_FORWARD_OPS.
+ * `service.install`, `update.apply`, `service.handover` and `service.work` through the real Rust front doors
+ * (`pacer serve`, `pacer api --stdio`) and the real Core bridge, against the test core in
+ * fixtures/install-apply-core.ts: recorded effects instead of launchd, systemd or a release, in a disposable
+ * HOME and PACER_HOME. Each scenario runs natively and with the ops in PACER_FORWARD_OPS; the replies and the
+ * effects must match, and the native run must trace each op it dispatches on the front door while the forced-forward
+ * run must not.
  * The front door is a test-ops build, whose PACER_TEST_BRIDGE_DEADLINE_MS shortens the deadline of the other Core
  * bridges, so a deadline on the install and update effects would fail within seconds instead of after 120.
  * Every child, and the core each front door starts, gets PACER_PORT: its own server port or a closed one, never 4317.
@@ -439,7 +440,7 @@ describe("install and update effects outlive a short bridge deadline", () => {
   }, LONG);
 });
 
-describe("service.handover and service.work stay forwarded", () => {
+describe("service.handover and service.work", () => {
   const HANDOVER_WORK = "service.handover,service.work";
   const UNTRACED = /native (service\.handover|service\.work)/;
   const GRANT = `pwg_${"ab".repeat(32)}`;
@@ -479,7 +480,10 @@ describe("service.handover and service.work stay forwarded", () => {
     const native = await run();
     const forwarded = await run(HANDOVER_WORK);
     expect(native.replies).toEqual(forwarded.replies);
-    for (const trace of [native.stderr, forwarded.stderr]) expect(trace).not.toMatch(UNTRACED);
+    // Native dispatches both ops on the front door; the forced-forward run must show no native trace.
+    expect(native.stderr).toMatch(/native service\.handover/);
+    expect(native.stderr).toMatch(/native service\.work/);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
 
     const [handover, handoverDefault, tooLong, array, malformed, work, workArray, workCookie, handoverCookie, noOrigin, unauthenticated, grantHandover, grantWork] = native.replies;
     const v = JSON.parse(handover.body).result.pacer;
@@ -518,11 +522,12 @@ describe("service.handover and service.work stay forwarded", () => {
     const native = await run();
     const forwarded = await run(HANDOVER_WORK);
     expect(native.lines).toEqual(forwarded.lines);
-    for (const traces of [native.traces, forwarded.traces]) {
-      // A work-grant session forwards everything, hello included.
-      expect(traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
-      for (const trace of traces) expect(trace).not.toMatch(UNTRACED);
-    }
+    // Native operator and executor runs trace both ops on the front door; the work-grant session forwards
+    // everything (hello included) and the forced-forward run must show no native trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
+    for (const trace of native.traces.slice(0, 2)) expect(trace).toMatch(/native service\.(handover|work)/);
+    expect(native.traces[2]).not.toMatch(UNTRACED);
+    for (const trace of forwarded.traces) expect(trace).not.toMatch(UNTRACED);
 
     const replies = native.lines.map(line => JSON.parse(line!));
     const [operator, executor, granted] = [replies.slice(0, 6), replies.slice(6, 12), replies.slice(12)];

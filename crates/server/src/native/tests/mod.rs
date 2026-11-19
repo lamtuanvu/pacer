@@ -237,7 +237,12 @@ fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
 #[tokio::test]
 async fn install_apply_bridge_names_reach_core_endpoints() {
     // Without a Core target the bridge reports a restarting core, not an unknown bridge.
-    for bridge in ["service.effects", "update.effects", "host.effects"] {
+    for bridge in [
+        "service.effects",
+        "update.effects",
+        "handover.effects",
+        "host.effects",
+    ] {
         let body = serde_json::json!({"request": {}});
         let result = crate::native::core_bridge_sync::http(None, bridge, body).await;
         assert!(
@@ -252,6 +257,7 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
     use crate::native::core_bridge_sync::deadline;
     assert_eq!(deadline("service.effects"), None);
     assert_eq!(deadline("update.effects"), None);
+    assert_eq!(deadline("handover.effects"), None);
     assert_eq!(deadline("host.effects"), None);
     assert_eq!(
         deadline("setup.effects"),
@@ -260,14 +266,38 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
 }
 
 #[test]
-fn service_handover_and_work_are_not_registered_native_ops() {
-    // service.handover and service.work stay on TypeScript until Core serves a
-    // real handover.effects bridge (/_internal/handover-effects,
-    // _internal.handover.effects); the stores they read live on the TS side.
+fn service_handover_and_work_are_native_with_a_core_effects_bridge() {
+    // service.handover and service.work answer refusals natively and run the
+    // reference operation through the handover effects bridge; work-grant callers
+    // forward. The stores they read live on the TS side.
     for name in ["service.handover", "service.work"] {
-        assert!(registry("").get(name).is_none(), "{name}");
-        assert!(super::service_registry("").get(name).is_none(), "{name}");
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(registry(name).get(name).is_none(), "{name}");
+        assert!(super::handover_sync::uses_effects(name), "{name}");
     }
+    assert!(!super::handover_sync::uses_effects("service.status"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    let grant = ctx(&[("PACER_WORK_GRANT", "g")]);
+    let params = serde_json::json!({});
+    assert!(super::handover_sync::stays_forwarded(&grant));
+    assert!(!super::handover_sync::stays_forwarded(&ctx(&[])));
+    assert!(!super::service_agent_stays_forwarded(
+        &ctx(&[]),
+        "service.handover",
+        &params
+    ));
+    assert!(super::service_agent_stays_forwarded(
+        &grant,
+        "service.handover",
+        &params
+    ));
 }
 
 #[test]

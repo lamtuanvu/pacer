@@ -38,8 +38,8 @@ pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
-#[allow(unused_imports)]
 use pacer_update::handover;
+pub(crate) mod handover_sync;
 pub(crate) mod install_apply_sync;
 use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
@@ -135,6 +135,7 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
         "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
+        "service.handover" | "service.work" => handover_sync::stays_forwarded(ctx),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
@@ -612,6 +613,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "update.apply",
         call: apply::update_apply_stub,
+    },
+    NativeOp {
+        name: "service.handover",
+        call: handover::handover_effect_stub,
+    },
+    NativeOp {
+        name: "service.work",
+        call: handover::handover_effect_stub,
     },
     NativeOp {
         name: "repo.list",

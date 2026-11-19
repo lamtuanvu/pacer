@@ -26,6 +26,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
+        "handover.effects" => Ok("/_internal/handover-effects"),
         "host.effects" => Ok("/_internal/host-effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
@@ -46,7 +47,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 /// `unavailable` for an effect still in flight.
 pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
-        "service.effects" | "update.effects" | "host.effects" => None,
+        "service.effects" | "update.effects" | "handover.effects" | "host.effects" => None,
         _ => Some(bridge_deadline()),
     }
 }
@@ -67,9 +68,8 @@ fn bridge_deadline() -> std::time::Duration {
 pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects" => {
-            Ok(params.clone())
-        }
+        "setup.check" | "setup.effects" | "service.effects" | "update.effects"
+        | "handover.effects" | "host.effects" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }

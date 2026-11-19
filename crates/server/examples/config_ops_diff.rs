@@ -32,6 +32,12 @@ impl UpdateEffects for Effects {
     }
 }
 
+impl pacer_update::handover::HandoverBridge for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
 /// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
 /// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
 struct Preview {
@@ -173,6 +179,23 @@ async fn main() -> io::Result<()> {
             } else {
                 pacer_update::apply::update_apply(&ctx, params, &mut effects).await
             };
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["effects"] = json!(effects.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if pacer_update::handover::uses_effects(name) {
+            let mut effects = Effects {
+                reply: input.get("effectResult").cloned().unwrap_or(Value::Null),
+                requests: Vec::new(),
+            };
+            let params = input["params"].clone();
+            let result =
+                pacer_update::handover::call(&ctx, name, params, false, &mut effects).await;
             let mut output = match result {
                 Ok(value) => json!({"result":value}),
                 Err(error) => error.body(),
