@@ -147,8 +147,8 @@ steps:
       require_after: { "kind in [feature, refactor, debug]": reviewer }
       require_last: { kind: tests }
     approval: auto            # the graph is approved before it runs
+  approve_publish: { type: human, decision: must, approves: publish, question: { kind: approve_revise } }
   open_pr: { type: agent, role: orchestrator, prompt: prompts/open-pr.md }
-  merge: { type: human, decision: must, question: { kind: approve_revise } }
   done: { type: end }
 edges:
   - [brainstorm, approve_spec]
@@ -156,9 +156,9 @@ edges:
   - [approve_spec, brainstorm, "result.answer == 'revise'", { max_loops: 3 }]
   - [review, plan, "result.verdict == 'pass'"]
   - [review, brainstorm, "result.verdict == 'revise'", { max_loops: 2 }]
-  - [plan, open_pr, "result.status == 'done'"]   # other outcomes go to the re-plan policy
-  - [open_pr, merge]
-  - [merge, done, "result.answer == 'approve'"]
+  - [plan, approve_publish, "result.status == 'done'"]   # other outcomes go to the re-plan policy
+  - [approve_publish, open_pr, "result.answer == 'approve'"]
+  - [open_pr, done]
 ```
 
 Field names are illustrative; the builder fixes the exact schema (see "Left to the builder").
@@ -283,7 +283,7 @@ Native sessions cannot move between agents, so the new planner starts a new sess
 
 ### Auto mode
 
-Each run has an auto-mode switch (off by default). Every `human` step is marked `must` or `auto` by its workflow. With auto mode on, the orchestrator answers `auto` steps itself and reports what it chose; with it off, every human step goes to the person. The person can make any step stricter (globally or per run) and never looser: a `must` step can never be answered by the orchestrator. The first workflow keeps brainstorm sign-off, spec approval and merge as `must`, and leaves routing, plan approval and review verdicts as `auto`.
+Each run has an auto-mode switch (off by default). Every `human` step is marked `must` or `auto` by its workflow. With auto mode on, the orchestrator answers `auto` steps itself and reports what it chose; with it off, every human step goes to the person. The person can make any step stricter (globally or per run) and never looser: a `must` step can never be answered by the orchestrator. The first workflow keeps brainstorm sign-off, spec approval and publishing approval as `must`, and leaves routing, plan approval and review verdicts as `auto`.
 
 ### Structured questions
 
@@ -357,7 +357,7 @@ The frame gives every run that changes code a **run branch**, created from the r
 1. It refuses with `invalid_input` ("uncommitted changes in the task worktree") if the task's worktree has uncommitted changes, so the orchestrator sends the task back to commit them.
 2. It merges the task's *branch* (not its worktree) into the run branch in the integration worktree.
 3. Only after a clean merge does it record the accept. Worktree cleanup then works exactly as it does today, because the merge no longer needs the worktree.
-4. On a conflict it records no verdict. It aborts the merge, leaves the run branch untouched, creates the conflict-resolution task described above, and returns normally with `{ accepted: false, merge: "conflict", resolution_task: <id> }`. It does not use the `conflict` error code, which means a stale rev, so clients never mistake a merge conflict for "reread and retry". The task stays reviewable, and its dependents keep waiting.
+4. On a conflict it records no verdict. It aborts the merge, leaves the run branch untouched, creates the conflict-resolution task described above, and returns normally with `{ accepted: false, merge: "conflict", resolution_task: <id> }`. It does not use the `conflict` error code, which means a stale rev, so clients never mistake a merge conflict for "reread and retry". The task stays reviewable, and its dependents keep waiting. `pacer review --accept` then exits non-zero and prints the resolution task's id, so scripts never read a merge conflict as success.
 
 Ordinary tasks' accept is unchanged.
 
@@ -383,7 +383,7 @@ Publishing is outward-facing, so `run.publish` checks a gate itself; holding the
 - **An approval step.** A `human` step may declare `approves: publish`. The validator requires such a step to be `decision: must`, and the engine records its approving answer as a `publish_approved` decision on the run. `run.publish` requires that decision, newer than the run branch's last change, so a later merge needs a new approval.
 - **A draft opt-in.** The person passed `publish: draft` to `run.start`, which allows draft PRs only.
 
-A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The workflow sketch above shows the older order, with `open_pr` before `merge`; the first plugin uses approve, then publish. The default is listed under "Decisions needed".
+A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The default is listed under "Decisions needed".
 
 **Merge commits** are made with `git merge --no-ff`. When the repository requires sign-off (as pacer does), a repository setting adds `--signoff`, so merge commits carry the person's sign-off. Squash-merging the PR upstream is the repository's own choice.
 
@@ -399,7 +399,7 @@ Core operations (additive, `/v3/ops`): `workflow.list`, `workflow.validate`, `wo
 
 Phase 1 shipped `workflow.validate`, `workflow.add`, `workflow.list`, `run.start`, `run.get`, `run.list`, `run.answer`, `run.stop` and `step.result`, all `/v3`-only. `workflow.add` installs a definition by hand until plugins supply them (Phase 7). `run.answer` answers a human step by its step id. From Phase 4 it remains as a thin form of `question.answer` for the question that step raised. Later phases add `run.set_planner` and `run.set_budget` (Phase 2); `run.sync_base`, `run.publish`, `run.cleanup` and `step.artifact` (Phase 5); and the `workflow.definitions` plugin call (Phase 7).
 
-CLI: `pacer run start|list|show|pause|resume|stop|priority|auto`, `pacer workflow list|validate`, and `pacer ask`/`pacer answer` gaining the structured form. TUI: a run list, and a run view with the step graph as an indented tree, decisions and questions (design below). Web and desktop: see "User interface" below; they are clients of these operations and come after the core.
+CLI: `pacer run start|list|show|answer|pause|resume|stop|priority|auto|planner|budget|decide|graph|sync|publish|cleanup`, `pacer step result|artifact`, `pacer workflow add|list|validate` (each `run.*` and `step.*` op has a command, ARCH-8), and `pacer ask`/`pacer answer` gaining the structured form. TUI: a run list, and a run view with the step graph as an indented tree, decisions and questions (design below). Web and desktop: see "User interface" below; they are clients of these operations and come after the core.
 
 #### Rust side: what the read model needs
 

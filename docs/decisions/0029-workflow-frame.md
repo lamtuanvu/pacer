@@ -42,7 +42,7 @@ API-5 lets an executor delegate only through a service-issued task/attempt grant
 
 - New tables in the task store: workflow definitions, runs, step instances, the change cursor, generated graphs, decisions, questions, wake-ups and turns.
 - Plugin protocol 1.12.0 adds the `workflow` contribution and the paged `workflow.definitions` call.
-- New additive `/v3` operations (`workflow.*`, `run.*`, `step.result`, `question.*`) and CLI commands. ARCH-8 holds: the CLI and TUI can do everything.
+- New additive `/v3` operations (`workflow.*`, `run.*`, `step.result`, `step.artifact`, `question.*`) and CLI commands. ARCH-8 holds: the CLI and TUI can do everything.
 - A new plugin extension point, `workflow`, and a bundled `pacer-dev` plugin that can be disabled or replaced.
 - Orchestrator wake-ups are metered turns. Priority and pausing under strict pacing bound how much planner budget several runs use.
 - The work is delivered in phases, each with live validation (CT-11) and independent review (REPO-10).
