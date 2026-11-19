@@ -1203,7 +1203,10 @@ fn task_account_model(task: &Value) -> (Value, Value) {
     }
     let executor = coalesce(
         coalesce(field(task.get("result"), "executor"), task.get("executor")),
-        coalesce(field(Some(&last), "executor"), task.get("requestedExecutor")),
+        coalesce(
+            field(Some(&last), "executor"),
+            task.get("requestedExecutor"),
+        ),
     );
     (
         or_null(coalesce(
@@ -1211,7 +1214,10 @@ fn task_account_model(task: &Value) -> (Value, Value) {
             executor.and_then(runner_account).as_ref(),
         )),
         or_null(coalesce(
-            coalesce(field(Some(&last), "actualModel"), field(Some(&last), "model")),
+            coalesce(
+                field(Some(&last), "actualModel"),
+                field(Some(&last), "model"),
+            ),
             field(task.get("result"), "model"),
         )),
     )
