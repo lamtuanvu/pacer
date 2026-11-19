@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { evalCondition, parseCondition, type CondAst } from "../src/workflow/condition";
 
-const ev = (s: string, result: unknown) => evalCondition(parseCondition(s).ast!, { result, brief: "b" });
+const ev = (s: string, result: unknown = {}) => evalCondition(parseCondition(s).ast!, { result, brief: "b" });
 
 test("comparisons and logic", () => {
   expect(ev("result.verdict == 'pass'", { verdict: "pass" })).toBe(true);
@@ -59,6 +59,7 @@ test("parse errors name the position", () => {
 test("the ast distinguishes or, and, not, cmp and truthy nodes", () => {
   const ast: CondAst = parseCondition("result.a or result.b == 1 and not result.c").ast!;
   expect(ast.kind).toBe("or");
+  if (ast.kind !== "or") throw new Error("expected an or node");
   expect(ast.terms).toHaveLength(2);
   expect(ast.terms[0]).toEqual({ kind: "truthy", value: { kind: "path", segments: ["result", "a"] } });
   expect(ast.terms[1].kind).toBe("and");
