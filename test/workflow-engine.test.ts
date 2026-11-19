@@ -6,7 +6,7 @@ import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { CoreError } from "../src/core/errors";
-import { addDefinition, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep, workflowDatabase } from "../src/workflow/store";
+import { addDefinition, claimStepAnswer, claimStepSettlement, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, updateStep, workflowDatabase } from "../src/workflow/store";
 import { answerHumanStep, onTaskSettled, readvanceStep, recordStepResult, startRun, startStep, stopRun, type EngineDeps } from "../src/workflow/engine";
 import type { FanoutStep, WorkflowDef } from "../src/workflow/schema";
 
@@ -891,6 +891,61 @@ test("an answer whose run patch conflicts after it was recorded still succeeds",
   // The answer took effect and advanced the run; the caller got success, not a conflict.
   expect(answered.status).toBe("done");
   expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "approve")!.result).toEqual({ answer: "approve" });
+});
+
+// A swallowed run.answer conflict (the answer was recorded, its waiting→running
+// patch lost) leaves the run 'waiting' with a done-but-unadvanced human row — the
+// exact state the tick's re-advance replays. When advanceFrom then fires a
+// non-human successor, the run must go back to running instead of staying waiting
+// while a task of the run is in flight (round 5 review).
+const answerThenAgent: WorkflowDef = {
+  id: "t/answer-then-agent",
+  version: 1,
+  steps: {
+    ask: { type: "agent", kind: "research", prompt: "Ask" },
+    decide: { type: "human", question: { text: "Go?", kind: "yes_no" } },
+    act: { type: "agent", kind: "research", prompt: "Act" },
+    done: { type: "end" },
+  },
+  edges: [
+    { from: "ask", to: "decide" },
+    { from: "decide", to: "act", when: "result.answer == 'go'" },
+    { from: "act", to: "done" },
+  ],
+  entry: "ask",
+};
+
+test("a non-human successor fired from a stale waiting run puts the run back to running", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, answerThenAgent, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/answer-then-agent", deps);
+  const ask = stepsOfRun(ctx, r.id).find(s => s.stepId === "ask")!;
+  recordStepResult(ctx, ask.taskId!, { ok: true });
+  settle(ctx, ask.taskId!);
+  await onTaskSettled(ctx, ask.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  // The answer is recorded at the row while the run's waiting→running patch is
+  // lost (the conflict a concurrent writer would raise): the row is done without
+  // advanced_at and the run is still waiting.
+  const decide = stepsOfRun(ctx, r.id).find(s => s.stepId === "decide")!;
+  const claimed = claimStepAnswer(ctx, { runId: r.id, stepId: "decide", attempt: decide.attempt }, { answer: "go" });
+  expect(claimed).not.toBeNull();
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  // The tick's re-advance replays the swallowed advancement: the 'go' edge fires
+  // the agent successor, and the run goes back to running — not stuck waiting.
+  const advanced = await readvanceStep(ctx, claimed!, undefined, deps);
+  expect(advanced).toBe(true);
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  const act = stepsOfRun(ctx, r.id).find(s => s.stepId === "act")!;
+  expect(act.status).toBe("running");
+  expect(act.taskId).toBeDefined();
+  expect(inputs.filter(i => i.requestId?.includes(":act:"))).toHaveLength(1);
+  // act settles normally and the run completes.
+  recordStepResult(ctx, act.taskId!, { ok: true });
+  settle(ctx, act.taskId!);
+  await onTaskSettled(ctx, act.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
 });
 
 // An end edge must not finish a run while one of the run's fan-outs is unresolved
