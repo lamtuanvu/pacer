@@ -468,27 +468,14 @@ test.skipIf(!front)("PACER_NATIVE_PLUGIN_HOST=0 escape leaves serve without host
 }, 60000);
 
 // TypeScript plugin consumers (usage refresh, doctor, planners) start children through Core;
-// an explicit flag-off serve must not hand ownership to a native host they cannot reach.
-test.skipIf(!front)("explicit flag-off lets TypeScript consumers start plugin children", async () => {
-  const s = await service("plugin.doctor", "absolute", { nativeHost: "0" });
-  try {
-    await s.post("plugin.enable", { id: "fx-ui", grant: true });
-    const doctor = await s.post("plugin.doctor", { id: "fx-ui" });
-    expect(doctor.error, JSON.stringify(doctor)).toBeUndefined();
-    expect(doctor.result.reports[0].ok, JSON.stringify(doctor)).toBe(true);
-    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(false);
-  } finally { await s.stop(); }
-}, 60000);
-
-// The flipped default: serve starts the plugin owner itself, and the TypeScript
-// consumer path (enable + doctor through Core) still works against it.
-test.skipIf(!front)("default serve starts the plugin owner and consumers still work", async () => {
+// default serve must not hand ownership to a native host they cannot reach.
+test.skipIf(!front)("default serve lets TypeScript consumers start plugin children", async () => {
   const s = await service("plugin.doctor");
   try {
     await s.post("plugin.enable", { id: "fx-ui", grant: true });
     const doctor = await s.post("plugin.doctor", { id: "fx-ui" });
     expect(doctor.error, JSON.stringify(doctor)).toBeUndefined();
     expect(doctor.result.reports[0].ok, JSON.stringify(doctor)).toBe(true);
-    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(true);
+    expect(existsSync(join(s.state, "run", "host.sock"))).toBe(false);
   } finally { await s.stop(); }
 }, 60000);
