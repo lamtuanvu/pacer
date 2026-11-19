@@ -94,6 +94,12 @@ test("an unsteered inventory explains why and points at the model matrix when th
   expect(html).toContain("Open model matrix");
 });
 
+test("an empty inventory still offers the model matrix", () => {
+  const html = render(config.tierTargets, { models: [] });
+  expect(html).toContain("No executors in the model inventory yet");
+  expect(html).toContain("Open model matrix");
+});
+
 test("a non-matching mapping shows the Custom preset as a non-interactive marker", () => {
   const custom: TierTargets = { simple: "medium", standard: "medium", complex: "medium" };
   const html = render(custom);
