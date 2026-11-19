@@ -194,7 +194,26 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
+        let core_bridge_sync = if matches!(
+            name,
+            "setup.check"
+                | "setup.health"
+                | "doctor.run"
+                | "desktop.capture.register"
+                | "desktop.capture.targets"
+                | "desktop.capture.request"
+                | "desktop.capture.claim"
+                | "desktop.capture.complete"
+                | "desktop.capture.result"
+                | "desktop.update.status"
+                | "desktop.update.check"
+                | "desktop.update.download"
+                | "desktop.update.restart"
+                | "desktop.update.cancel"
+                | "desktop.update.adopt"
+                | "desktop.update.adoptCancel"
+                | "desktop.update.configure"
+        ) {
             let bridge_result = if input["bridgeEcho"] == json!(true) {
                 pacer_server::native::core_bridge_params(name, &input["params"])
                     .unwrap_or(Value::Null)

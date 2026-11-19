@@ -586,6 +586,62 @@ static OPS: &[NativeOp] = &[
         call: doctor_ops::doctor_run_stub,
     },
     NativeOp {
+        name: "desktop.capture.register",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.capture.targets",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.capture.request",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.capture.claim",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.capture.complete",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.capture.result",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.status",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.check",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.download",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.restart",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.cancel",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.adopt",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.adoptCancel",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
+        name: "desktop.update.configure",
+        call: p8_bridge_ops::bridge_stub,
+    },
+    NativeOp {
         name: setup_ops::ops()[0].name,
         call: setup_ops::ops()[0].call,
     },
