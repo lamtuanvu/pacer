@@ -49,6 +49,7 @@ import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-u
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { msgOps } from "./ops-msg";
+import { workflowOps } from "./ops-workflow";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -274,7 +275,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...workflowOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps, ...desktopReconciliationOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),

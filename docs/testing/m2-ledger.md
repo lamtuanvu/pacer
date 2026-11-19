@@ -718,6 +718,26 @@ model includes all 19 keys.
 | SSH probe/clone/identity/clean effects | `host.check`, non-dry-run `host.clean` and admitted `host.repo.setup` run in Core through the whole-operation host effects bridge (HTTP) or the forwarded request (stdio); Rust answers refusals and `host.clean` dry runs. |
 | Dispatch parts (`/_internal/dispatch-parts`, stdio `_internal.dispatch.parts`) | `dispatch.preview` and `dispatch.explain` read executor guards (`dispatch.executor-guards`) and strict enforcement exclusions (`dispatch.enforcement-exclusions`) from Core, which keeps the classifier configuration, `checkedVersions`, `--version` probes and certificate fingerprints. The route takes the internal bearer over HTTP and the sync key over stdio, where a work-grant Core refuses it; Core refuses unknown kinds and params, a `draft` without `cached: true` and requests over 256 KiB, and Rust caps replies at 1 MiB with a 30 s deadline. |
 
+## Workflow frame operations (TS-forwarded, 2026-11-19)
+
+The nine Phase 1 workflow-frame operations are TS-forwarded: run and step state
+lives in the workflow tables of the task store (`src/workflow/store.ts`),
+engine advancement runs in the TypeScript background worker, and run changes
+publish `run` entities through the TypeScript outbox (ADR 0029, ARCH-16). The
+protocol change is additive and v3-only (`V3_ONLY_OPS` in `src/api/v2-compat.ts`,
+mirrored in `pacer-read-model::v2_compat::surface`).
+
+| `workflow.validate` | TS-forwarded | `src/api/ops-workflow.ts` parses and structurally validates the file text over `src/workflow/parse.ts` and `src/workflow/validate.ts`; no stored state. |
+| `workflow.add` | TS-forwarded | `addDefinition` writes an immutable `workflow_defs` version in the task store; same id@version with different source is TS's `conflict`. |
+| `workflow.list` | TS-forwarded | Reads `workflow_defs` rows through `listDefinitions`. |
+| `run.start` | TS-forwarded | `startRun` in `src/workflow/engine.ts` creates the `workflow_runs` row and delegates the entry step as an ordinary task; executor sessions are refused (`assertCallerCanInvoke`). |
+| `run.get` | TS-forwarded | Reads the `workflow_runs` row and its `workflow_steps` instances. |
+| `run.list` | TS-forwarded | Reads `workflow_runs`, optionally filtered by status. |
+| `run.answer` | TS-forwarded | `answerHumanStep` settles a waiting human step at `expect_rev` and advances the run's edges. |
+| `run.stop` | TS-forwarded | `stopRun` stops running step tasks through the `task.stop` op path and marks the run stopped at `expect_rev`. |
+| `step.result` | TS-forwarded | `recordStepResult` validates against the step's declared schema and writes the `workflow_steps` result; the caller must be the delegated task's executor (`requireAskingExecutor`). |
+
+
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
 `test/fixtures/config-settings/settings.json` corpus from the TypeScript reference.
 Use `UPDATE_CONFIG_SETTINGS=1 bun run test test/config-settings-parity.test.ts` only
@@ -730,7 +750,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`234` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`250` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
@@ -743,11 +763,11 @@ ops and selective forwards such as `mode.hold` without `until`).
 
 Total unregistered (not in the detailed table): **0**.
 
-Total native: **168** of 234 (including 12 HTTP-native plugin operations). Selective: **94**.
+Total native: **168** of 250 (including 12 HTTP-native plugin operations). Selective: **94**.
 
 Selective operations: `account.add`, `account.adopt`, `account.edit`, `account.list`, `account.models`, `account.remove`, `account.signin`, `account.test`, `account.usage.check`, `agent.detect`, `assistant.candidates`, `assistant.card.record`, `assistant.card.refresh`, `assistant.conversation`, `assistant.conversations`, `assistant.delete`, `assistant.settings.get`, `assistant.settings.set`, `assistant.status`, `assistant.turn`, `attention.dismiss`, `attention.snooze`, `config.set`, `desktop.reconcile.cancel`, `desktop.reconcile.request`, `discovery.list`, `discovery.network.get`, `discovery.network.set`, `discovery.respond`, `discovery.set`, `dispatch.answer`, `dispatch.child`, `dispatch.dependencies.waive`, `dispatch.enforcement.consent`, `dispatch.explain`, `dispatch.preview`, `dispatch.refresh`, `dispatch.retry`, `dispatch.review`, `dispatch.stop`, `dispatch.submit`, `dispatch.tierTargets.get`, `dispatch.tierTargets.set`, `dispatch.wait`, `executor.models.available`, `executor.setup.candidates`, `executor.setup.models`, `host.check`, `host.clean`, `host.repo.setup`, `insights.summary`, `issue.import`, `issue.search`, `job.cancel`, `job.get`, `job.list`, `limits.refresh`, `mode.hold`, `msg.close`, `msg.confirm`, `msg.inbox`, `msg.log`, `msg.policy`, `msg.read`, `msg.send`, `msg.wait`, `project.messaging.get`, `project.messaging.remove`, `project.messaging.set`, `project.strategy.get`, `project.strategy.list`, `project.strategy.remove`, `project.strategy.set`, `repo.add`, `repo.list`, `repo.remove`, `routing.route`, `runner.add`, `runner.check`, `runner.models.get`, `runner.models.set`, `runner.models.set_many`, `runner.set`, `service.install`, `service.status`, `strategy.preview`, `task.retry_options`, `task.review`, `task.send`, `task.stop`, `task.wait`, `tree.status`, `update.apply`, `update.check`.
 
-Total forwarded: **66**, including **3** Rust-validated operations (`doctor.run`, `setup.check` and `setup.health`).
+Total forwarded: **82**, including **3** Rust-validated operations (`doctor.run`, `setup.check` and `setup.health`). The nine workflow-frame rows above are included; the recount reconciles the totals with the current catalog after earlier additions had left them seven operations behind.
 
 When a prefix cutover lands, move those ops into the detailed table as Native
 or keep an explicit Forwarded row with the residual reason. Do not delete a

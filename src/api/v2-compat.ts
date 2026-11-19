@@ -39,6 +39,7 @@ for (const op of ["terminal.list", "terminal.create", "terminal.rename", "termin
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.tool", "assistant.selftest"]) V3_ONLY_OPS.add(op);
 for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status", "liveness.status"]) V3_ONLY_OPS.add(op);
 for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
+for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result"]) V3_ONLY_OPS.add(op);
 
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;

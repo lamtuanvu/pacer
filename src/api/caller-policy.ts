@@ -16,6 +16,13 @@ export function isUpgradeOperation(name: string): boolean {
   return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.reconcile.') && name !== 'desktop.reconcile.status') || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
 }
 
+/** Workflow and run operations. Runs are frame-scoped work the person and the planner drive; an executor's
+ *  only workflow operation is step.result, which task identity gates in the operation itself (ops-workflow). */
+export const WORKFLOW_OPS_REFUSAL = 'PACER_ROLE=executor: workflow and run operations are for the person and the planner; report your result with step.result.';
+export function isWorkflowManagementOp(name: string): boolean {
+  return name.startsWith('workflow.') || name.startsWith('run.');
+}
+
 export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): boolean {
   const token = ctx.env.PACER_WORK_GRANT;
   const id = params?.id;
@@ -35,6 +42,7 @@ export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<str
   if (isUpgradeOperation(name)) throw new ApiError('not_allowed', UPGRADE_REFUSAL);
   if (name.startsWith('session.agent.')) throw new ApiError('not_allowed', 'Executor sessions cannot manage interactive agents.');
   if (name.startsWith('assistant.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executors cannot use the assistant or read its history.');
+  if (isWorkflowManagementOp(name)) throw new ApiError('not_allowed', WORKFLOW_OPS_REFUSAL);
   if (name.startsWith('plugin.ui.') || name.startsWith('plugin.settings.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: plugin UI and settings are for the app and the operator, not executor sessions.');
   if (name === 'plugin.enable' && params.grant === true) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executor sessions cannot grant plugin access.');
   if (name === 'dispatch.explain') throw new ApiError('not_allowed', 'PACER_ROLE=executor: route explanations are for planners and people; executors do not choose where work goes.');

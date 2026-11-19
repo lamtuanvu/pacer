@@ -10,7 +10,7 @@ export function helloBody() {
   return { coreBuild: coreBuildDescriptor(), protocol: PROTOCOL_VERSION, previous: PREVIOUS, pacer: pkg.version, ops: opNames(), events: ["desktop.update", "plugin", "pause", "task", "mode", "config", "reset", "planner", "executor", "account", "host", "repo", "counts", "attention", "activity", "job", "notify", "message", "liveness", "machine", "assistant", "discovery.found", "control"] };
 }
 
-export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "message" | "liveness" | "machine" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant" | "discovery.found" | "control"; data: unknown }
+export interface ApiEvent { seq: number; at: number; type: "desktop.update" | "plugin" | "pause" | "planner" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "message" | "liveness" | "machine" | "run" | "budget" | "task" | "mode" | "alert" | "config" | "reset" | "assistant" | "discovery.found" | "control"; data: unknown }
 
 export type ApiEventV2 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "planner" | "desktop.update" | "assistant" | "machine" | "message" | "discovery.found"> };
 export type ApiEventV3 = Omit<ApiEvent, "type"> & { type: Exclude<ApiEvent["type"], "budget" | "alert"> };

@@ -6511,6 +6511,166 @@ Params JSON Schema:
 }
 ```
 
+### `run.answer`
+
+Answer a waiting human step; the answer advances the run. Requires the run's current rev.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "answer",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.get`
+
+One run with its step instances.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.list`
+
+Runs, oldest first, optionally filtered by status.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "waiting",
+        "done",
+        "failed",
+        "stopped"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `run.start`
+
+Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "brief": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    }
+  },
+  "required": [
+    "workflow",
+    "repo",
+    "brief"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.stop`
+
+Stop a run and its running step tasks. Requires the run's current rev.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `runner.add`
 
 Add an agent/account runner to the default routing rule.
@@ -7734,6 +7894,67 @@ Params JSON Schema:
   "type": "object",
   "properties": {},
   "additionalProperties": false
+}
+```
+
+### `step.result`
+
+Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema0"
+      }
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
 }
 ```
 
@@ -9210,6 +9431,69 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `workflow.add`
+
+Install a workflow version from its file text. The same id@version with identical text is a no-op; different text is a conflict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `workflow.list`
+
+Installed workflow definitions, oldest first.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `workflow.validate`
+
+Validate a workflow file's text without storing it. Returns every error at once with its path.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
+  },
+  "required": [
+    "source"
+  ],
   "additionalProperties": false
 }
 ```
