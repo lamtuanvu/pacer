@@ -683,11 +683,23 @@ export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, a
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   const def = loadDefinition(ctx, run);
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  // One yield before the claim: a concurrent answer (or a stopping run) can then
+  // reach the same row, and it is claimStepAnswer below — not the luck of
+  // synchronous execution — that makes the answer exclusive (round 4 review).
+  await Promise.resolve();
   // Compare-and-set like claimStepSettlement: a second answer to the same waiting
   // step loses the race and is a conflict — it starts nothing.
   const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
-  if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "running" });
+  // The answer is recorded: a conflicting run patch (the run went terminal, or a
+  // concurrent writer moved its rev) must not fail the answer — it took effect and
+  // advances below, or via the tick's re-advance when this advance is lost
+  // (round 4 review).
+  try {
+    if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "running" });
+  } catch (err) {
+    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+  }
   await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn: undefined });
   return getRun(ctx, runId)!;
 }

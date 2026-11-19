@@ -849,20 +849,48 @@ test("replaying a fan-out successor does not create a second fan-out attempt", a
   expect(new Set(branches.map(s => s.attempt))).toEqual(new Set([1]));
 });
 
-test("a second answer to the same waiting step is a conflict and starts nothing", async () => {
+test("of two concurrent answers the second loses at the claim and starts nothing", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, loopback, "source");
   const { deps, inputs } = fakeDeps();
   const r = await start(ctx, "t/loopback", deps);
   expect(getRun(ctx, r.id)!.status).toBe("waiting");
-  await answerHumanStep(ctx, r.id, "w", "again", getRun(ctx, r.id)!.rev, deps);
-  const inputsAfterFirst = inputs.length;
-  // The waiting row is done now; the second answer loses the compare-and-set
-  // (claimStepAnswer) and never reaches the run.
-  try { await answerHumanStep(ctx, r.id, "w", "again", getRun(ctx, r.id)!.rev, deps); throw new Error("no throw"); }
-  catch (e) { expect((e as CoreError).code).toBe("conflict"); }
-  expect(inputs).toHaveLength(inputsAfterFirst); // the losing answer started nothing
-  expect(getRun(ctx, r.id)!.status).toBe("running");
+  // Both answers are issued against the same waiting row and the same rev, so the
+  // compare-and-set in claimStepAnswer — not an earlier rev check — decides the
+  // winner (round 4 review).
+  const rev = getRun(ctx, r.id)!.rev;
+  const settled = await Promise.allSettled([
+    answerHumanStep(ctx, r.id, "w", "again", rev, deps),
+    answerHumanStep(ctx, r.id, "w", "again", rev, deps),
+  ]);
+  const rejected = settled.filter((s): s is PromiseRejectedResult => s.status === "rejected");
+  expect(rejected).toHaveLength(1); // exactly one answer wins
+  expect((rejected[0]!.reason as CoreError).message).toContain("not waiting for an answer"); // the loss happened at the claim
+  expect(inputs).toHaveLength(1); // the losing answer started nothing
+  expect(getRun(ctx, r.id)!.status).toBe("running"); // healthy: the winner advanced the run
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "ask")).toHaveLength(1);
+});
+
+test("an answer whose run patch conflicts after it was recorded still succeeds", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/demo", deps, "B");
+  const s1 = stepsOfRun(ctx, r.id)[0]!;
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  await onTaskSettled(ctx, s1.taskId!, undefined, deps);
+  const run = getRun(ctx, r.id)!;
+  expect(run.status).toBe("waiting");
+  // A concurrent writer makes the answer's run patch conflict: every UPDATE that
+  // moves this run from waiting to running is ignored, so updateRun sees zero
+  // changes and raises the same conflict a concurrent settlement's patch would.
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_answer_conflict BEFORE UPDATE ON workflow_runs WHEN OLD.id = '${r.id}' AND OLD.status = 'waiting' AND NEW.status = 'running' BEGIN SELECT RAISE(IGNORE); END`);
+  const answered = await answerHumanStep(ctx, r.id, "approve", "approve", run.rev, deps);
+  workflowDatabase(ctx).exec("DROP TRIGGER wf_answer_conflict");
+  // The answer took effect and advanced the run; the caller got success, not a conflict.
+  expect(answered.status).toBe("done");
+  expect(stepsOfRun(ctx, r.id).find(s => s.stepId === "approve")!.result).toEqual({ answer: "approve" });
 });
 
 // An end edge must not finish a run while one of the run's fan-outs is unresolved
