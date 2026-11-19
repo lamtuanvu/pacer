@@ -306,6 +306,16 @@ async function startFanout(ctx: Ctx, run: RunRow, stepId: string, stepDef: Fanou
   for (const branch of stepDef.branches) {
     const row = pending.get(branch);
     if (!row) continue; // an already-delegated branch: its task is in flight
+    // A branch whose attempt already has a branch-less join row (a join 'any' that
+    // resolved while an earlier branch settled inside its own delegation call) or
+    // whose run went terminal while the loop was still walking the branches is not
+    // delegated: its row is marked stopped and the branch skipped (round 5 review).
+    const joined = stepsOfRun(ctx, run.id).some(s =>
+      s.stepId === stepId && s.attempt === attempt && s.branch === undefined);
+    if (joined || isTerminal(getRun(ctx, run.id))) {
+      try { updateStep(ctx, keyOf(row), { status: "stopped", error: joined ? "join resolved while delegating" : "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
+      continue;
+    }
     // An orphan row keeps its own attempt and request id: its task is attached when
     // it exists, or delegated without inserting a second row for the same key.
     const prior = taskByRequestId(ctx, stepRequestId(run.id, stepId, row.attempt, branch));

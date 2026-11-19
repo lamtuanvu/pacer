@@ -988,6 +988,50 @@ test("an entry fan-out with a fast-settling first branch waits for the later bra
   expect(join.result).toEqual({ branches: { x: { v: "x" }, y: { v: "y" } }, done: 2, failed: 0 });
 });
 
+// A join 'any' resolves as soon as one branch is done: a first branch that settles
+// inside its own delegation call resolves the attempt while the later branch's
+// delegation is still pending in startFanout's loop, and the later branch must not
+// be delegated after the join already fired (round 5 review).
+const anyFanout: WorkflowDef = {
+  id: "t/any-fanout",
+  version: 1,
+  steps: {
+    f: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "review", prompt: "F {{branch}}" }, join: "any" },
+    done: { type: "end" },
+  },
+  edges: [{ from: "f", to: "done" }],
+  entry: "f",
+};
+
+test("a join 'any' that resolves while the first branch settles does not delegate the later branch", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, anyFanout, "source");
+  const { deps: base, stopped, inputs } = fakeDeps();
+  // Branch x records its result and settles while the engine is still inside its
+  // delegate() call, so the join 'any' resolves done before y is delegated.
+  const deps: EngineDeps = {
+    delegate: async (c, input, spawn) => {
+      const task = await base.delegate(c, input, spawn);
+      if (input.requestId?.endsWith(":x")) {
+        const [, runId, stepId, attempt, branch] = input.requestId.split(":");
+        updateStep(c, { runId: runId!, stepId: stepId!, attempt: Number(attempt), branch }, { result: { v: "x" } });
+        updateTask(c, task.id, t => { t.state = "done"; });
+      }
+      return task;
+    },
+    stopTask: base.stopTask,
+  };
+  const r = await startRun(ctx, { workflow: "t/any-fanout", repo: tmpDir(), brief: "B" }, undefined, deps);
+  // The join resolved on x and the run reached its end: y was never delegated.
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+  const y = stepsOfRun(ctx, r.id).find(s => s.stepId === "f" && s.branch === "y")!;
+  expect(y.status).toBe("stopped"); // y's pending row is stopped, not left running
+  expect(y.taskId).toBeUndefined(); // no task was created for y
+  expect(inputs.filter(i => i.requestId?.endsWith(":y"))).toHaveLength(0); // y was never delegated
+  expect(stopped).toEqual([]); // nothing needed stopping: y never started
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "f" && s.branch === undefined)).toHaveLength(1);
+});
+
 test("two concurrent joins of the same attempt leave one join row and a healthy run", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, fanoutDef("all"), "source");
