@@ -9,6 +9,63 @@ use rusqlite::{Connection, OptionalExtension};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::path::Path;
+/// TS `parseRunnerId(id)?.account` (`src/config/runner-id.ts`): `agent#account@host`,
+/// valid only when the agent is one pacer knows.
+fn runner_account(id: &str) -> Option<&str> {
+    const AGENTS: &[&str] = &["claude-code", "codex", "cursor", "agy", "opencode"];
+    let segment = |s: &str| {
+        s.as_bytes()
+            .first()
+            .is_some_and(|c| c.is_ascii_lowercase() || c.is_ascii_digit())
+            && s.bytes()
+                .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+    };
+    let (main, host) = id.split_once('@').map_or((id, None), |(m, h)| (m, Some(h)));
+    let (agent, account) = main.split_once('#').map_or((main, None), |(a, b)| (a, Some(b)));
+    (segment(agent)
+        && account.is_none_or(segment)
+        && host.is_none_or(segment)
+        && AGENTS.contains(&agent))
+    .then_some(())?;
+    account
+}
+
+/// TS `taskAccountModel` (`src/tasks/account-model.ts`): the in-flight attempt's
+/// account and chosen model while running, the latest attempt's otherwise, with
+/// `model` preferring the actually launched model.
+fn task_account_model(task: &Value) -> (Value, Value) {
+    let coalesce = |items: &[&Value]| {
+        items
+            .iter()
+            .find(|v| !v.is_null())
+            .map_or(Value::Null, |v| (*v).clone())
+    };
+    let last = array(&task["attempts"]).last().cloned().unwrap_or(Value::Null);
+    if text(&task["state"]) == "running" {
+        let pending = &task["pendingAttempt"];
+        let parsed = runner_account(text(&task["executor"]))
+            .map(|account| Value::String(account.to_owned()))
+            .unwrap_or(Value::Null);
+        return (
+            coalesce(&[&pending["usageAtStart"]["account"], &parsed]),
+            pending.get("model").cloned().unwrap_or(Value::Null),
+        );
+    }
+    let executor = coalesce(&[
+        &task["result"]["executor"],
+        &task["executor"],
+        &last["executor"],
+        &task["requestedExecutor"],
+    ]);
+    let parsed = runner_account(text(&executor))
+        .map(|account| Value::String(account.to_owned()))
+        .unwrap_or(Value::Null);
+    (
+        coalesce(&[&last["usageAtStart"]["account"], &parsed]),
+        coalesce(&[&last["actualModel"], &last["model"], &task["result"]["model"]]),
+    )
+}
+
 fn replace(s: &str, pat: &str, to: &str) -> String {
     title_regex::js_regex(pat).map_or_else(|_| s.to_owned(), |r| r.replace_all(s, to).into_owned())
 }
@@ -351,6 +408,15 @@ pub fn task_data(t: &Value, alive: &dyn Fn(i64) -> bool) -> Value {
             }
         }
     }
+    // Live task events carry the attempt's account and model when known, so a
+    // client upserting the event (task-ops stop/review/dismiss) keeps the row.
+    let (account, model) = task_account_model(t);
+    if !account.is_null() {
+        row["account"] = account;
+    }
+    if !model.is_null() {
+        row["model"] = model;
+    }
     if truth(&t["attemptStartedAt"]) {
         row["attemptStartedAt"] = t["attemptStartedAt"].clone();
     }
@@ -509,6 +575,9 @@ fn enrich_api_task(
     row["repo"] = repo;
     row["kind"] = t["kind"].clone();
     row["host"] = t["run"]["host"].clone();
+    let (account, model) = task_account_model(t);
+    row["account"] = account;
+    row["model"] = model;
     for key in ["diagnosticCheck", "diagnosticRecheck"] {
         if truth(&t[key]) {
             row[key] = t[key].clone();

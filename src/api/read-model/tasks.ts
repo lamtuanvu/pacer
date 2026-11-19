@@ -11,6 +11,7 @@ import { unreadCounts } from "../../messaging/store";
 import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
 import { parentOfTask } from "../../messaging/participants";
 import type { ApiTask } from "./types";
+import { taskAccountModel } from "../../tasks/account-model";
 
 type UnreadCounts = ReturnType<typeof unreadCounts>;
 /** apiTasks batches this once (listLiveness) instead of two SELECTs per task (own + parent). */
@@ -27,7 +28,8 @@ export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>,
  const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
  // The read model places the diagnostics fields after host (Rust parity), so leave them out of the event shape here.
  const {diagnosticCheck:_check,diagnosticRecheck:_recheck,...event}=taskData(t);
- return {...event,...(work?{work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}}:{}),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
+ const accountModel=taskAccountModel(t);
+ return {...event,...(work?{work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}}:{}),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,account:accountModel.account,model:accountModel.model,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
