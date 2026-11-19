@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.16.0",
-  "notes": "### Added\n\n- Notification health (Parts A and B): `client.register` and `client.heartbeat` carry optional `notification_permission` and `notification_alerts`, and the registry records `permission_changed_at` whenever either changes between two real states (not on a first report, an `unsupported` transition, or an unchanged value, so an app relaunch does not reset a delivered test); new ops `notifications.test`, `notifications.ack` (desktop clients only; must match the targeted desktop's `client_id`, and omits `error` on success), `notifications.request` (waits up to `wait_s`, default and maximum 20/25 s, under the desktop's 30 s service-call timeout; publishes a `control` v3 event that plugins may observe) and the cheap read `notifications.health` (v3 only); a `Notifications` doctor check with ordered state table and remedies `allowNotifications()`, `notificationSettings(caption)` and `testNotification()`, with a structured `tested_at` on the ok detail; `setup.skip` skips the optional setup step (stored in `settings.json` under the config lock); the Notifications remedy stays out of Setup and Diagnostics fix-all; executor sessions cannot run the new `notifications.test/ack/request/health` ops or `setup.skip` (`notifications.get` and `notifications.set` keep their prior policy); desktop reports raw permission/alert state (omitting the permission until macOS has answered a real settings read) and acks every posted notification, opens System Settings via `open_system_settings`, setup gains a \"Turn on notifications\" step (renderable as Skipped) and Settings shows a Desktop banners row. State is stored in `state/notification-health.json`.\n\n### Fixed\n\n- While a service update restarts pacer, the app's banner says \"Updating pacer…\" instead of the generic \"Reconnecting to pacer…\", and Settings > Updates no longer keeps a stale \"Service is connecting\" error once the update has finished.",
-  "pub_date": "2026-11-17T08:55:13.000Z",
+  "version": "0.17.5",
+  "notes": "### Changed\n\n- Release 0.17.4 (#1122).\n- Cargo fmt the task row model and account changes (#1123).\n\n### Fixed\n\n- Repair main after the task-row runner changes (#1125).",
+  "pub_date": "2026-11-19T08:59:16.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.16.0/desktop-pacer-0.16.0-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2Fvd1QrU1RPV1p1dTg0bTgyMzNCZEtMelhSZ2QrM29sdmVpTFhwL3lqY2V6NnZGV0ZjQUR4WWkzS2VRdS9BSXEvazRzSEw2QW82QmdtUWlHS3Q0bUE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0OTA4MDM3CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE2LjAtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTYuMApiVFg5dzZvTlcyRS9tcDh3cVhhODRua3V3ZW8xSGoyeDRTRXNDRHRUMzYvYThydmtBdGFmenZsanFyeTErM0ZLQ3B3TlhOQmhlTko4dE11RmhMSkhDdz09Cg==",
-      "sha256": "f8d7c5d2e02629cecb866f73432bbff7124024bfcd450b979519b5fea5479255",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.5/desktop-pacer-0.17.5-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1NyQTIxVmNWajFlTSsxSGMxUGZlOHMyMmQ3ZmJzaGxRNk8yaXc4Lzd6Yk1meGxDM3J6V2EzUDBlNE81OWRRM0RiMTFhSVpndTlvemRuSEZhQTNZVFFNPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDgwNTcwCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjUtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTcuNQpBbkl3VnVzdUs1SHMrd0tkR2JiQktRd0grcW9NeEVqTFl3aDlOakEyaHFKRDB4ZlZCZWdNQ2NudkczVkhhWms2eDB6RjZZMTBKeE5oS0lSTjk2MFRDdz09Cg==",
+      "sha256": "5d6d6ac03627f4028ae48b72d6b12fff67f3e4464f2261d978a9f26a8f69ac3c",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.16.0/desktop-pacer-0.16.0-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1UzWkQ5WW9hc3VseEJrZGt6eUdBaDU4WHhlbFp3R3VqQVhEVmRPbVhEQnZLVmZ2QkZIMzMzakhGR080M296ZTdWVkliTVQ0aUl0cmhHdXBseVRucFE4PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk0OTA4MTA2CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE2LjAtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNi4wCkplTXJlaDVMdVVFZ2p4aUc2STQ2bkhsejFxeFBtOVdIUWtvWXUzWE5wZTNLdm00cVVOY3Arc1dSM1VOUUxIQWF3c0g4bER1S3VXdThJTkRNVWorNUJ3PT0K",
-      "sha256": "3a4e630092a9a420af7093701a464ace9b086a365c43677bc944ee6709cd0c43",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.5/desktop-pacer-0.17.5-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1luL215Q05SbktLakR0TlVVWGVFYnRHWU9jcHZyU3YzWlV4MHg3L2ROSzNtclhKNDlzV3NhUDNYRTJteWt4N1pYdG0yQUd2R0VjWkhWTXdqQkk0N0FVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MDgwNjgwCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjUtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNy41Ck54TjlJL0Y3TDdVNU90ZEtJSGl3QVpXVXZaUWRjVmphZExEN1k4MnR1WDZKSnlydXludUxDb0R1eWh3dm43RkRmOGdOT3l0SWs4ZVZwcXk5aFhLK0N3PT0K",
+      "sha256": "fe195d6f3e763c6dd263701c5824709b99b4db26a1eea2d3bea62f3d1e61e8ac",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
