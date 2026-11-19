@@ -839,6 +839,22 @@ test("replaying a fan-out successor does not create a second fan-out attempt", a
   expect(new Set(branches.map(s => s.attempt))).toEqual(new Set([1]));
 });
 
+test("a second answer to the same waiting step is a conflict and starts nothing", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, loopback, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/loopback", deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  await answerHumanStep(ctx, r.id, "w", "again", getRun(ctx, r.id)!.rev, deps);
+  const inputsAfterFirst = inputs.length;
+  // The waiting row is done now; the second answer loses the compare-and-set
+  // (claimStepAnswer) and never reaches the run.
+  try { await answerHumanStep(ctx, r.id, "w", "again", getRun(ctx, r.id)!.rev, deps); throw new Error("no throw"); }
+  catch (e) { expect((e as CoreError).code).toBe("conflict"); }
+  expect(inputs).toHaveLength(inputsAfterFirst); // the losing answer started nothing
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+});
+
 // An end edge must not finish a run while one of the run's fan-outs is unresolved
 // (Review Focus: run correctness 9): branch rows count as busy until their attempt
 // has a branch-less join row.
@@ -860,8 +876,7 @@ const endWithFanout: WorkflowDef = {
   entry: "a",
 };
 
-test("an end edge waits while a fan-out of the run is unresolved", async () => {
-  const ctx = fakeCtx();
+test("an end edge waits while a fan-out of the run is unresolved", async () => {  const ctx = fakeCtx();
   addDefinition(ctx, endWithFanout, "source");
   const { deps } = fakeDeps();
   const r = await start(ctx, "t/end-fanout", deps);

@@ -367,6 +367,20 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
   }
 }
 
+/** Atomically answers a waiting human step row: the compare-and-set write lands
+ *  only while the row is still `waiting` (like claimStepSettlement), so of two
+ *  concurrent answers exactly one wins and the loser gets a conflict. Returns null
+ *  when the row is not waiting (already answered, stopped, …). */
+export function claimStepAnswer(ctx: Ctx, key: StepKey, result: unknown): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row || row.status !== "waiting") return null;
+  const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+    .run(JSON.stringify(result), ctx.now, ...where.bindings);
+  return done.changes === 1 ? stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now }) : null;
+}
+
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
  *  unset), in live runs, completed before `before`: the stalled advancements each
  *  tick re-advances. Fan-out branch rows are excluded here and by the caller: their

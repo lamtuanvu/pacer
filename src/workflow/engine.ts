@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepSettlement, fireEdge, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { isPlainObject, type AgentStep, type FanoutStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
@@ -609,9 +609,12 @@ export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, a
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   const def = loadDefinition(ctx, run);
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
-  updateStep(ctx, keyOf(row), { status: "done", result: { answer }, endedAt: ctx.now });
+  // Compare-and-set like claimStepSettlement: a second answer to the same waiting
+  // step loses the race and is a conflict — it starts nothing.
+  const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
+  if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "running" });
-  await advanceFrom(ctx, runId, def, { ...row, status: "done", result: { answer } }, { answer }, { deps, spawn: undefined });
+  await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn: undefined });
   return getRun(ctx, runId)!;
 }
 
