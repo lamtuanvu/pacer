@@ -5,8 +5,9 @@
 // past, or a cursor ahead of a restored database) triggers a full rescan of running
 // steps so no settlement is lost. A settlement error never propagates: transient
 // SQLite lock errors stop the tick with the cursor at the last fully handled change
-// and are retried next tick, only deterministic errors fail the affected run, and
-// one broken run cannot block every other run's settlement (Review Focus 3).
+// and are retried next tick, at most five times per change before the change is
+// treated as a deterministic failure; only deterministic errors fail the affected
+// run, and one broken run cannot block every other run's settlement (Review Focus 3).
 // Each tick also re-advances done steps whose outgoing edges were never processed
 // (Review Focus: run correctness 4).
 import type { Ctx } from "../types";
@@ -28,24 +29,40 @@ export function isTransientError(err: unknown): boolean {
     || text.includes("database schema is locked");
 }
 
-/** Settles one step task: transient errors report back so the tick can stop and
- *  retry, deterministic errors are recorded on the run and swallowed so the batch
- *  keeps going; even recording the error must not break the batch. */
+/** Settles one step task: transient errors are retried on the next tick, but only
+ *  a bounded number of times per change (Review Focus: run correctness 6) — after
+ *  MAX_TRANSIENT_RETRIES attempts for the same task the change is treated as a
+ *  deterministic failure. Deterministic errors are recorded on the run and swallowed
+ *  so the batch keeps going; even recording the error must not break the batch, and
+ *  a failing failRun must never block the cursor forever. */
+const MAX_TRANSIENT_RETRIES = 5;
+/** Transient retry counts, in memory per task id (Review Focus: run correctness 6);
+ *  a successful or given-up settlement clears its entry. */
+const transientRetries = new Map<string, number>();
+
 async function settleOne(ctx: Ctx, taskId: string, runId: string | undefined, spawn: SpawnRunner | undefined, deps: EngineDeps): Promise<"settled" | "transient"> {
   try {
     await onTaskSettled(ctx, taskId, spawn, deps);
+    transientRetries.delete(taskId);
     return "settled";
   } catch (err) {
-    if (isTransientError(err)) return "transient";
+    if (isTransientError(err)) {
+      const count = (transientRetries.get(taskId) ?? 0) + 1;
+      transientRetries.set(taskId, count);
+      if (count <= MAX_TRANSIENT_RETRIES) return "transient";
+      // The retry budget is spent: the same lock error every tick is a deterministic
+      // failure of this change, not a reason to stop the tick forever.
+      transientRetries.delete(taskId);
+    }
     if (runId) {
       try {
         await failRun(ctx, runId, `engine error: ${err instanceof Error ? err.message : String(err)}`, undefined, deps);
         return "settled";
       } catch (failErr) {
-        // A failing failRun leaves the change unhandled: the cursor stays and the
-        // next tick retries, whatever the failure was.
-        void failErr;
-        return "transient";
+        // A failing failRun must never block the cursor forever: the error is
+        // recorded and the tick moves on to the next change (Review Focus 6).
+        console.warn(`pacer: workflow tick could not fail run ${runId} after a settlement error: ${failErr instanceof Error ? failErr.message : String(failErr)}`);
+        return "settled";
       }
     }
     return "settled";

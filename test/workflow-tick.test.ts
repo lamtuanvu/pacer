@@ -7,7 +7,7 @@ import type { DelegateInput } from "../src/tasks/api";
 import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { addDefinition, claimStepSettlement, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep } from "../src/workflow/store";
+import { addDefinition, claimStepSettlement, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep, workflowDatabase } from "../src/workflow/store";
 import { answerHumanStep, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { advanceRuns } from "../src/workflow/tick";
 import { taskChangesSince } from "../src/tasks/changes";
@@ -287,6 +287,41 @@ test("a run answer whose run patch conflicted still ends with the run advanced a
   await advanceRuns(ctx2, undefined, deps);
   expect(getRun(ctx2, r.id)!.status).toBe("done"); // the answer was recovered, not lost
   expect(stepsOfRun(ctx2, r.id).find(s => s.stepId === "approve")!.advancedAt).toBeDefined();
+});
+
+test("a change whose settlement keeps failing transiently is given up after 5 retries; the healthy run after it still advances", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, chain, "source");
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r1 = await startRun(ctx, { workflow: "t/chain", repo: tmpDir(), brief: "A" }, undefined, deps);
+  const r2 = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r1.id)[0];
+  recordStepResult(ctx, s1.taskId!, { n: 1 });
+  settle(ctx, s1.taskId!);
+  const s2 = stepsOfRun(ctx, r2.id)[0];
+  recordStepResult(ctx, s2.taskId!, { n: 2 });
+  settle(ctx, s2.taskId!);
+  // A persistent transient error on run 1's settlement only: every write to its step
+  // rows aborts with a lock message (a real SQLite RAISE, the error isTransientError
+  // recognises), while run 2 stays writable.
+  workflowDatabase(ctx).exec(
+    `CREATE TRIGGER wf_lock_test BEFORE UPDATE ON workflow_steps WHEN OLD.run_id = '${r1.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
+  // Ticks 1–5: the transient error is retried; run 1 stays healthy and the healthy
+  // change after it is never reached.
+  for (let i = 0; i < 5; i++) {
+    const out = await advanceRuns(ctx, undefined, deps);
+    expect(out.handled).toBe(0);
+    expect(getRun(ctx, r1.id)!.status).toBe("running");
+    expect(getRun(ctx, r2.id)!.status).toBe("running");
+  }
+  // Tick 6: the retry budget is spent; run 1's change is treated as a deterministic
+  // failure (the run is failed) and the cursor moves on to the healthy change.
+  await advanceRuns(ctx, undefined, deps);
+  expect(getRun(ctx, r1.id)!.status).toBe("failed");
+  expect(getRun(ctx, r1.id)!.reason).toBe("engine error: database is locked");
+  expect(getRun(ctx, r2.id)!.status).toBe("waiting"); // the healthy run advanced
+  expect(stepsOfRun(ctx, r2.id)).toHaveLength(2);
 });
 
 test("a step row written before its delegation attaches its task during a gap rescan", async () => {  const ctx = fakeCtx();
