@@ -82,6 +82,8 @@ test("the answer card reports steered executors and the preview groups by behavi
   expect(html).toContain("Skipped by automatic dispatch");
   expect(html).toContain("Runs its default if picked directly");
   expect(html).not.toContain("Not used");
+  // The matrix stays one click away even when some executors are steered.
+  expect(html).toContain("Open model matrix");
 });
 
 test("an unsteered inventory explains why and points at the model matrix when that route exists", () => {
