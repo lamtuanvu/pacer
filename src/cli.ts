@@ -462,7 +462,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
   } catch (error) { return {code:2,out:"",err:explain(error)}; }
   if (secrets.ownerKey) holdOwnerKey(secrets.ownerKey);
   const [cmd = "status", ...rest] = argv;
-  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review"].includes(cmd)
+  if (ctx.env.PACER_WORK_GRANT && !["dispatch", "mcp", "api", "review", "step"].includes(cmd)
     && !(cmd === "guard" && ctx.env.PACER_ENFORCEMENT_MODE === "strict" && !!ctx.env.PACER_ENFORCEMENT_TOKEN))
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
