@@ -261,6 +261,34 @@ export function insertStep(ctx: Ctx, s: NewStep): StepRow {
   return row;
 }
 
+/** Inserts every branch row of one fan-out attempt in ONE transaction (the fireEdge
+ *  pattern): all branches of the attempt become visible together, before any branch
+ *  is delegated, so a branch whose task settles inside its own delegation call can
+ *  never evaluate the join — or stop a join:'any' branch — while a later branch row
+ *  of the attempt does not exist yet (round 4 review). */
+export function insertFanoutBranches(ctx: Ctx, runId: string, stepId: string, attempt: number, branches: string[]): StepRow[] {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => branches.map(branch => {
+    db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, NULL, 'running', NULL, NULL, ?, NULL)")
+      .run(runId, stepId, attempt, branch, ctx.now);
+    return { runId, stepId, attempt, branch, status: "running" as const, startedAt: ctx.now };
+  }))();
+}
+
+/** Atomically records a fan-out attempt's join row (INSERT OR IGNORE): of two
+ *  concurrent joins of the same attempt exactly one caller inserts the row and owns
+ *  the advancement; the loser gets null and returns quietly instead of failing a
+ *  healthy run on the attempt's PRIMARY KEY (round 4 review). */
+export function insertJoinStep(ctx: Ctx, runId: string, stepId: string, attempt: number, status: "done" | "failed", result: unknown): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const inserted = db.query(
+    "INSERT OR IGNORE INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, '', NULL, ?, ?, NULL, ?, ?)",
+  ).run(runId, stepId, attempt, status, JSON.stringify(result), ctx.now, ctx.now);
+  if (inserted.changes === 0) return null;
+  const row = db.query<StepDbRow, SQLQueryBindings[]>("SELECT * FROM workflow_steps WHERE run_id = ? AND step_id = ? AND attempt = ? AND branch = ''").get(runId, stepId, attempt);
+  return row ? stepFromRow(row) : null;
+}
+
 export type StepPatch = Partial<Pick<StepRow, "status" | "result" | "error" | "endedAt" | "advancedAt">>;
 
 export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {

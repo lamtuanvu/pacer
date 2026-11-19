@@ -910,3 +910,71 @@ test("an end edge waits while a fan-out of the run is unresolved", async () => {
   expect(getRun(ctx, r.id)!.status).toBe("done"); // the joined fan-out reaches the end
   expect(stepsOfRun(ctx, r.id).every(s => s.status !== "running" && s.status !== "waiting")).toBe(true);
 });
+
+// A start-path fan-out inserted and delegated its branches one at a time, so a
+// first branch whose task settled inside its own delegate() call joined over the
+// rows that existed so far — finishing (or failing) the run and stopping the later
+// branches that had not even started (round 4 review).
+const entryFanout: WorkflowDef = {
+  id: "t/entry-fanout",
+  version: 1,
+  steps: {
+    f: { type: "fanout", branches: ["x", "y"], each: { type: "agent", kind: "review", prompt: "F {{branch}}" }, join: "all" },
+    done: { type: "end" },
+  },
+  edges: [{ from: "f", to: "done" }],
+  entry: "f",
+};
+
+test("an entry fan-out with a fast-settling first branch waits for the later branches", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, entryFanout, "source");
+  const { deps: base, stopped } = fakeDeps();
+  // Branch x records its result and settles while the engine is still inside its
+  // delegate() call, so the join runs before branch y's row would exist.
+  const deps: EngineDeps = {
+    delegate: async (c, input, spawn) => {
+      const task = await base.delegate(c, input, spawn);
+      if (input.requestId?.endsWith(":x")) {
+        const [, runId, stepId, attempt, branch] = input.requestId.split(":");
+        updateStep(c, { runId: runId!, stepId: stepId!, attempt: Number(attempt), branch }, { result: { v: "x" } });
+        updateTask(c, task.id, t => { t.state = "done"; });
+      }
+      return task;
+    },
+    stopTask: base.stopTask,
+  };
+  const r = await startRun(ctx, { workflow: "t/entry-fanout", repo: tmpDir(), brief: "B" }, undefined, deps);
+  // The run did not finish on x's fast settle: y is still running, never stopped.
+  expect(getRun(ctx, r.id)!.status).toBe("running");
+  const y = stepsOfRun(ctx, r.id).find(s => s.stepId === "f" && s.branch === "y")!;
+  expect(y.status).toBe("running");
+  expect(y.taskId).toBeDefined();
+  expect(stopped).toEqual([]); // y is never stopped by the premature join
+  // y settles normally and the join completes the run.
+  recordStepResult(ctx, y.taskId!, { v: "y" });
+  settle(ctx, y.taskId!);
+  await onTaskSettled(ctx, y.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+  const join = stepsOfRun(ctx, r.id).find(s => s.stepId === "f" && s.branch === undefined)!;
+  expect(join.result).toEqual({ branches: { x: { v: "x" }, y: { v: "y" } }, done: 2, failed: 0 });
+});
+
+test("two concurrent joins of the same attempt leave one join row and a healthy run", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, fanoutDef("all"), "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout", deps);
+  const branchRows = stepsOfRun(ctx, r.id).filter(s => s.branch);
+  for (const row of branchRows) {
+    recordStepResult(ctx, row.taskId!, { v: row.branch });
+    settle(ctx, row.taskId!);
+  }
+  // All three settlements join concurrently: every caller computes the outcome,
+  // and only the one that inserted the join row advances the run — the losers
+  // return quietly instead of failing the run on the attempt's PRIMARY KEY.
+  const outcomes = await Promise.allSettled(branchRows.map(row => onTaskSettled(ctx, row.taskId!, undefined, deps)));
+  expect(outcomes.every(o => o.status === "fulfilled")).toBe(true);
+  expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "check" && s.branch === undefined)).toHaveLength(1);
+  expect(getRun(ctx, r.id)!.status).toBe("done");
+});

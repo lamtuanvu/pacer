@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { isPlainObject, type AgentStep, type FanoutStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
@@ -268,29 +268,35 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   return attachAndSettle(ctx, key, task.id, e);
 }
 
-async function startFanoutBranch(ctx: Ctx, run: RunRow, stepId: string, stepDef: FanoutStep, branch: string, attempt: number, e: EngineOptions): Promise<StepRow> {
-  const row = insertStep(ctx, { runId: run.id, stepId, attempt, branch, status: "running" });
-  return delegateFanoutBranch(ctx, run, row, stepDef, e);
-}
-
 async function startFanout(ctx: Ctx, run: RunRow, stepId: string, stepDef: FanoutStep, attempt: number, e: EngineOptions): Promise<StepRow> {
+  const all = stepsOfRun(ctx, run.id);
+  const orphans: StepRow[] = []; // active branch rows without a task id (a crash before their delegation)
+  const fresh: string[] = []; // branches of the attempt with no row at all
   let first: StepRow | undefined;
   for (const branch of stepDef.branches) {
-    const active = stepsOfRun(ctx, run.id).find(s =>
-      s.stepId === stepId && s.branch === branch && (s.status === "running" || s.status === "waiting"));
-    if (active) {
-      if (active.taskId) { first ??= active; continue; }
-      // An orphan branch row: find its task by request id, or delegate under the
-      // row's own attempt so the request id (and the join) stay consistent.
-      const prior = taskByRequestId(ctx, stepRequestId(run.id, stepId, active.attempt, branch));
-      const row = prior
-        ? await attachAndSettle(ctx, { runId: run.id, stepId, attempt: active.attempt, branch }, prior.id, e)
-        : await startFanoutBranch(ctx, run, stepId, stepDef, branch, active.attempt, e);
-      first ??= row;
-      continue;
-    }
-    const row = await startFanoutBranch(ctx, run, stepId, stepDef, branch, attempt, e);
-    first ??= row;
+    const active = all.find(s => s.stepId === stepId && s.branch === branch && (s.status === "running" || s.status === "waiting"));
+    if (!active) { fresh.push(branch); continue; }
+    if (active.taskId) { first ??= active; continue; }
+    orphans.push(active);
+  }
+  // ALL branch rows of the new attempt are inserted in one transaction before any
+  // branch is delegated (the fireEdge pattern): a branch whose task settles inside
+  // its own delegation call can then never evaluate the join — or stop a join:'any'
+  // branch — while a later branch row of the attempt does not exist yet
+  // (round 4 review).
+  const inserted = fresh.length > 0 ? insertFanoutBranches(ctx, run.id, stepId, attempt, fresh) : [];
+  first ??= inserted[0];
+  const pending = new Map<string, StepRow>([...inserted, ...orphans].map(row => [row.branch!, row]));
+  for (const branch of stepDef.branches) {
+    const row = pending.get(branch);
+    if (!row) continue; // an already-delegated branch: its task is in flight
+    // An orphan row keeps its own attempt and request id: its task is attached when
+    // it exists, or delegated without inserting a second row for the same key.
+    const prior = taskByRequestId(ctx, stepRequestId(run.id, stepId, row.attempt, branch));
+    const settledRow = prior
+      ? await attachAndSettle(ctx, { runId: run.id, stepId, attempt: row.attempt, branch }, prior.id, e)
+      : await delegateFanoutBranch(ctx, run, row, stepDef, e);
+    first ??= settledRow;
   }
   return first!;
 }
@@ -320,7 +326,9 @@ export async function reconcileOrphanStep(
   if (!def || !stepDef) return "skipped";
   if (stepDef.type === "fanout") {
     if (row.branch === undefined) return "skipped"; // a fan-out's branch-less row is its join marker, never a task
-    await startFanoutBranch(ctx, run, row.stepId, stepDef, row.branch, row.attempt, { deps, spawn });
+    // The row already exists: delegate it under its own attempt and request id
+    // instead of inserting a second row for the same key.
+    await delegateFanoutBranch(ctx, run, row, stepDef, { deps, spawn });
   } else if (stepDef.type === "agent") {
     await startAgentStep(ctx, run, def, row.stepId, stepDef, row.branch, row.attempt, { deps, spawn });
   } else {
@@ -425,22 +433,36 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
 /** Evaluates the join rule across a fan-out attempt's branches; a resolved join is
  *  recorded as the attempt's branch-less row, which is both the joined result and
  *  the marker that the fan-out already advanced. Exported for the tick's recovery
- *  of a fan-out whose join evaluation was lost to a lock error. */
+ *  of a fan-out whose join evaluation was lost to a lock error.
+ *
+ *  The join is evaluated over the definition's branches: a branch whose row does
+ *  not exist yet (a start still inserting the attempt) counts as still running, so
+ *  a fast-settling first branch never joins — or stops a join:'any' branch — while
+ *  a later branch of the attempt has not even started (round 4 review). */
 export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settled: StepRow, stepDef: FanoutStep, e: EngineOptions): Promise<void> {
   const rows = stepsOfRun(ctx, run.id).filter(s => s.stepId === settled.stepId && s.attempt === settled.attempt);
-  const branches = rows.filter(s => s.branch !== undefined);
   const join = rows.find(s => s.branch === undefined);
   if (join && (join.status === "done" || join.status === "failed")) return;
-  const done = branches.filter(b => b.status === "done");
-  const failed = branches.filter(b => b.status === "failed");
-  const running = branches.filter(b => b.status === "running" || b.status === "waiting");
+  const byBranch = new Map(rows.filter(s => s.branch !== undefined).map(s => [s.branch!, s]));
+  const done: StepRow[] = [];
+  const failed: StepRow[] = [];
+  const running: StepRow[] = [];
+  const branchless: string[] = []; // definition branches whose row does not exist yet: still starting
+  for (const branch of stepDef.branches) {
+    const row = byBranch.get(branch);
+    if (!row) { branchless.push(branch); continue; }
+    if (row.status === "done") done.push(row);
+    else if (row.status === "failed") failed.push(row);
+    else if (row.status === "running" || row.status === "waiting") running.push(row);
+    // stopped rows are already out of the attempt (a concurrent failRun stopped them)
+  }
   let outcome: "done" | "failed" | null = null;
-  if (stepDef.join === "all") outcome = failed.length > 0 ? "failed" : running.length === 0 ? "done" : null;
-  else if (stepDef.join === "any") outcome = done.length > 0 ? "done" : running.length === 0 ? "failed" : null;
+  if (stepDef.join === "all") outcome = failed.length > 0 ? "failed" : running.length === 0 && branchless.length === 0 ? "done" : null;
+  else if (stepDef.join === "any") outcome = done.length > 0 ? "done" : running.length + branchless.length === 0 ? "failed" : null;
   else {
     const quorum = stepDef.join.quorum;
     if (done.length >= quorum) outcome = "done";
-    else if (done.length + running.length < quorum) outcome = "failed";
+    else if (done.length + running.length + branchless.length < quorum) outcome = "failed";
   }
   if (!outcome) return;
   if (stepDef.join === "any" && outcome === "done") {
@@ -450,12 +472,17 @@ export async function joinFanout(ctx: Ctx, run: RunRow, def: WorkflowDef, settle
     }
   }
   const result = {
-    branches: Object.fromEntries(branches.map(b => [b.branch!, b.result ?? null])),
+    branches: Object.fromEntries(stepDef.branches.map(b => [b, byBranch.get(b)?.result ?? null])),
     done: done.length,
     failed: failed.length,
   };
-  const joinRow = insertStep(ctx, { runId: run.id, stepId: settled.stepId, attempt: settled.attempt, status: outcome });
-  updateStep(ctx, keyOf(joinRow), { result, endedAt: ctx.now });
+  // One yield before the join row: a concurrent join of the same attempt (the
+  // change loop racing the tick's recovery, say) computes the same outcome, and the
+  // INSERT OR IGNORE below — not the luck of synchronous execution — decides which
+  // caller advances the run (round 4 review).
+  await Promise.resolve();
+  const joinRow = insertJoinStep(ctx, run.id, settled.stepId, settled.attempt, outcome, result);
+  if (!joinRow) return; // the concurrent join inserted the row and owns the advancement
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // the join publishes the run
   if (outcome === "failed") {
     await failRun(ctx, run.id, `step ${settled.stepId} ${failed[0]?.error ?? "failed"}`, undefined, e.deps);

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { taskDatabase } from "../src/tasks/store";
 import {
-  addDefinition, fireEdge, getDefinition, listDefinitions, getCursor, setCursor, getRun, insertRun, insertStep,
+  addDefinition, fireEdge, getDefinition, insertJoinStep, listDefinitions, getCursor, setCursor, getRun, insertRun, insertStep,
   listRuns, stepByTask, stepsOfRun, updateRun, updateStep, workflowDatabase,
   type NewRun, type RunStatus, type StepRow,
 } from "../src/workflow/store";
@@ -167,4 +167,20 @@ test("a back-edge loop patch is written inside the trigger transaction, without 
   expect(secondLoop.loops).toEqual({ "a->w": 2 });
   expect(stepsOfRun(ctx, r.id).filter(s => s.stepId === "w")).toHaveLength(2); // only the two fired loops started w
   expect(stale).toBeLessThan(getRun(ctx, r.id)!.rev); // the loop patches bumped the rev past the stale one
+});
+
+test("the join row insert is atomic: the loser of two concurrent joins returns null", () => {
+  const ctx = fakeCtx();
+  const r = insertRun(ctx, newRun());
+  insertStep(ctx, { runId: r.id, stepId: "check", attempt: 1, branch: "x", status: "done" });
+  insertStep(ctx, { runId: r.id, stepId: "check", attempt: 1, branch: "y", status: "done" });
+  const result = { branches: { x: { v: 1 }, y: { v: 2 } }, done: 2, failed: 0 };
+  const winner = insertJoinStep(ctx, r.id, "check", 1, "done", result);
+  expect(winner?.status).toBe("done");
+  expect(winner?.result).toEqual(result);
+  // The concurrent loser's insert lands on the same attempt key: it is ignored and
+  // returns null instead of failing a healthy run on the PRIMARY KEY
+  // (round 4 review).
+  expect(insertJoinStep(ctx, r.id, "check", 1, "done", result)).toBeNull();
+  expect(stepsOfRun(ctx, r.id).filter(s => s.branch === undefined)).toHaveLength(1);
 });
