@@ -890,7 +890,14 @@ fn task_events_carry_account_and_model() {
     assert_eq!(long["data"]["account"], json!("x".repeat(64)));
     assert_eq!(long["data"]["model"], json!("y".repeat(200)));
     // Non-strings and empty strings leave the fields off the row, like every optional field.
-    for value in [Value::Null, json!(1), json!(-1.5), json!([]), json!({}), json!("")] {
+    for value in [
+        Value::Null,
+        json!(1),
+        json!(-1.5),
+        json!([]),
+        json!({}),
+        json!(""),
+    ] {
         let parsed = parse_outbox_event(&json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"account":value}})).unwrap();
         assert!(parsed["data"].get("account").is_none(), "{value}");
     }
