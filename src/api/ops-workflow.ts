@@ -22,7 +22,6 @@ import {
 import type { WorkflowError, WorkflowDef } from "../workflow/schema";
 import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
-import { publish } from "../link/publish";
 
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 
@@ -47,16 +46,19 @@ function engineDeps(deps: OpDeps): { deps: EngineDeps; spawn?: SpawnRunner } {
   };
 }
 
-async function publishRun(ctx: Ctx, run: RunRow): Promise<RunRow> {
-  await publish(ctx, [{ type: "entity", data: { kind: "run", id: run.id, value: run } }]);
-  return run;
-}
-
-/** Parses a source and runs structural validation, so callers see every error at once. */
+/** Parses a source and runs structural validation, so callers see every error at once.
+ *  Parse and validate both check the shape, so identical errors are reported once. */
 function definitionErrors(sourceText: string): { def?: WorkflowDef; errors: WorkflowError[] } {
   const { def, errors } = parseWorkflow(sourceText);
   if (!def) return { errors };
-  return { def, errors: [...errors, ...validateWorkflow(def)] };
+  const seen = new Set<string>();
+  const all = [...errors, ...validateWorkflow(def)].filter(error => {
+    const key = `${error.path}\u0000${error.message}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  return { def, errors: all };
 }
 
 export const workflowOps: Record<string, OpDef> = {
@@ -96,8 +98,9 @@ export const workflowOps: Record<string, OpDef> = {
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
-      const run = await startRun(ctx, { workflow: p.workflow, repo: p.repo, brief: p.brief, ...(p.title ? { title: p.title } : {}) }, spawn, engine);
-      return publishRun(ctx, run);
+      // The engine publishes the run entity: on creation, on a failed start and on
+      // every status change it makes.
+      return startRun(ctx, { workflow: p.workflow, repo: p.repo, brief: p.brief, ...(p.title ? { title: p.title } : {}) }, spawn, engine);
     },
   }),
   "run.get": op({
@@ -124,7 +127,7 @@ export const workflowOps: Record<string, OpDef> = {
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine } = engineDeps(deps);
-      return publishRun(ctx, await answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine));
+      return answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine);
     },
   }),
   "run.stop": op({
@@ -133,7 +136,7 @@ export const workflowOps: Record<string, OpDef> = {
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine } = engineDeps(deps);
-      return publishRun(ctx, stopRun(ctx, p.id, p.expect_rev, engine));
+      return stopRun(ctx, p.id, p.expect_rev, engine);
     },
   }),
   "step.result": op({

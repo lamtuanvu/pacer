@@ -4,6 +4,7 @@
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
 import { taskDatabase } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import type { WorkflowDef } from "./schema";
@@ -190,25 +191,31 @@ export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
 
 export type RunPatch = Partial<Pick<RunRow, "status" | "reason" | "title" | "loops">>;
 
-/** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict. */
+/** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict.
+ *  The rev check and the write share one transaction guarded by `WHERE id = ? AND rev = ?`,
+ *  so a concurrent writer can never slip between the check and the write
+ *  (pattern: src/dispatch/work.ts registerWork). */
 export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPatch): RunRow {
   const db = workflowDatabase(ctx);
-  const current = getRun(ctx, id);
-  if (!current) throw new CoreError("not_found", `unknown run ${id}`);
-  if (current.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
-  const updated: RunRow = {
-    ...current,
-    status: patch.status ?? current.status,
-    reason: patch.reason === undefined ? current.reason : patch.reason,
-    title: patch.title ?? current.title,
-    loops: patch.loops ?? current.loops,
-    rev: current.rev + 1,
-    updatedAt: ctx.now,
-  };
-  if (updated.reason === undefined) delete updated.reason;
-  db.query("UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ? WHERE id = ?")
-    .run(updated.status, updated.reason ?? null, updated.title, JSON.stringify(updated.loops), updated.rev, updated.updatedAt, id);
-  return updated;
+  return db.transaction(() => {
+    const current = getRun(ctx, id);
+    if (!current) throw new CoreError("not_found", `unknown run ${id}`);
+    if (current.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
+    const updated: RunRow = {
+      ...current,
+      status: patch.status ?? current.status,
+      reason: patch.reason === undefined ? current.reason : patch.reason,
+      title: patch.title ?? current.title,
+      loops: patch.loops ?? current.loops,
+      rev: current.rev + 1,
+      updatedAt: ctx.now,
+    };
+    if (updated.reason === undefined) delete updated.reason;
+    const result = db.query("UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ? WHERE id = ? AND rev = ?")
+      .run(updated.status, updated.reason ?? null, updated.title, JSON.stringify(updated.loops), updated.rev, updated.updatedAt, id, expectRev);
+    if (result.changes === 0) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
+    return updated;
+  })();
 }
 
 export function insertStep(ctx: Ctx, s: NewStep): StepRow {
@@ -249,6 +256,26 @@ export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {
 export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   const row = workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
   return row ? stepFromRow(row) : null;
+}
+
+/** Attaches the delegated task id to a step row that was inserted before
+ *  delegation (engine.ts startAgentStep/startFanout). */
+export function attachStepTask(ctx: Ctx, key: StepKey, taskId: string): StepRow {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row) throw new CoreError("not_found", `unknown step ${key.stepId}#${key.attempt} of ${key.runId}`);
+  db.query(`UPDATE workflow_steps SET task_id = ? WHERE ${where.sql}`).run(taskId, ...where.bindings);
+  return stepFromRow({ ...row, task_id: taskId });
+}
+
+/** Finds an unarchived task by its delegation request id, newest first. Used to
+ *  re-attach a step row that was written before its delegation completed. */
+export function taskByRequestId(ctx: Ctx, requestId: string): TaskRecord | null {
+  const row = taskDatabase(ctx).query<{ record: string }, [string]>(
+    "SELECT record FROM tasks WHERE archived = 0 AND json_extract(record, '$.requestId') = ? ORDER BY created_at DESC LIMIT 1",
+  ).get(requestId);
+  return row ? (JSON.parse(row.record) as TaskRecord) : null;
 }
 
 export function getCursor(ctx: Ctx): number {

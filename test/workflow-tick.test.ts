@@ -1,11 +1,13 @@
 import { expect, test } from "bun:test";
+import { Database } from "bun:sqlite";
+import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import type { Ctx } from "../src/types";
 import type { DelegateInput } from "../src/tasks/api";
 import type { TaskState } from "../src/tasks/types";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
-import { addDefinition, getCursor, getRun, setCursor, stepsOfRun } from "../src/workflow/store";
+import { addDefinition, getCursor, getRun, insertRun, insertStep, setCursor, stepsOfRun, updateStep } from "../src/workflow/store";
 import { answerHumanStep, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { advanceRuns } from "../src/workflow/tick";
 import { taskChangesSince } from "../src/tasks/changes";
@@ -131,8 +133,7 @@ test("restart: a fresh ctx on the same home resumes from the stored cursor", asy
   expect(stepsOfRun(ctx2, r.id)).toHaveLength(2);
 });
 
-test("one run's start failure does not block another run in the same batch", async () => {
-  const ctx = fakeCtx();
+test("one run's start failure does not block another run in the same batch", async () => {  const ctx = fakeCtx();
   addDefinition(ctx, chain, "source");
   addDefinition(ctx, demo, "source");
   const { deps: base } = fakeDeps();
@@ -159,4 +160,89 @@ test("one run's start failure does not block another run in the same batch", asy
   expect(getRun(ctx, r2.id)!.status).toBe("waiting"); // run 2 still advanced
   expect(stepsOfRun(ctx, r2.id)).toHaveLength(2);
   expect(getCursor(ctx)).toBe(head); // the cursor reached head despite run 1's error
+});
+
+test("a backlog longer than one change page still settles steps after row 500", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  // 260 tasks write two changes each, so the step settlement lands past the first
+  // 500-row page of task_changes.
+  for (let i = 0; i < 260; i++) {
+    const plain = createTask(ctx, { brief: { goal: `noise ${i}`, repo: tmpDir() }, kind: null, requestedExecutor: null, timeoutS: 60 });
+    updateTask(ctx, plain.id, t => { t.state = "done"; });
+  }
+  expect(taskChangesSince(ctx, 0).changes.length).toBe(500); // the page really is full
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  const head = taskChangesSince(ctx, getCursor(ctx)).head;
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.handled).toBe(1); // only the step settlement, not the page of noise
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  expect(getCursor(ctx)).toBe(head); // the cursor drained the whole backlog
+});
+
+test("a step row written before its delegation attaches its task during a gap rescan", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const run = insertRun(ctx, { workflow: "t/demo", version: 1, repo: tmpDir(), brief: "B" });
+  const task = createTask(ctx, {
+    brief: { goal: "Draft", repo: tmpDir() }, kind: "research", requestedExecutor: null, timeoutS: 600,
+    requestId: `wf:${run.id}:draft:1:`,
+  });
+  // The crash: the step row exists with no task id, the task already settled.
+  insertStep(ctx, { runId: run.id, stepId: "draft", attempt: 1, status: "running" });
+  updateStep(ctx, { runId: run.id, stepId: "draft", attempt: 1 }, { result: { ok: true } });
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  setCursor(ctx, 10_000_000);
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.rescanned).toBe(true);
+  const row = stepsOfRun(ctx, run.id).find(s => s.stepId === "draft")!;
+  expect(row.taskId).toBe(task.id);
+  expect(row.status).toBe("done");
+  expect(getRun(ctx, run.id)!.status).toBe("waiting"); // the recovered step advanced the run
+});
+
+test("a transient lock error stops the tick without failing the run; the next tick advances", async () => {
+  const ctx = fakeCtx();  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  const cursorBefore = getCursor(ctx);
+  // A second connection holds the write lock: the settlement write hits SQLITE_BUSY.
+  const blocker = new Database(join(ctx.pacerHome, "state", "tasks.db"));
+  blocker.exec("BEGIN IMMEDIATE");
+  try {
+    const out = await advanceRuns(ctx, undefined, deps);
+    expect(out.handled).toBe(0);
+    expect(getRun(ctx, r.id)!.status).toBe("running"); // the run is healthy, not failed
+    expect(getCursor(ctx)).toBe(cursorBefore); // nothing was advanced past the locked change
+  } finally {
+    blocker.exec("ROLLBACK");
+    blocker.close();
+  }
+  const out = await advanceRuns(ctx, undefined, deps);
+  expect(out.handled).toBe(1);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+}, 20000);
+
+test("a tick settlement publishes the run entity", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, demo, "source");
+  const { deps } = fakeDeps();
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0];
+  recordStepResult(ctx, s1.taskId!, { ok: true });
+  settle(ctx, s1.taskId!);
+  await advanceRuns(ctx, undefined, deps);
+  const outbox = (await import("../src/link/store")).readOutboxSince(ctx, 0);
+  const runs = outbox.filter(e => e.envelope.type === "entity" && (e.envelope.data as { kind: string }).kind === "run");
+  expect(runs.length).toBeGreaterThanOrEqual(2); // the start and the settlement
+  const last = JSON.parse(JSON.stringify((runs.at(-1)!.envelope.data as { value: { status: string } }).value));
+  expect(last.status).toBe("waiting");
 });
