@@ -948,6 +948,33 @@ test("a non-human successor fired from a stale waiting run puts the run back to 
   expect(getRun(ctx, r.id)!.status).toBe("done");
 });
 
+// The same scenario, but the waiting→running patch conflicts: the successor must
+// still start and the run must not be failed (the patch is best effort).
+test("a non-human successor starts even when the waiting→running patch conflicts", async () => {
+  const ctx = fakeCtx();
+  addDefinition(ctx, answerThenAgent, "source");
+  const { deps, inputs } = fakeDeps();
+  const r = await start(ctx, "t/answer-then-agent", deps);
+  const ask = stepsOfRun(ctx, r.id).find(s => s.stepId === "ask")!;
+  recordStepResult(ctx, ask.taskId!, { ok: true });
+  settle(ctx, ask.taskId!);
+  await onTaskSettled(ctx, ask.taskId!, undefined, deps);
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  const decide = stepsOfRun(ctx, r.id).find(s => s.stepId === "decide")!;
+  const claimed = claimStepAnswer(ctx, { runId: r.id, stepId: "decide", attempt: decide.attempt }, { answer: "go" });
+  expect(claimed).not.toBeNull();
+  expect(getRun(ctx, r.id)!.status).toBe("waiting");
+  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_advance_conflict BEFORE UPDATE ON workflow_runs WHEN OLD.id = '${r.id}' AND OLD.status = 'waiting' AND NEW.status = 'running' BEGIN SELECT RAISE(IGNORE); END`);
+  const advanced = await readvanceStep(ctx, claimed!, undefined, deps);
+  workflowDatabase(ctx).exec("DROP TRIGGER wf_advance_conflict");
+  expect(advanced).toBe(true);
+  const act = stepsOfRun(ctx, r.id).find(s => s.stepId === "act")!;
+  expect(act.status).toBe("running");
+  expect(act.taskId).toBeDefined();
+  expect(inputs.filter(i => i.requestId?.includes(":act:"))).toHaveLength(1);
+  expect(getRun(ctx, r.id)!.status).not.toBe("failed");
+});
+
 // An end edge must not finish a run while one of the run's fan-outs is unresolved
 // (Review Focus: run correctness 9): branch rows count as busy until their attempt
 // has a branch-less join row.

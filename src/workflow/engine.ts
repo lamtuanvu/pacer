@@ -613,7 +613,12 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       // A non-human successor puts the run back to running: a swallowed run.answer
       // conflict (the answer was recorded, its waiting→running patch lost) must not
       // leave the run waiting while a task of the run is in flight (round 5 review).
-      if (fresh.status === "waiting") await patchRun(ctx, runId, { status: "running" });
+      if (fresh.status === "waiting") {
+        try { await patchRun(ctx, runId, { status: "running" }); }
+        catch (err) {
+          if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+        }
+      }
       for (const row of outcome.rows) {
         if (target.type === "fanout") await delegateFanoutBranch(ctx, fresh, row, target, e);
         else await delegateAgentRow(ctx, fresh, row, target as AgentStep, e); // nexts never hold end targets
