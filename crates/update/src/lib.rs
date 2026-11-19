@@ -10,6 +10,7 @@ pub mod desktop_reconcile_ops;
 mod feed;
 pub mod handover;
 mod js;
+pub mod onboarding;
 mod service;
 #[cfg(test)]
 mod tests;

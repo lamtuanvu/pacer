@@ -40,7 +40,9 @@ use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
 use pacer_update::handover;
 pub(crate) mod handover_sync;
+use pacer_update::onboarding;
 pub(crate) mod install_apply_sync;
+pub(crate) mod onboarding_sync;
 use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
@@ -621,6 +623,10 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "service.work",
         call: handover::handover_effect_stub,
+    },
+    NativeOp {
+        name: "onboarding.try",
+        call: onboarding::onboarding_effect_stub,
     },
     NativeOp {
         name: "repo.list",

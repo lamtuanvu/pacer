@@ -241,6 +241,7 @@ async fn install_apply_bridge_names_reach_core_endpoints() {
         "service.effects",
         "update.effects",
         "handover.effects",
+        "onboarding.effects",
         "host.effects",
     ] {
         let body = serde_json::json!({"request": {}});
@@ -258,6 +259,7 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
     assert_eq!(deadline("service.effects"), None);
     assert_eq!(deadline("update.effects"), None);
     assert_eq!(deadline("handover.effects"), None);
+    assert_eq!(deadline("onboarding.effects"), None);
     assert_eq!(deadline("host.effects"), None);
     assert_eq!(
         deadline("setup.effects"),
@@ -298,6 +300,49 @@ fn service_handover_and_work_are_native_with_a_core_effects_bridge() {
         "service.handover",
         &params
     ));
+}
+
+#[test]
+fn onboarding_try_is_native_with_a_core_effects_bridge() {
+    // onboarding.try answers executor refusals natively and runs the whole
+    // tryDelegation through the onboarding effects bridge. There is no work-grant
+    // scope for Core to check, so no caller forwards.
+    assert!(
+        registry("").get("onboarding.try").is_some(),
+        "onboarding.try"
+    );
+    assert!(
+        super::service_registry("").get("onboarding.try").is_some(),
+        "onboarding.try"
+    );
+    assert!(
+        registry("onboarding.try").get("onboarding.try").is_none(),
+        "onboarding.try"
+    );
+    assert!(
+        super::onboarding_sync::uses_effects("onboarding.try"),
+        "onboarding.try"
+    );
+    assert!(!super::onboarding_sync::uses_effects("onboarding.skip"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    let params = serde_json::json!({});
+    let executor = ctx(&[("PACER_ROLE", "executor")]);
+    let refused = super::onboarding_sync::admit(&executor, "onboarding.try", &params);
+    assert!(
+        matches!(
+            &refused,
+            Err(e) if e.code == pacer_foundation::api::Code::NotAllowed
+        ),
+        "onboarding.try must refuse executor sessions"
+    );
+    // Work-grant callers have no scope for Core to check.
+    assert!(super::onboarding_sync::admit(&ctx(&[]), "onboarding.try", &params).is_ok());
 }
 
 #[test]

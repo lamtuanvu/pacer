@@ -540,3 +540,83 @@ describe("service.handover and service.work", () => {
     for (const reply of [granted[0], granted[4]]) expect(reply.error).toBeDefined();
   }, LONG);
 });
+
+describe("onboarding.try", () => {
+  const FORWARD_TRY = "onboarding.try";
+  const UNTRACED = /native onboarding\.try/;
+  const GRANT = `pwg_${"ab".repeat(32)}`;
+  const NO_EXECUTOR = {code: "unknown_executor", message: "Add an executor first"};
+  const EXEC = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
+
+  // The fixture's onboardingRoute returns no executors, so every admitted onboarding.try resolves
+  // deterministically to `unknown_executor` ("Add an executor first"), proving the front door
+  // relays Core's whole-op reply without needing a real runner.
+
+  test("HTTP replies are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const server = await serve(forward);
+      const replies = [
+        await server.op("onboarding.try", {}),
+        await server.op("onboarding.try", []),
+        await server.op("onboarding.try", "x"),
+      ];
+      await server.stop();
+      return {replies, stderr: server.stderr.text};
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TRY);
+    expect(native.replies).toEqual(forwarded.replies);
+    expect(native.stderr).toMatch(/native onboarding\.try/);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
+
+    const [empty, array, string] = native.replies;
+    expect(empty).toMatchObject({status: 404, body: {error: NO_EXECUTOR}});
+    expect(array.body.error.code).toBe("invalid_input");
+    expect(string.body.error.code).toBe("invalid_input");
+  }, LONG);
+
+  test("stdio reply lines are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const lines: Array<string | undefined> = [], traces: string[] = [];
+      for (const extra of [{}, {PACER_ROLE: "executor"}, {PACER_WORK_GRANT: GRANT}] as Record<string, string>[]) {
+        const rpc = connect(forward, extra);
+        expect((await rpc.call("hello", {protocol: 3})).result.protocol).toStartWith("3.");
+        for (const params of [{}, [], "x"] as unknown[]) {
+          const {id} = await rpc.call("onboarding.try", params);
+          lines.push(rpc.line(id));
+        }
+        await rpc.close();
+        traces.push(rpc.stderr.text);
+      }
+      return {lines, traces};
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TRY);
+    expect(native.lines).toEqual(forwarded.lines);
+    expect(forwarded.traces.every(trace => !UNTRACED.test(trace))).toBe(true);
+
+    const replies = native.lines.map(line => JSON.parse(line!));
+    const [operator, executor, granted] = [replies.slice(0, 3), replies.slice(3, 6), replies.slice(6)];
+    // stdio errors carry the JSON-RPC code (-32000) on `error.code`; the API error (code, hint)
+    // is the payload on `error.data`, so the operator's no-executor reply is asserted through data.
+    expect(operator[0].error.message).toBe("Add an executor first");
+    // stdio puts the API error payload (code, hint) on `error.data`; the plain-text message is on
+    // `error.message`, so the operator's no-executor reply is asserted through those two fields.
+    expect(operator[0].error.data).toMatchObject({code: "unknown_executor", hint: "Run pacer runner add"});
+    // `onboarding.try` is not an upgrade op, so `parseOpParams` accepts executors and an executor
+    // with non-object params is refused for the schema first (matching a full forward), not as an
+    // executor; only a valid `{}` reaches `tryDelegation`'s executor refusal.
+    for (const reply of [operator[1], operator[2], executor[1], executor[2]]) expect(reply.error.data.code).toBe("invalid_input");
+    expect(executor[0].error).toMatchObject({message: EXEC, data: {code: "not_allowed"}});
+    // The work-grant session forwards everything to Core (like handover), so onboarding's three
+    // replies are Core's forwarded errors; parity with forcing is the byte-identical comparison
+    // above, and the native front door does not trace the op.
+    for (const reply of granted) expect(reply.error).toBeDefined();
+    // Operator and executor sessions trace the op on the front door; the work-grant session
+    // forwards everything (hello included), so it leaves no native onboarding trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
+    expect(native.traces[0]).toMatch(/native onboarding\.try/);
+    expect(native.traces[1]).toMatch(/native onboarding\.try/);
+    expect(native.traces[2]).not.toMatch(UNTRACED);
+  }, LONG);
+});
