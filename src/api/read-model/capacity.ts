@@ -97,7 +97,7 @@ export function buildPlanner(st: Status): PlannerMeter | null {
  if(!st.planner)return null;
  const p=st.providers.find(p=>p.id===st.planner),record=p?.usageState,b=record?recordBinding(record):p?.binding??null;
  const known=!!b&&p?.verdict!=="UNKNOWN";
- const verdict:PlannerMeter["verdict"]=!known?"unknown":({BEHIND:"behind",EXPIRING:"behind",ON_PACE:"on_pace",OK:"on_pace",AHEAD:"ahead",NEAR_LIMIT:"ahead",EXHAUSTED:"out"} as Record<string,PlannerMeter["verdict"]>)[p!.verdict]??"unknown";
+ const verdict:PlannerMeter["verdict"]=!known?"unknown":({BEHIND:"behind",EXPIRING:"behind",ON_PACE:"on_pace",OK:"on_pace",UNMETERED:"on_pace",AHEAD:"ahead",NEAR_LIMIT:"ahead",EXHAUSTED:"out"} as Record<string,PlannerMeter["verdict"]>)[p!.verdict]??"unknown";
  // The row quotes the record's figure, not its binding window (ADR 0030).
  const usedPct=known?record?record.figure?.usedPct??null:b!.usedPct:null,pacePct=known?b!.pace??null:null,deltaPts=usedPct!==null&&pacePct!==null?Math.round(usedPct-pacePct):null;
  let advice="No usage reading for the planner yet.";

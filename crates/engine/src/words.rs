@@ -85,7 +85,7 @@ pub fn pace_status(verdict: &str) -> PaceStatus {
 pub fn pace_meter_verdict(verdict: &str) -> &'static str {
     match verdict {
         "BEHIND" | "EXPIRING" => "behind",
-        "ON_PACE" | "OK" => "on_pace",
+        "ON_PACE" | "OK" | "UNMETERED" => "on_pace",
         "AHEAD" | "NEAR_LIMIT" => "ahead",
         "EXHAUSTED" => "out",
         _ => "unknown",
@@ -152,6 +152,7 @@ mod tests {
         assert_eq!(pace_status("whatever").glyph, "?");
         assert_eq!(pace_meter_verdict("EXPIRING"), "behind");
         assert_eq!(pace_meter_verdict("OK"), "on_pace");
+        assert_eq!(pace_meter_verdict("UNMETERED"), "on_pace");
         assert_eq!(pace_meter_verdict("mystery"), "unknown");
         assert_eq!(
             eligibility_reason("authentication_failed"),
