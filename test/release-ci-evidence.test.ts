@@ -147,7 +147,7 @@ test("CI_NO_DISPATCH=1 turns dispatch off and makes CI_REF optional", () => {
   expect(result.stderr.toString()).toContain("GITHUB_REPOSITORY and CI_SHA are required");
 });
 
-test("a dispatched CI run has its own concurrency group, so a push to main cannot cancel it", () => {
+test("dispatched runs and pushes to main have their own concurrency groups and are never cancelled", () => {
   const { concurrency } = Bun.YAML.parse(readFileSync(".github/workflows/ci.yml", "utf8")) as any;
   // Evaluates the group and cancel expressions; GitHub's null-safe property access, `==`, `&&`, `||` and format() behave like these JS equivalents here.
   const evaluate = (template: string, github: Record<string, any>) => String(template).replace(/\$\{\{(.*?)\}\}/g, (_, expression: string) => {
@@ -160,14 +160,19 @@ test("a dispatched CI run has its own concurrency group, so a push to main canno
   const dispatch = context("workflow_dispatch", "1".repeat(40));
   const pr = context("pull_request", "2".repeat(40), { ref: "refs/pull/7/merge", event: { pull_request: { number: 7 } } });
   const group = (github: Record<string, any>) => evaluate(concurrency.group, github);
-  // Push and pull request groups are unchanged.
-  expect(group(push)).toBe("CI-refs/heads/main-");
-  expect(group(context("push", "3".repeat(40)))).toBe(group(push));
+  // Every push to main has its own per-commit group and is never cancelled, so a later merge cannot
+  // cancel the post-merge validation Prepare release reads (amendment 0.24.0).
+  expect(group(push)).toBe(`CI-refs/heads/main-push-${"1".repeat(40)}`);
+  expect(group(context("push", "3".repeat(40)))).not.toBe(group(push));
+  expect(evaluate(concurrency["cancel-in-progress"], push)).toBe("false");
+  // Pushes to other branches keep one cancellable group per ref.
+  const branch = context("push", "4".repeat(40), { ref: "refs/heads/topic" });
+  expect(group(branch)).toBe("CI-refs/heads/topic-");
+  expect(evaluate(concurrency["cancel-in-progress"], branch)).toBe("true");
   expect(group(pr)).toBe(`CI-7-${"2".repeat(40)}`);
   expect(group(context("schedule", "1".repeat(40)))).toBe("CI-refs/heads/main-");
   expect(group(dispatch)).toBe(`CI-refs/heads/main-dispatch-${"1".repeat(40)}`);
   expect(group(dispatch)).not.toBe(group(push));
-  expect(evaluate(concurrency["cancel-in-progress"], push)).toBe("true");
   expect(evaluate(concurrency["cancel-in-progress"], dispatch)).toBe("false");
 });
 

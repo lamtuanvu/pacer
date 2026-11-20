@@ -4,6 +4,7 @@ import { readBroken } from "../exec/broken";
 import { blockExecutor, readBlocked, unblockExecutor } from "../executors/blocked";
 import type { Ctx } from "../types";
 import { eligibilityPresentation } from "../view-model/eligibility";
+import { EXHAUSTED_PCT } from "../engine/verdict";
 import { CoreError } from "./errors";
 
 export interface RunnerRow { eligibility?: import("../evidence/types").EligibilityDecision; id: string; state: "ok" | "blocked" | "broken" | "exhausted"; until: number | null; reason: string | null }
@@ -22,7 +23,13 @@ export async function list(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<R
     const block = blocked[id], bad = broken[id], p = st.providers.find((x) => x.id === id);
     if (block) return { id, eligibility: p?.eligibility, state: "blocked", until: block.until, reason: block.reason };
     if (bad) return { id, eligibility: p?.eligibility, state: "broken", until: bad.until, reason: bad.reason };
-    if (p?.eligibility?.state === "ineligible") return { id, eligibility: p.eligibility, state: p.eligibility.budget === "exhausted" ? "exhausted" : "broken", until: p.eligibility.validUntil, reason: eligibilityPresentation(p.eligibility, ctx.now).detail };
+    if (p?.eligibility?.state === "ineligible") {
+      const quota = p.eligibility.reasons.some(r => r.code === "budget_exhausted");
+      // The limit lasts until its last exhausted window resets, not the earliest deadline of any fact.
+      const resets = p.windows.filter(w => !w.stale && w.usedPct !== null && w.usedPct >= EXHAUSTED_PCT && w.resetsAt !== null).map(w => w.resetsAt!);
+      return { id, eligibility: p.eligibility, state: quota ? "exhausted" : "broken",
+        until: quota && resets.length ? Math.max(...resets) : p.eligibility.validUntil, reason: eligibilityPresentation(p.eligibility, ctx.now).detail };
+    }
     return { id, ...(p?.eligibility ? { eligibility: p.eligibility } : {}), state: "ok", until: null, reason: null };
   });
 }
@@ -36,7 +43,8 @@ export function block(ctx: Ctx, id: string, o: { for?: string; reason?: string }
   }
 }
 
-export function unblock(ctx: Ctx, id: string, s: Strategy = loadStrategy(ctx)): void {
+export function unblock(ctx: Ctx, id: string, s: Strategy = loadStrategy(ctx)): { wasBlocked: boolean } {
   mustExecutor(s, id);
-  unblockExecutor(ctx, id);
+  const wasBlocked = unblockExecutor(ctx, id);
+  return { wasBlocked };
 }

@@ -33,7 +33,9 @@ export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: 
     try {
       const response = await fetch(`${base}/health`, { signal: controller.signal });
       await response.body?.cancel();
-      if (response.status === 200 && response.headers.get("x-pacer") === "1") return new HttpClient(base, token, { protocol: o.protocol });
+      if (response.status === 200 && response.headers.get("x-pacer") === "1") {
+        return new HttpClient(base, token, { protocol: o.protocol, ...(o.timeoutMs !== undefined ? { timeoutMs: o.timeoutMs } : {}) });
+      }
     } finally { clearTimeout(timer); }
   } catch { /* A missing token or unavailable daemon uses the local core. */ }
   return fallback();

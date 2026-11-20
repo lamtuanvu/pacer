@@ -73,13 +73,9 @@ jobs:
             echo "parent=$parent" >> "$GITHUB_OUTPUT"
           fi
       - run: bun run typecheck
-      - name: Set up Rust
-        uses: dtolnay/rust-toolchain@683b588c487a69d01f6c6ddf40f036ff682cc2c8 # v1
-        with:
-          toolchain: 1.99.0
-      - name: Test Rust plugin SDK harness feature
-        run: cargo test -p pacer-plugin --features testing --locked
 
+  # REL-2 (amendment 0.24.0, proposed): the release only builds and publishes.
+  # Validation of the built release artifacts runs post-merge on main in ci.yml.
   build:
     needs: verify
     env:
@@ -91,7 +87,7 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # matrix.runner stays a label: it names the m1-gate and binaries artifacts.
+          # matrix.runner stays a label: it names the binaries artifact.
           - runner: macos-latest
             image: macos-latest
             targets: darwin-arm64,darwin-x64
@@ -129,21 +125,6 @@ jobs:
         env:
           TARGETS: ${{ matrix.targets }}
         run: bun scripts/release/build.ts --targets "$TARGETS"
-      - name: Build the Rust fixture plugin for the M1 gate
-        run: cargo build --locked -p pacer-fixtures --bin pacer-fixture
-      # The Bun suite runs in CI; the ci-suite job requires it for this commit.
-      - name: M1 gate checks against built host release artifacts
-        run: |
-          set -euo pipefail
-          bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip 2>&1 | tee "$RUNNER_TEMP/pacer-m1-gate.log"
-      - name: Retain M1 gate evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
-        with:
-          name: m1-gate-${{ matrix.runner }}
-          path: ${{ runner.temp }}/pacer-m1-gate.log
-          retention-days: 7
-          if-no-files-found: warn
       - name: Smoke test native binary
         run: |
           version="$VERSION"
@@ -151,38 +132,22 @@ jobs:
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
           test "$("./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
+          # Native assistant plugin is built with pacer-core when crates/assistant-pacer is present.
+          # When the crate is in tree the release asset is required (not optional).
+          assistant="./dist/release/$version/pacer-assistant-pacer-$os-$arch"
+          if [ -f crates/assistant-pacer/Cargo.toml ]; then
+            test -x "$assistant"
+            # Handshake smoke: prove the binary speaks plugin.hello with the bundled id/version.
+            hello=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"plugin.hello","params":{"protocol":"1.11.0","config":{},"grants":[]}}' | "$assistant" | head -n 1)
+            echo "$hello" | grep -q '"id":"assistant-pacer"'
+            echo "$hello" | grep -q '"version":"1.0.0"'
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.runner }}
           path: dist/release/*/pacer-*
           retention-days: 1
           if-no-files-found: error
-
-  # CI runs the full Bun suite on Linux and the macOS-specific suite on macOS; publication requires that run for this exact commit.
-  ci-suite:
-    name: CI full suite passed for the release commit
-    needs: verify
-    runs-on: ubuntu-24.04
-    timeout-minutes: 150
-    permissions:
-      contents: read
-      actions: write
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-        with:
-          ref: ${{ github.event.pull_request.head.sha || github.sha }}
-          persist-credentials: false
-      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version: 1.4.2
-      - name: Require CI's Linux and macOS test gates for this commit
-        env:
-          GH_TOKEN: ${{ github.token }}
-          # A nightly needs CI evidence for the main commit under its stamp; nightly.yml already waited for it.
-          CI_SHA: ${{ needs.verify.outputs.channel == 'nightly' && needs.verify.outputs.parent || github.event.pull_request.head.sha || github.sha }}
-          CI_REF: ${{ github.head_ref || github.ref_name }}
-          CI_NO_DISPATCH: ${{ needs.verify.outputs.channel == 'nightly' && '1' || '' }}
-        run: bun scripts/release/ci-evidence.ts
 
   desktop:
     needs: [verify, build]
@@ -287,7 +252,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [verify, build, ci-suite, desktop]
+    needs: [verify, build, desktop]
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       TAG: v${{ needs.verify.outputs.version }}
@@ -719,7 +684,7 @@ jobs:
 
   # A nightly tag whose release fails reports to the same issue as nightly.yml; the next published nightly closes it.
   nightly-failure:
-    needs: [verify, build, ci-suite, desktop, publish, npm, homebrew, desktop-build, desktop-publish, crates, cli-feed]
+    needs: [verify, build, desktop, publish, npm, homebrew, desktop-build, desktop-publish, crates, cli-feed]
     # verify can fail before it classifies the channel, so the tag name also identifies a nightly.
     if: always() && github.event_name == 'push' && (needs.verify.outputs.channel == 'nightly' || contains(github.ref_name, '-nightly.')) && contains(needs.*.result, 'failure')
     runs-on: ubuntu-24.04

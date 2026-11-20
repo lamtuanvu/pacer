@@ -74,6 +74,16 @@ export async function runStdio(
           result = await dispatchPartsFor(getCtx(), params);
           break;
         }
+        case "_internal.terminal.parts": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { key: _key, ...params } = r.params as Record<string, unknown>;
+          const { terminalPartsFor } = await import("./terminal-parts-bridge");
+          result = await terminalPartsFor(getCtx(), params);
+          break;
+        }
         case "_internal.session-probe.parts": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -243,6 +253,16 @@ export async function runStdio(
           result = await taskSendBridge(getCtx(), (r.params as { request?: unknown }).request);
           break;
         }
+        case "_internal.assistant.turn": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { assistantTurnBridge, ASSISTANT_TURN_MAX } = await import("./assistant-turn-bridge");
+          if (Buffer.byteLength(line) > ASSISTANT_TURN_MAX) throw new CoreError("too_large", "request exceeds 256 KiB");
+          result = await assistantTurnBridge(getCtx(), (r.params as { request?: unknown }).request);
+          break;
+        }
         case "_internal.setup.effects": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -252,6 +272,15 @@ export async function runStdio(
           result = await setupEffectsBridge(getCtx(), (r.params as { request?: unknown }).request, o.opDeps);
           break;
         }
+        case "_internal.client-control": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { clientControlBridge } = await import("./client-control-bridge");
+          result = await clientControlBridge(getCtx(), (r.params as { request?: unknown }).request);
+          break;
+        }
         case "_internal.setup.check": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -259,7 +288,7 @@ export async function runStdio(
           }
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
-          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
+          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
           break;
         }
         case "_internal.plugins": {
@@ -279,6 +308,24 @@ export async function runStdio(
           }
           const { setupDoctorBridge } = await import("./setup-doctor-bridge");
           result = await setupDoctorBridge(getCtx(), r.params);
+          break;
+        }
+        case "_internal.desktop.capture": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { captureBridge } = await import("./desktop-capture-bridge");
+          result = await captureBridge(getCtx(), r.params);
+          break;
+        }
+        case "_internal.desktop.update": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { updateBridge } = await import("./desktop-update-bridge");
+          result = await updateBridge(getCtx(), r.params);
           break;
         }
         case "hello": {

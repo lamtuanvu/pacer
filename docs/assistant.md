@@ -10,6 +10,10 @@ The assistant is off until you choose an account in **Settings › Assistant**. 
 account (a hosted model or a local one) and never moves to another account. If you choose the planner's account it follows
 the planner's pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.
 
+Local endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an `Authorization`
+header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server omits that field
+on chat-completion responses (Rig's OpenAI client requires it).
+
 ## What it can read, and what it cannot
 
 It reads through fixed tools, in-process, from pacer's own data: counts and attention, task titles, states, executors,
@@ -26,7 +30,9 @@ Besides pacer's own agent, which calls an endpoint account with a key pacer hold
 - in this version the agent has no pacer tools either: it answers from the summary pacer builds for the turn and from the conversation, and says when it needs data the summary does not show;
 - its config is isolated and passed by the host, its working directory is an empty directory kept per conversation, and opencode uses its own sign-in, so pacer never reads or copies the key.
 
-An account can answer this way only after it passes the **ask-mode check**, which runs again when opencode's version changes. The check tells the agent to run a shell command, read a file outside its directory, fetch a page and use Code Mode, on a first and a resumed turn. It passes only when each attempt is refused and nothing was written or read back.
+Claude Code accounts use the same executor backend with a restricted `claude -p` turn (empty tools, safe-mode, dontAsk). The allowlisted `telemetry@builtin` plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt.
+
+An account can answer this way only after it passes the **ask-mode check**, which runs again when the adapter CLI's version changes. The check tells the agent to run a shell command, read a file outside its directory, fetch a page and use Code Mode, on a first and a resumed turn. It passes only when each attempt is refused and nothing was written or read back (for Claude Code: empty init evidence, and no planted AGENTS.md canary in the answer).
 
 **What this does not guarantee.** These restrictions are opencode's own configuration, checked by pacer. They are not an operating-system sandbox. The CLI runs as you, so if it ever ignored its configuration it could read files you can read. Settings asks you to confirm this the first time you switch to an agent CLI, and an account cannot be saved for it until it passes the check. pacer's own agent does not carry this risk: it can reach nothing but the data pacer hands it.
 

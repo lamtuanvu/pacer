@@ -630,7 +630,9 @@ fn enrich_api_task(
                 .optional()?;
             if let Some((reason, since, stalled, escalated)) = live
                 && !reason.is_empty()
-                && (*node == own || escalated.is_some_and(|n| n != 0.0))
+                && (*node == own
+                    || (escalated.is_some_and(|n| n != 0.0)
+                        && (reason != "caller_decision" || owes_settled_decision(t))))
             {
                 let mut v = json!({
                 "stalled":stalled.is_some_and(|n|n!=0.0),"reason":reason,"since":number(since)}
@@ -879,6 +881,25 @@ pub fn snapshot_document(
     let mut doc = crate::wire::Document::new(serde_json::json!(rows));
     crate::wire::task_strings(&mut doc, &rows, "", &questions);
     Ok(doc)
+}
+
+/// A caller's owed decision marks only the settled tasks it owes (TS `owesDecision`, done or partial):
+/// failed, limit and question tasks raise their own attention item.
+fn owes_settled_decision(t: &Value) -> bool {
+    let unset = |k: &str| t[k].is_null() || t[k] == false || t[k] == "";
+    ["done", "partial"].contains(&t["state"].as_str().unwrap_or(""))
+        && [
+            "review",
+            "retriedBy",
+            "dismissed",
+            "reviewRequest",
+            "resolved",
+        ]
+        .iter()
+        .all(|k| unset(k))
+        && t["origin"]
+            .as_str()
+            .is_some_and(|o| o.starts_with("external:"))
 }
 
 #[cfg(test)]

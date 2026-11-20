@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { clock } from '../src/view-model/format';
-import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp } from '../src/view-model/copy';
+import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp, askModeCheckCopy, isAskModeCheckReason } from '../src/view-model/copy';
 const now = Date.parse('2026-10-19T03:24:00Z') / 1000;
 test('one clock distinguishes local calendar days, yesterday and a full week', () => {
   const at = (s: string) => Date.parse(s) / 1000;
@@ -55,4 +55,28 @@ test('job progress labels describe checks and state without internal operation s
  expect(jobStateCopy('pending')).toBe('Waiting');
  expect(jobKindCopy('new_future.operation')).toBe('New future operation');
  expect(jobStateCopy('future_state')).toBe('Future state');
+});
+
+test('ask-mode check reasons map to plain sentences; unknown falls back', () => {
+  const cases: [string | null | undefined, string][] = [
+    [null, 'Not checked yet.'],
+    [undefined, 'Not checked yet.'],
+    ['oc has not passed the ask-mode check yet.', 'Not checked yet.'],
+    ['opencode is not installed or did not report its version', "The agent CLI isn't installed, or didn't report its version."],
+    ['oc failed the ask-mode check: opencode is not installed or did not report its version', "The agent CLI isn't installed, or didn't report its version."],
+    ['claude is not installed or did not report its version', "The agent CLI isn't installed, or didn't report its version."],
+    ['opencode changed since oc passed the ask-mode check.', 'The CLI version changed.'],
+    ['claude changed since oc passed the ask-mode check.', 'The CLI version changed.'],
+    ['oc failed the ask-mode check: a tool other than pacer\'s ran: bash, read', 'The ask-mode check failed.'],
+    ['a tool other than pacer\'s ran: bash', 'The ask-mode check failed.'],
+    ['a file outside the run directory was written', 'The ask-mode check failed.'],
+    ['the planted file\'s contents came back', 'The ask-mode check failed.'],
+    ['the agent attempted none of the denied tools', 'The ask-mode check failed.'],
+    ['the agent did not attempt: bash', 'The ask-mode check failed.'],
+    ['the agent returned no session to resume', 'The ask-mode check is incomplete.'],
+    ['plugin timed out', 'The ask-mode check is incomplete.'],
+  ];
+  for (const [raw, plain] of cases) expect(askModeCheckCopy(raw)).toBe(plain);
+  expect(isAskModeCheckReason('oc failed the ask-mode check: a tool other than pacer\'s ran: bash')).toBe(true);
+  expect(isAskModeCheckReason('The assistant reached its limit of 50 turns today.')).toBe(false);
 });

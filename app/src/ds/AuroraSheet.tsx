@@ -42,6 +42,8 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
     if (!open) return;
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== "Escape" || event.defaultPrevented) return;
+      // An open dialog closes before the sheet (same layering as AssistantHost / Layout).
+      if (document.querySelector("dialog[open]")) return;
       const active = document.activeElement;
       if (active && active !== document.body && !root.current?.contains(active)) return;
       event.preventDefault();
@@ -80,8 +82,8 @@ export function AuroraSheet({ label, open, generating = false, narrow = false, o
   useEffect(() => { const el = log.current; if (el && pinned.current) { el.scrollTop = el.scrollHeight; lastTop.current = el.scrollTop; } });
   return <section ref={root} aria-label={label} className={classes("pc-aurora", narrow && "pc-aurora--narrow", maximized && !narrow && "pc-aurora--max")} data-state={open ? "open" : "closed"} data-generating={generating ? "true" : "false"} inert={!open} onKeyDown={event => {
     // Own Escape inside the sheet before the shell's settings-navigation shortcut.
-    // Menus inside the sheet may consume it first.
-    if (open && event.key === "Escape" && !event.defaultPrevented) {
+    // Menus inside the sheet may consume it first. An open dialog closes before the sheet.
+    if (open && event.key === "Escape" && !event.defaultPrevented && !document.querySelector("dialog[open]")) {
       event.preventDefault(); event.stopPropagation(); onClose();
     }
   }}>

@@ -70,6 +70,23 @@ pub mod error {
 ///      "type": "string",
 ///      "maxLength": 8000
 ///    },
+///    "endpoint": {
+///      "type": "object",
+///      "required": [
+///        "baseUrl"
+///      ],
+///      "properties": {
+///        "baseUrl": {
+///          "type": "string",
+///          "maxLength": 2048,
+///          "minLength": 1
+///        },
+///        "keyless": {
+///          "type": "boolean"
+///        }
+///      },
+///      "additionalProperties": false
+///    },
 ///    "executor": {
 ///      "type": "object",
 ///      "required": [
@@ -299,6 +316,8 @@ pub struct AssistantReplyParams {
     pub conversation_id: AssistantReplyParamsConversationId,
     pub digest: AssistantReplyParamsDigest,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub endpoint: ::std::option::Option<AssistantReplyParamsEndpoint>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub executor: ::std::option::Option<AssistantReplyParamsExecutor>,
     pub history: ::std::vec::Vec<AssistantReplyParamsHistoryItem>,
     pub limits: AssistantReplyParamsLimits,
@@ -506,6 +525,90 @@ impl ::std::convert::TryFrom<&str> for AssistantReplyParamsDigest {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`AssistantReplyParamsEndpoint`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "baseUrl"
+///  ],
+///  "properties": {
+///    "baseUrl": {
+///      "type": "string",
+///      "maxLength": 2048,
+///      "minLength": 1
+///    },
+///    "keyless": {
+///      "type": "boolean"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct AssistantReplyParamsEndpoint {
+    #[serde(rename = "baseUrl")]
+    pub base_url: AssistantReplyParamsEndpointBaseUrl,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub keyless: ::std::option::Option<bool>,
+}
+///`AssistantReplyParamsEndpointBaseUrl`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 2048,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct AssistantReplyParamsEndpointBaseUrl(::std::string::String);
+impl ::std::ops::Deref for AssistantReplyParamsEndpointBaseUrl {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<AssistantReplyParamsEndpointBaseUrl> for ::std::string::String {
+    fn from(value: AssistantReplyParamsEndpointBaseUrl) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsEndpointBaseUrl {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2048usize {
+            return Err("longer than 2048 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsEndpointBaseUrl {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsEndpointBaseUrl {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,

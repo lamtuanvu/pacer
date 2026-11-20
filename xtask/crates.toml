@@ -112,6 +112,10 @@ binary = true
 layer = "sdk"
 [crates.pacer-fixtures]
 layer = "sdk"
+[crates.pacer-assistant-pacer]
+layer = "plugin"
+heavy = ["reqwest"]
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]

@@ -35,6 +35,22 @@ test("npm rejects corrupt companion bytes before writing packages", () => {
   expect(existsSync(out)).toBe(false);
 });
 
+test("npm verifies the assistant sibling against SHA256SUMS before copying", () => {
+  const { root, release } = fixture(), out = join(root, "npm");
+  const target = TARGETS[0]!;
+  const assistantFile = `pacer-assistant-pacer-${target.os}-${target.arch}`;
+  const good = Buffer.from("assistant-bytes");
+  writeFileSync(join(release, assistantFile), good);
+  writeRelease(root, "0.8.0", TARGETS, { paired: true });
+  generateNpm(release, out);
+  const dir = join(out, assetFile(target));
+  expect(JSON.parse(readFileSync(join(dir, "package.json"), "utf8")).files).toEqual([
+    "bin/pacer", "bin/pacer-core", "bin/pacer-assistant-pacer",
+  ]);
+  expect(readFileSync(join(dir, "bin/pacer-assistant-pacer"))).toEqual(good);
+  writeFileSync(join(release, assistantFile), Buffer.from("tampered"));
+  expect(() => generateNpm(release, join(root, "npm2"))).toThrow(/checksum mismatch for pacer-assistant-pacer/);
+});
 test("Homebrew installs both verified resources beside each other with a front-door symlink", () => {
   const { root, release, manifest } = fixture(), out = join(root, "pacer.rb");
   generateHomebrew(join(release, "manifest.json"), out);

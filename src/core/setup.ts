@@ -194,8 +194,8 @@ export function onboardingSkip(ctx:Ctx) {
   }catch(e){throw toCoreError(e);}finally{rmSync(tmp,{force:true});}
 }
 
-/** Read diagnostics and run fixed isolated handler fixtures; also prune expired undo files without repairing installations. */
-export async function doctor(ctx: Ctx) {
+/** The diagnostics and repair target of a doctor report; the caller stamps and stores the report. */
+export async function doctorParts(ctx: Ctx) {
   try {
     const checks = await runDoctor(ctx);
     let planner: string | undefined;
@@ -206,11 +206,27 @@ export async function doctor(ctx: Ctx) {
       const account = strategy.accounts[strategy.planner.account];
       repairAvailable = !!account && (account.source === "default" || !!accountFolder(ctx, account));
     } catch { /* The strategy diagnostic reports missing or invalid configuration. */ }
-    const report = { checkedAt: ctx.now, checks, ...(planner ? {planner, repairAvailable} : {}) };
+    return { checks, ...(planner ? {planner, repairAvailable} : {}) };
+  }
+  catch (e) { throw toCoreError(e); }
+}
+
+/** Read diagnostics and run fixed isolated handler fixtures; also prune expired undo files without repairing installations. */
+export async function doctor(ctx: Ctx) {
+  try {
+    const { checks, ...target } = await doctorParts(ctx);
+    const report = { checkedAt: ctx.now, checks, ...target };
     saveDoctorReport(ctx, report);
     return report;
   }
   catch (e) { throw toCoreError(e); }
+}
+
+/** The planner integrations' record hashes, which the setup gate's fingerprint compares between runs. */
+export function integrationHashes(ctx: Ctx): Record<string, string> {
+  const hashes: Record<string, string> = {};
+  for (const [key, record] of Object.entries(readManifest(ctx).planners)) hashes[key] = sha256(JSON.stringify(record));
+  return hashes;
 }
 
 /** Startup/update gate: bounded doctor view, fingerprint, and whether the full-window stage can skip. */
@@ -227,7 +243,6 @@ export async function health(
       setupHealthRequired,
       clearSetupHealthRequired,
     } = await import("../install/setup-health-store");
-    const { readManifest } = await import("../install/manifest");
     const started = Date.now();
     const previous = readSetupHealthPass(ctx);
     const forced = params.trigger === "update" || setupHealthRequired(ctx);
@@ -253,11 +268,7 @@ export async function health(
       notificationsSkipped,
     });
     const version = currentVersion();
-    const integrationHashes: Record<string, string> = {};
-    for (const [key, record] of Object.entries(readManifest(ctx).planners)) {
-      integrationHashes[key] = sha256(JSON.stringify(record));
-    }
-    const versions = { appVersion: version, serviceVersion: version, integrationHashes };
+    const versions = { appVersion: version, serviceVersion: version, integrationHashes: integrationHashes(ctx) };
     const fingerprint = fingerprintFromReport(report, versions);
     writeSetupHealthPass(ctx, {
       fingerprint,

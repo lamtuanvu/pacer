@@ -44,6 +44,26 @@ impl pacer_update::onboarding::OnboardingBridge for Effects {
     }
 }
 
+/// Answers `terminal.*` bridge requests by kind from `terminalParts` and records them.
+struct Terminal {
+    replies: Value,
+    requests: Vec<Value>,
+}
+
+impl pacer_task_ops::terminal_ops::TerminalBridge for Terminal {
+    fn parts(&mut self, request: Value) -> OpFuture<'_> {
+        let reply = self.replies[request["kind"].as_str().unwrap_or("")].clone();
+        self.requests.push(request);
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
+impl pacer_install::agent_ops::AgentEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
 /// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
 /// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
 struct Preview {
@@ -77,6 +97,41 @@ impl pacer_dispatch_ops::preview_ops::Bridge for Preview {
         let reply = if params["kind"] == "dispatch.executor-guards" {
             let guards = &self.parts["guards"];
             json!({"guards": rows(&guards["guards"]), "admissionHooks": guards["admissionHooks"]})
+        } else {
+            json!(rows(&self.parts["enforcement"]))
+        };
+        self.requests.push(params);
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
+/// Answers `dispatch.enforcement` and `dispatch.enforcement.denied` bridge requests from the parts
+/// TypeScript computed (`dispatchParts`), keeping the runners asked for, and records them. The
+/// `dispatch.enforcement-diagnostics` reply keeps its top-level `scheduled`.
+struct Enforcement {
+    parts: Value,
+    requests: Vec<Value>,
+}
+
+impl pacer_dispatch_ops::enforcement_ops::Bridge for Enforcement {
+    fn parts(&mut self, params: Value) -> OpFuture<'_> {
+        let rows = |all: &Value| -> Vec<Value> {
+            let asked = params["runners"].as_array().cloned().unwrap_or_default();
+            asked
+                .iter()
+                .filter_map(|r| {
+                    all.as_array()?
+                        .iter()
+                        .find(|row| row["runner"] == *r)
+                        .cloned()
+                })
+                .collect()
+        };
+        let reply = if params["kind"] == "dispatch.enforcement-diagnostics" {
+            let diag = &self.parts["enforcementDiagnostics"];
+            let mut reply = diag.clone();
+            reply["runners"] = json!(rows(&diag["runners"]));
+            reply
         } else {
             json!(rows(&self.parts["enforcement"]))
         };
@@ -146,6 +201,27 @@ async fn main() -> io::Result<()> {
             stdout.write_all(b"\n")?;
             continue;
         }
+        if pacer_task_ops::terminal_ops::uses_bridge(name) {
+            if pacer_server::native::terminal_stays_forwarded(&ctx, name, &input["params"]) {
+                serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+                stdout.write_all(b"\n")?;
+                continue;
+            }
+            let mut bridge = Terminal {
+                replies: input["terminalParts"].clone(),
+                requests: Vec::new(),
+            };
+            let params = input["params"].clone();
+            let result = pacer_task_ops::terminal_ops::call(&ctx, name, params, &mut bridge).await;
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["bridge"] = json!(bridge.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         if pacer_dispatch_ops::preview_ops::needs_dispatch_parts(name) {
             if pacer_server::native::dispatch_preview_stays_forwarded(&ctx, name, &input["params"])
             {
@@ -165,6 +241,60 @@ async fn main() -> io::Result<()> {
                 &mut bridge,
             )
             .await;
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["bridge"] = json!(bridge.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if pacer_dispatch_ops::enforcement_ops::needs_dispatch_parts(name)
+            || name == "dispatch.enforcement.probe"
+        {
+            if pacer_server::native::dispatch_enforcement_stays_forwarded(
+                &ctx,
+                name,
+                &input["params"],
+            ) {
+                serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+                stdout.write_all(b"\n")?;
+                continue;
+            }
+            if name == "dispatch.enforcement.probe" {
+                let result = pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_probe(
+                    &ctx,
+                    input["params"].clone(),
+                )
+                .await;
+                let output = match result {
+                    Ok(value) => json!({"result":value}),
+                    Err(error) => error.body(),
+                };
+                serde_json::to_writer(&mut stdout, &output)?;
+                stdout.write_all(b"\n")?;
+                continue;
+            }
+            let mut bridge = Enforcement {
+                parts: input["dispatchParts"].clone(),
+                requests: Vec::new(),
+            };
+            let result = if name == "dispatch.enforcement" {
+                pacer_dispatch_ops::enforcement_ops::dispatch_enforcement(
+                    &ctx,
+                    input["params"].clone(),
+                    &mut bridge,
+                )
+                .await
+            } else {
+                pacer_dispatch_ops::enforcement_ops::dispatch_enforcement_denied(
+                    &ctx,
+                    input["params"].clone(),
+                    &mut bridge,
+                )
+                .await
+            };
             let mut output = match result {
                 Ok(value) => json!({"result":value}),
                 Err(error) => error.body(),
@@ -228,6 +358,27 @@ async fn main() -> io::Result<()> {
             stdout.write_all(b"\n")?;
             continue;
         }
+        if pacer_install::agent_ops::uses_effects(name) {
+            let mut effects = Effects {
+                reply: input.get("effectResult").cloned().unwrap_or(Value::Null),
+                requests: Vec::new(),
+            };
+            let result = pacer_install::agent_ops::agent_call(
+                &ctx,
+                name,
+                input["params"].clone(),
+                &mut effects,
+            )
+            .await;
+            let mut output = match result {
+                Ok(value) => json!({"result": value}),
+                Err(error) => error.body(),
+            };
+            output["effects"] = json!(effects.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
         let host_sync = if name == "config.get" {
             let host_parts = input.get("hostParts").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(host_parts) }) as pacer_foundation::api::OpFuture<'_>)
@@ -240,13 +391,37 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
-            let bridge_result = if input["bridgeEcho"] == json!(true) {
-                pacer_server::native::core_bridge_params(name, &input["params"])
-                    .unwrap_or(Value::Null)
-            } else {
-                input.get("bridgeResult").cloned().unwrap_or(Value::Null)
+        if input["bridgeEcho"] == json!(true) {
+            // The request Core would receive, without answering it.
+            let output = match pacer_server::native::core_bridge_params(name, &input["params"]) {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
             };
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        let core_bridge_sync = if matches!(
+            name,
+            "setup.check"
+                | "setup.health"
+                | "doctor.run"
+                | "desktop.capture.register"
+                | "desktop.capture.targets"
+                | "desktop.capture.request"
+                | "desktop.capture.claim"
+                | "desktop.capture.complete"
+                | "desktop.capture.result"
+                | "desktop.update.status"
+                | "desktop.update.check"
+                | "desktop.update.download"
+                | "desktop.update.restart"
+                | "desktop.update.cancel"
+                | "desktop.update.adopt"
+                | "desktop.update.adoptCancel"
+                | "desktop.update.configure"
+        ) {
+            let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
             None

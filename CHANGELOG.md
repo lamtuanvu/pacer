@@ -4,6 +4,39 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **One usage record everywhere (ADR 0030).** `computeStatus` emits one usage record per account and per runner — scope, source, figure, windows, active limit, blocked runners, observation time, freshness, verdict, eligibility, spend and error — and every service output reads it: the snapshot's executor, account and planner rows carry an additive `usageState` field and quote their figure, window, reset, verdict and staleness from it, `account.list` rows carry `usageState` plus `diagnostics.readings` (the raw provider readings) from the same computation, and `limits.check`, the hook text, `pacer status`, `pacer account list` and MCP `budget_status` agree with them. An active limit mark or fact makes the record quote 100% over "limit" until it ends; the account verdict is also EXHAUSTED when every runner is quota-blocked for its configured model, with the blocked runners listed (auth failures block without changing a verdict). Mode now follows the planner's own runner record instead of the account summary, so it can become stricter when the planner runner is limited. `pacer status --json` includes the records on `accounts[].usageState` and `providers[].usageState`.
+- **Planners are asked to review and decide.** When a delegated task settles and the planner that delegated it has not reviewed it, pacer records how to reach that planner (its session, process and terminal, from the CLI or MCP) and, after `messaging.liveness.caller_wake_after_s` (new key, default 300 s), types one line into its Orca terminal when the pane is idle with an empty prompt. Otherwise, and after `escalate_after_s`, you are notified with "Waiting for <planner> to review and decide" on the task. Resuming a closed planner session is included but switched off until it is hardened.
+- **A persisted usage cache.** The last good reading of each account is kept under the pacer home (`state/usage/`, keyed by the account's evidence identity), so a one-shot CLI process and the service see the same reading, and `limits.refresh` compares against it. Removing an account deletes its cache.
+- **`pacer account set <name> --allow-paid true|false`.** Paid overflow had no command; it now has one, warns that it can spend paid credits, and cannot be enabled from a delegated task. `account list` shows `· paid overflow on`.
+
+### Changed
+
+- **Unmetered accounts report verdict UNMETERED instead of OK** on protocol 3 surfaces (the snapshot's account and executor rows, `routing.status`, `status --json` and the CLI text). Protocol 2 clients keep `OK` (v2 is frozen), and routing treats the account as available exactly as before.
+- **`account.list` `usageReading` is deprecated.** Rows now carry `usageState` (the record above) and `diagnostics.readings`; `usageReading` stays for the rest of protocol 3.x and is removed in protocol 4.0. It no longer carries an invented `limit` window for reactive and unmetered accounts (those readings report no windows and `capturedAt: null`). The `observed N ago` age in the planner hook prints days once an observation is two days old.
+- **`account.list` `signedIn` follows the snapshot's per-runner derivation (ADR 0030).** Local non-planner runners are probed individually: an account whose runners report no sign-out is `signedIn: true` — including accounts that carry no login indicator of their own — and `false` when any checked runner is signed out. Accounts without a checked local runner keep the account-scope probe; endpoint accounts report null.
+- **Rust plugin crates 0.3.0 on crates.io.** `pacer-plugin` and its generated protocol crates move to 0.3.0 for plugin protocol 1.11.0. The generated top-level type is renamed (`PacerPluginProtocol1100` becomes `PacerPluginProtocol1110`), so plugins that name it need the rename. `pacer-plugin-assistant-protocol` is published for the first time.
+- **Usage readings no longer invent a figure for reactive and unmetered accounts.** `account.list` `usageReading` used to report a `limit` window at 0% with the current time as `capturedAt` for reactive accounts (and the current time for unmetered ones), which the Usage popover showed as "0% · Updated 1s ago" next to an account that was out of quota. These readings now have no windows and `capturedAt: null`. Limits still come from limit marks and evidence ([ADR 0030](docs/decisions/0030-account-usage-single-owner.md)).
+- **"Observed N ago" reflects the budget reading.** The evidence age now comes from the budget observation (or the newest availability fact when there is none) instead of the oldest fact on record, and availability and spending facts that expired more than 7 days ago are pruned.
+- **One set of freshness thresholds.** Every usage freshness threshold is defined once (`src/usage/freshness.constants.json`); dispatch treats a quota at 97% or more as exhausted, the same threshold as the verdict.
+
+### Fixed
+
+- **An exhausted executor no longer looks blocked.** `executor unblock` no longer reports success when nothing was blocked: it says `was not blocked by you` and names what still excludes the executor. A reported limit reads `quota limit reached until <latest reset>` with the account's `allow_paid` state, and the refusal reads "Budget exhausted; paid overflow is off (allow_paid: false)".
+- **Native `runner.list` reports a limit like TypeScript.** It used the earliest fact deadline and treated any exhausted budget as a quota row; it now uses the `budget_exhausted` reason and the limit's latest reset.
+
+## [0.17.5] - 2026-11-19
+
+### Changed
+
+- Release 0.17.4 (#1122).
+- Cargo fmt the task row model and account changes (#1123).
+
+### Fixed
+
+- Repair main after the task-row runner changes (#1125).
+
 ## [0.17.4] - 2026-11-19
 
 ### Fixed

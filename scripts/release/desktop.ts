@@ -138,6 +138,25 @@ export async function stageDesktopPackage(root: string, releaseDir: string, arch
     } else if (existsSync(join(resources, "pacer-core"))) {
       throw new Error("Legacy desktop input contains an unverified core");
     }
+    // Optional native assistant plugin (sibling of pacer-core) when the release built it.
+    const assistantFile = `pacer-assistant-pacer-${arch === "aarch64" ? "darwin-arm64" : "darwin-x64"}`;
+    const assistantRelease = join(dir, assistantFile);
+    const assistantCrate = existsSync(join(root, "crates/assistant-pacer/Cargo.toml"));
+    if (existsSync(assistantRelease)) {
+      const sums = parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8"));
+      const expected = sums.get(assistantFile);
+      const bytes = readFileSync(assistantRelease);
+      if (!expected || sha256Hex(bytes) !== expected) {
+        throw new Error(expected
+          ? `checksum mismatch for ${assistantFile}`
+          : assistantCrate
+            ? `SHA256SUMS is missing ${assistantFile}`
+            : `checksum mismatch for ${assistantFile}`);
+      }
+      copyFileSync(assistantRelease, join(resources, "pacer-assistant-pacer"));
+      chmodSync(join(resources, "pacer-assistant-pacer"), 0o755);
+      verifyDesktopExecutable(regular(join(resources, "pacer-assistant-pacer")), arch);
+    }
     copyFileSync(cli, join(resources, "pacer"));
     copyFileSync(helper, join(resources, "pacer-update-helper"));
     chmodSync(join(resources, "pacer"), 0o755);

@@ -1,6 +1,6 @@
 #![allow(clippy::unwrap_used)]
 use pacer_engine::{
-    active_hours_left, binding_window, conversation_fallback, evaluate_eligibility,
+    active_hours_left, binding_window, conversation_fallback, deadline, evaluate_eligibility,
     evaluate_window, machine_guard, pace_pct, planner_mode, rank_executors,
 };
 use serde_json::Value;
@@ -93,6 +93,22 @@ fn typescript_parity() {
         &fixture["binding"]["output"],
         "binding",
     );
+    // `bindingWindow` ties keep the first element, as `Array.prototype.reduce` does.
+    for case in fixture["bindingTies"].as_array().unwrap() {
+        near(
+            &binding_window(case["input"].as_array().unwrap()),
+            &case["output"],
+            case["name"].as_str().unwrap(),
+        );
+    }
+    // `evidenceDeadline`: the freshness cap and the configuration/execution limit ends.
+    for case in fixture["deadline"].as_array().unwrap() {
+        near(
+            &serde_json::json!(deadline(&case["input"])),
+            &case["output"],
+            case["name"].as_str().unwrap(),
+        );
+    }
 }
 
 #[test]

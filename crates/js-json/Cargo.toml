@@ -8,6 +8,7 @@ rust-version.workspace = true
 
 [dependencies]
 ryu-js = "1"
+icu_collator = { version = "=2.4.0", features = ["unstable"] }
 serde.workspace = true
 thiserror.workspace = true
 serde_json = { workspace = true, features = ["raw_value", "float_roundtrip", "unbounded_depth"] }

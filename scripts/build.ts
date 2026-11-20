@@ -3,6 +3,8 @@ import { randomUUID } from "node:crypto";
 import { copyFileSync, existsSync, mkdirSync, readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { compileTarget } from "./release/build";
+import { compileAssistantPacer, frontDoorCargoTargetDir } from "./lib/assistant-pacer-bin";
+import { ASSISTANT_PACER_EXECUTABLE } from "../src/plugins/native-bundled";
 import { hostTarget } from "../src/update/manifest";
 import { isVersion } from "../src/update/version";
 
@@ -41,6 +43,18 @@ export async function buildLocal(root: string): Promise<void> {
   const version = localBuildVersion(root);
   mkdirSync(join(root, "dist"), { recursive: true });
   await compileTarget({ root, target, version, outfile: join(root, "dist", "pacer-core") });
+  // Native assistant plugin: same signing path as pacer-core when the crate is present; otherwise skip.
+  try {
+    const built = await compileAssistantPacer({
+      root, target, outfile: join(root, "dist", ASSISTANT_PACER_EXECUTABLE),
+      // Prefer an explicit env override (agent/worktree builds); otherwise match the front door.
+      cargoTargetDir: process.env.CARGO_TARGET_DIR ?? frontDoorCargoTargetDir(root),
+      smoke: true,
+    });
+    if (!built) console.log(`${ASSISTANT_PACER_EXECUTABLE} skipped: crates/assistant-pacer is not in this checkout`);
+  } catch (error) {
+    console.log(`${ASSISTANT_PACER_EXECUTABLE} skipped: ${error instanceof Error ? error.message : String(error)}`);
+  }
   // The Rust front door execs dist/pacer-core as its sibling. Without cargo or the Cargo
   // workspace, the core alone is a complete CLI, so it also ships as dist/pacer.
   const skip = (why: string) => {
