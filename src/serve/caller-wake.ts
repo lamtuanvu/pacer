@@ -57,7 +57,9 @@ export async function callerWake(ctx: Ctx, reach: CallerReach, text: string, ste
     }
     if (!resumeEnabled) return "unavailable";
     // Only Claude Code can be held to pacer commands and read-only tools unattended; Codex is notified instead.
-    if (!reach.participant.startsWith("external:claude-code:")) return "unavailable";
+    // The MCP path records the generic `external:claude-code` participant; the reach still carries the session.
+    const claude = reach.participant === "external:claude-code" || reach.participant.startsWith("external:claude-code:");
+    if (!claude || !reach.session) return "unavailable";
     if (resumeGuards.executorWroteCallerCwd(ctx, taskId, reach.cwd)) return "unavailable";
     if (!(await resumeGuards.plannerAdmitted(ctx))) return "unavailable";
     return await resumeCaller(ctx, { kind: "claude-code", session: reach.session, cwd: reach.cwd }, text, {

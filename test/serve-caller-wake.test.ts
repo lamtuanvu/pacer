@@ -78,6 +78,13 @@ test("resume is refused for Codex and unknown planners, an executor-written chec
     expect((await resumeWith({ reach: { ...claudeReach(), participant } })).out).toBe("unavailable");
   expect((await resumeWith({ wrote: true })).out).toBe("unavailable");
   expect((await resumeWith({ admitted: false })).out).toBe("unavailable");
+  expect((await resumeWith({ reach: { ...claudeReach(), session: undefined } })).out).toBe("unavailable");
+});
+
+test("the generic Claude Code participant is resumed by the session its reach recorded", async () => {
+  const { out, calls } = await resumeWith({ reach: { ...claudeReach(), participant: "external:claude-code" } });
+  expect(out).toBe("resumed");
+  expect(calls[0]![1].session).toBe("s1");
 });
 
 test("switching resume off falls through to notification", async () => {
