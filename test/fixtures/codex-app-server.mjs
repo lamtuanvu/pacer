@@ -6,13 +6,13 @@
  *
  * Modes (file `$FAKE_DIR/mode` or env FAKE_CODEX_MODE):
  *   deny (default) — decline shell/file, allow pacer MCP, answer text
- *   leak — complete a non-pacer tool
+ *   leak — complete a non-pacer tool (yields before turn/completed so the host can register)
  *   silent — no tool attempts and no pacer call
- *   no-tools — mcp status without pacer tools (health fails)
+ *   no-tools — mcp status without pacer tools (health fails → digest-only replacement thread)
  *   slow — hang until cancelled / interrupted
  *   leak-on-resume — on resume, leak a shell tool
  *   gone — thread/resume fails for th_gone
- *   managed-mcp — config/read reports a managed layer re-enabling a server (refuse start)
+ *   managed-mcp — config/read reports a non-overridable layer (type from `$FAKE_DIR/managed-layer`)
  *   malformed — respond to initialize with garbage (fail closed)
  */
 import { appendFileSync, existsSync, readFileSync, writeFileSync } from "node:fs";
@@ -22,6 +22,11 @@ const dir = process.env.FAKE_DIR ?? import.meta.dirname;
 const modeFile = `${dir}/mode`;
 const mode = () => {
   try { return (process.env.FAKE_CODEX_MODE || readFileSync(modeFile, "utf8")).trim(); } catch { return "deny"; }
+};
+const managedLayer = () => {
+  try { return readFileSync(`${dir}/managed-layer`, "utf8").trim(); } catch {
+    return process.env.FAKE_MANAGED_LAYER?.trim() || "mdm";
+  }
 };
 const logPath = process.env.FAKE_LOG ?? `${dir}/calls.jsonl`;
 const log = (row) => appendFileSync(logPath, JSON.stringify(row) + "\n");
@@ -39,10 +44,13 @@ log({
     hasCodexHome: Boolean(process.env.CODEX_HOME),
     CODEX_HOME: process.env.CODEX_HOME ?? null,
   },
+  pid: process.pid,
+  pgid: process.platform === "win32" ? process.pid : (typeof process.getpgid === "function" ? process.getpgid(0) : process.pid),
 });
 
 const send = (frame) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...frame })}\n`);
 let threadId = `th_new_${Math.random().toString(36).slice(2, 8)}`;
+let threadSeq = 0;
 let resumed = false;
 let activeTurnId = null;
 let cancelled = () => {};
@@ -56,10 +64,24 @@ function notify(method, params) {
   send({ method, params });
 }
 
+/** Yield so the host can process the turn/start result before turn/completed (F5). */
+const yieldTurn = () => new Promise((r) => setImmediate(r));
+
+function threadGates() {
+  return { approvalPolicy: "on-request", sandbox: { type: "readOnly", networkAccess: false } };
+}
+
+function hasPacerMcp(cfg) {
+  if (!cfg || typeof cfg !== "object") return false;
+  return Object.keys(cfg).some((k) => k.startsWith("mcp_servers.pacer.") && cfg[k] !== false);
+}
+
 async function runTurn(frame) {
   const m = mode();
   activeTurnId = `turn_${Math.random().toString(36).slice(2, 8)}`;
   send({ id: frame.id, result: { turn: { id: activeTurnId, status: "inProgress", items: [] } } });
+  // Always yield once so the client's turn/start promise settles and turnDone is registered.
+  await yieldTurn();
 
   if (m === "slow") {
     try { writeFileSync(`${dir}/pid`, String(process.pid)); } catch { /* ignore */ }
@@ -159,23 +181,30 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       return reply({ userAgent: "codex-fake" });
     case "config/read": {
       if (mode() === "managed-mcp") {
+        const type = managedLayer();
         return reply({
-          config: { mcp_servers: { evil: { command: "evil", enabled: true } } },
+          config: {
+            mcp_servers: { evil: { command: "evil", enabled: true } },
+            features: { shell_tool: true },
+          },
           origins: {
-            "mcp_servers.evil.enabled": { name: { type: "legacyManagedConfigTomlFromFile" } },
+            "mcp_servers.evil.enabled": { name: { type } },
+            "features.shell_tool": { name: { type } },
           },
         });
       }
       return reply({
         config: { mcp_servers: { other: { command: "other", enabled: true } } },
-        origins: { "mcp_servers.other.enabled": { name: { type: "userConfigToml" } } },
+        origins: { "mcp_servers.other.enabled": { name: { type: "user" } } },
       });
     }
     case "thread/start": {
       if (mode() === "managed-mcp") return fail("should not start");
       const cfg = frame.params?.config ?? {};
-      log({ method: "thread_config", config: cfg });
-      return reply({ thread: { id: threadId }, approvalPolicy: "on-request", sandbox: "read-only" });
+      log({ method: "thread_config", config: cfg, hasPacerMcp: hasPacerMcp(cfg) });
+      threadSeq += 1;
+      threadId = threadSeq === 1 ? threadId : `th_digest_${Math.random().toString(36).slice(2, 8)}`;
+      return reply({ thread: { id: threadId }, ...threadGates() });
     }
     case "thread/resume": {
       if (frame.params?.threadId === "th_gone" || mode() === "gone") {
@@ -183,7 +212,7 @@ createInterface({ input: process.stdin }).on("line", async (line) => {
       }
       threadId = frame.params.threadId;
       resumed = true;
-      return reply({ thread: { id: threadId } });
+      return reply({ thread: { id: threadId }, ...threadGates() });
     }
     case "mcpServerStatus/list": {
       if (mode() === "no-tools") {

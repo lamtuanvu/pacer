@@ -11,11 +11,26 @@ import { createInterface } from "node:readline";
 const TOOLS_UNAVAILABLE_NOTE =
   "[pacer] pacer MCP tools were not reported for this Codex session. Answer only from the digest and conversation; do not invent tool results.";
 
-/** Features turned off for a digest/ask turn (Orca reply-only keys; verified as dotted config overrides). */
+/**
+ * Features turned off for a digest/ask turn (verified as dotted `features.<name>=false` overrides
+ * against codex-cli 0.167.2). `unified_exec` is intentionally omitted: on 0.167.2 it stays stable
+ * true under `--disable` / `-c features.unified_exec=false`; ask mode relies on approval decline
+ * plus the read-only sandbox (asserted from `thread/start`) instead.
+ */
 export const CODEX_ASK_FEATURES_OFF = [
-  "hooks", "shell_tool", "unified_exec", "view_image", "image_generation", "apps",
-  "browser_use", "in_app_browser", "computer_use", "multi_agent", "memories", "plugins",
+  "hooks", "shell_tool", "view_image", "image_generation", "apps",
+  "browser_use", "browser_use_external", "in_app_browser", "computer_use",
+  "code_mode", "code_mode_host", "enable_mcp_apps",
+  "multi_agent", "memories", "plugins",
 ] as const;
+
+/** Config layer origins that thread config can override (Codex 0.167.2 `ConfigLayerSource`). */
+export const CODEX_ASK_OVERRIDABLE_LAYERS = new Set([
+  "user", "project", "sessionFlags", "packagedDefaults",
+]);
+
+/** Origin keys whose managed values would break ask-mode restrictions. */
+const SENSITIVE_ORIGIN = /^(mcp_servers\.|features\.|web_search\b)/;
 
 export const CODEX_PLAN_VERSION = 1 as const;
 
@@ -64,7 +79,6 @@ const MCP_ELICITATION = "mcpServer/elicitation/request";
 const PERMISSIONS_APPROVAL = "item/permissions/requestApproval";
 const USER_INPUT = "item/tool/requestUserInput";
 
-const LAYERS_OVER_THREAD = new Set(["legacyManagedConfigTomlFromFile", "legacyManagedConfigTomlFromMdm"]);
 const SERVER_NAME = /^[A-Za-z0-9_-]+$/;
 
 function isRecord(value: unknown): value is Json {
@@ -103,6 +117,15 @@ export function parseCodexPlan(stdin: string): CodexPlan | null {
   }
 }
 
+/** Env pairs for mcp_servers.pacer.env: only the plan's MCP keys from the issued turn env. */
+export function codexMcpEnv(env: Record<string, string>, mcpEnvKeys: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = Object.create(null);
+  for (const key of mcpEnvKeys) {
+    if (typeof env[key] === "string") out[key] = env[key]!;
+  }
+  return out;
+}
+
 /** Base thread config: plugins/web/search off, ask features off, optional pacer MCP. */
 export function codexAskThreadConfig(plan: CodexPlan, env: Record<string, string>, mcpOff: Record<string, false>): Record<string, unknown> {
   const config: Record<string, unknown> = {
@@ -115,26 +138,35 @@ export function codexAskThreadConfig(plan: CodexPlan, env: Record<string, string
     const key = `mcp_servers.${plan.mcpName}`;
     config[`${key}.command`] = plan.mcpCommand;
     config[`${key}.args`] = plan.mcpArgs;
-    const mcpEnv = Object.fromEntries(
-      plan.mcpEnvKeys.filter(k => typeof env[k] === "string").map(name => [name, env[name]!]),
-    );
+    const mcpEnv = codexMcpEnv(env, plan.mcpEnvKeys);
     if (Object.keys(mcpEnv).length) config[`${key}.env`] = mcpEnv;
     config[`${key}.enabled`] = true;
   }
   return config;
 }
 
-/** `enabled=false` for every MCP server config/read lists; refuse when a managed layer re-enables one. */
+/**
+ * Fail closed when any sensitive config origin is outside the overridable allow-list (mdm, system,
+ * enterpriseManaged, legacy managed types, unknown). Returns `enabled=false` for every listed MCP
+ * server name so thread config can disable them.
+ */
 export function codexMcpServersOff(response: unknown): Record<string, false> {
   if (!isRecord(response) || !isRecord(response.config) || !isRecord(response.origins)) {
     throw new Error("Codex config/read did not return config and origins");
   }
+  const origins = response.origins as Record<string, unknown>;
+  for (const [key, origin] of Object.entries(origins)) {
+    if (!SENSITIVE_ORIGIN.test(key)) continue;
+    const type = layerType(origin);
+    if (!type || !CODEX_ASK_OVERRIDABLE_LAYERS.has(type)) {
+      throw new Error(`Codex has a managed config layer (${type ?? "unknown"}) that cannot be overridden for ask mode`);
+    }
+  }
   const servers = response.config.mcp_servers ?? {};
   if (!isRecord(servers)) throw new Error("Codex config/read mcp_servers was not an object");
   const names = Object.keys(servers);
-  const origins = response.origins as Record<string, unknown>;
-  if (names.some(name => !SERVER_NAME.test(name) || LAYERS_OVER_THREAD.has(layerType(origins[`mcp_servers.${name}.enabled`]) ?? ""))) {
-    throw new Error("Codex has a managed MCP server that cannot be disabled for ask mode");
+  if (names.some(name => !SERVER_NAME.test(name))) {
+    throw new Error("Codex mcp_servers contains an invalid server name");
   }
   return Object.fromEntries(names.map(name => [`mcp_servers.${name}.enabled`, false as const]));
 }
@@ -152,6 +184,23 @@ export function codexMcpHealthy(answer: unknown, mcpName: string): boolean {
     return false;
   }
   return false;
+}
+
+/**
+ * Ask mode requires on-request approvals and a read-only sandbox. Live Codex still reports
+ * `approvalPolicy: "on-request"` even when launched with `-a never` (thread settings win).
+ */
+export function assertCodexAskThreadGates(opened: unknown): void {
+  if (!isRecord(opened)) throw new Error("Codex thread/start returned a non-object");
+  const policy = opened.approvalPolicy ?? (isRecord(opened.thread) ? opened.thread.approvalPolicy : undefined);
+  if (policy !== "on-request") {
+    throw new Error(`Codex ask mode requires approvalPolicy on-request, got ${String(policy)}`);
+  }
+  const sandbox = opened.sandbox ?? (isRecord(opened.thread) ? opened.thread.sandbox : undefined);
+  const ok = sandbox === "read-only"
+    || sandbox === "readOnly"
+    || (isRecord(sandbox) && (sandbox.type === "readOnly" || sandbox.type === "read-only"));
+  if (!ok) throw new Error(`Codex ask mode requires a read-only sandbox, got ${JSON.stringify(sandbox)}`);
 }
 
 function readThreadId(opened: unknown): string | undefined {
@@ -180,11 +229,15 @@ export async function runCodexTurn(
   const deltas: string[] = [];
   const textParts: string[] = [];
   let threadId = plan.session;
+  /** Effective tools flag: flipped off when preflight is unhealthy so approvals deny pacer_*. */
+  let toolsEnabled = plan.tools;
   let toolsHealthy = false;
   let error: string | undefined;
   let input = 0, output = 0, measured = false;
   let nextId = 1;
   let activeTurnId: string | undefined;
+  /** Buffered status when turn/completed arrives before the waiter is registered (fast fixtures). */
+  let earlyTurnStatus: string | undefined;
   const pending = new Map<number, { resolve: (v: unknown) => void; reject: (e: unknown) => void }>();
   let turnDone: ((status: string) => void) | undefined;
 
@@ -226,7 +279,7 @@ export async function runCodexTurn(
     }
     if (method === MCP_ELICITATION) {
       const server = isRecord(params) ? String(params.serverName ?? "") : "";
-      const allow = plan.tools && toolsHealthy && server.toLowerCase() === plan.mcpName.toLowerCase() && isCodexMcpToolApproval(params);
+      const allow = toolsEnabled && toolsHealthy && server.toLowerCase() === plan.mcpName.toLowerCase() && isCodexMcpToolApproval(params);
       noteTool(allow ? `pacer_${server || plan.mcpName}` : (server || "mcp"), allow ? "allowed" : "denied");
       if (allow) reply(id, { action: "accept", content: null, _meta: null });
       else reply(id, { action: "decline", content: null, _meta: null });
@@ -288,7 +341,8 @@ export async function runCodexTurn(
           input = u.inputTokens; output = u.outputTokens; measured = true;
         }
       }
-      turnDone?.(status);
+      if (turnDone) turnDone(status);
+      else earlyTurnStatus = status;
       return;
     }
   };
@@ -329,34 +383,42 @@ export async function runCodexTurn(
       throw new Error(e instanceof Error ? e.message : "Codex config/read failed for ask mode");
     }
 
-    const threadConfig = codexAskThreadConfig(plan, env, mcpOff);
-    const threadSettings = {
-      cwd,
-      approvalPolicy: "on-request" as const,
-      sandbox: "read-only" as const,
-      approvalsReviewer: "user" as const,
-      config: threadConfig,
-      ...(plan.model ? { model: plan.model } : {}),
-      developerInstructions: plan.system,
+    const threadSettingsFor = (attachMcp: boolean) => {
+      const effective: CodexPlan = attachMcp ? { ...plan, tools: true } : { ...plan, tools: false };
+      return {
+        cwd,
+        approvalPolicy: "on-request" as const,
+        sandbox: "read-only" as const,
+        approvalsReviewer: "user" as const,
+        config: codexAskThreadConfig(effective, env, mcpOff),
+        ...(plan.model ? { model: plan.model } : {}),
+        developerInstructions: plan.system,
+      };
     };
 
     let promptBody = plan.prompt;
     if (plan.session) {
       try {
-        await request("thread/resume", { threadId: plan.session, ...threadSettings, excludeTurns: true });
+        const resumed = await request("thread/resume", {
+          threadId: plan.session, ...threadSettingsFor(toolsEnabled), excludeTurns: true,
+        });
+        assertCodexAskThreadGates(resumed);
         threadId = plan.session;
-      } catch {
+      } catch (e) {
+        // Gate failures must abort; only a missing/unresumable thread falls back to a fresh start.
+        if (e instanceof Error && /approvalPolicy|read-only sandbox/.test(e.message)) throw e;
         threadId = undefined;
         if (plan.fallbackPrompt) promptBody = plan.fallbackPrompt;
       }
     }
     if (!threadId) {
-      const opened = await request("thread/start", threadSettings);
+      const opened = await request("thread/start", threadSettingsFor(toolsEnabled));
+      assertCodexAskThreadGates(opened);
       threadId = readThreadId(opened);
     }
     if (!threadId) throw new Error("codex app-server returned no thread id");
 
-    if (plan.tools) {
+    if (toolsEnabled) {
       try {
         const status = await request("mcpServerStatus/list", {
           threadId, detail: "toolsAndAuthOnly", serverName: plan.mcpName,
@@ -367,10 +429,18 @@ export async function runCodexTurn(
       }
     }
 
-    const preflightHealthy = plan.tools && toolsHealthy;
+    const preflightHealthy = toolsEnabled && toolsHealthy;
     toolsHealthy = preflightHealthy;
-    if (plan.tools && !preflightHealthy) {
+    // Unhealthy preflight: digest-only — drop MCP+grant from a replacement thread so the prompt
+    // never runs on a session that still holds the grant (same principle as ACP b310c20ec).
+    if (toolsEnabled && !preflightHealthy) {
+      toolsEnabled = false;
       error = error ?? "pacer MCP tools were not reported on the Codex session; answering from the digest only";
+      const replacement = await request("thread/start", threadSettingsFor(false));
+      assertCodexAskThreadGates(replacement);
+      const digestThreadId = readThreadId(replacement);
+      if (!digestThreadId) throw new Error("codex app-server returned no digest-only thread id");
+      threadId = digestThreadId;
     }
     const promptText = plan.tools && !preflightHealthy
       ? `${TOOLS_UNAVAILABLE_NOTE}\n\n${promptBody}`
@@ -384,6 +454,10 @@ export async function runCodexTurn(
     if (!activeTurnId) throw new Error("codex app-server returned no turn id");
 
     const status = await new Promise<string>((resolve, reject) => {
+      if (earlyTurnStatus !== undefined) {
+        resolve(earlyTurnStatus);
+        return;
+      }
       turnDone = resolve;
       hooks.signal?.addEventListener("abort", () => reject(new Error("The turn was cancelled.")), { once: true });
     });
