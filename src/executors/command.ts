@@ -1,10 +1,17 @@
 import { migrationLines } from "../config/migrate";
-import { loadStrategy, strategyPath } from "../config/strategy";
+import { type Strategy, loadStrategy, strategyPath } from "../config/strategy";
+import { resolveRunner } from "../config/runner-id";
 import {set} from "../core/runners-config";
 import * as core from "../core";
 import type {RunnerRow} from "../core/runners";
 import type {Result} from "../commands/types";
 import type {Ctx} from "../types";
+/** An exhausted row: when the limit ends and whether paid overflow could run past it. */
+function quotaLimit(s:Strategy,r:RunnerRow):string {
+ const account=resolveRunner(s,r.id)?.account??r.id;
+ const until=r.until?`until ${new Date(r.until*1000).toISOString()}`:"until its next reset";
+ return `quota limit reached ${until}; paid overflow is off for account ${account} (allow_paid: false)`;
+}
 export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
  try {
   const s=loadStrategy(ctx),[cmd,id,...flags]=args;
@@ -12,7 +19,7 @@ export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
    const iso=(t:number|null)=>t===null?"unblocked":new Date(t*1000).toISOString();
    const line=(r:RunnerRow)=>r.state==="blocked"?`${r.id}: blocked by user until ${iso(r.until)} · ${r.reason}`
     :r.state==="broken"?`${r.id}: not working until ${iso(r.until)} · ${r.reason}`
-    :r.state==="exhausted"?`${r.id}: out of quota until ${r.until?new Date(r.until*1000).toISOString():"next reset"}`
+    :r.state==="exhausted"?`${r.id}: ${quotaLimit(s,r)}`
     :`${r.id}: ok`;
    const lines=(await core.runners.list(ctx,s)).map(line);
    return {code:0,out:lines.join("\n"),err:""};
@@ -35,7 +42,17 @@ export async function executorCommand(args:string[],ctx:Ctx):Promise<Result> {
    if(!flags[i+1]||!["--for","--reason"].includes(flags[i])||cmd==="unblock")throw new Error(`unknown or incomplete option ${flags[i]}`);
    if(flags[i]==="--for")duration=flags[i+1];else reason=flags[i+1];
   }
-  if(cmd==="block")core.runners.block(ctx,id,{for:duration,reason},s);else core.runners.unblock(ctx,id,s);
-  return {code:0,out:`${id}: ${cmd==="block"?"Blocked by you":"unblocked"}`,err:""};
+  if(cmd==="block"){
+   core.runners.block(ctx,id,{for:duration,reason},s);
+   return {code:0,out:`${id}: Blocked by you`,err:""};
+  } else {
+   const { wasBlocked } = core.runners.unblock(ctx,id,s);
+   const lines=[wasBlocked?`${id}: unblocked`:`${id}: was not blocked by you`];
+   // Unblock only removes your own block; a reported quota limit still excludes the executor.
+   const row=(await core.runners.list(ctx,s)).find(r=>r.id===id);
+   if(row?.state==="exhausted")lines.push(`${id}: still excluded · ${quotaLimit(s,row)}`);
+   else if(row&&row.state!=="ok")lines.push(`${id}: still excluded · ${row.reason}`);
+   return {code:0,out:lines.join("\n"),err:""};
+  }
  }catch(e){return {code:2,out:"",err:`pacer: ${(e as Error).message}`};}
 }

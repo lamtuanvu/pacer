@@ -68,7 +68,7 @@ pub fn pace_status(verdict: &str) -> PaceStatus {
 /// reads as the default attention line.
 pub fn eligibility_reason(code: &str) -> &'static str {
     match code {
-        "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
+        "budget_exhausted" => "Budget exhausted; paid overflow is off (allow_paid: false)",
         "budget_missing" => "No budget observation is available",
         "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
         "evidence_conflicting" => "Current observations disagree",

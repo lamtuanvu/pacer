@@ -121,6 +121,11 @@ export function engineGoldens() {
     { name: "spending-observed", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30)], [spending("observed")]), restrictions: [] } },
     { name: "spending-clear", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30)], [spending("not_observed")]), restrictions: [] } },
     { name: "reactive", input: { now, scope, usage: "reactive", allowPaid: false, evidence: evidence([availability("ready")], []), restrictions: [] } },
+    // A reported limit binds until its stated end; an expired, older fact does not age the decision.
+    { name: "reactive-limit-mark", input: { now, scope, usage: "reactive", allowPaid: false, evidence: evidence(
+      [{ ...availability("ready", now - 148 * 3600, "availability-expired"), source: "execution" as const, observedAt: now - 150 * 3600, reason: "execution_success" } as unknown as ReturnType<typeof availability>],
+      [{ id: "limit-mark", scope, source: "execution", observedAt: now - 68 * 3600, validUntil: now + 3 * 3600, reason: "quota_failure",
+        value: { name: "limit", usedPct: 100, resetsAt: now + 3 * 3600, lengthS: 21_600, paced: false } } as unknown as ReturnType<typeof budget>]), restrictions: [] } },
     { name: "unmetered", input: { now, scope, usage: "unmetered", allowPaid: false, evidence: evidence([availability("ready")], []), restrictions: [] } },
     { name: "budget-not-required", input: { now, scope, usage: "quota", allowPaid: false, budgetRequired: false, evidence: evidence([availability("ready")], []), restrictions: [] } },
   ];
