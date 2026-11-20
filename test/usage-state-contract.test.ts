@@ -351,3 +351,22 @@ test("marks written under an alias key match the runner like executorExclusion (
   const {record} = await surfaces(ctx, s, "cursor");
   expect(record.verdict).toBe("EXHAUSTED");
 });
+
+test("an active limit makes the record fresh even when the reading under it is historical", async () => {
+  const ctx = withLoginIndicators(fakeCtx({now}));
+  const s = load(ctx, CLAUDE);
+  const account = s.accounts.claude!;
+  writeUsageEntry(ctx, accountEvidenceScope(account, s.hosts).identity, "claude-code", {
+    source: "session-log", capturedAt: now - 3 * 3600, stale: false,
+    availability: {state: "ready", reason: "usage_observed", validUntil: null},
+    windows: [{name: "weekly", usedPct: 40, resetsAt: now + 3 * 86400, lengthS: 7 * 86400, paced: true}],
+  });
+  markExhausted(ctx, "claude", now + 3600, {manual: true});
+  const {record} = await surfaces(ctx, s, "claude");
+  expect(record.limit?.until).toBe(now + 3600);
+  expect(record.verdict).toBe("EXHAUSTED");
+  // A just-placed limit is a current fact, never "Reading 0s old".
+  expect(record.freshness).toBe("fresh");
+  // Eligibility is unchanged by presentation freshness: the limit still forbids launches.
+  expect(record.eligibility.state).toBe("ineligible");
+});

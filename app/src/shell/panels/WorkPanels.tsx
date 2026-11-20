@@ -7,6 +7,7 @@ import type { ViewDocument as PluginDocument } from "../../../../src/plugins/ui-
 import { reasonCopy } from "../../../../src/view-model/copy";
 import { agentInfo, markAgent } from "../../../../src/view-model/agents";
 import { executorReadiness } from "../../../../src/view-model/capacity";
+import { usageView } from "../../../../src/view-model/usage";
 import { compactCount } from "../../../../src/view-model/task-tree";
 import {
   attentionStatus,
@@ -105,6 +106,8 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
     : taskStatus(state.snapshot?.tasks.find((row) => row.id === id) ?? task);
   const chosen = task.routing?.chosen ?? task.executor;
   const executor = state.snapshot?.executors?.find((row) => row.id === chosen);
+  // The executor's one usage record, quoted through usageView (ADR 0030).
+  const executorUsageView = usageView(executor?.usageState, state.snapshot?.at ?? Date.now() / 1000);
   const step = task.routing?.policy?.executors.indexOf(chosen ?? "") ?? -1;
   return (
     <>
@@ -162,17 +165,16 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
           <>
             <UsageMeter
               label={`${executorLabel(chosen)} weekly usage`}
-              used={executor.usedPct}
+              used={executorUsageView.meter}
               pace={executor.pacePct}
-              tone="neutral"
+              tone={executorUsageView.tone}
               size="slim"
               text="none"
             />
             <span className="pc-work-panel-caption">
-              {executor.usedPct == null
-                ? "Weekly usage unknown"
-                : `${Math.round(executor.usedPct)}% of week used`}
-              {executor.pacePct != null && ` · pace ${Math.round(executor.pacePct)}%`}
+              {executorUsageView.figure.endsWith("%")
+                ? `${executorUsageView.summaryUsed}${executor.pacePct != null ? ` · pace ${Math.round(executor.pacePct)}%` : ""}`
+                : executorUsageView.figure}
             </span>
           </>
         )}

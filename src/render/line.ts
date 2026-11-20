@@ -1,6 +1,6 @@
 import type { Status } from "../engine/status";
 import { agentInfo, runnerAgent } from "../view-model/agents";
-import { backIn, meterText } from "../view-model/format";
+import { backIn } from "../view-model/format";
 import { counts, plannerMeter } from "../view-model/selectors";
 import type { ClientSnapshot } from "../view-model/snapshot";
 import { compactPolicyWords, policyWords, type PolicySummary, compactVerdictWords, modeWords, offlineWords, toneFor } from "../view-model/words";
@@ -70,7 +70,7 @@ export function renderLine(input: ClientSnapshot | Status | null, options: LineO
   const main = verdict === "out" && f.resetsAt !== null ? `${verdict} · back ${fmtReset(f.resetsAt, now).slice(2)}`
     : f.stale ? "stale reading"
     : verdict === "out" ? `${verdict} · ${backIn(null, now)}`
-    : `${meterText(f.usedPct, f.pacePct, "compact")}${verdict ? ` ${verdict}` : ""}`;
+    : `${f.usedPct === null ? "usage unknown" : `${Math.round(f.usedPct)}%${f.pacePct === null ? "" : `·${Math.round(f.pacePct)}`}`}${verdict ? ` ${verdict}` : ""}`;
   const used = f.usedPct === null ? "?" : String(Math.round(f.usedPct));
   const running = f.running === null ? "" : paint(`▸${f.running}`, "93c5fd");
   const attention = f.attention ? paint(`⚑${f.attention}`, "fcd34d") : "";

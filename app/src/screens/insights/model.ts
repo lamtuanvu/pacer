@@ -1,4 +1,5 @@
 import { markAgent, runnerAgent } from "../../../../src/view-model/agents";
+import { paceStatus } from "../../../../src/view-model/words";
 export type PeriodKey = "today" | "7d" | "30d";
 export const PERIODS = [{ value: "today", label: "Today" }, { value: "7d", label: "7 days" }, { value: "30d", label: "30 days" }] as const;
 const DAY = 86400;
@@ -87,15 +88,19 @@ export function summaryCsv(s: Summary, label: (agent: string) => string): string
   return rows.map(r => r.map(cell).join(",")).join("\n") + "\n";
 }
 
+/** One agent's budget words, from its accounts' and executors' one usage records (ADR 0030). */
 export function budgetOf(agent: string, snapshot: import("../../../../src/view-model/snapshot").ClientSnapshot | null): { label: string; tone: "good" | "warn" | "bad" | "neutral" } {
+  const verdict = (status: ReturnType<typeof paceStatus>) => ({ label: status.label, tone: status.tone as "good" | "warn" | "bad" | "neutral" });
   const own = snapshot?.accounts?.filter(a => a.agent === agent || a.executors.some(r => markAgent(r) === agent || runnerAgent(r) === agent)) ?? [];
-  if (own.length && own.every(a => a.stale)) return { label: "Stale reading", tone: "warn" };
-  const live = own.filter(a => !a.stale);
-  if (live.some(a => a.verdict === "out")) return { label: "Budget exhausted", tone: "bad" };
-  if (live.some(a => a.verdict === "ahead")) return { label: "Ahead of pace", tone: "warn" };
-  if (live.some(a => a.verdict === "behind")) return { label: "Under pace", tone: "good" };
+  const verdictOf = (a: typeof own[number]): string => String(a.usageState?.verdict ?? a.verdict);
+  const historical = (a: typeof own[number]): boolean => a.usageState ? a.usageState.freshness === "historical" : a.stale === true;
+  if (own.length && own.every(historical)) return { label: "Historical usage", tone: "warn" };
+  const live = own.filter(a => !historical(a));
+  if (live.some(a => paceStatus(verdictOf(a)).label === "Out of quota")) return verdict(paceStatus("EXHAUSTED"));
+  if (live.some(a => paceStatus(verdictOf(a)).label === "Ahead of pace")) return verdict(paceStatus("AHEAD"));
+  if (live.some(a => paceStatus(verdictOf(a)).label === "Behind pace")) return verdict(paceStatus("BEHIND"));
   const executors = snapshot?.executors?.filter(e => markAgent(e.id) === agent) ?? [];
-  if (executors.some(e => e.paceReason === "unmetered")) return { label: "Unmetered", tone: "neutral" };
-  if (live.some(a => a.verdict === "on_pace") || executors.some(e => e.eligibility?.state === "eligible" && e.eligibility.budget !== "unknown")) return { label: "Ready", tone: "good" };
-  return { label: "Usage unknown", tone: "neutral" };
+  if (executors.some(e => e.usageState?.verdict === "UNMETERED" || e.paceReason === "unmetered")) return verdict(paceStatus("UNMETERED"));
+  if (live.some(a => ["Available", "On pace"].includes(paceStatus(verdictOf(a)).label)) || executors.some(e => e.eligibility?.state === "eligible" && e.eligibility.budget !== "unknown")) return verdict(paceStatus("OK"));
+  return verdict(paceStatus("unknown"));
 }
