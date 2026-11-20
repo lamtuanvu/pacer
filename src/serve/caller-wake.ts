@@ -1,14 +1,53 @@
+import { realpathSync } from "node:fs";
+import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import type { Ctx } from "../types";
 import type { CallerReach } from "../messaging/caller-reach";
 import type { CallerWakeResult } from "../messaging/broker";
 import { pingOrcaCaller } from "../exec/orca/caller-ping";
 import { callerAlive } from "../messaging/caller-reach";
 import { resumeCaller } from "../install/planner-resume";
-import type { PlannerKind } from "../messaging/identity";
+import { loadStrategy } from "../config/strategy";
+import { computeStatus } from "../engine/status";
+import { readTask } from "../tasks/store";
 
-/** Test seam only; production keeps resuming off. */
-export let resumeEnabled = false;
+/** Test seam: a test may switch resuming off to check the ladder's fallback. */
+export let resumeEnabled = true;
 export function setResumeEnabled(on: boolean): void { resumeEnabled = on; }
+
+/** The real path, resolving the nearest existing parent of a path that is gone (a removed worktree). */
+const real = (p: string): string => {
+  try { return realpathSync(p); } catch { const up = dirname(p); return up === p ? p : join(real(up), basename(p)); }
+};
+const within = (dir: string, p: string) => { const r = relative(dir, p); return r === "" || (!r.startsWith("..") && !isAbsolute(r)); };
+
+/**
+ * A resumed turn runs unattended in the caller's folder, where its hooks and settings apply. If the executor
+ * worked in that same checkout, what it wrote could steer the planner, so the caller is notified instead.
+ */
+export function executorWroteCallerCwd(ctx: Ctx, taskId: string, cwd: string): boolean {
+  const t = readTask(ctx, taskId);
+  if (!t) return true;
+  const caller = real(cwd);
+  const dirs = [t.result?.worktree, t.worktree, t.run?.workdir, t.placement?.mode === "current" ? t.brief.repo : undefined]
+    .filter((d): d is string => !!d && isAbsolute(d)).map(real);
+  return dirs.some(d => within(d, caller) || within(caller, d));
+}
+
+/** A resume is a planner turn: it waits while the planner account has no capacity left. */
+async function plannerAdmitted(ctx: Ctx): Promise<boolean> {
+  try {
+    const strategy = loadStrategy(ctx);
+    const status = await computeStatus({ ...ctx, readOnly: true }, strategy, { cacheOnly: true });
+    const row = status.accounts?.find(a => a.name === strategy.planner.account);
+    return row?.verdict !== "EXHAUSTED";
+  } catch { return false; }
+}
+
+/** The resume preconditions, as one object so tests can stand them in. */
+export const resumeGuards = {
+  executorWroteCallerCwd: (ctx: Ctx, taskId: string, cwd: string) => executorWroteCallerCwd(ctx, taskId, cwd),
+  plannerAdmitted: (ctx: Ctx) => plannerAdmitted(ctx),
+};
 
 export async function callerWake(ctx: Ctx, reach: CallerReach, text: string, step: "ping" | "resume" = "ping", taskId: string = ""): Promise<CallerWakeResult> {
   try {
@@ -16,15 +55,12 @@ export async function callerWake(ctx: Ctx, reach: CallerReach, text: string, ste
       if (reach.terminal.kind !== "orca") return "unavailable";
       return await pingOrcaCaller(ctx, reach.terminal.handle, text);
     }
-    // Resuming a closed caller stays off until it tracks the resumed child, passes budget admission and
-    // refuses executor-written checkouts (follow-up PR); the ladder then falls through to notification.
     if (!resumeEnabled) return "unavailable";
-    const kind: PlannerKind | null =
-      reach.participant.startsWith("external:claude-code:") ? "claude-code"
-      : reach.participant.startsWith("external:codex:") ? "codex"
-      : null;
-    if (!kind) return "unavailable";
-    return await resumeCaller(ctx, { kind, session: reach.session, cwd: reach.cwd }, text, {
+    // Only Claude Code can be held to pacer commands and read-only tools unattended; Codex is notified instead.
+    if (!reach.participant.startsWith("external:claude-code:")) return "unavailable";
+    if (resumeGuards.executorWroteCallerCwd(ctx, taskId, reach.cwd)) return "unavailable";
+    if (!(await resumeGuards.plannerAdmitted(ctx))) return "unavailable";
+    return await resumeCaller(ctx, { kind: "claude-code", session: reach.session, cwd: reach.cwd }, text, {
       task: taskId,
       isAlive: async () => (await callerAlive(ctx, reach)) !== "gone",
     });
