@@ -77,6 +77,17 @@ test("reused pid is not the caller", async () => {
   expect(await callerAlive(ctx, { ...reach, process: undefined })).toBe("unknown");
 });
 
+test("an exited caller is gone, not unknown", async () => {
+  const child = Bun.spawn(["sleep", "30"]);
+  try {
+    const ctx = fakeCtx({ env: { CLAUDE_PID: String(child.pid) } });
+    const reach = callerReach(ctx, "external:local")!;
+    expect(await callerAlive(ctx, reach)).toBe("alive");
+    child.kill(); await child.exited;
+    expect(await callerAlive(ctx, reach)).toBe("gone");
+  } finally { child.kill(); }
+});
+
 test("the CLI delegate records the caller reach", async () => {
   const ctx = await delegateCtx(ALL, { run: realRun });
   const original = cliDeps.spawnRunner;

@@ -24,12 +24,18 @@ export function callerReach(ctx: Ctx, participant: string): CallerReach | null {
   return { participant, ...(session ? { session } : {}), ...(identity ? { process: identity } : {}), cwd: process.cwd(), terminal, at: ctx.now };
 }
 
-/** Whether the recorded caller process is still the recorded one: a live but reused pid is not the caller.
- * `unknown` when no process was recorded or it cannot be read: the caller ladder must not resume on it. */
-export function callerAlive(ctx: Ctx, reach: CallerReach): Promise<"alive" | "gone" | "unknown"> {
+/** Whether the recorded caller process is still the recorded one: a live but reused pid is not the caller,
+ * and an exited one is gone. `unknown` when no process was recorded or it exists but cannot be read: the
+ * caller ladder must not resume on it. */
+export function callerAlive(_ctx: Ctx, reach: CallerReach): Promise<"alive" | "gone" | "unknown"> {
   const want = reach.process;
   if (!want) return Promise.resolve("unknown");
   const now = processIdentity(want.pid);
-  if (!now) return Promise.resolve("unknown");
-  return Promise.resolve(sameProcess(now, want) ? "alive" : "gone");
+  if (now) return Promise.resolve(sameProcess(now, want) ? "alive" : "gone");
+  return Promise.resolve(exists(want.pid) ? "unknown" : "gone");
+}
+
+/** Signal 0 checks for a process without touching it: ESRCH is no such process, EPERM one we may not read. */
+function exists(pid: number): boolean {
+  try { process.kill(pid, 0); return true; } catch (error) { return (error as NodeJS.ErrnoException).code !== "ESRCH"; }
 }
