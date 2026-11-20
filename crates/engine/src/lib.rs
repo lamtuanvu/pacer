@@ -138,11 +138,15 @@ pub fn binding_window(windows: &[Value]) -> Value {
         .filter(|w| matches!(string(&w["verdict"]), "EXHAUSTED" | "NEAR_LIMIT" | "AHEAD"))
         .collect();
     if !hard.is_empty() {
-        return hard
-            .into_iter()
-            .min_by_key(|w| verdict_rank(string(&w["verdict"])))
-            .cloned()
-            .unwrap_or(Value::Null);
+        // `Array.prototype.reduce` keeps the first of equal-rank peers.
+        let best = hard.iter().copied().reduce(|a, b| {
+            if verdict_rank(string(&b["verdict"])) < verdict_rank(string(&a["verdict"])) {
+                b
+            } else {
+                a
+            }
+        });
+        return best.cloned().unwrap_or(Value::Null);
     }
     let paced: Vec<&Value> = known
         .iter()
@@ -150,11 +154,14 @@ pub fn binding_window(windows: &[Value]) -> Value {
         .filter(|w| w.get("pace").is_some())
         .collect();
     if !paced.is_empty() {
-        return paced
-            .into_iter()
-            .max_by_key(|w| verdict_rank(string(&w["verdict"])))
-            .cloned()
-            .unwrap_or(Value::Null);
+        let best = paced.iter().copied().reduce(|a, b| {
+            if verdict_rank(string(&b["verdict"])) > verdict_rank(string(&a["verdict"])) {
+                b
+            } else {
+                a
+            }
+        });
+        return best.cloned().unwrap_or(Value::Null);
     }
     known[0].clone()
 }
@@ -173,9 +180,14 @@ fn current(fact: &Value, now: f64, deadline: Option<f64>) -> bool {
         .is_some_and(|time| time.is_finite() && time >= 0.0 && time <= now)
         && deadline.is_none_or(|time| time > now)
 }
-fn deadline(fact: &Value) -> Option<f64> {
+/// `evidenceDeadline` (`src/engine/evidence.ts`): when a fact stops constraining.
+pub fn deadline(fact: &Value) -> Option<f64> {
     let observed = optional_number(&fact["observedAt"])?;
-    if string(&fact["source"]) == "configuration" {
+    // Configuration and execution cooldown marks bind until their stated end, not
+    // the short-window freshness cap used for measured quota observations.
+    if string(&fact["source"]) == "configuration"
+        || (string(&fact["source"]) == "execution" && string(&fact["value"]["name"]) == "limit")
+    {
         return optional_number(&fact["validUntil"])
             .or_else(|| optional_number(&fact["value"]["resetsAt"]));
     }
@@ -304,13 +316,16 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
     let state = if !reasons.is_empty() {
         "ineligible"
     } else {
-        let conflicts: Vec<Value> = all
+        // Only current peers can disagree about launching now; expired conflicts are history.
+        let conflict: Vec<&Value> = live_availability
             .iter()
+            .copied()
+            .chain(live_budget.iter().copied())
+            .chain(live_spending.iter().copied())
             .filter(|f| array(&input["evidence"]["conflicts"]).contains(&f["id"]))
-            .map(|f| field(f, "id"))
             .collect();
-        if !conflicts.is_empty() {
-            reasons.push(json!({"code": "evidence_conflicting", "evidenceIds": conflicts}));
+        if conflict.len() > 1 {
+            reasons.push(json!({"code": "evidence_conflicting", "evidenceIds": conflict.iter().map(|f| field(f, "id")).collect::<Vec<_>>()}));
         }
         if availability_state == "unknown" {
             reasons.push(json!({"code": "availability_unknown", "evidenceIds": availability.iter().map(|f| field(f, "id")).collect::<Vec<_>>()}));
