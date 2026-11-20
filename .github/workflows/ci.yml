@@ -159,8 +159,9 @@ jobs:
   test:
     name: Test (${{ matrix.os }}, shard ${{ matrix.shard }})
     needs: [changes, ui-evidence, release-readiness]
-    # Run code validation even when manual review evidence is incomplete.
-    if: ${{ always() }}
+    # Run code validation even when manual review evidence is incomplete, but stop when the run is
+    # cancelled: always() kept cancelled PR runs scheduling every shard and starving main's runners.
+    if: ${{ !cancelled() }}
     # Required check names keep the ubuntu-latest label; runners are pinned to 24.04 until Playwright and the self-repair test support 26.04.
     runs-on: ubuntu-24.04
     env:
@@ -261,7 +262,7 @@ jobs:
         run: python3 -c 'import json, os, subprocess; subprocess.run(["bun", "run", "test", "--jobs=4", *json.loads(os.environ["FOCUSED_TESTS"])], check=True)'
       # These existing required checks must still reject incomplete evidence.
       - name: Require UI review readiness
-        if: ${{ always() }}
+        if: ${{ !cancelled() }}
         env:
           CHANGES_RESULT: ${{ needs.changes.result }}
           UI_REQUIRED: ${{ needs.changes.outputs.ui == 'true' && github.event_name == 'pull_request' }}
@@ -356,8 +357,9 @@ jobs:
   # The ruleset on main requires one check per OS; each passes only when every selected job did.
   test-result:
     name: Test (${{ matrix.os }})
-    needs: [changes, checks, test, macos-tests]
-    if: ${{ always() }}
+    # Rust is part of the required per-OS result: a PR whose Rust job fails can't merge.
+    needs: [changes, checks, test, macos-tests, rust]
+    if: ${{ !cancelled() }}
     runs-on: ubuntu-24.04
     strategy:
       matrix:
@@ -371,9 +373,16 @@ jobs:
           CHECKS_RESULT: ${{ needs.checks.result }}
           TEST_RESULT: ${{ needs.test.result }}
           MACOS_RESULT: ${{ needs.macos-tests.result }}
+          RUST_SELECTED: ${{ needs.changes.outputs.rust }}
+          RUST_RESULT: ${{ needs.rust.result }}
         run: |
           test "$CHANGES_RESULT" = success
           test "$TEST_RESULT" = success
+          if test "$RUST_SELECTED" = true; then
+            test "$RUST_RESULT" = success
+          else
+            test "$RUST_RESULT" = skipped
+          fi
           if test "$BUN_SELECTED" = true; then
             test "$CHECKS_RESULT" = success
           else
