@@ -1,11 +1,13 @@
 import { useEffect, useState } from "preact/hooks";
 import type { AssistantSettings as Settings } from "../../../../src/assistant/types";
+import { askModeCheckCopy } from "../../../../src/view-model/copy";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { Field, TextInput } from "../../ds/Controls";
+import { Disclosure, Field, TextInput } from "../../ds/Controls";
 import { useDialogs } from "../../ds/useDialogs";
 import { Skeleton } from "../../ds/Patterns";
+import { confirmExecutorTrust } from "../../shell/assistant/executor-trust";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
 
@@ -37,11 +39,11 @@ export function AssistantSettingsSection() {
   };
   const save = async () => {
     // Choosing an agent CLI to answer is a trust decision (spec §7): say what it can and cannot do, once per switch.
-    if (backend === "executor" && settings.data!.backend !== "executor" &&
-      !(await dialogs.confirm("The agent CLI runs on this machine as you, restricted to answering from pacer's summary: every tool is denied and the restriction was checked. If the CLI ever ignored its restrictions, it could read files you can read. Use it to answer?", "Use the agent CLI", "Use the agent CLI"))) return;
+    if (backend === "executor" && settings.data!.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm))) return;
     await act(() => api.call("assistant.settings.set", { account, backend, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
   };
   const check = () => act(() => api.call("assistant.selftest", { account }), "Check finished.").then(() => candidates.reload());
+  const executor = backend === "executor";
   return <Section id="assistant" title="Assistant">
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
@@ -56,7 +58,8 @@ export function AssistantSettingsSection() {
       <Field label="Questions per day" help="Turns beyond this wait until midnight."><TextInput type="number" min="1" max="1000" value={turns} onInput={event => setTurns(event.currentTarget.value)} /></Field>
       <Field label="Keep history for (days)" help="Older conversations are deleted. At most 200 conversations are kept."><TextInput type="number" min="1" max="365" value={days} onInput={event => setDays(event.currentTarget.value)} /></Field>
       {chosen?.backend === "executor" && !chosen.available && <Alert tone="warning" title="This account has not passed the ask-mode check">
-        <p>{chosen.reason ?? "Run the check before this account can answer."} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
+        <p>{askModeCheckCopy(chosen.reason)} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
+        {chosen.reason && <Disclosure summary="Technical details"><code className="pc-code-wrap">{chosen.reason}</code></Disclosure>}
         <div><Button busy={busy} onClick={() => void check()}>Run ask-mode check</Button></div>
       </Alert>}
       <div><Button variant="primary" busy={busy} disabled={chosen?.backend === "executor" && !chosen.available} onClick={() => void save()}>Save</Button></div>
@@ -65,7 +68,9 @@ export function AssistantSettingsSection() {
     </div>
     <div className="pc-card pc-stack pc-stack--compact">
       <p><strong>What the assistant can read</strong></p>
-      <ul>{candidates.data.reads.map(line => <li key={line}>{line}</li>)}</ul>
+      {executor
+        ? <p>The agent answers from pacer's summary only. It has no live tools in this version.</p>
+        : <ul>{candidates.data.reads.map(line => <li key={line}>{line}</li>)}</ul>}
       <p>It cannot see task goals, output, diffs, files, keys or terminal screens. Secrets and your home folder path are removed before anything is sent. What it reads, and your questions, go to the account’s model{account ? ` (${account})` : ""}.</p>
       <p>It can only suggest actions. Nothing runs until you press the button on its card.</p>
     </div>
