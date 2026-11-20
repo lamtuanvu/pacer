@@ -144,7 +144,7 @@ test('hidden control action uses its visible text as its accessible name in a po
 });
 
 test("near-limit and out-of-quota chips are spoken in the usage button's name, not shown by colour alone", () => {
-  const near = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, verdict: "NEAR_LIMIT" } });
+  const near = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, verdict: "NEAR_LIMIT" as never } });
   const html = renderToString(<StatusBar route={route("review")} snapshot={near} registry={registry} />);
   expect(html).toMatch(/aria-label="Usage details: [^"]*63%, near limit/);
   expect(html).toContain('role="img" aria-label="Near limit" class="pc-statusbar__stale">!</span>');
