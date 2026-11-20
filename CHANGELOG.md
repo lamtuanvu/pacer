@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Changed
+
+- **Rust plugin crates 0.3.0 on crates.io.** `pacer-plugin` and its generated protocol crates move to 0.3.0 for plugin protocol 1.11.0. The generated top-level type is renamed (`PacerPluginProtocol1100` becomes `PacerPluginProtocol1110`), so plugins that name it need the rename. `pacer-plugin-assistant-protocol` is published for the first time.
+
 ## [0.17.5] - 2026-11-19
 
 ### Changed
