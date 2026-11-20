@@ -35954,7 +35954,7 @@
         ],
         "evaluatedAt": 1798000000,
         "validUntil": 1798003600,
-        "evidenceAgeS": 100,
+        "evidenceAgeS": 50,
         "availability": "ready",
         "budget": "permitted",
         "spendingRisk": "unknown"
