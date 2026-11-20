@@ -516,6 +516,30 @@ mod tests {
         (dir, ctx)
     }
 
+    /// The parts' strategy snapshot wins over a reload: the passed text decides
+    /// even when the file on disk changed after the TypeScript read, and a core
+    /// without the snapshot field falls back to the host's own read.
+    #[test]
+    fn parts_strategy_uses_the_snapshot_text_and_falls_back_to_disk() {
+        let (_dir, ctx) = route_ctx("planner: claude-code\nproviders:\n  claude-code: {}\n");
+        let snapshot = json!({
+            "strategy": {
+                "path": "/pacer/strategy.yaml",
+                "name": "default",
+                "text": "planner: codex\nproviders:\n  codex: {}\n",
+            }
+        });
+        assert_eq!(
+            parts_strategy(&ctx, &snapshot).unwrap()["runners"]["codex"]["agent"],
+            "codex"
+        );
+        // Missing snapshot: the host's own read.
+        assert_eq!(
+            parts_strategy(&ctx, &json!({})).unwrap()["runners"]["claude-code"]["agent"],
+            "claude-code"
+        );
+    }
+
     const LOCAL: &str = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nrunners:\n  claude-code: {}\n  codex: {}\n";
 
     #[test]
