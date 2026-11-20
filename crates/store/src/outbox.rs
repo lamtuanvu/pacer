@@ -255,6 +255,8 @@ fn parse_task(data: &Value) -> Option<Value> {
         ("retryOf", 128),
         ("brokenExecutor", 64),
         ("brokenReason", 500),
+        ("account", 64),
+        ("model", 200),
     ] {
         if let Some(v) = optional_string(data, key, max) {
             row[key] = json!(v);

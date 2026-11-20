@@ -689,7 +689,7 @@ fn structured_publication_parser_cases_match_bun() {
         json!({"type":"pause","data":{"until":1,"reason":"r","by":"b"}}),
         json!({"type":"config","data":{"area":"a","at":1}}),
         json!({"type":"budget","data":{"generatedAt":1,"strategy":"s","planner":"p","mode":"m","providers":[{"id":"p","verdict":"OK","agent":"a","account":"x","usedPct":1,"pacePct":2,"resetsAt":3,"window":"w","stale":true,"brokenReason":"b","blockedReason":"b","blockedUntil":4}],"ranked":[{"id":"p","verdict":"OK"}]}}),
-        json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"title":"title","goal":"goal","executor":"x","backend":"b","worktree":"w","interactionMode":"conversation","conversation":{"activity":"working","agentSessionId":"s","endReason":"user"},"placement":{"mode":"current","why":"w"},"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"controller":"c","viewers":2},"terminalPresent":true,"resolved":"r","reviewRequest":{"note":"n","at":1},"acceptanceState":"passed","review":{"accepted":true,"kind":"k","note":"n","at":1},"dismissed":true,"retriedBy":"r","retryOf":"r","brokenExecutor":"b","brokenReason":"b","attemptStartedAt":1,"progress":{"phase":"working","lastOutputAt":1,"files":1,"commits":1,"logBytes":1},"runnerAlive":true,"diagnosticCheck":"CLI codex","diagnosticRecheck":{"at":1,"passed":false,"level":"fail","detail":"d"}}}),
+        json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"title":"title","goal":"goal","executor":"x","backend":"b","worktree":"w","account":"a","model":"m","interactionMode":"conversation","conversation":{"activity":"working","agentSessionId":"s","endReason":"user"},"placement":{"mode":"current","why":"w"},"stopPending":{"attempt":1,"requestedAt":1,"providerId":"p","graceMs":1},"session":{"host":"builtin","live":true,"controller":"c","viewers":2},"terminalPresent":true,"resolved":"r","reviewRequest":{"note":"n","at":1},"acceptanceState":"passed","review":{"accepted":true,"kind":"k","note":"n","at":1},"dismissed":true,"retriedBy":"r","retryOf":"r","brokenExecutor":"b","brokenReason":"b","attemptStartedAt":1,"progress":{"phase":"working","lastOutputAt":1,"files":1,"commits":1,"logBytes":1},"runnerAlive":true,"diagnosticCheck":"CLI codex","diagnosticRecheck":{"at":1,"passed":false,"level":"fail","detail":"d"}}}),
         json!({"type":"mode","data":{"mode":"normal","previous":"old","strategy":"s","at":1}}),
         json!({"type":"alert","data":{"key":"k","level":"info","title":"t","body":"b","at":1,"error":"e","notification":{"kind":"failed","fromPanel":true,"near":true,"executor":"x","goal":"g","nextExecutor":"n","strategy":"s","resetsAt":1}}}),
         json!({"type":"assistant","data":{"turnId":"t","conversationId":"c","state":"done"}}),
@@ -746,6 +746,8 @@ fn structured_publication_parser_cases_match_bun() {
             "/data/executor",
             "/data/backend",
             "/data/worktree",
+            "/data/account",
+            "/data/model",
             "/data/interactionMode",
             "/data/conversation/activity",
             "/data/conversation/agentSessionId",
@@ -874,6 +876,30 @@ fn structured_publication_parser_cases_match_bun() {
     for (index, (input, wanted)) in inputs.iter().zip(expected.iter()).enumerate() {
         let actual = parse_outbox_event(input).unwrap_or(Value::Null);
         assert_eq!(&actual, wanted, "case {index}: {input}");
+    }
+}
+
+#[test]
+fn task_events_carry_account_and_model() {
+    let event = json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"account":"oc-glm","model":"opencode-go/glm-5.3-flash"}});
+    let parsed = parse_outbox_event(&event).unwrap();
+    assert_eq!(parsed["data"]["account"], json!("oc-glm"));
+    assert_eq!(parsed["data"]["model"], json!("opencode-go/glm-5.3-flash"));
+    // Limits match the TS parser: account truncates at 64 UTF-16 units, model at 200.
+    let long = parse_outbox_event(&json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"account":"x".repeat(129),"model":"y".repeat(501)}})).unwrap();
+    assert_eq!(long["data"]["account"], json!("x".repeat(64)));
+    assert_eq!(long["data"]["model"], json!("y".repeat(200)));
+    // Non-strings and empty strings leave the fields off the row, like every optional field.
+    for value in [
+        Value::Null,
+        json!(1),
+        json!(-1.5),
+        json!([]),
+        json!({}),
+        json!(""),
+    ] {
+        let parsed = parse_outbox_event(&json!({"type":"task","data":{"id":"t","state":"running","updatedAt":1,"account":value}})).unwrap();
+        assert!(parsed["data"].get("account").is_none(), "{value}");
     }
 }
 

@@ -441,6 +441,10 @@ fn build_diagnostic(hello: &Value, manifest: Option<&Value>) -> Value {
     match (descriptor(&hello["coreBuild"]), descriptor(&m["core"]["descriptor"])) {
         (Some(a), Some(b)) if a != b => json!({"status":"mismatch","reason":"core-descriptor-differs","proof":"unverified"}),
         (Some(_), Some(_)) => json!({"status":"unverified","reason":"native-proof-unavailable","proof":"unverified"}),
+        // The manifest side is fine; the service simply never sent a coreBuild
+        // key at all, meaning it predates this check rather than failing it.
+        (None, Some(_)) if hello["coreBuild"].is_null() =>
+            json!({"status":"legacy","reason":"descriptor-unavailable","proof":"unverified"}),
         _ => json!({"status":"unknown","reason":"descriptor-unavailable","proof":"unverified"}),
     }
 }
@@ -1548,10 +1552,25 @@ mod build_diagnostic_tests {
         assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unverified");
         pair["core"]["descriptor"]["buildId"] = json!("b");
         assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "mismatch");
-        assert_eq!(build_diagnostic(&json!({}), Some(&pair))["status"], "unknown");
         assert_eq!(build_diagnostic(&hello, None)["status"], "unknown");
         pair["schemaVersion"] = json!(2);
         assert_eq!(build_diagnostic(&hello, Some(&pair))["status"], "unknown");
+    }
+    #[test]
+    fn a_service_with_no_core_build_key_is_legacy_not_unknown() {
+        let core = json!({"schemaVersion":1,"releaseVersion":"1.2.3","buildId":"a","role":"core","targetOs":"darwin","targetArch":"arm64"});
+        let mut front = core.clone();
+        front["role"] = json!("front-door");
+        let hash = "a".repeat(64);
+        let pair = json!({"schemaVersion":1,"frontDoor":{"descriptor":front,"sha256":hash},"core":{"descriptor":core,"sha256":hash}});
+        // An old service's hello has no coreBuild field at all: a valid manifest
+        // but a missing claim is "legacy", not the generic "unknown".
+        assert_eq!(build_diagnostic(&json!({}), Some(&pair))["status"], "legacy");
+        assert_eq!(build_diagnostic(&json!({"coreBuild": null}), Some(&pair))["status"], "legacy");
+        // A present but malformed claim stays "unknown": that is not simply old.
+        assert_eq!(build_diagnostic(&json!({"coreBuild": "garbage"}), Some(&pair))["status"], "unknown");
+        // No usable manifest at all never reports "legacy".
+        assert_eq!(build_diagnostic(&json!({}), None)["status"], "unknown");
     }
 }
 

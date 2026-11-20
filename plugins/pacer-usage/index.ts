@@ -21,8 +21,8 @@ export const handlers: Record<string, Handler> = {
         if (input.quotaSource === "arkcli") return readByteplus(ctx, input.refresh);
         return { windows: [], capturedAt: null, stale: false, error: `no quota source for ${input.provider}` };
       case "metered": return readMetered(ctx, input, input.refresh);
-      case "reactive": return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: input.now, stale: false, source: "reactive" };
-      case "unmetered": return { windows: [], capturedAt: input.now, stale: false, source: "unmetered" };
+      case "reactive": return { windows: [], capturedAt: null, stale: false, source: "reactive" };
+      case "unmetered": return { windows: [], capturedAt: null, stale: false, source: "unmetered" };
     }
   },
 };

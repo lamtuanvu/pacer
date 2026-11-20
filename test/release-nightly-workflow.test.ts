@@ -123,6 +123,16 @@ test("one nightly at a time, least privilege, and the release token only where a
   expect(checkout.with).toMatchObject({ "fetch-depth": 0, "fetch-tags": true, "persist-credentials": false });
 });
 
+// Amendment 0.24.0 (proposed): release.yml no longer re-runs the CI gate; nightly.yml
+// already required CI's full suite for the commit it stamps, before tagging.
+test("the nightly release path re-checks nothing in release.yml", () => {
+  const release = readFileSync(resolve(".github/workflows/release.yml"), "utf8");
+  expect(release).not.toContain("ci-suite");
+  expect(release).not.toContain("ci-evidence");
+  expect(release).not.toContain("gate:m1");
+  expect(stepNamed("Require CI's Linux and macOS test gates for the commit").run).toBe("bun scripts/release/ci-evidence.ts");
+});
+
 test("every nightly action is SHA-pinned and checkout does not persist credentials", () => {
   for (const job of Object.values(workflow.jobs)) {
     for (const action of job.steps.filter(s => s.uses)) {

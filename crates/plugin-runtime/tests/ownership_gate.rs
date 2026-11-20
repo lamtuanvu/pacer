@@ -56,12 +56,12 @@ fn reverse_bridge_contract_names_match_design() {
         pacer_plugin_runtime::METHOD_PLUGIN_STOP,
         "_host.plugin.stop"
     );
-    assert!(serve_starts_reverse_bridge_by_default());
+    assert!(!serve_starts_reverse_bridge_by_default());
     assert!(!dark_bridge_enabled(None));
     assert!(dark_bridge_enabled(Some("1")));
     assert!(dark_bridge_disabled(Some("0")));
     assert!(!dark_bridge_disabled(None));
-    assert!(native_plugin_host_enabled(None, None));
+    assert!(!native_plugin_host_enabled(None, None));
     assert!(!native_plugin_host_enabled(Some("0"), None));
     assert!(!native_plugin_host_enabled(Some("1"), Some("0")));
     assert!(native_plugin_host_enabled(Some("1"), None));

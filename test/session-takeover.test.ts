@@ -338,11 +338,13 @@ test("OpenCode discovery runs in the worktree with runner environment and record
 printf '%s\\n' "$@" > lookup-argv
 pwd > lookup-cwd
 printf '%s' "$PACER_ROLE" > lookup-role
+printf '%s' "$OPENCODE_CONFIG_CONTENT" > lookup-config
 printf '%s' '[{"id":"chat-opencode","title":"pacer ${task.id}","updatedAt":20}]'
 `,{mode:0o755});
  const run={dir,attempt:1,executor:"opencode#api",startedAt:Date.now()/1000,mode:"current" as const,workdir:repo,logFile:join(dir,"log")};
  writeFileSync(join(dir,"exit"),"143");
- updateTask(ctx,task.id,t=>{t.state="running";t.backend="direct";t.run=run;});
+ // The attempt chose a model other than the runner's default; discovery must keep it.
+ updateTask(ctx,task.id,t=>{t.state="running";t.backend="direct";t.run=run;t.pendingAttempt={model:"api/chosen"};});
  expect((await sessionInfo(ctx,task.id,false,false)).takeover).toEqual({available:true});
  expect(existsSync(join(repo,"lookup-argv"))).toBe(false);
  // Stand in for a runner consuming the request; the operation should return immediately when it settles.
@@ -354,6 +356,7 @@ printf '%s' '[{"id":"chat-opencode","title":"pacer ${task.id}","updatedAt":20}]'
   expect(readFileSync(join(repo,"lookup-argv"),"utf8").trim().split("\n")).toEqual(["session","list","--standalone","--format","json","-n","20"]);
   expect(readFileSync(join(repo,"lookup-cwd"),"utf8").trim()).toBe(repo);
   expect(readFileSync(join(repo,"lookup-role"),"utf8")).toBe("executor");
+  expect(JSON.parse(readFileSync(join(repo,"lookup-config"),"utf8")).model).toBe("api/chosen");
  }finally{clearInterval(timer);}
 });
 test("missing id refusal uses the specified wording",async()=>{
