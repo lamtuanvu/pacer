@@ -77,7 +77,13 @@ export async function apiCommand(args: string[], ctx: Ctx, deps: {
       sensitive = secrets(params);
     }
     if (action === 'call') assertCallerCanInvoke(ctx, name!, params);
-    client = await (deps.connect ?? (() => connectClient(ctx, { protocol: 3, allowFallback: !ctx.env.PACER_PORT })))();
+    // Ask-mode self-test runs several agent turns (up to ~120s each); the HTTP client's
+    // default 15s abort was cutting the call off before the recorded result returned.
+    const longOp = action === 'call' && (name === 'assistant.selftest' || name === 'assistant.ask');
+    client = await (deps.connect ?? (() => connectClient(ctx, {
+      protocol: 3, allowFallback: !ctx.env.PACER_PORT,
+      ...(longOp ? { timeoutMs: 360_000 } : {}),
+    })))();
     const hello = await client.hello();
     const op = action === 'call' ? name! : `api.${action}`;
     if (!hello.protocol.startsWith('3.') || !hello.ops.includes(op)) throw new ApiError('unknown_op', 'The selected service does not support this operation', 'Use pacer api list --json; upgrade the service if discovery is unavailable.');

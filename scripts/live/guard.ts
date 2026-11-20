@@ -119,8 +119,17 @@ if (import.meta.main) {
     if (args.length === 3 && args[0] === "plugin" && args[1] === "run" && args[2] === "pacer-ssh") {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }
+    // Ask-mode ACP starts `pacer mcp --assistant` through PACER_BIN. Preserve the host-issued
+    // assistant grant/url/turn env; sandboxEnv would otherwise replace process.env and the MCP
+    // server would list no tools (self-test and live ask then look digest-only).
+    const env = sandboxEnv(session);
+    if (args[0] === "mcp") {
+      for (const key of ["PACER_ASSISTANT_GRANT", "PACER_ASSISTANT_URL", "PACER_ASSISTANT_TURN", "PACER_ASSISTANT_HOME"]) {
+        if (typeof process.env[key] === "string") env[key] = process.env[key]!;
+      }
+    }
     const child = Bun.spawn([...pacerArgv(session), ...args], {
-      cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "inherit", stdout: "inherit", stderr: "inherit",
+      cwd: join(session.root, "repo"), env, stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.
     for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => child.kill(signal));

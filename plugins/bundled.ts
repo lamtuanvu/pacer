@@ -21,8 +21,8 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   manifest: {id: "pacer-assistant", version: "1.0.0", publisher: "pacer", host: "^1.3", contributes: {assistant: {}}, capabilities: [{name: "secrets.resolve", scopes: ["endpoint"]}, {name: "net.http"}], reentrant: true, tier: "free"},
   main: () => import("./assistant/index"),
 }, {
-  // The assistant's executor backend: runs the host-issued ask-mode `opencode run` or `claude -p` command only.
-  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode", "claude"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
+  // The assistant's executor backend: runs the host-issued ask-mode opencode/claude/codex command only.
+  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode", "claude", "codex"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
   main: () => import("./assistant-executor/index"),
 }, { manifest: manifestSchema.parse(sshManifest), main: () => import("./pacer-ssh/index") },
   { manifest: manifestSchema.parse(remoteCallerManifest), main: () => import("./pacer-remote-caller/index") },
