@@ -10,11 +10,17 @@ import type { HostClient } from "@pacer/plugin";
  * reference.
  */
 
+/** Mirrors ask-mode constants so this plugin does not import the host assistant module. */
+const CLAUDE_EMPTY_MCP = '{"mcpServers":{}}';
+const CLAUDE_ALLOWED_PACER_TOOLS = "mcp__pacer__*";
+const CLAUDE_PERMISSION_MODE = "dontAsk";
+const CLAUDE_EXPECT_TOOLS_ENV = "CLAUDE_CODE_EXPECT_TOOLS";
+
 interface AskCommand { argv: string[]; cwd: string; env: Record<string, string>; stdin: string; timeoutMs: number }
 export interface ExecutorReplyParams {
   turnId: string;
   session?: string;
-  executor?: { configRef: string; command: AskCommand; fallback?: AskCommand };
+  executor?: { configRef: string; command: AskCommand; fallback?: AskCommand; digestFallback?: AskCommand };
 }
 export interface ReplyResult {
   message: string;
@@ -79,7 +85,15 @@ export function parseRun(stdout: string): RunOutcome {
 }
 
 /** What every Claude ask-mode turn must see on the stream-json `system`/`init` event. */
-export interface ClaudeInitExpect { permissionMode: string; cwd: string; version: string }
+export interface ClaudeInitExpect {
+  permissionMode: string;
+  cwd: string;
+  version: string;
+  /** Exact `mcp__pacer__*` tool names when MCP tools are on; empty for digest-only. */
+  tools: string[];
+  /** Require `mcp_servers: [{name:pacer,status:connected}]` when true. */
+  pacerMcp: boolean;
+}
 
 /**
  * Built-in Claude Code plugins that `--safe-mode` still lists on init (path must be `builtin`).
@@ -115,13 +129,34 @@ export function claudePluginsAllowed(plugins: unknown[]): boolean {
   });
 }
 
+function sameToolSet(listed: string[], expected: string[]): boolean {
+  if (listed.length !== expected.length) return false;
+  const want = new Set(expected);
+  return listed.every(name => want.has(name));
+}
+
+function pacerConnected(mcp: unknown[] | null): boolean {
+  if (!mcp || mcp.length !== 1) return false;
+  const server = mcp[0];
+  if (!server || typeof server !== "object") return false;
+  const s = server as { name?: unknown; status?: unknown };
+  return s.name === "pacer" && s.status === "connected";
+}
+
+function pacerFailed(mcp: unknown[] | null): boolean {
+  if (!mcp) return true;
+  const pacer = mcp.find(s => s && typeof s === "object" && (s as { name?: unknown }).name === "pacer");
+  if (!pacer || typeof pacer !== "object") return true;
+  return (pacer as { status?: unknown }).status !== "connected";
+}
+
 /**
  * Read Claude Code's `--output-format stream-json` lines: assistant text, session_id, usage on the
  * final result, tool_use blocks mapped to tool_result by tool_use_id, and the fail-closed init
- * surface (empty tools/mcp/slash_commands/skills, only allowlisted builtin plugins, matching
- * permissionMode/cwd/version). A missing or non-empty init, or any hook lifecycle event, is an error.
- * The `agents` list on init is ignored: those names are unreachable without the Agent tool, which
- * ask mode disables via `--tools ''`.
+ * surface. With pacer MCP: `mcp_servers` is exactly `[{name:pacer,status:connected}]` and `tools`
+ * is exactly the host's `mcp__pacer__*` set. Digest-only: empty tools/mcp. Slash commands empty;
+ * plugins only allowlisted builtins; permissionMode/cwd/version match. A missing/wrong init or any
+ * hook lifecycle event is an error. `agents` on init is ignored (unreachable without Agent).
  */
 export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOutcome {
   const text: string[] = [], tools: RunOutcome["tools"] = [];
@@ -152,20 +187,28 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
       const cwd = typeof event.cwd === "string" ? event.cwd : "";
       const version = typeof event.claude_code_version === "string" ? event.claude_code_version : "";
       const pluginsOk = !!plugins && claudePluginsAllowed(plugins);
-      const empty = !!listed && listed.length === 0 && !!mcp && mcp.length === 0 && pluginsOk
-        && !!slash && slash.length === 0
-        && (skills === null || skills.length === 0);
+      const slashOk = !!slash && slash.length === 0;
+      const skillsOk = skills === null || skills.length === 0;
       const matches = !expect || (mode === expect.permissionMode && samePath(cwd, expect.cwd) && version === expect.version);
-      if (empty && matches) tools.push({ tool: "claude:init", status: "empty" });
-      else {
+      const wantPacer = expect?.pacerMcp ?? false;
+      const wantTools = expect?.tools ?? [];
+      const surfaceOk = wantPacer
+        ? !!listed && sameToolSet(listed, wantTools) && pacerConnected(mcp) && pluginsOk && slashOk && skillsOk
+        : !!listed && listed.length === 0 && !!mcp && mcp.length === 0 && pluginsOk && slashOk && skillsOk;
+      if (surfaceOk && matches) {
+        tools.push({ tool: "claude:init", status: wantPacer ? "pacer" : "empty" });
+      } else {
         if (listed) for (const name of listed) tools.push({ tool: name, status: "available" });
         if (mcp) for (const server of mcp) {
           const name = server && typeof server === "object" && "name" in server ? String((server as { name?: unknown }).name ?? "mcp") : "mcp";
-          tools.push({ tool: name, status: "available" });
+          const status = server && typeof server === "object" && "status" in server
+            ? String((server as { status?: unknown }).status ?? "available") : "available";
+          tools.push({ tool: name, status });
         }
         if (plugins) for (const plugin of plugins) tools.push({ tool: pluginName(plugin), status: "available" });
         if (slash) for (const name of slash) tools.push({ tool: String(name), status: "available" });
-        if (!empty) error = error ?? "claude init surface was not empty";
+        if (wantPacer && pacerFailed(mcp)) error = error ?? "claude pacer MCP server failed to connect";
+        else if (!surfaceOk) error = error ?? (wantPacer ? "claude init did not expose exactly the pacer MCP tools" : "claude init surface was not empty");
         else if (!matches) error = error ?? "claude init did not match the issued ask-mode turn";
       }
       continue;
@@ -219,7 +262,19 @@ export function claudeExpectFromCommand(c: AskCommand): ClaudeInitExpect | null 
   const modeAt = c.argv.indexOf("--permission-mode");
   const version = c.env.CLAUDE_CODE_EXPECT_VERSION;
   if (modeAt < 0 || !c.argv[modeAt + 1] || !version) return null;
-  return { permissionMode: c.argv[modeAt + 1]!, cwd: c.cwd, version };
+  const mcpAt = c.argv.indexOf("--mcp-config");
+  const mcpJson = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  const allowAt = c.argv.indexOf("--allowedTools");
+  const allowed = allowAt >= 0 ? c.argv[allowAt + 1] : undefined;
+  const expectTools = (c.env[CLAUDE_EXPECT_TOOLS_ENV] ?? "").split(",").map(s => s.trim()).filter(Boolean);
+  const pacerMcp = !!mcpJson && mcpJson !== CLAUDE_EMPTY_MCP && allowed === CLAUDE_ALLOWED_PACER_TOOLS && expectTools.length > 0;
+  return {
+    permissionMode: c.argv[modeAt + 1] ?? CLAUDE_PERMISSION_MODE,
+    cwd: c.cwd,
+    version,
+    pacerMcp,
+    tools: pacerMcp ? expectTools : [],
+  };
 }
 
 async function readAll(host: Pick<HostClient, "call">, handle: string): Promise<string> {
@@ -261,6 +316,9 @@ async function run(host: Pick<HostClient, "call">, configRef: string | undefined
 /** A resume that failed before the agent answered: no text, and an error or a non-zero exit. */
 const resumeFailed = (r: { code: number; timedOut: boolean }, o: RunOutcome) => !r.timedOut && !o.text && (r.code !== 0 || !!o.error);
 
+/** Init said the pacer MCP server did not connect (host may retry digest-only). */
+const mcpConnectFailed = (o: RunOutcome) => !!o.error && /pacer MCP server failed to connect/i.test(o.error);
+
 function parseAsk(command: AskCommand, stdout: string): RunOutcome {
   if (command.argv[0] === "claude") {
     const expect = claudeExpectFromCommand(command);
@@ -273,18 +331,26 @@ function parseAsk(command: AskCommand, stdout: string): RunOutcome {
 
 export async function reply(p: ExecutorReplyParams, host: Pick<HostClient, "call">, signal: AbortSignal): Promise<ReplyResult> {
   if (!p.executor) throw new PluginError("invalid_input", "The executor backend needs a host-issued ask-mode command.");
-  const { configRef, command, fallback } = p.executor;
-  let raw = await run(host, configRef, command), out = parseAsk(command, raw.stdout);
+  const { configRef, command, fallback, digestFallback } = p.executor;
+  let active = command;
+  let raw = await run(host, configRef, active), out = parseAsk(active, raw.stdout);
   if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   // A stored session can be gone (expired, removed, another CLI version): start a new one seeded
   // with the transcript, which the host issued as the fallback command.
   if (p.session && fallback && resumeFailed(raw, out)) {
-    raw = await run(host, configRef, fallback); out = parseAsk(fallback, raw.stdout);
+    active = fallback;
+    raw = await run(host, configRef, active); out = parseAsk(active, raw.stdout);
+    if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
+  }
+  // Pacer MCP failed to connect: host-issued digest-only retry (tools unavailable in the prompt).
+  if (digestFallback && mcpConnectFailed(out)) {
+    active = digestFallback;
+    raw = await run(host, configRef, active); out = parseAsk(active, raw.stdout);
     if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   }
   if (raw.timedOut) throw new PluginError("plugin_timeout", "The agent did not answer in time.");
-  // Claude: a missing/non-empty init or a hook event fails the turn even when text arrived.
-  if (command.argv[0] === "claude" && out.error) throw new PluginError("plugin_refused", out.error);
+  // Claude: a missing/wrong init or a hook event fails the turn even when text arrived.
+  if (active.argv[0] === "claude" && out.error) throw new PluginError("plugin_refused", out.error);
   if (!out.text) throw new PluginError("plugin_unavailable", out.error ?? `The agent exited ${raw.code} without an answer.`);
   return { message: out.text, ...(out.session ? { session: out.session } : {}), ...(out.tools.length ? { tools: out.tools.slice(0, 64) } : {}), usage: out.usage };
 }

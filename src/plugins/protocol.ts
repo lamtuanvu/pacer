@@ -246,6 +246,8 @@ export const assistantReplyParams = z.object({
     configRef: z.string().min(1).max(128),
     command: assistantAskCommand,
     fallback: assistantAskCommand.optional(),
+    /** Claude Code: digest-only retry when the pacer MCP server failed to connect on `command`. */
+    digestFallback: assistantAskCommand.optional(),
   }).strict().optional(),
   limits: z.object({
     maxInputTokens: z.number().int().min(1000).max(200_000),

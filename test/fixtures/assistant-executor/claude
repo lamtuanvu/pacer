@@ -2,7 +2,7 @@
 // Stand-in for `claude -p --output-format stream-json` in ask-mode tests.
 // Modes (file `mode` beside this script):
 //   absent | deny | leak | partial | slow | leak-on-resume
-//   init-tools | init-mcp | missing-init | hook
+//   init-tools | init-mcp | mcp-failed | missing-init | hook
 //   extra-plugin | slash-commands | agents-leak
 import { appendFileSync, readFileSync } from "node:fs";
 import { join } from "node:path";
@@ -14,18 +14,35 @@ const stdin = readFileSync(0, "utf8");
 let mode = "absent"; try { mode = readFileSync(`${import.meta.dir}/mode`, "utf8").trim(); } catch { /* default */ }
 appendFileSync(process.env.FAKE_LOG ?? `${import.meta.dir}/calls.jsonl`, JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\n");
 const resumeArg = argv.find(a => a.startsWith("--resume="));
+const sessionAt = argv.indexOf("--session-id");
+const sessionFromArg = sessionAt >= 0 ? argv[sessionAt + 1] : undefined;
 const GONE = "00000000-0000-4000-8000-000000000001";
-const session = resumeArg ? resumeArg.slice("--resume=".length) : randomUUID();
+const session = resumeArg ? resumeArg.slice("--resume=".length) : (sessionFromArg && /^[0-9a-f-]{36}$/i.test(sessionFromArg) ? sessionFromArg : randomUUID());
 const prompt = stdin || argv[argv.length - 1] || "";
 const modeAt = argv.indexOf("--permission-mode");
 const permissionMode = modeAt >= 0 ? argv[modeAt + 1] : "dontAsk";
 const expectEnv = process.env.CLAUDE_CODE_EXPECT_VERSION ?? "2.1.281";
 const version = (expectEnv.match(/(\d+\.\d+\.\d+\S*)/) ?? [null, "2.1.281"])[1]!;
+const mcpAt = argv.indexOf("--mcp-config");
+const mcpJson = mcpAt >= 0 ? argv[mcpAt + 1] ?? "" : "";
+const allowAt = argv.indexOf("--allowedTools");
+const allowed = allowAt >= 0 ? argv[allowAt + 1] : "";
+const digestOnly = !mcpJson || mcpJson === '{"mcpServers":{}}' || allowed !== "mcp__pacer__*";
+const expectTools = (process.env.CLAUDE_CODE_EXPECT_TOOLS ?? "").split(",").map(s => s.trim()).filter(Boolean);
 const out = (o: Record<string, unknown>) => console.log(JSON.stringify({ session_id: session, ...o }));
 const builtinPlugins = [
   { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
   { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
 ];
+const pacerInit = (extra: Record<string, unknown> = {}) => out({
+  type: "system", subtype: "init",
+  cwd: process.cwd(), permissionMode, claude_code_version: version,
+  tools: expectTools.length ? expectTools : ["mcp__pacer__snapshot"],
+  mcp_servers: [{ name: "pacer", status: "connected" }],
+  plugins: builtinPlugins, slash_commands: [], skills: [],
+  agents: ["claude", "Explore", "general-purpose", "Plan"],
+  ...extra,
+});
 const emptyInit = (extra: Record<string, unknown> = {}) => out({
   type: "system", subtype: "init",
   cwd: process.cwd(), permissionMode, claude_code_version: version,
@@ -42,37 +59,65 @@ function agentsCanaryFromParent(): string | null {
 }
 if (mode === "slow") { appendFileSync(`${import.meta.dir}/pid`, String(process.pid)); await Bun.sleep(30_000); }
 if (mode === "leak-on-resume" && resumeArg) {
-  emptyInit();
+  if (digestOnly) emptyInit(); else pacerInit();
   out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
 }
 if (session === GONE) { out({ type: "result", is_error: true, result: "Session not found" }); process.exit(1); }
-if (mode === "missing-init") {
+// Digest-only fallback (empty MCP): ignore mcp-failed / tool-surface failure modes so the retry can pass.
+if (digestOnly) {
+  if (mode === "missing-init") { /* skip */ }
+  else if (mode === "extra-plugin") emptyInit({ plugins: [...builtinPlugins, { name: "evil", path: "/tmp/evil", source: "evil@local" }] });
+  else if (mode === "slash-commands") emptyInit({ slash_commands: ["/help"] });
+  else if (mode === "hook") { emptyInit(); out({ type: "system", subtype: "hook_started", hook_event_name: "PreToolUse" }); }
+  else if (!(mode === "leak-on-resume" && resumeArg)) emptyInit();
+} else if (mode === "missing-init") {
   /* skip init */
 } else if (mode === "init-tools") {
-  emptyInit({ tools: ["Bash"], plugins: [] });
+  pacerInit({ tools: ["Bash", ...expectTools] });
 } else if (mode === "init-mcp") {
-  emptyInit({ mcp_servers: [{ name: "extra" }], plugins: [] });
+  pacerInit({ mcp_servers: [{ name: "extra", status: "connected" }] });
+} else if (mode === "mcp-failed") {
+  out({
+    type: "system", subtype: "init",
+    cwd: process.cwd(), permissionMode, claude_code_version: version,
+    tools: [], mcp_servers: [{ name: "pacer", status: "failed" }],
+    plugins: builtinPlugins, slash_commands: [], skills: [],
+  });
 } else if (mode === "extra-plugin") {
-  emptyInit({ plugins: [...builtinPlugins, { name: "evil", path: "/tmp/evil", source: "evil@local" }] });
+  pacerInit({ plugins: [...builtinPlugins, { name: "evil", path: "/tmp/evil", source: "evil@local" }] });
 } else if (mode === "slash-commands") {
-  emptyInit({ slash_commands: ["/help"] });
-} else if (mode !== "leak-on-resume" || !resumeArg) {
-  emptyInit();
+  pacerInit({ slash_commands: ["/help"] });
+} else if (mode === "hook") {
+  pacerInit();
+  out({ type: "system", subtype: "hook_started", hook_event_name: "PreToolUse" });
+} else if (!(mode === "leak-on-resume" && resumeArg)) {
+  pacerInit();
 }
-if (mode === "hook") out({ type: "system", subtype: "hook_started", hook_event_name: "PreToolUse" });
-if (mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) {
+if (!digestOnly && mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) {
   out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tu_${name}`, name }] } });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `tu_${name}`, is_error: true }] } });
 }
-if (mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
-if (mode === "partial") {
+if (!digestOnly && mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
+if (!digestOnly && mode === "partial") {
   out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu_bash", is_error: true }] } });
+}
+// Default ask-mode evidence: a successful harmless pacer read (unless digest-only / failure modes).
+if (!digestOnly && (mode === "absent" || mode === "deny" || (mode === "leak-on-resume" && !resumeArg) || mode === "agents-leak")) {
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_snap", name: "mcp__pacer__snapshot" }] } });
+  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu_snap", content: "{\"counts\":{}}" }] } });
 }
 const leaked = mode === "agents-leak" ? agentsCanaryFromParent() : null;
 const answer = leaked
   ? `answer with ${leaked}: ${prompt.split("\n").at(-1)}`
   : "answer to: " + prompt.split("\n").at(-1);
-out({ type: "assistant", message: { content: [{ type: "text", text: answer }] } });
-out({ type: "result", subtype: "success", result: answer,
-  usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });
+// mcp-failed on the tools turn: emit text so parse sees the error from init; digest retry answers cleanly.
+if (!(mode === "mcp-failed" && !digestOnly)) {
+  out({ type: "assistant", message: { content: [{ type: "text", text: answer }] } });
+  out({ type: "result", subtype: "success", result: answer,
+    usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });
+} else {
+  out({ type: "assistant", message: { content: [{ type: "text", text: answer }] } });
+  out({ type: "result", subtype: "success", result: answer,
+    usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });
+}

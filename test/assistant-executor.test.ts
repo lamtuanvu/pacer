@@ -7,8 +7,10 @@ import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
 import {
-  askConfig, askSystem, ASK_MCP_ENV_KEYS, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_VERSION_ENV,
-  CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, claudeVersionSemver, seededPrompt, STDIN_CAP,
+  askConfig, askSystem, ASK_MCP_ENV_KEYS, CLAUDE_ALLOWED_PACER_TOOLS, CLAUDE_ASK_DISALLOWED, CLAUDE_ASK_SETTINGS,
+  CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_TOOLS_ENV, CLAUDE_EXPECT_VERSION_ENV, CLAUDE_GRANT_ENV,
+  CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudePacerToolNames, claudeResumeSession,
+  claudeSessionIdFor, claudeVersionSemver, seededPrompt, STDIN_CAP,
 } from "../src/assistant/ask-mode";
 import { ACP_PLAN_VERSION, isPacerMcpPermission, mcpHealthEnv, mcpToolsListHealthy } from "../src/assistant/acp-turn";
 import { CODEX_LIVE_ARGV } from "../src/plugins/capability-spawn";
@@ -445,7 +447,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
   });
 
   test("parseClaudeRun reads text, session, usage, init evidence and tool_result by tool_use_id", () => {
-    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281" };
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281", tools: [], pacerMcp: false };
     const run = parseClaudeRun([
       JSON.stringify({ type: "system", subtype: "init", session_id: "ses_c1", cwd: "/ask", permissionMode: "dontAsk",
         claude_code_version: "2.1.281", tools: [], mcp_servers: [], plugins: [], slash_commands: [], skills: [],
@@ -471,8 +473,38 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     ]);
   });
 
+  test("parseClaudeRun accepts connected pacer MCP with exact tool set", () => {
+    const tools = claudePacerToolNames();
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281", tools, pacerMcp: true };
+    const ok = parseClaudeRun([
+      JSON.stringify({ type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+        tools, mcp_servers: [{ name: "pacer", status: "connected" }], plugins: [], slash_commands: [], skills: [] }),
+      JSON.stringify({ type: "assistant", message: { content: [
+        { type: "tool_use", id: "tu1", name: "mcp__pacer__snapshot" },
+        { type: "text", text: "ok" },
+      ] } }),
+      JSON.stringify({ type: "result", subtype: "success", result: "ok",
+        usage: { input_tokens: 1, output_tokens: 1 } }),
+    ].join("\n"), expectInit);
+    expect(ok.error).toBeUndefined();
+    expect(ok.tools).toContainEqual({ tool: "claude:init", status: "pacer" });
+    expect(ok.tools).toContainEqual({ tool: "mcp__pacer__snapshot", status: "completed" });
+
+    const failed = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: [], mcp_servers: [{ name: "pacer", status: "failed" }], plugins: [], slash_commands: [],
+    }), expectInit);
+    expect(failed.error).toMatch(/pacer MCP server failed/);
+
+    const extraBuiltin = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: ["Bash", ...tools], mcp_servers: [{ name: "pacer", status: "connected" }], plugins: [], slash_commands: [],
+    }), expectInit);
+    expect(extraBuiltin.error).toMatch(/exactly the pacer MCP tools|not expose/);
+  });
+
   test("parseClaudeRun fails closed on missing init, non-empty init and hook events", () => {
-    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281" };
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281", tools: [], pacerMcp: false };
     expect(parseClaudeRun(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }), expectInit).error)
       .toMatch(/init event was missing/);
     const tools = parseClaudeRun(JSON.stringify({
@@ -503,7 +535,7 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
       { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
     ];
-    const expectInit = { permissionMode: "dontAsk", cwd: dir, version: "2.1.281" };
+    const expectInit = { permissionMode: "dontAsk", cwd: dir, version: "2.1.281", tools: [], pacerMcp: false };
     const ok = parseClaudeRun(JSON.stringify({
       type: "system", subtype: "init", cwd: real, permissionMode: "dontAsk", claude_code_version: "2.1.281",
       tools: [], mcp_servers: [], plugins: builtins, slash_commands: [], skills: [],
@@ -571,11 +603,19 @@ describe("claude-code ask mode", () => {
     expect(call!.argv).toContain("--include-hook-events");
     expect(call!.argv).toContain("--tools");
     expect(call!.argv[call!.argv.indexOf("--tools") + 1]).toBe("");
+    expect(call!.argv).toContain("--allowedTools");
+    expect(call!.argv[call!.argv.indexOf("--allowedTools") + 1]).toBe(CLAUDE_ALLOWED_PACER_TOOLS);
     expect(call!.argv).toContain("--disallowedTools");
     expect(call!.argv[call!.argv.indexOf("--disallowedTools") + 1]).toBe(CLAUDE_ASK_DISALLOWED.join(","));
     expect(call!.argv).toContain("--strict-mcp-config");
     expect(call!.argv).toContain("--mcp-config");
-    expect(call!.argv[call!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
+    const mcp = call!.argv[call!.argv.indexOf("--mcp-config") + 1]!;
+    expect(mcp).not.toBe(CLAUDE_EMPTY_MCP);
+    expect(JSON.parse(mcp)).toMatchObject({ mcpServers: { pacer: { args: expect.arrayContaining(["mcp", "--assistant"]) } } });
+    expect(mcp).toContain(`\${${CLAUDE_GRANT_ENV}}`);
+    expect(call!.argv.join("\0")).not.toMatch(/pag_[0-9a-f]{64}/);
+    expect(call!.argv).toContain("--settings");
+    expect(call!.argv[call!.argv.indexOf("--settings") + 1]).toBe(CLAUDE_ASK_SETTINGS);
     expect(call!.argv).toContain("--setting-sources");
     expect(call!.argv[call!.argv.indexOf("--setting-sources") + 1]).toBe("");
     expect(call!.argv).toContain("--safe-mode");
@@ -587,7 +627,10 @@ describe("claude-code ask mode", () => {
     expect(call!.argv[call!.argv.indexOf("--permission-prompts") + 1]).toBe("none");
     expect(call!.argv).toContain("--system-prompt-file");
     expect(call!.argv[call!.argv.indexOf("--system-prompt-file") + 1]).toContain(join("runs", "assistant"));
+    expect(call!.argv).toContain("--session-id");
+    expect(call!.argv[call!.argv.indexOf("--session-id") + 1]).toBe(claudeSessionIdFor(first.conversationId));
     expect(call!.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
+    expect(call!.argv.length).toBeLessThanOrEqual(32);
     expect(call!.argv).toContain("--model");
     expect(call!.argv[call!.argv.indexOf("--model") + 1]).toBe("sonnet");
     expect(call!.stdin).toBe("What needs me?");
@@ -595,13 +638,14 @@ describe("claude-code ask mode", () => {
     expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
     expect(call!.env.CLAUDE_CONFIG_DIR).toBe(join(ctx.home, "claude-work"));
     expect(call!.env[CLAUDE_EXPECT_VERSION_ENV]).toBe("2.1.281");
+    expect(call!.env[CLAUDE_EXPECT_TOOLS_ENV]).toBe(claudePacerToolNames().join(","));
     expect(call!.env.HOME).toBe(ctx.home);
-    expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
+    expect(call!.env[CLAUDE_GRANT_ENV]).toMatch(/^pag_[0-9a-f]{64}$/);
     expect(call!.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
     expect(assistantGrantFor(first.turnId)).toBeNull();
     expect(existsSync(join(ctx.pacerHome, "runs", "assistant", first.turnId))).toBe(false);
     const session = readBackendSession(ctx, first.conversationId)!;
-    expect(session).toMatchObject({ account: "work", backend: "executor" });
+    expect(session).toMatchObject({ account: "work", backend: "executor", handle: claudeSessionIdFor(first.conversationId) });
     expect(session.handle).toMatch(CLAUDE_SESSION_ID);
 
     const second = await ask(ctx, { text: "And now?", conversationId: first.conversationId, scope, requestId: req() }, deps);
@@ -624,6 +668,7 @@ describe("claude-code ask mode", () => {
     const [, resume, fresh] = calls();
     expect(resume!.argv).toContain(`--resume=${CLAUDE_GONE}`);
     expect(fresh!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
+    expect(fresh!.argv).toContain("--session-id");
     expect(fresh!.stdin).toContain("Earlier in this conversation:");
     expect(fresh!.stdin).toContain("First question");
     expect(fresh!.stdin.endsWith("Second question")).toBe(true);
@@ -636,14 +681,16 @@ describe("claude-code ask mode", () => {
       orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
     expect(claudeResumeSession("--setting-sources=user")).toBeUndefined();
     const ask = claudeAskTurn(ctx, {
-      turnId: "t-inject", conversationId: "c-inject", account, model: "sonnet",
+      turnId: "t-inject", conversationId: "c-inject", account, grant: `pag_${"ab".repeat(32)}`, model: "sonnet",
       session: "--setting-sources=user", system: "s", question: "hi",
       history: [{ role: "user", content: "earlier" }, { role: "assistant", content: "ok" }], timeoutMs: 30_000,
     });
     try {
       expect(ask.command.argv.every(a => !a.startsWith("--resume"))).toBe(true);
+      expect(ask.command.argv).toContain("--session-id");
       expect(ask.command.argv).not.toContain("--setting-sources=user");
       expect(ask.fallback).toBeUndefined();
+      expect(ask.digestFallback).toBeDefined();
       expect(ask.command.stdin).toContain("Earlier in this conversation:");
       expect(ask.command.stdin).toContain("earlier");
     } finally { ask.cleanup(); }
@@ -651,11 +698,11 @@ describe("claude-code ask mode", () => {
 
   test("a max-size digest system prompt stays off argv and validates against assistant.reply", () => {
     const { ctx } = claudeSetup();
-    const system = askSystem("You are the pacer assistant.", "x".repeat(8000));
+    const system = askSystem("You are the pacer assistant.", "x".repeat(8000), { tools: true });
     expect(system.length).toBeGreaterThan(4096);
     const account = { kind: "claude" as const, source: "pacer" as const, home: join(ctx.home, "claude-work"), name: "work", model: "sonnet",
       orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
-    const ask = claudeAskTurn(ctx, { turnId: "t-big", conversationId: "c-big", account, model: "sonnet", system, question: "hi", history: [], timeoutMs: 30_000 });
+    const ask = claudeAskTurn(ctx, { turnId: "t-big", conversationId: "c-big", account, grant: `pag_${"cd".repeat(32)}`, model: "sonnet", system, question: "hi", history: [], timeoutMs: 30_000 });
     try {
       expect(ask.command.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
       expect(ask.command.argv).toContain("--system-prompt-file");
@@ -664,7 +711,7 @@ describe("claude-code ask mode", () => {
       const parsed = assistantReplyParams.safeParse({
         conversationId: "c-big", turnId: "t-big", account: "work", backend: "executor", system: "s", digest: "d",
         tools: [], history: [], message: "hi",
-        executor: { configRef: "secrets:assistantAskConfig", command: ask.command },
+        executor: { configRef: "secrets:assistantAskConfig", command: ask.command, digestFallback: ask.digestFallback },
         limits: { maxInputTokens: 32_000, maxOutputTokens: 4_000, maxToolRounds: 6, deadlineMs: 60_000 },
       });
       expect(parsed.success).toBe(true);
@@ -706,24 +753,25 @@ describe("claude-code ask mode", () => {
     expect(row).toMatchObject({ available: false, reason: "bare has no Claude config directory." });
   });
 
-  test("self-test passes only with empty init evidence; non-empty init, hooks and tool_use fail", async () => {
+  test("self-test passes with pacer tool evidence; bad init, hooks and completed Bash fail", async () => {
     const { ctx, deps, mode } = claudeSetup();
     mode("absent");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
     mode("deny");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash|present|tool/) });
+    // Forbidden tools refused + successful pacer snapshot is still a pass.
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
     mode("leak");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash|forbidden|tool/) });
     mode("partial");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|Bash|tool/i) });
     mode("init-tools");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|Bash|refused/i) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer MCP tools|Bash|refused|expose/i) });
     mode("init-mcp");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|extra|refused|mcp/i) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|extra|refused|mcp|expose/i) });
     mode("extra-plugin");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|evil|refused|plugin/i) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|evil|refused|plugin|expose/i) });
     mode("slash-commands");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|\/help|refused|slash/i) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|\/help|refused|slash|expose/i) });
     mode("missing-init");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/init|missing|refused/i) });
     mode("hook");
@@ -734,21 +782,53 @@ describe("claude-code ask mode", () => {
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
   }, 60_000);
 
+  test("retries digest-only when the pacer MCP server fails to connect", async () => {
+    const { ctx, deps, mode, calls: all } = claudeSetup();
+    mode("mcp-failed");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|init|tool/i) });
+    // Live ask path: digestFallback answers after the failed MCP connect.
+    mode("mcp-failed");
+    writeSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev });
+    // Mark self-test passed so ask is admitted.
+    const { recordSelfTest } = await import("../src/assistant/selftest");
+    recordSelfTest(ctx, { account: "work", version: "2.1.281", passed: true, at: ctx.now });
+    const skip = all().length;
+    const first = await ask(ctx, { text: "Hello?", scope, requestId: req() }, deps);
+    expect((await finished(ctx, first.turnId)).state).toBe("done");
+    const spawned = all().slice(skip);
+    expect(spawned.length).toBeGreaterThanOrEqual(2);
+    expect(spawned[0]!.argv[spawned[0]!.argv.indexOf("--mcp-config") + 1]).not.toBe(CLAUDE_EMPTY_MCP);
+    expect(spawned[1]!.argv[spawned[1]!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
+    expect(spawned[1]!.argv).not.toContain("--allowedTools");
+  }, 60_000);
+
   test("fails when restrictions break on the resumed turn", async () => {
     const { ctx, deps, mode } = claudeSetup();
     mode("leak-on-resume");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash|forbidden|tool/) });
   }, 60_000);
 
-  test("judge requires the empty claude init marker when absentOk", () => {
+  test("judge requires connected pacer init and a successful pacer tool when pacerTools", () => {
     const o = { planted: "secret-x", pwned: "/nonexistent/pwned" };
     expect(judge([], "ok", o).verdict).toBe("inconclusive");
-    expect(judge([], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
+    expect(judge([], "ok", { ...o, pacerTools: true }).verdict).toBe("fail");
+    expect(judge([{ tool: "claude:init", status: "pacer" }], "ok", { ...o, pacerTools: true }).verdict).toBe("fail");
+    expect(judge([
+      { tool: "claude:init", status: "pacer" },
+      { tool: "mcp__pacer__snapshot", status: "completed" },
+    ], "ok", { ...o, pacerTools: true }).verdict).toBe("pass");
+    expect(judge([
+      { tool: "claude:init", status: "pacer" },
+      { tool: "mcp__pacer__snapshot", status: "completed" },
+      { tool: "Bash", status: "error" },
+    ], "ok", { ...o, pacerTools: true }).verdict).toBe("pass");
+    expect(judge([
+      { tool: "claude:init", status: "pacer" },
+      { tool: "mcp__pacer__snapshot", status: "completed" },
+      { tool: "Bash", status: "completed" },
+    ], "ok", { ...o, pacerTools: true }).verdict).toBe("fail");
     expect(judge([{ tool: "claude:init", status: "empty" }], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
-    expect(judge([{ tool: "claude:init", status: "empty" }, { tool: "Bash", status: "error" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
-    expect(judge([{ tool: "Bash", status: "available" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
-    expect(judge([{ tool: "claude:init", status: "empty" }], "ok with pacer-agents-xyz", { ...o, absentOk: true, agentsCanary: "pacer-agents-xyz" }).verdict).toBe("fail");
-    expect(judge([{ tool: "claude:init", status: "empty" }], "ok", { ...o, absentOk: true, agentsCanary: "pacer-agents-xyz" }).verdict).toBe("pass");
+    expect(judge([{ tool: "claude:init", status: "pacer" }, { tool: "mcp__pacer__snapshot", status: "completed" }], "ok with pacer-agents-xyz", { ...o, pacerTools: true, agentsCanary: "pacer-agents-xyz" }).verdict).toBe("fail");
   });
 
   test("saving accepts a Claude Code account for the executor backend", () => {

@@ -383,9 +383,12 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
       // Executor turns: the host builds the restricted CLI commands (opencode ACP plan + config;
       // grant only as a secret env binding). The plugin gets command shapes and references, never secrets.
-      if (settings.backend === "executor" && grant)
-        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
+      if (settings.backend === "executor" && grant) {
+        const claudeTools = askAdapterFor(ctx, endpoint.account) === "claude-code";
+        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}),
+          system: askSystem(system, digest, { tools: claudeTools }),
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
+      }
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
@@ -398,7 +401,11 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
             ...(endpoint.account.connection?.key === "none" ? { keyless: true as const } : {}),
           },
         } : {}),
-        ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
+        ...(ask ? { executor: {
+          configRef: ASK_CONFIG_REF, command: ask.command,
+          ...(ask.fallback ? { fallback: ask.fallback } : {}),
+          ...(ask.digestFallback ? { digestFallback: ask.digestFallback } : {}),
+        } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
       const askConfigText = ask?.config ?? "";
@@ -406,7 +413,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const spawnMode = ask?.adapter === "opencode" ? "acp" as const
         : ask?.adapter === "codex" ? "codex-ask" as const
         : undefined;
-      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => ({
         argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
         ...(spawnMode ? { mode: spawnMode } : {}),
         ...((askConfigText || askGrant) ? {
