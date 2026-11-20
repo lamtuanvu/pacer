@@ -150,8 +150,9 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
           <span>{row.label}</span>
           {/* Each window keeps its own staleness and verdict tone; the record's freshness is the head's words (fixture f). */}
           <UsageMeter used={row.meter} pace={null} tone={row.tone} size="top" text="none" label={`${account.name} ${row.label} usage`} stale={row.stale} staleAt={state.observedAt ?? undefined} now={now} />
-          <span className="pc-num">{row.figure}</span>
-          <span className="muted">{[row.tone === "warn" || row.tone === "bad" ? row.verdictLabel : null, row.reset].filter(Boolean).join(" · ")}</span>
+          {/* A limit row's figure is its verdict: say it once, in the words column, so it never crowds the number column. */}
+          <span className="pc-num">{row.figure === "Out of quota" ? "" : row.figure}</span>
+          <span className="muted">{[row.figure === "Out of quota" || row.tone === "warn" || row.tone === "bad" ? row.verdictLabel : null, row.reset].filter(Boolean).join(" · ")}</span>
         </div>;
       }) : <p className="muted">{view.figure} · no quota windows reported.</p>}
       {meta && <p className="pc-usage-account__meta muted">{meta}</p>}
