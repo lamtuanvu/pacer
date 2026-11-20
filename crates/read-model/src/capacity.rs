@@ -19,11 +19,19 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         Some(r) => pacer_engine::binding_window(array(&r["windows"])),
         None => p["binding"].clone(),
     };
-    let known = truth(&b) && p["verdict"] != "UNKNOWN";
+    // The record's verdict, like TypeScript's `record.verdict ?? p.verdict`.
+    let row_verdict = record.map_or(&p["verdict"], |r| {
+        if r["verdict"].is_null() {
+            &p["verdict"]
+        } else {
+            &r["verdict"]
+        }
+    });
+    let known = truth(&b) && *row_verdict != "UNKNOWN";
     let verdict = if !known {
         "unknown"
     } else {
-        pacer_engine::words::pace_meter_verdict(text(&p["verdict"]))
+        pacer_engine::words::pace_meter_verdict(text(row_verdict))
     };
     // The row quotes the record's figure, not its binding window (ADR 0030).
     let used = if known {

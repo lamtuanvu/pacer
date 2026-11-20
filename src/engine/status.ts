@@ -331,7 +331,7 @@ export async function computeStatus(
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),
     accounts: budgets.map((budget) => {
-      const { account, runners, binding, verdict, reading, snapshot, unlimited, usage, scope: accountScope, eligibility: accountEligibility } = budget;
+      const { account, runners, binding, verdict, reading, snapshot, usage, scope: accountScope, eligibility: accountEligibility } = budget;
       // Account-name marks and facts cover the account scope; runner-scoped ones never do.
       const accountLimit = pickLimit(snapshot.evidence.facts.budget.filter(f =>
         f.value.name === "limit" && f.value.resetsAt !== null && appliesTo(f, accountScope)));
