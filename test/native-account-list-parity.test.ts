@@ -70,8 +70,11 @@ function home(): string {
   return dir;
 }
 
-// Unmetered readings are captured at the reading process's clock.
-const clocks = (text: string, dir: string) => text.replaceAll(dir, "<home>").replace(/"capturedAt":[\d.]+/g, '"capturedAt":"<now>"');
+// Unmetered readings are captured at the reading process's clock; the usage record's
+// observation and evaluation times are the computing process's clock the same way.
+const clocks = (text: string, dir: string) => text.replaceAll(dir, "<home>")
+  .replace(/"capturedAt":[\d.]+/g, '"capturedAt":"<now>"')
+  .replace(/"(evaluatedAt|observedAt|at)":[\d.]+/g, '"$1":"<now>"');
 
 const CLOSED_PORT = closedPort();
 

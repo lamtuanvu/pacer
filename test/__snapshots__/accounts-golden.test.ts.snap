@@ -54,6 +54,16 @@ exports[`account and endpoint operation results 1`] = `
       "account": {
         "allowPaid": false,
         "cooldownS": 21600,
+        "diagnostics": {
+          "readings": [
+            {
+              "capturedAt": null,
+              "error": "no Codex session logs",
+              "stale": false,
+              "windows": [],
+            },
+          ],
+        },
         "executors": [],
         "folder": "$HOME/.codex-spare",
         "home": "$HOME/.codex-spare",
@@ -82,6 +92,43 @@ exports[`account and endpoint operation results 1`] = `
           "windows": [],
         },
         "usageSource": "native",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "unknown",
+            "budget": "unknown",
+            "evaluatedAt": 1791633600,
+            "evidenceAgeS": null,
+            "reasons": [
+              {
+                "code": "availability_unknown",
+                "evidenceIds": [],
+              },
+              {
+                "code": "budget_missing",
+                "evidenceIds": [],
+              },
+            ],
+            "spendingRisk": "unknown",
+            "state": "uncertain",
+            "validUntil": null,
+          },
+          "error": {
+            "at": 1791633600,
+            "message": "no Codex session logs",
+          },
+          "figure": null,
+          "freshness": "historical",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "spare",
+          },
+          "source": "unknown",
+          "spend": null,
+          "verdict": "UNKNOWN",
+          "windows": [],
+        },
         "weeklyTokens": null,
         "weeklyUsd": null,
       },
@@ -172,6 +219,16 @@ exports[`account and endpoint operation results 1`] = `
       {
         "allowPaid": false,
         "cooldownS": 21600,
+        "diagnostics": {
+          "readings": [
+            {
+              "capturedAt": null,
+              "error": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+              "stale": false,
+              "windows": [],
+            },
+          ],
+        },
         "executors": [
           "claude-code",
         ],
@@ -205,6 +262,43 @@ exports[`account and endpoint operation results 1`] = `
           "windows": [],
         },
         "usageSource": "native",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "unknown",
+            "budget": "unknown",
+            "evaluatedAt": 1791633600,
+            "evidenceAgeS": null,
+            "reasons": [
+              {
+                "code": "availability_unknown",
+                "evidenceIds": [],
+              },
+              {
+                "code": "budget_missing",
+                "evidenceIds": [],
+              },
+            ],
+            "spendingRisk": "unknown",
+            "state": "uncertain",
+            "validUntil": null,
+          },
+          "error": {
+            "at": 1791633600,
+            "message": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+          },
+          "figure": null,
+          "freshness": "historical",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "personal",
+          },
+          "source": "unknown",
+          "spend": null,
+          "verdict": "UNKNOWN",
+          "windows": [],
+        },
         "weeklyTokens": null,
         "weeklyUsd": null,
       },
@@ -224,6 +318,16 @@ exports[`account and endpoint operation results 1`] = `
           ],
         },
         "cooldownS": 21600,
+        "diagnostics": {
+          "readings": [
+            {
+              "capturedAt": null,
+              "source": "unmetered",
+              "stale": false,
+              "windows": [],
+            },
+          ],
+        },
         "executors": [
           "opencode#external",
         ],
@@ -257,6 +361,31 @@ exports[`account and endpoint operation results 1`] = `
           "windows": [],
         },
         "usageSource": "unmetered",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "not_required",
+            "evaluatedAt": 1791633600,
+            "evidenceAgeS": null,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null,
+          },
+          "error": null,
+          "figure": null,
+          "freshness": "unknown",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "external",
+          },
+          "source": "unmetered",
+          "spend": null,
+          "verdict": "OK",
+          "windows": [],
+        },
         "weeklyTokens": null,
         "weeklyUsd": null,
       },
@@ -276,6 +405,16 @@ exports[`account and endpoint operation results 1`] = `
           ],
         },
         "cooldownS": 21600,
+        "diagnostics": {
+          "readings": [
+            {
+              "capturedAt": null,
+              "source": "unmetered",
+              "stale": false,
+              "windows": [],
+            },
+          ],
+        },
         "executors": [
           "opencode#work",
         ],
@@ -309,6 +448,31 @@ exports[`account and endpoint operation results 1`] = `
           "windows": [],
         },
         "usageSource": "unmetered",
+        "usageState": {
+          "blockedRunners": [],
+          "eligibility": {
+            "availability": "ready",
+            "budget": "not_required",
+            "evaluatedAt": 1791633600,
+            "evidenceAgeS": null,
+            "reasons": [],
+            "spendingRisk": "unknown",
+            "state": "eligible",
+            "validUntil": null,
+          },
+          "error": null,
+          "figure": null,
+          "freshness": "unknown",
+          "limit": null,
+          "observedAt": null,
+          "scope": {
+            "account": "work",
+          },
+          "source": "unmetered",
+          "spend": null,
+          "verdict": "OK",
+          "windows": [],
+        },
         "weeklyTokens": null,
         "weeklyUsd": null,
       },
