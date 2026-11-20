@@ -1,6 +1,7 @@
 import { eligibilityPresentation } from "../../../src/view-model/eligibility";
 import type { Runner } from "./home";
-import { clock, type Account } from "./accounts";
+import { clock } from "../../../src/view-model/time";
+import type { Account } from "./accounts";
 import type { Tone } from "../../../src/view-model/words";
 export interface Rule { kinds?: string[]; executors: string[] }
 export interface RoutingRules { rules: Rule[]; available: string[] }
@@ -22,9 +23,9 @@ export function routingStatus(route?: { verdict?: string; reason?: string; eligi
 }
 export function executorStatus(runner: Runner, account?: Account, installed?: boolean, route?: {verdict?:string;reason?:string}): { label: string; tone: Tone; detail?: string } {
   if (runner.eligibility) return eligibilityPresentation(runner.eligibility, Date.now()/1000);
-  if (runner.state === "blocked") return { label: runner.until ? `Blocked until ${clock(runner.until)}` : "Blocked until unblocked", tone: "neutral", detail: runner.reason ?? undefined };
+  if (runner.state === "blocked") return { label: runner.until ? `Blocked until ${clock(runner.until, Date.now()/1000)}` : "Blocked until unblocked", tone: "neutral", detail: runner.reason ?? undefined };
   if (runner.state === "broken") return { label: `Not working${runner.reason ? ` · ${runner.reason}` : ""}`, tone: "bad", detail: runner.reason ?? undefined };
-  if (runner.state === "exhausted") return { label: runner.until ? `Limited until ${clock(runner.until)}` : "Out of quota", tone: "warn" };
+  if (runner.state === "exhausted") return { label: runner.until ? `Limited until ${clock(runner.until, Date.now()/1000)}` : "Out of quota", tone: "warn" };
   if (installed === false) return {label:"Not installed",tone:"bad"};
   const state = typeof account?.state === "object" ? account.state.state : account?.state;
   if (["not_working", "broken", "failed", "key_missing", "Not working", "Key missing"].includes(state ?? "") || account?.connection?.key === "missing") {

@@ -97,8 +97,10 @@ function figureOf(limit: UsageLimit | null, binding: WindowStatus | null): Usage
   return null;
 }
 
-/** Stale or failed readings are history for the whole record, not a number. */
-function freshnessOf(reading: { error?: string; stale: boolean }, binding: WindowStatus | null, windows: WindowStatus[]): UsageFreshness {
+/** Stale or failed readings are history for the whole record, not a number. An active limit is a
+ *  current fact, so a limited record is fresh even when the reading under it has aged. */
+function freshnessOf(reading: { error?: string; stale: boolean }, binding: WindowStatus | null, windows: WindowStatus[], limit: UsageLimit | null = null): UsageFreshness {
+  if (limit) return "fresh";
   return reading.error || reading.stale || binding?.stale ? "historical" : windows.length ? "fresh" : "unknown";
 }
 
@@ -307,7 +309,7 @@ export async function computeStatus(
       limit: runnerLimit,
       blockedRunners: [],
       observedAt: observedAtOf(usage, runnerLimit, provider.eligibility, ctx.now),
-      freshness: freshnessOf(reading, binding, windows),
+      freshness: freshnessOf(reading, binding, windows, runnerLimit),
       verdict: runnerLimit ? "EXHAUSTED" : verdict,
       eligibility: provider.eligibility,
       spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
@@ -349,7 +351,7 @@ export async function computeStatus(
         limit: accountLimit,
         blockedRunners: blocked,
         observedAt: observedAtOf(usage, accountLimit, accountEligibility, ctx.now),
-        freshness: freshnessOf(reading, binding, budget.windows),
+        freshness: freshnessOf(reading, binding, budget.windows, accountLimit),
         verdict: accountVerdict,
         eligibility: accountEligibility,
         spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,

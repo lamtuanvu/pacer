@@ -1,6 +1,7 @@
 /** Settings: sections on the left, the selected section on the right. Every read and write is an API op (ARCH-1). */
 import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
-import { accountUsageFreshness, capacityNote, executorEligibility } from "../../view-model/capacity";
+import { capacityNote, executorEligibility } from "../../view-model/capacity";
+import { accountUsageFreshness } from "../legacy-usage";
 import { executorLabel, type Status } from "../../view-model/words";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";

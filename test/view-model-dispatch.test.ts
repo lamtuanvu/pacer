@@ -4,6 +4,7 @@ import { explainRepo, explanationApplies, nextFromExplanation, queueReason, kpiT
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 
 import { clock } from "../src/view-model/time";
+import { usageStateFor } from "./usage-fixtures";
 
 const now = 1800000000;
 const all = { repo: null };
@@ -128,10 +129,11 @@ test("needs_you_item_for_an_unloaded_task_stays_a_row", () => {
 });
 
 test("planner caption states each measured part and the 5-hour window once", () => {
-  const meter = { usedPct: 16, pacePct: 38, window: "weekly", resetsAt: null };
-  expect(plannerCaption(meter, now, 4)).toBe("16% of week used · pace 38% · 5h window 4%");
-  expect(plannerCaption({ ...meter, window: "5H" }, now, 4)).toBe("16% of the 5H window used · pace 38%");
-  expect(plannerCaption({ usedPct: null, pacePct: null, window: null, resetsAt: null }, now)).toBe("");
+  const planner = (over: object) => ({ runner: "claude-code", agent: "claude-code", usedPct: null, pacePct: null, deltaPts: null, verdict: "unknown" as const, activeHoursLeft: null, resetsAt: null, window: null, stale: false, advice: "", mode: "normal", ...over });
+  const meter = planner({ usedPct: 16, pacePct: 38, window: "weekly", usageState: usageStateFor({ usedPct: 16, window: "weekly", verdict: "ON_PACE" }, now) });
+  expect(plannerCaption(meter as any, now, 4)).toBe("16% of week used · pace 38% · 5h window 4%");
+  expect(plannerCaption(planner({ ...meter, window: "5H", usageState: undefined }) as any, now, 4)).toBe("16% of 5 h used · pace 38%");
+  expect(plannerCaption(planner({}) as any, now)).toBe("");
 });
 
 test("the next-task explanation keeps the dispatcher's order and drops excluded and repeated runners", () => {
@@ -186,34 +188,28 @@ test("the ladder explanation applies only when the strategy has its own dispatch
 
 test("planner budget keeps the live advice, meter and measured captions", () => {
   const snapshot = fixture as unknown as ClientSnapshot;
-  const planner = { ...snapshot.planner!, usedPct: 16, pacePct: 38, window: "weekly", stale: false };
+  const planner = { ...snapshot.planner!, usedPct: 16, pacePct: 38, window: "weekly", stale: false, usageState: usageStateFor({ usedPct: 16, window: "weekly", verdict: "ON_PACE" }, now) };
   const budget = plannerBudget({ ...snapshot, planner }, now, 4)!;
   expect(budget.lead).toBe(planner.advice);
-  expect(budget.meter).toEqual({ used: 16, pace: 38, stale: false, live: true, label: "Claude Code weekly usage" });
+  expect(budget.meter).toEqual({ used: 16, pace: 38, stale: false, live: true, label: "Claude Code week usage" });
   expect(budget.caption).toBe(plannerCaption(planner, now, 4));
   expect(budget.caption).toContain("5h window 4%");
 });
 
 test("planner budget identifies historical readings and their actual capture age", () => {
   const snapshot = fixture as unknown as ClientSnapshot;
-  const planner = { ...snapshot.planner!, usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
-  for (const capturedAt of [null, now - 10800]) {
-    const account = { ...snapshot.accounts![0]!, executors: [planner.runner], usedPct: 28, window: "5h", stale: true, capturedAt };
-    const historical = { ...snapshot, planner, accounts: [account], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28, stale: true }] };
+  const planner = { ...snapshot.planner!, usedPct: 28, window: "5h", stale: true, advice: "No usage reading for the planner yet." };
+  for (const [observedAt, freshness] of [[null, "Reading of unknown age · refresh"], [now - 10800, "Reading 3h old · refresh"]] as const) {
+    const historical = { ...snapshot, planner: { ...planner, usageState: usageStateFor({ usedPct: 28, window: "5h", stale: true, capturedAt: observedAt }, now) } };
     const budget = plannerBudget(historical, now, 99)!;
     expect(budget.lead).toBe("Usage reading is out of date.");
-    expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, live: false, label: "Claude Code 5h usage" });
-    expect(budget.caption).toBe(`5h window · ${capturedAt === null ? "reading time unknown" : "read 3h ago"}`);
+    expect(budget.meter).toEqual({ used: 28, pace: null, stale: true, live: false, label: "Claude Code 5 h usage" });
+    expect(budget.caption).toBe(`28% of 5 h used · ${freshness}`);
     expect(budget.caption).not.toContain("5h window 99%");
     expect(budget.caption).not.toMatch(/5h window \d+%/);
-    // The fallback remains historical even if the planner merely lacks a reading, without its stale flag.
-    expect(plannerBudget({ ...historical, planner: { ...planner, stale: false } }, now, 99)).toEqual(budget);
-    expect(plannerBudget({ ...historical, executors: [] }, now, 99)).toEqual(budget);
   }
-  const executorOnly = plannerBudget({ ...snapshot, planner, accounts: [], executors: [{ ...snapshot.executors![0]!, id: planner.runner, usedPct: 28 }] }, now, 99)!;
-  expect(executorOnly.meter).toMatchObject({ used: 28, stale: true, pace: null });
-  expect(executorOnly.caption).toBe("Reading time unknown");
-  const stalePlanner = plannerBudget({ ...snapshot, planner: { ...planner, usedPct: 16, window: "weekly" }, accounts: [], executors: [] }, now, 99)!;
+  // A historical weekly record never borrows a live short-window caption or pace.
+  const stalePlanner = plannerBudget({ ...snapshot, planner: { ...planner, window: "weekly", usageState: usageStateFor({ usedPct: 16, window: "weekly", stale: true }, now) } }, now, 99)!;
   expect(stalePlanner.meter).toMatchObject({ used: 16, stale: true, pace: null });
   expect(stalePlanner.caption).not.toContain("5h window");
 });
@@ -223,14 +219,4 @@ test("planner budget without any figure keeps the no-reading lead and omits the 
   const planner = { ...snapshot.planner!, usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
   expect(plannerBudget({ ...snapshot, planner, accounts: [], executors: [] }, now, 28)).toEqual({ lead: planner.advice, caption: "" });
   expect(plannerBudget({ ...snapshot, planner: null }, now)).toBeNull();
-});
-
-test("a fresh borrowed planner figure is not called out of date", () => {
-  const base = snapshot();
-  const snap = { ...base, planner: { ...base.planner!, usedPct: null, pacePct: null, verdict: "unknown" as const, stale: false },
-    accounts: [{ name: "team", agent: "claude-code", source: "pacer", usedPct: 40, pacePct: null, window: "5h", resetsAt: null, verdict: "UNKNOWN", signedIn: true, executors: [base.planner!.runner], stale: false, capturedAt: null, spendUsdWeek: null, capUsdWeek: null }] } as unknown as ClientSnapshot;
-  const budget = plannerBudget(snap, 1_800_000_000)!;
-  expect(budget.lead).toBe("Planner pace is not measured yet.");
-  expect(budget.meter).toMatchObject({ used: 40, stale: false });
-  expect(budget.caption).toBe("5h window");
 });

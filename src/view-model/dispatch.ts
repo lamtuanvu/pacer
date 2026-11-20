@@ -5,7 +5,9 @@ import { agentInfo, markAgent } from "./agents";
 import { attentionOrder, needsYou, type Scope } from "./selectors";
 import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } from "./task-tree";
 import { attentionStatus, executorLabel, paceStatus } from "./words";
+import type { PlannerMeter } from "../api/read-model/types";
 import { ago, clock } from "./time";
+import { usageView, windowWords, resetWords, captionReset } from "./usage";
 import { knownRouteReason, routeReasonCopy, type RouteReason } from "./route-explanation";
 
 export type NeedsYouCard =
@@ -148,59 +150,62 @@ export function tokenSpread(summary: InsightsSummary | null | undefined, planner
   };
 }
 
-/** Planner pace in the board's words; tone and glyph come from the shared vocabulary. */
+/** Planner pace in the board's words; tone and glyph come from the shared vocabulary, canonical verdicts included. */
 export function plannerPace(verdict: string): { label: string; tone: string } {
+  const canonical = ({ BEHIND: "behind", ON_PACE: "on_pace", AHEAD: "ahead" } as Record<string, string>)[verdict] ?? verdict;
   const pace = paceStatus(verdict);
   const words: Record<string, string> = { behind: "Under pace · spend it", on_pace: "On pace", ahead: "Ahead of pace · save it" };
-  return { label: words[verdict] ?? pace.label, tone: pace.tone };
+  return { label: words[canonical] ?? pace.label, tone: pace.tone };
 }
+
 /**
  * The planner caption under its meter, as on the board: "16% of week used · pace 38% · resets Thu 14:00 · 5h window 4%".
- * Each part shows only when measured; the short window comes from the planner account's own reading.
+ * Every part comes from the planner's own usage record through usageView; the short window is the planner
+ * account's 5-hour window. Each part shows only when measured.
  */
-export function plannerCaption(meter: { usedPct: number | null; pacePct: number | null; window: string | null; resetsAt: number | null }, now: number, shortWindowPct?: number | null): string {
-  const span = meter.window === "weekly" ? "week" : meter.window === "monthly" ? "month" : meter.window === "daily" ? "day" : meter.window ? `the ${meter.window} window` : "the budget";
+export function plannerCaption(p: PlannerMeter, now: number, shortWindowPct?: number | null): string {
+  const view = usageView(p.usageState, now);
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state ("No usage figure"), never the row's old percent.
+  const meter = p.usageState ? view.meter : (p.usedPct != null ? Math.round(p.usedPct) : null);
+  const window = view.window || windowWords(p.window);
+  const reset = view.reset || (p.resetsAt != null ? resetWords(p.resetsAt, now) : "");
   return [
-    meter.usedPct !== null ? `${Math.round(meter.usedPct)}% of ${span} used` : null,
-    meter.pacePct !== null ? `pace ${Math.round(meter.pacePct)}%` : null,
-    meter.resetsAt ? `resets ${clock(meter.resetsAt, now)}` : null,
+    meter !== null ? (p.usageState ? view.summaryUsed : `${meter}% of ${window} used`) : null,
+    p.pacePct !== null ? `pace ${Math.round(p.pacePct)}%` : null,
+    captionReset(reset),
     // The planner's own window may already be the 5-hour one; then it is not stated twice.
-    typeof shortWindowPct === "number" && meter.window?.toLowerCase() !== "5h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
+    typeof shortWindowPct === "number" && window.toLowerCase() !== "5 h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
   ].filter(Boolean).join(" · ");
 }
 
-/** One planner budget statement; historical figures never borrow a live short-window caption or pace. */
+/** One planner budget statement over the planner's one usage record (ADR 0030); a historical figure never borrows pace. */
 export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindowPct?: number | null): {
   lead: string; meter?: { used: number; pace: number | null; stale: boolean; label: string; /** The planner's own current reading, which carries its verdict. */ live: boolean }; caption: string;
 } | null {
   const p = snapshot.planner;
   if (!p) return null;
   const name = agentInfo(p.agent).name;
-  if (p.usedPct !== null && !p.stale) return {
+  const view = usageView(p.usageState, now);
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state, never the row's old percent.
+  const meter = p.usageState ? view.meter : (p.usedPct != null ? Math.round(p.usedPct) : null);
+  const window = view.window || windowWords(p.window);
+  const label = `${name} ${window ? `${window} ` : ""}usage`;
+  const historical = p.usageState ? p.usageState.freshness === "historical" : p.stale;
+  if (meter !== null && !historical) return {
     lead: p.advice,
-    meter: { used: p.usedPct, pace: p.pacePct, stale: false, live: true, label: `${name} ${p.window ? `${p.window} ` : ""}usage` },
+    meter: { used: meter, pace: p.pacePct, stale: false, live: true, label },
     caption: plannerCaption(p, now, shortWindowPct),
   };
-  const account = snapshot.accounts?.find(a => a.executors.includes(p.runner));
-  const executor = snapshot.executors?.find(e => e.id === p.runner);
-  const used = p.usedPct ?? account?.usedPct ?? executor?.usedPct;
-  if (used == null) return { lead: p.advice, caption: "" };
-  const window = p.usedPct !== null ? p.window : account?.usedPct != null ? account.window : null;
-  const capturedAt = account?.capturedAt;
-  const age = capturedAt == null ? "reading time unknown" : `read ${ago(capturedAt, now)}`;
-  // A borrowed figure is stale only when its own source says so; a fresh one just lacks the planner's pace.
-  const stale = p.usedPct !== null ? true : account?.usedPct != null ? account.stale !== false : executor?.stale !== false;
-  if (!stale) return {
-    lead: "Planner pace is not measured yet.",
-    meter: { used, pace: null, stale: false, live: false, label: `${name} ${window ? `${window} ` : ""}usage` },
-    caption: window ? `${window} window` : "",
-  };
-  return {
+  if (meter !== null) return {
     lead: "Usage reading is out of date.",
-    meter: { used, pace: null, stale: true, live: false, label: `${name} ${window ? `${window} ` : ""}usage` },
-    // The meter states the figure; the caption says which window it was and how old it is (UI-15).
-    caption: window ? `${window} window · ${age}` : age.charAt(0).toUpperCase() + age.slice(1),
+    meter: { used: meter, pace: null, stale: true, live: false, label },
+    // The meter states the figure; the caption adds the window and the reading's age (UI-15).
+    caption: [p.usageState ? view.summaryUsed : `${meter}% of ${window} used`, view.freshness || "Reading of unknown age · refresh"].filter(Boolean).join(" · "),
   };
+  // No figure is a state: the advice leads and the verdict pill carries the words.
+  return { lead: p.advice, caption: "" };
 }
 
 /** The parts of a `dispatch.explain` answer the Next task half uses. */

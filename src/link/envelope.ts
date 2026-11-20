@@ -5,7 +5,7 @@ import type { NotificationData } from "./notification";
 export const PLUGIN_KEY = "lamtuanvu.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
-export interface ProviderLine { eligibility?: import("../evidence/types").EligibilityDecision; id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
+export interface ProviderLine { eligibility?: import("../evidence/types").EligibilityDecision; id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; /** The row's one usage record; TUI presentation quotes usageView over it when present. */ usageState?: import("../types").UsageState; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 /** `controller` is deprecated and null for session protocol 1.2 hosts; `active` is the client that most recently typed or focused. */
 export interface SessionData { host:"builtin"|"orca"|"none"; live:boolean; controller:string|null; active?:string|null; viewers:number }

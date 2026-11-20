@@ -1,6 +1,7 @@
 import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import fixture from './fixtures/ui/snapshot.json';
+import { usageStateFor } from './usage-fixtures';
 import detail from './fixtures/ui/task-get.json';
 import type { ClientSnapshot } from '../src/view-model/snapshot';
 import type { TaskDetail } from '../src/core/task-detail';
@@ -51,8 +52,8 @@ test('session list and detail retain review verdicts and ignore phases from ende
 
 test('planner budget agrees across footer and tray without duplicating the planner in executors', () => {
   const snapshot = structuredClone(fixture) as unknown as ClientSnapshot;
-  snapshot.planner = {...snapshot.planner!,usedPct:37,pacePct:20,verdict:'ahead'};
-  snapshot.executors = [{...snapshot.executors![0]!,id:snapshot.planner.runner,state:'ready',tone:'good',usedPct:37,pacePct:20,slots:{used:0,max:1}}];
+  snapshot.planner = { ...snapshot.planner!, usedPct: 37, pacePct: 20, verdict: 'ahead', usageState: usageStateFor({ usedPct: 37, window: 'weekly', verdict: 'AHEAD' }, snapshot.at) };
+  snapshot.executors = [{ ...snapshot.executors![0]!, id: snapshot.planner.runner, state: 'ready', tone: 'good', usedPct: 37, pacePct: 20, slots: { used: 0, max: 1 }, usageState: usageStateFor({ usedPct: 37, window: 'weekly', verdict: 'AHEAD' }, snapshot.at) }];
   const html = overview(snapshot);
   expect(html).toContain('Ahead of pace');
   const status = renderToString(<StatusBar route={{name:'sessions',query:{repo:null,scope:null}}} snapshot={snapshot} registry={createKeyRegistry({controlActive:()=>false})} />);

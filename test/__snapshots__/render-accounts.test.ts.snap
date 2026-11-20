@@ -27,7 +27,7 @@ exports[`account metadata survives the link and appears in the dashboard 1`] = `
 
    CAPACITY  3 executors
    #   EXECUTOR                    STATUS                        PACE                                                     USAGE           USED  TASKS
- › P   Claude Code                 ✓ Eligible                    Behind pace                                              ━━━━━──────┃──   34%    0/1
+ › P   Claude Code                 ✓ Eligible                    Expiring soon                                            ━━━━━──────┃──   34%    0/1
    Execution permitted · observed 0s ago
    1   BytePlus                    ✓ Eligible                    Unmetered                                                unmetered          —    0/1
    Execution permitted
