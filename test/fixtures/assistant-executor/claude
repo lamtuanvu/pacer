@@ -1,22 +1,61 @@
 #!/usr/bin/env bun
 // Stand-in for `claude -p --output-format stream-json` in ask-mode tests.
-// Modes (file `mode` beside this script): absent | deny | leak | partial | slow | leak-on-resume
+// Modes (file `mode` beside this script):
+//   absent | deny | leak | partial | slow | leak-on-resume
+//   init-tools | init-mcp | missing-init | hook
 import { appendFileSync, readFileSync } from "node:fs";
+import { randomUUID } from "node:crypto";
 const argv = process.argv.slice(2);
 if (argv[0] === "--version") { console.log("2.1.281-fake"); process.exit(0); }
 const stdin = readFileSync(0, "utf8");
 let mode = "absent"; try { mode = readFileSync(`${import.meta.dir}/mode`, "utf8").trim(); } catch { /* default */ }
 appendFileSync(process.env.FAKE_LOG ?? `${import.meta.dir}/calls.jsonl`, JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\n");
-const at = argv.indexOf("--resume"), session = at >= 0 ? argv[at + 1] : "ses_claude_" + Math.random().toString(36).slice(2, 8);
+const resumeArg = argv.find(a => a.startsWith("--resume="));
+const GONE = "00000000-0000-4000-8000-000000000001";
+const session = resumeArg ? resumeArg.slice("--resume=".length) : randomUUID();
 const prompt = stdin || argv[argv.length - 1] || "";
+const modeAt = argv.indexOf("--permission-mode");
+const permissionMode = modeAt >= 0 ? argv[modeAt + 1] : "dontAsk";
+const version = process.env.CLAUDE_CODE_EXPECT_VERSION ?? "2.1.281-fake";
 const out = (o: Record<string, unknown>) => console.log(JSON.stringify({ session_id: session, ...o }));
+const emptyInit = () => out({
+  type: "system", subtype: "init",
+  cwd: process.cwd(), permissionMode, claude_code_version: version,
+  tools: [], mcp_servers: [], plugins: [], skills: [],
+});
 if (mode === "slow") { appendFileSync(`${import.meta.dir}/pid`, String(process.pid)); await Bun.sleep(30_000); }
-if (mode === "leak-on-resume" && at >= 0) { out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } }); }
-if (session === "ses_gone") { out({ type: "result", is_error: true, result: "Session not found" }); process.exit(1); }
-out({ type: "system", subtype: "init" });
-if (mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) out({ type: "assistant", message: { content: [{ type: "tool_use", name, is_error: true }] } });
-if (mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } });
-if (mode === "partial") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", is_error: true }] } });
+if (mode === "leak-on-resume" && resumeArg) {
+  emptyInit();
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
+}
+if (session === GONE) { out({ type: "result", is_error: true, result: "Session not found" }); process.exit(1); }
+if (mode === "missing-init") {
+  /* skip init */
+} else if (mode === "init-tools") {
+  out({
+    type: "system", subtype: "init",
+    cwd: process.cwd(), permissionMode, claude_code_version: version,
+    tools: ["Bash"], mcp_servers: [], plugins: [], skills: [],
+  });
+} else if (mode === "init-mcp") {
+  out({
+    type: "system", subtype: "init",
+    cwd: process.cwd(), permissionMode, claude_code_version: version,
+    tools: [], mcp_servers: [{ name: "extra" }], plugins: [], skills: [],
+  });
+} else if (mode !== "leak-on-resume" || !resumeArg) {
+  emptyInit();
+}
+if (mode === "hook") out({ type: "system", subtype: "hook_started", hook_event_name: "PreToolUse" });
+if (mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) {
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id: `tu_${name}`, name }] } });
+  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: `tu_${name}`, is_error: true }] } });
+}
+if (mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
+if (mode === "partial") {
+  out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
+  out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu_bash", is_error: true }] } });
+}
 out({ type: "assistant", message: { content: [{ type: "text", text: "answer to: " + prompt.split("\n").at(-1) }] } });
 out({ type: "result", subtype: "success", result: "answer to: " + prompt.split("\n").at(-1),
   usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });

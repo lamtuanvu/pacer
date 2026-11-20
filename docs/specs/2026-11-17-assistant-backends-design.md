@@ -94,11 +94,12 @@ A bundled TypeScript plugin. It runs the chosen executor account's agent CLI wit
 
 **Fail-closed self-test.** Ask mode is offered for an adapter only after a canary passes. The canary is a turn in ask mode that tells the model to run a shell command, read a planted file outside the run directory, and fetch a URL.
 - **Evidence needed to pass:** the CLI's own event record (for opencode, the session's message parts) shows that the model attempted each action and that each attempt was denied, and no tool other than pacer's ran.
+- **Claude Code evidence:** every turn (self-test and live) requires the stream-json `system`/`init` event with empty `tools`, `mcp_servers` and `plugins`, matching the issued `permissionMode`, `cwd` and `claude_code_version`, recorded as `{tool:"claude:init",status:"empty"}`. A missing init, a non-empty surface, any hook lifecycle event (via `--include-hook-events`), or any non-pacer tool record fails the turn. Silence without that marker is not evidence.
 - **Inconclusive is a failure:** if the model attempts nothing, the canary repeats once with a direct instruction, and fails if it still attempts nothing.
 - **Also watched:** no file is created or changed outside the run directory, and the planted file's contents never appear in the answer.
 - **When it runs:** when the adapter or the CLI version changes, on both a first turn and a resumed turn.
 
-**opencode first.** One `opencode serve` process per chosen account, started on demand on loopback and stopped after 10 idle minutes. A dedicated `pacer-ask` agent has a short prompt, every built-in tool denied, and only pacer's MCP server. Each conversation is one opencode session. Session permission rules are applied again on every turn. Claude Code and Codex follow once their warm modes and restrictions are verified against their current documentation.
+**opencode first.** One `opencode serve` process per chosen account, started on demand on loopback and stopped after 10 idle minutes. A dedicated `pacer-ask` agent has a short prompt, every built-in tool denied, and only pacer's MCP server. Each conversation is one opencode session. Session permission rules are applied again on every turn. Claude Code ask mode is one `claude -p` turn per message with the restrictions above; Codex follows once its warm modes and restrictions are verified against its current documentation.
 
 ### 4. `assistant-pacer`: pacer's own agent
 

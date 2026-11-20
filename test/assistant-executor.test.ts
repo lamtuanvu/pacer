@@ -1,12 +1,15 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
-import { askConfig, askSystem, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, claudeAskTurn, seededPrompt, STDIN_CAP } from "../src/assistant/ask-mode";
+import {
+  askConfig, askSystem, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_VERSION_ENV,
+  CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, seededPrompt, STDIN_CAP,
+} from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -297,60 +300,70 @@ describe("ask-mode pieces", () => {
     expect(config.mcp.servers.pacer.environment).toEqual({ PACER_ASSISTANT_GRANT: "pag_x", PACER_ASSISTANT_URL: "http://127.0.0.1:1", PACER_ASSISTANT_TURN: "t", PACER_HOME: "/r" });
   });
 
-  test("parseClaudeRun reads text, the session, usage and tool denials from stream-json", () => {
+  test("parseClaudeRun reads text, session, usage, init evidence and tool_result by tool_use_id", () => {
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281-fake" };
     const run = parseClaudeRun([
-      JSON.stringify({ type: "system", subtype: "init", session_id: "ses_c1" }),
+      JSON.stringify({ type: "system", subtype: "init", session_id: "ses_c1", cwd: "/ask", permissionMode: "dontAsk",
+        claude_code_version: "2.1.281-fake", tools: [], mcp_servers: [], plugins: [], skills: [] }),
       JSON.stringify({ type: "assistant", session_id: "ses_c1", message: { content: [
-        { type: "tool_use", name: "Bash", is_error: true },
+        { type: "tool_use", id: "tu1", name: "Bash" },
+        { type: "tool_use", id: "tu2", name: "Read" },
         { type: "text", text: "Hello " },
+      ] } }),
+      JSON.stringify({ type: "user", session_id: "ses_c1", message: { content: [
+        { type: "tool_result", tool_use_id: "tu2", is_error: true },
       ] } }),
       JSON.stringify({ type: "assistant", session_id: "ses_c1", message: { content: [{ type: "text", text: "there" }] } }),
       JSON.stringify({ type: "result", subtype: "success", session_id: "ses_c1", result: "Hello there",
         usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 4, cache_creation_input_tokens: 1 } }),
       "not json",
-    ].join("\n"));
+    ].join("\n"), expectInit);
     expect(run).toMatchObject({ text: "Hello there", session: "ses_c1", usage: { input: 10, output: 2, cacheRead: 4, cacheWrite: 1, coverage: "measured" } });
-    expect(run.tools).toEqual([{ tool: "Bash", status: "error" }]);
+    expect(run.tools).toEqual([
+      { tool: "claude:init", status: "empty" },
+      { tool: "Bash", status: "completed" },
+      { tool: "Read", status: "error" },
+    ]);
+  });
+
+  test("parseClaudeRun fails closed on missing init, non-empty init and hook events", () => {
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281-fake" };
+    expect(parseClaudeRun(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }), expectInit).error)
+      .toMatch(/init event was missing/);
+    const tools = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281-fake",
+      tools: ["Bash"], mcp_servers: [], plugins: [],
+    }), expectInit);
+    expect(tools.error).toMatch(/not empty/);
+    expect(tools.tools).toContainEqual({ tool: "Bash", status: "available" });
+    const hook = parseClaudeRun([
+      JSON.stringify({ type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281-fake", tools: [], mcp_servers: [], plugins: [] }),
+      JSON.stringify({ type: "system", subtype: "hook_started" }),
+    ].join("\n"), expectInit);
+    expect(hook.error).toMatch(/hook/);
+    expect(hook.tools).toContainEqual({ tool: "claude:hook", status: "present" });
   });
 });
 
-/** A fake `claude`: records each invocation and answers as `claude -p --output-format stream-json`. */
-const FAKE_CLAUDE = `#!/usr/bin/env bun
-import { appendFileSync, readFileSync } from "node:fs";
-const argv = process.argv.slice(2);
-if (argv[0] === "--version") { console.log("2.1.281-fake"); process.exit(0); }
-const stdin = readFileSync(0, "utf8");
-let mode = "absent"; try { mode = readFileSync("${"$"}{import.meta.dir}/mode", "utf8").trim(); } catch {}
-appendFileSync(process.env.FAKE_LOG ?? "${"$"}{import.meta.dir}/calls.jsonl", JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\\n");
-const at = argv.indexOf("--resume"), session = at >= 0 ? argv[at + 1] : "ses_claude_" + Math.random().toString(36).slice(2, 8);
-const prompt = stdin || argv[argv.length - 1] || "";
-const out = (o) => console.log(JSON.stringify({ session_id: session, ...o }));
-if (mode === "slow") { appendFileSync("${"$"}{import.meta.dir}/pid", String(process.pid)); await Bun.sleep(30_000); }
-if (mode === "leak-on-resume" && at >= 0) { out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } }); }
-if (session === "ses_gone") { out({ type: "result", is_error: true, result: "Session not found" }); process.exit(1); }
-out({ type: "system", subtype: "init" });
-if (mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) out({ type: "assistant", message: { content: [{ type: "tool_use", name, is_error: true }] } });
-if (mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } });
-if (mode === "partial") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", is_error: true }] } });
-out({ type: "assistant", message: { content: [{ type: "text", text: "answer to: " + prompt.split("\\n").at(-1) }] } });
-out({ type: "result", subtype: "success", result: "answer to: " + prompt.split("\\n").at(-1),
-  usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });
-`;
+const FAKE_CLAUDE_FIXTURE = join(import.meta.dir, "fixtures", "assistant-executor", "claude");
+const CLAUDE_GONE = "00000000-0000-4000-8000-000000000001";
 
 function claudeSetup() {
   const dir = mkdtempSync(join(tmpdir(), "pacer-ask-claude-")), bin = join(dir, "claude");
-  writeFileSync(bin, FAKE_CLAUDE.replace("#!/usr/bin/env bun", `#!${process.execPath}`).replaceAll(`${"$"}{import.meta.dir}`, dir)); chmodSync(bin, 0o755);
+  copyFileSync(FAKE_CLAUDE_FIXTURE, bin); chmodSync(bin, 0o755);
   const base = fakeCtx();
+  mkdirSync(join(base.home, "claude-work"), { recursive: true, mode: 0o700 });
   const c = { ...base, env: { ...base.env, HOME: base.home, PATH: process.env.PATH ?? "/usr/bin:/bin" }, which: (name: string) => name === "claude" ? bin : base.which(name) } as typeof base;
   pluginRegistry(c, { bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
   writeSettings(c, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(c).rev });
   const strategy = () => ({
     planner: { agent: "claude-code", account: "work" },
-    accounts: { work: { kind: "claude", source: "pacer", home: join(base.home, "claude-work"), model: "sonnet" } },
+    accounts: { work: { kind: "claude", source: "pacer", home: join(base.home, "claude-work"), model: "sonnet", name: "work" } },
     runners: {}, dispatch: { reservePct: 0 },
   }) as unknown as Strategy;
   const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
-  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume") => writeFileSync(join(dir, "mode"), m);
+  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook") =>
+    writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
     : [];
@@ -371,6 +384,7 @@ describe("claude-code ask mode", () => {
     expect(call!.argv[0]).toBe("-p");
     expect(call!.argv).toContain("--output-format");
     expect(call!.argv[call!.argv.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(call!.argv).toContain("--include-hook-events");
     expect(call!.argv).toContain("--tools");
     expect(call!.argv[call!.argv.indexOf("--tools") + 1]).toBe("");
     expect(call!.argv).toContain("--disallowedTools");
@@ -380,8 +394,11 @@ describe("claude-code ask mode", () => {
     expect(call!.argv[call!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
     expect(call!.argv).toContain("--setting-sources");
     expect(call!.argv[call!.argv.indexOf("--setting-sources") + 1]).toBe("");
+    expect(call!.argv).toContain("--safe-mode");
+    expect(call!.argv).toContain("--disable-slash-commands");
+    expect(call!.argv).not.toContain("--bare");
     expect(call!.argv).toContain("--permission-mode");
-    expect(call!.argv[call!.argv.indexOf("--permission-mode") + 1]).toBe("plan");
+    expect(call!.argv[call!.argv.indexOf("--permission-mode") + 1]).toBe(CLAUDE_PERMISSION_MODE);
     expect(call!.argv).toContain("--permission-prompts");
     expect(call!.argv[call!.argv.indexOf("--permission-prompts") + 1]).toBe("none");
     expect(call!.argv).toContain("--system-prompt-file");
@@ -390,9 +407,10 @@ describe("claude-code ask mode", () => {
     expect(call!.argv).toContain("--model");
     expect(call!.argv[call!.argv.indexOf("--model") + 1]).toBe("sonnet");
     expect(call!.stdin).toBe("What needs me?");
-    expect(call!.argv).not.toContain("--resume");
+    expect(call!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
     expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
     expect(call!.env.CLAUDE_CONFIG_DIR).toBe(join(ctx.home, "claude-work"));
+    expect(call!.env[CLAUDE_EXPECT_VERSION_ENV]).toBe("2.1.281-fake");
     expect(call!.env.HOME).toBe(ctx.home);
     expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
     expect(call!.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
@@ -400,13 +418,12 @@ describe("claude-code ask mode", () => {
     expect(existsSync(join(ctx.pacerHome, "runs", "assistant", first.turnId))).toBe(false);
     const session = readBackendSession(ctx, first.conversationId)!;
     expect(session).toMatchObject({ account: "work", backend: "executor" });
-    expect(session.handle).toMatch(/^ses_claude_/);
+    expect(session.handle).toMatch(CLAUDE_SESSION_ID);
 
     const second = await ask(ctx, { text: "And now?", conversationId: first.conversationId, scope, requestId: req() }, deps);
     expect((await finished(ctx, second.turnId)).state).toBe("done");
     const resumed = calls()[1]!;
-    expect(resumed.argv).toContain("--resume");
-    expect(resumed.argv[resumed.argv.indexOf("--resume") + 1]).toBe(session.handle);
+    expect(resumed.argv).toContain(`--resume=${session.handle}`);
     expect(resumed.stdin).toBe("And now?");
     expect(resumed.cwd).toBe(call!.cwd);
   }, 60_000);
@@ -417,17 +434,36 @@ describe("claude-code ask mode", () => {
     const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "First question", scope, requestId: req() }, deps);
     expect((await finished(ctx, first.turnId)).state).toBe("done");
-    writeBackendSession(ctx, first.conversationId, { handle: "ses_gone", account: "work", backend: "executor" });
+    writeBackendSession(ctx, first.conversationId, { handle: CLAUDE_GONE, account: "work", backend: "executor" });
     const second = await ask(ctx, { text: "Second question", conversationId: first.conversationId, scope, requestId: req() }, deps);
     expect((await finished(ctx, second.turnId)).state).toBe("done");
     const [, resume, fresh] = calls();
-    expect(resume!.argv[resume!.argv.indexOf("--resume") + 1]).toBe("ses_gone");
-    expect(fresh!.argv).not.toContain("--resume");
+    expect(resume!.argv).toContain(`--resume=${CLAUDE_GONE}`);
+    expect(fresh!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
     expect(fresh!.stdin).toContain("Earlier in this conversation:");
     expect(fresh!.stdin).toContain("First question");
     expect(fresh!.stdin.endsWith("Second question")).toBe(true);
-    expect(readBackendSession(ctx, first.conversationId)!.handle).toMatch(/^ses_claude_/);
+    expect(readBackendSession(ctx, first.conversationId)!.handle).toMatch(CLAUDE_SESSION_ID);
   }, 60_000);
+
+  test("rejects a non-UUID resume handle that could inject argv flags", () => {
+    const { ctx } = claudeSetup();
+    const account = { kind: "claude" as const, source: "pacer" as const, home: join(ctx.home, "claude-work"), name: "work", model: "sonnet",
+      orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
+    expect(claudeResumeSession("--setting-sources=user")).toBeUndefined();
+    const ask = claudeAskTurn(ctx, {
+      turnId: "t-inject", conversationId: "c-inject", account, model: "sonnet",
+      session: "--setting-sources=user", system: "s", question: "hi",
+      history: [{ role: "user", content: "earlier" }, { role: "assistant", content: "ok" }], timeoutMs: 30_000,
+    });
+    try {
+      expect(ask.command.argv.every(a => !a.startsWith("--resume"))).toBe(true);
+      expect(ask.command.argv).not.toContain("--setting-sources=user");
+      expect(ask.fallback).toBeUndefined();
+      expect(ask.command.stdin).toContain("Earlier in this conversation:");
+      expect(ask.command.stdin).toContain("earlier");
+    } finally { ask.cleanup(); }
+  });
 
   test("a max-size digest system prompt stays off argv and validates against assistant.reply", () => {
     const { ctx } = claudeSetup();
@@ -459,29 +495,53 @@ describe("claude-code ask mode", () => {
     expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true });
   }, 60_000);
 
-  test("self-test passes when tools are absent, fails when one ran, inconclusive when only some were attempted", async () => {
+  test("a Claude account without a config directory is unavailable and never falls back", () => {
+    const { ctx, deps } = claudeSetup();
+    const strategy = () => ({
+      planner: { agent: "claude-code", account: "work" },
+      accounts: {
+        work: { kind: "claude", source: "pacer", home: join(ctx.home, "claude-work"), model: "sonnet", name: "work" },
+        bare: { kind: "claude", source: "pacer", home: null, model: "sonnet", name: "bare" },
+      },
+      runners: {}, dispatch: { reservePct: 0 },
+    }) as unknown as Strategy;
+    const row = candidates(ctx, { ...deps, strategy }).find(r => r.backend === "executor" && r.account === "bare");
+    expect(row).toMatchObject({ available: false, reason: "bare has no Claude config directory." });
+  });
+
+  test("self-test passes only with empty init evidence; non-empty init, hooks and tool_use fail", async () => {
     const { ctx, deps, mode } = claudeSetup();
     mode("absent");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281-fake" });
     mode("deny");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash|present|tool/) });
     mode("leak");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "a tool other than pacer's ran: Bash" });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
     mode("partial");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "the agent did not attempt: read, webfetch" });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
+    mode("init-tools");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|Bash|refused/i) });
+    mode("init-mcp");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|extra|refused|mcp/i) });
+    mode("missing-init");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/init|missing|refused/i) });
+    mode("hook");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/hook|refused/i) });
   }, 60_000);
 
   test("fails when restrictions break on the resumed turn", async () => {
     const { ctx, deps, mode } = claudeSetup();
     mode("leak-on-resume");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "on a resumed turn, a tool other than pacer's ran: Bash" });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash/) });
   }, 60_000);
 
-  test("judge treats absent tools as a pass only when absentOk", () => {
+  test("judge requires the empty claude init marker when absentOk", () => {
     const o = { planted: "secret-x", pwned: "/nonexistent/pwned" };
     expect(judge([], "ok", o).verdict).toBe("inconclusive");
-    expect(judge([], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
-    expect(judge([{ tool: "Bash", status: "error" }, { tool: "Read", status: "error" }, { tool: "WebFetch", status: "error" }], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
+    expect(judge([], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
+    expect(judge([{ tool: "claude:init", status: "empty" }], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
+    expect(judge([{ tool: "claude:init", status: "empty" }, { tool: "Bash", status: "error" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
+    expect(judge([{ tool: "Bash", status: "available" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
   });
 
   test("saving accepts a Claude Code account for the executor backend", () => {

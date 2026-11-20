@@ -1,3 +1,4 @@
+import { spawnSync } from "node:child_process";
 import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { AccountCfg } from "../config/accounts";
@@ -34,15 +35,29 @@ export const ASK_REMOVED = ["execute"] as const;
 /**
  * How ask mode restricts Claude Code (verified against claude 2.1.281 `--help`, read-only):
  * - `--tools ''` disables every built-in tool (digest-only v1).
- * - `--disallowedTools` names the dangerous ones as a second belt.
+ * - `--disallowedTools` names dangerous ones as a second belt (widened beyond the common edit/shell set).
  * - `--strict-mcp-config` with an empty `--mcp-config` loads no MCP servers.
- * - `--setting-sources ''` loads no user/project/local settings or instruction files.
- * - `--permission-mode plan` cannot edit; `--permission-prompts none` denies anything that would ask.
- * Continuity uses `--resume <session>` with the stored session id. Sign-in stays in the account's
- * own `CLAUDE_CONFIG_DIR` / home; pacer never copies or reads credentials.
+ * - `--setting-sources ''` loads no user/project/local settings; `--safe-mode` also disables CLAUDE.md,
+ *   skills, installed plugins, hooks, MCP, custom agents and related customizations (not `--bare`,
+ *   which would block OAuth/keychain sign-in). `--disable-slash-commands` drops skills entry points.
+ * - `--permission-mode dontAsk` denies anything not pre-allowed (there is no allow rule);
+ *   `--permission-prompts none` denies anything that would ask.
+ * - `--include-hook-events` surfaces hook lifecycle events so a turn can fail closed if any appear.
+ * Continuity uses `--resume=<uuid>` only when the stored handle is a UUID; otherwise the seeded
+ * transcript fallback runs. Sign-in stays in the account's own `CLAUDE_CONFIG_DIR` / home; pacer
+ * never copies or reads credentials.
  */
-export const CLAUDE_ASK_DISALLOWED = ["Bash", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep", "WebFetch", "WebSearch", "Agent", "NotebookEdit"] as const;
+export const CLAUDE_ASK_DISALLOWED = [
+  "Bash", "PowerShell", "REPL", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
+  "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ToolSearch", "NotebookEdit", "NotebookRead",
+  "BashOutput", "LSP", "Monitor", "ListMcpResourcesTool", "ReadMcpResourceTool",
+] as const;
 export const CLAUDE_EMPTY_MCP = '{"mcpServers":{}}';
+/** Claude Code session ids are UUIDs; anything else must not reach `--resume` (SEC-5). */
+export const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const CLAUDE_PERMISSION_MODE = "dontAsk";
+/** Env key carrying the CLI version the stream-json init event must match (host-side expect). */
+export const CLAUDE_EXPECT_VERSION_ENV = "CLAUDE_CODE_EXPECT_VERSION";
 
 /** One host-issued command, as the plugin must echo it to `capability.process.spawn`. */
 export interface AskCommand {
@@ -139,10 +154,19 @@ export function seededPrompt(history: readonly { role: "user" | "assistant"; con
 export const STDIN_CAP = 262144;
 
 /** Which ask-mode adapter an account uses, or null when the executor backend cannot drive it. */
-export function askAdapterFor(account: AccountCfg): AskAdapter | null {
+export function askAdapterFor(ctx: Ctx, account: AccountCfg): AskAdapter | null {
   if (account.kind === "endpoint") return "opencode";
-  if (account.kind === "claude") return "claude-code";
+  if (account.kind === "claude") return claudeAskConfigDir(ctx, account) ? "claude-code" : null;
   return null;
+}
+
+/** The installed `claude` CLI's version line, or null when it is missing or silent. */
+export function claudeCliVersion(ctx: Ctx): string | null {
+  const bin = ctx.which("claude");
+  if (!bin) return null;
+  const run = spawnSync(bin, ["--version"], { timeout: 10_000, encoding: "utf8", env: { HOME: ctx.home, PATH: ctx.env.PATH ?? "/usr/bin:/bin" } });
+  const version = run.status === 0 ? run.stdout.trim().split("\n")[0]!.trim() : "";
+  return version || null;
 }
 
 function conversationDirs(ctx: Ctx, turnId: string, conversationId: string) {
@@ -179,15 +203,23 @@ export function askTurn(ctx: Ctx, o: {
   return { adapter: "opencode", command, ...(fallback ? { fallback } : {}), config, cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
 }
 
-/** The account's Claude config folder for ask mode: its own home, never copied credentials. */
-export function claudeAskConfigDir(ctx: Ctx, account: AccountCfg): string {
+/**
+ * The account's Claude config folder for ask mode: its own home, never copied credentials.
+ * A non-default account without a folder returns null (never falls back to the default account).
+ */
+export function claudeAskConfigDir(ctx: Ctx, account: AccountCfg): string | null {
   if (account.source === "default") return defaultAccountFolder(ctx, "claude");
-  return accountFolder(ctx, account) ?? defaultAccountFolder(ctx, "claude");
+  return accountFolder(ctx, account);
+}
+
+/** Accept only a Claude session UUID for `--resume=<id>`; anything else is dropped (SEC-5). */
+export function claudeResumeSession(session: string | undefined): string | undefined {
+  return session && CLAUDE_SESSION_ID.test(session) ? session : undefined;
 }
 
 /**
  * One `claude -p` turn in digest-only ask mode. Flags match the installed CLI's `--help`
- * (tools empty, empty MCP under --strict-mcp-config, no setting sources, plan permission mode).
+ * (tools empty, empty MCP under --strict-mcp-config, safe-mode, dontAsk permission mode).
  * The system prompt (with digest) and the user/seeded question stay off argv: the protocol caps
  * each argv element at 4096 bytes, so the system text is a file under the turn's run directory
  * (`--system-prompt-file`) and the question rides stdin.
@@ -196,32 +228,41 @@ export function claudeAskTurn(ctx: Ctx, o: {
   turnId: string; conversationId: string; account: AccountCfg; model: string | null; session?: string;
   system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
 }): AskTurn {
+  const configDir = claudeAskConfigDir(ctx, o.account);
+  if (!configDir) throw new Error(`${o.account.name ?? "account"} has no Claude config directory.`);
+  const version = claudeCliVersion(ctx);
+  if (!version) throw new Error("claude is not installed or did not report its version");
   const { runDir, cwd } = conversationDirs(ctx, o.turnId, o.conversationId);
   const systemFile = join(runDir, "system.txt");
   writeFileSync(systemFile, o.system, { mode: 0o600 });
   const env: Record<string, string> = {
     ...minimalEnvironment(ctx.env, "claude"),
-    CLAUDE_CONFIG_DIR: claudeAskConfigDir(ctx, o.account),
+    CLAUDE_CONFIG_DIR: configDir,
+    [CLAUDE_EXPECT_VERSION_ENV]: version,
   };
-  const prompt = (session?: string) => session ? o.question : seededPrompt(o.history, o.question);
+  const session = claudeResumeSession(o.session);
+  const prompt = (resume?: string) => resume ? o.question : seededPrompt(o.history, o.question);
   // Restriction flags only on argv; large text never becomes an argv element (protocol max 4096).
-  const argv = (session?: string) => [
+  const argv = (resume?: string) => [
     "claude", "-p",
     "--output-format", "stream-json",
     "--verbose",
+    "--include-hook-events",
     "--tools", "",
     "--disallowedTools", CLAUDE_ASK_DISALLOWED.join(","),
     "--strict-mcp-config",
     "--mcp-config", CLAUDE_EMPTY_MCP,
     "--setting-sources", "",
-    "--permission-mode", "plan",
+    "--safe-mode",
+    "--disable-slash-commands",
+    "--permission-mode", CLAUDE_PERMISSION_MODE,
     "--permission-prompts", "none",
     "--system-prompt-file", systemFile,
     ...(o.model ? ["--model", o.model] : []),
-    ...(session ? ["--resume", session] : []),
+    ...(resume ? [`--resume=${resume}`] : []),
   ];
-  const command: AskCommand = { argv: argv(o.session), cwd, env, stdin: prompt(o.session), timeoutMs: o.timeoutMs };
-  const fallback: AskCommand | undefined = o.session
+  const command: AskCommand = { argv: argv(session), cwd, env, stdin: prompt(session), timeoutMs: o.timeoutMs };
+  const fallback: AskCommand | undefined = session
     ? { argv: argv(), cwd, env, stdin: prompt(), timeoutMs: o.timeoutMs }
     : undefined;
   return { adapter: "claude-code", command, ...(fallback ? { fallback } : {}), config: "", cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
@@ -232,7 +273,7 @@ export function askTurnFor(ctx: Ctx, account: AccountCfg, o: {
   turnId: string; conversationId: string; grant: string; model: string | null; session?: string;
   system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
 }): AskTurn {
-  const adapter = askAdapterFor(account);
+  const adapter = askAdapterFor(ctx, account);
   if (adapter === "claude-code") return claudeAskTurn(ctx, { ...o, account });
   return askTurn(ctx, o);
 }
