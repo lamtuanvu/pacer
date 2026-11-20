@@ -172,7 +172,8 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                 return forward_plugin_read(&state, parts, bytes, auth).await;
             }
             Err(_)
-                if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name) =>
+                if crate::native::dispatch_lifecycle_sync::forwards_undecodable_body(op.name)
+                    || crate::native::assistant_turn_sync::needs_bridge(op.name) =>
             {
                 let Some(target) = state.core.target().await else {
                     return proxy::unavailable(false);
@@ -228,6 +229,18 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                         .await
                 }
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::assistant_turn_sync::needs_bridge(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::assistant_turn_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            let result =
+                crate::native::assistant_turn_sync::call(&ctx, op.name, params, &mut bridge);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
             };
         }
