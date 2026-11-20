@@ -411,21 +411,14 @@ impl ReadModel {
                 )
             }
         };
-        let mode = if !hold.is_null() {
-            text(&hold["mode"])
-        } else {
-            let p = array(&status["providers"])
-                .iter()
-                .find(|p| p["id"] == status["planner"])
-                .unwrap_or(&Value::Null);
-            match text(&p["verdict"]) {
-                "EXHAUSTED" => "emergency",
-                "AHEAD" | "NEAR_LIMIT" => "strict",
-                "BEHIND" | "EXPIRING" => "relaxed",
-                _ => "normal",
-            }
-        }
-        .to_owned();
+        let planner_provider = array(&status["providers"])
+            .iter()
+            .find(|p| p["id"] == status["planner"])
+            .unwrap_or(&Value::Null);
+        let mode = pacer_engine::status::status_mode(
+            &hold,
+            planner_provider.get("verdict").and_then(Value::as_str),
+        );
         status["modeHold"] = hold;
         status["mode"] = json!(mode);
         if available

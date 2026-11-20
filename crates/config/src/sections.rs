@@ -216,7 +216,7 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
     ) {
         return None;
     }
-    let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal"],"escalate_after_s":900,"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
+    let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal"],"escalate_after_s":900,"caller_wake_after_s":300,"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
     let result = merge(&defaults, raw);
     if !result["defaults"].is_boolean()
         || !js_semantics::safe_integer(&result["keep_worktree_days"])
@@ -240,11 +240,17 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
             "max_nudges",
             "nudge_in_modes",
             "escalate_after_s",
+            "caller_wake_after_s",
             "retry_delivery",
         ],
-    ) || ["interval_s", "backoff_max_s", "escalate_after_s"]
-        .iter()
-        .any(|k| js_semantics::safe_integer(&live[*k]).is_none_or(|n| n < 10.0))
+    ) || [
+        "interval_s",
+        "backoff_max_s",
+        "escalate_after_s",
+        "caller_wake_after_s",
+    ]
+    .iter()
+    .any(|k| js_semantics::safe_integer(&live[*k]).is_none_or(|n| n < 10.0))
         || js_semantics::safe_integer(&live["max_nudges"]).is_none_or(|n| n < 0.0)
         || !live["retry_delivery"].is_boolean()
     {

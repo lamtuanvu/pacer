@@ -5,6 +5,7 @@ import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import type { EvidenceScope } from "../evidence/types";
 import type { Ctx, UsageReading } from "../types";
+import { AUTH_LIFETIME_S } from "./freshness";
 
 const authFile = (ctx: Ctx) => join(ctx.pacerHome, "state", "auth-failed.json");
 const authError = /not logged in|please log in|401|unauthorized|authentication/i;
@@ -47,5 +48,5 @@ export function authObservation(ctx: Ctx, scope: EvidenceScope): {at: number; sc
 
 export function accountAuthFailure(ctx: Ctx, scope: EvidenceScope): boolean {
  const observation=authObservation(ctx,scope);
- return !!observation && observation.at+7200>ctx.now && !observation.scope.runner && !observation.scope.model && !observation.scope.host;
+ return !!observation && observation.at+AUTH_LIFETIME_S>ctx.now && !observation.scope.runner && !observation.scope.model && !observation.scope.host;
 }

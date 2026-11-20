@@ -66,6 +66,18 @@ test("account rows expose executor ids and removal locks, with the planner takin
   expect(rows.find(a => a.name === "api")?.locked).toBeUndefined();
 });
 
+test("account.list reads each account's usage once (the listing reuses computeStatus's readings)", async () => {
+  const ctx = configured();
+  const read = mockCodexReader().mockResolvedValue({windows: [], capturedAt: ctx.now, stale: false});
+  const rows = await list(ctx);
+  // computeStatus reads the account once for the whole listing; the per-account part
+  // reuses that reading instead of probing the plugin again.
+  expect(read).toHaveBeenCalledTimes(1);
+  expect(read.mock.calls[0]![2]).toMatchObject({name: "codex"});
+  expect(rows.find(a => a.name === "codex")!.usageState).toBeDefined();
+  expect(rows.find(a => a.name === "codex")!.diagnostics.readings[0]).toMatchObject({capturedAt: ctx.now});
+});
+
 test("signin opens Codex login with its quoted account home through the terminal opener", async () => {
   const ctx = configured();
   ctx.env.TERM_PROGRAM = "Apple_Terminal";

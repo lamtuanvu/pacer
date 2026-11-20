@@ -1,20 +1,16 @@
 import type { ActivityProfile } from "../pace/activity";
 import { activeHoursLeft, pacePct } from "../pace/clock";
 import type { UsageWindow, Verdict } from "../types";
+import { EXHAUSTED_PCT, NEAR_LIMIT_PCT } from "../usage/freshness";
 
-export const EXHAUSTED_PCT = 97;
-export const NEAR_LIMIT_PCT = 90;
+export { EXHAUSTED_PCT, NEAR_LIMIT_PCT };
 export const EXPIRING_HOURS = 9;
 export const EXPIRING_UNUSED = 25;
 
-export interface WindowStatus extends UsageWindow {
-  verdict: Verdict;
-  pace?: number;
-  delta?: number;
-  activeHoursLeft?: number;
-  rolled?: boolean;
-}
 export interface Thresholds { ahead: number; behind: number; paceScale: number }
+
+/** The evaluated-window shape lives with the other usage types; this is its engine name. */
+export type WindowStatus = import("../types").UsageWindowState;
 
 export function evaluateWindow(w: UsageWindow, now: number, profile: ActivityProfile | null, th: Thresholds): WindowStatus {
   const s: WindowStatus = { ...w, verdict: "UNKNOWN" };
@@ -38,7 +34,7 @@ export function evaluateWindow(w: UsageWindow, now: number, profile: ActivityPro
 }
 
 const RANK: Record<Verdict, number> = {
-  EXHAUSTED: 0, NEAR_LIMIT: 1, AHEAD: 2, UNKNOWN: 3, OK: 3, ON_PACE: 4, BEHIND: 5, EXPIRING: 6,
+  EXHAUSTED: 0, NEAR_LIMIT: 1, AHEAD: 2, UNKNOWN: 3, OK: 3, UNMETERED: 3, ON_PACE: 4, BEHIND: 5, EXPIRING: 6,
 };
 
 /** The window that decides a provider's verdict. */

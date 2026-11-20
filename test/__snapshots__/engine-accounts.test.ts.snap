@@ -49,9 +49,9 @@ exports[`starter route JSON exposes labelled fallbacks and remains stable throug
         "validUntil": null,
       },
       "id": "local",
-      "reason": "ok",
+      "reason": "unmetered",
       "score": 3,
-      "verdict": "OK",
+      "verdict": "UNMETERED",
     },
     {
       "eligibility": {

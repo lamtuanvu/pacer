@@ -26,8 +26,17 @@ test("account and runner operations share configuration and publish matching eve
   expect(await callOp(ctx, "runner.add", {agent: "codex", account: "work"})).toMatchObject({id: "codex#work", job: {kind: "runner.check", state: "failed"}});
   expect((await error(callOp(ctx, "account.remove", {name: "work"}))).code).toBe("conflict");
   expect(await callOp(ctx, "runner.remove", {id: "codex#work"})).toEqual({removed: true});
+  // Removal deletes the account's persisted usage store with its evidence.
+  const { writeUsageEntry } = await import("../src/usage/store");
+  const { accountEvidenceScope } = await import("../src/core/evidence");
+  const { loadStrategy: loadForStore } = await import("../src/config/strategy");
+  const workAccount = loadStrategy(ctx).accounts.work;
+  const storeId = accountEvidenceScope(workAccount, loadForStore(ctx).hosts ?? {}).identity;
+  writeUsageEntry(ctx, storeId, "claude-code", { windows: [], capturedAt: null, stale: false, source: "reactive" });
+  expect(existsSync(join(ctx.pacerHome, "state", "usage", `${storeId}.json`))).toBe(true);
   expect(await callOp(ctx, "account.remove", {name: "work", delete_home: true})).toEqual({removed: true});
   expect(existsSync(added.account.folder)).toBe(false);
+  expect(existsSync(join(ctx.pacerHome, "state", "usage", `${storeId}.json`))).toBe(false);
   expect(eventsSince(ctx, 0).events.filter(e => e.type === "config").map(e => e.data)).toEqual(["accounts", "runners", "runners", "accounts"].map(area => ({area, at: ctx.now})));
 });
 

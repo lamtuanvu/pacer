@@ -1,7 +1,8 @@
 //! Native assistant settings and history ops (`src/api/ops-assistant.ts`) over the
 //! assistant tables in `state/tasks.db`. `assistant.ask` and `assistant.cancel`
-//! stay in TypeScript: they drive the assistant plugin and the in-process turn
-//! stream. Inputs only TypeScript reproduces stay forwarded: work grants, Orca
+//! are decided here and run over the Core bridge in [`turn`]: the turn itself, its
+//! plugin call and its stream live in the TypeScript process. Inputs only
+//! TypeScript reproduces stay forwarded: work grants, Orca
 //! worktree callers, stored settings that fail the Zod schemas, strategies the
 //! Rust loader cannot read, and a configured `assistant.status` whose admission
 //! needs the cached usage status.
@@ -70,18 +71,12 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-/// Which assistant ops the native handler declines so the core answers them. `assistant.ask`,
-/// `assistant.cancel`, `assistant.tool` and `assistant.selftest` are never native: they drive the
-/// assistant plugin, the in-process turn stream, the live turn's tool context and the agent CLI.
+/// Which assistant ops the native handler declines so the core answers them. `assistant.tool` and
+/// `assistant.selftest` are never native: they need the live turn's tool context and the agent CLI.
 /// `assistant.candidates` stays with the core: its rows depend on the executor backend's plugin and
 /// its recorded ask-mode check, which only the core knows.
 pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("assistant.")
-        || matches!(
-            op,
-            "assistant.ask" | "assistant.cancel" | "assistant.tool" | "assistant.selftest"
-        )
-    {
+    if !op.starts_with("assistant.") || matches!(op, "assistant.tool" | "assistant.selftest") {
         return false;
     }
     if op == "assistant.candidates" {
@@ -186,10 +181,15 @@ fn nullish(value: Option<&Value>) -> bool {
 }
 
 /// `endpointFor(...) !== null`.
-fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>) -> bool {
+fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>, executor: bool) -> bool {
     let Some(entry) = strategy["accounts"].get(account) else {
         return false;
     };
+    // The executor backend runs the account through its agent CLI, which holds the connection and
+    // picks the model, so any endpoint account qualifies (`endpointFor` in TypeScript).
+    if executor {
+        return entry.get("kind").and_then(Value::as_str) == Some("endpoint");
+    }
     if entry.get("kind").and_then(Value::as_str) != Some("endpoint")
         || !entry.get("connection").is_some_and(truth)
     {
@@ -325,7 +325,8 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
             let Some(strategy) = strategy(ctx) else {
                 return Ok(None);
             };
-            if !endpoint_ok(&strategy, account, settings.runner.as_deref()) {
+            // Native status only answers the pacer backend; an executor backend's status is forwarded.
+            if !endpoint_ok(&strategy, account, settings.runner.as_deref(), false) {
                 (
                     "The account chosen for the assistant is no longer available.".to_owned(),
                     "Choose another account in Settings › Assistant.",
@@ -367,6 +368,7 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
 }
 
 mod params;
+pub mod turn;
 use params::{Params, parse};
 
 fn not_found(message: &str) -> CoreError {
@@ -399,8 +401,10 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         if let Some(account) = p.account.as_deref() {
             let strategy = strategy(ctx)
                 .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
-            with_db(ctx, |db| Ok(settings(db)))??;
-            if !endpoint_ok(&strategy, account, p.runner.as_deref()) {
+            let stored = with_db(ctx, |db| Ok(settings(db)))??;
+            // The backend being saved decides the check; absent keeps the stored one.
+            let executor = p.backend.as_deref().unwrap_or(stored.backend.as_str()) == "executor";
+            if !endpoint_ok(&strategy, account, p.runner.as_deref(), executor) {
                 return Err(CoreError::new(
                     Code::InvalidInput,
                     "Choose an endpoint account with a model.",

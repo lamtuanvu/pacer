@@ -328,7 +328,7 @@ export const OPS: Record<string, OpDef> = {
   }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional(), notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(), notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
-  "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
+  "account.list": op({ description: "Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).",
@@ -472,7 +472,9 @@ export const OPS: Record<string, OpDef> = {
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
-      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: callerParticipant(ctx, deps).id}, deps.spawnRunner ?? spawnRunner);
+      const participant=callerParticipant(ctx, deps).id;
+      // This handler runs in the service over HTTP, so ctx.env is not the caller's: record no reach.
+      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;

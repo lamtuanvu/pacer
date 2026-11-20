@@ -9,6 +9,7 @@ publish = false
 [dependencies]
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
 pacer-config = { path = "../config" }
 pacer-engine = { path = "../engine" }

@@ -10,6 +10,10 @@ mod titles;
 mod updates;
 mod work;
 
+/// The dashboard's status vocabulary, exposed so its tables can be pinned
+/// against `pacer_engine::words` (the tests keep them byte-identical).
+pub mod words;
+
 /// Render an explicit wire snapshot and UI state through a ratatui TestBackend.
 /// The returned rows preserve the TS renderer's deliberate trailing spaces.
 pub fn render_frame(

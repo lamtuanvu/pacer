@@ -58,4 +58,5 @@ test("plannerMode mapping", () => {
   expect(plannerMode("OK")).toBe("normal");
   expect(plannerMode("BEHIND")).toBe("relaxed");
   expect(plannerMode("EXPIRING")).toBe("relaxed");
+  expect(plannerMode("UNMETERED")).toBe("normal");
 });
