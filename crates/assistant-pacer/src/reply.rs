@@ -73,7 +73,7 @@ async fn run_reply(
         .filter(|m| !m.is_empty())
         .ok_or_else(|| PluginError::new("invalid_input", "assistant.reply requires a model"))?;
 
-    let base_url = resolve_base_url(&ctx).await?;
+    let base_url = resolve_base_url(&params)?;
     let key = resolve_key(&ctx, &account).await?;
 
     let client = openai::Client::builder(&key).base_url(&base_url).build();
@@ -231,27 +231,21 @@ fn cancelled() -> PluginError {
     PluginError::new("plugin_unavailable", "The turn was cancelled.")
 }
 
-/// Endpoint base URL from `capability.config.get` → `baseUrl`.
+/// Endpoint base URL from `assistant.reply` params (`endpoint.baseUrl`).
 ///
-/// `assistant.reply` params do not yet carry the connection (unlike `assistant.respond`'s
-/// `context.backend.baseUrl`). Phase 3b should put the account base URL into this plugin's
-/// config slice, or extend the protocol. Tests set it through the harness.
-async fn resolve_base_url(ctx: &Ctx) -> Result<String, PluginError> {
-    let cfg = ctx.host.config().await.map_err(|e| {
-        PluginError::new(
-            "plugin_unavailable",
-            format!("Could not read plugin config: {}", e.message),
-        )
-    })?;
-    let url = cfg
-        .get("baseUrl")
-        .and_then(Value::as_str)
+/// The host sends the chosen account's connection URL. Without it the plugin fails closed —
+/// never fall back to `capability.config.get`.
+fn resolve_base_url(params: &AssistantReplyParams) -> Result<String, PluginError> {
+    let url = params
+        .endpoint
+        .as_ref()
+        .map(|e| e.base_url.as_str())
         .map(str::trim)
         .filter(|s| !s.is_empty())
         .ok_or_else(|| {
             PluginError::new(
-                "invalid_input",
-                "assistant-pacer needs config.baseUrl (openai-compatible endpoint)",
+                "plugin_unavailable",
+                "assistant.reply requires endpoint.baseUrl from the chosen account",
             )
         })?;
     Ok(url.trim_end_matches('/').to_owned())

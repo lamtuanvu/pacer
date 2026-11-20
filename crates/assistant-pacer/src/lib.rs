@@ -23,8 +23,7 @@ pub fn manifest() -> Manifest {
         "capabilities": [
             { "name": "secrets.resolve", "scopes": ["endpoint"] },
             { "name": "net.http" },
-            { "name": "assistant.tool" },
-            { "name": "config.get" }
+            { "name": "assistant.tool" }
         ],
         "reentrant": true,
         "tier": "free"

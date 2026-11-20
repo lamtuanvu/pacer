@@ -390,6 +390,8 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
+        // Pacer backends need the account connection URL; executor turns get spawn pins instead.
+        ...(settings.backend === "pacer" ? { endpoint: { baseUrl: endpoint.baseUrl } } : {}),
         ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };

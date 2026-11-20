@@ -104,6 +104,9 @@ describe("the turn-level plugin interface", () => {
       message: "what needs me?", limits: { maxInputTokens: 32_000, maxOutputTokens: 8_000, maxToolRounds: 6, deadlineMs: 120_000 },
     };
     expect(assistantReplyParams.safeParse(valid).success).toBe(true);
+    expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "https://api.example/v1" } }).success).toBe(true);
+    expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "" } }).success).toBe(false);
+    expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "x", extra: 1 } }).success).toBe(false);
     expect(assistantReplyParams.safeParse({ ...valid, extra: 1 }).success).toBe(false);
     expect(assistantReplyParams.safeParse({ ...valid, backend: "local" }).success).toBe(false);
     expect(assistantReplyParams.safeParse({ ...valid, limits: { ...valid.limits, deadlineMs: 120_001 } }).success).toBe(false);
@@ -509,6 +512,27 @@ describe("assistant-pacer native host routing", () => {
     expect(turn.state).toBe("done");
     expect(turn.answer).toStartWith("via-tool <data tool=\"snapshot\">");
     expect(turn.answer).toContain('"open":3');
+    expect(turn.usage).toEqual(pacerStubUsage);
+  });
+
+  test("backend:pacer turns pass endpoint.baseUrl from the account connection", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const deps: AssistantDeps = {
+      strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toBe("baseUrl=http://x/v1");
     expect(turn.usage).toEqual(pacerStubUsage);
   });
 

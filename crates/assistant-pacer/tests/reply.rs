@@ -22,7 +22,7 @@ fn limits(max_tool_rounds: i64, deadline_ms: i64) -> Value {
     })
 }
 
-fn base_params(message: &str, tools: Value, limits: Value) -> Value {
+fn base_params(message: &str, tools: Value, limits: Value, base_url: &str) -> Value {
     json!({
         "conversationId": "c1",
         "turnId": "t1",
@@ -34,32 +34,47 @@ fn base_params(message: &str, tools: Value, limits: Value) -> Value {
         "tools": tools,
         "history": [],
         "message": message,
+        "endpoint": { "baseUrl": base_url },
         "limits": limits
     })
 }
 
-async fn start_harness(base_url: &str) -> Harness {
+async fn start_harness() -> Harness {
     let mut h = Harness::start(
         plugin(),
         HelloSpec {
-            config: json!({ "baseUrl": base_url }),
+            config: json!({}),
             grants: vec![
                 "secrets.resolve".into(),
                 "net.http".into(),
                 "assistant.tool".into(),
-                "config.get".into(),
             ],
         },
     )
     .await;
-    let url = base_url.to_owned();
-    h.on_capability("capability.config.get", move |_| {
-        Ok(json!({ "config": { "baseUrl": url } }))
-    });
     h.on_capability("capability.secrets.resolve", |_| {
         Ok(json!({ "value": "test-key" }))
     });
     h
+}
+
+#[tokio::test]
+async fn missing_endpoint_fails_closed() {
+    let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::Text {
+        content: "should not run".into(),
+        usage: (1, 1),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let mut params = base_params("hi", json!([]), limits(0, 30_000), &fake.base_url);
+    params.as_object_mut().unwrap().remove("endpoint");
+    let err = h
+        .call("assistant.reply", params)
+        .await
+        .expect_err("no endpoint");
+    assert_eq!(err.code, "plugin_unavailable");
+    assert!(fake.requests.lock().unwrap().is_empty());
+    h.close().await;
 }
 
 #[tokio::test]
@@ -69,12 +84,12 @@ async fn missing_secret_fails_closed() {
         usage: (1, 1),
     }]))
     .await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     h.on_capability("capability.secrets.resolve", |_| Ok(json!({ "value": null })));
     let err = h
         .call(
             "assistant.reply",
-            base_params("hi", json!([]), limits(0, 30_000)),
+            base_params("hi", json!([]), limits(0, 30_000), &fake.base_url),
         )
         .await
         .expect_err("null key");
@@ -90,11 +105,11 @@ async fn plain_answer() {
         usage: (11, 5),
     }]))
     .await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let result = h
         .call(
             "assistant.reply",
-            base_params("hi", json!([]), limits(0, 30_000)),
+            base_params("hi", json!([]), limits(0, 30_000), &fake.base_url),
         )
         .await
         .expect("reply");
@@ -136,7 +151,7 @@ async fn tool_call_loop_forwards_to_host() {
         },
     ]))
     .await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let tool_hits = Arc::new(AtomicUsize::new(0));
     let hits = tool_hits.clone();
     h.on_capability("capability.assistant.tool", move |params| {
@@ -157,7 +172,7 @@ async fn tool_call_loop_forwards_to_host() {
     let result = h
         .call(
             "assistant.reply",
-            base_params("how many tasks?", tools, limits(2, 30_000)),
+            base_params("how many tasks?", tools, limits(2, 30_000), &fake.base_url),
         )
         .await
         .expect("reply");
@@ -186,7 +201,7 @@ async fn max_tool_rounds_cap() {
         })
         .collect::<VecDeque<_>>();
     let fake = FakeOpenAi::start(script).await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let rounds = Arc::new(AtomicUsize::new(0));
     let count = rounds.clone();
     h.on_capability("capability.assistant.tool", move |_| {
@@ -201,7 +216,7 @@ async fn max_tool_rounds_cap() {
     let _ = h
         .call(
             "assistant.reply",
-            base_params("loop", tools, limits(2, 30_000)),
+            base_params("loop", tools, limits(2, 30_000), &fake.base_url),
         )
         .await;
     let used = rounds.load(Ordering::SeqCst);
@@ -220,12 +235,12 @@ async fn max_tool_rounds_cap() {
 #[tokio::test]
 async fn deadline_stops_a_hanging_model() {
     let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::Hang])).await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let started = std::time::Instant::now();
     let err = h
         .call(
             "assistant.reply",
-            base_params("slow", json!([]), limits(0, 1000)),
+            base_params("slow", json!([]), limits(0, 1000), &fake.base_url),
         )
         .await
         .expect_err("deadline");
@@ -241,11 +256,11 @@ async fn deadline_stops_a_hanging_model() {
 #[tokio::test]
 async fn cancellation_aborts_promptly() {
     let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::Hang])).await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let id = h
         .start_call(
             "assistant.reply",
-            base_params("cancel-me", json!([]), limits(0, 60_000)),
+            base_params("cancel-me", json!([]), limits(0, 60_000), &fake.base_url),
         )
         .expect("start");
     tokio::time::sleep(Duration::from_millis(150)).await;
@@ -268,7 +283,7 @@ async fn only_passed_in_tools_are_offered() {
         usage: (3, 1),
     }]))
     .await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let tools = json!([
         { "name": "snapshot", "description": "A", "parameters": { "type": "object" } },
         { "name": "propose_action", "description": "B", "parameters": { "type": "object" } }
@@ -276,7 +291,7 @@ async fn only_passed_in_tools_are_offered() {
     let _ = h
         .call(
             "assistant.reply",
-            base_params("tools?", tools, limits(2, 30_000)),
+            base_params("tools?", tools, limits(2, 30_000), &fake.base_url),
         )
         .await
         .expect("reply");
@@ -296,14 +311,14 @@ async fn no_tools_when_max_tool_rounds_is_zero() {
         usage: (2, 1),
     }]))
     .await;
-    let mut h = start_harness(&fake.base_url).await;
+    let mut h = start_harness().await;
     let tools = json!([
         { "name": "snapshot", "description": "A", "parameters": { "type": "object" } }
     ]);
     let _ = h
         .call(
             "assistant.reply",
-            base_params("no tools", tools, limits(0, 30_000)),
+            base_params("no tools", tools, limits(0, 30_000), &fake.base_url),
         )
         .await
         .expect("reply");

@@ -27,9 +27,14 @@ function toolCall(turnId: string, name: string): Promise<{ name: string; content
 
 const usage = { input: 7, output: 2, coverage: "measured" as const };
 
-async function answer(p: { turnId: string; message: string }): Promise<{ message: string; usage: typeof usage }> {
+async function answer(p: {
+  turnId: string;
+  message: string;
+  endpoint?: { baseUrl?: string };
+}): Promise<{ message: string; usage: typeof usage }> {
   const scenario = p.message.trim();
   if (scenario === "ping") return { message: "assistant-pacer stub", usage };
+  if (scenario === "endpoint") return { message: `baseUrl=${p.endpoint?.baseUrl ?? ""}`, usage };
   const out = await toolCall(p.turnId, "snapshot");
   return { message: `via-tool ${out.content}`, usage };
 }
@@ -62,7 +67,14 @@ async function handle(line: string): Promise<void> {
   const meta = frame._meta as { capabilityCall?: string } | undefined;
   token = meta?.capabilityCall;
   try {
-    write({ id, result: await answer(frame.params as { turnId: string; message: string }) });
+    write({
+      id,
+      result: await answer(frame.params as {
+        turnId: string;
+        message: string;
+        endpoint?: { baseUrl?: string };
+      }),
+    });
   } catch (error) {
     write({ id, error: { code: -32000, message: error instanceof Error ? error.message : String(error), data: { code: "internal" } } });
   }
