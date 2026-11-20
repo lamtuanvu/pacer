@@ -106,6 +106,18 @@ test("measurement contracts have no invented observation age", () => {
   expect(decide(evidence, { usage: "reactive" }).evidenceAgeS).toBeNull();
 });
 
+test("evidence age is the binding budget fact's; an old execution_success fact never pins it", () => {
+  const freshBudget = decide(facts(20, now - 60)).evidenceAgeS;
+  expect(freshBudget).toBe(60);
+  const evidence = facts(20, now - 60);
+  evidence.availability.push(evidenceFact(scope, "execution", now - 207 * 3600, now - 205 * 3600, "execution_success", "ready"));
+  // The old unrelated availability fact no longer makes the reading look 206 h old.
+  expect(decide(evidence).evidenceAgeS).toBe(60);
+  // Without any budget fact, the newest availability fact carries the age instead.
+  const noBudget: AccountEvidence = { ...emptyEvidence(), availability: [evidenceFact(scope, "provider-cli", now - 7200, now + 600, "usage_observed", "ready")] };
+  expect(decide(noBudget).evidenceAgeS).toBe(7200);
+});
+
 test("an adapter-declared incomplete window cannot establish available budget", () => {
   const evidence = readingEvidence(scope, { capturedAt: now, stale: false, windows: [{
     name: "5h", usedPct: 10, resetsAt: now + 3600, lengthS: 18000, paced: false, stale: true,
@@ -130,9 +142,9 @@ test("expired equal-authority execution limit marks stop blocking reactive execu
     ],
     spending: [],
   };
-  // A reactive usage refresh writes no synthetic 0% limit window; reconciliation must still heal.
+  // A reactive usage refresh reports no synthetic limit window; reconciliation must still heal.
   const incoming = readingEvidence(scope, {
-    windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }],
+    windows: [],
     capturedAt: now, stale: false, source: "reactive",
   }, "reactive");
   const merged = reconcileEvidence(previous, incoming, now);
