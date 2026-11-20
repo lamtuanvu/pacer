@@ -180,7 +180,7 @@ function ExecutorRowEditor({executor,selected,select,removed,value}:{executor:Ex
       // The executor's one usage record, quoted through usageView (ADR 0030).
       const view = usageView(executor.usageState, state.snapshot?.at ?? Date.now() / 1000);
       const stale = executor.usageState?.freshness === "historical";
-      return <>{view.meter !== null && <UsageMeter used={view.meter} pace={executor.pacePct ?? null} tone={executor.tone === 'muted' ? 'neutral' : executor.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />}<span className="u3-muted">{stale ? view.freshness : [view.summary, captionReset(view.reset)].filter(Boolean).join(" · ")}</span></>;
+      return <>{view.meter !== null && <UsageMeter used={view.meter} pace={executor.pacePct ?? null} tone={executor.tone === 'muted' ? 'neutral' : executor.tone} size="slim" text="none" label={`${name} usage`} stale={stale} />}<span className="u3-muted">{(stale ? [view.summary, view.freshness] : [view.summary, captionReset(view.reset)]).filter(Boolean).join(" · ")}</span></>;
     })()}</td>
     <td data-label="Parallel"><strong>{value?.maxTasks??executor.slots.max}</strong>{machineHardCap(state.snapshot?.machine)!==null&&<span className="u3-muted"> of {machineHardCap(state.snapshot?.machine)}</span>}</td>
     <td data-label="Actions"><IconButton geometry="board" icon="more" size="sm" variant="quiet" aria-label={`More actions for ${name}`} aria-expanded={selected} data-details={executor.id} onClick={select}/></td></tr>;

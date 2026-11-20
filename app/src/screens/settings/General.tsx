@@ -307,7 +307,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       : [{ window: { name: record?.figure?.window ?? "unknown", usedPct: record?.figure?.usedPct ?? null, resetsAt: record?.figure?.resetsAt ?? null, lengthS: 0, paced: false, stale: record?.freshness === "historical", verdict: record?.verdict ?? "UNKNOWN" }, fromFigure: true }];
     return rows.map(({ window, fromFigure }) => {
       const stale = record?.freshness === "historical" || window.stale === true;
-      const figure = fromFigure ? view.figure : window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
+      const figure = fromFigure || (record?.limit && window.name === "limit") ? view.figure : window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
       const note = fromFigure && window.usedPct == null ? view.figure === "Usage unknown" ? "Usage unknown · No usage reported" : `${view.figure} · no quota windows reported`
         : stale ? (record?.freshness === "historical" ? view.freshness || "Stale reading · refresh to use" : "Stale reading · refresh to use")
         : [figure, window.pace != null ? `pace ${Math.round(window.pace)}%` : null, window.verdict === "AHEAD" ? "ahead of pace" : null].filter(Boolean).join(" · ");

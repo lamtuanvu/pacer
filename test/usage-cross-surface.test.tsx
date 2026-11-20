@@ -165,7 +165,8 @@ for (const state of states) {
       const view = usageView(row.usageState, ctx.now);
       const cellText = strip(cellHtml(row.id));
       if (!cellText) continue;
-      const words = row.usageState?.freshness === "historical" ? view.freshness
+      // A historical row keeps its figure next to the reading's age, like the popover and Accounts (UI-10).
+      const words = row.usageState?.freshness === "historical" ? [view.summary, view.freshness].filter(Boolean).join(" · ")
         : [view.summary, captionReset(view.reset)].filter(Boolean).join(" · ");
       expect([`executors row ${row.id}`, cellText.includes(words)]).toEqual([`executors row ${row.id}`, true]);
     }
@@ -177,6 +178,14 @@ for (const state of states) {
     // The account row quotes the account record; it never borrows the planner runner's figure.
     if (plannerRow?.usageState && usageView(plannerRow.usageState, ctx.now).figure !== record.figure) {
       expect(strip(accountHtml)).not.toContain(usageView(plannerRow.usageState, ctx.now).summary);
+    }
+
+    // Budget windows: a limit window quotes the view ("Out of quota"), never a bare percent.
+    const budgetHtml = draw(<SettingsGeneral section="planner" initialData={{...settings, accounts: listRows}}/>);
+    if (record.figure === "Out of quota") {
+      const windowsHtml = budgetHtml.slice(budgetHtml.indexOf('id="budget-windows-h"'));
+      expect(strip(windowsHtml)).toContain("Out of quota");
+      expect(strip(windowsHtml)).not.toMatch(/\b100%/);
     }
 
     const trayHtml = renderToString(<Tray snapshot={snapshot} api={api as never} ipc={trayIpc} />);
