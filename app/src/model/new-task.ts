@@ -2,7 +2,7 @@ import type { PlannerMeter } from "../../../src/api/read-model/types";
 import { agentInfo } from "../../../src/view-model/agents";
 import { executorLabel, type StatusTone } from "../../../src/view-model/words";
 import { usageView } from "../../../src/view-model/usage";
-import { clockParts } from "../../../src/view-model/time";
+import { resetWords } from "../../../src/view-model/usage";
 import type { RouteExplanation, RouteReason } from "../data/explain-route";
 import type { Account } from "./accounts";
 import { kinds as KINDS } from "./tasks";
@@ -153,10 +153,9 @@ const percentFact = (facts: RouteReason["facts"], key: string) => {
 const day = (unix: string, now: number) => {
   const at = Number(unix);
   if (!Number.isFinite(at) || at <= 0) return "";
-  // The one reset calendar form: a weekday and time within the week, the date after it.
-  const { days, time, weekday, date } = clockParts(at, now);
-  const ahead = -days;
-  return ahead >= 0 && ahead < 7 ? `${weekday} ${time}` : `${date} ${time}`;
+  // The one reset form (usageView's resetWords), without its leading verb; a past time shows nothing.
+  const words = resetWords(at, now);
+  return words.startsWith("resets ") ? words.slice("resets ".length) : "";
 };
 /** Plain copy for the documented reason codes (UI-12): the app never shows a code or the service's `text`. */
 export function reasonText(reason: RouteReason, accounts: Account[] = [], now: number = Date.now() / 1000): string {

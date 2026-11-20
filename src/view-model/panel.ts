@@ -63,7 +63,7 @@ export function providerDetail(p: ProviderLine, now: number): string {
  // A record quotes the view's own summary and reset words; a legacy row keeps its meter fields.
  if(p.usageState) {
   const view = usageView(p.usageState, now);
-  return `${view.summaryUsed}${p.resetsAt === null ? "" : ` · ${resetWords(p.resetsAt, now)}`}${p.stale ? " · stale" : ""}`;
+  return `${view.summaryUsed}${view.reset ? ` · ${view.reset}` : ""}${p.stale ? " · stale" : ""}`;
  }
  if(p.usedPct!==null) return `${Math.round(p.usedPct)}% of ${windowWords(p.window) || "budget"} used${p.resetsAt===null?"":` · ${resetWords(p.resetsAt, now)}`}${p.stale?" · stale":""}`;
  if(p.id==="local") return "LM Studio · unmetered";

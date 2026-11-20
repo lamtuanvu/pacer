@@ -50,7 +50,7 @@ export function executorValue(executor: ExecutorRow, now: number): string {
   if (!executor.enabled || executor.state === "disabled") return "off";
   // Freshness words never matter in the strip; the figure and verdict come from the one record (ADR 0030).
   const { meter } = executorUsage(executor, now);
-  const exhausted = executor.usageState ? usageView(executor.usageState, now).verdictLabel === "Out of quota" : executor.state === "exhausted";
+  const exhausted = executor.usageState ? executor.usageState.verdict === "EXHAUSTED" : executor.state === "exhausted";
   if (executor.eligibility?.state === "eligible" && meter !== null) return `${meter}%`;
   if (executor.eligibility?.state === "uncertain") return "?";
   if (executor.eligibility?.state === "ineligible") return executor.eligibility.budget === "exhausted" ? "out" : "off";
