@@ -302,11 +302,13 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
   const windows = (accounts.data ?? []).flatMap(account => {
     const record = account.usageState ?? summary.find(row => row.name === account.name)?.usageState;
     const view = usageView(record, now);
-    const rows = record?.windows.length ? record.windows : [{ name: record?.figure?.window ?? "unknown", usedPct: record?.figure?.usedPct ?? null, resetsAt: record?.figure?.resetsAt ?? null, lengthS: 0, paced: false, stale: record?.freshness === "historical", verdict: record?.verdict ?? "UNKNOWN" }];
-    return rows.map(window => {
+    // A record without a window list shows its own figure through the view: a limit is "Out of quota", never a percent.
+    const rows = record?.windows.length ? record.windows.map(window => ({ window, fromFigure: false }))
+      : [{ window: { name: record?.figure?.window ?? "unknown", usedPct: record?.figure?.usedPct ?? null, resetsAt: record?.figure?.resetsAt ?? null, lengthS: 0, paced: false, stale: record?.freshness === "historical", verdict: record?.verdict ?? "UNKNOWN" }, fromFigure: true }];
+    return rows.map(({ window, fromFigure }) => {
       const stale = record?.freshness === "historical" || window.stale === true;
-      const figure = window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
-      const note = window.usedPct == null ? view.figure === "Usage unknown" ? "Usage unknown · No usage reported" : `${view.figure} · no quota windows reported`
+      const figure = fromFigure ? view.figure : window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
+      const note = fromFigure && window.usedPct == null ? view.figure === "Usage unknown" ? "Usage unknown · No usage reported" : `${view.figure} · no quota windows reported`
         : stale ? (record?.freshness === "historical" ? view.freshness || "Stale reading · refresh to use" : "Stale reading · refresh to use")
         : [figure, window.pace != null ? `pace ${Math.round(window.pace)}%` : null, window.verdict === "AHEAD" ? "ahead of pace" : null].filter(Boolean).join(" · ");
       return { account, window, view, stale, note };
