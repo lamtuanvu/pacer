@@ -1,4 +1,4 @@
-import type { EligibilityDecision, EligibilityInput, Evidence, EvidenceScope } from "../evidence/types";
+import type { EligibilityDecision, EligibilityInput, Evidence } from "../evidence/types";
 import { appliesTo, currentEvidence, evidenceDeadline } from "./evidence";
 import { EXHAUSTED_PCT } from "./verdict";
 

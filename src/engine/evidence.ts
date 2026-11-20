@@ -146,7 +146,7 @@ export function readingEvidence(scope: EvidenceScope, reading: import("../types"
   const availability = reading.availability;
   if (availability) facts.availability.push(evidenceFact(scope, source, reading.capturedAt, availability.validUntil, availability.reason, availability.state));
   else if (contract) facts.availability.push(evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready"));
-    else if ((facts.budget.length || reading.spendUsd != null) && !reading.error && !reading.stale) {
+  else if ((facts.budget.length || reading.spendUsd != null) && !reading.error && !reading.stale) {
     const deadlines = facts.budget.map(evidenceDeadline).filter((at): at is number => at !== null);
     facts.availability.push(evidenceFact(scope, source, reading.capturedAt,
       deadlines.length ? Math.min(...deadlines) : reading.capturedAt === null ? null : reading.capturedAt + AVAILABILITY_FALLBACK_S, "usage_observed", "ready"));

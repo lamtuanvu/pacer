@@ -92,3 +92,14 @@ test("a failed refresh keeps the stored reading as the last good one across proc
   expect(cold.error).toContain("no Claude rate-limit data");
   expect(cold.windows.map(w => w.usedPct)).toEqual(expect.arrayContaining([25, 10]));
 });
+
+test("a store that cannot be written never fails the reading", async () => {
+  const ctx = fakeCtx({ now: 1_800_000_000 });
+  cache(ctx, 40);
+  clearUsageMemo();
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "state", "usage"), "not a directory");
+  const reading = await readAccountUsage(ctx, account(), []);
+  expect(reading.windows.map(w => w.usedPct)).toContain(40);
+  expect(reading.error).toBeUndefined();
+});

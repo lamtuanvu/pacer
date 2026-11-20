@@ -73,7 +73,8 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     }
     finally{
       trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;
-      if (account && entry.value) writeUsageEntry(ctx, accountEvidenceScope(account, hosts).identity, source, entry.value);
+      // The store is a cache: failing to persist must never fail a reading that succeeded.
+      if (account && entry.value) try { writeUsageEntry(ctx, accountEvidenceScope(account, hosts).identity, source, entry.value); } catch { /* next read retries */ }
     }
   })();
   return entry.pending;
