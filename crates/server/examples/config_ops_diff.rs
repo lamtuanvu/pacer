@@ -32,6 +32,12 @@ impl UpdateEffects for Effects {
     }
 }
 
+impl pacer_install::agent_ops::AgentEffects for Effects {
+    fn call(&mut self, request: Value) -> OpFuture<'_> {
+        self.record(request)
+    }
+}
+
 /// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
 /// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
 struct Preview {
@@ -175,6 +181,27 @@ async fn main() -> io::Result<()> {
             };
             let mut output = match result {
                 Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["effects"] = json!(effects.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if pacer_install::agent_ops::uses_effects(name) {
+            let mut effects = Effects {
+                reply: input.get("effectResult").cloned().unwrap_or(Value::Null),
+                requests: Vec::new(),
+            };
+            let result = pacer_install::agent_ops::agent_call(
+                &ctx,
+                name,
+                input["params"].clone(),
+                &mut effects,
+            )
+            .await;
+            let mut output = match result {
+                Ok(value) => json!({"result": value}),
                 Err(error) => error.body(),
             };
             output["effects"] = json!(effects.requests);
