@@ -3,7 +3,7 @@ import { randomUUID } from "node:crypto";
 import { withLockSync } from "../core/lock";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
-import type { Ctx, UsageWindow } from "../types";
+import type { Ctx } from "../types";
 
 const marksFile = (ctx: Ctx) => join(ctx.pacerHome, "exhausted.json");
 
@@ -32,11 +32,4 @@ export function limitObservation(ctx: Ctx, id: string): LimitObservation | null 
   if (!until || until <= ctx.now) return null;
   const value = readJson<Record<string, LimitObservation>>(join(ctx.pacerHome, "state/exhausted-evidence.json"))?.[id];
   return value?.until === until ? value : { observedAt: null, until, manual: false };
-}
-
-/** A 100%-used window while a mark is active, else null. */
-export function limitWindow(ctx: Ctx, id: string): UsageWindow | null {
-  const until = readMarks(ctx)[id];
-  if (!until || until <= ctx.now) return null;
-  return { name: "limit", usedPct: 100, resetsAt: until, lengthS: Math.max(1, until - ctx.now), paced: false };
 }

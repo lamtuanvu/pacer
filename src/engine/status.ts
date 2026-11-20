@@ -19,7 +19,7 @@ import type { ProviderCfg, Strategy } from "../config/strategy";
 import { type ActivityProfile, loadActivity } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
 import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
-import { markFreshness } from "../usage/freshness";
+import { markFreshness, AUTH_LIFETIME_S, LIMIT_WINDOW_LENGTH_S } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
 import { cachedLoginPath, onPath } from "../exec/login-env";
 import { limitObservation } from "../usage/reactive";
@@ -112,18 +112,18 @@ export async function computeStatus(
     incoming.budget = incoming.budget.map(f => f.source === "metered"
       ? evidenceFact(f.scope, f.source, f.observedAt, f.validUntil, f.reason, f.value, budgetPolicy) : f);
     const auth = authObservation(ctx, scope);
-    if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + 7200, "authentication_failed", "unavailable"));
+    if (auth) incoming.availability.push(evidenceFact(auth.scope, "execution", auth.at, auth.at + AUTH_LIFETIME_S, "authentication_failed", "unavailable"));
     for (const runner of runners.filter(r => r.host === null && (opts.includePlannerSignIn || !(r.agent === s.planner.agent && r.account === s.planner.account)))) {
       const runnerScope = { ...scope, runner: runner.name, model: runner.model ?? "default", host: "local" };
       const signIn = accountSignIn(ctx, account, runnerScope);
       // A newer local login repairs only matching authentication facts, never quota or remote evidence.
       for (const recoveredScope of signIn.recoveredScopes ?? []) {
         incoming.availability.push(evidenceFact(recoveredScope, "session-log",
-          signIn.recoveredAt!, signIn.recoveredAt! + 7200, "signin_observed", "ready"));
+          signIn.recoveredAt!, signIn.recoveredAt! + AUTH_LIFETIME_S, "signin_observed", "ready"));
       }
     }
     for (const limit of limits.filter(v => v.manual || v.scope?.identity === scope.identity)) incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution", limit.observedAt,
-      limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
+      limit.until, "quota_failure", { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: LIMIT_WINDOW_LENGTH_S, paced: false }));
     const snapshot = await mergeEvidence(ctx, scope, incoming, budgetPolicy);
     snapshot.evidence = {
       ...snapshot.evidence,

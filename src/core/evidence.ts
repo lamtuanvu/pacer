@@ -6,6 +6,7 @@ import { emptyEvidence, evidenceFact, reconcileEvidence } from "../engine/eviden
 import { readJson } from "../fsutil";
 import type { Ctx } from "../types";
 import { withLock, withLockSync } from "./lock";
+import { EXECUTION_LIFETIME_S, LIMIT_WINDOW_LENGTH_S } from "../usage/freshness";
 
 export interface EvidenceSnapshot { retiredAt?: number; version: 1; revision: number; identity: string; evidence: ReconciledEvidence }
 export { accountEvidenceScope } from "../evidence/scope";
@@ -64,10 +65,10 @@ export async function recordExecutionEvidence(ctx: Ctx, scope: EvidenceScope, re
 }): Promise<EvidenceSnapshot> {
   const facts = emptyEvidence();
   if (result.timedOut || result.classification === "task" || result.classification === "transient") return readEvidence(ctx, scope);
-  const until = result.until ?? result.endedAt + 7200;
+  const until = result.until ?? result.endedAt + EXECUTION_LIFETIME_S;
   if (result.classification === "quota") {
     facts.budget.push(evidenceFact(scope, "execution", result.endedAt, until, "quota_failure",
-      { name: "limit", usedPct: 100, resetsAt: until, lengthS: 21600, paced: false }));
+      { name: "limit", usedPct: 100, resetsAt: until, lengthS: LIMIT_WINDOW_LENGTH_S, paced: false }));
   } else {
     facts.availability.push(evidenceFact(scope, "execution", result.endedAt, until,
       result.classification === "success" ? "execution_success" : `${result.classification}_failed`,
