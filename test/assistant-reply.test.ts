@@ -726,5 +726,6 @@ runners:
     } finally {
       server.stop(true);
     }
-  }, 120_000);
+  // Cold cargo builds of this crate take ~5+ minutes; allow build + turn.
+  }, 600_000);
 });
