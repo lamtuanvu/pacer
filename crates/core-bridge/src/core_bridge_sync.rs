@@ -3,6 +3,8 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
+use pacer_config_ops::desktop_capture_ops;
+use pacer_config_ops::desktop_update_ops;
 use pacer_config_ops::doctor_ops;
 
 fn unavailable(message: &str) -> CoreError {
@@ -23,11 +25,16 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok("/_internal/desktop-capture"),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok("/_internal/desktop-update"),
+        "client.control" => Ok("/_internal/client-control"),
+        "terminal.parts" => Ok("/_internal/terminal-parts"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
         "host.effects" => Ok("/_internal/host-effects"),
         "session.lifecycle" => Ok("/_internal/session-lifecycle"),
+        "agent.effects" => Ok("/_internal/agent-effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
@@ -36,18 +43,23 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok("_internal.desktop.capture"),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok("_internal.desktop.update"),
+        "client.control" => Ok("_internal.client-control"),
+        "terminal.parts" => Ok("_internal.terminal.parts"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
         "host.effects" => Ok("_internal.host.effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }
 
-/// An install, update or host effect keeps the forwarded request's completion semantics:
+/// An install, update, host or agent effect keeps the forwarded request's completion semantics:
 /// Core finishes it whatever the caller does, so a front-door deadline would only report
 /// `unavailable` for an effect still in flight.
 pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
-        "service.effects" | "update.effects" | "host.effects" | "session.lifecycle" => None,
+        "service.effects" | "update.effects" | "host.effects" | "session.lifecycle"
+        | "agent.effects" => None,
         _ => Some(bridge_deadline()),
     }
 }
@@ -67,9 +79,13 @@ fn bridge_deadline() -> std::time::Duration {
 
 pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok(params.clone()),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok(params.clone()),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
         "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects"
-        | "session.lifecycle" => Ok(params.clone()),
+        | "session.lifecycle" | "client.control" | "terminal.parts" | "agent.effects" => {
+            Ok(params.clone())
+        }
         _ => Err(unavailable("core bridge unavailable")),
     }
 }

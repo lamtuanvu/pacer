@@ -2,11 +2,12 @@
 use crate::{
     SETTINGS_CONFLICT, evidence,
     js::{prototype_key, resolve},
-    model::{account_folder, evidence_identity, path_text},
+    model::{account_folder, path_text},
     params, strategy_loads,
 };
 use pacer_config::{
     config_writes::{edit, ensure_migrated},
+    evidence::evidence_identity,
     strategy::{StrategyError, load_strategy},
 };
 use pacer_foundation::{

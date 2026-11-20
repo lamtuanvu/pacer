@@ -77,6 +77,10 @@ export class ClientControl {
     return request;
   }
   result(id: string) { return {...this.get(id)}; }
+  /** The request a claim would hand out, without claiming it. */
+  nextPending(client_id: string) { this.prune(); return [...this.requests.values()].find(r => r.client_id === client_id && r.status === 'pending'); }
+  /** The stored request, or undefined; unlike `result` a missing id is not an error. */
+  stored(id: string) { this.prune(); return this.requests.get(id); }
 }
 const brokers = new Map<string, ClientControl>();
 export function clientControl(home: string): ClientControl {

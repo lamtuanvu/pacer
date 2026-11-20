@@ -1,6 +1,21 @@
 import {expect,test} from 'bun:test';
 import {capture} from './fixtures/protocol-v2/capture';
 
+test('the unmetered verdict stays OK on the frozen v2 rows and UNMETERED on v3',async()=>{
+ const {toV2Snapshot}=await import('../src/api/v2-compat');
+ const account={name:'free',agent:'opencode',source:'default',usedPct:null,pacePct:null,window:null,resetsAt:null,verdict:'UNMETERED',signedIn:true,executors:['free','p'],spendUsdWeek:null,capUsdWeek:null};
+ const executor=(id:string,rank:number|'planner')=>({id,agent:'opencode',account:'free',host:null,model:null,rank,enabled:true,state:'ready',tone:'good',sub:'',usedPct:null,pacePct:null,slots:{used:0,max:1},lastCheck:null,recentFailures:0,next:false});
+ const wire={seq:3_000_000_000_000,at:42,mode:'normal',tasks:[],strategies:[],planner:{runner:'p',mode:'normal',stale:false},
+  accounts:[account],executors:[executor('p','planner'),executor('free',1)],
+  machine:{used:0,max:1,hardCap:null,unlimited:true},setup:{items:[]},attention:[],counts:{attention:0,problems:0,review:0,running:0,queued:0,ready:0,executors:0,setupOpen:0,byRepo:{},hostsWithProblems:0},today:{since:0,done:0,accepted:0,rejected:0,failed:0,byRepo:{}},hosts:[],repos:[],service:{version:'test',protocol:'3.0.0',pid:1,notifier:null},pause:null,policy:{mode:'open',plugins:0}};
+ const v2=toV2Snapshot(wire as never);
+ expect(v2.accounts![0]!.verdict).toBe('OK');
+ expect(v2.budget!.providers[0]!.verdict).toBe('OK');
+ expect(v2.budget!.ranked[0]!.verdict).toBe('OK');
+ // v3 keeps the verdict.
+ expect(wire.accounts[0]!.verdict).toBe('UNMETERED');
+});
+
 test('v2 preserves pre-upgrade goldens while allowing additive snapshot fields',async()=>{
  for(const [name,value] of Object.entries(await capture())) {
   const golden = await Bun.file(`${import.meta.dir}/fixtures/protocol-v2/${name}.json`).json();

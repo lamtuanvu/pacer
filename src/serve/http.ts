@@ -227,6 +227,17 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/terminal-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { terminalPartsFor } = await import("../api/terminal-parts-bridge");
+            return Response.json({ result: await terminalPartsFor(getCtx(), await req.json().catch(() => null)) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/dispatch-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -496,6 +507,17 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/assistant-turn" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { assistantTurnBridge, readAssistantTurnBody } = await import("../api/assistant-turn-bridge");
+            return Response.json({ result: await assistantTurnBridge(getCtx(), await readAssistantTurnBody(req)) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -534,6 +556,19 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/agent-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { agentEffectsBridge } = await import("../api/agent-bridge");
+            return Response.json({ result: await agentEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/host-effects" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -541,6 +576,19 @@ export function startServer(
             const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
             const { hostEffectsBridge } = await import("../api/host-effects-bridge");
             return Response.json({ result: await hostEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/client-control" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { clientControlBridge } = await import("../api/client-control-bridge");
+            return Response.json({ result: await clientControlBridge(getCtx(), request) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
@@ -570,6 +618,30 @@ export function startServer(
             const body = await req.json().catch(() => null);
             const { setupDoctorBridge } = await import("../api/setup-doctor-bridge");
             return Response.json({ result: await setupDoctorBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/desktop-capture" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { captureBridge } = await import("../api/desktop-capture-bridge");
+            return Response.json({ result: await captureBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/desktop-update" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { updateBridge } = await import("../api/desktop-update-bridge");
+            return Response.json({ result: await updateBridge(getCtx(), body) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);

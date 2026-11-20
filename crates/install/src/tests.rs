@@ -187,3 +187,84 @@ fn service_install_forwards_work_grants() {
     )])));
     assert!(!install_ops::stays_forwarded(&with(&[])));
 }
+
+/// A `pag_` token's row in `tasks.db`, row-kind included, as `issueAssistantGrant` writes it.
+fn insert_assistant_grant(home: &Path, token: &str, expires: f64, revoked: i64) {
+    let db_file = home.join("state").join("tasks.db");
+    fs::create_dir_all(home.join("state")).unwrap();
+    let db = rusqlite::Connection::open(&db_file).unwrap();
+    db.execute(
+        "CREATE TABLE IF NOT EXISTS work_grants(hash TEXT PRIMARY KEY, task_id TEXT NOT NULL, \
+         attempt INTEGER NOT NULL, expires REAL NOT NULL, revoked INTEGER NOT NULL DEFAULT 0, \
+         kind TEXT NOT NULL DEFAULT 'work', conversation_id TEXT NOT NULL DEFAULT '')",
+        (),
+    )
+    .unwrap();
+    db.execute(
+        "INSERT OR REPLACE INTO work_grants(hash,task_id,attempt,expires,revoked,kind,conversation_id) \
+         VALUES(?1,'turn',0,?2,?3,'assistant','c1')",
+        rusqlite::params![format!("{:x}", Sha256::digest(token.as_bytes())), expires, revoked],
+    )
+    .unwrap();
+}
+
+fn agent_refusal(home: &Path, env: &[(&str, &str)], params: Value) -> Result<(), CoreError> {
+    let env = env
+        .iter()
+        .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+        .collect();
+    let ctx = Ctx::with(home.to_path_buf(), home.to_path_buf(), env, 1.0);
+    agent_ops::admit(&ctx, "agent.connect", &params)
+}
+
+#[test]
+fn agent_ops_assistant_grants_match_type_script() {
+    let home = tempfile::tempdir().unwrap();
+    let grant = "pag_".to_owned() + &"0".repeat(64);
+    let with = |env: Vec<(&str, &str)>, params: Value| {
+        agent_refusal(home.path(), &env, params)
+            .unwrap_err()
+            .message
+    };
+    // Bad format, and a missing row, answer exactly like authorizeAssistantGrant.
+    assert_eq!(
+        with(
+            vec![("PACER_ASSISTANT_GRANT", "pag_short")],
+            json!({"agent": "codex"})
+        ),
+        "Invalid assistant grant"
+    );
+    assert_eq!(
+        with(
+            vec![("PACER_ASSISTANT_GRANT", &grant)],
+            json!({"agent": "codex"})
+        ),
+        "Expired or revoked assistant grant"
+    );
+    // A live assistant grant answers for nothing but assistant.tool.
+    insert_assistant_grant(home.path(), &grant, 100.0, 0);
+    assert_eq!(
+        with(
+            vec![("PACER_ASSISTANT_GRANT", &grant)],
+            json!({"agent": "codex"})
+        ),
+        "An assistant grant runs assistant.tool only."
+    );
+    // Expired, revoked, all read as not live.
+    insert_assistant_grant(home.path(), &grant, 0.5, 0);
+    assert_eq!(
+        with(
+            vec![("PACER_ASSISTANT_GRANT", &grant)],
+            json!({"agent": "codex"})
+        ),
+        "Expired or revoked assistant grant"
+    );
+    insert_assistant_grant(home.path(), &grant, 100.0, 1);
+    assert_eq!(
+        with(
+            vec![("PACER_ASSISTANT_GRANT", &grant)],
+            json!({"agent": "codex"})
+        ),
+        "Expired or revoked assistant grant"
+    );
+}

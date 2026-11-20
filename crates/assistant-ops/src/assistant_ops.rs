@@ -1,7 +1,8 @@
 //! Native assistant settings and history ops (`src/api/ops-assistant.ts`) over the
 //! assistant tables in `state/tasks.db`. `assistant.ask` and `assistant.cancel`
-//! stay in TypeScript: they drive the assistant plugin and the in-process turn
-//! stream. Inputs only TypeScript reproduces stay forwarded: work grants, Orca
+//! are decided here and run over the Core bridge in [`turn`]: the turn itself, its
+//! plugin call and its stream live in the TypeScript process. Inputs only
+//! TypeScript reproduces stay forwarded: work grants, Orca
 //! worktree callers, stored settings that fail the Zod schemas, strategies the
 //! Rust loader cannot read, and a configured `assistant.status` whose admission
 //! needs the cached usage status.
@@ -70,18 +71,12 @@ fn refuse(ctx: &Ctx) -> Result<(), CoreError> {
     Ok(())
 }
 
-/// Which assistant ops the native handler declines so the core answers them. `assistant.ask`,
-/// `assistant.cancel`, `assistant.tool` and `assistant.selftest` are never native: they drive the
-/// assistant plugin, the in-process turn stream, the live turn's tool context and the agent CLI.
+/// Which assistant ops the native handler declines so the core answers them. `assistant.tool` and
+/// `assistant.selftest` are never native: they need the live turn's tool context and the agent CLI.
 /// `assistant.candidates` stays with the core: its rows depend on the executor backend's plugin and
 /// its recorded ask-mode check, which only the core knows.
 pub fn assistant_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
-    if !op.starts_with("assistant.")
-        || matches!(
-            op,
-            "assistant.ask" | "assistant.cancel" | "assistant.tool" | "assistant.selftest"
-        )
-    {
+    if !op.starts_with("assistant.") || matches!(op, "assistant.tool" | "assistant.selftest") {
         return false;
     }
     if op == "assistant.candidates" {
@@ -373,6 +368,7 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
 }
 
 mod params;
+pub mod turn;
 use params::{Params, parse};
 
 fn not_found(message: &str) -> CoreError {

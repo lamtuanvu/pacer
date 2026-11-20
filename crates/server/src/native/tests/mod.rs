@@ -177,25 +177,30 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("task.list").get("task.get").is_some());
     assert!(registry("snapshot.get").get("snapshot.get").is_none());
     assert!(registry("snapshot.get").get("task.list").is_some());
-    assert!(registry("").get("task.delegate").is_none());
+    for op in pacer_task_ops::task_delegation_ops::DELEGATION_OPS {
+        assert!(registry("").get(op).is_some());
+        assert!(registry(op).get(op).is_none());
+    }
     assert!(registry("").get("task.stop").is_some());
     assert!(registry("task.stop").get("task.stop").is_none());
-    assert!(registry("").get("task.answer").is_none());
     assert!(registry("").get("task.send").is_some());
     assert!(registry("task.send").get("task.send").is_none());
     assert!(registry("").get("task.wait").is_some());
     assert!(registry("task.wait").get("task.wait").is_none());
-    assert!(registry("").get("task.retry").is_none());
-    assert!(registry("").get("task.retry_all").is_none());
     assert!(registry("").get("task.review").is_some());
     assert!(registry("task.review").get("task.review").is_none());
-    assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_some());
     assert!(registry("limits.refresh").get("limits.refresh").is_none());
     assert!(registry("").get("runner.check").is_some());
     assert!(registry("runner.check").get("runner.check").is_none());
-    assert!(registry("").get("assistant.ask").is_none());
-    assert!(registry("").get("assistant.cancel").is_none());
+    assert!(registry("").get("assistant.ask").is_some());
+    assert!(registry("assistant.ask").get("assistant.ask").is_none());
+    assert!(registry("").get("assistant.cancel").is_some());
+    assert!(
+        registry("assistant.cancel")
+            .get("assistant.cancel")
+            .is_none()
+    );
     // `assistant.tool` is served by the TypeScript core: only it holds a live turn's tool context.
     assert!(registry("").get("assistant.tool").is_none());
 }
@@ -231,6 +236,48 @@ fn service_install_and_update_apply_are_native_with_a_core_effects_bridge() {
     assert!(!super::install_apply_sync::stays_forwarded(
         &grant,
         "service.status"
+    ));
+}
+
+#[test]
+fn agent_ops_are_native_with_a_core_effects_bridge() {
+    let agent_ops = [
+        "agent.preview",
+        "agent.connect",
+        "agent.undo",
+        "agent.disconnect",
+    ];
+    for name in agent_ops {
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(super::agent_apply_sync::uses_effects(name), "{name}");
+    }
+    // `agent.detect` stays a pure forward left wholly to TypeScript.
+    assert!(!super::agent_apply_sync::uses_effects("agent.detect"));
+    assert!(!super::agent_apply_sync::uses_effects("service.status"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    // A work-grant caller forwards to TypeScript, as the reference path does.
+    let grant = ctx(&[("PACER_WORK_GRANT", "g")]);
+    for name in agent_ops {
+        assert!(
+            super::agent_apply_sync::stays_forwarded(&grant, name),
+            "{name}"
+        );
+        let params = serde_json::json!({"agent": "codex"});
+        assert!(
+            super::agent_apply_sync::admit(&grant, name, &params).is_ok(),
+            "{name}"
+        );
+    }
+    assert!(!super::agent_apply_sync::stays_forwarded(
+        &ctx(&[]),
+        "agent.preview"
     ));
 }
 

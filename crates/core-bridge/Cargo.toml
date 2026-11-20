@@ -18,6 +18,7 @@ hyper-util = { version = "0.1", features = ["client-legacy", "http1", "tokio"] }
 http-body-util = "0.1"
 pacer-config-ops = { path = "../config-ops" }
 pacer-foundation = { path = "../foundation" }
+pacer-machine-ops = { path = "../machine-ops" }
 pacer-install = { path = "../install" }
 pacer-messaging-ops = { path = "../messaging-ops" }
 serde_json.workspace = true

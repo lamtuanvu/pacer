@@ -51,7 +51,7 @@ The file references for each item are listed in the appendix.
 
 ### 1. The usage projection
 
-`computeStatus` already merges readings, limit marks, stored evidence, auth and sign-in. It becomes the only producer of usage state and emits one record per account and one per runner:
+`computeStatus` already merges readings, limit marks, stored evidence, auth and sign-in. It becomes the only producer of usage state and emits one record per account and one per runner. Rows carry the record as `usageState`: `usage` is already the UsageKind of a provider or an account, so `Status.accounts[]` and `providers[]`, the snapshot's executor, account and planner rows and `account.list` all name the field `usageState`:
 
 ```ts
 interface UsageState {
@@ -79,7 +79,7 @@ Rules:
   An account with no runners uses its measured figure only. Auth facts never change a verdict; they change eligibility and appear in `blockedRunners`. "Opposite verdicts" means an account record saying OK, ON_PACE, AHEAD or BEHIND while a fact that applies to all of its runners makes them EXHAUSTED; this cannot happen under these rules.
 - **Mode.** An active `modeHold` wins. Otherwise mode follows the verdict of the planner's runner record. A planner without an account (for example `opencode`) or without a record gives `normal`. TS and Rust implement the same rule.
 - **Model scope.** Execution facts keep their actual runner, model and host scope, as [ADR 0002](../decisions/0002-executor-eligibility.md) requires. A runner record keeps matching facts for its configured model (`runner.model ?? "default"`), exactly as routing does today. A fact recorded for another model that the runner's tiers can select is not widened to the runner: it appears in the account's `blockedRunners` with its `model`, and only the dispatcher's existing per-model candidate check acts on it. "Every runner is blocked" in the account verdict rule means blocked for its configured model.
-- **observedAt is the binding fact's time.** Age shown anywhere is `now - observedAt` of the binding budget fact, or of the newest availability fact when there is no budget fact. `reconcileEvidence` prunes availability and spending facts whose validity ended more than 7 days ago.
+- **observedAt is the binding fact's time.** Age shown anywhere is `now - observedAt` of the binding budget fact, or of the newest availability fact when there is no budget fact. Reactive and unmetered records are different: their `observedAt` is null unless a limit is active, and then it is the limit's observation time — the newest-availability-fact fallback applies only to measured sources. `reconcileEvidence` prunes availability and spending facts whose validity ended more than 7 days ago.
 - **Reactive and unmetered sources produce no windows.** The broker and the `plugins/pacer-usage` reactive and unmetered branches return `{windows: [], capturedAt: null, stale: false, source}`. The `usage.read` input enum keeps `reactive` and `unmetered`, so there is no plugin protocol change. A reactive account without a limit has `figure: null`, `observedAt: null`, `freshness: "unknown"` and verdict OK; `usageView` labels it "No usage figure". An unmetered account has the same shape with verdict UNMETERED, labelled "Unmetered". The single verdict-label table maps OK to "Available" and UNMETERED to "Unmetered".
 
 ### 2. One freshness module
@@ -102,9 +102,9 @@ Readings, last good readings and refresh outcomes persist under `PACER_HOME/stat
 ### 4. Operations
 
 - `snapshot.get`, `limits.check`, `routing.status`, the hook text, `pacer status` and MCP `budget_status` read `UsageState` from status.
-- `account.list` returns `usage: UsageState` taken from the same status computation, plus `diagnostics.readings[]` with the raw provider readings for the Diagnostics and account details views. Both fields are additive. `usageReading` stays for the whole of protocol 3.x as a deprecated field and is removed in protocol 4.0 through the compat adapter (API-2). The CHANGELOG records the deprecation and the removal release. Clients stop reading it in this change.
+- `account.list` returns `usageState: UsageState` taken from the same status computation, plus `diagnostics.readings[]` with the raw provider readings for the Diagnostics and account details views. Both fields are additive. `usageReading` stays for the whole of protocol 3.x as a deprecated field and is removed in protocol 4.0 through the compat adapter (API-2). The CHANGELOG records the deprecation and the removal release. Clients stop reading it in this change.
 - `usageReading` changes meaning for reactive and unmetered accounts: it no longer carries an invented `limit` window. The CHANGELOG states this.
-- The Rust `account.list` (`crates/account-ops/src/account_list_ops.rs`) passes `usage` and `diagnostics` through in the same PR that adds them on the TS side, since it copies only named fields.
+- The Rust `account.list` (`crates/account-ops/src/account_list_ops.rs`) passes `usageState` and `diagnostics` through in the same PR that adds them on the TS side, since it copies only named fields.
 - The Rust read model and `account-ops` pass `UsageState` through without re-deriving verdicts, labels or freshness. Strategy is passed with the parts (as `account.list` already does) so rows and runners come from one strategy snapshot. Host aliases sort with the same locale compare as TS.
 - Dormant Rust engine ports: `deadline`, the conflict check and `binding_window` are aligned with TS and covered by golden tests generated from the TS implementation, because `rank_executors` and `compose_status` sit next to them and a later native cutover would use them.
 
@@ -140,7 +140,7 @@ The Rust TUI and status line implement the same function in `crates/tui` with go
 | PR | Scope | Depends on |
 |---|---|---|
 | 1 | This spec and ADR 0030 | — |
-| 2 | Service: projection, scope and mode fixes, reactive without windows, freshness module, persisted usage store, evidence age and pruning, `account.list` `usage` and `diagnostics` (TS and the Rust pass-through), CLI and hook text, dead TS code, CHANGELOG, contract tests for (a) to (f) | 1 |
+| 2 | Service: projection, scope and mode fixes, reactive without windows, freshness module, persisted usage store, evidence age and pruning, `account.list` `usageState` and `diagnostics` (TS and the Rust pass-through), CLI and hook text, dead TS code, CHANGELOG, contract tests for (a) to (f) | 1 |
 | 3 | Rust: pass-through of `UsageState` in the read model, status ops, TUI and status line; identity sort; strategy snapshot; generated freshness constants; engine ports; dispatch candidate threshold | 2 |
 | 4 | App: `usageView`, every surface moved to it, merges and helpers deleted, import rule, cross-surface test, canvas check, live validation | 2 (3 for TUI parity) |
 

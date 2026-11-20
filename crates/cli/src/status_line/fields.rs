@@ -16,6 +16,16 @@ fn count(n: &Value) -> Value {
         Value::Null
     }
 }
+/// The TUI's `truth`: service stale flags are booleans, but anything truthy
+/// marks the reading historical.
+fn truth(value: &Value) -> bool {
+    match value {
+        Value::Null | Value::Bool(false) => false,
+        Value::Number(n) => n.as_f64().is_some_and(|n| n != 0.0),
+        Value::String(s) => !s.is_empty(),
+        _ => true,
+    }
+}
 pub fn fields(input: Option<&Value>) -> Value {
     let offline = json!({"online":false,"planner":null,"agent":null,"usedPct":null,"pacePct":null,"verdict":null,"resetsAt":null,"running":null,"attention":null,"mode":null});
     let Some(input) = input else {
@@ -37,9 +47,17 @@ pub fn fields(input: Option<&Value>) -> Value {
         let agent = p["agent"]
             .as_str()
             .unwrap_or_else(|| runner_agent(input["planner"].as_str().unwrap_or_default()));
-        return with_policy(
-            json!({"online":true,"planner":agent_info(agent).0,"agent":agent,"usedPct":p["binding"]["usedPct"],"pacePct":p["binding"]["pace"],"verdict":coalesce(&[&p["verdict"], &json!("UNKNOWN")]),"resetsAt":p["binding"]["resetsAt"],"running":null,"attention":null,"mode":input["mode"]}),
-        );
+        // A stale reading never shows a live-looking figure; the TUI's
+        // "stale reading" marker replaces it (see render).
+        let stale = truth(p.get("stale").unwrap_or(&Value::Null));
+        let mut fields = json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
+        "usedPct":if stale { Value::Null } else { p["binding"]["usedPct"].clone() },
+        "pacePct":if stale { Value::Null } else { p["binding"]["pace"].clone() },
+        "verdict":coalesce(&[&p["verdict"], &json!("UNKNOWN")]),"resetsAt":p["binding"]["resetsAt"],"running":null,"attention":null,"mode":input["mode"]});
+        if stale {
+            fields["stale"] = json!(true);
+        }
+        return with_policy(fields);
     }
     let p = planner_meter(input);
     let c = counts(input);
@@ -55,13 +73,18 @@ pub fn fields(input: Option<&Value>) -> Value {
     let Some(agent) = agent.filter(|a| !a.is_empty()) else {
         return offline;
     };
-    with_policy(
+    let stale = truth(p.get("stale").unwrap_or(&Value::Null));
+    let mut fields = with_policy(
         json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
-        "usedPct":coalesce(&[&p["usedPct"],&legacy["usedPct"]]),
-        "pacePct":coalesce(&[&p["pacePct"],&legacy["pacePct"]]),
-        "verdict":coalesce(&[&p["verdict"],&legacy["verdict"],&json!("unknown")]),
-        "resetsAt":coalesce(&[&p["resetsAt"],&legacy["resetsAt"]]),
-        "running":count(&c["running"]),"attention":count(&c["attention"]),
-        "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])}),
-    )
+    "usedPct":if stale { Value::Null } else { coalesce(&[&p["usedPct"],&legacy["usedPct"]]) },
+    "pacePct":if stale { Value::Null } else { coalesce(&[&p["pacePct"],&legacy["pacePct"]]) },
+    "verdict":coalesce(&[&p["verdict"],&legacy["verdict"],&json!("unknown")]),
+    "resetsAt":coalesce(&[&p["resetsAt"],&legacy["resetsAt"]]),
+    "running":count(&c["running"]),"attention":count(&c["attention"]),
+    "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])}),
+    );
+    if stale {
+        fields["stale"] = json!(true);
+    }
+    fields
 }

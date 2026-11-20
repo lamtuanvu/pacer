@@ -2,6 +2,7 @@ use crate::snapshot::ActiveCounts;
 use crate::{js::*, read};
 use chrono::{Datelike, TimeZone, Timelike};
 use pacer_foundation::Ctx;
+use pacer_js_json::js_semantics::locale_compare;
 use serde_json::{Value, json};
 pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     let id = text(&st["planner"]);
@@ -12,21 +13,32 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         .iter()
         .find(|p| p["id"] == id)
         .unwrap_or(&Value::Null);
-    let b = &p["binding"];
-    let known = truth(b) && p["verdict"] != "UNKNOWN";
+    // The record owns what the meter quotes; rows derive from it like TypeScript (ADR 0030).
+    let record = p.get("usageState").filter(|v| truth(v));
+    let b = match record {
+        Some(r) => pacer_engine::binding_window(array(&r["windows"])),
+        None => p["binding"].clone(),
+    };
+    // The record's verdict, like TypeScript's `record.verdict ?? p.verdict`.
+    let row_verdict = record.map_or(&p["verdict"], |r| {
+        if r["verdict"].is_null() {
+            &p["verdict"]
+        } else {
+            &r["verdict"]
+        }
+    });
+    let known = truth(&b) && *row_verdict != "UNKNOWN";
     let verdict = if !known {
         "unknown"
     } else {
-        match text(&p["verdict"]) {
-            "BEHIND" | "EXPIRING" => "behind",
-            "ON_PACE" | "OK" => "on_pace",
-            "AHEAD" | "NEAR_LIMIT" => "ahead",
-            "EXHAUSTED" => "out",
-            _ => "unknown",
-        }
+        pacer_engine::words::pace_meter_verdict(text(row_verdict))
     };
+    // The row quotes the record's figure, not its binding window (ADR 0030).
     let used = if known {
-        b["usedPct"].clone()
+        match record {
+            Some(r) => r["figure"]["usedPct"].clone(),
+            None => b["usedPct"].clone(),
+        }
     } else {
         Value::Null
     };
@@ -40,6 +52,10 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     } else {
         Value::Null
     };
+    let out_resets = match record {
+        Some(r) => r["figure"]["resetsAt"].clone(),
+        None => b["resetsAt"].clone(),
+    };
     let mut advice = "No usage reading for the planner yet.".to_owned();
     match verdict {
         "behind" if !delta.is_null() => {
@@ -52,9 +68,9 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         "ahead" if !delta.is_null() => {
             advice = format!("{} pts ahead of pace — delegate more.", stringify(&delta))
         }
-        "out" if !b["resetsAt"].is_null() => {
+        "out" if !out_resets.is_null() => {
             if let Some(d) = zone
-                .timestamp_opt(num(&b["resetsAt"]).floor() as i64, 0)
+                .timestamp_opt(num(&out_resets).floor() as i64, 0)
                 .single()
             {
                 advice = format!(
@@ -83,18 +99,21 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         else{
         Value::Null}
         ,"resetsAt":if known{
-        b["resetsAt"].clone()}
+        out_resets.clone()}
         else{
         Value::Null}
         ,"window":if known{
-        b["name"].clone()}
+        record.map_or(b["name"].clone(),|r|r["figure"]["window"].clone())}
         else{
         Value::Null}
-        ,"stale":p.get("stale").cloned().unwrap_or(json!(false)),"advice":advice,"mode":st["mode"]}
+        ,"stale":record.map_or(p.get("stale").cloned().unwrap_or(json!(false)),|r|json!(text(&r["freshness"])=="historical")),"advice":advice,"mode":st["mode"]}
         ),
     );
     if truth(&st["modeHold"]) {
         row["modeHeldUntil"] = st["modeHold"]["until"].clone();
+    }
+    if let Some(r) = record {
+        row["usageState"] = r.clone();
     }
     row
 }
@@ -200,28 +219,7 @@ pub(crate) fn redact(s: &str) -> String {
 fn eligibility(decision: &Value, now: f64) -> (String, String, Option<String>) {
     let detail = array(&decision["reasons"])
         .iter()
-        .map(|r| match text(&r["code"]) {
-            "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-            "budget_missing" => "No budget observation is available",
-            "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-            "evidence_conflicting" => "Current observations disagree",
-            "evidence_missing" => "Execution evidence is missing",
-            "availability_unknown" => "Executor availability is not confirmed",
-            "subscription_missing" => "No active subscription",
-            "subscription_failed" => "Subscription is unavailable",
-            "subscription_response_invalid" => "Subscription status could not be read",
-            "authentication_failed" | "signed_out" => "Sign-in is required",
-            "refresh_failed" => "Could not refresh execution evidence",
-            "disabled" => "Disabled",
-            "not_installed" => "Not installed",
-            "blocked" => "Blocked by you",
-            "broken" => "Executor is not working",
-            "unavailable" => "Executor is unavailable",
-            "planner" => "Reserved for planning",
-            "not_configured" => "Not configured",
-            "quota_failure" => "The executor reported a quota limit",
-            _ => "Execution evidence needs attention",
-        })
+        .map(|r| pacer_engine::words::eligibility_reason(text(&r["code"])))
         .collect::<Vec<_>>()
         .join("; ");
     let age = decision["evidenceAgeS"].as_f64().map(|age| {
@@ -382,6 +380,11 @@ fn executor(
         .iter()
         .find(|p| p["id"] == id)
         .unwrap_or(&Value::Null);
+    // The record owns what the row quotes; rows derive from it like TypeScript (ADR 0030).
+    let record = p.get("usageState").filter(|v| truth(v));
+    let record_window = record.map_or(Value::Null, |r| {
+        pacer_engine::binding_window(array(&r["windows"]))
+    });
     let account = r["account"]
         .as_str()
         .or(p["account"].as_str())
@@ -492,7 +495,7 @@ fn executor(
         .filter(|r| r["account"] == account)
         .map(|r| r["host"].as_str().unwrap_or("this Mac").to_owned())
         .collect();
-    places.sort();
+    places.sort_by(|a, b| locale_compare(a, b));
     places.dedup();
     places.sort_by_key(|p| p != "this Mac");
     let places = if places.is_empty() {
@@ -500,15 +503,7 @@ fn executor(
     } else {
         places.join(" + ")
     };
-    let verdict = match text(&p["verdict"]) {
-        "BEHIND" | "EXPIRING" => "Behind pace",
-        "AHEAD" => "Ahead of pace",
-        "EXHAUSTED" => "Out of quota",
-        "ON_PACE" => "On pace",
-        "OK" => "Available",
-        "NEAR_LIMIT" => "Near limit",
-        _ => "Unknown",
-    };
+    let verdict = pacer_engine::words::verdict_words(text(&p["verdict"]));
     let sub = if truth(&p["eligibility"]) {
         format!(
             "{} · {}{} · {places}",
@@ -533,7 +528,9 @@ fn executor(
     let mut row = object();
     if truth(&p["eligibility"]) {
         row["eligibility"] = p["eligibility"].clone();
-        if let Some(v) = p.get("stale") {
+        if let Some(r) = record {
+            row["stale"] = json!(text(&r["freshness"]) == "historical");
+        } else if let Some(v) = p.get("stale") {
             row["stale"] = v.clone();
         }
     }
@@ -544,8 +541,15 @@ fn executor(
     if let Some(reason) = reason {
         row["reason"] = json!(reason);
     }
-    row["usedPct"] = p["binding"]["usedPct"].clone();
-    row["pacePct"] = p["binding"]["pace"].clone();
+    row["usedPct"] = match record {
+        Some(r) => r["figure"]["usedPct"].clone(),
+        None => p["binding"]["usedPct"].clone(),
+    };
+    row["pacePct"] = if record.is_some() {
+        record_window["pace"].clone()
+    } else {
+        p["binding"]["pace"].clone()
+    };
     if p["usage"] == "unmetered" {
         row["paceReason"] = json!("unmetered");
     } else if !truth(&p["binding"]) {
@@ -557,6 +561,9 @@ fn executor(
     }
     if untested {
         row["untested"] = json!(true);
+    }
+    if let Some(r) = record {
+        row["usageState"] = r.clone();
     }
     if check.is_object() {
         check["detail"] = json!(redact(text(&check["detail"])));
@@ -606,6 +613,9 @@ let name=&a["name"];
 let runners:Vec<_>=values(&s["runners"]).into_iter().filter(|r|r["account"]==*name).collect();
 let p=array(&st["providers"]).iter().find(|p|p["account"]==*name||runners.iter().any(|r|r["id"]==p["id"])).unwrap_or(&Value::Null);
 let status=array(&st["accounts"]).iter().find(|a|a["name"]==*name).unwrap_or(&Value::Null);
+// The record owns what the row quotes; rows derive from it like TypeScript (ADR 0030).
+let record=status.get("usageState").filter(|v|truth(v));
+let window=record.map_or(Value::Null,|r|pacer_engine::binding_window(array(&r["windows"])));
 let pick=|k:&str,f:&Value|status.get(k).filter(|v|!v.is_null()).unwrap_or(f).clone();
 let mut row=object();
 if truth(&status["eligibility"]){
@@ -622,15 +632,27 @@ else{
 Value::Null}
 ;
  row=merge(&row,&json!({
-"stale":status.get("stale").or(p.get("stale")).cloned().unwrap_or(json!(true)),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
+"stale":record.map_or(pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),|r|json!(text(&r["freshness"])=="historical")),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],
+"usedPct":record.map_or(pick("usedPct",&p["binding"]["usedPct"]),|r|r["figure"]["usedPct"].clone()),
+"pacePct":record.map_or(pick("pacePct",&p["binding"]["pace"]),|_|window["pace"].clone()),
+"window":record.map_or(pick("window",&p["binding"]["name"]),|r|r["figure"]["window"].clone()),
+"resetsAt":record.map_or(pick("resetsAt",&p["binding"]["resetsAt"]),|r|r["figure"]["resetsAt"].clone()),
+"verdict":record.map_or(pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),|r|r["verdict"].clone()),
+"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),
+"spendUsdWeek":record.map_or(status["spendUsd"].clone(),|r|r["spend"]["usdWeek"].clone()),"capUsdWeek":a["weeklyUsd"]}
 ));
+if let Some(r)=record{
+row["usageState"]=r.clone();
+}
 row}
 ).collect()
 }
 /// Stored authentication observations are scoped to account configuration, never
-/// inferred by opening an agent's native credentials.
+/// inferred by opening an agent's native credentials. Evidence files are keyed by
+/// `pacer_config::evidence::evidence_identity`, the same identity TypeScript's
+/// `accountEvidenceScope` computes and `account-ops` retires with.
 pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
-    use sha2::{Digest, Sha256};
+    use pacer_config::evidence::evidence_identity;
     let mut rows = accounts(st, s);
     let marks = read(ctx, "state/auth-failed.json");
     let evidence = read(ctx, "state/auth-evidence.json");
@@ -643,35 +665,7 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         if account["kind"] == "endpoint" {
             continue;
         }
-        let mut hosts: Vec<_> = s["hosts"]
-            .as_object()
-            .into_iter()
-            .flat_map(|h| h.iter())
-            .collect();
-        hosts.sort_by(|a, b| a.0.cmp(b.0));
-        let hosts: Vec<_> = hosts
-            .iter()
-            .map(|(alias, h)| json!([alias, h["ssh"], h["accounts"][name]["home"]]))
-            .collect();
-        let mut signature = vec![
-            account["name"].clone(),
-            account["kind"].clone(),
-            account["source"].clone(),
-            account["home"].clone(),
-            account["orcaAccount"].clone(),
-            account["usageSource"].clone(),
-            account["quotaSource"].clone(),
-            account["connection"]["base_url"].clone(),
-            account["connection"]["key"].clone(),
-            json!(hosts),
-        ];
-        if truth(&account["provider"]) {
-            signature.push(account["provider"].clone());
-        }
-        let identity = format!(
-            "{:x}",
-            Sha256::digest(stringify(&json!(signature)).as_bytes())
-        );
+        let identity = evidence_identity(account, &s["hosts"]);
         let observation = &evidence[name];
         let at = observation["at"].as_f64();
         let scope = &observation["scope"];
@@ -692,4 +686,37 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         }
     }
     rows
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::accounts;
+    use serde_json::json;
+
+    /// `verdict` falls through an explicit null like TypeScript's
+    /// `status?.verdict ?? p?.verdict ?? "UNKNOWN"`.
+    #[test]
+    fn accounts_verdict_falls_through_an_explicit_null() {
+        let s = json!({
+            "planner": {"agent": "claude-code", "account": "claude"},
+            "accounts": {"claude": {"name": "claude", "kind": "claude"}},
+            "runners": {"claude-code": {"id": "claude-code", "agent": "claude-code", "account": "claude"}},
+        });
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": "ON_PACE", "binding": {"usedPct": 63}}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "ON_PACE");
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": null}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "UNKNOWN");
+        // No status row and no provider at all still reads "UNKNOWN".
+        assert_eq!(
+            accounts(&json!({"providers": []}), &s)[0]["verdict"],
+            json!("UNKNOWN")
+        );
+    }
 }

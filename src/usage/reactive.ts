@@ -33,3 +33,11 @@ export function limitObservation(ctx: Ctx, id: string): LimitObservation | null 
   const value = readJson<Record<string, LimitObservation>>(join(ctx.pacerHome, "state/exhausted-evidence.json"))?.[id];
   return value?.until === until ? value : { observedAt: null, until, manual: false };
 }
+
+/** Every active limit mark with the key it was recorded under. */
+export function activeLimitObservations(ctx: Ctx): { key: string; observation: LimitObservation }[] {
+  const marks = readMarks(ctx), evidence = readJson<Record<string, LimitObservation>>(join(ctx.pacerHome, "state/exhausted-evidence.json")) ?? {};
+  return Object.entries(marks).filter(([, until]) => until > ctx.now).map(([key, until]) => ({
+    key, observation: evidence[key]?.until === until ? evidence[key] : { observedAt: null, until, manual: false },
+  }));
+}

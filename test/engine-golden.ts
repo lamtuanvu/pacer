@@ -1,6 +1,7 @@
 import { activeHoursLeft, pacePct } from "../src/pace/clock";
 import { evaluateWindow, bindingWindow } from "../src/engine/verdict";
 import { evaluateEligibility } from "../src/engine/eligibility";
+import { evidenceDeadline } from "../src/engine/evidence";
 import { machineGuard } from "../src/engine/machine";
 import { plannerMode } from "../src/engine/mode";
 import { conversationFallback, rankExecutors } from "../src/engine/rank";
@@ -114,6 +115,9 @@ export function engineGoldens() {
     { name: "machine", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30)]), restrictions: [{ code: "machine_load", evidenceIds: [] }] } },
     { name: "unavailable", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("unavailable")], [budget(30)]), restrictions: [] } },
     { name: "conflict", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready", now + 3600, "availability-a"), availability("ready", now + 3600, "availability-b")], [budget(30)], [], ["availability-a", "availability-b"]), restrictions: [] } },
+    { name: "conflict-single", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready", now + 3600, "availability-a")], [budget(30)], [], ["availability-a"]), restrictions: [] } },
+    { name: "conflict-two", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30, now - 100, "budget-a"), budget(30, now - 50, "budget-b")], [], ["budget-a", "budget-b"]), restrictions: [] } },
+    { name: "conflict-expired", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready", now - 1, "availability-old")], [budget(30)], [], ["availability-old"]), restrictions: [] } },
     { name: "spending-observed", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30)], [spending("observed")]), restrictions: [] } },
     { name: "spending-clear", input: { now, scope, usage: "quota", allowPaid: false, evidence: evidence([availability("ready")], [budget(30)], [spending("not_observed")]), restrictions: [] } },
     { name: "reactive", input: { now, scope, usage: "reactive", allowPaid: false, evidence: evidence([availability("ready")], []), restrictions: [] } },
@@ -172,8 +176,31 @@ export function engineGoldens() {
     { name: "append-planner", input: { ranking: conversationBase, kind: null, strategy, statuses: { ...statuses, planner: plannerStatus }, requested: "planner" }, output: conversationAppend },
     { name: "already-ranked", input: { ranking: conversationBase, kind: null, strategy, statuses, requested: "alpha" }, output: conversationAlready },
   ];
-  const modes = (["EXHAUSTED", "AHEAD", "NEAR_LIMIT", "BEHIND", "EXPIRING", "ON_PACE", "UNKNOWN", "OK"] as Verdict[])
+  const modes = (["EXHAUSTED", "AHEAD", "NEAR_LIMIT", "BEHIND", "EXPIRING", "ON_PACE", "UNKNOWN", "OK", "UNMETERED"] as Verdict[])
     .map(verdict => ({ name: verdict, input: { verdict }, output: plannerMode(verdict) }));
+  const deadlineFact = (source: "configuration" | "execution" | "provider-cli",
+    value: { name: string; lengthS: number; resetsAt: number | null }, validUntil: number | null = null,
+    observedAt: number | null = now - 100) =>
+    ({ id: `deadline-${source}-${value.name}`, scope, source, observedAt, validUntil,
+      reason: source === "execution" ? "quota_failed" : "quota_observed", value });
+  const deadline = ([
+    { name: "execution-limit-binds-to-reset", input: deadlineFact("execution", { name: "limit", lengthS: 0, resetsAt: now + 7 * 86_400 }) },
+    { name: "execution-limit-valid-until", input: deadlineFact("execution", { name: "limit", lengthS: 0, resetsAt: now + 7 * 86_400 }, now + 3600) },
+    { name: "configuration-binds-to-reset", input: deadlineFact("configuration", { name: "limit", lengthS: 0, resetsAt: now + 1000 }, null, 0) },
+    { name: "short-window-freshness-cap", input: deadlineFact("provider-cli", { name: "5h", lengthS: 3600, resetsAt: now + 7 * 86_400 }) },
+    { name: "long-window-freshness-cap", input: deadlineFact("provider-cli", { name: "weekly", lengthS: 604_800, resetsAt: now + 90 * 86_400 }) },
+    { name: "no-observation", input: deadlineFact("provider-cli", { name: "weekly", lengthS: 604_800, resetsAt: now }, null, null) },
+  ] as { name: string; input: ReturnType<typeof deadlineFact> }[])
+    .map(({ name, input }) => ({ name, input, output: evidenceDeadline(input as never) }));
+  const tie = (verdict: Verdict, resetsAt: number) =>
+    ({ ...window(40, false, resetsAt), verdict, pace: 50, delta: -10, activeHoursLeft: 5 });
+  const bindingTies = ([
+    { name: "paced-tie-keeps-first", input: [tie("ON_PACE", now + 1000), tie("ON_PACE", now + 2000)] },
+    { name: "paced-better-wins", input: [tie("ON_PACE", now + 1000), tie("EXPIRING", now + 2000)] },
+    { name: "hard-tie-keeps-first", input: [tie("EXHAUSTED", now + 1000), tie("EXHAUSTED", now + 2000)] },
+    { name: "hard-beats-paced", input: [tie("ON_PACE", now + 1000), tie("NEAR_LIMIT", now + 2000)] },
+  ] as { name: string; input: ReturnType<typeof tie>[] }[])
+    .map(({ name, input }) => ({ name, input, output: bindingWindow(input) }));
   if (originalZone === undefined) delete process.env.TZ; else process.env.TZ = originalZone;
   return {
     pace,
@@ -182,6 +209,8 @@ export function engineGoldens() {
     rank,
     conversation,
     mode: modes,
+    deadline,
     binding: { input: pace.map(p => p.output.window), output: bindingWindow(pace.map(p => p.output.window)) },
+    bindingTies,
   };
 }

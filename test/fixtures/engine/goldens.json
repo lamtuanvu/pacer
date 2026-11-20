@@ -35794,6 +35794,249 @@
       }
     },
     {
+      "name": "conflict-single",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-a",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_ready",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-30",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": [
+            "availability-a"
+          ]
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "eligible",
+        "reasons": [],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 100,
+        "availability": "ready",
+        "budget": "permitted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "conflict-two",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-ready",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1798003600,
+                "reason": "subscription_ready",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-a",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              },
+              {
+                "id": "budget-b",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999950,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": [
+            "budget-a",
+            "budget-b"
+          ]
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "uncertain",
+        "reasons": [
+          {
+            "code": "evidence_conflicting",
+            "evidenceIds": [
+              "budget-a",
+              "budget-b"
+            ]
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798003600,
+        "evidenceAgeS": 50,
+        "availability": "ready",
+        "budget": "permitted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
+      "name": "conflict-expired",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "quota",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-old",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": 1797999999,
+                "reason": "subscription_ready",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "budget-30",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "provider-cli",
+                "observedAt": 1797999900,
+                "validUntil": null,
+                "reason": "quota_observed",
+                "value": {
+                  "name": "weekly",
+                  "usedPct": 30,
+                  "stale": false,
+                  "resetsAt": 1798018000,
+                  "lengthS": 604800,
+                  "paced": true
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": [
+            "availability-old"
+          ]
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "uncertain",
+        "reasons": [
+          {
+            "code": "availability_unknown",
+            "evidenceIds": [
+              "availability-old"
+            ]
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798018000,
+        "evidenceAgeS": 100,
+        "availability": "unknown",
+        "budget": "permitted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
       "name": "spending-observed",
       "input": {
         "now": 1798000000,
@@ -41587,6 +41830,141 @@
         "verdict": "OK"
       },
       "output": "normal"
+    },
+    {
+      "name": "UNMETERED",
+      "input": {
+        "verdict": "UNMETERED"
+      },
+      "output": "normal"
+    }
+  ],
+  "deadline": [
+    {
+      "name": "execution-limit-binds-to-reset",
+      "input": {
+        "id": "deadline-execution-limit",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "execution",
+        "observedAt": 1797999900,
+        "validUntil": null,
+        "reason": "quota_failed",
+        "value": {
+          "name": "limit",
+          "lengthS": 0,
+          "resetsAt": 1798604800
+        }
+      },
+      "output": 1798604800
+    },
+    {
+      "name": "execution-limit-valid-until",
+      "input": {
+        "id": "deadline-execution-limit",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "execution",
+        "observedAt": 1797999900,
+        "validUntil": 1798003600,
+        "reason": "quota_failed",
+        "value": {
+          "name": "limit",
+          "lengthS": 0,
+          "resetsAt": 1798604800
+        }
+      },
+      "output": 1798003600
+    },
+    {
+      "name": "configuration-binds-to-reset",
+      "input": {
+        "id": "deadline-configuration-limit",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "configuration",
+        "observedAt": 0,
+        "validUntil": null,
+        "reason": "quota_observed",
+        "value": {
+          "name": "limit",
+          "lengthS": 0,
+          "resetsAt": 1798001000
+        }
+      },
+      "output": 1798001000
+    },
+    {
+      "name": "short-window-freshness-cap",
+      "input": {
+        "id": "deadline-provider-cli-5h",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "provider-cli",
+        "observedAt": 1797999900,
+        "validUntil": null,
+        "reason": "quota_observed",
+        "value": {
+          "name": "5h",
+          "lengthS": 3600,
+          "resetsAt": 1798604800
+        }
+      },
+      "output": 1798007100
+    },
+    {
+      "name": "long-window-freshness-cap",
+      "input": {
+        "id": "deadline-provider-cli-weekly",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "provider-cli",
+        "observedAt": 1797999900,
+        "validUntil": null,
+        "reason": "quota_observed",
+        "value": {
+          "name": "weekly",
+          "lengthS": 604800,
+          "resetsAt": 1805776000
+        }
+      },
+      "output": 1798086300
+    },
+    {
+      "name": "no-observation",
+      "input": {
+        "id": "deadline-provider-cli-weekly",
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "source": "provider-cli",
+        "observedAt": null,
+        "validUntil": null,
+        "reason": "quota_observed",
+        "value": {
+          "name": "weekly",
+          "lengthS": 604800,
+          "resetsAt": 1798000000
+        }
+      },
+      "output": null
     }
   ],
   "binding": {
@@ -42715,5 +43093,171 @@
       "paced": true,
       "verdict": "EXHAUSTED"
     }
-  }
+  },
+  "bindingTies": [
+    {
+      "name": "paced-tie-keeps-first",
+      "input": [
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798001000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "ON_PACE",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        },
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798002000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "ON_PACE",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        }
+      ],
+      "output": {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": false,
+        "resetsAt": 1798001000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "ON_PACE",
+        "pace": 50,
+        "delta": -10,
+        "activeHoursLeft": 5
+      }
+    },
+    {
+      "name": "paced-better-wins",
+      "input": [
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798001000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "ON_PACE",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        },
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798002000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXPIRING",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        }
+      ],
+      "output": {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": false,
+        "resetsAt": 1798002000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXPIRING",
+        "pace": 50,
+        "delta": -10,
+        "activeHoursLeft": 5
+      }
+    },
+    {
+      "name": "hard-tie-keeps-first",
+      "input": [
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798001000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXHAUSTED",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        },
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798002000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "EXHAUSTED",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        }
+      ],
+      "output": {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": false,
+        "resetsAt": 1798001000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "EXHAUSTED",
+        "pace": 50,
+        "delta": -10,
+        "activeHoursLeft": 5
+      }
+    },
+    {
+      "name": "hard-beats-paced",
+      "input": [
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798001000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "ON_PACE",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        },
+        {
+          "name": "weekly",
+          "usedPct": 40,
+          "stale": false,
+          "resetsAt": 1798002000,
+          "lengthS": 604800,
+          "paced": true,
+          "verdict": "NEAR_LIMIT",
+          "pace": 50,
+          "delta": -10,
+          "activeHoursLeft": 5
+        }
+      ],
+      "output": {
+        "name": "weekly",
+        "usedPct": 40,
+        "stale": false,
+        "resetsAt": 1798002000,
+        "lengthS": 604800,
+        "paced": true,
+        "verdict": "NEAR_LIMIT",
+        "pace": 50,
+        "delta": -10,
+        "activeHoursLeft": 5
+      }
+    }
+  ]
 }

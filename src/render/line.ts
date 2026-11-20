@@ -9,6 +9,8 @@ export interface LineOptions { width?: number; color?: boolean; policy?: PolicyS
 export interface LineFields {
   policy?: PolicySummary; online: boolean; planner: string | null; agent: string | null; usedPct: number | null; pacePct: number | null;
   verdict: string | null; resetsAt: number | null; running: number | null; attention: number | null; mode: string | null;
+  /** Present only while the planner's reading is historical. */
+  stale?: boolean;
 }
 
 /** Status remains accepted for the installed agent status-bar capture path. */
@@ -18,17 +20,28 @@ export function lineFields(input: ClientSnapshot | Status | null, policy?: Polic
   if ("generatedAt" in input) {
     const p = input.providers.find(p => p.id === input.planner);
     const agent = p?.agent ?? runnerAgent(input.planner);
-    return { ...offline, policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent, usedPct: p?.binding?.usedPct ?? null, pacePct: p?.binding?.pace ?? null, verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, mode: input.mode };
+    // A stale reading never shows a live-looking figure; the renderer's
+    // "stale reading" marker replaces it (see renderLine). Any truthy service
+    // stale flag marks the reading historical.
+    const stale = !!p?.stale;
+    return { ...offline, policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent,
+      usedPct: stale ? null : p?.binding?.usedPct ?? null, pacePct: stale ? null : p?.binding?.pace ?? null,
+      verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, mode: input.mode, ...(stale ? { stale: true } : {}) };
   }
   const p = plannerMeter(input), c = counts(input);
   const count = (n: number | undefined): number | null => n !== undefined && Number.isInteger(n) && n >= 0 ? n : null;
   const legacy = input.budget?.providers.find(p => p.id === input.budget!.planner);
   const agent = p?.agent ?? (input.budget ? legacy?.agent ?? runnerAgent(input.budget.planner) : null);
   if (!agent) return offline;
-  return { policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent, usedPct: p?.usedPct ?? legacy?.usedPct ?? null,
-    pacePct: p?.pacePct ?? legacy?.pacePct ?? null, verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
+  // The stale planner meter also keeps the legacy fallback from showing a
+  // live-looking figure.
+  const stale = !!p?.stale;
+  return { policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent,
+    usedPct: stale ? null : p?.usedPct ?? legacy?.usedPct ?? null,
+    pacePct: stale ? null : p?.pacePct ?? legacy?.pacePct ?? null,
+    verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
     resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, running: count(c?.running), attention: count(c?.attention),
-    mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal" };
+    mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal", ...(stale ? { stale: true } : {}) };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -52,7 +65,12 @@ export function renderLine(input: ClientSnapshot | Status | null, options: LineO
   const name = paint(f.planner!, brand === "ink" ? "fafafa" : brand);
   const verdict = compactVerdictWords(f.verdict!);
   const now = input && "at" in input ? input.at : (input as Status).generatedAt;
-  const main = verdict === "out" ? `${verdict} · ${f.resetsAt === null ? backIn(null, now) : `back ${fmtReset(f.resetsAt, now).slice(2)}`}` : `${meterText(f.usedPct, f.pacePct, "compact")}${verdict ? ` ${verdict}` : ""}`;
+  // Exhaustion with a known reset wins over staleness; a stale reading without
+  // it shows the TUI's "stale reading" marker instead of any figure.
+  const main = verdict === "out" && f.resetsAt !== null ? `${verdict} · back ${fmtReset(f.resetsAt, now).slice(2)}`
+    : f.stale ? "stale reading"
+    : verdict === "out" ? `${verdict} · ${backIn(null, now)}`
+    : `${meterText(f.usedPct, f.pacePct, "compact")}${verdict ? ` ${verdict}` : ""}`;
   const used = f.usedPct === null ? "?" : String(Math.round(f.usedPct));
   const running = f.running === null ? "" : paint(`▸${f.running}`, "93c5fd");
   const attention = f.attention ? paint(`⚑${f.attention}`, "fcd34d") : "";
