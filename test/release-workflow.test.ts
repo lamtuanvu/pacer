@@ -167,7 +167,7 @@ test("Homebrew configuration reports missing credentials and permits credential-
   expect(readFileSync(output, "utf8")).toBe("enabled=true\n");
 });
 
-test("release publication is gated by both artifact M1 builds", () => {
+test("the release builds and publishes; validation runs post-merge on main", () => {
   const build = jobs.build;
   expect(build.needs).toBe("verify");
   expect((build as any).if).toBeUndefined();
@@ -177,25 +177,13 @@ test("release publication is gated by both artifact M1 builds", () => {
     { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
     { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
   ]);
-  const gate = build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
-  expect(gate.if).toBeUndefined();
-  expect((gate as any)["continue-on-error"]).toBeUndefined();
-  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
-  const suite = jobs["ci-suite"]!;
-  expect(suite.needs).toBe("verify");
-  expect((suite as any).if).toBeUndefined();
-  expect((suite as any).permissions).toEqual({ contents: "read", actions: "write" });
-  const evidence = suite.steps.find(s => s.name === "Require CI's Linux and macOS test gates for this commit")!;
-  expect(evidence.if).toBeUndefined();
-  expect((evidence as any)["continue-on-error"]).toBeUndefined();
-  expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");
-  expect(evidence.env).toMatchObject({
-    // A nightly's CI evidence belongs to the main commit under the stamp, and is never dispatched.
-    CI_SHA: "${{ needs.verify.outputs.channel == 'nightly' && needs.verify.outputs.parent || github.event.pull_request.head.sha || github.sha }}",
-    CI_REF: "${{ github.head_ref || github.ref_name }}",
-    CI_NO_DISPATCH: "${{ needs.verify.outputs.channel == 'nightly' && '1' || '' }}",
-  });
-  expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
+  // Amendment 0.24.0 (proposed): the release only builds and publishes; no M1 gate, no CI-suite gate.
+  expect(jobs["ci-suite"]).toBeUndefined();
+  expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
+  expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
+  expect(workflow).not.toContain("gate:m1");
+  expect(workflow).not.toContain("ci-evidence");
+  expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
@@ -203,8 +191,10 @@ test("release publication is gated by both artifact M1 builds", () => {
   }
   const verify = jobs.verify.steps.map(s => s.run ?? "").join("\n");
   expect(verify).toContain("bun run typecheck");
-  expect(verify).toContain("cargo test -p pacer-plugin --features testing --locked");
+  // CI's Rust job already runs `cargo test -p pacer-plugin --features testing`; verify no longer repeats it.
+  expect(verify).not.toContain("cargo test");
   expect(verify).not.toContain("bun run test");
+  expect(jobs.verify.steps.some(s => s.uses?.startsWith("dtolnay/rust-toolchain@"))).toBe(false);
   const source = readFileSync("scripts/gate/m1.ts", "utf8");
   expect(source).toContain('validateM1Artifacts(dir)');
   expect(source).toContain('[process.execPath, "run", "test", ...files]');
@@ -213,12 +203,48 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(source).toContain('return failures ? 1 : 0');
 });
 
-test("M1 gate failure stops the release build despite log capture", () => {
+test("the M1 gate runs post-merge on main in CI instead of the release", () => {
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
+    on: Record<string, unknown>;
+    jobs: Record<string, WorkflowJob & { "timeout-minutes"?: number; name?: string }>;
+  };
+  // ci.yml's push trigger is already main-only; the gate never runs on PRs, tags or dispatches.
+  expect(ci.on.push).toEqual({ branches: ["main"] });
+  const gate = ci.jobs["m1-gate"]!;
+  expect(gate.name).toBe("M1 gate against built release artifacts (post-merge)");
+  expect(gate.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
+  expect(gate["timeout-minutes"]).toBeLessThanOrEqual(45);
+  expect(gate.strategy?.matrix.include).toEqual([
+    { runner: "macos-latest", targets: "darwin-arm64,darwin-x64" },
+    { runner: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
+  ]);
+  // Same build recipe as release.yml's build job, including the Rust cache key.
+  const names = gate.steps.map(s => s.name ?? s.uses ?? s.run);
+  for (const step of ["Install dependencies", "Install Rust release targets", "Install Linux cross-build tools", "Build runner targets", "Build the Rust fixture plugin", "M1 gate checks against built host release artifacts"]) {
+    expect(names).toContain(step);
+  }
+  const cache = gate.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
+  expect(cache?.with).toMatchObject({ key: "release-pair-${{ matrix.runner }}" });
+  // Every install/download step is bounded at 10 minutes.
+  const installs = gate.steps.filter(s => s.run && /bun install|rustup target add|pip" install|cargo build --locked -p pacer-fixtures/.test(s.run));
+  expect(installs).toHaveLength(4);
+  for (const install of installs) {
+    expect((install as any)["timeout-minutes"]).toBeLessThanOrEqual(10);
+  }
+  const run = gate.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
+  expect(run.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
+  const upload = gate.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
+  expect(upload?.if).toBe("always()");
+  expect(upload?.with).toMatchObject({ name: "m1-gate-post-merge-${{ matrix.runner }}", path: "${{ runner.temp }}/pacer-m1-gate.log" });
+});
+
+test("a failed M1 gate fails the post-merge job despite log capture", () => {
   const root = tmpDir(), bin = join(root, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  const gate = jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
-  const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as { jobs: Record<string, WorkflowJob> };
+  const gateStep = ci.jobs["m1-gate"].steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
+  const result = run(gateStep.run!, root, { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root });
   expect(result.exitCode).not.toBe(0);
 });
 

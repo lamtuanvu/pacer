@@ -520,6 +520,15 @@ fn stalled_detail(liveness: &Value, now: f64) -> String {
             (((now - since) / 60.0).floor() as i64).max(1)
         );
     }
+    if reason == "caller_decision" {
+        let who = liveness["waitingOn"]
+            .as_str()
+            .and_then(|p| p.strip_prefix("external:"))
+            .and_then(|p| p.split(':').next())
+            .filter(|k| !k.is_empty() && k.chars().all(|c| c.is_ascii_lowercase() || c == '-'))
+            .unwrap_or("the caller");
+        return format!("Waiting for {who} to review and decide");
+    }
     format!("Conversation stalled: {reason}")
 }
 
@@ -580,6 +589,22 @@ mod managed_action_tests {
 mod stalled_detail_tests {
     use super::stalled_detail;
     use serde_json::json;
+
+    #[test]
+    fn caller_decision_names_the_planner_kind() {
+        let now = 1_000_000.0;
+        assert_eq!(
+            stalled_detail(
+                &json!({"reason":"caller_decision","since":now,"waitingOn":"external:claude-code:s1"}),
+                now
+            ),
+            "Waiting for claude-code to review and decide"
+        );
+        assert_eq!(
+            stalled_detail(&json!({"reason":"caller_decision","since":now}), now),
+            "Waiting for the caller to review and decide"
+        );
+    }
 
     #[test]
     fn no_progress_counts_minutes_from_the_last_progress() {

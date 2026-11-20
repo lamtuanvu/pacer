@@ -1,8 +1,11 @@
 name: Prepare release
 
 # One click: pin one commit, bump its version, tag it. The tag starts
-# release.yml, which builds, checks CI's full suite and publishes from that
-# tag alone, so later merges to main never affect the release. The version
+# release.yml, which builds and publishes from that tag alone, so later
+# merges to main never affect the release. The pinned commit must already
+# have passed main's post-merge CI (validation runs post-merge, amendment
+# 0.24.0, proposed); the check below reads that result and refuses to tag
+# otherwise, without dispatching CI. The version
 # bump reaches main through a separate bookkeeping PR that the release does
 # not wait for. Writes go through RELEASE_TOKEN so the tag and PR start
 # workflows (GitHub does not run workflows for GITHUB_TOKEN pushes).
@@ -31,6 +34,7 @@ jobs:
     timeout-minutes: 30
     permissions:
       contents: read
+      actions: read # Reads the pinned commit's post-merge CI result on main.
     env:
       BUMP: ${{ inputs.bump }}
       COMMIT: ${{ inputs.commit }}
@@ -66,6 +70,13 @@ jobs:
         with:
           bun-version: 1.4.2
       - run: bun install --frozen-lockfile
+      - name: Require main's post-merge CI result for the pinned commit
+        # Read-only gate: a missing, in-progress, failed or partial run refuses to continue,
+        # so the tag only starts from a commit whose post-merge CI on main is green.
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MAIN_CI_SHA: ${{ steps.pin.outputs.target }}
+        run: bun scripts/release/main-ci-evidence.ts
       - name: Pick the version
         id: version
         run: |

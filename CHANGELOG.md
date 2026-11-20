@@ -4,9 +4,45 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **Planners are asked to review and decide.** When a delegated task settles and the planner that delegated it has not reviewed it, pacer records how to reach that planner (its session, process and terminal, from the CLI or MCP) and, after `messaging.liveness.caller_wake_after_s` (new key, default 300 s), types one line into its Orca terminal when the pane is idle with an empty prompt. Otherwise, and after `escalate_after_s`, you are notified with "Waiting for <planner> to review and decide" on the task. Resuming a closed planner session is included but switched off until it is hardened.
+- **A persisted usage cache.** The last good reading of each account is kept under the pacer home (`state/usage/`, keyed by the account's evidence identity), so a one-shot CLI process and the service see the same reading, and `limits.refresh` compares against it. Removing an account deletes its cache.
+
 ### Changed
 
-- **The plugin host is on by default.** `pacer serve` now starts the native plugin owner unless `PACER_NATIVE_PLUGIN_HOST=0` (or `PACER_HOST_BRIDGE=0`) says otherwise — `serve_starts_reverse_bridge_by_default` returns true. TypeScript plugin consumers (usage refresh, doctor, setup.health, planners) reach children through Core's sealed owner call, proven by the PR 6 consumer matrix and CT-11 on the Rust front door; the flag-off path keeps its explicit-escape tests.
+- **Rust plugin crates 0.3.0 on crates.io.** `pacer-plugin` and its generated protocol crates move to 0.3.0 for plugin protocol 1.11.0. The generated top-level type is renamed (`PacerPluginProtocol1100` becomes `PacerPluginProtocol1110`), so plugins that name it need the rename. `pacer-plugin-assistant-protocol` is published for the first time.
+- **Usage readings no longer invent a figure for reactive and unmetered accounts.** `account.list` `usageReading` used to report a `limit` window at 0% with the current time as `capturedAt` for reactive accounts (and the current time for unmetered ones), which the Usage popover showed as "0% · Updated 1s ago" next to an account that was out of quota. These readings now have no windows and `capturedAt: null`. Limits still come from limit marks and evidence ([ADR 0030](docs/decisions/0030-account-usage-single-owner.md)).
+- **"Observed N ago" reflects the budget reading.** The evidence age now comes from the budget observation (or the newest availability fact when there is none) instead of the oldest fact on record, and availability and spending facts that expired more than 7 days ago are pruned.
+- **One set of freshness thresholds.** Every usage freshness threshold is defined once (`src/usage/freshness.constants.json`); dispatch treats a quota at 97% or more as exhausted, the same threshold as the verdict.
+
+## [0.17.5] - 2026-11-19
+
+### Changed
+
+- Release 0.17.4 (#1122).
+- Cargo fmt the task row model and account changes (#1123).
+
+### Fixed
+
+- Repair main after the task-row runner changes (#1125).
+
+## [0.17.4] - 2026-11-19
+
+### Fixed
+
+- **Release 0.17.3 was tagged but not published.** Its plugin conformance and M1 gate failed because the native plugin owner had just become the default. This release reverts that default (the plugin owner is opt-in again, as in 0.17.2) and ships everything listed under 0.17.3: OpenCode tasks run on the chosen model, and `pacer tasks` and the Tasks page show each task's agent, account and model.
+
+## [0.17.3] - 2026-11-19
+
+### Fixed
+
+- **Interactive OpenCode tasks run on the model pacer chose.** Interactive OpenCode takes its model only from `OPENCODE_CONFIG_CONTENT`, and pacer filled it with the executor's default model, so a task recorded as `glm-5.3-flash` could run on the default. The task's chosen model now wins; takeover session discovery keeps the attempt's model.
+
+### Added
+
+- **`pacer tasks` shows who runs a task.** Task summaries list each attempt's `model` and `account`, and `current_attempt` for an attempt in flight; the text output shows `executor · account · model`.
+- **Task rows say who runs the task.** Every row on the Tasks page shows the agent, account and model beside the status (for example "OpenCode · oc-glm · opencode-go/glm-5.3-flash"): the attempt in flight while running, the latest attempt otherwise, preferring the model that actually launched. The task read model and live task events carry `account` and `model`.
 
 ## [0.17.2] - 2026-11-18
 

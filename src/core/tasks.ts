@@ -251,7 +251,9 @@ export async function review(
       checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
-      taskActivity(ctx, reviewed, "verdict", verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`);
+      const resumed = ctx.env.PACER_CALLER_RESUME === id;
+      const verdictText = (verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`) + (resumed ? " (resumed caller session)" : "");
+      taskActivity(ctx, reviewed, "verdict", verdictText, resumed ? { source: "resumed-caller" } : undefined);
     } catch (e) {
       throw toCoreError(e);
     }
@@ -430,6 +432,7 @@ async function retryTask(
           ...(task.group ? { group: task.group } : {}),
           // The retry belongs to whoever the original belongs to, not to whoever retried it.
           ...(origin ? { origin } : {}),
+          ...(task.callerReach ? { callerReach: task.callerReach } : {}),
         };
         return {task,input,answering};
       });

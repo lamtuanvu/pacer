@@ -2,7 +2,7 @@
 import type { AttentionItem } from "../attention/types";
 import type { TokenRollup } from "../tokens/rollup";
 import type { ClientSnapshot, ClientTask } from "./snapshot";
-import { markAgent } from "./agents";
+import { markAgent, agentInfo, runnerAccount } from "./agents";
 import { needsYou, type Scope } from "./selectors";
 
 import { sessionTime } from "./copy";
@@ -12,6 +12,8 @@ export type TaskAttention = "none" | "warn" | "bad";
 /** Icon names shared with the DS icon set; kept as a subset so the view model never imports the app. */
 export type TaskMetaIcon = "time" | "files" | "pr" | "checks" | "layers" | "review" | "routing" | "notes";
 export interface TaskMetaItem { icon: TaskMetaIcon; text: string; tone?: Tone; title?: string }
+/** Who runs (or ran) a task, as readable words beside its status; the glyph stays the mark. */
+export interface TaskRunnerView { name: string; account?: string; model?: string }
 export interface TaskNodeView {
   id: string; title: string;
   state: { tone: Tone; live: boolean; label: string };
@@ -21,6 +23,8 @@ export interface TaskNodeView {
   /** Omitted while the machine is not known (queued work, or a source that does not report it). */
   host?: { name: string; kind: "local" | "remote" }; branch?: string; repo?: string;
   agents: string[]; tokens?: string;
+  /** The agent name, account and model behind the row; omitted when pacer does not know the executor. */
+  runner?: TaskRunnerView;
   /** Which Tasks filter holds this card; a root counts its subtasks' attention. */
   bucket: TaskBucket;
   /** Measured tokens for this card and its subtasks, when any were measured. */
@@ -52,6 +56,20 @@ function tokenOf(tokens: TreeTokens | null | undefined): Tok | null {
 }
 const tokenText = (tok: Tok | null): string | undefined => tok ? `${tok.lower ? "≥ " : ""}${compactCount(tok.total)} tokens` : undefined;
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/**
+ * The agent name, account and model one task runs (or ran) on: the in-flight attempt while running, the latest attempt otherwise.
+ * The read model carries `account` and `model`; a 2.0 service without them falls back to the parts of the runner id.
+ */
+export function taskRunner(task: TreeTask): TaskRunnerView | undefined {
+  if (!task.executor) return undefined;
+  const account = task.account ?? runnerAccount(task.executor) ?? undefined;
+  return {
+    name: agentInfo(markAgent(task.executor, account)).name,
+    ...(account ? { account } : {}),
+    ...(task.model ? { model: task.model } : {}),
+  };
+}
 
 /** Tint, pill colour and words come from one vocabulary status, so they never disagree (UI-10). */
 const fromStatus = (status: Status): { level: TaskAttention; label: string } => ({ level: status.tone === "bad" ? "bad" : "warn", label: status.label });
@@ -121,13 +139,15 @@ export function taskTree(snapshot: TreeSnapshot, opts: { now: number; extra?: Tr
     const branch = task.branch ?? undefined;
     const tok = tokenOf(task.tokens);
     const tokens = tokenText(tok);
+    const runner = taskRunner(task);
     built.set(task.id, {
       id: task.id, title: task.fullTitle ?? task.title ?? task.goal,
       state: { tone: status.tone, live: !!task.activeAgentSessions || task.state === "running", label: status.label },
       active: !!task.activeAgentSessions || task.state === "running" || task.state === "queued",
       attention: attention.level, ...(attention.label ? { attentionLabel: attention.label } : {}),
       ...(task.host ? { host: { name: task.host, kind: "remote" as const } } : task.host === null && task.state !== "queued" ? { host: { name: localTaskHostWords, kind: "local" as const } } : {}),
-      ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor)] : [], ...(tokens ? { tokens } : {}),
+      ...(branch ? { branch } : {}), ...(task.repo?.label ? { repo: task.repo.label } : {}), agents: task.executor ? [markAgent(task.executor, task.account ?? undefined)] : [], ...(tokens ? { tokens } : {}),
+      ...(runner ? { runner } : {}),
       meta: meta(task, opts.now), children: [], at: task.updatedAt, queued: task.state === "queued", bucket: "other", tok, ...(task.updatedAt ? { updatedAt: task.updatedAt } : {}),
       accepted: task.review?.accepted === true, stopped: ["failed", "limit", "partial", "stopped", "cancelled"].includes(task.state) || task.review?.accepted === false,
       urgency: attention.level === "none" ? calm : attention.urgency ?? urgency.problem,
@@ -179,9 +199,9 @@ export function scopedTaskTree(snapshot: ClientSnapshot, scope: Scope, opts: { n
 }
 
 /** The work rows `dispatch.list` returns, as tree tasks: they carry the parent link, branch and token roll-up the snapshot lacks. */
-export interface WorkRow { id: string; parentId: string | null; rootId: string; depth: number; title: string; state: string; executor: string | null; rev: number; branch?: string | null; tokens?: TreeTokens | null; review?: TreeTask["review"] | null }
+export interface WorkRow { id: string; parentId: string | null; rootId: string; depth: number; title: string; state: string; executor: string | null; account?: string | null; model?: string | null; rev: number; branch?: string | null; tokens?: TreeTokens | null; review?: TreeTask["review"] | null }
 export function workTasks(rows: WorkRow[]): TreeTask[] {
-  return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null, ...(row.review ? { review: row.review } : {}) }));
+  return rows.map((row): TreeTask => ({ id: row.id, goal: row.title, title: row.title, executor: row.executor, account: row.account ?? null, model: row.model ?? null, backend: null, worktree: null, updatedAt: 0, state: row.state, parentId: row.parentId, branch: row.branch ?? null, tokens: row.tokens ?? null, ...(row.review ? { review: row.review } : {}) }));
 }
 
 /**

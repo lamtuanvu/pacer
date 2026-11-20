@@ -280,7 +280,7 @@ browserTest("unconfigured entry offers explicit account setup without a fade mas
     expect(await page.locator(".pc-aurora__log").evaluate(el => getComputedStyle(el).maskImage)).toBe("none");
     expect(await page.evaluate(() => (window as any).settingsCalls)).toEqual([]);
     await use.click(); await focused(page, 'input[aria-label="Ask pacer"]');
-    expect(await page.evaluate(() => (window as any).settingsCalls)).toEqual([{ account: "localmodel", runner: null, expect_rev: 4 }]);
+    expect(await page.evaluate(() => (window as any).settingsCalls)).toEqual([{ account: "localmodel", backend: "pacer", runner: null, expect_rev: 4 }]);
   } finally { await browser.close(); }
 }, 20_000);
 
