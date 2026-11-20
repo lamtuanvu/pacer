@@ -53,7 +53,7 @@ pub fn account_list_stub(ctx: &Ctx, _: Value) -> OpFuture<'_> {
 }
 
 /// `accounts.list` over the bridge parts
-/// `{strategy: {path, name, text}, accounts: [{name, label?, signedIn, usageReading, endpoint}]}`.
+/// `{strategy: {path, name, text}, accounts: [{name, label?, signedIn, usageReading, usageState?, diagnostics?, endpoint}]}`.
 ///
 /// TypeScript reads every part against one strategy load. Rust parses that
 /// same strategy text rather than its own read of the file, so a concurrent
@@ -141,6 +141,14 @@ fn row(ctx: &Ctx, s: &Value, account: &Value, part: &Value) -> Value {
         json!(account["source"] != "orca" || folder.is_some()),
     );
     row.insert("usageReading".into(), part["usageReading"].clone());
+    // The usage record and raw readings pass through exactly as TypeScript computed them;
+    // Rust never re-derives a figure, verdict or freshness (ADR 0030).
+    if let Some(usage) = part.get("usageState") {
+        row.insert("usageState".into(), usage.clone());
+    }
+    if let Some(diagnostics) = part.get("diagnostics") {
+        row.insert("diagnostics".into(), diagnostics.clone());
+    }
     for (key, value) in part["endpoint"].as_object().into_iter().flatten() {
         row.insert(key.clone(), value.clone());
     }
@@ -312,7 +320,7 @@ mod tests {
         let path = ctx.pacer_home.join("strategy.yaml");
         let accounts: Vec<Value> = names
             .iter()
-            .map(|name| json!({"name": name, "label": format!("snapshot {name}"), "signedIn": true, "usageReading": {"source": "snapshot"}, "endpoint": {}}))
+            .map(|name| json!({"name": name, "label": format!("snapshot {name}"), "signedIn": true, "usageReading": {"source": "snapshot"}, "usageState": {"scope": {"account": name}, "verdict": "OK"}, "diagnostics": {"readings": [{"source": "snapshot"}]}, "endpoint": {}}))
             .collect();
         json!({"strategy": {"path": path_text(&path), "name": "default", "text": SNAPSHOT}, "accounts": accounts})
     }
@@ -352,6 +360,12 @@ mod tests {
         assert_eq!(work["locked"], "Planner — can't remove");
         assert_eq!(work["label"], "snapshot work");
         assert_eq!(work["usageReading"], json!({"source": "snapshot"}));
+        // The record and the raw readings pass through untouched.
+        assert_eq!(
+            work["usageState"],
+            json!({"scope": {"account": "work"}, "verdict": "OK"})
+        );
+        assert_eq!(work["diagnostics"], json!({"readings": [{"source": "snapshot"}]}));
     }
 
     #[tokio::test]

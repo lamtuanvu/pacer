@@ -1,7 +1,7 @@
 import { addAgentSessionSlots } from "../../session/agents-state";
 import { accountEvidenceScope } from "../../evidence/scope";
 import { eligibilityPresentation } from "../../view-model/eligibility";
-import type { Ctx } from "../../types";
+import type { Ctx, UsageState } from "../../types";
 import { slotLimit, slotBlock, type SlotUse } from "../../engine/slots";
 import { readRunnerCheck } from "../../core/runner-check";
 import { listJobs } from "../../jobs/registry";
@@ -11,8 +11,14 @@ import type { Status } from "../../engine/status";
 import type { Strategy } from "../../config/strategy";
 import { parseRunnerId, resolveRunner, orderedExecutorIds } from "../../config/runner-id";
 import { executorsFor } from "../../engine/rank";
+import { bindingWindow } from "../../engine/verdict";
 import { verdictWords } from "../../view-model/panel";
 import type { AccountSummary, ApiTask, ExecutorRow, PlannerMeter } from "./types";
+
+/** The record's quoted window; derived row fields read it so a row cannot disagree with it. */
+function recordBinding(record: UsageState | undefined): import("../../engine/verdict").WindowStatus | null {
+  return record ? bindingWindow(record.windows) : null;
+}
 
 export function buildExecutors(st: Status,s: Strategy,tasks: Pick<ApiTask, "state" | "executor" | "host" | "updatedAt">[],now: number,ctx?: Ctx): ExecutorRow[] {
  const use:SlotUse={byExecutor:{},byHost:{},local:0};
@@ -27,6 +33,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: Pick<ApiTask, "stat
  const order=[...new Set([...(planner?[planner]:[]),...orderedExecutorIds(s)])];
  const rows:ExecutorRow[]=order.map((id,index)=>{
   const r=resolveRunner(s,id),p=st.providers.find(p=>p.id===id),account=r?.account??p?.account??parseRunnerId(id)?.account??"";
+  const record=p?.usageState,recordWindow=recordBinding(record);
   const host=r?.host??null,used=use.byExecutor[id]??0,max=slotLimit(s,id).executor;
   const limits=slotLimit(s,id), shared=limits.host ?? limits.local;
   const limitedBy=shared !== null && max > shared ? (host ? "host" as const : "machine" as const) : undefined;
@@ -51,7 +58,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: Pick<ApiTask, "stat
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
   const assessment=eligibilityPresentation(p?.eligibility,now);
-  return {...(p?.eligibility?{eligibility:p.eligibility,stale:p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:p?.binding?.usedPct??null,pacePct:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  return {...(p?.eligibility?{eligibility:p.eligibility,stale:record?record.freshness==="historical":p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:record?record.figure?.usedPct??recordWindow?.usedPct??null:p?.binding?.usedPct??null,pacePct:record?recordWindow?.pace??null:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),...(record?{usage:record}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
  const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&r.eligibility?.state!=="ineligible"&&["ready","busy","failing"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;
@@ -76,19 +83,26 @@ export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[
  const failures=ctx?Object.fromEntries(Object.values(s.accounts).filter(a=>accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts))).map(a=>[a.name,ctx.now])):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  return {...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,usedPct:status?.usedPct??p?.binding?.usedPct??null,pacePct:status?.pacePct??p?.binding?.pace??null,window:status?.window??p?.binding?.name??null,resetsAt:status?.resetsAt??p?.binding?.resetsAt??null,verdict:status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
+  const record=status?.usage,window=recordBinding(record);
+  const row={...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:record?record.freshness==="historical":status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,
+   usedPct:record?record.figure?.usedPct??window?.usedPct??null:status?.usedPct??p?.binding?.usedPct??null,
+   pacePct:record?window?.pace??null:status?.pacePct??p?.binding?.pace??null,
+   window:record?window?.name??null:status?.window??p?.binding?.name??null,
+   resetsAt:record?window?.resetsAt??null:status?.resetsAt??p?.binding?.resetsAt??null,
+   verdict:record?.verdict??status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:record?record.spend?.usdWeek??null:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
+  return record?{...row,usage:record}:row;
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {
  if(!st.planner)return null;
- const p=st.providers.find(p=>p.id===st.planner),b=p?.binding;
+ const p=st.providers.find(p=>p.id===st.planner),record=p?.usageState,b=record?recordBinding(record):p?.binding??null;
  const known=!!b&&p?.verdict!=="UNKNOWN";
  const verdict:PlannerMeter["verdict"]=!known?"unknown":({BEHIND:"behind",EXPIRING:"behind",ON_PACE:"on_pace",OK:"on_pace",AHEAD:"ahead",NEAR_LIMIT:"ahead",EXHAUSTED:"out"} as Record<string,PlannerMeter["verdict"]>)[p!.verdict]??"unknown";
- const usedPct=known?b!.usedPct:null,pacePct=known?b!.pace??null:null,deltaPts=usedPct!==null&&pacePct!==null?Math.round(usedPct-pacePct):null;
+ const usedPct=known?record?record.figure?.usedPct??b!.usedPct??null:b!.usedPct:null,pacePct=known?b!.pace??null:null,deltaPts=usedPct!==null&&pacePct!==null?Math.round(usedPct-pacePct):null;
  let advice="No usage reading for the planner yet.";
  if(verdict==="behind"&&deltaPts!==null)advice=`${-deltaPts} pts under pace — spend it.`;
  if(verdict==="on_pace")advice="On pace.";
  if(verdict==="ahead"&&deltaPts!==null)advice=`${deltaPts} pts ahead of pace — delegate more.`;
  if(verdict==="out"&&b?.resetsAt!=null){const d=new Date(b.resetsAt*1000);advice=`Out of quota — back ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}.`;}
- return {...(p?.eligibility?{eligibility:p.eligibility}:{}),runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{})};
+ return {...(p?.eligibility?{eligibility:p.eligibility}:{}),runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:record?record.freshness==="historical":p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{}),...(record?{usage:record}:{})};
 }

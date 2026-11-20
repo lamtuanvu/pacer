@@ -1,6 +1,7 @@
 import { resolveRunner } from "../config/runner-id";
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
+import { bindingWindow } from "../engine/verdict";
 import type { Ctx } from "../types";
 import { markExhausted } from "../usage/reactive";
 import { CoreError } from "./errors";
@@ -24,15 +25,21 @@ export interface LimitsRow {
 export async function check(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<LimitsRow[]> {
   const st = await computeStatus(ctx, s);
   return st.accounts.map((a) => {
+    const record = a.usage;
+    const window = record ? bindingWindow(record.windows) : null;
     const error = st.providers.find((p) => p.account === a.name && p.error)?.error ?? null;
     const noData = a.capturedAt === null && (a.kind === "claude" || a.kind === "codex");
     const hint = noData && a.kind === "claude" ? "start a Claude Code session with pacer's status line, or rely on limit errors"
       : noData && a.kind === "codex" ? "run codex once with this account so it writes session logs"
-      : a.stale ? "numbers are older than the freshness limit; they no longer decide routing" : null;
+      : (record?.freshness ?? (a.stale ? "historical" : "fresh")) === "historical" ? "numbers are older than the freshness limit; they no longer decide routing" : null;
     return {
       account: a.name, kind: a.kind, source: noData ? null : a.remoteHost ? `${a.source} (via ${a.remoteHost})` : a.source, capturedAt: a.capturedAt,
       ageS: a.capturedAt === null ? null : Math.max(0, Math.round(ctx.now - a.capturedAt)),
-      stale: a.stale, verdict: a.verdict, usedPct: a.usedPct, window: a.window, resetsAt: a.resetsAt,
+      stale: record ? record.freshness === "historical" : a.stale,
+      verdict: record?.verdict ?? a.verdict,
+      usedPct: record?.figure?.usedPct ?? window?.usedPct ?? a.usedPct,
+      window: record ? window?.name ?? null : a.window,
+      resetsAt: record ? window?.resetsAt ?? null : a.resetsAt,
       runners: a.runners, error, hint,
     };
   });

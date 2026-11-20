@@ -104,7 +104,10 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
     let s = loadStrategy(ctx);
     if (verb === "list" && !pos.length) {
       const rows = await accounts.list(ctx);
-      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageReading.spendUsd, a.weeklyUsd) ?? (a.usageReading.windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage)}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
+      // The usage column reads the account's usage record, so the table matches the snapshot.
+      const quoted = (a: (typeof rows)[number]) => a.usageState?.figure ? `${a.usageState.figure.window}: ${a.usageState.figure.usedPct}%`
+        : (a.usageState ?? a.usageReading).windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage;
+      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageState?.spend?.usdWeek ?? a.usageReading.spendUsd, a.weeklyUsd) ?? quoted(a)}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
     }
     if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
       const ensured=ensureAccounts(ctx);

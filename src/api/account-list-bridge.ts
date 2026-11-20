@@ -1,5 +1,6 @@
 import { loadStrategySnapshot } from "../config/strategy";
 import { accountListPart } from "../core/accounts";
+import { computeStatus } from "../engine/status";
 import { readOrcaAccounts } from "../orca/accounts";
 import type { Ctx } from "../types";
 
@@ -9,7 +10,7 @@ import type { Ctx } from "../types";
  */
 export async function accountListParts(ctx: Ctx) {
   const {path, name, text, strategy: s} = loadStrategySnapshot(ctx);
-  const orca = await readOrcaAccounts(ctx);
-  const accounts = await Promise.all(Object.values(s.accounts).map(async a => ({name: a.name, ...await accountListPart(ctx, s, orca, a)})));
+  const [orca, status] = await Promise.all([readOrcaAccounts(ctx), computeStatus({...ctx, readOnly: true}, s)]);
+  const accounts = await Promise.all(Object.values(s.accounts).map(async a => ({name: a.name, ...await accountListPart(ctx, s, orca, a, status)})));
   return {strategy: {path, name, text}, accounts};
 }
