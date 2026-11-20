@@ -9,12 +9,13 @@ import { SettingsNav, type SettingsNavGroup, type SettingsNavItem } from "../ds/
 import type { ClientSnapshot } from "../../../src/view-model/snapshot";
 import type { Counts } from "../../../src/api/read-model/types";
 import { hrefFor, routes, type Route } from "../router";
+import { attentionState } from "../screens/settings/plugin-presentation";
 /** 240 px panel beside the rail while any settings screen is open. `embedded` returns only the nav, for a SidePanel that owns the landmark. */
 export function SettingsPanel({ route, counts, snapshot, embedded = false }: { route: Route; counts: Counts | null; snapshot?: ClientSnapshot | null; embedded?: boolean }) {
   const context = useTaskContext(), api = context?.api, state = context?.state, { surfaces, revision } = useContext(PluginContext);
   const [plugins, setPlugins] = useState<PluginInfo[] | undefined>();
   useEffect(() => { if(!api) return; let active = true; void api.call<{plugins:PluginInfo[]}>("plugin.list", {}).then(data => { if(active) setPlugins(data.plugins ?? []); }, () => { if(active) setPlugins(undefined); }); return () => {active=false;}; }, [api, revision, state?.connected]);
-  const needs = (plugins ?? []).filter(plugin => ["failing", "refused", "needs_grant"].includes(plugin.state)).length;
+  const needs = (plugins ?? []).filter(attentionState).length;
   const attention = settingsAttention(snapshot, counts), diagnostics = useDiagnosticsStatus();
   let current = route.name === 'hosts' ? 'machine' : route.name === 'add-executor' ? 'executors' : route.name === 'settings' ? settingsNavId(route.section) : null;
   if (current?.startsWith("plugins/") && !surfaces.some(surface => surface.surface === "settings" && surface.visible && `plugins/${surface.plugin}` === current)) current = "plugins";

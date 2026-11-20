@@ -22,6 +22,8 @@ export interface ActivityEntry {
   host?: string;
   /** The machine id, once this pacer home has an identity. */
   machineId?: string;
+  /** Where the entry originated, when not a normal interactive verdict. */
+  source?: "resumed-caller";
 }
 export interface ActivityOptions { before?: string; limit?: number; repo?: string; kinds?: ActivityKind[]; taskId?: string; maxBytes?: number }
 const stateDir = (ctx: Ctx) => join(ctx.pacerHome, "state");
@@ -71,7 +73,7 @@ function entries(ctx: Ctx, maxBytes?: number): ActivityEntry[] {
       const e = JSON.parse(line);
       if (!e || typeof e.id !== "string" || !Number.isFinite(e.at) || !ACTIVITY_KINDS.includes(e.kind)
         || !["info", "warn", "error"].includes(e.level) || typeof e.text !== "string"
-        || ["repo", "taskId", "executor", "host", "machineId"].some(k => e[k] !== undefined && typeof e[k] !== "string")) return [];
+        || ["repo", "taskId", "executor", "host", "machineId", "source"].some(k => e[k] !== undefined && typeof e[k] !== "string")) return [];
       return [e as ActivityEntry];
     } catch { return []; }
   });

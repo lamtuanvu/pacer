@@ -195,7 +195,7 @@ test("requested executor is used alone; unavailable requested executor explains 
   const r2 = await runTask(ctx, newTask(ctx, { requestedExecutor: "codex" }).id, exhausted);
   expect(exhausted.calls).toEqual([]);
   expect(r2.state).toBe("failed");
-  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (Budget exhausted; paid execution is not allowed)');
+  expect(r2.result?.report).toContain('requested executor "codex" is unavailable (Budget exhausted; paid overflow is off (allow_paid: false))');
 
 });
 

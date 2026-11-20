@@ -1,3 +1,5 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { manifest as plannerManifest } from "./pacer-planners/index";
 import { manifestSchema } from "../src/plugins/protocol";
 import { manifest as endpointManifest } from "./pacer-endpoints/manifest";
@@ -8,6 +10,12 @@ import { manifest as sshManifest } from "./pacer-ssh/manifest";
 import { manifest as remoteCallerManifest } from "./pacer-remote-caller/index";
 import { manifest as directExecutorManifest } from "./pacer-exec-direct/manifest";
 import { manifest as orcaExecutorManifest } from "./pacer-exec-orca/manifest";
+
+/** Single source of truth with the native crate (`crates/assistant-pacer/manifest.json`). */
+const assistantPacerManifest = JSON.parse(
+  readFileSync(join(import.meta.dir, "../crates/assistant-pacer/manifest.json"), "utf8"),
+) as unknown;
+
 /** Reference plugins compiled into the pacer binary; installed shadows never replace these IDs. */
 export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerManifest),main:()=>import("./pacer-planners/index")}, { manifest: manifestSchema.parse(endpointManifest), main: () => import("./pacer-endpoints/index") }, { manifest: notifierManifest, main: () => import("./pacer-notify/index") }, { manifest: classifierManifest, main: () => import("./pacer-classify/index") }, {
   manifest: { id: "pacer-usage", version: "0.2.0", publisher: "pacer", host: "^1.6", contributes: { usage: { providers: ["claude-code", "codex", "arkcli", "metered"] } },
@@ -21,8 +29,12 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   manifest: {id: "pacer-assistant", version: "1.0.0", publisher: "pacer", host: "^1.3", contributes: {assistant: {}}, capabilities: [{name: "secrets.resolve", scopes: ["endpoint"]}, {name: "net.http"}], reentrant: true, tier: "free"},
   main: () => import("./assistant/index"),
 }, {
-  // The assistant's executor backend: runs the host-issued ask-mode `opencode run` command only.
-  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
+  // Pacer's own agent (ADR 0028): native sibling of pacer-core. Absent binary ⇒ refused / unavailable.
+  manifest: manifestSchema.parse(assistantPacerManifest),
+  executable: "pacer-assistant-pacer",
+}, {
+  // The assistant's executor backend: runs the host-issued ask-mode opencode/claude/codex command only.
+  manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode", "claude", "codex"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
   main: () => import("./assistant-executor/index"),
 }, { manifest: manifestSchema.parse(sshManifest), main: () => import("./pacer-ssh/index") },
   { manifest: manifestSchema.parse(remoteCallerManifest), main: () => import("./pacer-remote-caller/index") },

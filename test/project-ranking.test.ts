@@ -20,7 +20,7 @@ test("project hard exclusions never append healthy global runners", () => {
   st.codex.blockedReason = "manual";
   const result = rankExecutors(null, s, st, project);
   expect(result.ranked).toEqual([]);
-  expect(result.excluded.map(e => e.reason)).toEqual(["Budget exhausted; paid execution is not allowed", "Blocked by you"]);
+  expect(result.excluded.map(e => e.reason)).toEqual(["Budget exhausted; paid overflow is off (allow_paid: false)", "Blocked by you"]);
   expect(rankExecutors(null, s, st, { ...project, executors: ["codex#removed@local"] }).reason).toBe("no executor configured");
 });
 test("project eligibility retains planner, disabled, installation and paid overflow checks", () => {

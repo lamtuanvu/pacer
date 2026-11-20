@@ -1,9 +1,28 @@
 import { expect, test } from "bun:test";
-import { markFreshness, staleAfterS } from "../src/usage/freshness";
+import { EXHAUSTED_PCT, NEAR_LIMIT_PCT, LIMIT_WINDOW_LENGTH_S, AUTH_LIFETIME_S, EXECUTION_LIFETIME_S,
+  SPENDING_LIFETIME_S, AVAILABILITY_FALLBACK_S, OBSERVATION_EXPIRY_S, USAGE_MEMO_S, markFreshness, staleAfterS } from "../src/usage/freshness";
+import constants from "../src/usage/freshness.constants.json";
 import type { UsageReading, UsageWindow } from "../src/types";
 
 const w = (name: string, lengthS: number, extra: Partial<UsageWindow> = {}): UsageWindow => ({ name, usedPct: 50, resetsAt: null, lengthS, paced: lengthS >= 86400, ...extra });
 const now = 1_000_000;
+
+test("every threshold is owned by freshness.ts and sourced from the constants file", () => {
+  expect([EXHAUSTED_PCT, NEAR_LIMIT_PCT, LIMIT_WINDOW_LENGTH_S, AUTH_LIFETIME_S, EXECUTION_LIFETIME_S,
+    SPENDING_LIFETIME_S, AVAILABILITY_FALLBACK_S, OBSERVATION_EXPIRY_S, USAGE_MEMO_S])
+    .toEqual([constants.exhaustedPct, constants.nearLimitPct, constants.limitWindowLengthS, constants.authLifetimeS,
+      constants.executionLifetimeS, constants.spendingLifetimeS, constants.availabilityFallbackS,
+      constants.observationExpiryS, constants.usageMemoS]);
+  expect(EXHAUSTED_PCT).toBe(97);
+  expect(NEAR_LIMIT_PCT).toBe(90);
+  expect(LIMIT_WINDOW_LENGTH_S).toBe(21600);
+  expect(AUTH_LIFETIME_S).toBe(7200);
+  expect(EXECUTION_LIFETIME_S).toBe(7200);
+  expect(SPENDING_LIFETIME_S).toBe(7200);
+  expect(AVAILABILITY_FALLBACK_S).toBe(86400);
+  expect(OBSERVATION_EXPIRY_S).toBe(60);
+  expect(USAGE_MEMO_S).toBe(60);
+});
 
 test("short windows go stale after 2 h, long ones after 24 h", () => {
   expect(staleAfterS(w("5h", 5 * 3600))).toBe(7200);

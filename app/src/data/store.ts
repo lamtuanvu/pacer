@@ -17,7 +17,7 @@ export interface Features { readModel: boolean; ops: ReadonlySet<string> }
 export interface StoreState {
   snapshot: SnapshotV2 | null; connectionRevision: number; connected: boolean; sessionEnded: boolean; needsSnapshot: boolean;
   invalidations: Record<string, number>; version: string | null;
-  desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'unknown';
+  desktopBuildDiagnostic: 'unverified' | 'mismatch' | 'legacy' | 'unknown';
   features: Features; jobs: Record<string, Job>; activity: ActivityEntry[];
 }
 type EventType = ApiEvent["type"] | EntityEventType;
@@ -113,7 +113,7 @@ export function reduceStore(state: StoreState, action: StoreAction): StoreState 
     case "session-ended": return { ...state, sessionEnded: true, connected: false, connectionRevision: state.connectionRevision + 1 };
     case "hello": {
       const d = action.hello.desktopBuildDiagnostic;
-      const diagnostic = isObj(d) && d.proof === "unverified" && (d.status === "mismatch" || d.status === "unverified") ? d.status : "unknown";
+      const diagnostic = isObj(d) && d.proof === "unverified" && (d.status === "mismatch" || d.status === "unverified" || d.status === "legacy") ? d.status : "unknown";
       return { ...state, version: action.hello.pacer, desktopBuildDiagnostic: diagnostic, features: featuresOf(action.hello) };
     }
     case "event": {

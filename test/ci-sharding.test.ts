@@ -148,11 +148,12 @@ test("whole-tree checks run once outside the shards", () => {
 
 test("the required gates fail unless every selected job passed", () => {
   const { "test-result": gate } = workflow().jobs;
-  expect(gate.if).toBe("${{ always() }}");
-  expect(gate.needs).toEqual(["changes", "checks", "test", "macos-tests"]);
+  expect(gate.if).toBe("${{ !cancelled() }}");
+  expect(gate.needs).toEqual(["changes", "checks", "test", "macos-tests", "rust"]);
   const script = gate.steps.at(-1).run as string;
   const check = (values: Record<string, string>) => Bun.spawnSync(["bash", "-e", "-c", script], { env: { PATH: process.env.PATH!,
-    CHANGES_RESULT: "success", BUN_SELECTED: "true", FULL_SELECTED: "true", CHECKS_RESULT: "success", TEST_RESULT: "success", MACOS_RESULT: "success", ...values } }).exitCode;
+    CHANGES_RESULT: "success", BUN_SELECTED: "true", FULL_SELECTED: "true", CHECKS_RESULT: "success", TEST_RESULT: "success", MACOS_RESULT: "success",
+    RUST_SELECTED: "true", RUST_RESULT: "success", ...values } }).exitCode;
   expect(check({})).toBe(0);
   expect(check({ FULL_SELECTED: "false", MACOS_RESULT: "skipped" })).toBe(0);
   expect(check({ BUN_SELECTED: "false", CHECKS_RESULT: "skipped", MACOS_RESULT: "skipped" })).toBe(0);
@@ -161,6 +162,10 @@ test("the required gates fail unless every selected job passed", () => {
     expect(check({ TEST_RESULT: failed })).not.toBe(0);
     expect(check({ CHECKS_RESULT: failed })).not.toBe(0);
     expect(check({ MACOS_RESULT: failed })).not.toBe(0);
+    // A selected Rust job that didn't pass fails the required per-OS result.
+    expect(check({ RUST_RESULT: failed })).not.toBe(0);
   }
+  expect(check({ RUST_SELECTED: "false", RUST_RESULT: "skipped" })).toBe(0);
+  expect(check({ RUST_SELECTED: "false", RUST_RESULT: "failure" })).not.toBe(0);
   expect(check({ FULL_SELECTED: "false", MACOS_RESULT: "failure" })).not.toBe(0);
 });

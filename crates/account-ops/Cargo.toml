@@ -10,7 +10,6 @@ rust-version.workspace = true
 pacer-config = { path = "../config" }
 pacer-engine = { path = "../engine" }
 pacer-foundation = { path = "../foundation" }
-icu_collator = { version = "=2.4.0", features = ["unstable"] }
 regex = "1"
 ryu-js = "1"
 serde_json.workspace = true

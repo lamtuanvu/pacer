@@ -492,7 +492,9 @@ fn schedule_for(
         };
     }
     // A different scheduled repository: the schedule would probe there.
-    let scheduled = scheduled.expect("guarded by the `scheduled.is_none` branch above");
+    let Some(scheduled) = scheduled else {
+        unreachable!("guarded by the `scheduled.is_none` branch above")
+    };
     let there_cert = cert_for_scheduled;
     let there_state = there_cert.map(|c| c.state.as_str()).unwrap_or(&cert.state);
     let there_unsupported = unsupported_for_scheduled;

@@ -1,7 +1,7 @@
 import type { EligibilityDecision, EvidenceScope } from "../evidence/types";
 import { resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
-import type { UsageKind, Verdict } from "../types";
+import type { UsageKind, UsageState, Verdict } from "../types";
 import type { WindowStatus } from "./verdict";
 import { restrictEligibility } from "./eligibility";
 import { eligibilityPresentation } from "../view-model/eligibility";
@@ -30,6 +30,11 @@ export interface ProviderStatus {
   brokenReason?: string;
   blockedReason?: string;
   blockedUntil?: number | null;
+  /**
+   * Additive: the runner's one usage record (ADR 0030). Named `usageState` because
+   * `usage` has been this row's UsageKind since 3.0 and keeps that meaning.
+   */
+  usageState?: UsageState;
 }
 export interface RankedExecutor { eligibility?: EligibilityDecision; fallback?: "uncertain"; id: string; account?: string; score: number; verdict: Verdict; reason: string }
 export interface Excluded { eligibility?: EligibilityDecision; id: string; account?: string; reason: string }

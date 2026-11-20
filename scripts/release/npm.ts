@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
-import { chmodSync, copyFileSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { assetFile, parseManifest, sha256Hex, TARGETS } from "../../src/update/manifest";
+import { assetFile, parseManifest, parseSha256Sums, sha256Hex, TARGETS } from "../../src/update/manifest";
 
 export const NPM_USAGE = "usage: bun run release:npm --release-dir <dir> --out <dir>";
 export function generateNpm(releaseDir: string, out: string, root = resolve(import.meta.dir, "../..")): void {
@@ -35,15 +35,33 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
   for (const b of binaries) {
     const name = `@lamtuanvu/${b.file}`; const dir = join(out, b.file);
     optionalDependencies[name] = manifest.version; order.push(b.file);
+    const assistantFile = `pacer-assistant-pacer-${b.os}-${b.arch}`;
+    const assistantPath = join(releaseDir, assistantFile);
+    const hasAssistant = existsSync(assistantPath);
+    const files = b.core
+      ? ["bin/pacer", "bin/pacer-core", ...(hasAssistant ? ["bin/pacer-assistant-pacer"] : [])]
+      : ["bin/pacer"];
     writePackage(dir, {
       name, version: manifest.version, description: `Platform binary for @lamtuanvu/pacer (${b.os}-${b.arch})`, license: "Apache-2.0",
       repository: { type: "git", url: "git+https://github.com/lamtuanvu/pacer.git", directory: "npm" },
-      os: [b.os], cpu: [b.arch], files: b.core ? ["bin/pacer", "bin/pacer-core"] : ["bin/pacer"], publishConfig: { access: "public" },
+      os: [b.os], cpu: [b.arch], files, publishConfig: { access: "public" },
     }, `# ${name}\n\nThis is an internal platform package of @lamtuanvu/pacer. Install @lamtuanvu/pacer to use the CLI.\n`);
     const bin = join(dir, "bin/pacer"); writeFileSync(bin, b.bytes); chmodSync(bin, 0o755);
     if (b.core) {
       const core = join(dir, "bin/pacer-core");
       writeFileSync(core, b.core); chmodSync(core, 0o755);
+    }
+    // Optional sibling of pacer-core when the release built the native assistant plugin.
+    if (hasAssistant) {
+      const sums = parseSha256Sums(readFileSync(join(releaseDir, "SHA256SUMS"), "utf8"));
+      const expected = sums.get(assistantFile);
+      const bytes = readFileSync(assistantPath);
+      if (!expected || sha256Hex(bytes) !== expected) {
+        throw new Error(`checksum mismatch for ${assistantFile}`);
+      }
+      const assistant = join(dir, "bin/pacer-assistant-pacer");
+      writeFileSync(assistant, bytes);
+      chmodSync(assistant, 0o755);
     }
   }
   const launcher = join(out, "pacer");

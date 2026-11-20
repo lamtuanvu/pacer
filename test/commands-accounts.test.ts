@@ -176,3 +176,46 @@ test("runner add accepts a declared host and refuses an unknown one", async () =
   expect(added.code, added.err).toBe(0);
   expect(loadStrategy(ctx).runners["codex@box"]).toMatchObject({ agent: "codex", host: "box" });
 });
+
+test("account list shows an active reactive limit, not an empty reading", async () => {
+  const ctx = commandCtx();
+  const file = join(ctx.pacerHome, "strategy.yaml");
+  writeFileSync(file, readFileSync(file, "utf8").replace("spare:", "cursor: {kind: endpoint, usage: reactive}\n  spare:"));
+  const { markExhausted } = await import("../src/usage/reactive");
+  const until = ctx.now + 3600;
+  markExhausted(ctx, "cursor", until, { manual: true });
+  const cursor = JSON.parse((await accountCmd(["list", "--json"], ctx)).out).find((a: any) => a.name === "cursor");
+  expect(cursor.usageState.limit).toMatchObject({ until });
+  expect(cursor.usageState.verdict).toBe("EXHAUSTED");
+  expect((await accountCmd(["list"], ctx)).out).toMatch(/cursor .*100%/);
+});
+
+test("account set --allow-paid writes the account's opt-in, keeps comments and warns when enabling", async () => {
+  const ctx = commandCtx();
+  const file = join(ctx.pacerHome, "strategy.yaml");
+  const on = await accountCmd(["set", "codex", "--allow-paid", "true"], ctx);
+  expect(on.code, on.err).toBe(0);
+  expect(on.out).toContain("codex: allow_paid false → true");
+  expect(on.out).toContain("can spend paid credits");
+  expect(readFileSync(file, "utf8")).toContain("# keep layout");
+  expect(loadStrategy(ctx).accounts.codex.allowPaid).toBe(true);
+  const listed = await accountCmd(["list"], ctx);
+  expect(listed.out).toMatch(/codex .*paid overflow on/);
+  const off = await accountCmd(["set", "codex", "--allow-paid", "false"], ctx);
+  expect(off.out).toContain("codex: allow_paid true → false");
+  expect(off.out).not.toContain("can spend paid credits");
+  expect(loadStrategy(ctx).accounts.codex.allowPaid).toBe(false);
+  expect((await accountCmd(["set", "codex", "--allow-paid", "yes"], ctx)).err).toContain("--allow-paid must be true or false");
+  expect((await accountCmd(["set", "nobody", "--allow-paid", "true"], ctx)).err).toContain("unknown account: nobody");
+  expect((await accountCmd(["set", "codex"], ctx)).err).toContain("usage: pacer account set");
+});
+
+test("a delegated task cannot opt its account into paid overflow", async () => {
+  const ctx = commandCtx();
+  const executor = { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor" } };
+  const r = await accountCmd(["set", "codex", "--allow-paid", "true"], executor);
+  expect(r.code).toBe(2);
+  expect(r.err).toContain("PACER_ROLE=executor");
+  expect(loadStrategy(ctx).accounts.codex.allowPaid).toBe(false);
+  expect((await accountCmd(["set", "codex", "--allow-paid", "false"], executor)).code).toBe(0);
+});

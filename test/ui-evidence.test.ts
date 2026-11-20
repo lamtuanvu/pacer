@@ -206,10 +206,10 @@ describe("UI PR evidence manifest", () => {
     expect(evidenceJob?.["continue-on-error"]).not.toBe(true);
     expect(tests.name).toBe("Test (${{ matrix.os }}, shard ${{ matrix.shard }})");
     expect(tests.needs).toEqual(["changes", "ui-evidence", "release-readiness"]);
-    expect(tests.if).toBe("${{ always() }}");
+    expect(tests.if).toBe("${{ !cancelled() }}");
     expect(workflow.jobs.checks.steps.some((step: { run?: string }) => step.run === "bun run ui:check --source-only")).toBe(true);
     const gate = tests.steps.at(-1);
-    expect(gate.if).toBe("${{ always() }}");
+    expect(gate.if).toBe("${{ !cancelled() }}");
     expect(gate.env.UI_EVIDENCE_RESULT).toBe("${{ needs.ui-evidence.result }}");
     expect(gate.run).toContain('test "$UI_EVIDENCE_RESULT" = success');
     expect(gate["continue-on-error"]).not.toBe(true);
