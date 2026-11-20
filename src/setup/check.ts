@@ -42,7 +42,9 @@ export function withStatus(checklist:SetupChecklist,status:Status,ctx?:Ctx,revie
  if(ctx)statuses.set(ctx.pacerHome,{at:ctx.now,status});
  return updateChecklist(checklist,{...statusFacts(status),...(ctx?{skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),reviewed}:{})});
 }
-export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status?:Status;deferStatus?:boolean}={}):Promise<SetupChecklist> {
+type CheckOptions={snapshotProbe?:boolean;status?:Status;deferStatus?:boolean};
+/** Everything the checklist rules read: probes, plugin readings and this process's status cache. */
+export async function setupCheckFacts(ctx:Ctx, options:CheckOptions={}):Promise<SetupFacts&{connected:boolean}> {
  const errors:SetupFacts["errors"]={};let strategy:Strategy|undefined,planner:string|null=null,service={installed:false,running:false},link=false;
  try {strategy=loadStrategy(ctx);planner=strategy.planner.agent;}catch(e){errors.strategy=String((e as Error).message);}
  try {service=await serviceBackend(ctx).status(2000);}catch(e){errors.service=String((e as Error).message);}
@@ -79,11 +81,20 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
  }
  const hookConfiguration = planner === "claude-code" ? claudeHookChecks(ctx,strategy).find(c=>c.name==="Claude hook configuration") : undefined;
  if(hookConfiguration?.level==="warn")connected=false;
- const result = setupChecklist({version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
-  ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors},ctx.now);
+ return {version:currentVersion(),planner:strategy?formatRunnerId({...strategy.planner,host:null},runnerDefaults(strategy.accounts)):planner,signedIn:login?login.loggedIn:true,loginCommand:login?.fix,connected,service,link,
+  ...statusFacts(status),reviewed:anyReviewed(ctx),skipped:existsSync(join(ctx.pacerHome,"onboarding","skipped")),agents,errors};
+}
+/** The `setup.check` reply for gathered facts; `crates/config-ops/src/setup_checklist.rs` is the native twin. */
+export function checklistReply(facts:SetupFacts&{connected:boolean},checkedAt:number,policy?:SetupChecklist["policy"]):SetupChecklist {
+ const {connected}=facts;
+ const result = setupChecklist(facts,checkedAt);
  const connect = result.items.find(i=>i.id==="connect");
  if(connect && connected)connect.detail="Configured · runtime invocation unverified. Run Settings Diagnostics for checks.";
- return {...result,...(!options.deferStatus?{policy:policySummary(ctx)}:{}), integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
+ return {...result,...(policy?{policy}:{}), integration:{configuration:connected?"configured" as const:"unverified" as const, invocation:"unverified" as const}};
+}
+export async function checkSetup(ctx:Ctx, options:CheckOptions={}):Promise<SetupChecklist> {
+ const facts=await setupCheckFacts(ctx,options);
+ return checklistReply(facts,ctx.now,!options.deferStatus?policySummary(ctx):undefined);
 }
 export async function checkSetupCommand(ctx:Ctx):Promise<string> {
  const result=await checkSetup(ctx);

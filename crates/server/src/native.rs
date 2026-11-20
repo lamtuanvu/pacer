@@ -1096,14 +1096,14 @@ pub async fn call_native(
         })?;
         account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
-        let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
+        let parsed = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
                 "core bridge unavailable",
             )
         })?;
-        parts.await?
+        doctor_ops::run(ctx, op.name, &parsed, parts).await?
     } else if needs_host_effects(op.name) {
         host_check_clean_setup_ops::call(ctx, op.name, params, core_bridge_sync).await?
     } else {
