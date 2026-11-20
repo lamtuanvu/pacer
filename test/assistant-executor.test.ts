@@ -282,6 +282,9 @@ describe("the fail-closed ask-mode check", () => {
     expect(judge([...denied, { tool: "execute", status: "completed" }], "ok", o)).toMatchObject({ verdict: "fail", reason: "a tool other than pacer's ran: execute" });
     expect(judge(denied, "ok", { ...o, requirePacer: true })).toMatchObject({ verdict: "inconclusive", reason: "the agent did not call a pacer tool" });
     expect(judge([...denied, { tool: "pacer_snapshot", status: "completed" }], "ok", { ...o, requirePacer: true }).verdict).toBe("pass");
+    // Unissued self-test grants make the call fail; the attempt is still evidence.
+    expect(judge([...denied, { tool: "pacer_snapshot", status: "failed" }], "ok", { ...o, requirePacer: true }).verdict).toBe("pass");
+    expect(judge([...denied, { tool: "pacer-snapshot", status: "denied" }], "ok", { ...o, requirePacer: true }).verdict).toBe("pass");
   });
 });
 
