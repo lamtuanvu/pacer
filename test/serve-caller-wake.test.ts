@@ -84,12 +84,30 @@ test("a planner reopened in the caller folder makes the resume wait", async () =
 test("a Claude Code process working in the caller folder counts as open", async () => {
   const cwd = tmpDir(), other = tmpDir();
   const run = (cwdOfClaude: string) => async (argv: string[]) => argv[0] === "ps"
-    ? { code: 0, stdout: "  101 /usr/bin/zsh\n  202 /opt/homebrew/bin/claude\n", stderr: "" }
+    ? { code: 0, stdout: "  101 /usr/bin/zsh /usr/bin/zsh -l\n  202 /opt/homebrew/bin/claude claude\n", stderr: "" }
     : { code: 0, stdout: `p202\nfcwd\nn${cwdOfClaude}\n`, stderr: "" };
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: run(cwd) as never }, cwd)).toBe(true);
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: run(other) as never }, cwd)).toBe(false);
   // A process list that cannot be read fails safe: treat the planner as possibly open.
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: (async () => ({ code: 1, stdout: "", stderr: "" })) as never }, cwd)).toBe(true);
+});
+
+test("a session reopened by id, from a subfolder, through npm, or with a fresh transcript counts as open", async () => {
+  const cwd = tmpDir(), sub = join(cwd, "pkg");
+  require("node:fs").mkdirSync(sub);
+  const ps = (line: string, lsofDir: string | null) => (async (argv: string[]) => argv[0] === "ps"
+    ? { code: 0, stdout: `${line}\n`, stderr: "" }
+    : lsofDir === null ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: `p1\nn${lsofDir}\n`, stderr: "" }) as never;
+  const other = tmpDir();
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude --resume s1", other) }, cwd, "s1")).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude", sub) }, cwd, "s1")).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 node node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", cwd) }, cwd, "s1")).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude", null) }, cwd, "s1")).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude", other) }, cwd, "s1")).toBe(false);
+  const ctx = fakeCtx(), project = join(ctx.home, ".claude", "projects", "-x");
+  require("node:fs").mkdirSync(project, { recursive: true });
+  require("node:fs").writeFileSync(join(project, "s1.jsonl"), "{}\n");
+  expect(await caller_wake.plannerOpenInCwd({ ...ctx, run: ps("  1 /usr/bin/zsh zsh", other) }, cwd, "s1")).toBe(true);
 });
 
 test("another in-place task of the same caller also blocks the resume", () => {

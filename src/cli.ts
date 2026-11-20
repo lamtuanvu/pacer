@@ -454,7 +454,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
 
  /** The commands a resumed caller turn may run: the decision commands its Claude Code tool limit allows, plus pacer's hooks. */
 export function resumedCallerMayRun(cmd: string, rest: string[]): boolean {
-  if (["review", "tasks", "wait"].includes(cmd)) return true;
+  // `guard` is pacer's PreToolUse check: a hook a managed setting still loads must not block the turn.
+  if (["review", "tasks", "wait", "guard"].includes(cmd)) return true;
   if (cmd === "msg") return ["inbox", "read", "send", "log", "hook"].includes(rest[0] ?? "");
   if (cmd === "task") return rest[0] === "request-review";
   return cmd === "status" && rest.includes("--hook");

@@ -11,8 +11,8 @@ import { readActivity } from "../src/activity/log";
 const BIN = tmpDir();
 for (const name of ["claude", "codex"]) { writeFileSync(join(BIN, name), "#!/bin/sh\nexit 0\n"); chmodSync(join(BIN, name), 0o755); }
 const planCtx = (o: Parameters<typeof fakeCtx>[0] = {}) => fakeCtx({ ...o, env: { PATH: BIN, ...(o?.env ?? {}) } });
-const CLAUDE_FLAGS = ["-p", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config",
-  "--setting-sources", "user", "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS];
+const CLAUDE_FLAGS = ["-p", "--restricted", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob",
+  "--strict-mcp-config", "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS];
 
 const UNKNOWN = "opencode" as unknown as PlannerKind;
 const calls: ResumeSpawn[] = [];
@@ -181,6 +181,7 @@ test("the resumed turn may only read and record a decision", () => {
   expect(allowed.some(t => t === "Bash(pacer:*)" || t.includes("delegate"))).toBe(false);
   for (const flag of ["--strict-mcp-config", "mcp__*", "Agent", "Edit", "Write"]) expect(argv).toContain(flag);
   expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("dontAsk");
-  expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("user");
+  expect(argv).toContain("--restricted");
+  expect(argv).not.toContain("--setting-sources");
   expect(argv[argv.indexOf("--tools") + 1]).toBe("Bash,Read,Grep,Glob");
 });

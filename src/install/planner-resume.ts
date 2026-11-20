@@ -31,8 +31,9 @@ export const RESUME_DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "WebFetch",
 
 export function resumeArgv(kind: PlannerKind, session: string, prompt: string): string[] | null {
   if (!SESSION_ID.test(session)) return null;
-  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--permission-mode", "dontAsk",
-    "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config", "--setting-sources", "user",
+  // --restricted ignores user, project and local settings (their allow rules and hooks) and keeps only the named tools.
+  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--restricted", "--permission-mode", "dontAsk",
+    "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config",
     "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS, "--", prompt];
   if (kind === "codex") return ["codex", "exec", "resume", "--", session, prompt];
   return null;

@@ -1,4 +1,4 @@
-import { realpathSync } from "node:fs";
+import { readdirSync, realpathSync, statSync } from "node:fs";
 import { basename, dirname, isAbsolute, join, relative } from "node:path";
 import type { Ctx } from "../types";
 import type { CallerReach } from "../messaging/caller-reach";
@@ -37,20 +37,40 @@ export function executorWroteCallerCwd(ctx: Ctx, taskId: string, cwd: string): b
 }
 
 /**
- * The caller may have reopened its session in a terminal under a new process: a Claude Code process whose
- * working folder is the caller's counts as possibly open, so the ladder waits instead of resuming over it.
+ * The caller may have reopened its session in a terminal under a new process. Any of these counts as possibly
+ * open, so the ladder waits instead of resuming over it: a Claude Code process naming the session in its
+ * arguments, one working in the caller folder or below it, or the session's transcript written in the last
+ * ten minutes. An unreadable process list fails safe.
  */
-export async function plannerOpenInCwd(ctx: Ctx, cwd: string): Promise<boolean> {
-  const ps = await ctx.run(["ps", "-axo", "pid=,comm="], 5000);
+export async function plannerOpenInCwd(ctx: Ctx, cwd: string, session?: string): Promise<boolean> {
+  if (session && transcriptRecent(ctx, session)) return true;
+  const ps = await ctx.run(["ps", "-axo", "pid=,comm=,args="], 5000);
   if (ps.code !== 0) return true;
   const caller = real(cwd);
   for (const line of ps.stdout.split("\n")) {
-    const m = /^\s*(\d+)\s+(.+)$/.exec(line);
-    if (!m || basename(m[2]!.trim()) !== "claude") continue;
-    const of = await ctx.run(["lsof", "-a", "-p", m[1]!, "-d", "cwd", "-Fn"], 5000);
+    const m = /^\s*(\d+)\s+(\S+)\s*(.*)$/.exec(line);
+    if (!m) continue;
+    const [, pid, comm, args = ""] = m;
+    const claude = basename(comm!) === "claude" || /(^|\/)claude(\.js)?(\s|$)/.test(args) || args.includes("@anthropic-ai/claude-code");
+    if (!claude) continue;
+    if (session && args.includes(session)) return true;
+    const of = await ctx.run(["lsof", "-a", "-p", pid!, "-d", "cwd", "-Fn"], 5000);
+    if (of.code !== 0) return true;
     const dir = of.stdout.split("\n").find(l => l.startsWith("n"))?.slice(1);
-    if (dir && real(dir) === caller) return true;
+    if (dir && within(caller, real(dir))) return true;
   }
+  return false;
+}
+
+/** A transcript Claude Code wrote in the last ten minutes: only its modification time is read. */
+function transcriptRecent(ctx: Ctx, session: string): boolean {
+  const root = join(ctx.home, ".claude", "projects");
+  try {
+    for (const project of readdirSync(root)) {
+      const at = statSync(join(root, project, `${session}.jsonl`), { throwIfNoEntry: false })?.mtimeMs;
+      if (at !== undefined && Date.now() - at < 10 * 60_000) return true;
+    }
+  } catch { /* no transcripts */ }
   return false;
 }
 
@@ -68,7 +88,7 @@ async function plannerAdmitted(ctx: Ctx): Promise<boolean> {
 export const resumeGuards = {
   executorWroteCallerCwd: (ctx: Ctx, taskId: string, cwd: string) => executorWroteCallerCwd(ctx, taskId, cwd),
   plannerAdmitted: (ctx: Ctx) => plannerAdmitted(ctx),
-  plannerOpenInCwd: (ctx: Ctx, cwd: string) => plannerOpenInCwd(ctx, cwd),
+  plannerOpenInCwd: (ctx: Ctx, cwd: string, session?: string) => plannerOpenInCwd(ctx, cwd, session),
 };
 
 /** The resumed turn reads executor output unattended, so the prompt says plainly what that output is. */
@@ -88,7 +108,7 @@ export async function callerWake(ctx: Ctx, reach: CallerReach, text: string, ste
     if (!claude || !reach.session) return "unavailable";
     if (resumeGuards.executorWroteCallerCwd(ctx, taskId, reach.cwd)) return "unavailable";
     if (!(await resumeGuards.plannerAdmitted(ctx))) return "unavailable";
-    if (await resumeGuards.plannerOpenInCwd(ctx, reach.cwd)) return "busy";
+    if (await resumeGuards.plannerOpenInCwd(ctx, reach.cwd, reach.session)) return "busy";
     return await resumeCaller(ctx, { kind: "claude-code", session: reach.session, cwd: reach.cwd }, `${RESUME_PREAMBLE} ${text}`, {
       task: taskId,
       isAlive: async () => (await callerAlive(ctx, reach)) !== "gone",
