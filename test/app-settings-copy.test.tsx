@@ -9,7 +9,9 @@ import { AgentsIntro, ExecutorsSection } from '../app/src/screens/settings/Execu
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import { accountLabel } from '../src/view-model/words';
-import { accountUsageFreshness, executorReadiness, executorWeekUsage } from '../src/view-model/capacity';
+import { executorReadiness } from '../src/view-model/capacity';
+import { usageView } from '../src/view-model/usage';
+import { usageStateFor, withUsageState } from './usage-fixtures';
 import type { ClientSnapshot } from '../src/view-model/snapshot';
 import fixture from './fixtures/ui/snapshot.json';
 import { settings } from './fixtures/ui/settings';
@@ -32,12 +34,13 @@ test('all rendered budget and overview captions round fractional percentages', (
 });
 
 test('weekly copy keeps a meter but omits compact pace and engine strings', () => {
-  expect(executorWeekUsage({...row,usedPct:81.45},snap)).toBe('81% of week');
-  expect(executorWeekUsage({...row,stale:true},snap)).toBe('Stale · check account usage');
-  expect(executorWeekUsage(row,{...snap,accounts:[{...snap.accounts![0]!,verdict:'UNMETERED'}]})).toBe('Unmetered');
-  const reset = new Date('2026-11-01T12:00:00Z').getTime()/1000;
-  expect(executorWeekUsage({...row,usedPct:81},{...snap,accounts:[{...snap.accounts![0]!,resetsAt:reset}]})).toBe('81% of week · resets Sun');
-  const html = draw(<ExecutorsSection/>,snap);
+  // The "This week" cell quotes the executor's record through usageView (ADR 0030).
+  expect(usageView(usageStateFor({ usedPct: 81.45, window: 'weekly', verdict: 'ON_PACE' }, snap.at ?? 1000), snap.at ?? 1000).figure).toBe('81%');
+  expect(usageView(usageStateFor({ usedPct: 81, window: 'weekly', stale: true }, snap.at ?? 1000), snap.at ?? 1000).freshness).toBe('Reading 26h old · refresh');
+  expect(usageView(usageStateFor({ usedPct: null, window: 'weekly', verdict: 'UNMETERED' }, snap.at ?? 1000), snap.at ?? 1000).figure).toBe('Unmetered');
+  const reset = (snap.at ?? 1800000000) + 2 * 86400; // a reset inside the next seven days keeps its weekday
+  expect(usageView(usageStateFor({ usedPct: 81, window: 'weekly', resetsAt: reset, verdict: 'ON_PACE' }, snap.at ?? 1000), snap.at ?? 1000).reset).toMatch(/^resets \w{3} \d{2}:\d{2}$/);
+  const html = draw(<ExecutorsSection/>, withUsageState(snap));
   expect(html).toContain('role="meter"');
   expect(visible(html)).toContain('of week');
   expect(visible(html)).not.toContain('Eligible');
@@ -102,9 +105,8 @@ test('Dispatcher shows one friendly executor identity without raw ids', () => {
 });
 
  test('stale account copy gives one readable age or a refresh instruction', () => {
-  const account = {...snap.accounts![0]!,stale:true,usedPct:28,capturedAt:snap.at-113*3600,eligibility:eligible};
-  expect(accountUsageFreshness({...account,eligibility:{...eligible,evaluatedAt:snap.at}})).toBe('Reading 113h old');
-  expect(accountUsageFreshness({...account,capturedAt:null})).toBe('Stale reading · check account usage');
+  expect(usageView(usageStateFor({ usedPct: 28, stale: true, capturedAt: snap.at - 113 * 3600 }, snap.at), snap.at).freshness).toBe('Reading 113h old · refresh');
+  expect(usageView(usageStateFor({ usedPct: 28, stale: true, capturedAt: null }, snap.at), snap.at).freshness).toBe('Reading of unknown age · refresh');
  });
 
  test('Dispatcher rows use board readiness and a short reason', () => {
@@ -138,8 +140,8 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)('Dispatcher technical detail opens 
 });
 
 test('Accounts quota copy suppresses synthetic reactive and unmetered readings', () => {
-  for (const [action, source, label] of [['unsupported', 'reactive', 'Quota unavailable'], ['unmetered', 'unmetered', 'Unmetered']] as const) {
-    const account = {name:'synthetic',kind:'endpoint',signedIn:true,usageCheck:{action,consentRequired:false,description:'Provider explanation'},usageReading:{source,windows:[{name:'limit',usedPct:0,resetsAt:null}],capturedAt:snapshot.at,stale:true}};
+  for (const [action, source, label] of [['unsupported', 'reactive', 'No usage figure'], ['unmetered', 'unmetered', 'Unmetered']] as const) {
+    const account = {name:'synthetic',kind:'endpoint',signedIn:true,usageCheck:{action,consentRequired:false,description:'Provider explanation'},usageState:usageStateFor({usedPct:null,verdict:source==='unmetered'?'UNMETERED':'OK',source},snapshot.at)};
     const html = draw(<AccountsSection initialData={[account]} initialConfig={{keys:{},planners:[]} as any}/>, {...snapshot,accounts:[{...snapshot.accounts![0]!,name:account.name,source,usedPct:0,capturedAt:snapshot.at,stale:true}]});
     expect(visible(html)).toContain(label);
     expect(html).not.toContain('role="meter"');

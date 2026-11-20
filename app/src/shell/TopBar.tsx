@@ -3,7 +3,8 @@ import { useEffect, useState } from "preact/hooks";
 import type { PlannerMeter } from "../../../src/api/read-model/types";
 import { agentInfo } from "../../../src/view-model/agents";
 import { clock } from "../../../src/view-model/time";
-import { modeWords, paceStatus } from "../../../src/view-model/words";
+import { modeWords } from "../../../src/view-model/words";
+import { usageView } from "../../../src/view-model/usage";
 import { AgentMark } from "../ds/AgentMark";
 import { DensityContext } from "../ds/Density";
 import { TitleBar } from "./TitleBar";
@@ -56,7 +57,8 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
   const [showOffline,setShowOffline]=useState(false);
   useEffect(()=>{setShowOffline(false); if(connected)return; const timer=setTimeout(()=>setShowOffline(true),2000);return()=>clearTimeout(timer);},[connected]);
   const now = fixedNow ?? tick;
-  const narrowMeter = narrow && plannerFigure && planner && planner.verdict !== "unknown" && planner.usedPct !== null;
+  const plannerRecord = planner?.usageState, plannerView = planner ? usageView(plannerRecord, now) : null;
+  const narrowMeter = narrow && plannerFigure && planner && plannerView !== null && plannerView.meter !== null && plannerView.verdictLabel !== "Usage unknown";
   return <header className="pc-topbar" aria-label={showActions ? heading?.title ?? title : undefined} data-tauri-drag-region>
     {!narrow && <TitleBar />}
     {!narrow && brand && <span className="pc-topbar__brand">{brand}</span>}
@@ -73,7 +75,7 @@ export function TopBar({ brand, search, narrowSearch, panels = {}, narrow = fals
       <AgentMark agent={planner.agent} size={18} labelled={false} />
       <span className="pc-planner__name">{agentInfo(planner.agent).name}</span>
       {mode && <Pill tone={modeTone(mode)}>{modeWords(mode)}{planner.modeHeldUntil ? ` · held until ${clock(planner.modeHeldUntil, now)}` : ""}</Pill>}
-      {narrowMeter && <UsageMeter used={planner.usedPct} pace={planner.pacePct} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="top" text="compact" label={`${agentInfo(planner.agent).name} planner usage`} stale={planner.stale} staleAt={lastUpdate ?? undefined} now={now} />}
+      {narrowMeter && <UsageMeter used={plannerView!.meter} pace={planner!.pacePct} tone={plannerView!.tone} verdict={plannerRecord?.verdict ?? planner!.verdict} size="top" text="compact" label={`${agentInfo(planner!.agent).name} planner usage`} stale={plannerRecord?.freshness === "historical"} staleAt={plannerRecord?.observedAt ?? undefined} now={now} />}
     </a>}
     {(!narrow || heading) && <div role="group" aria-label="Layout" className="pc-layout-toggles">
       {!narrow && <LayoutToggle icon="topbar-left" label="Toggle left panel" keys={isMacPlatform() ? "Meta+B" : "Control+B"} toggle={panels.left} />}

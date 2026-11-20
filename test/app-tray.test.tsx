@@ -8,7 +8,8 @@ import { initialState, reduceStore } from "../app/src/data/store";
 import { createApi, type BrowserApi } from "../app/src/data/api";
 import { Tray, moveFocus, performAction } from "../app/src/tray/Tray";
 import { createTrayIpc } from "../app/src/tray/ipc";
-import { actionRoute, executorValue, resetCaption, shortTitle, trayModel } from "../app/src/tray/model";
+import { actionRoute, executorValue, shortTitle, trayModel } from "../app/src/tray/model";
+import { resetWords } from "../src/view-model/usage";
 import { buildApp } from "../app/build";
 import { appRoute, APP_HEADERS } from "../src/serve/app-routes";
 import { fakeCtx } from "./helpers";
@@ -104,12 +105,12 @@ test("executor marks use current capacity, values and detailed tooltips after en
   expect(html).toContain("1 off");
   expect(html).not.toContain("99% used");
   const executor = snapshot.executors![0]!;
-  expect(executorValue(executor)).toBe("41%");
-  expect(executorValue({ ...executor, slots: { used: 2, max: 2 } })).toBe("41%");
-  expect(executorValue({ ...executor, eligibility: undefined, state: "exhausted" })).toBe("out");
-  expect(executorValue({ ...executor, enabled: false })).toBe("off");
-  expect(executorValue({ ...executor, eligibility: undefined, sub: "No active plan" })).toBe("off");
-  expect(executorValue({ ...executor, usedPct: null, slots: { used: 0, max: 2 } })).toBe("?");
+  expect(executorValue(executor, snapshot.at)).toBe("41%");
+  expect(executorValue({ ...executor, slots: { used: 2, max: 2 } }, snapshot.at)).toBe("41%");
+  expect(executorValue({ ...executor, eligibility: undefined, state: "exhausted" }, snapshot.at)).toBe("out");
+  expect(executorValue({ ...executor, enabled: false }, snapshot.at)).toBe("off");
+  expect(executorValue({ ...executor, eligibility: undefined, sub: "No active plan" }, snapshot.at)).toBe("off");
+  expect(executorValue({ ...executor, usedPct: null, slots: { used: 0, max: 2 } }, snapshot.at)).toBe("?");
   const state = reduceStore({ ...initialState(), snapshot, needsSnapshot: false, features: { readModel: true, ops: new Set() } }, { type: "event", event: { type: "executor", seq: 1, at: 1001, data: { ...executor, usedPct: 47, state: "full", tone: "warn", slots: { used: 2, max: 2 } } } });
   expect(draw(state.snapshot!)).toContain("47% used · pace 58%");
   expect(draw(state.snapshot!)).toContain(">47%</span>");
@@ -266,8 +267,8 @@ test("opencode executors use their account's mark and an unavailable account rea
   const row = (id: string, account: string, extra: Partial<ExecutorRow> = {}): ExecutorRow => ({ id, agent: "opencode", account, host: null, model: null, rank: 2, enabled: true, state: "ready", tone: "good", sub: "", usedPct: null, pacePct: null, slots: { used: 0, max: 1 }, lastCheck: null, recentFailures: 0, next: false, ...extra });
   const byteplus = row("opencode#byteplus", "byteplus", { state: "down", tone: "bad", sub: "Unavailable", reason: "no active coding-plan subscription" });
   const local = row("opencode#local", "local", { state: "ready", tone: "good", paceReason: "unmetered" });
-  expect(executorValue(byteplus)).toBe("off");
-  expect(executorValue(local)).toBe("—");
+  expect(executorValue(byteplus, fixture().at)).toBe("off");
+  expect(executorValue(local, fixture().at)).toBe("—");
   const html = draw({ ...fixture(), executors: [byteplus, local] });
   expect(html).toContain("BytePlus:");
   expect(html).toContain("agent-mark--local");
@@ -287,11 +288,11 @@ test("Needs-you reasons show the shared status once and preserve distinct eviden
 });
 
 test("unknown capacity never reads free or shows a ready glyph; unavailable capacity stays dimmed", () => {
-  const base = fixture().executors![0]!;
+  const snapshot = fixture(), base = snapshot.executors![0]!;
   const unknown: ExecutorRow = { ...base, eligibility: undefined, id: "opencode#byteplus", agent: "opencode", account: "byteplus", state: "ready", tone: "good", sub: "Usage unknown", usedPct: null, pacePct: null, paceReason: "no limit reported", slots: { used: 0, max: 1 } };
   for (const slots of [{ used: 0, max: 1 }, { used: 1, max: 1 }]) {
     const row = { ...unknown, slots };
-    expect(executorValue(row)).toBe("?");
+    expect(executorValue(row, snapshot.at)).toBe("?");
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain(">?</span>");
     expect(html).not.toContain("tray-executor-glyph");
@@ -304,14 +305,14 @@ test("unknown capacity never reads free or shows a ready glyph; unavailable capa
     { ...unknown, reason: "no subscription" },
     { ...unknown, enabled: false },
   ]) {
-    expect(executorValue(row)).toBe("off");
+    expect(executorValue(row, snapshot.at)).toBe("off");
     const html = draw({ ...fixture(), executors: [row] });
     expect(html).toContain("tray-executor--off");
     expect(html).toContain(">1 off</a>");
     expect(html.split(/<section(?=[^>]*aria-label="Executors")[^>]*>/)[1]!.split("</section>")[0]!).not.toContain("pc-glyph pc-status--good");
   }
-  expect(executorValue({ ...unknown, paceReason: "unmetered" })).toBe("—");
-  expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" })).toBe("?");
+  expect(executorValue({ ...unknown, paceReason: "unmetered" }, snapshot.at)).toBe("—");
+  expect(executorValue({ ...unknown, state: "checking", paceReason: "unmetered" }, snapshot.at)).toBe("?");
 });
 
 test('Escape dismisses tray menus before hiding and reports native hide failures',async()=>{
@@ -445,9 +446,9 @@ test("eligible Codex with 17% usage ignores failing/checking legacy state and st
   const codex: ExecutorRow = { ...snapshot.executors![0]!, id: "codex", account: "codex", usedPct: 17, pacePct: 17,
     eligibility: eligibility(), state: "failing", sub: "2 recent failures", reason: "2 recent failures", recentFailures: 2,
     slots: { used: 0, max: 16 }, lastCheck: { at: 900, passed: false, detail: "failed check" } };
-  expect(executorValue(codex)).toBe("17%");
+  expect(executorValue(codex, snapshot.at)).toBe("17%");
   for (const state of ["failing", "down", "blocked", "checking"] as const) {
-    expect(executorValue({ ...codex, state, sub: "No active plan" })).toBe("17%");
+    expect(executorValue({ ...codex, state, sub: "No active plan" }, snapshot.at)).toBe("17%");
   }
   expect(draw({ ...snapshot, executors: [codex] })).toContain("17% used · pace 17%");
   expect(draw({ ...snapshot, executors: [codex] })).toContain(">17%</span>");
@@ -474,11 +475,14 @@ test("needs-you uses the board's waiting and failure glyphs", () => {
   expect(html).not.toContain(">!</span>");
 });
 
-test("reset caption uses local weekday within seven days and date beyond", () => {
+test("reset words use one format: time today, weekday within seven days and date beyond", () => {
   const now = Date.parse("2026-10-29T10:00:00+07:00") / 1000;
-  expect(resetCaption(Date.parse("2026-10-30T12:00:00+07:00") / 1000, now)).toBe("Fri 12:00");
-  expect(resetCaption(Date.parse("2026-10-29T12:00:00+07:00") / 1000, now)).toBe("Thu 12:00");
-  expect(resetCaption(now + 7 * 86400, now)).toBe("5 Nov 10:00");
+  expect(resetWords(Date.parse("2026-10-30T12:00:00+07:00") / 1000, now)).toBe("resets Fri 12:00");
+  expect(resetWords(now + 7 * 86400, now)).toBe("resets 5 Nov");
+  // A reset already past is due, not a stale-looking future time; one still ahead today keeps its time.
+  expect(resetWords(Date.parse("2026-10-29T12:00:00+07:00") / 1000, now)).toBe("resets 12:00");
+  expect(resetWords(Date.parse("2026-10-29T09:00:00+07:00") / 1000, now)).toBe("reset due");
+  expect(resetWords(null, now)).toBe("reset unknown");
 });
 
 test("login item IPC reads and writes native state and propagates failures", async () => {

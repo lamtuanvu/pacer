@@ -2,26 +2,8 @@
 //! concept, so every Rust surface words a verdict or an eligibility reason the
 //! same way TypeScript does.
 
-/// `verdicts` (`src/view-model/words.ts`); anything else is `"Unknown"`.
-pub fn verdict_words(verdict: &str) -> &'static str {
-    match verdict {
-        "ON_PACE" | "OK" | "UNMETERED" => "Available",
-        "AHEAD" => "Ahead of pace",
-        "BEHIND" => "Behind pace",
-        "EXPIRING" | "EXPIRING_SOON" => "Expiring soon",
-        "NEAR_LIMIT" => "Near limit",
-        "EXHAUSTED" => "Out of quota",
-        "behind" => "Behind pace",
-        "on_pace" => "On pace",
-        "ahead" => "Ahead of pace",
-        "out" => "Out of quota",
-        "unknown" => "Usage unknown",
-        _ => "Unknown",
-    }
-}
-
-/// The descriptor `paceStatus` returns (`src/view-model/words.ts`): verdict
-/// aliases to a canonical pace fact, then its label, tone and glyph.
+/// The one verdict table (`verdictLabels`, `src/view-model/words.ts`, ADR 0030):
+/// every label, tone and glyph a verdict can take, upper and legacy lower case.
 #[derive(Clone, Copy)]
 pub struct PaceStatus {
     pub label: &'static str,
@@ -29,55 +11,42 @@ pub struct PaceStatus {
     pub glyph: &'static str,
 }
 
-const UNKNOWN_PACE: PaceStatus = PaceStatus {
-    label: "Usage unknown",
-    tone: "neutral",
-    glyph: "?",
-};
+const fn entry(label: &'static str, tone: &'static str, glyph: &'static str) -> PaceStatus {
+    PaceStatus { label, tone, glyph }
+}
 
+fn verdict_label(verdict: &str) -> Option<PaceStatus> {
+    Some(match verdict {
+        "EXHAUSTED" | "out" => entry("Out of quota", "bad", "!"),
+        "NEAR_LIMIT" => entry("Near limit", "warn", "!"),
+        "AHEAD" | "ahead" => entry("Ahead of pace", "warn", "↑"),
+        "BEHIND" | "behind" => entry("Behind pace", "good", "↓"),
+        "EXPIRING" | "EXPIRING_SOON" => entry("Expiring soon", "warn", "!"),
+        "OK" => entry("Available", "good", "✓"),
+        "ON_PACE" | "on_pace" => entry("On pace", "good", "✓"),
+        "UNMETERED" => entry("Unmetered", "good", "∞"),
+        "UNKNOWN" | "unknown" => entry("Usage unknown", "neutral", "?"),
+        _ => return None,
+    })
+}
+
+/// `verdictWords`: the table's label; anything else is `"Unknown"`.
+pub fn verdict_words(verdict: &str) -> &'static str {
+    verdict_label(verdict).map_or("Unknown", |v| v.label)
+}
+
+const UNKNOWN_PACE: PaceStatus = entry("Usage unknown", "neutral", "?");
+
+/// `paceStatus`: older payload spellings map to their canonical fact, then the one table.
 pub fn pace_status(verdict: &str) -> PaceStatus {
     let canonical = match verdict {
         "BEHIND" => "behind",
         "ON_PACE" => "on_pace",
-        "OK" => "on_pace",
         "AHEAD" => "ahead",
-        "NEAR_LIMIT" => "ahead",
         "EXHAUSTED" => "out",
         other => other,
     };
-    match canonical {
-        "behind" => PaceStatus {
-            label: "Behind pace",
-            tone: "good",
-            glyph: "↓",
-        },
-        "on_pace" => PaceStatus {
-            label: "On pace",
-            tone: "good",
-            glyph: "✓",
-        },
-        "ahead" => PaceStatus {
-            label: "Ahead of pace",
-            tone: "warn",
-            glyph: "↑",
-        },
-        "out" => PaceStatus {
-            label: "Out of quota",
-            tone: "bad",
-            glyph: "!",
-        },
-        "UNMETERED" => PaceStatus {
-            label: "Unmetered",
-            tone: "good",
-            glyph: "∞",
-        },
-        "EXPIRING" | "EXPIRING_SOON" => PaceStatus {
-            label: "Expiring soon",
-            tone: "warn",
-            glyph: "!",
-        },
-        _ => UNKNOWN_PACE,
-    }
+    verdict_label(canonical).unwrap_or(UNKNOWN_PACE)
 }
 
 /// `buildPlanner`'s verdict aliases (`src/api/read-model/capacity.ts`): the
@@ -128,21 +97,22 @@ mod tests {
     /// pace aliases land on the same descriptors `paceStatus` produces.
     #[test]
     fn tables_match_the_typescript_view_model() {
-        assert_eq!(verdict_words("ON_PACE"), "Available");
+        assert_eq!(verdict_words("ON_PACE"), "On pace");
         assert_eq!(verdict_words("OK"), "Available");
-        assert_eq!(verdict_words("UNMETERED"), "Available");
+        assert_eq!(verdict_words("UNMETERED"), "Unmetered");
+        assert_eq!(verdict_words("UNKNOWN"), "Usage unknown");
         assert_eq!(verdict_words("EXPIRING"), "Expiring soon");
         assert_eq!(verdict_words("on_pace"), "On pace");
         assert_eq!(verdict_words("nope"), "Unknown");
         let pace = pace_status("OK");
         assert_eq!(
             (pace.label, pace.tone, pace.glyph),
-            ("On pace", "good", "✓")
+            ("Available", "good", "✓")
         );
         let pace = pace_status("NEAR_LIMIT");
         assert_eq!(
             (pace.label, pace.tone, pace.glyph),
-            ("Ahead of pace", "warn", "↑")
+            ("Near limit", "warn", "!")
         );
         let pace = pace_status("EXHAUSTED");
         assert_eq!(

@@ -1,7 +1,7 @@
 /** The frame: top bar, planner strip, body panes, overlays, message line and key bar. */
 import type { ClientSnapshot } from "../../view-model/snapshot";
 import { counts, plannerMeter } from "../../view-model/selectors";
-import { meterText } from "../../view-model/format";
+import { meterText } from "../legacy-usage";
 import { agentInfo } from "../../view-model/agents";
 import { compactPolicyWords, policyWords, modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";

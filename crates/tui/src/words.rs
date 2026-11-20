@@ -4,8 +4,8 @@
 //! depending on the engine, and the tests pin every entry to
 //! `pacer_engine::words` through a dev-dependency.
 
-/// The descriptor `paceStatus` returns (`src/view-model/words.ts`): verdict
-/// aliases to a canonical pace fact, then its label, tone and glyph.
+/// The descriptor `paceStatus` returns (`src/view-model/words.ts`): older
+/// payload spellings map to their canonical fact, then the one verdict table.
 #[derive(Clone, Copy)]
 pub struct PaceStatus {
     pub label: &'static str,
@@ -13,53 +13,29 @@ pub struct PaceStatus {
     pub glyph: &'static str,
 }
 
-const UNKNOWN_PACE: PaceStatus = PaceStatus {
-    label: "Usage unknown",
-    tone: "neutral",
-    glyph: "?",
-};
+const fn entry(label: &'static str, tone: &'static str, glyph: &'static str) -> PaceStatus {
+    PaceStatus { label, tone, glyph }
+}
+
+const UNKNOWN_PACE: PaceStatus = entry("Usage unknown", "neutral", "?");
 
 pub fn pace_status(verdict: &str) -> PaceStatus {
     let canonical = match verdict {
         "BEHIND" => "behind",
         "ON_PACE" => "on_pace",
-        "OK" => "on_pace",
         "AHEAD" => "ahead",
-        "NEAR_LIMIT" => "ahead",
         "EXHAUSTED" => "out",
         other => other,
     };
     match canonical {
-        "behind" => PaceStatus {
-            label: "Behind pace",
-            tone: "good",
-            glyph: "↓",
-        },
-        "on_pace" => PaceStatus {
-            label: "On pace",
-            tone: "good",
-            glyph: "✓",
-        },
-        "ahead" => PaceStatus {
-            label: "Ahead of pace",
-            tone: "warn",
-            glyph: "↑",
-        },
-        "out" => PaceStatus {
-            label: "Out of quota",
-            tone: "bad",
-            glyph: "!",
-        },
-        "UNMETERED" => PaceStatus {
-            label: "Unmetered",
-            tone: "good",
-            glyph: "∞",
-        },
-        "EXPIRING" | "EXPIRING_SOON" => PaceStatus {
-            label: "Expiring soon",
-            tone: "warn",
-            glyph: "!",
-        },
+        "EXHAUSTED" | "out" => entry("Out of quota", "bad", "!"),
+        "NEAR_LIMIT" => entry("Near limit", "warn", "!"),
+        "AHEAD" | "ahead" => entry("Ahead of pace", "warn", "↑"),
+        "BEHIND" | "behind" => entry("Behind pace", "good", "↓"),
+        "EXPIRING" | "EXPIRING_SOON" => entry("Expiring soon", "warn", "!"),
+        "OK" => entry("Available", "good", "✓"),
+        "ON_PACE" | "on_pace" => entry("On pace", "good", "✓"),
+        "UNMETERED" => entry("Unmetered", "good", "∞"),
         _ => UNKNOWN_PACE,
     }
 }
@@ -117,6 +93,7 @@ mod tests {
             "UNMETERED",
             "EXPIRING",
             "EXPIRING_SOON",
+            "UNKNOWN",
             "",
             "machine_load",
             "whatever",

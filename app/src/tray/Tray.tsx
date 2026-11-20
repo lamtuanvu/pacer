@@ -10,8 +10,8 @@ import type { BrowserApi } from "../data/api";
 import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, durationWords } from "../../../src/view-model/time";
-import { meterText } from "../../../src/view-model/format";
 import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
+import { usageView, captionReset } from "../../../src/view-model/usage";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
@@ -23,7 +23,8 @@ import type { Status } from "../../../src/view-model/words";
 import { Switch } from "../ds/Controls";
 import { Kbd } from "../ds/Kbd";
 import { appHref, type TrayIpc } from "./ipc";
-import { actionError, actionRoute, actionSupported, visibleFailure, executorValue, offExecutorLabel, primaryAction, resetCaption, shortTitle, trayModel } from "./model";
+import { actionError, actionRoute, actionSupported, visibleFailure, executorUsage, executorValue, offExecutorLabel, primaryAction, shortTitle, trayModel } from "./model";
+import { windowWords, resetWords } from "../../../src/view-model/usage";
 
 export interface TrayProps { snapshot: ClientSnapshot | null; api: BrowserApi; ipc: TrayIpc; connected?: boolean; sessionEnded?: boolean; activity?: ActivityEntry[]; ops?: ReadonlySet<string> }
 /** One short verb per row, as on the board; the full label stays in the tooltip. */
@@ -180,9 +181,18 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     return () => document.removeEventListener("keydown", onKeyDown);
   });
   const planner = snapshot && plannerMeter(snapshot);
-  const pace = paceStatus(planner?.verdict ?? "unknown");
+  const plannerView = planner ? usageView(planner.usageState, snapshot.at) : null;
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state ("No usage figure"), never the row's old percent.
+  const plannerMeterValue = planner?.usageState ? plannerView!.meter : plannerView?.meter ?? (planner?.usedPct != null ? Math.round(planner.usedPct) : null);
+  const plannerWindow = plannerView?.window || windowWords(planner?.window);
+  const plannerFigure = planner?.usageState ? plannerView!.figure
+    : plannerView && plannerView.meter !== null ? plannerView.figure
+    : planner?.usedPct != null ? `${Math.round(planner.usedPct)}%` : plannerView?.figure ?? "Usage unknown";
+  const plannerReset = plannerView?.reset || (planner?.resetsAt != null ? resetWords(planner.resetsAt, snapshot!.at) : "");
+  const pace = paceStatus(planner?.usageState?.verdict ?? planner?.verdict ?? "unknown");
   const tone = pace.tone;
-  const offExecutors = model?.executors.filter(executor => executorValue(executor) === "off") ?? [];
+  const offExecutors = model?.executors.filter(executor => executorValue(executor, snapshot!.at) === "off") ?? [];
   const mode = snapshot?.pause ? "Paused" : ({ normal: "Normal", relaxed: "Relaxed", strict: "Strict" } as Record<string, string>)[planner?.mode ?? snapshot?.mode?.mode ?? snapshot?.budget?.mode ?? "normal"] ?? "Normal";
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
@@ -194,8 +204,8 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   return <DensityProvider value="compact"><span className="sr-only" role="status" aria-live="polite">{busy && busyItem ? "Working…" : ""}</span><div className={menuOpen ? "tray tray--menu-open" : "tray"} ref={root} aria-busy={busy}><main className="tray-main" aria-label="pacer tray">
     <section className="tray-planner" aria-label="Planner budget">
       <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label">planner</span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>
-      <UsageMeter used={planner?.usedPct ?? null} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.stale} />
-      <div className="tray-caption"><span>{planner?.usedPct != null ? `${Math.round(planner.usedPct)}% of week used · pace ${planner.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : meterText(null, planner?.pacePct ?? null, "full")}</span><span>{planner?.resetsAt != null ? `resets ${resetCaption(planner.resetsAt, snapshot!.at)}` : backIn(null, snapshot?.at ?? 0)}</span></div>
+      <UsageMeter used={plannerMeterValue} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.usageState?.freshness === "historical"} />
+      <div className="tray-caption"><span>{plannerMeterValue !== null ? `${planner?.usageState ? plannerView!.summaryUsed : `${plannerFigure} of ${plannerWindow} used`} · pace ${planner?.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : plannerFigure}</span><span>{captionReset(plannerReset) ?? "reset unknown"}</span></div>
       {model && <div className="tray-policy">{model.policy}</div>}
     </section>
     {snapshot?.pause && <div className="tray-paused" role="status"><Icon name="pause" /><span className="tray-grow"><strong>Delegation paused</strong><span className="tray-reason">New work waits {snapshot.pause.until === null ? "until you resume" : `until ${timeOnly(snapshot.pause.until)}`}{!!model?.waiting && ` · ${model.waiting} ${model.waiting === 1 ? "task" : "tasks"} waiting`}</span></span><Button size="sm" busy={busy} disabled={sessionEnded} onClick={() => act(() => api.call("delegation.resume", {}))}>Resume</Button></div>}
@@ -230,11 +240,12 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         </ListRowLink>)}
         {waitingRow}
       </section> : waitingRow}
-      <section ref={strip} className="tray-executors" aria-label="Executors">{model.executors.filter(executor => executorValue(executor) !== "off").map(executor => {
-        const value = executorValue(executor);
+      <section ref={strip} className="tray-executors" aria-label="Executors">{model.executors.filter(executor => executorValue(executor, snapshot!.at) !== "off").map(executor => {
+        const value = executorValue(executor, snapshot!.at);
+        const usage = executorUsage(executor, snapshot!.at);
         const readiness = executorEligibility(executor, snapshot.at);
         const valueStatus = value === "?" || value === "—" ? { ...readiness, tone: "muted" } : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
-        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${executor.usedPct !== null ? ` · ${meterText(executor.usedPct, executor.pacePct, "full")}` : ""}`;
+        const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${usage.meter !== null ? ` · ${usage.summaryUsed}${executor.pacePct != null ? ` · pace ${Math.round(executor.pacePct)}%` : ""}` : ""}`;
         return <TextAction data-executor className={`tray-executor${value === "off" ? " tray-executor--off" : ""}${value === "out" ? " tray-executor--out" : ""}`} key={executor.id} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} aria-label={label} title={label}><span className="tray-executor-mark"><AgentMark agent={markAgent(executor.id, executor.account)} size={16} labelled={false} /></span><span className={`tray-executor-value tray-executor-value--${value === "off" ? "off" : value === "out" ? "bad" : ({ good: "good", warn: "warn", bad: "bad" } as Record<string, string>)[valueStatus.tone] ?? "muted"}`}>{value}</span></TextAction>;
       })}<TextAction data-overflow hidden className="tray-executor tray-muted" href={appHref("/settings/executors")} onClick={navigate("/settings/executors")} />{offExecutors.length > 0 && <TextAction className="tray-executor tray-executor--off tray-muted" title={`Turned off or unable to take work: ${offExecutors.map(offExecutorLabel).join(" · ")}`} href={appHref("/settings/executors")} onClick={navigate("/settings/executors")}><span className="tray-executor-mark"><AgentMark agent={markAgent(offExecutors[0]!.id, offExecutors[0]!.account)} size={16} labelled={false} /></span>{offExecutors.length} off</TextAction>}<span className="tray-grow" /><span className="tray-reason">executors</span></section>
     </>}

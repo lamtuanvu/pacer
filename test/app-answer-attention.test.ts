@@ -11,7 +11,7 @@ import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { emptySnapshot } from "../src/link/envelope";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { initialState, reduceStore, type StoreState } from "../app/src/data/store";
-import { homeModel } from "../app/src/model/home";
+import { attentionStatus } from "../src/view-model/words";
 
 /** A task that asked the human a question, and the app session that loaded it. */
 async function asked() {
@@ -36,8 +36,11 @@ async function settled(ctx: ReturnType<typeof fakeCtx>) {
 
 test("the asked task's session shows the question waiting on the human", async () => {
   const { state } = await asked();
-  const home = homeModel(state.snapshot!, []);
-  expect(home.attention.map(a => [a.label, a.href])).toEqual([["Waiting on you", expect.stringContaining("?tab=answer")]]);
+  const item = state.snapshot!.attention?.find(a => a.kind === "message")!;
+  expect(item).toBeTruthy();
+  // The one attention vocabulary names it; the session opens its answer box.
+  expect(attentionStatus(item, state.snapshot!.tasks).label).toBe("Waiting on you");
+  expect(item!.taskId).toBeTruthy();
 });
 
 test("an answer clears the attention item and the task's question in the same session, without a reload", async () => {
@@ -49,7 +52,6 @@ test("an answer clears the attention item and the task's question in the same se
   expect(next.needsSnapshot).toBe(false);
   expect(next.snapshot!.attention).toEqual([]);
   expect(next.snapshot!.tasks.find(x => x.id === t.id)?.messages).toBeUndefined();
-  expect(homeModel(next.snapshot!, []).attention).toEqual([]);
   // Only the task question's answer is written; the cleared item is published, not written.
   expect(readTask(ctx, t.id)!.rev - rev).toBeLessThanOrEqual(1);
 });
