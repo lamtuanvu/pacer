@@ -169,7 +169,9 @@ export function plannerCaption(p: PlannerMeter, now: number, shortWindowPct?: nu
   const window = view.window || windowWords(p.window);
   const reset = view.reset || (p.resetsAt != null ? resetWords(p.resetsAt, now) : "");
   return [
-    meter !== null ? (view.meter !== null ? `${view.figure} of ${window} used` : `${meter}% of ${window} used`) : null,
+    meter !== null ? (view.meter !== null
+      ? (view.figure === `${view.meter}%` ? `${view.figure} of ${window} used` : view.figure)
+      : `${meter}% of ${window} used`) : null,
     p.pacePct !== null ? `pace ${Math.round(p.pacePct)}%` : null,
     reset.startsWith("resets ") ? reset : null,
     // The planner's own window may already be the 5-hour one; then it is not stated twice.

@@ -135,7 +135,7 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
     const state = account.usageState;
     const view = usageView(state, now);
     return <section className="pc-usage-account" key={account.name} aria-label={`${account.name} usage`}>
-      <div className="pc-usage-account__head"><AgentMark agent={markAgent(account.kind === "claude" ? "claude-code" : account.kind, account.name)} size={20} labelled={false} /><strong>{account.name}</strong><span className="muted">{view.freshness || view.figure}</span></div>
+      <div className="pc-usage-account__head"><AgentMark agent={markAgent(account.kind === "claude" ? "claude-code" : account.kind, account.name)} size={20} labelled={false} /><strong>{account.name}</strong><span className="muted">{[view.figure, view.freshness].filter(Boolean).join(" · ")}</span></div>
       {state?.windows.length ? state.windows.map(window => {
         const row = usageWindowView(window, now);
         return <div className="pc-usage-window" key={window.name}>
