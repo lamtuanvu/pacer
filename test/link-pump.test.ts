@@ -258,3 +258,11 @@ test("legacy failure alerts respect project retry policy and fail closed", async
     expect(alert.data.body).not.toContain("retry on Codex");
   }
 });
+
+test("the legacy budget keeps OK for unmetered providers (protocol 2 is frozen)",async()=>{
+ const {toBudget}=await import("../src/link/budget");
+ const status={generatedAt:1,strategy:"s",planner:"p",mode:"normal",providers:[{id:"um",verdict:"UNMETERED",stale:false,binding:null},{id:"rx",verdict:"EXHAUSTED",stale:false,binding:null}],executors:{ranked:[{id:"um",verdict:"UNMETERED"}]}} as any;
+ const budget=toBudget(status);
+ expect(budget.providers.map(p=>p.verdict)).toEqual(["OK","EXHAUSTED"]);
+ expect(budget.ranked.map(r=>r.verdict)).toEqual(["OK"]);
+});
