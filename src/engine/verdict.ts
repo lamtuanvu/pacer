@@ -7,14 +7,10 @@ export { EXHAUSTED_PCT, NEAR_LIMIT_PCT };
 export const EXPIRING_HOURS = 9;
 export const EXPIRING_UNUSED = 25;
 
-export interface WindowStatus extends UsageWindow {
-  verdict: Verdict;
-  pace?: number;
-  delta?: number;
-  activeHoursLeft?: number;
-  rolled?: boolean;
-}
 export interface Thresholds { ahead: number; behind: number; paceScale: number }
+
+/** The evaluated-window shape lives with the other usage types; this is its engine name. */
+export type WindowStatus = import("../types").UsageWindowState;
 
 export function evaluateWindow(w: UsageWindow, now: number, profile: ActivityProfile | null, th: Thresholds): WindowStatus {
   const s: WindowStatus = { ...w, verdict: "UNKNOWN" };

@@ -12,20 +12,20 @@ import { readEndpointState } from "../endpoints/state";
 import { endpointRow } from "../endpoints/row";
 import { orcaAccountHome } from "../orca/accounts";
 import { parseRunnerId, formatRunnerId, runnerDefaults, resolveRunner } from "../config/runner-id";
-import type { AccountCfg } from "../config/accounts";
+import type { AccountCfg, RunnerCfg } from "../config/accounts";
 import { readBlocked } from "../executors/blocked";
 import { readBroken } from "../exec/broken";
 import type { ProviderCfg, Strategy } from "../config/strategy";
 import { type ActivityProfile, loadActivity } from "../pace/activity";
 import { isCalendar } from "../pace/clock";
-import type { Ctx, UsageReading, UsageSource, Verdict } from "../types";
+import type { BlockedRunner, Ctx, UsageFigure, UsageFreshness, UsageKind, UsageLimit, UsageReading, UsageSource, UsageState, Verdict } from "../types";
 import { markFreshness, AUTH_LIFETIME_S, LIMIT_WINDOW_LENGTH_S } from "../usage/freshness";
 import { readAccountUsage } from "../usage/index";
 import { cachedLoginPath, onPath } from "../exec/login-env";
-import { limitObservation } from "../usage/reactive";
-import { type Mode, plannerMode } from "./mode";
+import { activeLimitObservations, type LimitObservation } from "../usage/reactive";
+import { type Mode, statusMode } from "./mode";
 import { type Excluded, type ProviderStatus, type RankedExecutor, rankExecutors } from "./rank";
-import { bindingWindow, evaluateWindow } from "./verdict";
+import { bindingWindow, evaluateWindow, type WindowStatus } from "./verdict";
 
 export interface AccountStatus {
   eligibility?: EligibilityDecision;
@@ -43,6 +43,8 @@ export interface AccountStatus {
   capturedAt: number | null;
   runners: string[];
   spendUsd: number | null;
+  /** Additive: the account's one usage record (ADR 0030). */
+  usage?: UsageState;
 }
 
 export interface Status {
@@ -75,6 +77,71 @@ export function binaryFor(cfg: ProviderCfg): string {
 
 export { displayName } from "../render/accounts";
 
+/** The active limit behind the record: the covering mark/fact with the latest end. */
+function pickLimit(facts: { source: import("../evidence/types").Evidence<unknown>["source"]; observedAt: number | null; validUntil: number | null; value: { resetsAt: number | null } }[]): UsageLimit | null {
+  const withEnd = facts.filter(f => (f.validUntil ?? f.value.resetsAt) !== null);
+  if (!withEnd.length) return null;
+  const best = withEnd.reduce((a, b) =>
+    ((b.validUntil ?? b.value.resetsAt)! > (a.validUntil ?? a.value.resetsAt)! ? b : a));
+  return { until: (best.validUntil ?? best.value.resetsAt)!, observedAt: best.observedAt, manual: best.source === "configuration" };
+}
+
+/** A limit mark makes the record quote 100% over "limit" until the mark ends. */
+function figureOf(limit: UsageLimit | null, binding: WindowStatus | null): UsageFigure | null {
+  if (limit) return { usedPct: 100, window: "limit", lengthS: LIMIT_WINDOW_LENGTH_S, resetsAt: limit.until };
+  if (binding && binding.usedPct !== null && Number.isFinite(binding.usedPct))
+    return { usedPct: binding.usedPct, window: binding.name, lengthS: binding.lengthS, resetsAt: binding.resetsAt };
+  return null;
+}
+
+/** Stale or failed readings are history for the whole record, not a number. */
+function freshnessOf(reading: { error?: string; stale: boolean }, binding: WindowStatus | null, windows: WindowStatus[]): UsageFreshness {
+  return reading.error || reading.stale || binding?.stale ? "historical" : windows.length ? "fresh" : "unknown";
+}
+
+/** The binding budget fact's time, or the newest availability fact's; null when nothing was observed. */
+function observedAtOf(eligibility: import("../evidence/types").EligibilityDecision, now: number): number | null {
+  return eligibility.evidenceAgeS === null ? null : Math.max(0, now - eligibility.evidenceAgeS);
+}
+
+/**
+ * Runners of the account that cannot take work now: an active limit or an
+ * authentication/subscription failure on their configured model, plus facts
+ * recorded for another model the runner's tiers can select (kept at that model,
+ * never widened to the runner). Auth facts block but never change a verdict.
+ */
+function blockedRunnersOf(accountScope: EvidenceScope, runners: RunnerCfg[], snapshot: { evidence: ReconciledEvidence }, now: number, hostOf: (r: RunnerCfg) => string): BlockedRunner[] {
+  const entries = new Map<string, BlockedRunner>();
+  const add = (entry: BlockedRunner) => {
+    const key = `${entry.runner}\u0000${entry.model}`;
+    const previous = entries.get(key);
+    // Quota failures have an end; keep the longest, and prefer them over auth blocks.
+    if (!previous || (entry.reason === "quota_failure" && (previous.reason !== "quota_failure"
+      || (previous.until ?? -Infinity) < (entry.until ?? -Infinity)))) entries.set(key, entry);
+  };
+  for (const runner of runners) {
+    const model = runner.model ?? "default";
+    const base = { account: accountScope.account, identity: accountScope.identity, runner: runner.name, host: hostOf(runner) };
+    for (const fact of snapshot.evidence.facts.budget) {
+      if (fact.value.name !== "limit" || fact.value.resetsAt === null) continue;
+      const until = fact.validUntil ?? fact.value.resetsAt;
+      if (appliesTo(fact, { ...base, model })) add({ runner: runner.name, model, until, reason: "quota_failure" });
+      else if (fact.scope.runner === runner.name && fact.scope.model && fact.scope.model !== model
+        && (!fact.scope.host || fact.scope.host === base.host))
+        add({ runner: runner.name, model: fact.scope.model, until, reason: "quota_failure" });
+    }
+    for (const fact of snapshot.evidence.facts.availability) {
+      if (fact.value !== "unavailable" || !(fact.reason === "authentication_failed" || fact.reason === "subscription_missing")
+        || !currentEvidence(fact, now)) continue;
+      if (appliesTo(fact, { ...base, model })) add({ runner: runner.name, model, until: null, reason: fact.reason });
+      else if (fact.scope.runner === runner.name && fact.scope.model && fact.scope.model !== model
+        && (!fact.scope.host || fact.scope.host === base.host))
+        add({ runner: runner.name, model: fact.scope.model, until: null, reason: fact.reason });
+    }
+  }
+  return [...entries.values()];
+}
+
 export async function computeStatus(
   ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; servicePath?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
@@ -83,6 +150,9 @@ export async function computeStatus(
     .map(a => `account ${a.name}: usage_source orca is no longer read; using ${a.kind === "claude" || a.kind === "codex" ? "native" : "reactive"}`);
   const blocked = Object.fromEntries(Object.entries(readBlocked(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
   const broken = Object.fromEntries(Object.entries(readBroken(ctx)).map(([id, mark]) => [resolveRunner(s, id)?.id ?? id, mark]));
+  // Active limit marks, keyed by the exhausted.json key they were recorded under, so marks
+  // written under an alias or agent id match the same way executorExclusion matches them.
+  const marks = activeLimitObservations(ctx);
   const profile = opts.profile !== undefined ? opts.profile : await loadActivity(ctx).catch(() => null);
   trace("activity");
   // Evaluate an account once; every runner draws on this same budget.
@@ -99,10 +169,13 @@ export async function computeStatus(
       behind: s.pacing.behindThreshold,
       paceScale: account.name === s.planner.account ? 1 - s.pacing.plannerReserve / 100 : 1,
     };
-    // Account marks constrain all runners; retain support for older runner marks.
-    const limits = [account.name, ...runners.map(r => r.name)].flatMap(id => {
-      const observation = limitObservation(ctx, id); return observation ? [observation] : [];
-    });
+    // Account marks constrain all runners; runner marks (by id, alias or any key that resolves
+    // to the runner) and other-model execution facts keep their actual scope.
+    const limits: LimitObservation[] = [
+      ...marks.filter(m => m.key === account.name).map(m => m.observation),
+      ...runners.flatMap(r => marks.filter(m => m.key !== account.name
+        && (m.key === r.name || resolveRunner(s, m.key)?.id === r.name)).map(m => m.observation)),
+    ];
     const usage = reading.source === "reactive" ? "reactive" : account.usage;
     const fresh = markFreshness(reading, ctx.now);
     const scope = accountEvidenceScope(account, s.hosts);
@@ -198,29 +271,80 @@ export async function computeStatus(
     if ((reading.error || reading.stale) && provider.eligibility.state === "eligible") {
       provider.eligibility = { ...provider.eligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
     }
+    // The runner's one usage record: limits and facts that cover its configured model scope.
+    const runnerLimit = pickLimit(snapshot.evidence.facts.budget.filter(f =>
+      f.value.name === "limit" && f.value.resetsAt !== null && appliesTo(f, runnerScope)));
+    provider.usageState = {
+      scope: { account: account.name, runner: runner.name },
+      source: reading.source ?? "unknown",
+      figure: figureOf(runnerLimit, binding),
+      windows,
+      limit: runnerLimit,
+      blockedRunners: [],
+      observedAt: observedAtOf(provider.eligibility, ctx.now),
+      freshness: freshnessOf(reading, binding, windows),
+      verdict: runnerLimit ? "EXHAUSTED" : verdict,
+      eligibility: provider.eligibility,
+      spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
+      error: reading.error ? { message: reading.error, at: reading.capturedAt ?? ctx.now } : null,
+    };
     return provider;
   });
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
-  const planner = byAccount[s.planner.account];
   const modeHold = readHold(ctx);
+  const plannerId = s.planner.agent === "opencode" && !s.accounts[s.planner.account] ? "opencode" : formatRunnerId({...s.planner, host: null}, {...runnerDefaults(s.accounts), opencode: undefined});
   const status: Status & { accounts: AccountStatus[] } = {
     policy: policySummary(ctx), paused: readPause(ctx), modeHold,
     generatedAt: ctx.now,
     strategy: s.name,
-    planner: s.planner.agent === "opencode" && !s.accounts[s.planner.account] ? "opencode" : formatRunnerId({...s.planner, host: null}, {...runnerDefaults(s.accounts), opencode: undefined}),
-    mode: modeHold?.mode ?? (planner ? plannerMode(planner.verdict) : "normal"),
+    planner: plannerId,
+    // Mode follows the active hold, else the planner's own runner record (ADR 0030).
+    mode: statusMode(modeHold, byId[plannerId]?.usageState),
     disabled: (ctx.env.PACER ?? "").toLowerCase() === "off",
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),
-    accounts: budgets.map(({ account, runners, binding, verdict, reading, eligibility, snapshot }) => ({
-      name: account.name, kind: account.kind, verdict, eligibility, evidence: snapshot.evidence,
-      usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
-      resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
-      stale: reading.stale, runners: runners.map(r => r.name),
-      source: reading.source ?? null, capturedAt: reading.capturedAt,
-      spendUsd: reading.spendUsd ?? null,
-      ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
-    })),
+    accounts: budgets.map((budget) => {
+      const { account, runners, binding, verdict, reading, snapshot, unlimited, usage, scope: accountScope } = budget;
+      // Account-name marks and facts cover the account scope; runner-scoped ones never do.
+      const accountLimit = pickLimit(snapshot.evidence.facts.budget.filter(f =>
+        f.value.name === "limit" && f.value.resetsAt !== null && appliesTo(f, accountScope)));
+      const blocked = blockedRunnersOf(accountScope, runners, snapshot, ctx.now, r => r.host ?? "local");
+      // EXHAUSTED when the account itself is limited, or every runner is quota-blocked for
+      // its configured model; otherwise the measured verdict. Auth never changes a verdict.
+      const everyRunnerBlocked = runners.length > 0 && runners.every(r =>
+        blocked.some(b => b.runner === r.name && b.model === (r.model ?? "default") && b.reason === "quota_failure"));
+      const accountVerdict: Verdict = accountLimit || everyRunnerBlocked ? "EXHAUSTED" : verdict;
+      let accountEligibility = evaluateEligibility({ now: ctx.now, scope: accountScope, usage, budgetRequired: !unlimited,
+        allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions: [] });
+      // A stale or failed reading is history for the account record too (D7).
+      if ((reading.error || reading.stale) && accountEligibility.state === "eligible") {
+        accountEligibility = { ...accountEligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
+      }
+      const record: UsageState = {
+        scope: { account: account.name },
+        source: reading.source ?? "unknown",
+        figure: figureOf(accountLimit, binding),
+        windows: budget.windows,
+        limit: accountLimit,
+        blockedRunners: blocked,
+        observedAt: observedAtOf(accountEligibility, ctx.now),
+        freshness: freshnessOf(reading, binding, budget.windows),
+        verdict: accountVerdict,
+        eligibility: accountEligibility,
+        spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
+        error: reading.error ? { message: reading.error, at: reading.capturedAt ?? ctx.now } : null,
+      };
+      return {
+        name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,
+        usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
+        resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
+        stale: reading.stale, runners: runners.map(r => r.name),
+        source: reading.source ?? null, capturedAt: reading.capturedAt,
+        spendUsd: reading.spendUsd ?? null,
+        usage: record,
+        ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
+      };
+    }),
     providers,
     executors: rankExecutors(null, s, byId),
   };
