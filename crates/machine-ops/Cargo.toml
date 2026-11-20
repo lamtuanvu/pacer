@@ -9,7 +9,9 @@ rust-version.workspace = true
 [dependencies]
 tokio.workspace = true
 serde_json.workspace = true
+ryu-js = "1"
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
 pacer-store = { path = "../store" }
 ring = "0.17"
 sha2 = "0.10"

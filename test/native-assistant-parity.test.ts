@@ -172,9 +172,9 @@ test("native assistant leaves cached-status admission and TypeScript-only inputs
   const home = mkdtempSync(join(tmpdir(), "native-as-"));
   unusable(home);
   await expect(callOp(fakeCtx({pacerHome: home, home, now: NOW, env: {}}), "assistant.settings.get", {})).rejects.toThrow();
-  // assistant.ask, assistant.cancel and assistant.tool are not registered natively: the first two
-  // drive the plugin and the stream, the third needs a live turn's tool context in the core.
-  for (const op of ["assistant.ask", "assistant.cancel", "assistant.tool", "assistant.selftest"]) {
+  // assistant.tool needs a live turn's tool context in the core, and assistant.selftest its agent CLI.
+  // assistant.ask and assistant.cancel are covered by test/native-assistant-turn-parity.test.ts.
+  for (const op of ["assistant.tool", "assistant.selftest"]) {
     expect(() => execFileSync(driver(), [], {input: `${JSON.stringify({op, params: {turnId: "turn-1", name: "snapshot", params: {}}, home, now: NOW})}\n`, stdio: ["pipe", "pipe", "ignore"]}), op).toThrow();
   }
 });

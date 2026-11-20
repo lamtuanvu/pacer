@@ -18,6 +18,8 @@ pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
     op == "config.set"
         || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
         || pacer_task_ops::task_delegation_ops::is_delegation_op(op)
+        || crate::native::client_ops::is_client_op(op)
+        || crate::native::terminal_ops::uses_bridge(op)
 }
 
 #[cfg(test)]
@@ -56,10 +58,26 @@ mod tests {
     }
 
     #[test]
-    fn only_lifecycle_ops_and_config_set_forward_bodies_serde_rejects() {
-        for op in lifecycle_ops::LIFECYCLE_OPS.iter().chain(&["config.set"]) {
+    fn only_forwarded_ops_and_config_set_forward_bodies_serde_rejects() {
+        const TERMINAL: [&str; 4] = [
+            "terminal.list",
+            "terminal.create",
+            "terminal.rename",
+            "terminal.close",
+        ];
+        for op in lifecycle_ops::LIFECYCLE_OPS
+            .iter()
+            .chain(&["config.set"])
+            .chain(crate::native::client_ops::CLIENT_OPS)
+            .chain(TERMINAL.iter())
+        {
             assert!(forwards_undecodable_body(op));
         }
+        assert!(
+            TERMINAL
+                .iter()
+                .all(|op| crate::native::terminal_ops::uses_bridge(op))
+        );
         assert!(!forwards_undecodable_body("dispatch.tree"));
         assert!(!forwards_undecodable_body("task.wait"));
     }

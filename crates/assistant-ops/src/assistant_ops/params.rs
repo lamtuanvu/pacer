@@ -3,7 +3,7 @@
 use super::MAX_SAFE;
 use pacer_foundation::api::{Code, CoreError};
 use pacer_store::assistant::{Field, LIMITS, RETENTION};
-use serde_json::{Map, Value};
+use serde_json::{Map, Value, json};
 
 const STATES: [&str; 4] = ["done", "failed", "dismissed", "stale"];
 const BACKENDS: [&str; 2] = ["pacer", "executor"];
@@ -31,6 +31,7 @@ pub(crate) enum Params {
         state: String,
         result: Option<String>,
     },
+    Ask(Value),
 }
 
 fn received(value: Option<&Value>) -> &'static str {
@@ -158,6 +159,44 @@ impl Issues {
         }
     }
 
+    /// `scopeSchema`: a discriminated union on `kind`, with `days` defaulting to 7.
+    fn scope(&mut self, value: Option<&Value>) -> Option<Value> {
+        let Some(Value::Object(scope)) = value else {
+            self.push(
+                "scope",
+                format_args!(
+                    "Invalid input: expected object, received {}",
+                    received(value)
+                ),
+            );
+            return None;
+        };
+        match scope.get("kind").and_then(Value::as_str) {
+            Some("dispatch") => {
+                let days = match scope.get("days") {
+                    None => Some(7),
+                    days => self.int("scope.days", days, 1, false, Some(90)),
+                };
+                Some(json!({"kind": "dispatch", "days": days?}))
+            }
+            Some("task") => {
+                let id = self.string("scope.id", scope.get("id"), 1, 128)?;
+                Some(json!({"kind": "task", "id": id}))
+            }
+            Some("repo") => {
+                let repo = self.string("scope.repo", scope.get("repo"), 1, 4096)?;
+                Some(json!({"kind": "repo", "repo": repo}))
+            }
+            _ => {
+                self.push(
+                    "scope.kind",
+                    "Invalid discriminator value. Expected 'dispatch' | 'task' | 'repo'",
+                );
+                None
+            }
+        }
+    }
+
     fn finish<T>(self, value: T) -> Result<T, CoreError> {
         if self.0.is_empty() {
             Ok(value)
@@ -239,7 +278,23 @@ pub(crate) fn parse(op: &str, params: Value) -> Result<Params, CoreError> {
             Params::Page { before, limit }
         }
         "assistant.conversation" => Params::Id(issues.string("id", p.get("id"), 1, 128)),
-        "assistant.turn" => Params::Id(issues.string("turnId", p.get("turnId"), 1, 128)),
+        "assistant.turn" | "assistant.cancel" => {
+            Params::Id(issues.string("turnId", p.get("turnId"), 1, 128))
+        }
+        "assistant.ask" => {
+            let conversation = match p.get("conversationId") {
+                None => None,
+                v => issues.string("conversationId", v, 1, 128),
+            };
+            let text = issues.string("text", p.get("text"), 1, 4000);
+            let scope = issues.scope(p.get("scope"));
+            let request = issues.string("requestId", p.get("requestId"), 1, 128);
+            let mut ask = json!({"text": text, "scope": scope, "requestId": request});
+            if let Some(conversation) = conversation {
+                ask["conversationId"] = Value::String(conversation);
+            }
+            Params::Ask(ask)
+        }
         "assistant.delete" => Params::Id(match p.get("id") {
             None => None,
             v => issues.string("id", v, 1, 128),

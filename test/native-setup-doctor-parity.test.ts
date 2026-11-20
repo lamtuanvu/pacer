@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { execFileSync } from "node:child_process";
-import { chmodSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
@@ -11,13 +11,13 @@ import { keychainStubPath } from "./keychain-stub";
 import { fakeCtx, tmpDir } from "./helpers";
 import { closedPort, pinnedEnv, spawnPinned } from "./pinned-port";
 
-// Native setup.health and doctor.run against the same requests forced through
+// Native setup.check, setup.health and doctor.run against the same requests forced through
 // PACER_FORWARD_OPS to the TypeScript core, over the real stdio and HTTP front doors.
 
 const root = join(import.meta.dir, "..");
 const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
-const OPS = "setup.health,doctor.run";
+const OPS = "setup.check,setup.health,doctor.run";
 const STRATEGY = "planner: claude-code\nproviders:\n  claude-code: {usage: quota}\n  codex: {}\nrouting:\n  - default: [codex]\n";
 let driver: string | undefined;
 
@@ -74,20 +74,21 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
     expect(code, stderr).toBe(0);
     const lines = stdout.trim().split("\n").map(line => JSON.parse(line));
     expect(lines[0].result?.protocol).toBe("3.0.0");
-    const markers = stderr.split("\n").filter(line => /^native (setup\.health|doctor\.run) \d+$/.test(line));
+    const markers = stderr.split("\n").filter(line => /^native (setup\.check|setup\.health|doctor\.run) \d+$/.test(line));
     return { replies: lines.slice(1).sort((a, b) => a.id - b.id), markers };
   } finally { if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; } }
 }
 
 /**
- * Replies with this home, wall-clock times, the gate's run time and the measured link
+ * Replies with this home, wall-clock times, the gate's run time, the serve owner's pid and the measured link
  * latency (whose level and the remedy a warning adds are its own threshold) replaced;
  * everything else compares exactly.
  */
 function normalize(value: unknown, dir: string) {
   return JSON.parse(JSON.stringify(value).replaceAll(dir, "$HOME")
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
-    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"'), (_key, item) => {
+    .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
+    .replace(/owner pid \d+/g, "owner pid <pid>"), (_key, item) => {
     if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
     const { remedy: _remedy, ...check } = item;
     return { ...check, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
@@ -97,6 +98,7 @@ function normalize(value: unknown, dir: string) {
 const stored = (dir: string) => normalize(JSON.parse(readFileSync(join(dir, ".pacer", "setup-health.json"), "utf8")), dir);
 
 const ERRORS: [string, unknown][] = [
+  ["setup.check", 5], ["setup.check", "s"], ["setup.check", []],
   ["setup.health", { trigger: "nope" }], ["setup.health", { trigger: null }], ["setup.health", "s"], ["setup.health", []],
   ["doctor.run", 5], ["doctor.run", "s"], ["doctor.run", []],
 ];
@@ -128,12 +130,25 @@ test("setup doctor bridge refuses other operations", async () => {
   }
 });
 
+test("setup doctor bridge returns Core's parts and keeps the enforcement refusal", async () => {
+  const dir = home();
+  const ctx = fakeCtx({ home: dir, pacerHome: join(dir, ".pacer"), now: 1_700_000_000, which: () => null });
+  const doctor = await setupDoctorBridge(ctx, { op: "doctor.run", params: {} }) as Record<string, unknown>;
+  expect(Object.keys(doctor)).toEqual(["doctor"]);
+  const gate = await setupDoctorBridge(ctx, { op: "setup.health", params: {}, snapshotProbe: false }) as Record<string, unknown>;
+  expect(Object.keys(gate)).toEqual(["doctor", "facts", "version", "integrationHashes"]);
+  expect(existsSync(join(dir, ".pacer", "setup-health.json"))).toBe(false);
+  expect(existsSync(join(dir, ".pacer", "diagnostics", "doctor-latest.json"))).toBe(false);
+  const refused = { ...ctx, env: { ...ctx.env, PACER_ENFORCEMENT_TOKEN: "pet_x" } };
+  await expect(setupDoctorBridge(refused, { op: "doctor.run", params: {} })).rejects.toMatchObject({ code: "not_allowed" });
+}, 120000);
+
 test.skipIf(!front)("stdio doctor and health reports, errors and refusals match forced forwarding", async () => {
   const homes = [home(), home()];
   const runs: { replies: unknown[]; markers: string[] }[][] = [[], []];
   // Each gate run reads the previous run's fingerprint, so the runs go one exchange at a time.
   const steps: [string, unknown][][] = [
-    [["doctor.run", {}], ["doctor.run", { extra: 1 }], ["doctor.run", null], ...ERRORS],
+    [["doctor.run", {}], ["doctor.run", { extra: 1 }], ["doctor.run", null], ...ERRORS, ["setup.check", {}], ["setup.check", null], ["setup.check", { extra: 1 }]],
     [["setup.health", { trigger: "startup" }]], [["setup.health", {}]], [["setup.health", { trigger: "update", x: 1 }]], [["setup.health", null]],
   ];
   for (const [i, forward] of [false, true].entries()) {
@@ -145,12 +160,13 @@ test.skipIf(!front)("stdio doctor and health reports, errors and refusals match 
   expect(stored(homes[0]!)).toEqual(stored(homes[1]!));
   expect(runs[1]!.flatMap(run => run.markers)).toEqual([]);
   expect(runs[0]!.slice(0, 5).map(run => run.markers)).toEqual([
-    ["native doctor.run 2", "native doctor.run 3", "native doctor.run 4"],
+    ["native doctor.run 2", "native doctor.run 3", "native doctor.run 4", `native setup.check ${5 + ERRORS.length}`, `native setup.check ${6 + ERRORS.length}`, `native setup.check ${7 + ERRORS.length}`],
     ["native setup.health 2"], ["native setup.health 2"], ["native setup.health 2"], ["native setup.health 2"],
   ]);
   const replies = forwarded as { result?: { checks?: unknown[]; steps?: unknown[] }; error?: { data?: { code?: string } } }[][];
   expect(replies[0]![0]!.result!.checks!.length).toBeGreaterThan(5);
-  expect(replies[0]!.slice(3).map(reply => reply.error?.data?.code)).toEqual(ERRORS.map(() => "invalid_input"));
+  expect(replies[0]!.slice(3, 3 + ERRORS.length).map(reply => reply.error?.data?.code)).toEqual(ERRORS.map(() => "invalid_input"));
+  expect((replies[0]![3 + ERRORS.length] as { result?: { items?: unknown[] } }).result!.items!.length).toBeGreaterThan(7);
   expect(replies[1]![0]!.result!.steps!.length).toBe(6);
   expect(replies[5]!.map(reply => reply.error?.data?.code)).toEqual(["not_allowed", "not_allowed"]);
 }, 180000);
@@ -178,7 +194,7 @@ async function serve(dir: string, forward: boolean) {
     },
     bearer: { Authorization: `Bearer ${token}` },
     app: (cookie: string) => ({ Cookie: `pacer_session=${cookie}`, Origin: base, "X-Pacer-Client": "app" }),
-    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native (setup\.health|doctor\.run)$/.test(line)); },
+    stop: async () => { child.kill("SIGTERM"); await child.exited; return (await stderr).split("\n").filter(line => /^native (setup\.check|setup\.health|doctor\.run)$/.test(line)); },
   };
 }
 
@@ -198,17 +214,20 @@ test.skipIf(!front)("HTTP doctor and health reports, errors and refusals match f
       await server.post("doctor.run", 5, server.bearer),
       await server.post("doctor.run", {}, {}),
       await server.post("setup.health", {}, { Authorization: "Bearer wrong" }),
+      await server.post("setup.check", {}, server.bearer),
+      await server.post("setup.check", { extra: 1 }, server.bearer),
     ];
     results.push({ bodies: normalize(bodies, dir), markers: await server.stop(), stored: stored(dir) });
   }
   expect(results[0]!.bodies).toEqual(results[1]!.bodies);
   expect(results[0]!.stored).toEqual(results[1]!.stored);
   expect(results[1]!.markers).toEqual([]);
-  expect(results[0]!.markers).toEqual(["doctor.run", "doctor.run", "setup.health", "setup.health"].map(op => `native ${op}`));
+  expect(results[0]!.markers).toEqual(["doctor.run", "doctor.run", "setup.health", "setup.health", "setup.check", "setup.check"].map(op => `native ${op}`));
   const bodies = results[1]!.bodies as { status: number; body: { result?: { checks?: unknown[]; steps?: unknown[] } } }[];
   expect(bodies.slice(0, 4).map(b => b.status)).toEqual([200, 200, 200, 200]);
   expect(bodies[0]!.body.result!.checks!.length).toBeGreaterThan(5);
   expect(bodies[2]!.body.result!.steps!.length).toBe(6);
   expect(bodies.slice(4, 6).map(b => b.status)).toEqual([400, 400]);
-  expect(bodies.slice(6).map(b => b.status)).toEqual([401, 401]);
+  expect(bodies.slice(6, 8).map(b => b.status)).toEqual([401, 401]);
+  expect(bodies.slice(8).map(b => b.status)).toEqual([200, 200]);
 }, 180000);

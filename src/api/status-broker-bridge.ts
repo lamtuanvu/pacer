@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { loadStrategy } from "../config/strategy";
+import { loadStrategySnapshot } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { computeStatus, statusBrokerParts } from "../engine/status";
 import { draftStatuses } from "../strategy/service";
@@ -27,6 +27,9 @@ export async function statusBrokerPartsFor(ctx: Ctx, input: unknown) {
     return { current: statusBrokerParts(statuses.currentStatus),
       ...(statuses.draft ? { draft: statusBrokerParts(statuses.draft.status) } : { errors: statuses.errors }) };
   }
-  const strategy = loadStrategy(ctx);
-  return statusBrokerParts(await (cacheOnly ? computeStatus({ ...ctx, readOnly: true }, strategy, { cacheOnly: true }) : computeStatus(ctx, strategy)));
+  const strategy = loadStrategySnapshot(ctx);
+  // The strategy text the parts were computed against; the native status ops parse
+  // the same snapshot so rows and runners never pair with a reloaded strategy.
+  return { ...statusBrokerParts(await (cacheOnly ? computeStatus({ ...ctx, readOnly: true }, strategy.strategy, { cacheOnly: true }) : computeStatus(ctx, strategy.strategy))),
+    strategy: { path: strategy.path, name: strategy.name, text: strategy.text } };
 }
