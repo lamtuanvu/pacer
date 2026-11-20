@@ -223,7 +223,7 @@ Rules: no cycles except bounded retry edges that the limits allow; nesting depth
 - A run keeps the step mode it started with, for its whole life: a `plain` run starts its remaining steps as plain tasks, and a `work_node` run starts them as children of its root. The tick settles both kinds the same way, because both reach the engine through `task_changes` and a step row.
 - A `plain` run cannot reach a `generate` step: such a definition needs Phase 3 to validate at all, and a run is pinned to the definition version it started with.
 - The upgrade itself needs no data migration beyond the new column. Running step tasks survive a service upgrade through the existing [running-work handover](2026-10-29-service-upgrade-with-running-work-design.md), and the tick resumes from its cursor.
-- The plain path stays while any `plain` run is live. A later release may remove it once a start-up check finds none. Whether it should instead fail leftover plain runs with a "restart this run" reason is listed under "Decisions needed".
+- The plain path stays while any `plain` run is live. A later release may remove it once a start-up check finds none. The maintainer chose this over failing or converting leftover plain runs (D8).
 
 **Re-planning.** When a task in a generated plan still fails after dispatcher fallback, the run's `replan` policy applies. Options per workflow: `auto: N, then: ask` or `ask`. On re-plan the orchestrator writes a new version covering the unfinished steps; finished steps are kept; the person sees a summary of what changed. The first workflow uses `auto: 1, then: ask`.
 
@@ -279,7 +279,7 @@ While the orchestrator is unavailable, executor steps keep running and the engin
 
 A run keeps the planner it started with. Changing the global planner affects new runs only. `run.set_planner { id, planner, expect_rev }` switches one run, and it takes effect at the next turn boundary, never during a turn.
 
-Native sessions cannot move between agents, so the new planner starts a new session. Its first turn gets a handover prompt built from durable state: the brief, the definition, step results, the decisions with their reasons, open questions and the latest "since you last looked" summary. The handover is capped at 32 KiB and the data in it is fenced with data markers. The switch is recorded as a decision. Whether the engine may switch planners by itself when the planner is exhausted is listed under "Decisions needed".
+Native sessions cannot move between agents, so the new planner starts a new session. Its first turn gets a handover prompt built from durable state: the brief, the definition, step results, the decisions with their reasons, open questions and the latest "since you last looked" summary. The handover is capped at 32 KiB and the data in it is fenced with data markers. The switch is recorded as a decision. The engine never switches planners by itself; an exhausted planner makes the run wait (D2).
 
 ### Auto mode
 
@@ -307,7 +307,7 @@ Rule: **agents talk and read freely; only the owning orchestrator acts on a task
 
 - Any workflow participant may message any other agent, in its own run or another, and may read other tasks' logs, results and artifacts and other runs' state.
 - Only the root run's orchestrator (or the person) may change that run's work. To affect another run, an orchestrator messages that run's orchestrator.
-- This widens [ADR 0011](../decisions/0011-agent-messaging.md)'s default guardrail for workflow participants. Today's default (decision 2) lets top-level sessions message their direct children and other top-level sessions; lets children message their parent and, with a work grant, their siblings and their own children; lets anyone message the human; and lets the human message anyone. The wider route includes messages to another run's executors. The maintainer chose this behaviour in the design discussion; the ADR 0011 amendment that records it still needs the maintainer's approval. ADR 0011's existing rate and cap guardrails still apply to every route, and they are what bounds the cost of message turns between runs. The guardrails stay configurable, so the person can tighten them; the frame adds no restrictions of its own.
+- This widens [ADR 0011](../decisions/0011-agent-messaging.md)'s default guardrail for workflow participants. Today's default (decision 2) lets top-level sessions message their direct children and other top-level sessions; lets children message their parent and, with a work grant, their siblings and their own children; lets anyone message the human; and lets the human message anyone. The wider route includes messages to another run's executors. The maintainer chose this behaviour in the design discussion and approved the ADR 0011 amendment that records it on 2026-11-20. ADR 0011's existing rate and cap guardrails still apply to every route, and they are what bounds the cost of message turns between runs. The guardrails stay configurable, so the person can tighten them; the frame adds no restrictions of its own.
 
 ### Several runs at once
 
@@ -325,7 +325,7 @@ Orchestrator turns and message turns between runs are spent on the planner's sub
 - **Per-run budget.** A run has `budget: { orchestrator_turns, message_turns }`. A workflow sets its defaults in `policy.budget`, `run.start` may override them, and `run.set_budget` changes them during the run (with `expect_rev`). Proposed defaults are 60 orchestrator turns and 20 message turns per root run; child runs share their root's budget.
 - **What counts.** Each orchestrator turn counts 1, whatever woke it. A message from a run participant that causes a metered resume turn in *another* run's agent counts 1 against the sender's run. Messages inside a run, and turns the person starts by typing in an interactive lane, do not count.
 - **Spending less.** Only decision points wake the orchestrator (see "Wake-ups and turns are durable"). Wake-ups that arrive within 30 seconds of each other share one turn, except those the person causes, which start a turn at once. A "since you last looked" summary is written at most once per return, and only when something changed. A message to an executor in another run is queued for that executor's next turn, rather than forcing a resume, unless the executor is idle.
-- **At the limit.** At 80% of either budget the run shows an informational attention item. At 100% the run pauses at its next step boundary with the reason `turn budget spent`. The person can raise the budget or stop the run. Answering a `must` step never needs budget.
+- **At the limit.** At 80% of either budget the run shows an informational attention item. At 100% the orchestrator starts no more turns, and the person gets a `must` question: raise the budget, or stop the run (D3). The run does not pause: steps already running finish, and the engine keeps advancing edges it can evaluate by itself, so only decisions wait for the answer. The orchestrator block shows `turn budget spent`. Answering a `must` step never needs budget.
 
 How pacing modes apply:
 
@@ -383,7 +383,7 @@ Publishing is outward-facing, so `run.publish` checks a gate itself; holding the
 - **An approval step.** A `human` step may declare `approves: publish`. The validator requires such a step to be `decision: must`, and the engine records its approving answer as a `publish_approved` decision on the run. `run.publish` requires that decision, newer than the run branch's last change, so a later merge needs a new approval.
 - **A draft opt-in.** The person passed `publish: draft` to `run.start`, which allows draft PRs only.
 
-A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The default is listed under "Decisions needed".
+A workflow cannot loosen this. The PR step therefore comes *after* its approval step. The maintainer chose this gate (D5).
 
 **Merge commits** are made with `git merge --no-ff`. When the repository requires sign-off (as pacer does), a repository setting adds `--signoff`, so merge commits carry the person's sign-off. Squash-merging the PR upstream is the repository's own choice.
 
@@ -488,7 +488,7 @@ An agent-driven test is an ordinary `agent` step whose agent drives the real pro
 
    The engine checks that the three counts match `surfaces`, and refuses the result if they do not. Edge conditions read it like any result, for example `result.failed == 0 and result.unverified == 0`. An `unverified` surface is never counted as passed.
 2. **Artifacts.** `step.artifact { path, label }` copies a file from the asking task's worktree or evidence directory into the run's artifact store under `PACER_HOME`. That store is per run and per step, with 10 MiB per file and 200 MiB per run. The call returns an `art_` id that results and the UI refer to. Board 5 draws captures and reports from these ids.
-3. **Tool routing.** A step may declare `needs: [browser]`, `[desktop]` or `[tui]`. The dispatcher then picks only executors whose configuration advertises that tool. How executors advertise tools is listed under "Decisions needed".
+3. **Tool routing.** A step may declare `needs: [browser]`, `[desktop]` or `[tui]`. The dispatcher then picks only executors whose configuration advertises that tool. Executors advertise tools in a `tools` list in their runner configuration, which the dispatcher matches (D9).
 
 For pacer's own `pacer-dev` workflow, the test step's prompt has the agent:
 
@@ -507,24 +507,26 @@ The harness's real-install guard applies to the agent as it does to a person, an
 - The retry intervals, deadlines and coalescing windows above, which are proposed starting values.
 - The order of delivery: core and CLI first, then TUI, then web and desktop.
 
-## Decisions needed
+## Decisions
 
-These choices are the maintainer's. Each lists the options, with the recommendation first, and the phase that waits on it. The two pending amendments, API-5b (Phase 2) and the ADR 0011 amendments (Phase 6), are listed under Follow-ups.
+The maintainer decided these on 2026-11-20. The table keeps the options considered.
 
-| # | Decision | Options (recommendation first) | Blocks |
-| --- | --- | --- | --- |
-| D1 | When the orchestrator keeps failing | (a) retry after 1, 5 and 15 minutes, then ask the person; (b) retry indefinitely with backoff; (c) fail the run after the third failure | Phase 2 |
-| D2 | Planner exhausted or switched globally during a run | (a) the run keeps its planner, and the person switches per run with `run.set_planner`; (b) fall back automatically to the next eligible agent in `PLANNERS`; (c) ask the person each time | Phase 2 |
-| D3 | Default per-run budget | (a) 60 orchestrator turns and 20 cross-run message turns per root run, pausing at the limit; (b) no default budget, only pacing; (c) ask the person at the limit instead of pausing | Phase 2 |
-| D4 | Urgent runs under strict and emergency pacing | (a) urgent runs keep normal wake-ups under strict, and in emergency only urgent runs and the person's own actions wake an orchestrator; (b) every run is treated the same under pacing; (c) urgent runs ignore pacing | Phase 6 |
-| D5 | Who may push and open the PR | (a) only after a `must` step approves it, or as a draft when the person opts in at `run.start`; (b) always a `must` step; (c) the workflow decides | Phase 5 |
-| D6 | How accepted tasks enter the run branch | (a) `git merge --no-ff`, adding `--signoff` where the repository requires it; (b) rebase onto the run branch, then fast-forward; (c) squash each task | Phase 5 |
-| D7 | How long a run branch is kept | (a) until the person deletes it with `run.cleanup`; (b) delete it automatically N days after its PR merges; (c) delete it when the run ends without a PR | Phase 5 |
-| D8 | Phase 1 runs still live when Phase 3 ships | (a) pin each run to its step mode and keep the plain path while any plain run is live; (b) fail them with a "restart this run" reason at upgrade; (c) convert them to work nodes in place | Phase 3 |
-| D9 | How executors advertise tools for agent-driven tests (`needs: browser`) | (a) a `tools` list in the runner's configuration, which the dispatcher matches; (b) the workflow names the executor directly; (c) no routing, so the agent reports `unverified` when it lacks the tool | Phase 5 (test steps) and Phase 7 |
-| D10 | Run questions on the v2 API and on the existing attention surfaces | (a) `/v3`-only items carrying the run's identity, which existing v3 clients show as ordinary items; (b) hidden everywhere except the Runs page; (c) also given to v2 clients as plain questions | Phase 4 |
-| D11 | Where the generated Rust run types live | (a) a new area crate, `crates/workflow-protocol`, from Phase 2; (b) leave them in `crates/client-protocol` | Phase 2 |
-| D12 | Consent for workflows from installed plugins | (a) once at install, and again when a later version adds a workflow; (b) once at install only; (c) for every new workflow version | Phase 7 |
+| # | Decision | Chosen | Other options considered | Phase |
+| --- | --- | --- | --- | --- |
+| D1 | When the orchestrator keeps failing | Retry after 1, 5 and 15 minutes, then ask the person (retry now, switch planner, stop) | retry indefinitely; fail the run after the third failure | 2 |
+| D2 | Planner exhausted or switched globally during a run | The run keeps its planner; the person switches per run with `run.set_planner` | automatic fallback to the next agent in `PLANNERS`; ask each time | 2 |
+| D3 | Default per-run budget | 60 orchestrator turns and 20 cross-run message turns per root run; at the limit, ask the person instead of pausing | pause at the limit; no default budget | 2 |
+| D4 | Urgent runs under strict and emergency pacing | As in the pacing table under "Cost control" | every run treated the same; urgent runs ignore pacing | 6 |
+| D5 | Who may push and open the PR | After a `must` step marked `approves: publish`, or as a draft when the person opts in at `run.start` | always a `must` step; the workflow decides | 5 |
+| D6 | How accepted tasks enter the run branch | `git merge --no-ff`, with `--signoff` where the repository requires it | rebase and fast-forward; squash each task | 5 |
+| D7 | How long a run branch is kept | Until the person deletes it with `run.cleanup` | delete N days after its PR merges; delete when the run ends without a PR | 5 |
+| D8 | Phase 1 runs still live when Phase 3 ships | Pin each run to its step mode; keep the plain path while any plain run is live | fail them at upgrade; convert them in place | 3 |
+| D9 | How executors advertise tools for agent-driven tests | A `tools` list in the runner configuration, matched by the dispatcher | the workflow names the executor; no routing | 5, 7 |
+| D10 | Run questions on v2 and the existing attention surfaces | `/v3`-only items carrying the run's identity | Runs page only; also on v2 as plain questions | 4 |
+| D11 | Where the generated Rust run types live | A new area crate, `crates/workflow-protocol`, from Phase 2 | stay in `crates/client-protocol` | 2 |
+| D12 | Consent for workflows from installed plugins | At install, and again when a later version adds a workflow | at install only; for every new workflow version | 7 |
+
+The maintainer also approved, on 2026-11-20, the API-5b rule amendment (the per-turn `prg_` run grant) and both ADR 0011 amendments (the wider route for run participants, and interactive orchestrator turns). They take effect when [ADR 0029](../decisions/0029-workflow-frame.md) merges.
 
 ## Calls made in this design without an explicit decision from the maintainer
 
@@ -554,5 +556,5 @@ These choices are the maintainer's. Each lists the options, with the recommendat
 
 ## Follow-ups
 
-- ADR: [0029 workflow frame](../decisions/0029-workflow-frame.md), including the ADR 0011 amendments and the API-5b rule amendment, all awaiting the maintainer's approval.
+- ADR: [0029 workflow frame](../decisions/0029-workflow-frame.md), including the ADR 0011 amendments and the API-5b rule amendment, approved by the maintainer on 2026-11-20 and in effect when the ADR merges.
 - Live validation (CT-11) and project review (REPO-10) for each implementation PR.

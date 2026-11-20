@@ -2,7 +2,7 @@
 
 Date: 2026-11-19
 
-Status: Proposed. Accepted when the maintainer merges it. The ADR 0011 amendments and the API-5b rule amendment below each need the maintainer's approval before the phase that uses them merges.
+Status: Proposed. Accepted when the maintainer merges it. The maintainer approved the ADR 0011 amendments and the API-5b rule amendment below on 2026-11-20; they take effect when this ADR merges. The open design choices (D1 to D12) were decided the same day and are recorded in the spec's "Decisions" section.
 
 Source: [workflow frame design](../specs/2026-11-19-workflow-frame-design.md).
 
@@ -24,7 +24,7 @@ pacer runs and tracks single tasks, and the work dispatcher ([ADR 0006](0006-int
 10. **Executors gain one workflow operation.** Besides `step.result`, an executor whose task belongs to a run may call `step.artifact` for its own step. No other executor grant changes.
 11. **Workflow plugins extend consent.** A plugin's consent records the workflows it contributes, and a version that adds a workflow asks again. This extends the [plugin system design](../specs/2026-10-19-plugin-system-design.md)'s rule, which asks again only for new capabilities.
 
-## Rule amendment API-5b (needs maintainer approval)
+## Rule amendment API-5b (approved by the maintainer on 2026-11-20)
 
 API-5 lets an executor delegate only through a service-issued task/attempt grant, and API-5a adds the assistant grant as a separate credential. The orchestrator's run grant is a third credential:
 
@@ -33,7 +33,7 @@ API-5 lets an executor delegate only through a service-issued task/attempt grant
 - it authorizes only review, send-back, retry, stop, skip, escalate, sub-workflow submission, workflow choice, step results, step artifacts and answers, and from Phase 5 `run.sync_base` and `run.publish`, and only on tasks, steps and questions of its own run. `run.publish` also checks its own publishing gate (a recorded `must` approval, or the person's draft opt-in), so the grant alone never publishes. `authorizeWorkOperation` answers for it first and refuses everything else;
 - an unknown, expired or revoked `prg_` fails closed (403 at the HTTP gate, `not_allowed` from the core) and is never treated as an executor or the operator.
 
-## Amendments to [ADR 0011](0011-agent-messaging.md) (need maintainer approval)
+## Amendments to [ADR 0011](0011-agent-messaging.md) (approved by the maintainer on 2026-11-20)
 
 - **A wider default route for run participants.** The orchestrator and the agents in a run may message any agent, in their own run or another, and may read other runs' state. Only the owning orchestrator, or the person, may change a run's work. The existing rate and cap guardrails still bound every route, and the routing guardrails stay configurable. This applies only to run participants.
 - **Interactive orchestrator turns.** Decision 6 has managed roots default to headless launches. An orchestrator turn for a step that the workflow marks `interactive` (for example, brainstorming with the person) runs in an interactive lane instead. This exception is limited to those turns.
