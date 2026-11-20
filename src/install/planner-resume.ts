@@ -12,7 +12,8 @@ import type { Ctx } from "../types";
 export interface PlannerReach { kind: PlannerKind; session?: string; cwd: string }
 export interface ResumeSpawn { argv: string[]; cwd: string; env: Record<string, string | undefined>; log: string }
 export type ResumeSpawner = (o: ResumeSpawn) => number | undefined;
-export interface ResumeDeps { task: string; isAlive: () => Promise<boolean>; spawn?: ResumeSpawner }
+/** `readDirs`: folders the turn may read besides its own, such as the task worktree it reviews. */
+export interface ResumeDeps { task: string; isAlive: () => Promise<boolean>; spawn?: ResumeSpawner; readDirs?: string[] }
 
 /** A session id is a local input, never a flag: both CLIs parse a leading `-` as an option otherwise. */
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
@@ -29,11 +30,13 @@ export const RESUME_DECISION_COMMANDS = ["pacer review", "pacer msg inbox", "pac
 export const RESUME_ALLOWED_TOOLS = [...RESUME_DECISION_COMMANDS.map(c => `Bash(${c}:*)`), "Read", "Grep", "Glob"];
 export const RESUME_DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "mcp__*"];
 
-export function resumeArgv(kind: PlannerKind, session: string, prompt: string): string[] | null {
+export function resumeArgv(kind: PlannerKind, session: string, prompt: string, readDirs: string[] = []): string[] | null {
   if (!SESSION_ID.test(session)) return null;
   // --restricted ignores user, project and local settings (their allow rules and hooks) and keeps only the named tools.
   if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--restricted", "--permission-mode", "dontAsk",
     "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config",
+    // Restricted mode confines file tools to the working folders; the reviewed worktree is added read-only (no Edit/Write).
+    ...readDirs.filter(d => isAbsolute(d)).flatMap(d => ["--add-dir", d]),
     "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS, "--", prompt];
   if (kind === "codex") return ["codex", "exec", "resume", "--", session, prompt];
   return null;
@@ -76,7 +79,7 @@ export const spawnResume: ResumeSpawner = ({ argv, cwd, env, log }) => {
 export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string, deps: ResumeDeps): Promise<"resumed" | "busy" | "unavailable"> {
   if (await deps.isAlive()) return "unavailable";
   const session = nativeSession(reach.kind, reach.session ?? "");
-  const argv = resumeArgv(reach.kind, session, prompt);
+  const argv = resumeArgv(reach.kind, session, prompt, deps.readDirs);
   if (!argv) return "unavailable";
   if (!isAbsolute(reach.cwd) || !statSync(reach.cwd, { throwIfNoEntry: false })?.isDirectory()) return "unavailable";
   const dir = join(ctx.pacerHome, "runs", `caller-${segment(session)}`);

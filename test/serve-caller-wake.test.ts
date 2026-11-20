@@ -100,6 +100,7 @@ test("a session reopened by id, from a subfolder, through npm, or with a fresh t
     : lsofDir === null ? { code: 1, stdout: "", stderr: "" } : { code: 0, stdout: `p1\nn${lsofDir}\n`, stderr: "" }) as never;
   const other = tmpDir();
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude --resume s1", other) }, cwd, "s1")).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude --resume s1", other) }, cwd, "claude-code:s1")).toBe(true);
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude", sub) }, cwd, "s1")).toBe(true);
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 node node /usr/lib/node_modules/@anthropic-ai/claude-code/cli.js", cwd) }, cwd, "s1")).toBe(true);
   expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: ps("  7 /opt/homebrew/bin/claude claude", null) }, cwd, "s1")).toBe(true);

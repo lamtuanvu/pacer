@@ -113,4 +113,5 @@ test("a resumed caller session may only review and decide", async () => {
     expect(r.err).toContain("may only review and decide");
   }
   expect((await main(["tasks", "--json"], { ...ctx, env })).err).not.toContain("may only review and decide");
+  expect((await main(["guard"], { ...ctx, env })).err).not.toContain("may only review and decide");
 });

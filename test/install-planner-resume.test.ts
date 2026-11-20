@@ -185,3 +185,10 @@ test("the resumed turn may only read and record a decision", () => {
   expect(argv).not.toContain("--setting-sources");
   expect(argv[argv.indexOf("--tools") + 1]).toBe("Bash,Read,Grep,Glob");
 });
+
+test("the reviewed worktree is readable through --add-dir, and only absolute folders are added", () => {
+  const argv = resumeArgv("claude-code", "a1b2", "review", ["/w/t-1", "relative"])!;
+  expect(argv.slice(argv.indexOf("--add-dir"), argv.indexOf("--add-dir") + 2)).toEqual(["--add-dir", "/w/t-1"]);
+  expect(argv.filter(a => a === "--add-dir")).toHaveLength(1);
+  expect(argv.indexOf("--add-dir")).toBeLessThan(argv.indexOf("--"));
+});

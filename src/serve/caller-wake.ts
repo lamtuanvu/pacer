@@ -42,7 +42,9 @@ export function executorWroteCallerCwd(ctx: Ctx, taskId: string, cwd: string): b
  * arguments, one working in the caller folder or below it, or the session's transcript written in the last
  * ten minutes. An unreadable process list fails safe.
  */
-export async function plannerOpenInCwd(ctx: Ctx, cwd: string, session?: string): Promise<boolean> {
+export async function plannerOpenInCwd(ctx: Ctx, cwd: string, recorded?: string): Promise<boolean> {
+  // A session recorded as `claude-code:<id>` is matched by its native id.
+  const session = recorded?.replace(/^claude-code:/, "");
   if (session && transcriptRecent(ctx, session)) return true;
   const ps = await ctx.run(["ps", "-axo", "pid=,comm=,args="], 5000);
   if (ps.code !== 0) return true;
@@ -109,8 +111,10 @@ export async function callerWake(ctx: Ctx, reach: CallerReach, text: string, ste
     if (resumeGuards.executorWroteCallerCwd(ctx, taskId, reach.cwd)) return "unavailable";
     if (!(await resumeGuards.plannerAdmitted(ctx))) return "unavailable";
     if (await resumeGuards.plannerOpenInCwd(ctx, reach.cwd, reach.session)) return "busy";
+    const reviewed = readTask(ctx, taskId);
+    const readDirs = [reviewed?.result?.worktree, reviewed?.worktree].filter((d): d is string => !!d && isAbsolute(d));
     return await resumeCaller(ctx, { kind: "claude-code", session: reach.session, cwd: reach.cwd }, `${RESUME_PREAMBLE} ${text}`, {
-      task: taskId,
+      task: taskId, readDirs: [...new Set(readDirs)],
       isAlive: async () => (await callerAlive(ctx, reach)) !== "gone",
     });
   } catch {
