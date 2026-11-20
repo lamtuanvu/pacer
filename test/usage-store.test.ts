@@ -49,10 +49,15 @@ test("the write rule: same shape and still fresh is not rewritten, a changed win
   const first = await Bun.file(path).json();
   // A fresh read with identical windows, error, availability and source writes nothing,
   // even though capturedAt moved.
-  await readAccountUsage(ctx, account(), [], true);
+  const later = { ...ctx, now: ctx.now + 300 };
+  writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.json"),
+    JSON.stringify({ captured_at: later.now, five_hour: { used_percentage: 25, resets_at: ctx.now + 3600 }, seven_day: { used_percentage: 10 } }));
+  clearUsageMemo();
+  const reread = await readAccountUsage(later, account(), [], true);
+  expect(reread.capturedAt).toBe(later.now);
   expect(await Bun.file(path).json()).toEqual(first);
-  cache(ctx, 60);
-  await readAccountUsage(ctx, account(), [], true);
+  cache(later, 60);
+  await readAccountUsage(later, account(), [], true);
   const changed = await Bun.file(path).json() as { schemaVersion: number; identity: string; entries: Record<string, { reading: { windows: { usedPct: number | null }[] } }> };
   expect(changed.entries["claude-code"].reading.windows.some(w => w.usedPct === 60)).toBe(true);
   expect(changed.schemaVersion).toBe(1);
@@ -102,4 +107,18 @@ test("a store that cannot be written never fails the reading", async () => {
   const reading = await readAccountUsage(ctx, account(), []);
   expect(reading.windows.map(w => w.usedPct)).toContain(40);
   expect(reading.error).toBeUndefined();
+});
+
+test("a repeated failure does not rewrite the stored last good reading, and superseded keys age out", async () => {
+  const ctx = fakeCtx({ now: 1_800_000_000 });
+  const id = identity(account());
+  const reading = (pct: number, stale = false): UsageReading => ({ windows: [{ name: "weekly", usedPct: pct, resetsAt: null, lengthS: 604800, paced: true }], capturedAt: ctx.now, stale, ...(stale ? { error: "down" } : {}) });
+  writeUsageEntry(ctx, id, "old-key", reading(5));
+  writeUsageEntry({ ...ctx, now: ctx.now + 10 }, id, "k", reading(20, true));
+  const first = await Bun.file(storePath(ctx, id)).json();
+  writeUsageEntry({ ...ctx, now: ctx.now + 70 }, id, "k", reading(20, true));
+  expect(await Bun.file(storePath(ctx, id)).json()).toEqual(first);
+  writeUsageEntry({ ...ctx, now: ctx.now + 8 * 86400 }, id, "k", reading(30));
+  const pruned = await Bun.file(storePath(ctx, id)).json() as { entries: Record<string, unknown> };
+  expect(Object.keys(pruned.entries)).toEqual(["k"]);
 });
