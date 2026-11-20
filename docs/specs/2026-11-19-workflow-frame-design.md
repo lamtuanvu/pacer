@@ -244,7 +244,7 @@ It acts only through engine and task operations, each recorded with a reason:
 
 The person talks to a run through its orchestrator (for example, brainstorming happens in its session) and can still open any executor's session directly.
 
-**Grant.** A new run grant, scoped to one root run, allows: review, send-back, retry, stop, skip, escalate, submit a sub-workflow, choose a workflow, report step results, attach step artifacts, answer questions, and, from Phase 5, update the run branch from base (`run.sync_base`) and publish it (`run.publish`), all inside that run. Budget, priority, auto mode and planner changes stay with the person. Executors keep their existing grants, with one addition: an executor whose task has a step row may call `step.artifact` for its own step, gated by task identity exactly like `step.result`.
+**Grant.** A new run grant, scoped to one root run, allows: review, send-back, retry, stop, skip, escalate, submit a sub-workflow, choose a workflow, report step results, attach step artifacts, answer `auto` questions, and, from Phase 5, update the run branch from base (`run.sync_base`) and publish it (`run.publish`), all inside that run. Budget, priority, auto mode and planner changes stay with the person. Executors keep their existing grants, with one addition: an executor whose task has a step row may call `step.artifact` for its own step, gated by task identity exactly like `step.result`.
 
 This is a new credential, so it needs a rule amendment, **API-5b** (amendment 0.25.0, approved 2026-11-20 and adopted on merge), modelled on API-5a:
 

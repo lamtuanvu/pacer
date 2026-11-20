@@ -30,7 +30,7 @@ API-5 lets an executor delegate only through a service-issued task/attempt grant
 
 - a `prg_` bearer (`prg_` + 64 lowercase hex), bound to one root run id and one orchestrator turn (turn id and deadline), stored SHA-256-hashed in the existing grant store under its own `kind`;
 - issued when an orchestrator turn starts; it expires at the turn's deadline and is revoked when the turn settles or the run ends or is stopped;
-- it authorizes only review, send-back, retry, stop, skip, escalate, sub-workflow submission, workflow choice, step results, step artifacts and answers, and from Phase 5 `run.sync_base` and `run.publish`, and only on tasks, steps and questions of its own run. `run.publish` also checks its own publishing gate (a recorded `must` approval, or the person's draft opt-in), so the grant alone never publishes. `authorizeWorkOperation` answers for it first and refuses everything else;
+- it authorizes only review, send-back, retry, stop, skip, escalate, sub-workflow submission, workflow choice, step results, step artifacts and answers to `auto` questions, and from Phase 5 `run.sync_base` and `run.publish`, and only on tasks, steps and questions of its own run. `run.publish` also checks its own publishing gate (a recorded `must` approval, or the person's draft opt-in), so the grant alone never publishes. `authorizeWorkOperation` answers for it first and refuses everything else;
 - an unknown, expired or revoked `prg_` fails closed (403 at the HTTP gate, `not_allowed` from the core) and is never treated as an executor or the operator.
 
 ## Amendments to [ADR 0011](0011-agent-messaging.md) (approved by the maintainer on 2026-11-20)
