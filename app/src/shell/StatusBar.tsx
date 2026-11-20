@@ -57,7 +57,7 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
   }) : [];
   const historical = (state: { freshness?: string } | null | undefined) => state?.freshness === "historical";
   const usageNames = [
-    ...(markedPlanner && markedPlannerView ? [`${agentInfo(markedPlanner.agent).name} planner${plannerFigure ? ` ${markedPlannerView.figure}${markedPlannerView.verdictLabel === "Ahead of pace" ? ", ahead of pace" : ""}${historical(markedPlanner.usageState) ? " historical usage" : ""}` : ", shown in Planner budget"}`] : []),
+    ...(markedPlanner && markedPlannerView ? [`${agentInfo(markedPlanner.agent).name} planner${plannerFigure ? ` ${markedPlannerView.figure}${markedPlanner.usageState?.verdict === "AHEAD" ? ", ahead of pace" : ""}${historical(markedPlanner.usageState) ? " historical usage" : ""}` : ", shown in Planner budget"}`] : []),
     ...executors.map(executor => {
       const view = usageView(executor.usageState, now);
       return `${executorLabel(executor.id)} ${view.figure}${historical(executor.usageState) ? " historical usage" : ""}`;
@@ -67,11 +67,14 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
   const hints = usageOpen ? [{ keys: "Escape", label: "close usage" }] : [];
   const budget = (key: string, agent: string, name: string, state: Parameters<typeof usageView>[0]) => {
     const view = usageView(state, now);
-    const ahead = view.verdictLabel === "Ahead of pace";
-    const warning = historical(state) ? "Stale reading" : ahead ? "Ahead of pace" : null;
-    return <span className="pc-statusbar__item" key={key} title={`${name} · ${view.figure}${ahead ? " · ahead of pace" : ""}${historical(state) ? " · stale reading" : ""}`}>
+    // The meter takes the record's tone; the warning follows the verdict, not the label string (NEAR_LIMIT and EXHAUSTED warn too).
+    const warning = historical(state) ? "Stale reading"
+      : state?.verdict === "AHEAD" ? "Ahead of pace"
+      : state?.verdict === "NEAR_LIMIT" ? "Near limit"
+      : state?.verdict === "EXHAUSTED" ? "Out of quota" : null;
+    return <span className="pc-statusbar__item" key={key} title={`${name} · ${view.figure}${warning ? ` · ${warning.toLowerCase()}` : ""}`}>
       <AgentMark agent={agent} size={16} labelled={false} /><span className="pc-num pc-statusbar__pct">{view.figure}</span>
-      <UsageMeter used={view.meter} pace={null} tone={ahead ? "warn" : "good"} size="mini" text="none" label={`${name} usage`} stale={historical(state)} />
+      <UsageMeter used={view.meter} pace={null} tone={view.tone} size="mini" text="none" label={`${name} usage`} stale={historical(state)} />
       {warning && <span className="pc-statusbar__stale" role="img" aria-label={warning}>!</span>}
     </span>;
   };
