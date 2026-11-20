@@ -112,14 +112,15 @@ test("Prepare release is a manual, main-only, token-gated button that pins one c
   expect(prepare.permissions).toEqual({});
   expect(prepare.concurrency?.group).toBe("release");
   const job = prepare.jobs.prepare!;
-  expect(job.permissions).toEqual({ contents: "read" });
+  expect(job.permissions).toEqual({ contents: "read", actions: "read" });
   expect(job.env?.GH_TOKEN).toBe("${{ secrets.RELEASE_TOKEN }}");
   expect(job.steps.find(s => s.uses?.startsWith("actions/checkout@"))?.with?.["fetch-depth"]).toBe(0);
   const names = job.steps.map(s => s.name ?? s.uses ?? s.run);
   const at = (name: string) => names.findIndex(n => n === name);
   expect(at("Require main and the release token")).toBe(0);
   // The commit is pinned before anything reads the version, and the tag is pushed before main is touched.
-  expect(at("Pin the commit to release")).toBeLessThan(at("Pick the version"));
+  expect(at("Pin the commit to release")).toBeLessThan(at("Require main's post-merge CI result for the pinned commit"));
+  expect(at("Require main's post-merge CI result for the pinned commit")).toBeLessThan(at("Pick the version"));
   expect(at("Pick the version")).toBeLessThan(at("Commit the version bump on the pinned commit"));
   expect(at("Commit the version bump on the pinned commit")).toBeLessThan(at("Tag and push"));
   expect(at("Tag and push")).toBeLessThan(at("Open the bookkeeping PR that brings the bump to main"));
@@ -131,6 +132,21 @@ test("Prepare release is a manual, main-only, token-gated button that pins one c
   expect(script).not.toContain("gh run watch");
   expect(script).not.toContain("release-tag.yml");
   expect(existsSync(resolve(".github/workflows/release-tag.yml"))).toBe(false);
+});
+
+test("Prepare requires main's post-merge CI on the pinned commit before tagging", () => {
+  const job = prepare.jobs.prepare!;
+  const gate = job.steps.find(s => s.name === "Require main's post-merge CI result for the pinned commit")!;
+  expect(gate.run).toBe("bun scripts/release/main-ci-evidence.ts");
+  expect(gate.env).toEqual({ GH_TOKEN: "${{ github.token }}", MAIN_CI_SHA: "${{ steps.pin.outputs.target }}" });
+  // The gate only reads CI results; it never dispatches, re-runs or waits for CI.
+  expect(gate.run).not.toContain("workflow run");
+  expect(gate.run).not.toContain("run watch");
+  // The script itself carries the required-job policy for a post-merge push run on main.
+  const source = readFileSync(resolve("scripts/release/main-ci-evidence.ts"), "utf8");
+  for (const required of ["Test (ubuntu-latest, shard ", "Test (macos-latest, macOS-specific)", "Rust (", "Typecheck, UI policy and build", "M1 gate against built release artifacts (post-merge)"]) {
+    expect(source).toContain(required);
+  }
 });
 
 test("Prepare pins main's head when the run starts, or a chosen main commit, and refuses others", () => {
