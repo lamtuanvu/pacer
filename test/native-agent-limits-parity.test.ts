@@ -6,7 +6,10 @@ import {join} from "node:path";
 import {callOp} from "../src/api/ops";
 import {toApiError} from "../src/api/errors";
 import {defaultRun} from "../src/ctx";
-import {fakeCtx} from "./helpers";
+import {fakeCtx, withLoginIndicators} from "./helpers";
+import {accountEvidenceScope, recordExecutionEvidence} from "../src/core/evidence";
+import {loadStrategy} from "../src/config/strategy";
+import {computeStatus} from "../src/engine/status";
 
 let binary: string;
 function driver() {
@@ -93,4 +96,34 @@ test("accounts a provider must read keep limits.refresh forwarded", () => {
     .toEqual([{forwarded: true}, {forwarded: true}, {forwarded: true}, {result: {accounts: [{account: "cursor", capability: "unavailable", outcome: "unsupported", capturedAt: null, source: null, error: null}]}}]);
   writeFileSync(join(home, "strategy.yaml"), "planner: [\n");
   expect(native([refresh()], home)).toEqual([{forwarded: true}]);
+}, 600_000);
+
+// Native limits.check rows quote the account row's legacy fields, so they must match
+// TypeScript's record-figure projection. Scenario (h): two account-scope limits — the
+// figure quotes the latest end while the binding window is the first EXHAUSTED one.
+const CLAUDE = "planner: claude-code\naccounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nrouting:\n  - default: [claude-code]\n";
+
+test("native limits.check quotes the record's figure for two limits like TypeScript", async () => {
+  const seed = fresh("native-limits-seed-");
+  const ctx = withLoginIndicators(fakeCtx({pacerHome: seed, home: seed, now: NOW}));
+  writeFileSync(join(seed, "strategy.yaml"), CLAUDE);
+  const s = loadStrategy(ctx);
+  const scope = accountEvidenceScope(s.accounts.claude!, s.hosts);
+  const T1 = NOW + 3600, T2 = NOW + 7200;
+  await recordExecutionEvidence(ctx, scope, {endedAt: NOW, exitCode: 1, timedOut: false, classification: "quota", until: T1});
+  await recordExecutionEvidence(ctx, scope, {endedAt: NOW, exitCode: 1, timedOut: false, classification: "quota", until: T2});
+  // Twin homes: the reference recomputes over the same state, the driver reads the same parts.
+  const ts = fresh("native-limits-ts-"), rs = fresh("native-limits-rs-");
+  cpSync(seed, ts, {recursive: true});
+  cpSync(seed, rs, {recursive: true});
+  const refCtx = withLoginIndicators(fakeCtx({pacerHome: ts, home: ts, now: NOW}));
+  const st = await computeStatus({...refCtx, readOnly: true}, loadStrategy(refCtx), {profile: null});
+  const parts = {accounts: st.accounts, providers: st.providers};
+  const input = JSON.stringify({op: "limits.check", params: {}, home: rs, now: NOW, env: {PATH: "/usr/bin:/bin"}, brokerParts: JSON.parse(JSON.stringify(parts))}) + "\n";
+  const actual = JSON.parse(execFileSync(driver(), [], {input}).toString());
+  const expected = {result: await callOp(refCtx, "limits.check", {})};
+  expect(actual).toEqual(expected);
+  // The figure is the latest end (T2), not the binding window's first EXHAUSTED (T1).
+  const row = (expected.result as {account: string; [k: string]: unknown}[]).find(a => a.account === "claude")!;
+  expect(row).toMatchObject({verdict: "EXHAUSTED", usedPct: 100, window: "limit", resetsAt: T2});
 }, 600_000);

@@ -346,9 +346,19 @@ export async function computeStatus(
         spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
         error: reading.error ? { message: reading.error, at: ctx.now } : null,
       };
+      // The row quotes the record's figure (ADR 0030): limits.check and the native
+      // rows read these legacy fields, so they cannot follow the binding window
+      // when the figure is a limit. pace stays with the binding window only when
+      // the figure is that window.
+      const figure = record.figure;
+      const figureIsBinding = figure !== null && binding !== null
+        && figure.window === binding.name && figure.resetsAt === binding.resetsAt;
       return {
-        name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,        usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
-        resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
+        name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,
+        usedPct: figure?.usedPct ?? null,
+        pacePct: figureIsBinding ? (binding.pace ?? null) : null,
+        resetsAt: figure?.resetsAt ?? null,
+        window: figure?.window ?? null,
         stale: record.freshness === "historical", runners: runners.map(r => r.name),
         source: reading.source ?? null, capturedAt: reading.capturedAt,
         spendUsd: reading.spendUsd ?? null,
