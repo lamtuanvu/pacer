@@ -152,9 +152,9 @@ async function settled(ctx: Ctx, id: string): Promise<Job> {
   return getJob(ctx, id);
 }
 
-test("only the three host operations dispatch, with no other request fields, before any effect", async () => {
+test("only the four host operations dispatch, with no other request fields, before any effect", async () => {
   const f = await fixture();
-  const refused = [undefined, null, [], "host.check", {}, { kind: 1 }, { kind: "host.terminal", params: { alias: "box" } },
+  const refused = [undefined, null, [], "host.check", {}, { kind: 1 }, { kind: "host.commission", params: { alias: "box" } },
     { kind: "host.list" }, { kind: "service.install", params: { consent: true } }, { kind: "__proto__" }, { kind: "constructor" },
     { kind: "host.check", params: { alias: "box" }, argv: ["sh", "-c", "id"] }, { kind: "host.check", params: { alias: "box" }, key: KEY }];
   for (const request of refused) {

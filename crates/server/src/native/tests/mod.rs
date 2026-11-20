@@ -281,7 +281,13 @@ fn agent_ops_are_native_with_a_core_effects_bridge() {
 #[tokio::test]
 async fn install_apply_bridge_names_reach_core_endpoints() {
     // Without a Core target the bridge reports a restarting core, not an unknown bridge.
-    for bridge in ["service.effects", "update.effects", "host.effects"] {
+    for bridge in [
+        "service.effects",
+        "update.effects",
+        "handover.effects",
+        "onboarding.effects",
+        "host.effects",
+    ] {
         let body = serde_json::json!({"request": {}});
         let result = crate::native::core_bridge_sync::http(None, bridge, body).await;
         assert!(
@@ -296,6 +302,8 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
     use crate::native::core_bridge_sync::deadline;
     assert_eq!(deadline("service.effects"), None);
     assert_eq!(deadline("update.effects"), None);
+    assert_eq!(deadline("handover.effects"), None);
+    assert_eq!(deadline("onboarding.effects"), None);
     assert_eq!(deadline("host.effects"), None);
     assert_eq!(
         deadline("setup.effects"),
@@ -304,29 +312,99 @@ fn install_apply_bridges_wait_like_the_forwarded_path() {
 }
 
 #[test]
-fn service_handover_and_work_are_not_registered_native_ops() {
-    // service.handover and service.work stay on TypeScript until Core serves a
-    // real handover.effects bridge (/_internal/handover-effects,
-    // _internal.handover.effects); the stores they read live on the TS side.
+fn service_handover_and_work_are_native_with_a_core_effects_bridge() {
+    // service.handover and service.work answer refusals natively and run the
+    // reference operation through the handover effects bridge; work-grant callers
+    // forward. The stores they read live on the TS side.
     for name in ["service.handover", "service.work"] {
-        assert!(registry("").get(name).is_none(), "{name}");
-        assert!(super::service_registry("").get(name).is_none(), "{name}");
+        assert!(registry("").get(name).is_some(), "{name}");
+        assert!(super::service_registry("").get(name).is_some(), "{name}");
+        assert!(registry(name).get(name).is_none(), "{name}");
+        assert!(super::handover_sync::uses_effects(name), "{name}");
     }
+    assert!(!super::handover_sync::uses_effects("service.status"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    let grant = ctx(&[("PACER_WORK_GRANT", "g")]);
+    let params = serde_json::json!({});
+    assert!(super::handover_sync::stays_forwarded(&grant));
+    assert!(!super::handover_sync::stays_forwarded(&ctx(&[])));
+    assert!(!super::service_agent_stays_forwarded(
+        &ctx(&[]),
+        "service.handover",
+        &params
+    ));
+    assert!(super::service_agent_stays_forwarded(
+        &grant,
+        "service.handover",
+        &params
+    ));
 }
 
 #[test]
-fn host_check_clean_and_repo_setup_are_registered() {
-    // host.check, host.clean and host.repo.setup answer refusals (and clean dry runs)
+fn onboarding_try_is_native_with_a_core_effects_bridge() {
+    // onboarding.try answers executor refusals natively and runs the whole
+    // tryDelegation through the onboarding effects bridge. There is no work-grant
+    // scope for Core to check, so no caller forwards.
+    assert!(
+        registry("").get("onboarding.try").is_some(),
+        "onboarding.try"
+    );
+    assert!(
+        super::service_registry("").get("onboarding.try").is_some(),
+        "onboarding.try"
+    );
+    assert!(
+        registry("onboarding.try").get("onboarding.try").is_none(),
+        "onboarding.try"
+    );
+    assert!(
+        super::onboarding_sync::uses_effects("onboarding.try"),
+        "onboarding.try"
+    );
+    assert!(!super::onboarding_sync::uses_effects("onboarding.skip"));
+    let ctx = |env: &[(&str, &str)]| {
+        let env = env
+            .iter()
+            .map(|(k, v)| ((*k).to_owned(), (*v).to_owned()))
+            .collect();
+        pacer_foundation::Ctx::with("/nonexistent".into(), "/nonexistent".into(), env, 1.0)
+    };
+    let params = serde_json::json!({});
+    let executor = ctx(&[("PACER_ROLE", "executor")]);
+    let refused = super::onboarding_sync::admit(&executor, "onboarding.try", &params);
+    assert!(
+        matches!(
+            &refused,
+            Err(e) if e.code == pacer_foundation::api::Code::NotAllowed
+        ),
+        "onboarding.try must refuse executor sessions"
+    );
+    // Work-grant callers have no scope for Core to check.
+    assert!(super::onboarding_sync::admit(&ctx(&[]), "onboarding.try", &params).is_ok());
+}
+
+#[test]
+fn host_check_clean_repo_setup_and_terminal_are_registered() {
+    // host.check, host.clean, host.repo.setup and host.terminal answer refusals
     // natively and run their jobs through Core's whole-operation host effects bridge;
-    // host.terminal stays on TypeScript.
-    for name in ["host.check", "host.clean", "host.repo.setup"] {
+    // the terminal opening itself stays in Core.
+    for name in [
+        "host.check",
+        "host.clean",
+        "host.repo.setup",
+        "host.terminal",
+    ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
         assert!(super::needs_host_effects(name), "{name}");
     }
-    assert!(registry("").get("host.terminal").is_none());
-    assert!(super::service_registry("").get("host.terminal").is_none());
 }
 
 #[test]

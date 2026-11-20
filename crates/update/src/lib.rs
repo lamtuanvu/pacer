@@ -2,6 +2,9 @@
 //!
 //! Both handlers run their probes from Rust: the release feed through `ureq`, and the
 //! service manager (`launchctl` or `systemctl --user`) as an argv subprocess (SEC-5).
+//!
+//! Native front doors: `handover` (`service.handover`, `service.work`) and
+//! `onboarding` (`onboarding.try`) run through the native bridges.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
 pub mod apply;
@@ -10,6 +13,7 @@ pub mod desktop_reconcile_ops;
 mod feed;
 pub mod handover;
 mod js;
+pub mod onboarding;
 mod service;
 #[cfg(test)]
 mod tests;

@@ -157,13 +157,78 @@ fn work_grants_stay_forwarded() {
     let plain = ctx(dir.path(), &[]);
     let granted = ctx(dir.path(), &[("PACER_WORK_GRANT", "pwg_x")]);
     let params = json!({"alias": "dev"});
-    for op in ["host.check", "host.clean", "host.repo.setup"] {
+    for op in [
+        "host.check",
+        "host.clean",
+        "host.repo.setup",
+        "host.terminal",
+    ] {
         assert!(needs_host_effects(op), "{op}");
         assert!(!host_stays_forwarded(&plain, op, &params), "{op}");
         assert!(host_stays_forwarded(&granted, op, &params), "{op}");
     }
-    assert!(!needs_host_effects("host.terminal"));
+    assert!(!needs_host_effects("host.list"));
     assert!(!host_stays_forwarded(&granted, "host.list", &params));
+}
+
+#[test]
+fn terminal_refuses_bad_request_before_opening_shell() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = ctx(dir.path(), &[]);
+    assert_eq!(
+        message(
+            &ctx,
+            "host.terminal",
+            json!({"alias": "dev", "request_id": "not-a-uuid"})
+        ),
+        "request_id: Invalid UUID"
+    );
+    assert_eq!(
+        message(
+            &ctx,
+            "host.terminal",
+            json!({"alias": "dev", "request_id": 1})
+        ),
+        "request_id: Invalid input: expected string, received number"
+    );
+    assert_eq!(
+        message(&ctx, "host.terminal", json!([])),
+        "params: Invalid input: expected object, received array"
+    );
+    assert_eq!(
+        message(&ctx, "host.terminal", json!({"alias": "nope"})),
+        "unknown host nope"
+    );
+    // A valid request (with or without request_id; nil and max UUIDs are accepted), admits to Core;
+    // the terminal opening itself is Core's job.
+    for params in [
+        json!({"alias": "dev"}),
+        json!({"alias": "dev", "request_id": "00000000-0000-0000-0000-000000000000"}),
+        json!({"alias": "dev", "request_id": "ffffffff-ffff-ffff-ffff-ffffffffffff"}),
+        json!({"alias": "dev", "request_id": "12345678-1234-4234-8234-1234567890ab"}),
+    ] {
+        assert_eq!(
+            admit(&ctx, "host.terminal", &params).unwrap(),
+            Admission::Core,
+            "{params}"
+        );
+        let core: OpFuture<'_> = Box::pin(async { Ok(json!({"ok": true})) });
+        assert_eq!(
+            run(&ctx, "host.terminal", params.clone(), Some(core)).unwrap(),
+            json!({"ok": true})
+        );
+        let failed: OpFuture<'_> =
+            Box::pin(async { Err(CoreError::new(Code::Unavailable, "host dev is unreachable")) });
+        let error = run(&ctx, "host.terminal", params, Some(failed)).unwrap_err();
+        assert_eq!(error.message, "host dev is unreachable");
+    }
+    let error = run(&ctx, "host.terminal", json!({"alias": "dev"}), None).unwrap_err();
+    assert_eq!(error.message, "host effects bridge unavailable");
+    fs::write(dir.path().join("strategy.yaml"), "hosts: [").unwrap();
+    assert_eq!(
+        admit(&ctx, "host.terminal", &json!({"alias": "dev"})).unwrap(),
+        Admission::Core
+    );
 }
 
 #[test]
