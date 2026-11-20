@@ -202,9 +202,15 @@ pub fn compose_status(input: &Value) -> Value {
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| planner_runner_id(strategy));
+    // Mode follows the planner runner's record verdict, like TypeScript's statusMode (ADR 0030);
+    // a provider without a record stays normal.
     let mode = status_mode(
         &mode_hold,
-        by_id.get(&planner).map(|p| string(&p["verdict"])),
+        by_id
+            .get(&planner)
+            .and_then(|p| p.get("usageState"))
+            .and_then(|u| u.get("verdict"))
+            .and_then(Value::as_str),
     );
     // TypeScript `computeStatus` key order; `policy` and `warnings` only when supplied.
     let mut status = json!({});
@@ -295,6 +301,7 @@ pub(crate) mod tests {
             "windows": [],
             "binding": null,
             "verdict": verdict,
+            "usageState": {"verdict": verdict},
             "installed": true,
             "stale": false,
             "eligibility": {
@@ -396,8 +403,9 @@ pub(crate) mod tests {
         assert_eq!(status["mode"], "emergency");
     }
 
-    /// The mode rule: the planner runner's provider verdict decides, a planner
-    /// without a provider row stays normal, and an active hold wins over both.
+    /// The mode rule: the planner runner's record verdict decides (its provider row's
+    /// verdict never overrides the record), a planner without a record stays normal,
+    /// and an active hold wins over both.
     #[test]
     fn mode_rule_matches_typescript_planner_mode_and_hold() {
         // The account's own ON_PACE never softens an exhausted planner runner.
@@ -410,6 +418,24 @@ pub(crate) mod tests {
             ],
         }));
         assert_eq!(status["mode"], "emergency");
+        // The record's verdict wins over the row's provider verdict.
+        let mut on_pace = provider("claude-code", "claude", "ON_PACE");
+        on_pace["usageState"] = json!({"verdict": "EXHAUSTED"});
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [on_pace],
+        }));
+        assert_eq!(status["mode"], "emergency");
+        // A planner row without a record stays normal, like TypeScript's missing record.
+        let mut no_record = provider("claude-code", "claude", "EXHAUSTED");
+        no_record.as_object_mut().unwrap().remove("usageState");
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [no_record],
+        }));
+        assert_eq!(status["mode"], "normal");
         // No provider whose id is the planner runner: normal.
         let status = compose_status(&json!({
             "now": 100.0,

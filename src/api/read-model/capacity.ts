@@ -96,8 +96,10 @@ export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[
 export function buildPlanner(st: Status): PlannerMeter | null {
  if(!st.planner)return null;
  const p=st.providers.find(p=>p.id===st.planner),record=p?.usageState,b=record?recordBinding(record):p?.binding??null;
- const known=!!b&&p?.verdict!=="UNKNOWN";
- const verdict:PlannerMeter["verdict"]=!known?"unknown":({BEHIND:"behind",EXPIRING:"behind",ON_PACE:"on_pace",OK:"on_pace",UNMETERED:"on_pace",AHEAD:"ahead",NEAR_LIMIT:"ahead",EXHAUSTED:"out"} as Record<string,PlannerMeter["verdict"]>)[p!.verdict]??"unknown";
+ // The meter reads the runner record's verdict (ADR 0030); without a record, the provider's.
+ const plannerVerdict=record?.verdict??p?.verdict??"UNKNOWN";
+ const known=!!b&&plannerVerdict!=="UNKNOWN";
+ const verdict:PlannerMeter["verdict"]=!known?"unknown":({BEHIND:"behind",EXPIRING:"behind",ON_PACE:"on_pace",OK:"on_pace",UNMETERED:"on_pace",AHEAD:"ahead",NEAR_LIMIT:"ahead",EXHAUSTED:"out"} as Record<string,PlannerMeter["verdict"]>)[plannerVerdict]??"unknown";
  // The row quotes the record's figure, not its binding window (ADR 0030).
  const usedPct=known?record?record.figure?.usedPct??null:b!.usedPct:null,pacePct=known?b!.pace??null:null,deltaPts=usedPct!==null&&pacePct!==null?Math.round(usedPct-pacePct):null;
  let advice="No usage reading for the planner yet.";
