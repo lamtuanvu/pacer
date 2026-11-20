@@ -75,6 +75,7 @@ pub(crate) use pacer_core_bridge::task_read_sync;
 pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) use pacer_task_ops::status_ops;
+pub(crate) use pacer_task_ops::task_delegation_ops;
 use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
@@ -609,6 +610,30 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.send",
         call: task_send_ops::task_send_stub,
+    },
+    NativeOp {
+        name: "task.delegate",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.retry",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.retry_all",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.answer",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.ask",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "doctor.fix.delegate",
+        call: task_delegation_ops::task_delegation_stub,
     },
     NativeOp {
         name: "task.wait",

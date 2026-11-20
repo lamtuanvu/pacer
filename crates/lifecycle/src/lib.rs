@@ -82,7 +82,7 @@ pub use delegate_admission::{
 };
 pub use drain::{DrainOptions, DrainRoute, RouteAdmission, queue_preflight};
 pub use prepared::{AdmissionLifetime, PreparedAdmission};
-pub use state::AdmissionState;
+pub use state::{AdmissionState, work_node_exists};
 mod strategy;
 pub use strategy::{project_selection, resolve_runner, validate_current, validate_strategy_input};
 
