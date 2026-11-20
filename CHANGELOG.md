@@ -6,7 +6,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Added
 
-- **Planners are asked to review and decide.** When a delegated task settles and the planner that delegated it has not reviewed it, pacer records how to reach that planner (its session, process and terminal, from the CLI or MCP) and, after `messaging.liveness.caller_wake_after_s` (new key, default 300 s), types one line into its Orca terminal when the pane is idle with an empty prompt. Otherwise, and after `escalate_after_s`, you are notified with "Waiting for <planner> to review and decide" on the task. Resuming a closed planner session is included but switched off until it is hardened.
+- **Planners are asked to review and decide.** When a delegated task settles and the planner that delegated it has not reviewed it, pacer records how to reach that planner (its session, process and terminal, from the CLI or MCP) and, after `messaging.liveness.caller_wake_after_s` (new key, default 300 s), types one line into its Orca terminal when the pane is idle with an empty prompt. Otherwise, and after `escalate_after_s`, you are notified with "Waiting for <planner> to review and decide" on the task.
+- **A closed Claude Code planner session is resumed to review and decide.** When the planner's process has exited, pacer resumes its session in the background with `claude --resume`, once at a time per session, using the login PATH. The resumed turn may only run `pacer` and read files (no edits, builds or pushes). It is skipped when the executor worked in the planner's own checkout, when the planner account has no capacity left, and in `strict` or `emergency` mode, and Codex planners are notified instead. Verdicts made in a resumed session are marked `resumed-caller` in activity.
 
 ### Changed
 
