@@ -1,10 +1,8 @@
-//! Account folders, evidence identity, endpoint keys and state, and the
+//! Account folders, endpoint keys and state, and the
 //! TypeScript object shapes of loaded accounts and runners.
 use crate::js::{array_index, expand_home, stringify};
 use pacer_foundation::Ctx;
-use pacer_js_json::js_semantics::locale_compare;
 use serde_json::{Map, Value, json};
-use sha2::{Digest, Sha256};
 use std::{
     fs, io,
     path::{Path, PathBuf},
@@ -72,42 +70,6 @@ pub(crate) fn account_folder(ctx: &Ctx, account: &Value) -> Option<PathBuf> {
         .as_str()
         .filter(|home| !home.is_empty())
         .map(|home| expand_home(home, &ctx.home))
-}
-
-/// `accountEvidenceScope(account, hosts).identity`.
-pub(crate) fn evidence_identity(account: &Value, hosts: &Value) -> String {
-    let name = text(&account["name"]);
-    let mut aliases: Vec<_> = hosts.as_object().into_iter().flatten().collect();
-    aliases.sort_by(|a, b| locale_compare(a.0, b.0));
-    let hosts: Vec<Value> = aliases
-        .into_iter()
-        .map(|(alias, host)| {
-            let home = host["accounts"]
-                .as_object()
-                .and_then(|accounts| accounts.get(name))
-                .map_or(Value::Null, |a| a["home"].clone());
-            json!([alias, host["ssh"], home])
-        })
-        .collect();
-    let mut signature = vec![
-        account["name"].clone(),
-        account["kind"].clone(),
-        account["source"].clone(),
-        account["home"].clone(),
-        account["orcaAccount"].clone(),
-        account["usageSource"].clone(),
-        account["quotaSource"].clone(),
-        account["connection"]["base_url"].clone(),
-        account["connection"]["key"].clone(),
-        Value::Array(hosts),
-    ];
-    if account["provider"].as_str().is_some_and(|p| !p.is_empty()) {
-        signature.push(account["provider"].clone());
-    }
-    format!(
-        "{:x}",
-        Sha256::digest(stringify(&Value::Array(signature), 0).as_bytes())
-    )
 }
 
 fn pick(source: &Value, keys: &[&str], always: bool) -> Map<String, Value> {

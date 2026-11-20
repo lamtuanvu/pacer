@@ -594,8 +594,11 @@ row}
 ).collect()
 }
 /// Stored authentication observations are scoped to account configuration, never
-/// inferred by opening an agent's native credentials.
+/// inferred by opening an agent's native credentials. Evidence files are keyed by
+/// `pacer_config::evidence::evidence_identity`, the same identity TypeScript's
+/// `accountEvidenceScope` computes and `account-ops` retires with.
 pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
+    use pacer_config::evidence::evidence_identity;
     let mut rows = accounts(st, s);
     let marks = read(ctx, "state/auth-failed.json");
     let evidence = read(ctx, "state/auth-evidence.json");
@@ -629,65 +632,4 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         }
     }
     rows
-}
-
-/// `accountEvidenceScope(account, hosts).identity` (`src/evidence/scope.ts`), the key
-/// of the stored evidence files. Host aliases sort with the locale compare
-/// TypeScript and `account-ops` use, so one account has one identity everywhere.
-fn evidence_identity(account: &Value, hosts: &Value) -> String {
-    use sha2::{Digest, Sha256};
-    let name = text(&account["name"]);
-    let mut aliases: Vec<_> = hosts.as_object().into_iter().flatten().collect();
-    aliases.sort_by(|a, b| locale_compare(a.0, b.0));
-    let hosts: Vec<Value> = aliases
-        .into_iter()
-        .map(|(alias, host)| json!([alias, host["ssh"], host["accounts"][name]["home"]]))
-        .collect();
-    let mut signature = vec![
-        account["name"].clone(),
-        account["kind"].clone(),
-        account["source"].clone(),
-        account["home"].clone(),
-        account["orcaAccount"].clone(),
-        account["usageSource"].clone(),
-        account["quotaSource"].clone(),
-        account["connection"]["base_url"].clone(),
-        account["connection"]["key"].clone(),
-        json!(hosts),
-    ];
-    if truth(&account["provider"]) {
-        signature.push(account["provider"].clone());
-    }
-    format!(
-        "{:x}",
-        Sha256::digest(stringify(&json!(signature)).as_bytes())
-    )
-}
-
-#[cfg(test)]
-#[allow(clippy::unwrap_used)]
-mod tests {
-    use super::evidence_identity;
-    use serde_json::json;
-
-    /// Golden value computed with the TypeScript `accountEvidenceScope`.
-    /// Mixed-case aliases ("Alpha", "box", "Mac") sort differently under the
-    /// locale compare the identity uses than by bytes.
-    #[test]
-    fn evidence_identity_matches_typescript_locale_sort() {
-        let account = json!({
-            "name": "work", "kind": "claude", "source": "native", "home": "/Users/dev/.claude",
-            "orcaAccount": null, "usageSource": null, "quotaSource": null,
-            "connection": {"base_url": null, "key": null}, "provider": "anthropic",
-        });
-        let hosts = json!({
-            "Mac": {"ssh": null, "accounts": {}},
-            "box": {"ssh": "box.example.com", "accounts": {"work": {"home": "/home/dev/.claude"}}},
-            "Alpha": {"ssh": null, "accounts": {}},
-        });
-        assert_eq!(
-            evidence_identity(&account, &hosts),
-            "10ef1653f10e368fba3d223d2e9effdde6cf9dba70866644c232206843f50a4f"
-        );
-    }
 }
