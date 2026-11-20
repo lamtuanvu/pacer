@@ -164,6 +164,17 @@ fn providers_by_id(providers: &Value) -> Map<String, Value> {
     map
 }
 
+/// The status mode: an active hold wins; otherwise the verdict of the provider
+/// whose id is the planner runner decides, else `normal` (a planner without a
+/// provider record). Every implementation of the status mode uses this rule.
+pub fn status_mode(mode_hold: &Value, planner_verdict: Option<&str>) -> String {
+    mode_hold
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| planner_mode(planner_verdict.unwrap_or("")).to_string())
+}
+
 /// Compose a Status-shaped document from injected parts.
 ///
 /// Required keys: `now`, `strategy` (validated strategy JSON), `providers`
@@ -172,7 +183,7 @@ fn providers_by_id(providers: &Value) -> Map<String, Value> {
 /// `planner` (display id; defaults to [`planner_runner_id`]).
 ///
 /// Ranking uses [`rank_executors`]. Mode prefers an active hold, else the
-/// planner account provider verdict via [`planner_mode`].
+/// planner runner's provider verdict via [`status_mode`].
 pub fn compose_status(input: &Value) -> Value {
     let now = number(&input["now"]);
     let strategy = &input["strategy"];
@@ -186,22 +197,15 @@ pub fn compose_status(input: &Value) -> Value {
         "includePlanner": false,
     }));
     let mode_hold = input.get("modeHold").cloned().unwrap_or(Value::Null);
-    let planner_account = string(&strategy["planner"]["account"]);
-    let planner_verdict = by_id
-        .values()
-        .find(|p| string(&p["account"]) == planner_account)
-        .map(|p| string(&p["verdict"]))
-        .unwrap_or("UNKNOWN");
-    let mode = mode_hold
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| planner_mode(planner_verdict).to_string());
     let planner = input
         .get("planner")
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| planner_runner_id(strategy));
+    let mode = status_mode(
+        &mode_hold,
+        by_id.get(&planner).map(|p| string(&p["verdict"])),
+    );
     // TypeScript `computeStatus` key order; `policy` and `warnings` only when supplied.
     let mut status = json!({});
     if let Some(policy) = input.get("policy") {
@@ -270,8 +274,8 @@ pub(crate) mod tests {
             "name": "default",
             "planner": {"agent": "claude-code", "account": "claude"},
             "accounts": {
-                "claude": {"kind": "claude"},
-                "codex": {"kind": "codex"},
+                "claude": {"name": "claude", "kind": "claude"},
+                "codex": {"name": "codex", "kind": "codex"},
             },
             "runners": {
                 "claude-code": {"agent": "claude-code", "account": "claude", "enabled": true},
