@@ -10,6 +10,7 @@ import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 import { raisedByPacer } from "../core/errors";
+import { USAGE_MEMO_S } from "./freshness";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
   return readPluginUsage(ctx, cfg, account, refresh);
@@ -30,7 +31,7 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     await hit.pending;
     return cachedBase(ctx, cfg, account, true, false, hosts);
   }
-  if(!refresh && hit?.value && ctx.now-hit.at>=0 && ctx.now-hit.at<60)return hit.value;
+  if(!refresh && hit?.value && ctx.now-hit.at>=0 && ctx.now-hit.at<USAGE_MEMO_S)return hit.value;
   const entry:{at:number;value?:UsageReading;pending?:Promise<UsageReading>;refreshing?:boolean}={at:ctx.now,refreshing:refresh};
   sources.set(key,entry);
   entry.pending=(async()=>{

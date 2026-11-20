@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AccountEvidence, Evidence, EvidenceScope, ReconciledEvidence } from "../evidence/types";
 import type { UsageWindow } from "../types";
-import { EXHAUSTED_PCT } from "./verdict";
+import { EXHAUSTED_PCT, SPENDING_LIFETIME_S, staleAfterS, AVAILABILITY_FALLBACK_S } from "../usage/freshness";
 
 export const emptyEvidence = (): AccountEvidence => ({ availability: [], budget: [], spending: [] });
 export function evidenceFact<T>(scope: EvidenceScope, source: Evidence<T>["source"], observedAt: number | null,
@@ -23,7 +23,7 @@ export function evidenceDeadline(fact: Evidence<UsageWindow>): number | null {
   if (fact.source === "configuration" || (fact.source === "execution" && fact.value.name === "limit")) {
     return fact.validUntil ?? fact.value.resetsAt;
   }
-  const age = fact.value.lengthS <= 6 * 3600 ? 7200 : 86400;
+  const age = staleAfterS(fact.value);
   return Math.min(fact.observedAt + age, fact.validUntil ?? Infinity, fact.value.resetsAt ?? Infinity);
 }
 export function currentEvidence(fact: Evidence<unknown>, now: number, deadline = fact.validUntil): boolean {
@@ -100,7 +100,7 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
   }
   const measured = facts.budget.filter(f => f.source !== "execution" && f.source !== "configuration" && f.value.name !== "limit"
     && (f.source !== "metered" || budgetPolicy === undefined || f.budgetPolicy === budgetPolicy));
-  if (measured.length && measured.every(f => currentEvidence(f, now, evidenceDeadline(f)) && f.value.usedPct !== null && f.value.usedPct < 97)) {
+  if (measured.length && measured.every(f => currentEvidence(f, now, evidenceDeadline(f)) && f.value.usedPct !== null && f.value.usedPct < EXHAUSTED_PCT)) {
     facts.budget = facts.budget.filter(f => f.source !== "execution" || f.value.name !== "limit"
       || !measured.every(sample => sample.observedAt! > (f.observedAt ?? Infinity) && appliesTo(sample, f.scope)));
   }
@@ -140,13 +140,13 @@ export function readingEvidence(scope: EvidenceScope, reading: import("../types"
   const availability = reading.availability;
   if (availability) facts.availability.push(evidenceFact(scope, source, reading.capturedAt, availability.validUntil, availability.reason, availability.state));
   else if (contract) facts.availability.push(evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready"));
-  else if ((facts.budget.length || reading.spendUsd != null) && !reading.error && !reading.stale) {
+    else if ((facts.budget.length || reading.spendUsd != null) && !reading.error && !reading.stale) {
     const deadlines = facts.budget.map(evidenceDeadline).filter((at): at is number => at !== null);
     facts.availability.push(evidenceFact(scope, source, reading.capturedAt,
-      deadlines.length ? Math.min(...deadlines) : reading.capturedAt === null ? null : reading.capturedAt + 86400, "usage_observed", "ready"));
+      deadlines.length ? Math.min(...deadlines) : reading.capturedAt === null ? null : reading.capturedAt + AVAILABILITY_FALLBACK_S, "usage_observed", "ready"));
   }
   if (reading.spending) facts.spending.push(evidenceFact(scope, source, reading.capturedAt,
-    reading.capturedAt === null ? null : reading.capturedAt + 7200, "spending_observed", reading.spending));
+    reading.capturedAt === null ? null : reading.capturedAt + SPENDING_LIFETIME_S, "spending_observed", reading.spending));
   for (const alternative of reading.alternatives ?? []) {
     const other = readingEvidence(scope, alternative, usage);
     facts.availability.push(...other.availability); facts.budget.push(...other.budget); facts.spending.push(...other.spending);
