@@ -32,6 +32,20 @@ impl UpdateEffects for Effects {
     }
 }
 
+/// Answers `terminal.*` bridge requests by kind from `terminalParts` and records them.
+struct Terminal {
+    replies: Value,
+    requests: Vec<Value>,
+}
+
+impl pacer_task_ops::terminal_ops::TerminalBridge for Terminal {
+    fn parts(&mut self, request: Value) -> OpFuture<'_> {
+        let reply = self.replies[request["kind"].as_str().unwrap_or("")].clone();
+        self.requests.push(request);
+        Box::pin(async move { Ok(reply) })
+    }
+}
+
 /// Answers `dispatch.preview`/`dispatch.explain` bridge requests from the parts TypeScript
 /// computed for every runner (`dispatchParts`), keeping the runners asked for, and records them.
 struct Preview {
@@ -131,6 +145,27 @@ async fn main() -> io::Result<()> {
                 && pacer_server::native::config_set_stays_forwarded(&ctx, &input["params"]))
         {
             serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        if pacer_task_ops::terminal_ops::uses_bridge(name) {
+            if pacer_server::native::terminal_stays_forwarded(&ctx, name, &input["params"]) {
+                serde_json::to_writer(&mut stdout, &json!({"forwarded":true}))?;
+                stdout.write_all(b"\n")?;
+                continue;
+            }
+            let mut bridge = Terminal {
+                replies: input["terminalParts"].clone(),
+                requests: Vec::new(),
+            };
+            let params = input["params"].clone();
+            let result = pacer_task_ops::terminal_ops::call(&ctx, name, params, &mut bridge).await;
+            let mut output = match result {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
+            };
+            output["bridge"] = json!(bridge.requests);
+            serde_json::to_writer(&mut stdout, &output)?;
             stdout.write_all(b"\n")?;
             continue;
         }

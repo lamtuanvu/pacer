@@ -15,7 +15,9 @@ pub(crate) fn dispatch_lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &V
 /// replaces invalid UTF-8 and drops a BOM, and `JSON.parse` accepts unpaired
 /// surrogate escapes and numbers past the f64 range.
 pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
-    op == "config.set" || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+    op == "config.set"
+        || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+        || crate::native::terminal_ops::uses_bridge(op)
 }
 
 #[cfg(test)]
@@ -55,9 +57,24 @@ mod tests {
 
     #[test]
     fn only_lifecycle_ops_and_config_set_forward_bodies_serde_rejects() {
-        for op in lifecycle_ops::LIFECYCLE_OPS.iter().chain(&["config.set"]) {
+        const TERMINAL: [&str; 4] = [
+            "terminal.list",
+            "terminal.create",
+            "terminal.rename",
+            "terminal.close",
+        ];
+        for op in lifecycle_ops::LIFECYCLE_OPS
+            .iter()
+            .chain(&["config.set"])
+            .chain(TERMINAL.iter())
+        {
             assert!(forwards_undecodable_body(op));
         }
+        assert!(
+            TERMINAL
+                .iter()
+                .all(|op| crate::native::terminal_ops::uses_bridge(op))
+        );
         assert!(!forwards_undecodable_body("dispatch.tree"));
         assert!(!forwards_undecodable_body("task.wait"));
     }
