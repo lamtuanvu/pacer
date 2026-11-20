@@ -322,3 +322,53 @@ async fn task_prune_and_restore_round_trip_through_shared_store() {
         Code::UnknownTask
     );
 }
+
+#[test]
+fn task_summary_exposes_attempt_model_account_and_the_in_flight_attempt() {
+    let summary = summarize_api_task(&json!({
+        "id": "t-20261119-000000-abcd",
+        "rev": 1,
+        "state": "running",
+        "createdAt": 1000.0,
+        "brief": {"repo": "/tmp/repo", "goal": "g"},
+        "kind": null,
+        "requestedExecutor": null,
+        "executor": "opencode#ark",
+        "attemptStartedAt": 1200.0,
+        "attempts": [
+            {"executor": "codex", "model": "gpt-x",
+             "usageAtStart": {"account": "codex", "usedPct": 1.0, "window": "day", "at": 895.0},
+             "startedAt": 900.0, "endedAt": 950.0, "exitCode": 0, "timedOut": false, "limitHit": false, "log": ""},
+            {"executor": "cursor",
+             "startedAt": 960.0, "endedAt": 970.0, "exitCode": 1, "timedOut": false, "limitHit": false, "log": "",
+             "usageAtStart": {"account": "cursor", "usedPct": 5.0, "window": "day", "at": 955.0}}
+        ],
+        "pendingAttempt": {
+            "model": "chosen/model",
+            "usageAtStart": {"account": "ark", "usedPct": 10.0, "window": "day", "at": 1190.0}
+        },
+        "result": null,
+        "review": null,
+        "resolved": null
+    }));
+    assert_eq!(summary["attempts"][0]["model"], "gpt-x");
+    assert_eq!(summary["attempts"][0]["account"], "codex");
+    // Without a recorded account, the attempt's usage reading supplies it.
+    assert_eq!(summary["attempts"][1]["model"], Value::Null);
+    assert_eq!(summary["attempts"][1]["account"], "cursor");
+    assert_eq!(
+        summary["current_attempt"],
+        json!({
+            "executor": "opencode#ark",
+            "account": "ark",
+            "model": "chosen/model",
+            "started_at": 1200.0
+        })
+    );
+    let settled = summarize_api_task(&json!({
+        "id": "t-20261119-000000-abcd", "rev": 1, "state": "done", "createdAt": 1000.0,
+        "brief": {"repo": "/tmp/repo", "goal": "g"}, "kind": null, "requestedExecutor": null,
+        "attempts": [], "result": null, "review": null, "resolved": null
+    }));
+    assert!(settled.get("current_attempt").is_none());
+}

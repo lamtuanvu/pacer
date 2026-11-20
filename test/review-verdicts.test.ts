@@ -8,6 +8,7 @@ import { cliDeps, main } from "../src/cli";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { readLabels } from "../src/tasks/labels";
 import { fakeCtx } from "./helpers";
+import { readActivity } from "../src/activity/log";
 import type { DelegateInput } from "../src/tasks/api";
 
 function fixture(state: "done" | "running" | "queued" = "done") {
@@ -140,4 +141,17 @@ test("a send-back retry of a human-started task keeps origin human", async () =>
   const inputs: DelegateInput[] = [];
   await tasks.review({ ...ctx, env: {} }, task.id, { verdict: "send_back", note: "again" }, { delegate: (c, i) => { inputs.push(i); return delegate(c, i); } });
   expect(inputs[0]?.origin).toBe("human");
+});
+
+test("a resumed verdict is marked in activity", async () => {
+  const { ctx, task } = fixture();
+  const ctxResumed = { ...ctx, env: { ...ctx.env, PACER_CALLER_RESUME: task.id } };
+  await tasks.review(ctxResumed, task.id, { verdict: "accept" });
+  const resumedEntry = readActivity(ctxResumed, { kinds: ["verdict"], taskId: task.id }).entries[0];
+  expect(resumedEntry?.source).toBe("resumed-caller");
+
+  const f2 = fixture();
+  await tasks.review(f2.ctx, f2.task.id, { verdict: "accept" });
+  const normalEntry = readActivity(f2.ctx, { kinds: ["verdict"], taskId: f2.task.id }).entries[0];
+  expect(normalEntry?.source).toBeUndefined();
 });

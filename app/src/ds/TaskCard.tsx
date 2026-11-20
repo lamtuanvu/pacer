@@ -2,7 +2,7 @@ import { useUniqueId as useId } from './useUniqueId';
 import { taskHeading } from "../../../src/view-model/titles";
 import type { ComponentChildren } from "preact";
 
-import type { TaskNodeView } from "../../../src/view-model/task-tree";
+import type { TaskNodeView, TaskRunnerView } from "../../../src/view-model/task-tree";
 import { AgentStack } from "./AgentStack";
 import { classNames } from "./classNames";
 import { HostChip } from "./HostChip";
@@ -32,6 +32,14 @@ const dotTone = (node: TaskNodeView) => node.attention !== "none" ? node.attenti
 const settled = (node: TaskNodeView) => !node.active;
 const words = (node: TaskNodeView) => node.attentionLabel ?? node.state.label;
 const bare = (tokens?: string) => tokens?.replace(/ tokens$/, "");
+/** "OpenCode · oc-glm · opencode-go/glm-5.3-flash": the full row text, also the truncated span's tooltip. */
+const runnerText = (runner: TaskRunnerView) => [runner.name, runner.account, runner.model].filter(Boolean).join(" · ");
+/** The agent, account and model as readable text beside the status; clipped with ellipsis, the full value in title. */
+function Runner({ runner }: { runner: TaskRunnerView }) {
+  return <span className="pc-task-card__runner" title={runnerText(runner)}>
+    {runner.name}{runner.account ? ` · ${runner.account}` : ""}{runner.model ? ` · ${runner.model}` : ""}
+  </span>;
+}
 
 function Dot({ node, size }: { node: TaskNodeView; size: "root" | "child" }) {
   return <span className={classNames("pc-task-card__dot", `pc-task-card__dot--${dotTone(node)}`, `pc-task-card__dot--${size}`, node.state.live && "pc-status-dot__dot--live")} aria-hidden="true" />;
@@ -49,6 +57,7 @@ function Children({ nodes, selectedId, href, id, onSelect, density, heading, par
         {child.host && child.host.name !== parentHost && <HostChip name={child.host.name} kind={child.host.kind} />}
         {child.branch && <span className="pc-task-card__branch pc-task-card__branch--child" title={child.branch}>{child.branch}</span>}
         <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(child)}`)}>{words(child)}</span>
+        {child.runner && <Runner runner={child.runner} />}
         <AgentStack agents={child.agents} size={18} />
         <span className="pc-task-card__tokens pc-task-card__tokens--child">{bare(child.tokens)}</span>
       </span> : <><span className="pc-task-card__row">
@@ -67,7 +76,8 @@ function Children({ nodes, selectedId, href, id, onSelect, density, heading, par
 
 /**
  * A root task as the Tasks and Session boards draw it. Regular, in two lines: status dot, title, pill, agents, tokens and
- * quick actions, then host, branch, facts and the subtask toggle. Compact (the navigator): title, host and repository, then status, agents and tokens.
+ * quick actions, then host, branch, facts and the subtask toggle. The agent, account and model read as text beside the status
+ * ("OpenCode · oc-glm · model"), clipped with ellipsis. Compact (the navigator): title, host and repository, then status, agents and tokens.
  */
 export function TaskCard({ density = "regular", node, expanded, onToggle, selectedId, href, viewHref, onSelect, actions, flush = false, renderBranch, heading: headingFor }: TaskCardProps) {
   const heading = headingFor?.(node) || taskHeading(node.title);
@@ -87,6 +97,7 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         <a className="pc-task-card__title" href={href(node.id)} aria-current={current ? (regular ? "true" : "page") : undefined} title={node.title} onFocus={() => onSelect?.(node.id)}>{regular ? heading : node.title}</a>
         {pill && <Pill tone={pill.tone}>{pill.label}</Pill>}
         {regular && !pill && <span className={classNames("pc-task-card__status", `pc-task-card__status--${dotTone(node)}`)}>{node.state.label}</span>}
+        {regular && node.runner && <Runner runner={node.runner} />}
         {regular && <><AgentStack agents={node.agents} size={18} />
           <span className="pc-task-card__tokens">{bare(node.tokens) ?? "—"}</span>
           {viewHref && <span className="pc-task-card__actions">
@@ -110,6 +121,7 @@ export function TaskCard({ density = "regular", node, expanded, onToggle, select
         </div>
         <div className="pc-task-card__row pc-task-card__row--facts">
           <span className={classNames("pc-task-card__status pc-task-card__status--grow", `pc-task-card__status--${dotTone(node)}`)}>{words(node)}</span>
+          {!flush && node.runner && <Runner runner={node.runner} />}
           {!flush && <AgentStack agents={node.agents} size={16} />}
           <span className="pc-task-card__tokens pc-task-card__tokens--compact">{bare(node.tokens) ?? "—"}</span>
         </div>

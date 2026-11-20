@@ -191,12 +191,13 @@ JSON contracts:
 | route | kind, ranked, excluded |
 | limits check | Array of per-account usage, source, capture time, freshness, runners, error and hint rows |
 | delegate | id, createdAt, kind, requestedExecutor, timeoutS, brief, state, attempts, placement; optional runtime fields, including executorFallback |
-| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, optional executor_fallback, placement, attempts, result, review, resolved |
+| tasks id, wait, stop, retry | task_id, state, kind, requested_executor, optional executor_fallback, placement, attempts (each with executor, model and account), optional current_attempt (executor, account, model, started_at of the in-flight attempt), result, review, resolved |
 | tasks | Array of task summaries |
 | review | recorded |
 | clean | removed (task IDs), kept (objects with id and reason) |
 
 The task summary matches MCP task_status; delegate keeps returning the full task record.
+The text form of `pacer tasks` and `pacer tasks <id>` shows `executor · account · model` for the in-flight attempt, else the latest one.
 
 When `--executor` names an executor that cannot run (for example signed out,
 blocked, out of quota or at its limit), pacer keeps its fallback behavior and

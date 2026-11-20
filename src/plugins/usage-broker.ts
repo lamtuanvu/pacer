@@ -11,8 +11,8 @@ import { NETWORK_ENV } from "./capability-spawn";
 
 /** Project public account identity and fixed host-owned resources, never credential configuration. */
 export async function readPluginUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
-  if (cfg.usage === "reactive") return { windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: ctx.now, stale: false, source: "reactive" };
-  if (cfg.usage === "unmetered") return { windows: [], capturedAt: ctx.now, stale: false, source: "unmetered" };
+  if (cfg.usage === "reactive") return { windows: [], capturedAt: null, stale: false, source: "reactive" };
+  if (cfg.usage === "unmetered") return { windows: [], capturedAt: null, stale: false, source: "unmetered" };
   const provider = cfg.usage === "metered" ? "metered" : ["claude-code", "codex"].includes(cfg.id) ? cfg.id : cfg.quotaSource === "arkcli" ? "arkcli" : null;
   if (!provider) return { windows: [], capturedAt: null, stale: false, error: `no quota source for ${cfg.id}` };
   const registry = pluginRegistry(ctx);

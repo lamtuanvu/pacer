@@ -6,6 +6,7 @@ import { accountEvidenceScope, readEvidence } from "../core/evidence";
 import { emptyEvidence, evidenceFact, reconcileEvidence } from "../engine/evidence";
 import { evaluateEligibility } from "../engine/eligibility";
 import { readBlocked } from "./blocked";
+import { LIMIT_WINDOW_LENGTH_S } from "../usage/freshness";
 
 /** Re-read local guardrails without provider I/O or a second eligibility policy. */
 export function executorExclusion(ctx: Ctx, s: Strategy | undefined, id: string): string | undefined {
@@ -28,7 +29,7 @@ export function executorExclusion(ctx: Ctx, s: Strategy | undefined, id: string)
       || snapshot.retiredAt !== undefined && (limit.observedAt === null || limit.observedAt <= snapshot.retiredAt))) continue;
     incoming.budget.push(evidenceFact(limit.scope ?? scope, limit.manual ? "configuration" : "execution",
       limit.observedAt, limit.until, "quota_failure",
-      { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: 21600, paced: false }));
+      { name: "limit", usedPct: 100, resetsAt: limit.until, lengthS: LIMIT_WINDOW_LENGTH_S, paced: false }));
   }
   const budgetPolicy = JSON.stringify([account.weeklyUsd, account.weeklyTokens]);
   const evidence = reconcileEvidence(snapshot.evidence.facts, incoming, ctx.now, budgetPolicy);
