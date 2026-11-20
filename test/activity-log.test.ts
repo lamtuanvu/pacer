@@ -269,6 +269,22 @@ test("append publishes activity through the entity envelope and advertises it", 
   expect(helloBody().events).toContain("activity");
 });
 
+test("a resumed verdict is marked in activity", async () => {
+  const ctx = await configured();
+  const task = (await tasks.delegate(ctx, { brief: { goal: "Add SSH keepalive", repo: ctx.home }, executor: "codex" }, () => 1));
+  updateTask(ctx, task.id, t => { t.state = "done"; });
+  const ctxResumed = { ...ctx, env: { ...ctx.env, PACER_CALLER_RESUME: task.id } };
+  await tasks.review(ctxResumed, task.id, { accepted: true });
+  const resumedEntry = readActivity(ctxResumed, { kinds: ["verdict"], taskId: task.id }).entries[0];
+  expect(resumedEntry?.source).toBe("resumed-caller");
+
+  const task2 = (await tasks.delegate(ctx, { brief: { goal: "Other", repo: ctx.home }, executor: "codex" }, () => 1));
+  updateTask(ctx, task2.id, t => { t.state = "done"; });
+  await tasks.review(ctx, task2.id, { accepted: true });
+  const normalEntry = readActivity(ctx, { kinds: ["verdict"], taskId: task2.id }).entries[0];
+  expect(normalEntry?.source).toBeUndefined();
+});
+
 test("budget refresh names only accounts with a runner and a reading", async () => {
   const ctx = fakeCtx();
   const s = status(ctx.now);

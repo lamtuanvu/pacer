@@ -214,6 +214,18 @@ function schemaReady(db: Database): boolean {
     .every(name => objects.has(name));
 }
 
+/** Retries `run` while SQLite reports SQLITE_BUSY, for up to `ms` (the store's busy timeout). */
+export function retryBusy<T>(run: () => T, ms = 5000, sleep: (ms: number) => void = Bun.sleepSync): T {
+  const deadline = Date.now() + ms;
+  for (;;) {
+    try { return run(); }
+    catch (error) {
+      if ((error as { code?: string }).code !== "SQLITE_BUSY" || Date.now() >= deadline) throw error;
+      sleep(25);
+    }
+  }
+}
+
 function connection(ctx: Ctx) {
   assertPacerHomeAllowed(ctx.pacerHome);
   const path = resolve(ctx.pacerHome, "state", "tasks.db");
@@ -242,7 +254,9 @@ function connection(ctx: Ctx) {
   const db = new Database(path, { strict: true });
   try {
     db.run("PRAGMA busy_timeout = 5000");
-    db.run("PRAGMA journal_mode = WAL");
+    // SQLite can answer a journal-mode change with SQLITE_BUSY without consulting the busy
+    // handler (WAL recovery or another process's checkpoint on close), so retry it here.
+    retryBusy(() => db.run("PRAGMA journal_mode = WAL"));
     db.run("PRAGMA synchronous = NORMAL");
     if (!schemaReady(db)) db.transaction(() => {
       db.run(`CREATE TABLE IF NOT EXISTS tasks (

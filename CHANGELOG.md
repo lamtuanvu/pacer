@@ -4,6 +4,14 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **Planners are asked to review and decide.** When a delegated task settles and the planner that delegated it has not reviewed it, pacer records how to reach that planner (its session, process and terminal, from the CLI or MCP) and, after `messaging.liveness.caller_wake_after_s` (new key, default 300 s), types one line into its Orca terminal when the pane is idle with an empty prompt. Otherwise, and after `escalate_after_s`, you are notified with "Waiting for <planner> to review and decide" on the task. Resuming a closed planner session is included but switched off until it is hardened.
+
+### Changed
+
+- **Rust plugin crates 0.3.0 on crates.io.** `pacer-plugin` and its generated protocol crates move to 0.3.0 for plugin protocol 1.11.0. The generated top-level type is renamed (`PacerPluginProtocol1100` becomes `PacerPluginProtocol1110`), so plugins that name it need the rename. `pacer-plugin-assistant-protocol` is published for the first time.
+
 ## [0.17.5] - 2026-11-19
 
 ### Changed
