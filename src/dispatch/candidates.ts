@@ -1,5 +1,4 @@
 import type { Strategy } from "../config/strategy";
-import { EXHAUSTED_PCT } from "../engine/verdict";
 import type { Candidate, DecisionRequest, DispatchPreview, ModelRecord, Observation, TaskRequirements } from "./types";
 import { EXHAUSTED_PCT } from "../usage/freshness";
 
