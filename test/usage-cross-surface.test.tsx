@@ -164,7 +164,9 @@ for (const state of states) {
     for (const row of executorRows) {
       const view = usageView(row.usageState, ctx.now);
       const cellText = strip(cellHtml(row.id));
-      if (!cellText) continue;
+      // Every non-planner executor row must exist; the planner is not listed on the Agents table.
+      if (row.rank === "planner") continue;
+      expect([`executors row ${row.id} rendered`, cellText.length > 0]).toEqual([`executors row ${row.id} rendered`, true]);
       // A historical row keeps its figure next to the reading's age, like the popover and Accounts (UI-10).
       const words = row.usageState?.freshness === "historical" ? [view.summary, view.freshness].filter(Boolean).join(" · ")
         : [view.summary, captionReset(view.reset)].filter(Boolean).join(" · ");
@@ -210,9 +212,11 @@ for (const state of states) {
 
     // The planner budget caption states the record's figure when its meter is live; a historical
     // caption states the figure and the reading's age instead of a current reset.
+    // The planner quotes its own runner record (fixture e: the planner runner is limited, the account is not).
+    const plannerView = plannerRow?.usageState ? usageView(plannerRow.usageState, ctx.now) : record;
     if (budget.meter && !budget.meter.stale) {
-      expect(budget.caption).toContain(record.figure === `${expected.meter}%` ? `${expected.meter}% of ${expected.window} used` : expected.figure);
-      if (expected.reset.startsWith("resets ")) expect(budget.caption).toContain(expected.reset);
+      expect(budget.caption).toContain(plannerView.figure === `${plannerView.meter}%` ? `${plannerView.meter}% of ${plannerView.window} used` : plannerView.figure);
+      if (plannerView.reset.startsWith("resets ")) expect(budget.caption).toContain(plannerView.reset);
     }
   });
 }

@@ -503,7 +503,8 @@ fn executor(
     } else {
         places.join(" + ")
     };
-    let verdict = pacer_engine::words::verdict_words(text(&p["verdict"]));
+    // TypeScript's `p?.verdict ?? "UNKNOWN"`: a missing row reads as an unknown verdict.
+    let verdict = pacer_engine::words::verdict_words(p["verdict"].as_str().unwrap_or("UNKNOWN"));
     let sub = if truth(&p["eligibility"]) {
         format!(
             "{} · {}{} · {places}",

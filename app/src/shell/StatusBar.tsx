@@ -145,7 +145,7 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
     return <section className="pc-usage-account" key={account.name} aria-label={`${account.name} usage`}>
       <div className="pc-usage-account__head"><AgentMark agent={markAgent(account.kind === "claude" ? "claude-code" : account.kind, account.name)} size={20} labelled={false} /><strong>{account.name}</strong><span className="muted">{[view.figure, view.freshness].filter(Boolean).join(" · ")}</span></div>
       {state?.windows.length ? state.windows.map(window => {
-        const row = usageWindowView(window, now);
+        const row = usageWindowView(window, now, !!state.limit);
         return <div className="pc-usage-window" key={window.name}>
           <span>{row.label}</span>
           {/* Each window keeps its own staleness and verdict tone; the record's freshness is the head's words (fixture f). */}
