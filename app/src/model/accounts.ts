@@ -1,4 +1,5 @@
 import type { AccountSummary } from "../../../src/api/read-model/types";
+import type { UsageState } from "../../../src/types";
 import { clock as formatClock } from "../../../src/view-model/time";
 import { accountNeedsSignIn } from "../../../src/view-model/words";
 export interface Model { id: string; name?: string; context?: number; output?: number; tools?: boolean }
@@ -8,6 +9,8 @@ export interface Account {
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
   usageReading?: { spendUsd?: number; windows: { name: string; usedPct: number | null; resetsAt: number | null; stale?: boolean }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string; availability?: { state: string; reason: string } };
+  /** The account's one usage record (ADR 0030); every surface renders usageView over it. */
+  usageState?: UsageState;
 }
 /** Reactive read times and local reads are not observations of a quota balance. */
 export function accountQuotaLabel(account: Account, summary?: AccountSummary): string | undefined {
