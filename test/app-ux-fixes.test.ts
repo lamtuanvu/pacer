@@ -6,11 +6,11 @@ import { callV2Op } from "../src/api/v2-compat";
 import { callOp } from "../src/api/ops";
 import { createTask } from "../src/tasks/store";
 import { emptySnapshot, LIMITS, clip } from "../src/link/envelope";
+import { toneFor } from "../src/view-model/words";
 import { initialState, reduceStore } from "../app/src/data/store";
 import { mergeTask, tasksModel } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 import { executorStatus, routingStatus } from "../app/src/model/executors";
-import { homeModel } from "../app/src/model/home";
 import { endpointResult, modelsFound } from "../app/src/model/wizard";
 
 // 1–3: all server fixtures are isolated from the user's account and agent homes.
@@ -49,8 +49,7 @@ test("executor labels identify agents, endpoint accounts and named budgets", () 
 });
 test("routing verdicts are words and unknown is neutral", () => {
  for(const [verdict,label] of [["OK","Eligibility unknown"],["UNKNOWN","Usage unknown"],["AHEAD","Ahead of pace"],["EXHAUSTED","Out of quota"]]) expect(routingStatus({verdict,reason:"ok, used 0%"}).label).toBe(label);
- const snapshot={...emptySnapshot(),budget:{generatedAt:1,planner:"codex",strategy:"default",mode:"normal",ranked:[],providers:[{id:"codex",verdict:"UNKNOWN",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}]}};
- expect(homeModel(snapshot,[]).planner?.tone).toBe("neutral");
+ expect(toneFor("UNKNOWN")).toBe("neutral");
 });
 test("native executor states use installation, routing and runner overrides", () => {
  const runner={id:"codex",state:"ok" as const,until:null,reason:null};

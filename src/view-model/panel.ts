@@ -3,6 +3,7 @@ import type { ClientSnapshot } from "./snapshot";
 import { capacity, plannerMeter } from "./selectors";
 import { displayName, duration, backIn } from "./format";
 import { runnerLabel } from "../render/accounts";
+import { windowWords } from "./usage";
 export const providerLabel=(p:ProviderLine)=>p.agent ? runnerLabel(p) : displayName(p.id);
 export { verdictWords, toneFor as tone } from "./words";
 /** Presentation rows for the existing panel and TUI. Only pre-read-model services use budget. */
@@ -59,7 +60,7 @@ export function answerDetail(s: ClientSnapshot, now: number): string {
 export function providerDetail(p: ProviderLine, now: number): string {
  if(p.brokenReason) return `Not working · ${p.brokenReason}`;
  if(p.blockedReason) return "Blocked by you";
- if(p.usedPct!==null) return `${Math.round(p.usedPct)}%${p.window?` of ${p.window}`:""} used${p.resetsAt===null?"":` · resets in ${duration(p.resetsAt-now)}`}${p.stale?" · stale":""}`;
+ if(p.usedPct!==null) return `${Math.round(p.usedPct)}% of ${windowWords(p.window) || "budget"} used${p.resetsAt===null?"":` · resets in ${duration(p.resetsAt-now)}`}${p.stale?" · stale":""}`;
  if(p.id==="local") return "LM Studio · unmetered";
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }

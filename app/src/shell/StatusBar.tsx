@@ -131,7 +131,7 @@ export function UsagePopover({ close, now }: { close: () => void; now: number })
 export function UsageDetails({ accounts, now }: { accounts: Account[]; now: number }) {
   if (!accounts.length) return <p className="muted">No accounts configured.</p>;
   return <div className="pc-usage-details">{accounts.map(account => {
-    // The account's one usage record; the deprecated usageReading is not read (ADR 0030).
+    // The account's one usage record; the deprecated raw reading is not read (ADR 0030).
     const state = account.usageState;
     const view = usageView(state, now);
     return <section className="pc-usage-account" key={account.name} aria-label={`${account.name} usage`}>

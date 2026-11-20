@@ -7,7 +7,6 @@ export interface Account {
   name: string; kind: string; folder?: string; source?: string; quotaSource?: string | null; signedIn?: boolean | null; signin_command?: string; runners?: string[];
   state?: string | { state?: string; detail?: string }; detail?: string;
   connection?: { base_url_host?: string; key?: string; models: Model[]; checked_at?: string | number };
-  usageReading?: { spendUsd?: number; windows: { name: string; usedPct: number | null; resetsAt: number | null; stale?: boolean }[]; capturedAt?: number | null; stale?: boolean; source?: string; error?: string; availability?: { state: string; reason: string } };
   /** The account's one usage record (ADR 0030); every surface renders usageView over it. */
   usageState?: UsageState;
   /** Raw provider readings, diagnostics only (ADR 0030). */

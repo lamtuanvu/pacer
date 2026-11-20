@@ -1,6 +1,5 @@
 import { expect, test } from "bun:test";
 import { emptySnapshot } from "../src/link/envelope";
-import { homeModel } from "../app/src/model/home";
 import { tasksModel, taskCounts, delegateParams, nextTaskLimit, taskActions } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 
@@ -38,7 +37,6 @@ test("service review attention controls review and history membership", () => {
   expect(tasksModel(tasks, { ...live, attention: [] }, "review")).toEqual([]);
   const counts = { attention: 9, problems: 2, review: 7, running: 3, queued: 2, ready: 1, executors: 1, setupOpen: 0, hostsWithProblems: 0, byRepo: {} };
   expect(taskCounts({ ...live, counts })).toEqual({ running: 5, review: 1 });
-  expect(homeModel({ ...live, counts }, []).attentionCount).toBe(1);
 });
 
 const draft = { goal: " Add SSH keepalive ", repo: "github.com/acme/api", base: "main", acceptance: " bun test ", executor: "", kind: "" };
