@@ -140,6 +140,8 @@ test("(c) a failed read over an older stored reading is historical for the accou
   // the failed refresh shows as history and an uncertain fallback instead.
   expect(record.verdict).toBe("ON_PACE");
   expect(record.error?.message).toContain("no Claude rate-limit data");
+  // The failed read is stamped with the time of the read, not the stored reading's capture.
+  expect(record.error?.at).toBe(now);
   expect(record.eligibility.state).toBe("uncertain");
   expect(record.eligibility.reasons.map(r => r.code)).toContain("refresh_failed");
   const runner = (await computeStatus(ctx, s, {profile: null})).providers.find(p => p.id === "claude-code")!.usageState!;

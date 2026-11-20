@@ -286,7 +286,7 @@ export async function computeStatus(
       verdict: runnerLimit ? "EXHAUSTED" : verdict,
       eligibility: provider.eligibility,
       spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
-      error: reading.error ? { message: reading.error, at: reading.capturedAt ?? ctx.now } : null,
+      error: reading.error ? { message: reading.error, at: ctx.now } : null,
     };
     // Every builder agrees on staleness: the record's freshness decides it (ADR 0030).
     provider.stale = provider.usageState!.freshness === "historical";
@@ -334,7 +334,7 @@ export async function computeStatus(
         verdict: accountVerdict,
         eligibility: accountEligibility,
         spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
-        error: reading.error ? { message: reading.error, at: reading.capturedAt ?? ctx.now } : null,
+        error: reading.error ? { message: reading.error, at: ctx.now } : null,
       };
       return {
         name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,
