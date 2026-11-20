@@ -588,7 +588,7 @@ else{
 Value::Null}
 ;
  row=merge(&row,&json!({
-"stale":pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
+"stale":pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
 ));
 row}
 ).collect()
@@ -632,4 +632,37 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         }
     }
     rows
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::accounts;
+    use serde_json::json;
+
+    /// `verdict` falls through an explicit null like TypeScript's
+    /// `status?.verdict ?? p?.verdict ?? "UNKNOWN"`.
+    #[test]
+    fn accounts_verdict_falls_through_an_explicit_null() {
+        let s = json!({
+            "planner": {"agent": "claude-code", "account": "claude"},
+            "accounts": {"claude": {"name": "claude", "kind": "claude"}},
+            "runners": {"claude-code": {"id": "claude-code", "agent": "claude-code", "account": "claude"}},
+        });
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": "ON_PACE", "binding": {"usedPct": 63}}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "ON_PACE");
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": null}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "UNKNOWN");
+        // No status row and no provider at all still reads "UNKNOWN".
+        assert_eq!(
+            accounts(&json!({"providers": []}), &s)[0]["verdict"],
+            json!("UNKNOWN")
+        );
+    }
 }
