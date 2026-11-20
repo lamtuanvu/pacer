@@ -140,6 +140,8 @@ test("real git ranges cover renames, deletions, metadata refresh and missing-his
       return Object.fromEntries(readFileSync(output, "utf8").trim().split("\n").map(line => line.split("=")));
     };
     expect(invoke("push", { before: base, after: head })).toMatchObject({ bun: "true", rust: "true", timings: "true" });
+    // Post-merge validation: every push to main runs the full suite, whatever it changed.
+    expect(invoke("push", { ref: "refs/heads/main", before: base, after: head })).toMatchObject({ full: "true", bun: "true", rust: "true", e2e: "true", ui: "true" });
     const pr = { action: "edited", pull_request: { base: { sha: base }, head: { sha: head } } };
     // A body edit must not replace failed checks for this SHA with untested success.
     expect(invoke("pull_request", pr)).toMatchObject({ bun: "true", ui: "true", timings: "false" });
