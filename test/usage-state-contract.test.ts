@@ -343,7 +343,9 @@ test("a stale reading downgrades account and runner eligibility the same way (D7
 test("marks written under an alias key match the runner like executorExclusion (D9)", async () => {
   const ctx = withLoginIndicators(fakeCtx({now}));
   const s = load(ctx, CURSOR);
-  markExhausted(ctx, "cursor", now + 3600, {manual: true});
+  // The key differs from the account and runner names, so the status's alias path
+  // (resolveRunner) has to match it the way executorExclusion does.
+  markExhausted(ctx, "cursor#cursor", now + 3600, {manual: true});
   const {executorExclusion} = await import("../src/executors/availability");
   expect(executorExclusion(ctx, s, "cursor")).toBe("exhausted");
   const {record} = await surfaces(ctx, s, "cursor");
