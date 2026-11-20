@@ -52,6 +52,14 @@ test("model-specific quota exhaustion cannot block another model", () => {
   expect(result.candidates[0].capacityKnown).toBe(false);
 });
 
+test("a pool is out of quota at the verdict's exhaustion threshold", () => {
+  const s = validateStrategy({planner: "claude-code", providers: {"claude-code": {}, codex: {}}}, "test");
+  const models = ["a", "b"].map(id => ({ ...candidate(id), runner: "codex", account: "codex" }));
+  const usage = (usedPct: number) => [{source: "test" as const, scope: {runner: "codex", account: "codex"}, method: "usage" as const, state: "known" as const, observedAt: 90, expiresAt: 110, value: {windows: [{pool: "weekly", usedPct}]}}];
+  expect(buildCandidates(s, request().task, models, usage(97), 100).excluded.map(e => e.reason)).toEqual(["Quota exhausted", "Quota exhausted"]);
+  expect(buildCandidates(s, request().task, models, usage(96), 100).excluded).toEqual([]);
+});
+
 test("simple work prefers a usable small over a comfortable frontier", () => {
   const r = request([{ ...candidate("small", 10), tier: "small" }, { ...candidate("frontier", 90), tier: "frontier" }]);
   r.task.difficulty = "simple";

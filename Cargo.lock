@@ -1412,6 +1412,7 @@ dependencies = [
 name = "pacer-dispatch"
 version = "0.0.0"
 dependencies = [
+ "pacer-engine",
  "pacer-foundation",
  "pacer-js-json",
  "pacer-store",

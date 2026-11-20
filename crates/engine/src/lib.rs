@@ -70,6 +70,9 @@ pub fn pace_pct(start: f64, end: f64, now: f64, profile: &Value, zone: Tz) -> f6
 pub fn active_hours_left(now: f64, end: f64, profile: &Value, zone: Tz) -> f64 {
     active_seconds(now, end, profile, zone) / 3600.0
 }
+/// `EXHAUSTED_PCT` (`src/engine/verdict.ts`): the used percentage a window, a
+/// verdict and the dispatch candidate check treat as out of quota.
+pub const EXHAUSTED_PCT: f64 = 97.0;
 pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
     let now = number(&input["now"]);
     let usage = &input["usage"];
@@ -84,7 +87,7 @@ pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
         return output;
     }
     let used = number(&usage["usedPct"]);
-    if used >= 97.0 {
+    if used >= EXHAUSTED_PCT {
         output["verdict"] = json!("EXHAUSTED");
         return output;
     }
@@ -252,7 +255,7 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
     let exhausted: Vec<&Value> = live_budget
         .iter()
         .copied()
-        .filter(|f| optional_number(&f["value"]["usedPct"]).is_some_and(|v| v >= 97.0))
+        .filter(|f| optional_number(&f["value"]["usedPct"]).is_some_and(|v| v >= EXHAUSTED_PCT))
         .collect();
     let no_budget = input["budgetRequired"] == false
         || matches!(string(&input["usage"]), "reactive" | "unmetered");
