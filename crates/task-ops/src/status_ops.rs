@@ -139,7 +139,7 @@ pub async fn limits_check(ctx: &Ctx, params: Value, parts: Value) -> Result<Valu
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
     }
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
+    let strategy = parts_strategy(ctx, &parts)?;
     Ok(usage_broker::limits_check(ctx, &strategy, &parts))
 }
 
@@ -148,8 +148,28 @@ pub async fn routing_status(ctx: &Ctx, params: Value, parts: Value) -> Result<Va
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
     }
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
+    let strategy = parts_strategy(ctx, &parts)?;
     Ok(usage_broker::routing_status(ctx, &strategy, &parts))
+}
+
+/// The strategy the TypeScript parts were computed against: the bridge carries
+/// the snapshot `{path, name, text}` (as the account-list bridge does), and
+/// parsing that text keeps rows and runners in one strategy even if the file
+/// changes between the TS read and this op. A core without the snapshot field
+/// keeps the host's own read.
+fn parts_strategy(ctx: &Ctx, parts: &Value) -> Result<Value, CoreError> {
+    let snapshot = &parts["strategy"];
+    match (
+        snapshot["path"].as_str(),
+        snapshot["name"].as_str(),
+        snapshot["text"].as_str(),
+    ) {
+        (Some(path), Some(name), Some(text)) => {
+            pacer_config::strategy::parse_strategy(text, std::path::Path::new(path), name)
+                .map_err(|error| invalid(error.to_string()))
+        }
+        _ => load_strategy(&ctx.pacer_home).map_err(|error| invalid(error.to_string())),
+    }
 }
 
 /// `{kind: z.enum(KINDS).optional(), goal, repo: z.string().min(1).optional()}`: unknown keys

@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { join, relative } from "node:path";
-import { loadStrategy } from "../src/config/strategy";
+import { loadStrategy, loadStrategySnapshot } from "../src/config/strategy";
 import { runStdio } from "../src/api/stdio";
 import { computeStatus, statusBrokerParts } from "../src/engine/status";
 import { rankExecutors, type ProviderStatus } from "../src/engine/rank";
@@ -144,7 +144,11 @@ test("the sealed stdio method answers unknown_op for a missing or wrong key and 
 test("no params answer the active strategy's parts byte for byte", async () => {
   const ctx = fixture();
   // The reference is the route's reply before params existed; usage readings are cached in this process.
-  const reference = async () => statusBrokerParts(await computeStatus(ctx, loadStrategy(ctx)));
+  // The reply carries the strategy text the parts were computed against.
+  const reference = async () => {
+    const s = loadStrategySnapshot(ctx);
+    return { ...statusBrokerParts(await computeStatus(ctx, s.strategy)), strategy: { path: s.path, name: s.name, text: s.text } };
+  };
   const expected = await reference();
   expect(await stdio(ctx, { key: KEY })).toBe(JSON.stringify({ jsonrpc: "2.0", id: 1, result: expected }));
   await withServer(ctx, async post => {
@@ -153,11 +157,19 @@ test("no params answer the active strategy's parts byte for byte", async () => {
     }
   });
   expect(await reference()).toEqual(expected);
+  // The snapshot parses back to the same strategy the parts were computed with.
+  const reply = JSON.parse(await stdio(ctx, { key: KEY })).result;
+  expect(reply.strategy.name).toBe("default");
+  expect(reply.strategy.path.endsWith("strategy.yaml")).toBe(true);
+  expect(typeof reply.strategy.text).toBe("string");
 });
 
 test("cacheOnly answers read-only parts from cached readings and writes nothing", async () => {
   const ctx = fixture();
-  const reference = async () => statusBrokerParts(await computeStatus({ ...ctx, readOnly: true }, loadStrategy(ctx), { cacheOnly: true }));
+  const reference = async () => {
+    const s = loadStrategySnapshot(ctx);
+    return { ...statusBrokerParts(await computeStatus({ ...ctx, readOnly: true }, s.strategy, { cacheOnly: true })), strategy: { path: s.path, name: s.name, text: s.text } };
+  };
   const before = files(ctx);
   const cached = JSON.parse(await stdio(ctx, { key: KEY, cacheOnly: true })).result;
   expect(files(ctx)).toEqual(before);
