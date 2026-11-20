@@ -254,8 +254,7 @@ export async function computeStatus(
       ...(endpointReason ? {unavailableReason: endpointReason} : {}),
       ...(endpointNotTested ? {endpointNotTested: true as const} : {}),
       installed: runner.host !== null || installed(BINARIES[runner.agent] ?? runner.agent),
-      stale: reading.stale || windows.some(w => w.stale),
-      ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
+      stale: reading.stale || windows.some(w => w.stale),      ...(blocked[runner.name] ? { blockedReason: blocked[runner.name].reason, blockedUntil: blocked[runner.name].until } : {}),
       ...(broken[runner.name] ? { brokenReason: broken[runner.name].reason } : {}),
       ...(reading.error ? { error: reading.error } : {}),
       ...(reading.error && reading.errorCode ? { errorCode: reading.errorCode } : {}),
@@ -289,6 +288,8 @@ export async function computeStatus(
       spend: reading.spendUsd != null ? { usdWeek: reading.spendUsd, capUsdWeek: account.weeklyUsd } : null,
       error: reading.error ? { message: reading.error, at: reading.capturedAt ?? ctx.now } : null,
     };
+    // Every builder agrees on staleness: the record's freshness decides it (ADR 0030).
+    provider.stale = provider.usageState!.freshness === "historical";
     return provider;
   });
   const byId = Object.fromEntries(providers.map(p => [p.id, p]));
@@ -339,7 +340,7 @@ export async function computeStatus(
         name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,
         usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
         resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
-        stale: reading.stale, runners: runners.map(r => r.name),
+        stale: record.freshness === "historical", runners: runners.map(r => r.name),
         source: reading.source ?? null, capturedAt: reading.capturedAt,
         spendUsd: reading.spendUsd ?? null,
         usageState: record,
