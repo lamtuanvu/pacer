@@ -155,3 +155,10 @@ test("a resumed verdict is marked in activity", async () => {
   const normalEntry = readActivity(f2.ctx, { kinds: ["verdict"], taskId: f2.task.id }).entries[0];
   expect(normalEntry?.source).toBeUndefined();
 });
+
+test("a verdict on another task in the same resumed session is marked too", async () => {
+  const { ctx, task } = fixture();
+  const ctxResumed = { ...ctx, env: { ...ctx.env, PACER_CALLER_RESUME: "t-the-one-it-was-resumed-for" } };
+  await tasks.review(ctxResumed, task.id, { verdict: "accept" });
+  expect(readActivity(ctxResumed, { kinds: ["verdict"], taskId: task.id }).entries[0]?.source).toBe("resumed-caller");
+});

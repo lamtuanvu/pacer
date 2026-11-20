@@ -251,7 +251,8 @@ export async function review(
       checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
-      const resumed = ctx.env.PACER_CALLER_RESUME === id;
+      // Every verdict made inside a resumed session is marked, not only the one it was resumed for.
+      const resumed = !!ctx.env.PACER_CALLER_RESUME;
       const verdictText = (verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`) + (resumed ? " (resumed caller session)" : "");
       taskActivity(ctx, reviewed, "verdict", verdictText, resumed ? { source: "resumed-caller" } : undefined);
     } catch (e) {
