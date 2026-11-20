@@ -88,7 +88,8 @@ export function UpdatesSection({ initialData, initialConfig }: { initialData?: U
   useSettingsStyles();
   const { state } = useTaskContext();
   const updates = state.snapshot?.desktopUpdates;
-  return <>{platform.desktop && <ServiceBuildGuidance diagnostic={state.desktopBuildDiagnostic} connected={state.connected}/>} {updates?.length ? <DesktopUpdates updates={updates} serviceVersion={state.version ?? initialData?.current} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>}</>;
+  const serviceVersion = state.version ?? initialData?.current;
+  return <>{platform.desktop && <ServiceBuildGuidance diagnostic={state.desktopBuildDiagnostic} connected={state.connected} serviceVersion={serviceVersion}/>} {updates?.length ? <DesktopUpdates updates={updates} serviceVersion={serviceVersion} initialConfig={initialConfig}/> : <LegacyUpdatesSection initialData={initialData} initialConfig={initialConfig}/>}</>;
 }
 function DesktopUpdates({ updates, serviceVersion, initialConfig }: { updates: UpdateStatus[]; serviceVersion?: string | null; initialConfig?: ConfigData }) {
   return <section id="updates" className="pc-preferences-section" aria-labelledby="updates-h"><h2 id="updates-h" className="pc-settings-board__label">Updates</h2>{serviceVersion && <p>Service {serviceVersion}</p>}<RunningWork/>{updates.map(status => <DesktopUpdate key={status.installationId} status={status} showIdentity={updates.length > 1} initialConfig={initialConfig}/>) }<AutomaticUpdateCheck initialData={initialConfig} checkedAt={updates.reduce((last, status) => Math.max(last, status.checkedAt ?? 0), 0) || undefined}/></section>;

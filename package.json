@@ -17,7 +17,7 @@
     "typescript": "^7.0.2",
     "ws": "8.22.0"
   },
-  "version": "0.17.4",
+  "version": "0.17.5",
   "bin": {
     "pacer": "src/cli.ts"
   },

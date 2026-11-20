@@ -173,6 +173,25 @@ test("reconcileEvidence drops an expired manual configuration limit mark", () =>
   expect(merged.facts.budget.some(f => f.source === "configuration" && f.value.name === "limit")).toBe(false);
 });
 
+test("reconcileEvidence prunes availability and spending facts expired more than 7 days", () => {
+  const previous: AccountEvidence = {
+    availability: [
+      evidenceFact(scope, "execution", now - 30 * 86400, now - 20 * 86400, "execution_success", "ready"),
+      evidenceFact(scope, "session-log", now - 60, now + 600, "usage_observed", "ready"),
+    ],
+    budget: [evidenceFact(scope, "session-log", now - 60, null, "quota_observed",
+      { name: "5h", usedPct: 20, resetsAt: now + 3600, lengthS: 18000, paced: false })],
+    spending: [evidenceFact(scope, "session-log", now - 30 * 86400, now - 20 * 86400, "spending_observed",
+      { creditsAvailable: null, creditBalance: null, paidConsumption: "observed" })],
+  };
+  const merged = reconcileEvidence(previous, emptyEvidence(), now);
+  expect(merged.facts.availability.some(f => f.reason === "execution_success")).toBe(false);
+  expect(merged.facts.spending).toEqual([]);
+  expect(merged.facts.availability.some(f => f.reason === "usage_observed")).toBe(true);
+  // Once pruned, the next merge with the same incoming stays stable.
+  expect(reconcileEvidence({ ...emptyEvidence(), ...merged.facts }, emptyEvidence(), now).facts).toEqual(merged.facts);
+});
+
 test("an active manual configuration limit mark still binds", () => {
   const runnerScope = { ...scope, runner: "cursor", model: "auto", host: "local" };
   const until = now + 3600;

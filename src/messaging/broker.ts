@@ -4,10 +4,12 @@ import { requestReview } from "../core/tasks";
 import type { Mode } from "../engine/mode";
 import { publish } from "../link/publish";
 import { readTask, updateTask } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
 import { stopRun } from "../supervisor/run";
 import type { SpawnRunner } from "../tasks/api";
 import type { Ctx } from "../types";
-import { analyzeLiveness, buildSnapshot, type Stall } from "./liveness";
+import { callerAlive, type CallerReach } from "./caller-reach";
+import { analyzeLiveness, buildSnapshot, owesDecision, type Stall } from "./liveness";
 import { clearLiveness, getLiveness, listLiveness, upsertLiveness, type LivenessUpsert } from "./liveness-store";
 import { rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
@@ -16,18 +18,33 @@ import { messagesDatabase } from "./store";
 import { deliver } from "./turns";
 
 export interface BrokerReport { skipped?: "locked" | "mode_unavailable"; stalls?: number; actions?: number }
-export interface BrokerDeps { spawnRunner?: SpawnRunner; mode: () => Promise<Mode | undefined> }
+/** The wake step for a caller that owes a decision, injected so src/messaging never names a host or a planner. */
+export type CallerWakeResult = "sent" | "busy" | "gone" | "resumed" | "unavailable";
+export interface BrokerDeps {
+  spawnRunner?: SpawnRunner;
+  mode: () => Promise<Mode | undefined>;
+  callerWake?: (ctx: Ctx, reach: CallerReach, text: string, step: "ping" | "resume", taskId: string) => Promise<CallerWakeResult>;
+}
 
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
   const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
   // A spinner moves lastOutputAt every tick; a no-progress stall resets only on progress.
   const moved = stall.reason === "no_progress" ? n?.lastProgressAt : task?.progress?.lastOutputAt;
-  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id]);
+  // A caller's ladder restarts when another of its tasks settles, so each pending decision gets wakes.
+  const pending = stall.reason === "caller_decision" ? stall.blocking : undefined;
+  return JSON.stringify([task?.state, task?.attempts.length, task?.settledAt, moved, last?.id, pending]);
 }
 
 function publishRow(ctx: Ctx, row: LivenessUpsert | null, node: string): void {
   void publish(ctx, [{ type: "entity", data: { kind: "liveness", id: node, ...(row ? { value: row } : { removed: true }) } }]);
+}
+
+/** The one line typed into the caller's terminal or handed to its resume prompt (design §3). */
+function callerText(t: TaskRecord, question: string | undefined): string {
+  return t.state === "needs_input"
+    ? `pacer: task ${t.id} asked a question. Answer with pacer msg send ${t.id} --answer ${question}.`
+    : `pacer: task ${t.id} is ${t.state}. Review and decide: pacer review ${t.id} --accept|--reject, or pacer msg inbox.`;
 }
 
 /** One bounded reconciliation pass. The file lock also prevents a second service process from acting on the same stall. */
@@ -59,6 +76,13 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
           node, reason: stall.reason, since: stall.reason === "no_progress" ? seen?.lastProgressAt ?? ctx.now : ctx.now, attempts: 0, nudges: 0, nextAt: ctx.now + config.interval_s,
           progressMark: mark, stalledAt: null, escalatedAt: null,
         };
+        // A people node keeps its alert when its stall moves between unread messages and an owed decision,
+        // or when another decision joins: the wakes restart, the escalation does not.
+        const people = (r?: string) => r === "unread_external" || r === "unread_human" || r === "caller_decision";
+        if (old && changed && people(old.reason) && people(stall.reason)) {
+          if (old.reason !== stall.reason) row.since = Math.min(old.since, row.since);
+          row.stalledAt = old.stalledAt ?? row.stalledAt; row.escalatedAt = old.escalatedAt ?? row.escalatedAt;
+        }
         row.reason = stall.reason;
         const nudged = stall.reason === "cycle" || stall.reason === "idle_run" || stall.reason === "no_progress";
         // Nudges wait one interval after the stall is first seen; a zero cap or a mode without nudges escalates at once.
@@ -120,6 +144,41 @@ export async function brokerTick(ctx: Ctx, deps: BrokerDeps): Promise<BrokerRepo
               replyTo: null, requestId: pingId(row.nudges + 1) });
             await deliver(ctx, node, deps.spawnRunner);
             row.nudges++; acted = true;
+          }
+        } else if (stall.reason === "caller_decision") {
+          // Hooks hold the message first; the caller itself is woken only once caller_wake_after_s has passed.
+          const notify = () => { stallNow = true; acted = true; };
+          const due = ctx.now >= row.since + config.caller_wake_after_s;
+          const escalate = ctx.now >= row.since + config.escalate_after_s;
+          if (!allowed) notify();
+          else if (!due || row.nudges >= config.max_nudges) { if (escalate) notify(); }
+          else {
+            // The oldest pending decision the caller can be reached for and told about.
+            const wakeable = snapshot.tasks.map(n => n.task).filter(t => t.origin === node && owesDecision(t) && t.callerReach)
+              .sort((a, b) => (a.settledAt ?? 0) - (b.settledAt ?? 0) || a.id.localeCompare(b.id))
+              .map(t => ({ t, q: snapshot.questions.find(m => m.taskId === t.id && m.to === node)?.id }))
+              .find(({ t, q }) => t.state !== "needs_input" || q);
+            const task = wakeable?.t, question = wakeable?.q;
+            const text = task ? callerText(task, question) : null;
+            const reach = task?.callerReach;
+            const wake = deps.callerWake;
+            const taskId = task?.id ?? "";
+            // A human origin is never woken. An open caller in a controllable terminal is pinged;
+            // a closed caller (gone) is resumed in the background; unknown liveness never wakes.
+            let step: "ping" | "resume" | null = null;
+            if (wake && text && reach && node !== "human") {
+              const state = await callerAlive(ctx, reach);
+              if (state === "alive" && reach.terminal.kind === "orca") step = "ping";
+              else if (state === "gone") step = "resume";
+            }
+            if (step) {
+              const result = await wake!(ctx, reach!, text!, step, taskId);
+              if (result === "sent" || result === "resumed") { row.nudges++; acted = true; }
+              // A busy terminal is retried on the next tick without spending a wake.
+              else if (result === "busy") { if (escalate) notify(); else row.nextAt = ctx.now; }
+              else if (result === "unavailable") { if (escalate) notify(); else row.nextAt = row.since + config.escalate_after_s; }
+              else if (escalate) notify();
+            } else if (escalate) notify();
           }
         } else if (stall.reason === "unread_external") {
           if (!allowed || ctx.now >= row.since + config.escalate_after_s) {

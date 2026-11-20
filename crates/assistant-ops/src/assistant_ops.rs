@@ -186,10 +186,15 @@ fn nullish(value: Option<&Value>) -> bool {
 }
 
 /// `endpointFor(...) !== null`.
-fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>) -> bool {
+fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>, executor: bool) -> bool {
     let Some(entry) = strategy["accounts"].get(account) else {
         return false;
     };
+    // The executor backend runs the account through its agent CLI, which holds the connection and
+    // picks the model, so any endpoint account qualifies (`endpointFor` in TypeScript).
+    if executor {
+        return entry.get("kind").and_then(Value::as_str) == Some("endpoint");
+    }
     if entry.get("kind").and_then(Value::as_str) != Some("endpoint")
         || !entry.get("connection").is_some_and(truth)
     {
@@ -325,7 +330,8 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
             let Some(strategy) = strategy(ctx) else {
                 return Ok(None);
             };
-            if !endpoint_ok(&strategy, account, settings.runner.as_deref()) {
+            // Native status only answers the pacer backend; an executor backend's status is forwarded.
+            if !endpoint_ok(&strategy, account, settings.runner.as_deref(), false) {
                 (
                     "The account chosen for the assistant is no longer available.".to_owned(),
                     "Choose another account in Settings › Assistant.",
@@ -399,8 +405,10 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
         if let Some(account) = p.account.as_deref() {
             let strategy = strategy(ctx)
                 .ok_or_else(|| unavailable("the strategy requires the TypeScript loader"))?;
-            with_db(ctx, |db| Ok(settings(db)))??;
-            if !endpoint_ok(&strategy, account, p.runner.as_deref()) {
+            let stored = with_db(ctx, |db| Ok(settings(db)))??;
+            // The backend being saved decides the check; absent keeps the stored one.
+            let executor = p.backend.as_deref().unwrap_or(stored.backend.as_str()) == "executor";
+            if !endpoint_ok(&strategy, account, p.runner.as_deref(), executor) {
                 return Err(CoreError::new(
                     Code::InvalidInput,
                     "Choose an endpoint account with a model.",

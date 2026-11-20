@@ -196,7 +196,9 @@ export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): 
 export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1], deps: AssistantDeps = {}): AssistantSettings {
   if (input.account) {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
-    const probe: AssistantSettings = { ...readSettings(ctx), account: input.account, runner: input.runner };
+    // Check against the backend being saved (absent keeps the stored one), not only the stored one.
+    const stored = readSettings(ctx);
+    const probe: AssistantSettings = { ...stored, account: input.account, runner: input.runner, backend: input.backend ?? stored.backend };
     if (!endpointFor(strategy, probe)) throw new CoreError("invalid_input", "Choose an endpoint account with a model.", "Add one in Settings › Accounts.");
   }
   return writeSettings(ctx, input);
