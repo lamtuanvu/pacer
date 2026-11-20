@@ -80,10 +80,12 @@ use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
+pub(crate) mod terminal_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
 pub(crate) use pacer_core_bridge::task_wait_sync;
 use pacer_task_ops::task_stop_ops;
 use pacer_task_ops::task_wait_ops;
+pub(crate) use pacer_task_ops::terminal_ops;
 use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
@@ -109,6 +111,11 @@ pub use pacer_discovery_ops::network::set_probe_outputs_for_tests;
 pub use planning_ops::planning_stays_forwarded;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
+
+/// `terminal.*` inputs whose registry files only TypeScript reads faithfully.
+pub fn terminal_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    terminal_ops::stays_forwarded(ctx, op, params)
+}
 
 /// `repo.list`, `repo.add`, `issue.*` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
@@ -232,6 +239,22 @@ fn discovery_network_set(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpF
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "terminal.list",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.create",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.rename",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.close",
+        call: terminal_ops::terminal_stub,
+    },
     NativeOp {
         name: "strategy.list",
         call: config_writes::strategy_list,
