@@ -110,6 +110,9 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.models",
         "dispatch.refresh",
         "dispatch.enforcement.consent",
+        "dispatch.enforcement",
+        "dispatch.enforcement.probe",
+        "dispatch.enforcement.denied",
         "dispatch.preview",
         "dispatch.explain",
         "insights.summary",
@@ -136,13 +139,7 @@ fn forward_override_removes_only_selected_native_ops() {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
     }
-    for name in [
-        "dispatch.enforcement",
-        "dispatch.enforcement.probe",
-        "dispatch.enforcement.denied",
-    ] {
-        assert!(registry("").get(name).is_none(), "{name}");
-    }
+    // No registered-op gaps remain: dispatch.enforcement* and desktop.* are registered above.
     assert!(registry("").get("config.get").is_some());
     assert!(registry("config.get").get("config.get").is_none());
     assert!(registry("").get("activity.list").is_some());

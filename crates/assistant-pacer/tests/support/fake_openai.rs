@@ -18,10 +18,7 @@ pub struct RecordedRequest {
 #[derive(Clone)]
 pub enum ScriptedReply {
     /// A plain assistant text message.
-    Text {
-        content: String,
-        usage: (u64, u64),
-    },
+    Text { content: String, usage: (u64, u64) },
     /// An assistant message that only requests tool calls.
     ToolCalls {
         calls: Vec<(String, String, Value)>,
@@ -30,15 +27,9 @@ pub enum ScriptedReply {
     /// Hold the connection open until cancelled or the test drops the server.
     Hang,
     /// HTTP error body (status + text). Used to assert provider errors stay out of the reply.
-    HttpError {
-        status: u16,
-        body: String,
-    },
+    HttpError { status: u16, body: String },
     /// Like [`Text`](Self::Text) but omit the `created` field some openai-compatible servers skip.
-    TextWithoutCreated {
-        content: String,
-        usage: (u64, u64),
-    },
+    TextWithoutCreated { content: String, usage: (u64, u64) },
 }
 
 pub struct FakeOpenAi {

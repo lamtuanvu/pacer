@@ -6,8 +6,8 @@
 //! speaks the same Completions wire format Rig uses, with those two fixes.
 
 use rig::completion::{
-    self, CompletionError, CompletionModel as CompletionModelTrait, CompletionRequest as CoreRequest,
-    GetTokenUsage,
+    self, CompletionError, CompletionModel as CompletionModelTrait,
+    CompletionRequest as CoreRequest, GetTokenUsage,
 };
 use rig::streaming::StreamingCompletionResponse;
 use serde_json::Value;
@@ -23,7 +23,11 @@ pub struct CompatChatModel {
 }
 
 impl CompatChatModel {
-    pub fn new(base_url: impl Into<String>, api_key: Option<String>, model: impl Into<String>) -> Self {
+    pub fn new(
+        base_url: impl Into<String>,
+        api_key: Option<String>,
+        model: impl Into<String>,
+    ) -> Self {
         Self {
             http: reqwest::Client::new(),
             base_url: base_url.into().trim_end_matches('/').to_owned(),

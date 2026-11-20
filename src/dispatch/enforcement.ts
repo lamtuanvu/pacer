@@ -88,7 +88,7 @@ export async function resolveEnforcementTarget(ctx:Ctx,strategy:Strategy,runnerI
   return {...base,version};
 }
 /** The native control files a probe of `runnerId` in `repo` depends on; reads no process. */
-function controlFilesFor(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):string[] {
+export function controlFilesFor(ctx:Ctx,strategy:Strategy,runnerId:string,repo:string):string[] {
   const runner=strategy.runners[runnerId]!,account=strategy.accounts[runner.account]!;
   const folder=accountFolder(ctx,account)??join(ctx.home,runner.agent==="claude-code"?".claude":`.${runner.agent}`);
   return runner.agent==="claude-code"?[join(folder,"settings.json"),join(repo,".claude","settings.json"),join(repo,".claude","settings.local.json")]
@@ -289,6 +289,35 @@ export async function enforcementDiagnostics(ctx:Ctx,strategy:Strategy,repo:stri
     }
   }
   return {repo,scope:"native subagent entry points at admission",runners:rows};
+}
+/**
+ * The sealed `dispatch.parts` read for native `dispatch.enforcement`: the per-runner pieces of
+ * `enforcementDiagnostics` only TypeScript computes (`resolveEnforcementTarget` filling
+ * `checkedVersions`, `probeSupportReason`, `certificateStatus` for the requested and the
+ * scheduled repository) plus the scheduled repository's path and label. Rust owns the
+ * schedule-derived fields and the row assembly.
+ */
+export async function enforcementDiagnosticsParts(ctx:Ctx,strategy:Strategy,repo:string){
+  const scheduled = scheduledRepo(ctx);
+  const rows=[];
+  for(const runner of Object.values(strategy.runners)){
+    try {
+      const target=await resolveEnforcementTarget(ctx,strategy,runner.id,repo);
+      const unsupported=probeSupportReason(target,repo);
+      const cert=certificateStatus(ctx,target);
+      let scheduledCert:CertificateStatus|null=null,scheduledUnsupported:string|null=null;
+      if(scheduled&&scheduled!==repo){
+        const there={...target,controlFiles:controlFilesFor(ctx,strategy,runner.id,scheduled)};
+        scheduledUnsupported=probeSupportReason(there,scheduled);
+        scheduledCert=certificateStatus(ctx,there);
+      }
+      rows.push({runner:runner.id,version:target.version,unsupportedReason:unsupported,cert,
+        scheduledCert,scheduledUnsupported,key:key(target)});
+    } catch(error) {
+      rows.push({runner:runner.id,error:error instanceof Error?error.message:String(error)});
+    }
+  }
+  return {scheduled:scheduled?{path:scheduled,label:repoFor(ctx,scheduled).label}:null,runners:rows};
 }
 const scheduleFields=(hold:{reason:string|null;paused:boolean;scheduleRepo?:string|null;scheduleUnsupportedReason?:string|null}|null)=>(
   {scheduleReason:hold?.reason??null,schedulePaused:hold?.paused??false,

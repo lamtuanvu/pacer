@@ -17,8 +17,8 @@ use rig::completion::{
 use rig::message::UserContent;
 use rig::tool::server::ToolServer;
 use serde_json::{Value, json};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Duration;
 
 /// Build the stdio plugin that serves `assistant.reply`.
@@ -178,10 +178,7 @@ async fn run_reply(
             if ctx.cancel.is_cancelled() {
                 return Err(cancelled());
             }
-            let reason = stop_reason
-                .lock()
-                .map(|g| *g)
-                .unwrap_or(StopReason::None);
+            let reason = stop_reason.lock().map(|g| *g).unwrap_or(StopReason::None);
             let usage = accumulated_usage(&usage_acc, &usage_out);
             let text = last_assistant_text(&chat_history).unwrap_or_default();
             match reason {
@@ -239,11 +236,7 @@ async fn run_reply(
     } else {
         accumulated_usage(&usage_acc, &usage_out)
     };
-    Ok(reply_result(
-        response.output,
-        usage,
-        coverage_of(&usage),
-    ))
+    Ok(reply_result(response.output, usage, coverage_of(&usage)))
 }
 
 fn reply_result(

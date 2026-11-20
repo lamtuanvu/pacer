@@ -71,12 +71,7 @@ impl Host {
             pending.insert(id.clone(), tx);
             if self
                 .out
-                .send(wire::request_with_meta(
-                    &id,
-                    method,
-                    params,
-                    meta.as_ref(),
-                ))
+                .send(wire::request_with_meta(&id, method, params, meta.as_ref()))
                 .is_err()
             {
                 pending.remove(&id);

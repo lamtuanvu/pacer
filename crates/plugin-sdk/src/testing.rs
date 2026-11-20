@@ -137,9 +137,7 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                 let reply = if requires_capability_call(&method) {
                     let expected = read_lock(&inner.active_token).clone();
                     let got = wire::capability_call_token(meta.as_ref());
-                    if expected.is_none()
-                        || got.as_ref() != expected.as_ref()
-                    {
+                    if expected.is_none() || got.as_ref() != expected.as_ref() {
                         wire::error(
                             &id,
                             -32000,
@@ -312,12 +310,7 @@ impl Harness {
         if self
             .inner
             .out
-            .send(wire::request_with_meta(
-                &id,
-                method,
-                params,
-                Some(&meta),
-            ))
+            .send(wire::request_with_meta(&id, method, params, Some(&meta)))
             .is_err()
         {
             lock(&self.inner.pending).remove(&id);
@@ -344,12 +337,7 @@ impl Harness {
         if self
             .inner
             .out
-            .send(wire::request_with_meta(
-                &id,
-                method,
-                params,
-                Some(&meta),
-            ))
+            .send(wire::request_with_meta(&id, method, params, Some(&meta)))
             .is_err()
         {
             lock(&self.inner.pending).remove(&id);
@@ -366,10 +354,10 @@ impl Harness {
 
     /// Send `$/cancel` for an in-flight call started with [`Self::call`] or [`Self::start_call`].
     pub fn cancel(&self, id: &str) {
-        let _ = self.inner.out.send(wire::notification(
-            "$/cancel",
-            json!({"id": id}),
-        ));
+        let _ = self
+            .inner
+            .out
+            .send(wire::notification("$/cancel", json!({"id": id})));
     }
 
     /// The `$/progress` data the plugin has emitted so far.
