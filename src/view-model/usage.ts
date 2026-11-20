@@ -90,12 +90,14 @@ export function usageView(state: UsageState | null | undefined, now: number): Us
   return { figure, meter, window, reset, freshness, source, tone, verdictLabel, summary, summaryUsed };
 }
 
-/** One window of a record's `windows` list, quoted with the same words as the record itself. */
-export function usageWindowView(window: UsageWindowState, now: number): { label: string; figure: string; meter: number | null; reset: string } {
+/** One window of a record's `windows` list, quoted with the same words and verdict tone as the record itself. */
+export function usageWindowView(window: UsageWindowState, now: number): { label: string; figure: string; meter: number | null; reset: string; tone: StatusTone; stale: boolean } {
   return {
     label: windowWords(window.name),
     figure: window.usedPct === null ? "Usage unknown" : `${Math.round(window.usedPct)}%`,
     meter: window.usedPct === null ? null : Math.round(window.usedPct),
     reset: resetWords(window.resetsAt, now),
+    tone: verdictTone(window.verdict),
+    stale: window.stale === true,
   };
 }

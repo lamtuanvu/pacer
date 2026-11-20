@@ -143,7 +143,8 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
         const row = usageWindowView(window, now);
         return <div className="pc-usage-window" key={window.name}>
           <span>{row.label}</span>
-          <UsageMeter used={row.meter} pace={null} tone={view.tone} size="top" text="none" label={`${account.name} ${row.label} usage`} stale={state.freshness === "historical"} staleAt={state.observedAt ?? undefined} now={now} />
+          {/* Each window keeps its own staleness and verdict tone; the record's freshness is the head's words (fixture f). */}
+          <UsageMeter used={row.meter} pace={null} tone={row.tone} size="top" text="none" label={`${account.name} ${row.label} usage`} stale={row.stale} staleAt={state.observedAt ?? undefined} now={now} />
           <span className="pc-num">{row.figure}</span>
           <span className="muted">{row.reset}</span>
         </div>;

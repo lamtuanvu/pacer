@@ -139,7 +139,7 @@ test("figureWords mirrors the view's figure and meter", () => {
 
 test("window views quote each window with the shared words", () => {
   const view = usageWindowView({ name: "5h", usedPct: 41.6, resetsAt: now + 2 * 3600, lengthS: 5 * 3600, paced: true, stale: false, verdict: "ON_PACE" }, now);
-  expect(view).toEqual({ label: "5 h", figure: "42%", meter: 42, reset: `resets ${new Date((now + 2 * 3600) * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}` });
+  expect(view).toEqual({ label: "5 h", figure: "42%", meter: 42, reset: `resets ${new Date((now + 2 * 3600) * 1000).toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" })}`, tone: "good", stale: false });
   expect(usageWindowView({ name: "weekly", usedPct: null, resetsAt: null, lengthS: 7 * 86400, paced: true, stale: true, verdict: "UNKNOWN" }, now).figure).toBe("Usage unknown");
 });
 
