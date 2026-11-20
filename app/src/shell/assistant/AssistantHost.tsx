@@ -9,14 +9,17 @@ import { AuroraAvatar, AuroraLauncher, AuroraSheet, Thinking } from "../../ds/Au
 import { Alert } from "../../ds/Alert";
 import { Button, ButtonLink, IconButton } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { TextInput } from "../../ds/Controls";
+import { Disclosure, TextInput } from "../../ds/Controls";
 import { Prose } from "../../ds/Prose";
 import { DensityContext } from "../../ds/Density";
+import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
+import { askModeCheckCopy } from "../../../../src/view-model/copy";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
 import { ActionCardView } from "./ActionCardView";
+import { confirmExecutorTrust } from "./executor-trust";
 import { type ScopeChoice, defaultScope, parseFrames, requestId, scopeChoices } from "./model";
 
 interface Status { available: boolean; configured: boolean; account?: string; reason?: string; hint?: string }
@@ -212,12 +215,13 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
 interface Candidate { runners?: { id: string }[]; account: string; backend?: "pacer" | "executor"; available?: boolean; reason?: string; models: { id: string; name: string }[] }
 interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageReading?: { windows?: { usedPct?: number }[] } }
 function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
+  const dialogs = useDialogs();
   const [accounts, setAccounts] = useState<(Candidate & { name: string; note: string; local: boolean })[] | null>(null);
-  const [error, setError] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null), [errorDetail, setErrorDetail] = useState<string | null>(null), [busy, setBusy] = useState<string | null>(null);
   const [attempt, setAttempt] = useState(0);
   useEffect(() => {
     let live = true;
-    setError(null);
+    setError(null); setErrorDetail(null);
     void Promise.all([api.call<{ accounts: Candidate[] }>("assistant.candidates", {}), api.call<AccountDetail[]>("account.list", {})]).then(([candidates, details]) => {
       if (!live) return;
       setAccounts(candidates.accounts.map(candidate => {
@@ -235,9 +239,12 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   const rowKey = (row: Candidate) => `${row.backend ?? "pacer"}:${row.account}`;
   const choose = async (row: Candidate) => {
     if (busy) return;
-    setBusy(rowKey(row)); setError(null);
+    setError(null); setErrorDetail(null);
     try {
-      const settings = await api.call<{ rev: number }>("assistant.settings.get", {});
+      const settings = await api.call<{ rev: number; backend?: string }>("assistant.settings.get", {});
+      // Same one-time trust confirmation as Settings when switching onto an agent CLI.
+      if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm))) return;
+      setBusy(rowKey(row));
       await api.call("assistant.settings.set", { account: row.account, backend: row.backend ?? "pacer", runner: null, expect_rev: settings.rev });
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
@@ -246,10 +253,13 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   // An agent CLI answers only after it passes the ask-mode check; run it from here, then reload the rows.
   const check = async (row: Candidate) => {
     if (busy) return;
-    setBusy(rowKey(row)); setError(null);
+    setBusy(rowKey(row)); setError(null); setErrorDetail(null);
     try {
       const result = await api.call<{ passed: boolean; reason?: string }>("assistant.selftest", { account: row.account });
-      if (!result.passed) setError(`${row.account} did not pass the ask-mode check${result.reason ? `: ${result.reason}` : "."}`);
+      if (!result.passed) {
+        setError(`${row.account} did not pass the ask-mode check. ${askModeCheckCopy(result.reason)}`);
+        setErrorDetail(result.reason ?? null);
+      }
       setAttempt(n => n + 1);
     } catch (error) { setError(error instanceof Error ? error.message : "Could not run the ask-mode check."); }
     finally { setBusy(null); }
@@ -259,10 +269,11 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one account and never moves to another. Through pacer's agent it calls the account's model directly; through opencode it runs the agent CLI on this Mac with every tool denied, after a one-time check. Your question and what pacer reads for it go to that account's model.</p></div></div>
     {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => {
       const executor = account.backend === "executor", ready = !executor || account.available !== false;
-      const note = executor ? (ready ? "via opencode · checked" : `via opencode · ${account.reason ?? "needs the ask-mode check"}`) : account.note;
+      const plain = askModeCheckCopy(account.reason);
+      const note = executor ? (ready ? "via opencode · checked" : `via opencode · ${plain}`) : account.note;
       return <div className="pc-assistant-setup__account" key={rowKey(account)}>
         <AgentMark agent={executor ? "opencode" : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via opencode" : ""}</strong><span title={note}>{note}</span></div>
+        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via opencode" : ""}</strong><span title={executor && !ready && account.reason ? account.reason : note}>{note}</span></div>
         {ready
           ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
           : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}
@@ -270,7 +281,8 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     })}</div>}
     {!accounts && !error && <p role="status">Loading accounts…</p>}
     {accounts?.length === 0 && <p>No endpoint accounts are configured.</p>}
-    {error && <Alert tone="error" title="Could not set up the assistant">{error} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
+    {error && <Alert tone="error" title="Could not set up the assistant">{error}{errorDetail && <Disclosure summary="Technical details"><code>{errorDetail}</code></Disclosure>} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
     <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/accounts">Add an endpoint account</a> in Settings › Agents › Accounts. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
+    {dialogs.dialog}
   </section>;
 }

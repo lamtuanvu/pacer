@@ -22,6 +22,14 @@ export function reasonCopy(raw: string | null | undefined): string {
   if (busy) return `${executorLabel(busy[1])} is busy`;
   return 'Routing details available';
 }
+/** Ask-mode check / admission reasons for the executor backend; raw strings stay in technical details. */
+export function askModeCheckCopy(raw: string | null | undefined): string {
+  if (!raw) return 'Not checked yet.';
+  if (/has not passed the ask-mode check yet/i.test(raw)) return 'Not checked yet.';
+  if (/changed since .+ passed the ask-mode check|opencode changed/i.test(raw)) return 'The CLI version changed.';
+  if (/failed the ask-mode check|a tool other than|planted file|file outside|attempted none|did not attempt/i.test(raw)) return 'The ask-mode check failed.';
+  return 'The ask-mode check is incomplete.';
+}
 export function costCopy(cost: {account: string; deltaPct: number | null; window: string | null; reason?: string} | null): string {
   if (!cost) return 'Cost not recorded';
   const account = executorLabel(cost.account);

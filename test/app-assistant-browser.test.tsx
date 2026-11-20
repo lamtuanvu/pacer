@@ -505,3 +505,58 @@ browserTest("assistant_expands_to_the_full_content_area_and_restores", async () 
     await page.waitForFunction(() => !(document.querySelector(".pc-work") as HTMLElement).inert);
   } finally { await browser.close(); }
 }, 20_000);
+
+async function buildSettings() {
+  const result = await Bun.build({ entrypoints: ["test/fixtures/app-assistant-settings-browser.tsx"], target: "browser", splitting: false });
+  expect(result.success).toBe(true);
+  const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/settings/settings.css"].map(path => Bun.file(path).text()))].join("\n");
+  return { source: await result.outputs[0]!.text(), css };
+}
+async function openSettings(page: Page, built: { source: string; css: string }) {
+  await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>assistant settings</title><div id="app"></div>' }));
+  await page.goto("http://pacer.test/");
+  await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
+  await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
+  await page.getByRole("region", { name: "Assistant" }).waitFor();
+}
+
+browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_read_card", async () => {
+  const built = await buildSettings();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openSettings(page, built);
+    // Backend picker lists both pacer and executor rows.
+    const account = page.getByLabel("Account that answers");
+    await account.click();
+    await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).waitFor();
+    expect(await page.getByRole("option", { name: /oc · via opencode/ }).count()).toBe(1);
+    // Pacer backend: the reads card lists the host tools summary.
+    await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).click();
+    await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").waitFor();
+    expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(0);
+    // Unchecked executor: plain copy, not the raw reason; Run check is offered.
+    await account.click();
+    await page.getByRole("option", { name: /oc · via opencode/ }).click();
+    await page.getByText("Not checked yet.").waitFor();
+    // Raw reason stays in the closed technical details disclosure, not in the alert body.
+    expect(await page.getByText("oc has not passed the ask-mode check yet.", { exact: true }).isVisible()).toBe(false);
+    await page.getByText("Technical details").click();
+    expect(await page.getByText("oc has not passed the ask-mode check yet.", { exact: true }).isVisible()).toBe(true);
+    expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(1);
+    expect(await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").count()).toBe(0);
+    await page.getByRole("button", { name: "Run ask-mode check" }).click();
+    await page.getByText("Check finished.").waitFor();
+    expect(await page.evaluate(() => (window as any).selftestCalls)).toEqual([{ account: "oc" }]);
+    // Saving an executor after a pacer setting asks for a distinct confirmation.
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    const title = await dialog.getByRole("heading").textContent();
+    expect(title).toBeTruthy();
+    expect(title).not.toBe("Use the agent CLI");
+    await dialog.getByRole("button", { name: "Use the agent CLI", exact: true }).click();
+    await page.getByText("Saved.").waitFor();
+    expect(await page.evaluate(() => (window as any).settingsCalls.at(-1))).toMatchObject({ account: "oc", backend: "executor" });
+  } finally { await browser.close(); }
+}, 30_000);
