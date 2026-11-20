@@ -118,6 +118,8 @@ fn forward_override_removes_only_selected_native_ops() {
         "desktop.reconcile.status",
         "desktop.reconcile.request",
         "desktop.reconcile.cancel",
+        "desktop.update.status",
+        "desktop.capture.targets",
         "assistant.status",
         "assistant.settings.get",
         "assistant.settings.set",
@@ -138,8 +140,6 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.enforcement",
         "dispatch.enforcement.probe",
         "dispatch.enforcement.denied",
-        "desktop.update.status",
-        "desktop.capture.targets",
     ] {
         assert!(registry("").get(name).is_none(), "{name}");
     }
