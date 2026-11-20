@@ -1,20 +1,28 @@
 import { expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
-import { resumeArgv, resumeCaller, type PlannerReach, type ResumeSpawn } from "../src/install/planner-resume";
+import { RESUME_ALLOWED_TOOLS, RESUME_DENIED_TOOLS, resumeArgv, resumeCaller, type PlannerReach, type ResumeSpawn } from "../src/install/planner-resume";
 import type { PlannerKind } from "../src/messaging/identity";
 import { readActivity } from "../src/activity/log";
 
+
+/** A PATH with stand-in planner CLIs, so binary resolution succeeds without the real ones. */
+const BIN = tmpDir();
+for (const name of ["claude", "codex"]) { writeFileSync(join(BIN, name), "#!/bin/sh\nexit 0\n"); chmodSync(join(BIN, name), 0o755); }
+const planCtx = (o: Parameters<typeof fakeCtx>[0] = {}) => fakeCtx({ ...o, env: { PATH: BIN, ...(o?.env ?? {}) } });
+const CLAUDE_FLAGS = ["-p", "--permission-mode", "default", "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS];
+
 const UNKNOWN = "opencode" as unknown as PlannerKind;
 const calls: ResumeSpawn[] = [];
-const recorder = (o: ResumeSpawn) => { calls.push(o); return 4242; };
+// A pid no process has, so no resume lock is held between calls.
+const recorder = (o: ResumeSpawn) => { calls.push(o); return 2147483646; };
 const noPid = (o: ResumeSpawn) => { calls.push(o); return undefined; };
 const boom = (o: ResumeSpawn) => { calls.push(o); throw new Error("spawn refused"); };
 const activity = (ctx: ReturnType<typeof fakeCtx>) => readActivity(ctx, {}).entries;
 
 test("builds the Claude Code argv", () => {
-  expect(resumeArgv("claude-code", "a1b2", "review task t-1")).toEqual(["claude", "--resume=a1b2", "-p", "--", "review task t-1"]);
+  expect(resumeArgv("claude-code", "a1b2", "review task t-1")).toEqual(["claude", "--resume=a1b2", ...CLAUDE_FLAGS, "--", "review task t-1"]);
 });
 
 test("builds the Codex argv", () => {
@@ -30,13 +38,13 @@ test("a session id that could inject flags is refused", () => {
 });
 
 test("a prompt that starts with a dash stays after --", () => {
-  expect(resumeArgv("claude-code", "a1b2", "-x")).toEqual(["claude", "--resume=a1b2", "-p", "--", "-x"]);
+  expect(resumeArgv("claude-code", "a1b2", "-x")).toEqual(["claude", "--resume=a1b2", ...CLAUDE_FLAGS, "--", "-x"]);
   expect(resumeArgv("codex", "th-9", "-")).toEqual(["codex", "exec", "resume", "--", "th-9", "-"]);
 });
 
 test("an injected session id is unavailable and records nothing", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const out = await resumeCaller(ctx, { kind: "claude-code", session: "--dangerously-skip-permissions", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder });
   expect(out).toBe("unavailable");
   expect(calls).toEqual([]);
@@ -46,7 +54,7 @@ test("an injected session id is unavailable and records nothing", async () => {
 
 test("refuses while the caller is alive", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const out = await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => true, spawn: recorder });
   expect(out).toBe("unavailable");
   expect(calls).toEqual([]);
@@ -55,13 +63,13 @@ test("refuses while the caller is alive", async () => {
 
 test("spawns in the caller's cwd with an argument vector", async () => {
   calls.length = 0;
-  const ctx = fakeCtx(), cwd = tmpDir();
+  const ctx = planCtx(), cwd = tmpDir();
   const reach: PlannerReach = { kind: "claude-code", session: "a1b2", cwd };
   expect(await resumeCaller(ctx, reach, "review task t-1", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("resumed");
   expect(await resumeCaller(ctx, reach, "again", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("resumed");
   expect(calls.map(c => c.argv)).toEqual([
-    ["claude", "--resume=a1b2", "-p", "--", "review task t-1"],
-    ["claude", "--resume=a1b2", "-p", "--", "again"],
+    [join(BIN, "claude"), "--resume=a1b2", ...CLAUDE_FLAGS, "--", "review task t-1"],
+    [join(BIN, "claude"), "--resume=a1b2", ...CLAUDE_FLAGS, "--", "again"],
   ]);
   for (const c of calls) expect(c.cwd).toBe(cwd);
   expect(calls[0]!.env.PACER_PLANNER_SESSION).toBe("claude-code:a1b2");
@@ -78,7 +86,7 @@ test("spawns in the caller's cwd with an argument vector", async () => {
 
 test("the resumed environment names the task it was resumed for", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const reach: PlannerReach = { kind: "claude-code", session: "a1b2", cwd: tmpDir() };
   expect(await resumeCaller(ctx, reach, "review", { task: "t-42", isAlive: async () => false, spawn: recorder })).toBe("resumed");
   expect(calls[0]!.env.PACER_CALLER_RESUME).toBe("t-42");
@@ -86,7 +94,7 @@ test("the resumed environment names the task it was resumed for", async () => {
 
 test("executor state and secrets stay out of the resumed environment", async () => {
   calls.length = 0;
-  const ctx = fakeCtx({ env: {
+  const ctx = planCtx({ env: {
     PACER_ROLE: "executor", PACER_TASK_ID: "t-9", PACER_WORK_GRANT: "grant", PACER_RUN_DIR: "/run/x",
     PACER_REPORT_TOKEN: "rep", PACER_TRANSCRIPT_REPORT: "/run/x/report", PACER_AUTH_TOKEN: "auth",
     PACER_HOST_SOCKET: "/sock", PACER_INTERNAL_TOKEN: "core-secret", PACER_HOST_SOCKET_KEY: "owner-key",
@@ -105,7 +113,7 @@ test("executor state and secrets stay out of the resumed environment", async () 
 
 test("an unusable cwd is unavailable and records nothing", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const missing = join(tmpDir(), "nope");
   expect(await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: missing }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("unavailable");
   expect(await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: "relative/dir" }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("unavailable");
@@ -116,7 +124,7 @@ test("an unusable cwd is unavailable and records nothing", async () => {
 
 test("a spawn without a pid records nothing", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const out = await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: noPid });
   expect(out).toBe("unavailable");
   expect(calls).toHaveLength(1);
@@ -126,7 +134,7 @@ test("a spawn without a pid records nothing", async () => {
 
 test("a throwing spawner is unavailable and records nothing", async () => {
   calls.length = 0;
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const out = await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: boom });
   expect(out).toBe("unavailable");
   expect(activity(ctx)).toEqual([]);
@@ -137,8 +145,37 @@ test("unknown planner kinds are unavailable", async () => {
   calls.length = 0;
   expect(resumeArgv(UNKNOWN, "a1b2", "review")).toBeNull();
   expect(resumeArgv("claude-code", "", "review")).toBeNull();
-  const ctx = fakeCtx();
+  const ctx = planCtx();
   const out = await resumeCaller(ctx, { kind: UNKNOWN, session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder });
   expect(out).toBe("unavailable");
   expect(calls).toEqual([]);
+});
+
+test("a second resume waits while the first resumed turn still runs", async () => {
+  const child = Bun.spawn(["sleep", "30"]);
+  try {
+    calls.length = 0;
+    const ctx = planCtx(), reach: PlannerReach = { kind: "claude-code", session: "lock1", cwd: tmpDir() };
+    const live = (o: ResumeSpawn) => { calls.push(o); return child.pid; };
+    expect(await resumeCaller(ctx, reach, "review", { task: "t-1", isAlive: async () => false, spawn: live })).toBe("resumed");
+    expect(await resumeCaller(ctx, reach, "review", { task: "t-1", isAlive: async () => false, spawn: live })).toBe("busy");
+    child.kill(); await child.exited;
+    expect(await resumeCaller(ctx, reach, "review", { task: "t-1", isAlive: async () => false, spawn: live })).toBe("resumed");
+    expect(calls).toHaveLength(2);
+  } finally { child.kill(); }
+});
+
+test("a planner CLI missing from the login PATH is unavailable", async () => {
+  calls.length = 0;
+  const ctx = fakeCtx({ env: { PATH: tmpDir() } });
+  expect(await resumeCaller(ctx, { kind: "claude-code", session: "a1b2", cwd: tmpDir() }, "review", { task: "t-1", isAlive: async () => false, spawn: recorder })).toBe("unavailable");
+  expect(calls).toHaveLength(0);
+});
+
+test("the resumed turn may only read and run pacer", () => {
+  const argv = resumeArgv("claude-code", "a1b2", "review")!;
+  const allowed = argv.slice(argv.indexOf("--allowedTools") + 1, argv.indexOf("--disallowedTools"));
+  expect(allowed).toEqual(["Bash(pacer:*)", "Read", "Grep", "Glob"]);
+  expect(argv).toContain("Edit"); expect(argv).toContain("Write");
+  expect(argv.indexOf("--disallowedTools")).toBeLessThan(argv.indexOf("--"));
 });

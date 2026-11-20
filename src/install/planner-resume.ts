@@ -1,8 +1,10 @@
 import { spawn } from "node:child_process";
-import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, statSync } from "node:fs";
+import { appendFileSync, closeSync, mkdirSync, openSync, readdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { isAbsolute, join } from "node:path";
 import { appendActivity } from "../activity/log";
+import { cachedLoginPath } from "../exec/login-env";
 import { plannerResumeEnv } from "../exec/process";
+import { processIdentity, sameProcess, type ProcessIdentity } from "../update/desktop/process-identity";
 import type { PlannerKind } from "../messaging/identity";
 import type { Ctx } from "../types";
 
@@ -16,9 +18,17 @@ export interface ResumeDeps { task: string; isAlive: () => Promise<boolean>; spa
 const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /** Codex answers `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` (verified with codex exec resume --help). */
+/**
+ * The unattended turn may only read and run pacer (maintainer decision, design §3): it reviews the result and
+ * records a verdict, and never edits, builds or pushes. Anything else is denied without a prompt nobody answers.
+ */
+export const RESUME_ALLOWED_TOOLS = ["Bash(pacer:*)", "Read", "Grep", "Glob"];
+export const RESUME_DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"];
+
 export function resumeArgv(kind: PlannerKind, session: string, prompt: string): string[] | null {
   if (!SESSION_ID.test(session)) return null;
-  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--", prompt];
+  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--permission-mode", "default",
+    "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS, "--", prompt];
   if (kind === "codex") return ["codex", "exec", "resume", "--", session, prompt];
   return null;
 }
@@ -30,6 +40,15 @@ const nextLogIndex = (dir: string) => {
   try { for (const f of readdirSync(dir)) { const m = /^(\d+)\.log$/.exec(f); if (m) n = Math.max(n, Number(m[1]) + 1); } } catch { /* a missing dir starts at 1 */ }
   return n;
 };
+
+/** Whether the turn last resumed for this session is still running (same process identity, not a reused pid). */
+function resumedRunning(dir: string): boolean {
+  try {
+    const want = JSON.parse(readFileSync(join(dir, "active.json"), "utf8")) as ProcessIdentity;
+    const now = processIdentity(want.pid);
+    return !!now && sameProcess(now, want);
+  } catch { return false; }
+}
 
 /** Detached with its own session, output to the resume log: the runner spawn pattern (SEC-5 runs argv, never a shell). */
 export const spawnResume: ResumeSpawner = ({ argv, cwd, env, log }) => {
@@ -48,7 +67,7 @@ export const spawnResume: ResumeSpawner = ({ argv, cwd, env, log }) => {
 
 /** Resume a closed caller session in the background so its resumed turn can decide the pending task.
  * Refuses while the caller session is still open: an attended turn needs no resume. */
-export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string, deps: ResumeDeps): Promise<"resumed" | "unavailable"> {
+export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string, deps: ResumeDeps): Promise<"resumed" | "busy" | "unavailable"> {
   if (await deps.isAlive()) return "unavailable";
   const session = nativeSession(reach.kind, reach.session ?? "");
   const argv = resumeArgv(reach.kind, session, prompt);
@@ -56,9 +75,16 @@ export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string
   if (!isAbsolute(reach.cwd) || !statSync(reach.cwd, { throwIfNoEntry: false })?.isDirectory()) return "unavailable";
   const dir = join(ctx.pacerHome, "runs", `caller-${segment(session)}`);
   mkdirSync(dir, { recursive: true, mode: 0o700 });
+  // One resumed turn per session at a time: a second resume would share the conversation unattended.
+  if (resumedRunning(dir)) return "busy";
+  // The service's PATH may not reach the planner CLI; use the login PATH executors get, and refuse without it.
+  const path = cachedLoginPath(ctx.env, ctx.home) ?? ctx.env.PATH;
+  const bin = Bun.which(argv[0]!, { PATH: path ?? "" });
+  if (!bin) return "unavailable";
+  argv[0] = bin;
   const log = join(dir, `${nextLogIndex(dir)}.log`);
   try { closeSync(openSync(log, "a", 0o600)); } catch { /* a log that cannot be created never blocks a launch */ }
-  const env = { ...plannerResumeEnv(ctx.env), HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}`, PACER_CALLER_RESUME: deps.task };
+  const env = { ...plannerResumeEnv(ctx.env), ...(path ? { PATH: path } : {}), HOME: ctx.home, PACER_HOME: ctx.pacerHome, PACER_PLANNER_SESSION: `${reach.kind}:${session}`, PACER_CALLER_RESUME: deps.task };
   let pid: number | undefined, failure: unknown;
   try { pid = (deps.spawn ?? spawnResume)({ argv, cwd: reach.cwd, env, log }); } catch (e) { failure = e; }
   // No pid means nothing started: the record would be false and the ladder could not escalate.
@@ -66,6 +92,8 @@ export async function resumeCaller(ctx: Ctx, reach: PlannerReach, prompt: string
     try { appendFileSync(log, `${failure === undefined ? "spawn returned no pid" : String(failure)}\n`); } catch { /* nothing left to report */ }
     return "unavailable";
   }
+  const child = processIdentity(pid);
+  if (child) try { writeFileSync(join(dir, "active.json"), JSON.stringify(child), { mode: 0o600 }); } catch { /* the lock is best effort */ }
   appendActivity(ctx, { kind: "message", level: "info", text: `caller resumed for ${deps.task}`, taskId: deps.task });
   return "resumed";
 }
