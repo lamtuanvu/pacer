@@ -133,7 +133,7 @@ fn pid_issue(name: &str, value: Option<&Value>, issues: &mut Vec<String>) {
 fn window_params(
     name: &str,
     value: Option<&Value>,
-    mut issues: &mut Vec<String>,
+    issues: &mut Vec<String>,
 ) -> Option<Map<String, Value>> {
     let Some(Value::Object(map)) = value else {
         issues.push(format!(
@@ -167,11 +167,12 @@ fn window_params(
             ));
         }
     }
-    pid_issue(&format!("{name}.pid"), map.get("pid"), &mut issues);
-    if let Some(Value::Number(n)) = map.get("pid") {
-        if n.as_f64().is_some_and(|f| f.fract() == 0.0 && f >= 2.0) {
-            parsed.insert("pid".into(), n.clone().into());
-        }
+    let pid_field = format!("{name}.pid");
+    pid_issue(&pid_field, map.get("pid"), issues);
+    if let Some(Value::Number(n)) = map.get("pid")
+        && n.as_f64().is_some_and(|f| f.fract() == 0.0 && f >= 2.0)
+    {
+        parsed.insert("pid".into(), n.clone().into());
     }
     if parsed.contains_key("label")
         && parsed.contains_key("window_id")
