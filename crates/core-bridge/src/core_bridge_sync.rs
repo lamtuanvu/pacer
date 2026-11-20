@@ -3,6 +3,8 @@
 use pacer_foundation::api::{Code, CoreError};
 use serde_json::Value;
 
+use pacer_config_ops::desktop_capture_ops;
+use pacer_config_ops::desktop_update_ops;
 use pacer_config_ops::doctor_ops;
 
 fn unavailable(message: &str) -> CoreError {
@@ -23,6 +25,8 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok("/_internal/desktop-capture"),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok("/_internal/desktop-update"),
         "client.control" => Ok("/_internal/client-control"),
         "terminal.parts" => Ok("/_internal/terminal-parts"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
@@ -38,6 +42,8 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok("_internal.desktop.capture"),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok("_internal.desktop.update"),
         "client.control" => Ok("_internal.client-control"),
         "terminal.parts" => Ok("_internal.terminal.parts"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
@@ -71,6 +77,8 @@ fn bridge_deadline() -> std::time::Duration {
 
 pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
+        op if desktop_capture_ops::needs_capture_bridge(op) => Ok(params.clone()),
+        op if desktop_update_ops::needs_update_bridge(op) => Ok(params.clone()),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
         "setup.check" | "setup.effects" | "client.control" | "terminal.parts"
         | "service.effects" | "update.effects" | "host.effects" | "agent.effects" => {

@@ -266,7 +266,26 @@ async fn main() -> io::Result<()> {
             stdout.write_all(b"\n")?;
             continue;
         }
-        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
+        let core_bridge_sync = if matches!(
+            name,
+            "setup.check"
+                | "setup.health"
+                | "doctor.run"
+                | "desktop.capture.register"
+                | "desktop.capture.targets"
+                | "desktop.capture.request"
+                | "desktop.capture.claim"
+                | "desktop.capture.complete"
+                | "desktop.capture.result"
+                | "desktop.update.status"
+                | "desktop.update.check"
+                | "desktop.update.download"
+                | "desktop.update.restart"
+                | "desktop.update.cancel"
+                | "desktop.update.adopt"
+                | "desktop.update.adoptCancel"
+                | "desktop.update.configure"
+        ) {
             let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
