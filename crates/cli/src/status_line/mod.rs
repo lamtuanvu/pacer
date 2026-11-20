@@ -76,18 +76,18 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
         .and_then(|s| s.get("at").or_else(|| s.get("generatedAt")))
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    let main = if verdict == "out" {
-        let reset = f["resetsAt"].as_f64();
+    // Exhaustion with a known reset wins over staleness; a stale reading
+    // without it shows the TUI's "stale reading" marker instead of a figure.
+    let reset = f["resetsAt"].as_f64();
+    let main = if verdict == "out" && reset.is_some() {
         format!(
-            "out · {}",
-            reset.map_or_else(
-                || back_in(None, now),
-                |_| format!(
-                    "back {}",
-                    fmt_reset(reset, now).chars().skip(2).collect::<String>()
-                )
-            )
+            "out · back {}",
+            fmt_reset(reset, now).chars().skip(2).collect::<String>()
         )
+    } else if f["stale"] == Value::Bool(true) {
+        "stale reading".into()
+    } else if verdict == "out" {
+        format!("out · {}", back_in(None, now))
     } else {
         format!(
             "{}{}",
