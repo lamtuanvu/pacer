@@ -1,3 +1,4 @@
+pub(crate) mod agent_apply_sync;
 use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
 use pacer_foundation::{
@@ -41,6 +42,7 @@ use pacer_task_ops::job_ops;
 #[allow(unused_imports)]
 use pacer_update::handover;
 pub(crate) mod install_apply_sync;
+use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
@@ -78,10 +80,12 @@ use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
 pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
+pub(crate) mod terminal_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
 pub(crate) use pacer_core_bridge::task_wait_sync;
 use pacer_task_ops::task_stop_ops;
 use pacer_task_ops::task_wait_ops;
+pub(crate) use pacer_task_ops::terminal_ops;
 use pacer_update::apply;
 
 pub use assistant_ops::assistant_stays_forwarded;
@@ -108,6 +112,11 @@ pub use planning_ops::planning_stays_forwarded;
 pub(crate) use project_messaging_ops::project_messaging_stays_forwarded;
 pub(crate) use repo_ops::repo_remove_stays_forwarded;
 
+/// `terminal.*` inputs whose registry files only TypeScript reads faithfully.
+pub fn terminal_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
+    terminal_ops::stays_forwarded(ctx, op, params)
+}
+
 /// `repo.list`, `repo.add`, `issue.*` and `project.strategy.*` inputs that only the TypeScript repository reader handles.
 pub fn repo_registry_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     repo_registry_ops::repo_list_stays_forwarded(ctx, op)
@@ -129,11 +138,15 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
     }
 }
 
-/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect` and
-/// `limits.refresh` inputs only TypeScript answers.
+/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect`,
+/// `agent.preview`, `agent.connect`, `agent.undo`, `agent.disconnect` and `limits.refresh`
+/// inputs only TypeScript answers.
 pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
+        "agent.preview" | "agent.connect" | "agent.undo" | "agent.disconnect" => {
+            agent_apply_sync::stays_forwarded(ctx, op)
+        }
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
         "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
@@ -226,6 +239,22 @@ fn discovery_network_set(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpF
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "terminal.list",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.create",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.rename",
+        call: terminal_ops::terminal_stub,
+    },
+    NativeOp {
+        name: "terminal.close",
+        call: terminal_ops::terminal_stub,
+    },
     NativeOp {
         name: "strategy.list",
         call: config_writes::strategy_list,
@@ -613,6 +642,22 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "update.apply",
         call: apply::update_apply_stub,
+    },
+    NativeOp {
+        name: "agent.preview",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.connect",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.undo",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.disconnect",
+        call: agent_ops_mod::agent_effects_stub,
     },
     NativeOp {
         name: "repo.list",

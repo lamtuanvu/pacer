@@ -111,6 +111,42 @@ function validate(ctx: Ctx, input: CreateTerminalInput) {
   return { title, cwd, argv };
 }
 
+/** The environment of a terminal's session: the service's, without any credential or task identity. */
+function launchEnv(ctx: Ctx, argv: string[], extra: Record<string, string> | undefined, shell: boolean): Record<string, string | undefined> {
+  const env: Record<string,string|undefined> = { ...process.env, ...ctx.env, ...extra, HOME: ctx.home, PACER_HOME: ctx.pacerHome };
+  if (shell) env.SHELL = argv[0];
+  for (const name of [...CORE_SECRET_ENV,"PACER_AUTH_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
+  return env;
+}
+
+/** How many registry terminals have a live session host. */
+export function liveTerminalCount(ctx: Ctx): number {
+  const base = root(ctx);
+  if (!existsSync(base)) return 0;
+  return readdirSync(base, { withFileTypes: true }).filter(entry => entry.isDirectory() && TERMINAL_ID.test(entry.name))
+    .filter(entry => { try { return readRun(join(base, entry.name)).alive; } catch { return false; } }).length;
+}
+
+/** The login shell argv a new shell terminal runs, which also names its default title. */
+export function terminalShellArgv(ctx: Ctx): string[] { return shellArgv(ctx); }
+
+/**
+ * Starts the session of a shell the native front door reserved under the registry lock it holds. The command and
+ * folder come from Core and the reserved record, never from the caller, so this cannot launch anything but the login shell.
+ */
+export function startReservedShell(ctx: Ctx, id: string, deps: { start?: Start } = {}): ReturnType<Start> {
+  const stored = readStored(ctx, id);
+  if (stored.kind !== "shell" || stored.state !== "starting") throw new CoreError("conflict", "Terminal is not waiting to start");
+  const argv = shellArgv(ctx);
+  try { return (deps.start ?? startRun)({ dir: directory(ctx, id), cwd: stored.cwd, argv, env: launchEnv(ctx, argv, undefined, true), session: "interactive", terminal: true }); }
+  catch (error) { return { error: String(error) }; }
+}
+
+/** Stops a registry terminal's session as closing it does; the caller holds the registry lock and records the close. */
+export async function stopTerminalSession(ctx: Ctx, id: string): Promise<void> {
+  await stopRun(terminalDirectory(ctx, id), { graceMs: 2000 });
+}
+
 /** Only trusted service code can supply action argv; the public API exposes shell creation alone. */
 export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps: { start?: Start } = {}): Promise<TerminalRecord> {
   const { title, cwd, argv } = validate(ctx, input);
@@ -125,9 +161,7 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
       if (stored.state === "failed") throw new CoreError("conflict", "Terminal launch failed; start a new request", stored.error);
       return presentation(ctx, stored);
     }
-    const live = readdirSync(base, { withFileTypes: true }).filter(entry => entry.isDirectory() && TERMINAL_ID.test(entry.name))
-      .filter(entry => { try { return readRun(join(base, entry.name)).alive; } catch { return false; } }).length;
-    if (live >= MAX_LIVE) throw new CoreError("not_allowed", "Too many live terminals; close one before opening another");
+    if (liveTerminalCount(ctx) >= MAX_LIVE) throw new CoreError("not_allowed", "Too many live terminals; close one before opening another");
     const id = randomUUID();
     const dir = directory(ctx, id);
     mkdirSync(dir, { mode: 0o700 });
@@ -135,9 +169,7 @@ export async function createTerminal(ctx: Ctx, input: CreateTerminalInput, deps:
     writePrivate(join(dir, "record.json"), record);
     reservations[input.requestId] = { payload, id };
     writePrivate(join(base, "requests.json"), reservations);
-    const env: Record<string,string|undefined> = { ...process.env, ...ctx.env, ...(input.kind === "action" ? input.env : undefined), HOME: ctx.home, PACER_HOME: ctx.pacerHome };
-    if (input.kind === "shell") env.SHELL = argv[0];
-    for (const name of [...CORE_SECRET_ENV,"PACER_AUTH_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
+    const env = launchEnv(ctx, argv, input.kind === "action" ? input.env : undefined, input.kind === "shell");
     let started: ReturnType<Start>;
     try { started = (deps.start ?? startRun)({ dir, cwd, argv, env, session: "interactive", terminal: true }); }
     catch (error) { started = { error: String(error) }; }
@@ -178,7 +210,7 @@ export async function closeTerminal(ctx: Ctx, id: string, expectRev: number): Pr
   return withLock(ctx, "terminal-registry", async () => {
     const stored = readStored(ctx, id);
     if (stored.rev !== expectRev) throw new CoreError("conflict", "Terminal changed; refresh and try again");
-    await stopRun(directory(ctx, id), { graceMs: 2000 });
+    await stopTerminalSession(ctx, id);
     stored.state = "closed";
     stored.rev++;
     writePrivate(join(directory(ctx, id), "record.json"), stored);

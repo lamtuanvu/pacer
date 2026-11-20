@@ -371,6 +371,7 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::terminal_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
                 if crate::native::msg_writes::uses_bridge(op.name) {
@@ -481,6 +482,26 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if crate::native::terminal_ops::uses_bridge(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut bridge = crate::native::terminal_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::terminal_ops::call(
+                        &request_ctx,
+                        op.name,
+                        params,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if pacer_config_ops::setup_effects::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let mut effects = crate::native::setup_effects_sync::StdioEffects {
@@ -505,6 +526,21 @@ async fn forward_input<
                 if crate::native::install_apply_sync::uses_effects(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     match crate::native::install_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
+                    }
+                    continue;
+                }
+                if crate::native::agent_apply_sync::uses_effects(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    match crate::native::agent_apply_sync::admit(&request_ctx, op.name, &params) {
                         Ok(()) => {
                             core.write_all(&line).await?;
                             core.flush().await?;
