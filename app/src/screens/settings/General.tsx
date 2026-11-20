@@ -307,7 +307,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       const stale = record?.freshness === "historical" || window.stale === true;
       const figure = window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
       const note = window.usedPct == null ? view.figure === "Usage unknown" ? "Usage unknown · No usage reported" : `${view.figure} · no quota windows reported`
-        : stale ? view.freshness || "Stale reading · refresh to use"
+        : stale ? (record?.freshness === "historical" ? view.freshness || "Stale reading · refresh to use" : "Stale reading · refresh to use")
         : [figure, window.pace != null ? `pace ${Math.round(window.pace)}%` : null, window.verdict === "AHEAD" ? "ahead of pace" : null].filter(Boolean).join(" · ");
       return { account, window, view, stale, note };
     });

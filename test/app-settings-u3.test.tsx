@@ -15,6 +15,7 @@ import { initialState } from '../app/src/data/store';
 import { machineNow } from '../app/src/screens/settings/Machines';
 import { SettingsGeneral, AddExecutor, MachineSection, HostDetail, JobProgress, executorId, executorReady, performOperation } from '../app/src/screens/settings/index';
 import { settings, host, executor, job } from './fixtures/ui/settings';
+import { usageStateFor } from './usage-fixtures';
 const state = {...initialState(),snapshot:{executors:[executor],accounts:[],hosts:[{...host,executors:[executor.id],repos:1}],planner:{agent:'codex',runner:'codex#team',advice:'Keep planning'},repos:[]} as any};
 const api = {call:async()=>({}),hello:async()=>({}),snapshot:async()=>({})} as any;
 const render = (child:any,s=state) => renderToString(<TaskContext.Provider value={{state:s,api}}>{child}</TaskContext.Provider>);
@@ -130,11 +131,11 @@ test('a passed host connection check cannot make an executor Ready',()=>{
 });
 
 test('Accounts show usage words, sign-in pills, used-by and sign-in commands only in a disclosure',()=>{
- const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id]},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
+ const accounts=[{name:'team',kind:'codex',signedIn:true,runners:[executor.id],usageState:usageStateFor({usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',capturedAt:Date.UTC(2026,9,20)/1000},Date.UTC(2026,9,20)/1000)},{name:'empty',kind:'codex',signedIn:false,state:'no_subscription'},{name:'unknown',kind:'codex'},
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
- expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.now()/1000)}`);expect(html).not.toContain('ON_PACE');
+ expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.UTC(2026,9,20)/1000)}`);expect(html).not.toContain('ON_PACE');
  for(const label of ['Stale reading','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
  expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
@@ -149,22 +150,21 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
 test('Accounts never present stale measured usage as current pace', () => {
  const now = 1_800_000_000;
  const accounts = [{name:'team',kind:'codex',signedIn:true}];
- const current = {name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:now+3600,capturedAt:now,stale:false,verdict:'ON_PACE',signedIn:true};
  for (const [overrides, label] of [
   [{}, 'On pace'],
-  [{resetsAt:now}, 'Stale reading'],
-  [{capturedAt:now-86401}, 'Stale reading'],
-  [{stale:true}, 'Stale reading'],
-  [{eligibility:{budget:'unknown'}}, 'Stale reading'],
+  [{freshness:'historical' as const}, 'On pace'],
  ] as const) {
-  const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{...current,...overrides}]}});
+  // The record owns freshness; the status pill quotes the record's verdict and the quota column states the age.
+  const record = { ...usageStateFor({usedPct:17,window:'week',resetsAt:now+3600,verdict:'ON_PACE',capturedAt:now}, now), ...(overrides.freshness ? {freshness:overrides.freshness,observedAt:now-86401} : {}) };
+  const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{name:'team',agent:'codex',signedIn:true,usageState:record}]}});
   expect(html).toMatch(new RegExp(`data-label="Status"><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   expect(html).toContain('17% of week');
+  if (overrides.freshness) expect(html).toContain('Reading 1d old · refresh');
  }
 });
 
 test('Ark CLI quota authentication errors show recovery in the affected account',()=>{
- const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageCheck:{action:'refresh' as const,consentRequired:false,description:'Reads provider usage.'},usageReading:{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}}];
+ const accounts=[{name:'coding-plan',kind:'endpoint',quotaSource:'arkcli',state:'not_tested',usageCheck:{action:'refresh' as const,consentRequired:false,description:'Reads provider usage.'},diagnostics:{readings:[{windows:[],error:'Ark CLI sign-in required. Run arkcli auth login.',availability:{state:'unknown',reason:'authentication_failed'}}]}}];
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>);
  expect(html).toContain('Fix Ark CLI sign-in');
  expect(html).toContain('arkcli auth login');
@@ -248,10 +248,10 @@ test('board pages render their headline and other editors retain shell titles', 
 test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
  const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
  const uncertain={...executor,eligibility:decision};
- const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,usedPct:61,window:'5h',stale:true,eligibility:decision}]};
+ const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,agent:'codex',signedIn:true,usageState:usageStateFor({usedPct:61,window:'5h',stale:true,capturedAt:900},1000)}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
- expect(executors).toContain('Skipped');expect(general).toContain('Stale reading · check account usage');
+ expect(executors).toContain('Skipped');expect(general).toContain('Reading of unknown age · refresh');
  const remote=render(<HostDetail alias="devbox" initialData={{...host,executors:[uncertain] as any}}/>);
  expect(remote).toContain('Uncertain fallback');
  const known={...uncertain,eligibility:{...decision,evaluatedAt:state.snapshot.at??Date.now()/1000,evidenceAgeS:10800}};

@@ -9,6 +9,7 @@ import { SegmentedControl } from '../app/src/ds/Patterns';
 import { Button } from '../app/src/ds/Button';
 import { SettingsPanel } from '../app/src/shell/SettingsPanel';
 import { SettingsGeneral } from '../app/src/screens/settings/General';
+import { usageStateFor } from './usage-fixtures';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { ActionContext } from '../app/src/data/action-context';
 import { initialState } from '../app/src/data/store';
@@ -445,13 +446,13 @@ test.skipIf(!browserPath)('small settings Switch keeps native keyboard, label an
 
 
 test('Budget board uses real planner facts and omits unsupported controls', () => {
-  const planner = { agent: 'codex', runner: 'codex#team', usedPct: 18, pacePct: 38, deltaPts: -20, verdict: 'behind', window: 'weekly', resetsAt: 1800000000, stale: false, mode: 'relaxed', advice: '20 pts under pace — spend it.' };
+  const planner = { agent: 'codex', runner: 'codex#team', usedPct: 18, pacePct: 38, deltaPts: -20, verdict: 'behind', window: 'weekly', resetsAt: 1800000000, stale: false, mode: 'relaxed', advice: '20 pts under pace — spend it.', usageState: usageStateFor({ usedPct: 18, window: 'weekly', verdict: 'BEHIND' }, Date.now() / 1000) };
   const html = render(<SettingsGeneral section="planner" initialData={settings} />, { ...state, snapshot: { ...state.snapshot, planner } });
   expect(html).toContain('pc-settings-board--budget');
   expect(html.match(/<h3 /g)).toHaveLength(5);
   expect(html).toContain('Codex is 20 points under pace, so it may do small edits itself.');
   expect(html).toContain('Emergency, Strict, Normal, Relaxed; Relaxed is active');
-  expect(html).toContain('18% of weekly used · pace 38% · 20% kept for planning and review');
+  expect(html).toContain('18% of week used · pace 38% · 20% kept for planning and review');
   expect(html).toContain('Hold strict');
   expect(html).toContain('Hold relaxed');
   for (const label of ['points ahead', 'From 6 hours', 'When an executor runs out', 'Pace team weekly']) expect(html).not.toContain(label);
@@ -461,11 +462,14 @@ test('Budget board uses real planner facts and omits unsupported controls', () =
 });
 
 test('Budget windows show every reported window without inventing pace or resets', () => {
-  const accounts = [{ name: 'team', kind: 'codex', usageReading: { windows: [{ name: 'weekly', usedPct: 18, resetsAt: 1800000000 }, { name: '5h', usedPct: 4, resetsAt: null }] } }];
+  const accounts = [{ name: 'team', kind: 'codex', usageState: { ...usageStateFor({ usedPct: 18, window: 'weekly', resetsAt: 1800000000, verdict: 'ON_PACE' }, Date.now() / 1000), windows: [
+    { name: 'weekly', usedPct: 18, resetsAt: 1800000000, lengthS: 604800, paced: false, stale: false, verdict: 'ON_PACE' as const },
+    { name: '5h', usedPct: 4, resetsAt: null, lengthS: 18000, paced: false, stale: false, verdict: 'ON_PACE' as const },
+  ] } }];
   const html = render(<SettingsGeneral section="planner" initialData={{ ...settings, accounts }} />);
   expect(html.match(/pc-budget-window"/g)).toHaveLength(2);
-  expect(html).toContain('team weekly usage');
-  expect(html).toContain('team 5h usage');
+  expect(html).toContain('team week usage');
+  expect(html).toContain('team 5 h usage');
   expect(html).not.toContain('role="switch"');
   expect(html).not.toContain('pace 38%');
 });
@@ -550,9 +554,11 @@ test('Budget planner modes and held state use snapshot facts, with honest unknow
 });
 
 test('Budget windows use pace only on matching windows and preserve individual freshness', () => {
-  const accounts = [{ name: 'team', kind: 'codex', usageReading: { stale: true, windows: [{ name: 'weekly', usedPct: 18, resetsAt: null, stale: false }, { name: '5h', usedPct: 4, resetsAt: null, stale: true }] } }];
-  const binding = { name: 'team', agent: 'codex', window: 'weekly', usedPct: 18, pacePct: 38, verdict: 'BEHIND', stale: false };
-  const html = render(<SettingsGeneral section="planner" initialData={{ ...settings, accounts }} />, { ...state, snapshot: { ...state.snapshot, accounts: [binding] } });
+  const accounts = [{ name: 'team', kind: 'codex', usageState: { ...usageStateFor({ usedPct: 18, window: 'weekly', verdict: 'BEHIND' }, Date.now() / 1000), windows: [
+    { name: 'weekly', usedPct: 18, resetsAt: null, lengthS: 604800, paced: true, stale: false, verdict: 'BEHIND' as const, pace: 38 },
+    { name: '5h', usedPct: 4, resetsAt: null, lengthS: 18000, paced: false, stale: true, verdict: 'ON_PACE' as const },
+  ] } }];
+  const html = render(<SettingsGeneral section="planner" initialData={{ ...settings, accounts }} />);
   expect(html.match(/pc-meter__pace/g)).toHaveLength(1);
   expect(html.match(/pc-meter--stale/g)).toHaveLength(1);
   expect(html).toContain('18% · pace 38%');
