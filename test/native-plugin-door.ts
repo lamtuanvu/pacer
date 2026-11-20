@@ -153,7 +153,7 @@ export async function serve(h: Home, forward = "", options: Options = tsOwner) {
     const line = await response.text();
     return { line, text: line.slice(1, -1), json: JSON.parse(line) };
   };
-  return { child, call, async stop() {
+  return { child, port, call, async stop() {
     if (child.exitCode === null) { child.kill("SIGTERM"); await child.exited; }
     return await logs;
   } };

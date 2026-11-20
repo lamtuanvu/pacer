@@ -1,3 +1,4 @@
+pub(crate) mod agent_apply_sync;
 use pacer_assistant_ops::assistant_ops;
 use pacer_config_ops::config_get_ops;
 use pacer_foundation::{
@@ -41,6 +42,7 @@ use pacer_task_ops::job_ops;
 #[allow(unused_imports)]
 use pacer_update::handover;
 pub(crate) mod install_apply_sync;
+use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
@@ -76,6 +78,7 @@ use pacer_task_ops::task_get_ops;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
+pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
 pub(crate) mod terminal_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
@@ -135,11 +138,15 @@ pub fn job_strategy_setup_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -
     }
 }
 
-/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect` and
-/// `limits.refresh` inputs only TypeScript answers.
+/// `service.status`, `service.install`, `update.check`, `update.apply`, `agent.detect`,
+/// `agent.preview`, `agent.connect`, `agent.undo`, `agent.disconnect` and `limits.refresh`
+/// inputs only TypeScript answers.
 pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> bool {
     match op {
         "agent.detect" => pacer_install::agent_detect_stays_forwarded(ctx, params),
+        "agent.preview" | "agent.connect" | "agent.undo" | "agent.disconnect" => {
+            agent_apply_sync::stays_forwarded(ctx, op)
+        }
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
         "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
@@ -637,6 +644,22 @@ static OPS: &[NativeOp] = &[
         call: apply::update_apply_stub,
     },
     NativeOp {
+        name: "agent.preview",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.connect",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.undo",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
+        name: "agent.disconnect",
+        call: agent_ops_mod::agent_effects_stub,
+    },
+    NativeOp {
         name: "repo.list",
         call: repo_registry_ops::repo_list,
     },
@@ -859,6 +882,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "assistant.candidates",
         call: assistant_ops::assistant_candidates,
+    },
+    NativeOp {
+        name: "assistant.ask",
+        call: assistant_ops::turn::assistant_ask,
+    },
+    NativeOp {
+        name: "assistant.cancel",
+        call: assistant_ops::turn::assistant_cancel,
     },
     NativeOp {
         name: "assistant.conversations",
@@ -1119,14 +1150,14 @@ pub async fn call_native(
         })?;
         account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
-        let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
+        let parsed = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
                 "core bridge unavailable",
             )
         })?;
-        parts.await?
+        doctor_ops::run(ctx, op.name, &parsed, parts).await?
     } else if needs_host_effects(op.name) {
         host_check_clean_setup_ops::call(ctx, op.name, params, core_bridge_sync).await?
     } else {

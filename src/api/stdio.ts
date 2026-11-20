@@ -253,6 +253,16 @@ export async function runStdio(
           result = await taskSendBridge(getCtx(), (r.params as { request?: unknown }).request);
           break;
         }
+        case "_internal.assistant.turn": {
+          const key = o.nativeConfigKey;
+          if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
+            throw new CoreError("unknown_op", "unknown operation");
+          }
+          const { assistantTurnBridge, ASSISTANT_TURN_MAX } = await import("./assistant-turn-bridge");
+          if (Buffer.byteLength(line) > ASSISTANT_TURN_MAX) throw new CoreError("too_large", "request exceeds 256 KiB");
+          result = await assistantTurnBridge(getCtx(), (r.params as { request?: unknown }).request);
+          break;
+        }
         case "_internal.setup.effects": {
           const key = o.nativeConfigKey;
           if (!key || !r.params || typeof r.params !== "object" || (r.params as { key?: unknown }).key !== key || getCtx().env.PACER_WORK_GRANT) {
@@ -269,7 +279,7 @@ export async function runStdio(
           }
           const snapshotProbe = (r.params as { snapshotProbe?: unknown }).snapshotProbe;
           const { setupCheckBridge } = await import("./setup-check-bridge");
-          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : false);
+          result = await setupCheckBridge(getCtx(), typeof snapshotProbe === "boolean" ? snapshotProbe : undefined);
           break;
         }
         case "_internal.plugins": {
