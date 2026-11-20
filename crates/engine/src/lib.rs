@@ -242,12 +242,6 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
         .copied()
         .filter(|f| current(f, now, optional_number(&f["validUntil"])))
         .collect();
-    let all: Vec<&Value> = availability
-        .iter()
-        .chain(&budget)
-        .chain(&spending)
-        .copied()
-        .collect();
     let unavailable: Vec<&Value> = live_availability
         .iter()
         .copied()
@@ -270,12 +264,29 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
         .chain(budget.iter().filter_map(|f| deadline(f)))
         .filter(|v| *v > now)
         .reduce(f64::min);
-    let evidence_age = all
+    // The shown observation age belongs to the binding budget fact (the exhausted one when the
+    // budget is exhausted, else the newest budget observation), or to the newest availability
+    // fact when no budget fact applies; unrelated facts never pin it (`src/engine/eligibility.ts`).
+    let observed_ages = |facts: &[&Value]| -> Vec<f64> {
+        facts
+            .iter()
+            .filter(|f| string(&f["source"]) != "configuration")
+            .filter_map(|f| optional_number(&f["observedAt"]))
+            .filter(|v| *v <= now)
+            .collect()
+    };
+    let mut ages = observed_ages(if exhausted.is_empty() {
+        &budget
+    } else {
+        &exhausted
+    });
+    if ages.is_empty() {
+        ages = observed_ages(&availability);
+    }
+    let evidence_age = ages
         .iter()
-        .filter(|f| string(&f["source"]) != "configuration")
-        .filter_map(|f| optional_number(&f["observedAt"]))
-        .filter(|v| *v <= now)
-        .reduce(f64::min)
+        .copied()
+        .reduce(f64::max)
         .map(|v| (now - v).max(0.0));
     let availability_state = if !unavailable.is_empty() {
         "unavailable"
