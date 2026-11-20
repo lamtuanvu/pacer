@@ -39,7 +39,9 @@ export function plannerResumeEnv(base: Record<string, string | undefined>): Reco
   const env = withoutPlannerSession(base);
   for (const k of Object.keys(env)) if (/_TOKEN$/.test(k) || k.startsWith("PACER_ADMISSION_")) delete env[k];
   for (const k of ["PACER_ROLE", "PACER_TASK_ID", "PACER_WORK_GRANT", "PACER_RUN_DIR", "PACER_TRANSCRIPT_REPORT",
-    "PACER_HOST_SOCKET", "PACER_COMPLETION_NONCE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID"]) delete env[k];
+    "PACER_HOST_SOCKET", "PACER_COMPLETION_NONCE", "CLAUDE_CODE_SESSION_ID", "CODEX_THREAD_ID",
+    // Plugins add tools and hooks; the resumed turn runs without the ones the service happened to inherit.
+    "CLAUDE_CODE_PLUGIN_DIRS"]) delete env[k];
   for (const name of CORE_SECRET_ENV) delete env[name];
   return env;
 }
