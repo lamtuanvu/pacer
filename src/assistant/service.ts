@@ -76,18 +76,31 @@ function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
   return configuredSecrets(ctx, strategy.accounts);
 }
 
+/** Prefer the settings runner; otherwise the first runner for this account that declares a model. */
+function runnerModel(strategy: Strategy, account: string, runnerId: string | null | undefined): string | null {
+  if (runnerId) {
+    const named = strategy.runners[runnerId];
+    if (named?.model) return named.model;
+  }
+  for (const runner of Object.values(strategy.runners)) {
+    if (runner.account === account && runner.model) return runner.model;
+  }
+  return null;
+}
+
 function endpointFor(ctx: Ctx, strategy: Strategy, settings: AssistantSettings) {
   const account = settings.account ? strategy.accounts[settings.account] : undefined;
   // The executor backend runs the account through its agent CLI (opencode or Claude Code), which
   // holds the connection itself; opencode endpoint accounts and claude accounts qualify.
   if (settings.backend === "executor") {
     if (!account || !askAdapterFor(ctx, account)) return null;
-    const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
-    return { name: settings.account!, account, model: runner?.model ?? account.model ?? account.connection?.models[0]?.id ?? null, baseUrl: "" };
+    const model = runnerModel(strategy, settings.account!, settings.runner)
+      ?? account.model ?? account.connection?.models[0]?.id ?? null;
+    return { name: settings.account!, account, model, baseUrl: "" };
   }
   if (!account || account.kind !== "endpoint" || !account.connection) return null;
-  const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
-  const model = runner?.model ?? account.model ?? account.connection.models[0]?.id ?? null;
+  const model = runnerModel(strategy, settings.account!, settings.runner)
+    ?? account.model ?? account.connection.models[0]?.id ?? null;
   return model ? { name: settings.account!, account, model, baseUrl: account.connection.base_url } : null;
 }
 

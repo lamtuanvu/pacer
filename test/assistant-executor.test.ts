@@ -248,6 +248,22 @@ describe("the fail-closed ask-mode check", () => {
     expect(saveSettings(ctx, { runner: null, account: "oc", backend: "executor", expect_rev: readSettings(ctx).rev }, deps)).toMatchObject({ account: "oc", backend: "executor" });
   });
 
+  test("self-test picks the runner model when the account itself has none", async () => {
+    const { ctx, calls: all } = setup();
+    const deps = {
+      strategy: () => ({
+        planner: { agent: "claude-code", account: "claude" },
+        accounts: { oc: { kind: "endpoint", source: "opencode", provider: "opencode-go" } },
+        runners: { "opencode#oc": { id: "opencode#oc", account: "oc", agent: "opencode", model: "opencode-go/glm-5.3-flash", name: "opencode#oc", host: null } },
+        dispatch: { reservePct: 0 },
+      }) as unknown as Strategy,
+      status, keys: async () => [], read, cards: { task: () => null },
+    };
+    expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: true });
+    const modelSets = all().filter(c => c.method === "session/set_config_option");
+    expect(modelSets[0]!.params).toMatchObject({ configId: "model", value: "opencode-go/glm-5.3-flash" });
+  }, 60_000);
+
   test("the native plugin host is refused with a plain reason", async () => {
     const { ctx, deps } = setup();
     const native = { ...ctx, env: { ...ctx.env, PACER_HOST_SOCKET: "/tmp/host.sock" } };
