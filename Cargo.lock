@@ -1425,6 +1425,7 @@ dependencies = [
 name = "pacer-dispatch-ops"
 version = "0.0.0"
 dependencies = [
+ "hex",
  "icu_collator",
  "nix",
  "pacer-config",
@@ -1437,6 +1438,7 @@ dependencies = [
  "rusqlite",
  "ryu-js",
  "serde_json",
+ "sha2",
  "tempfile",
  "tokio",
 ]

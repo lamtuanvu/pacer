@@ -25,6 +25,9 @@ use pacer_dispatch_ops::planning_ops;
 pub(crate) use pacer_dispatch_ops::preview_ops;
 pub(crate) mod dispatch_preview_sync;
 pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
+pub(crate) mod dispatch_enforcement_sync;
+pub use dispatch_enforcement_sync::dispatch_enforcement_stays_forwarded;
+pub(crate) use pacer_dispatch_ops::enforcement_ops;
 use pacer_dispatch_ops::tier_targets_ops;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
@@ -776,6 +779,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.enforcement.consent",
         call: planning_ops::dispatch_enforcement_consent,
+    },
+    NativeOp {
+        name: "dispatch.enforcement",
+        call: enforcement_ops::enforcement_stub,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.probe",
+        call: enforcement_ops::dispatch_enforcement_probe,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.denied",
+        call: enforcement_ops::enforcement_stub,
     },
     NativeOp {
         name: "dispatch.preview",

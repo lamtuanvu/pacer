@@ -110,6 +110,9 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.models",
         "dispatch.refresh",
         "dispatch.enforcement.consent",
+        "dispatch.enforcement",
+        "dispatch.enforcement.probe",
+        "dispatch.enforcement.denied",
         "dispatch.preview",
         "dispatch.explain",
         "insights.summary",
@@ -134,13 +137,7 @@ fn forward_override_removes_only_selected_native_ops() {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
     }
-    for name in [
-        "dispatch.enforcement",
-        "dispatch.enforcement.probe",
-        "dispatch.enforcement.denied",
-        "desktop.update.status",
-        "desktop.capture.targets",
-    ] {
+    for name in ["desktop.update.status", "desktop.capture.targets"] {
         assert!(registry("").get(name).is_none(), "{name}");
     }
     assert!(registry("").get("config.get").is_some());
