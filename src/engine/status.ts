@@ -99,8 +99,10 @@ function freshnessOf(reading: { error?: string; stale: boolean }, binding: Windo
   return reading.error || reading.stale || binding?.stale ? "historical" : windows.length ? "fresh" : "unknown";
 }
 
-/** The binding budget fact's time, or the newest availability fact's; null when nothing was observed. */
-function observedAtOf(eligibility: import("../evidence/types").EligibilityDecision, now: number): number | null {
+/** The binding fact's time. Reactive and unmetered records observe only an active limit (D2);
+ *  measured records use the eligibility age (newest budget fact, else newest availability fact). */
+function observedAtOf(usage: string, limit: UsageLimit | null, eligibility: import("../evidence/types").EligibilityDecision, now: number): number | null {
+  if (usage === "reactive" || usage === "unmetered") return limit?.observedAt ?? null;
   return eligibility.evidenceAgeS === null ? null : Math.max(0, now - eligibility.evidenceAgeS);
 }
 
@@ -281,7 +283,7 @@ export async function computeStatus(
       windows,
       limit: runnerLimit,
       blockedRunners: [],
-      observedAt: observedAtOf(provider.eligibility, ctx.now),
+      observedAt: observedAtOf(usage, runnerLimit, provider.eligibility, ctx.now),
       freshness: freshnessOf(reading, binding, windows),
       verdict: runnerLimit ? "EXHAUSTED" : verdict,
       eligibility: provider.eligibility,
@@ -329,7 +331,7 @@ export async function computeStatus(
         windows: budget.windows,
         limit: accountLimit,
         blockedRunners: blocked,
-        observedAt: observedAtOf(accountEligibility, ctx.now),
+        observedAt: observedAtOf(usage, accountLimit, accountEligibility, ctx.now),
         freshness: freshnessOf(reading, binding, budget.windows),
         verdict: accountVerdict,
         eligibility: accountEligibility,

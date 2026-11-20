@@ -112,6 +112,9 @@ test("(a) a reactive account with an active limit mark is EXHAUSTED on every sur
 test("(b) a reactive account without a mark has no figure, not a zero", async () => {
   const ctx = withLoginIndicators(fakeCtx({now}));
   const s = load(ctx, CURSOR);
+  // A fresh execution success does not give a reactive record an observation (D2).
+  await recordExecutionEvidence(ctx, accountEvidenceScope(s.accounts.cursor!, s.hosts),
+    {endedAt: now - 60, exitCode: 0, timedOut: false, classification: "success"});
   const {record, text} = await surfaces(ctx, s, "cursor");
   expect(record.figure).toBeNull();
   expect(record.windows).toEqual([]);
