@@ -175,26 +175,27 @@ fn schema(op: &str, params: &Value) -> Result<(), CoreError> {
     let mut issues = Vec::new();
     match map.get("agent") {
         Some(Value::String(agent)) if AGENTS.contains(&agent.as_str()) => {}
-        _ => issues.push(format!(
+        _ => issues.push(
             "agent: Invalid option: expected one of \"claude-code\"|\"codex\"|\"cursor\"|\"opencode\""
-        )),
+                .to_string(),
+        ),
     }
     if op == "agent.connect" || op == "agent.undo" {
-        if let Some(value) = map.get("consent") {
-            if !value.is_boolean() {
-                issues.push(format!(
-                    "consent: Invalid input: expected boolean, received {}",
-                    received(value)
-                ));
-            }
+        if let Some(value) = map.get("consent")
+            && !value.is_boolean()
+        {
+            issues.push(format!(
+                "consent: Invalid input: expected boolean, received {}",
+                received(value)
+            ));
         }
-        if let Some(value) = map.get("preview_revision") {
-            if !value.is_string() {
-                issues.push(format!(
-                    "preview_revision: Invalid input: expected string, received {}",
-                    received(value)
-                ));
-            }
+        if let Some(value) = map.get("preview_revision")
+            && !value.is_string()
+        {
+            issues.push(format!(
+                "preview_revision: Invalid input: expected string, received {}",
+                received(value)
+            ));
         }
     }
     if !issues.is_empty() {
