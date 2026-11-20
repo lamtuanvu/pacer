@@ -396,6 +396,38 @@ pub(crate) mod tests {
         assert_eq!(status["mode"], "emergency");
     }
 
+    /// The mode rule: the planner runner's provider verdict decides, a planner
+    /// without a provider row stays normal, and an active hold wins over both.
+    #[test]
+    fn mode_rule_matches_typescript_planner_mode_and_hold() {
+        // The account's own ON_PACE never softens an exhausted planner runner.
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [
+                provider("codex", "codex", "ON_PACE"),
+                provider("claude-code", "claude", "EXHAUSTED"),
+            ],
+        }));
+        assert_eq!(status["mode"], "emergency");
+        // No provider whose id is the planner runner: normal.
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [provider("codex", "codex", "EXHAUSTED")],
+        }));
+        assert_eq!(status["mode"], "normal");
+        assert_eq!(status_mode(&Value::Null, None), "normal");
+        // An active hold wins over the planner's verdict.
+        assert_eq!(
+            status_mode(
+                &json!({"mode": "relaxed", "until": 160.0}),
+                Some("EXHAUSTED")
+            ),
+            "relaxed"
+        );
+    }
+
     #[test]
     fn limits_rows_match_typescript_hints() {
         let status = json!({
