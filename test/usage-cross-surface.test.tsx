@@ -182,6 +182,12 @@ for (const state of states) {
 
     // Budget windows: a limit window quotes the view ("Out of quota"), never a bare percent.
     const budgetHtml = draw(<SettingsGeneral section="planner" initialData={{...settings, accounts: listRows}}/>);
+    // A historical window keeps its figure next to the reading's age, like the Agents and Accounts rows.
+    for (const w of listRow.usageState?.windows ?? []) {
+      if (w.usedPct != null && (w.stale || listRow.usageState?.freshness === "historical") && !(listRow.usageState?.limit && w.name === "limit")) {
+        expect(strip(budgetHtml.slice(budgetHtml.indexOf('id="budget-windows-h"')))).toContain(`${Math.round(w.usedPct)}% · `);
+      }
+    }
     if (record.figure === "Out of quota") {
       const windowsHtml = budgetHtml.slice(budgetHtml.indexOf('id="budget-windows-h"'));
       expect(strip(windowsHtml)).toContain("Out of quota");
