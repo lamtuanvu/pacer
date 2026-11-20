@@ -32,6 +32,10 @@ Native IDs are `claude-code`, `codex`, `cursor` and `agy`. Other provider IDs ne
 
 Confirmed exhausted budgets exclude providers when `allow_paid` is false. `allow_paid` permits execution beyond a measured budget, but never overrides a user block or confirmed unavailability, purchases credits or configures billing. Durations support `s`, `m`, `h` and `d`. Native providers may set `model`; Cursor and agy cannot use `quota`.
 
+Use `pacer account set <name> --allow-paid true|false` to change the `allow_paid` setting for an account. When enabling paid overflow, pacer displays a warning that it may launch the account after its included quota is used up, which can spend paid credits. The account list shows `· paid overflow on` for accounts with `allow_paid` enabled. Like other `pacer account` changes, it first converts a legacy `providers:` strategy to accounts and runners and keeps the original as `strategy.yaml.pre-accounts.bak`.
+
+Reactive accounts (usage: reactive) track quota limits detected in executor output. A reactive limit mark binds the account until its stated reset time (`validUntil` or `resetsAt`), even if that is hours away. The `pacer executor unblock` command removes manual blocks only; it does not clear or shorten reactive limit marks. When an executor is still excluded after unblock due to a quota limit, pacer reports the remaining exclusion reason and the account's `allow_paid` status.
+
 ## Accounts and usage sources
 
 The `accounts` mapping names separate provider budgets. Claude and Codex accounts can use a `home` folder or link an Orca-managed account with `orca_account`; these settings are mutually exclusive. Runners select an account with an ID such as `codex#team` or `opencode#local`.

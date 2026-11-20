@@ -25,6 +25,7 @@ For a failed or incomplete child, use \`pacer dispatch retry --id CHILD_ID --req
 
 Use \`pacer stop <id> --json\` to cancel and \`pacer dismiss <id...>\` to hide settled cards.
 If an executor hits a provider limit, run \`pacer report-limit <provider>\` so routing skips it.
+An "exhausted" executor with allow_paid off stays excluded until its reset; \`pacer account set <name> --allow-paid true\` opts into paid overflow (only with the user's consent).
 
 ## Other product actions
 

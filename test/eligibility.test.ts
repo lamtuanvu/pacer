@@ -178,3 +178,28 @@ test("a still-active execution limit mark continues to exhaust until its cooldow
   expect(decision.state).toBe("ineligible");
   expect(decision.reasons.map(r => r.code)).toContain("budget_exhausted");
 });
+
+test("evidenceAgeS follows the binding limit, not an older expired fact", () => {
+  const runnerScope = { ...scope, runner: "cursor", model: "auto", host: "local" };
+  // 150h old expired availability fact (expired 148h ago)
+  const oldAvailability = evidenceFact(scope, "session-log", now - 150 * 3600, now - 148 * 3600, "usage_observed", "ready" as const);
+  // 68h old execution limit mark still valid for 3h
+  const recentLimit = evidenceFact(runnerScope, "execution", now - 68 * 3600, now + 3 * 3600, "quota_failure", {
+    name: "limit", usedPct: 100, resetsAt: now + 3 * 3600, lengthS: 21600, paced: false,
+  });
+  const evidence: AccountEvidence = {
+    availability: [oldAvailability, evidenceFact(scope, "configuration", 0, null, "measurement_contract", "ready" as const)],
+    budget: [recentLimit],
+    spending: [],
+  };
+  const merged = reconcileEvidence(emptyEvidence(), evidence, now);
+  const decision = evaluateEligibility({
+    now, scope: runnerScope, usage: "reactive", allowPaid: false, evidence: merged, restrictions: [],
+  });
+  expect(decision.state).toBe("ineligible");
+  expect(decision.reasons.map(r => r.code)).toContain("budget_exhausted");
+  // evidenceAgeS should be ~68h (244800s), not ~150h
+  expect(decision.evidenceAgeS).not.toBeNull();
+  expect(decision.evidenceAgeS!).toBeGreaterThanOrEqual(68 * 3600 - 10);
+  expect(decision.evidenceAgeS!).toBeLessThan(69 * 3600);
+});
