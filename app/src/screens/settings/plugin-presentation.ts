@@ -13,7 +13,31 @@ export function pluginAdditions(plugin: PluginInfo) {
   const points: Record<string,string> = {diagnostic:"Diagnostic checks",agentSession:"Terminal sessions",observation:"Usage reader",decision:"Routing engine"};
   return [...Object.entries(names).flatMap(([kind,label]) => { const count = plugin.ui[kind as keyof typeof names]; return count ? [count > 1 ? `${label} · ${count}` : label] : []; }), ...plugin.contributes.flatMap(point => points[point] ? [points[point]!] : [])];
 }
-export const attentionState = (plugin: PluginInfo) => ["failing","refused","needs_grant"].includes(plugin.state);
+/** Optional native sibling of pacer-core is absent (ADR 0028). Turns fall back; not attention. */
+export function isNativeSiblingMissing(plugin: PluginInfo): boolean {
+  return plugin.bundled
+    && plugin.state === "refused"
+    && typeof plugin.error === "string"
+    && /native executable .+ is not installed next to pacer-core/.test(plugin.error);
+}
+
+export const attentionState = (plugin: PluginInfo) =>
+  ["failing", "refused", "needs_grant"].includes(plugin.state) && !isNativeSiblingMissing(plugin);
+
+export function pluginStatus(plugin: PluginInfo): { tone: "bad" | "warn" | "neutral"; label: string } | undefined {
+  if (isNativeSiblingMissing(plugin)) return { tone: "neutral", label: "Not installed" };
+  if (plugin.state === "failing") return { tone: "bad", label: "Failing" };
+  if (plugin.state === "refused") return { tone: "bad", label: "Refused" };
+  if (plugin.state === "needs_grant") return { tone: "warn", label: "Needs permission" };
+  return undefined;
+}
+
+/** Card chrome for attention/bad — missing optional natives stay neutral. */
+export function pluginCardTone(plugin: PluginInfo): "bad" | "attention" | null {
+  if (isNativeSiblingMissing(plugin)) return null;
+  if (plugin.state === "failing" || plugin.state === "refused") return "bad";
+  return attentionState(plugin) ? "attention" : null;
+}
 
 const bundledPresentation: Record<string, { name: string; description: string }> = {
   "pacer-agent-session": { name: "Agent sessions", description: "Live terminal sessions for delegated tasks" },
