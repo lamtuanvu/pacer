@@ -1,8 +1,8 @@
 # Workflow frame: pacer runs work from brief to pull request
 
-Status: proposed, 2026-11-19, awaiting the maintainer's approval. Decision record: [ADR 0029](../decisions/0029-workflow-frame.md).
+Status: proposed 2026-11-19; the maintainer decided its open choices and approved its amendments on 2026-11-20 (see "Decisions"). Adopted when merged. Decision record: [ADR 0029](../decisions/0029-workflow-frame.md).
 
-Governance: P1–P4, ARCH-1/2, ARCH-8, ARCH-9, ARCH-12, ARCH-16, API-5 (amendment API-5b proposed below), SEC-5, UI-1 to UI-28, CT-11, REPO-10.
+Governance: P1–P4, ARCH-1/2, ARCH-8, ARCH-9, ARCH-12, ARCH-16, API-5 (amendment API-5b, amendment 0.25.0, below), SEC-5, UI-1 to UI-28, CT-11, REPO-10.
 
 ## Intent
 
@@ -59,7 +59,7 @@ How this is enforced:
 | P1, ARCH-1/2 | The service owns workflow state; clients are thin. Core operations come before any client. |
 | ARCH-8 | Everything is reachable from the CLI and TUI. |
 | ARCH-9 | This needs an ADR (frame, format, orchestrator role, message-default change). |
-| ARCH-12 | Workflows are plugins. ARCH-12 keeps routing, strategy and the pacing engine in the host but does not name dispatch or a workflow engine; [ADR 0029](../decisions/0029-workflow-frame.md) argues why the engine stays in the host, for the maintainer to confirm. |
+| ARCH-12 | Workflows are plugins. ARCH-12 keeps routing, strategy and the pacing engine in the host but does not name dispatch or a workflow engine; [ADR 0029](../decisions/0029-workflow-frame.md) argues why the engine stays in the host; the maintainer confirms this reading by merging ADR 0029. |
 | ARCH-16 | All state lives in the existing SQLite store. |
 | P2, ARCH-3 | Multi-client safe: mutations carry `expect_rev` and return `conflict`. |
 | P3/P4 | No fixed planner agent; protocol changes are additive. |
@@ -246,7 +246,7 @@ The person talks to a run through its orchestrator (for example, brainstorming h
 
 **Grant.** A new run grant, scoped to one root run, allows: review, send-back, retry, stop, skip, escalate, submit a sub-workflow, choose a workflow, report step results, attach step artifacts, answer questions, and, from Phase 5, update the run branch from base (`run.sync_base`) and publish it (`run.publish`), all inside that run. Budget, priority, auto mode and planner changes stay with the person. Executors keep their existing grants, with one addition: an executor whose task has a step row may call `step.artifact` for its own step, gated by task identity exactly like `step.result`.
 
-This is a new credential, so it needs a rule amendment, proposed here as **API-5b**, modelled on API-5a:
+This is a new credential, so it needs a rule amendment, **API-5b** (amendment 0.25.0, approved 2026-11-20 and adopted on merge), modelled on API-5a:
 
 - a `prg_` bearer (`prg_` + 64 lowercase hex), bound to exactly one root run id and one orchestrator turn (turn id and the turn's deadline), stored SHA-256-hashed in the existing grant store under its own `kind`;
 - issued when an orchestrator turn starts, it expires at that turn's deadline and is revoked when the turn settles or the run ends or is stopped;
@@ -325,7 +325,7 @@ Orchestrator turns and message turns between runs are spent on the planner's sub
 - **Per-run budget.** A run has `budget: { orchestrator_turns, message_turns }`. A workflow sets its defaults in `policy.budget`, `run.start` may override them, and `run.set_budget` changes them during the run (with `expect_rev`). Proposed defaults are 60 orchestrator turns and 20 message turns per root run; child runs share their root's budget.
 - **What counts.** Each orchestrator turn counts 1, whatever woke it. A message from a run participant that causes a metered resume turn in *another* run's agent counts 1 against the sender's run. Messages inside a run, and turns the person starts by typing in an interactive lane, do not count.
 - **Spending less.** Only decision points wake the orchestrator (see "Wake-ups and turns are durable"). Wake-ups that arrive within 30 seconds of each other share one turn, except those the person causes, which start a turn at once. A "since you last looked" summary is written at most once per return, and only when something changed. A message to an executor in another run is queued for that executor's next turn, rather than forcing a resume, unless the executor is idle.
-- **At the limit.** At 80% of either budget the run shows an informational attention item. At 100% the orchestrator starts no more turns, and the person gets a `must` question: raise the budget, or stop the run (D3). The run does not pause: steps already running finish, and the engine keeps advancing edges it can evaluate by itself, so only decisions wait for the answer. The orchestrator block shows `turn budget spent`. Answering a `must` step never needs budget.
+- **At the limit.** At 80% of either budget the run shows an informational attention item. When `message_turns` is spent, further cross-run messages from the run that would cause a resume turn are queued for the recipient's next natural turn, and the person is asked to raise the budget; orchestrator turns continue. When `orchestrator_turns` is spent, the orchestrator starts no more turns, and the person gets a `must` question: raise the budget, or stop the run (D3). The run does not pause: steps already running finish, and the engine keeps advancing edges it can evaluate by itself, so only decisions wait for the answer. The orchestrator block shows `turn budget spent`. Answering a `must` step never needs budget.
 
 How pacing modes apply:
 
@@ -335,7 +335,7 @@ How pacing modes apply:
 | strict | `urgent` runs as above; for `normal` runs, wake-ups the person did not cause wait in a 10-minute window and share a turn | `background` runs pause at their next step boundary (already in this design) |
 | emergency | only wake-ups the person causes, and those of `urgent` runs | `normal` and `background` runs pause at their next step boundary |
 
-A paused run resumes when the mode loosens. The run shows which rule paused it. The strict-mode window and the emergency pause of `normal` runs are proposals, decided together with the urgent-run rule in D4.
+A paused run resumes when the mode loosens. The run shows which rule paused it. The strict-mode window and the emergency pause of `normal` runs were decided with the urgent-run rule in D4.
 
 ### Run branch: how parallel code comes together
 
