@@ -244,6 +244,8 @@ export const assistantReplyParams = z.object({
    */
   executor: z.object({
     configRef: z.string().min(1).max(128),
+    /** Claude Code: host-bound ref for the turn's `pag_` grant; resolved at spawn into process env. */
+    grantRef: z.string().min(1).max(128).optional(),
     command: assistantAskCommand,
     fallback: assistantAskCommand.optional(),
     /** Claude Code: digest-only retry when the pacer MCP server failed to connect on `command`. */

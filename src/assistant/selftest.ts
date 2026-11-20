@@ -8,10 +8,19 @@ import { writePrivateFile } from "../identity/atomic";
 import { pluginRegistry } from "../plugins/index";
 import { assistantReplyResult, ASSISTANT_MAX_DEADLINE_MS } from "../plugins/protocol";
 import type { Ctx } from "../types";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, type AskAdapter } from "./ask-mode";
+import {
+  ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, CLAUDE_EMPTY_MCP, type AskAdapter,
+} from "./ask-mode";
 
 const askSystemForSelfTest = (adapter: AskAdapter) =>
   askSystem("You are the pacer assistant.", "", { tools: adapter === "claude-code" });
+
+const claudeNeedsGrant = (c: { argv: string[] }) => {
+  if (c.argv[0] !== "claude") return false;
+  const mcpAt = c.argv.indexOf("--mcp-config");
+  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
+};
 
 /**
  * The fail-closed ask-mode self-test (spec §3). Canary turns run through the real ask-mode path
@@ -193,7 +202,9 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
   let n = 0;
   const turn = async (message: string, session?: string) => {
     const turnId = `${id}-${++n}`;
-    // An unissued grant: pacer's MCP server lists its tools, and every call to it is refused.
+    // An unissued grant: pacer's MCP server lists its tools, and every live call to it is refused.
+    // The Claude fake fixture still records a successful mcp__pacer__* call for the canary evidence.
+    // The grant reaches Claude only via ASK_GRANT_REF → secretEnv at spawn (never plain plugin params).
     const grant = `pag_${randomBytes(32).toString("hex")}`;
     const ask = askTurnFor(ctx, o.accountCfg, { turnId, conversationId, grant, model: o.model, ...(session ? { session } : {}),
       system, question: message, history: [], timeoutMs: ASSISTANT_MAX_DEADLINE_MS - 10_000 });
@@ -201,25 +212,28 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
       const spawnMode = ask.adapter === "opencode" ? "acp" as const
         : ask.adapter === "codex" ? "codex-ask" as const
         : undefined;
-      const pins = [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => ({
-        argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
-        ...(spawnMode ? { mode: spawnMode } : {}),
-        ...((ask.config || ask.grant) ? {
-          secretEnv: {
-            ...(ask.config ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
-            ...(ask.grant ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
-          },
-        } : {}),
-      }));
+      const pins = [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
+        const secretEnv: Record<string, string> = {
+          ...(ask.config ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
+          ...(ask.grant || claudeNeedsGrant(c) ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
+        };
+        return {
+          argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
+          ...(spawnMode ? { mode: spawnMode } : {}),
+          ...(Object.keys(secretEnv).length ? { secretEnv } : {}),
+        };
+      });
       const bindings = [
         ...(ask.config ? [{ ref: ASK_CONFIG_REF, resolve: async () => ask.config }] : []),
-        ...(ask.grant ? [{ ref: ASK_GRANT_REF, resolve: async () => ask.grant }] : []),
+        ...(ask.grant || ask.adapter === "claude-code" ? [{ ref: ASK_GRANT_REF, resolve: async () => ask.grant || grant }] : []),
       ];
       const raw = await pluginRegistry(ctx).call(ctx, o.plugin, "assistant.reply", {
         conversationId, turnId, account, backend: "executor", ...(o.model ? { model: o.model } : {}), system, digest: "",
         tools: [], history: [], message, ...(session ? { session } : {}),
         executor: {
-          configRef: ASK_CONFIG_REF, command: ask.command,
+          configRef: ASK_CONFIG_REF,
+          ...(ask.adapter === "claude-code" ? { grantRef: ASK_GRANT_REF } : {}),
+          command: ask.command,
           ...(ask.fallback ? { fallback: ask.fallback } : {}),
           ...(ask.digestFallback ? { digestFallback: ask.digestFallback } : {}),
         },

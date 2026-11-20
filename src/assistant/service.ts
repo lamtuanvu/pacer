@@ -14,7 +14,15 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, CLAUDE_EMPTY_MCP, type AskTurn } from "./ask-mode";
+
+/** Whether a host-issued ask command needs the Claude turn grant resolved into its process env. */
+function claudeNeedsGrant(c: { argv: string[] }): boolean {
+  if (c.argv[0] !== "claude") return false;
+  const mcpAt = c.argv.indexOf("--mcp-config");
+  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
+}
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -402,7 +410,9 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
           },
         } : {}),
         ...(ask ? { executor: {
-          configRef: ASK_CONFIG_REF, command: ask.command,
+          configRef: ASK_CONFIG_REF,
+          ...(ask.adapter === "claude-code" ? { grantRef: ASK_GRANT_REF } : {}),
+          command: ask.command,
           ...(ask.fallback ? { fallback: ask.fallback } : {}),
           ...(ask.digestFallback ? { digestFallback: ask.digestFallback } : {}),
         } } : {}),
@@ -413,19 +423,21 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const spawnMode = ask?.adapter === "opencode" ? "acp" as const
         : ask?.adapter === "codex" ? "codex-ask" as const
         : undefined;
-      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => ({
-        argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
-        ...(spawnMode ? { mode: spawnMode } : {}),
-        ...((askConfigText || askGrant) ? {
-          secretEnv: {
-            ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
-            ...(askGrant ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
-          },
-        } : {}),
-      })) : [];
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
+        const secretEnv: Record<string, string> = {
+          ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
+          ...(askGrant || claudeNeedsGrant(c) ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
+        };
+        return {
+          argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
+          ...(spawnMode ? { mode: spawnMode } : {}),
+          ...(Object.keys(secretEnv).length ? { secretEnv } : {}),
+        };
+      }) : [];
+      const grantBinding = askGrant || (grant && ask?.adapter === "claude-code" ? grant : "");
       const bindings = [
         ...(askConfigText ? [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText }] : []),
-        ...(askGrant ? [{ ref: ASK_GRANT_REF, resolve: async () => askGrant }] : []),
+        ...(grantBinding ? [{ ref: ASK_GRANT_REF, resolve: async () => grantBinding }] : []),
       ];
       emit(turn.turnId, { status: "Thinking…" });
       const raw = await Promise.race([

@@ -76,13 +76,14 @@ if (digestOnly) {
   pacerInit({ tools: ["Bash", ...expectTools] });
 } else if (mode === "init-mcp") {
   pacerInit({ mcp_servers: [{ name: "extra", status: "connected" }] });
-} else if (mode === "mcp-failed") {
+} else if (mode === "mcp-failed" || mode === "mcp-failed-hook") {
   out({
     type: "system", subtype: "init",
     cwd: process.cwd(), permissionMode, claude_code_version: version,
     tools: [], mcp_servers: [{ name: "pacer", status: "failed" }],
     plugins: builtinPlugins, slash_commands: [], skills: [],
   });
+  if (mode === "mcp-failed-hook") out({ type: "system", subtype: "hook_started", hook_event_name: "PreToolUse" });
 } else if (mode === "extra-plugin") {
   pacerInit({ plugins: [...builtinPlugins, { name: "evil", path: "/tmp/evil", source: "evil@local" }] });
 } else if (mode === "slash-commands") {

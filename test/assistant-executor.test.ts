@@ -578,7 +578,7 @@ function claudeSetup() {
     runners: {}, dispatch: { reservePct: 0 },
   }) as unknown as Strategy;
   const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
-  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook" | "extra-plugin" | "slash-commands" | "agents-leak") =>
+  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "mcp-failed" | "mcp-failed-hook" | "missing-init" | "hook" | "extra-plugin" | "slash-commands" | "agents-leak") =>
     writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
@@ -640,6 +640,7 @@ describe("claude-code ask mode", () => {
     expect(call!.env[CLAUDE_EXPECT_VERSION_ENV]).toBe("2.1.281");
     expect(call!.env[CLAUDE_EXPECT_TOOLS_ENV]).toBe(claudePacerToolNames().join(","));
     expect(call!.env.HOME).toBe(ctx.home);
+    // Grant reaches the Claude process via secretEnv at spawn, not as plain plugin params.
     expect(call!.env[CLAUDE_GRANT_ENV]).toMatch(/^pag_[0-9a-f]{64}$/);
     expect(call!.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
     expect(assistantGrantFor(first.turnId)).toBeNull();
@@ -798,9 +799,37 @@ describe("claude-code ask mode", () => {
     const spawned = all().slice(skip);
     expect(spawned.length).toBeGreaterThanOrEqual(2);
     expect(spawned[0]!.argv[spawned[0]!.argv.indexOf("--mcp-config") + 1]).not.toBe(CLAUDE_EMPTY_MCP);
+    expect(spawned[0]!.env[CLAUDE_GRANT_ENV]).toMatch(/^pag_[0-9a-f]{64}$/);
     expect(spawned[1]!.argv[spawned[1]!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
     expect(spawned[1]!.argv).not.toContain("--allowedTools");
+    // Digest-only retry must not receive the grant.
+    expect(spawned[1]!.env[CLAUDE_GRANT_ENV]).toBeUndefined();
   }, 60_000);
+
+  test("does not digest-retry when a hook ran after MCP connect failed", async () => {
+    const { ctx, deps, mode } = claudeSetup();
+    mode("mcp-failed-hook");
+    writeSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev });
+    const { recordSelfTest } = await import("../src/assistant/selftest");
+    recordSelfTest(ctx, { account: "work", version: "2.1.281", passed: true, at: ctx.now });
+    const first = await ask(ctx, { text: "Hello?", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, first.turnId);
+    expect(turn.state).toBe("error");
+    expect(turn.error ?? turn.answer ?? "").toMatch(/hook/i);
+  }, 60_000);
+
+  test("claudeAskTurn keeps the grant out of plain command env", () => {
+    const { ctx } = claudeSetup();
+    const account = { kind: "claude" as const, source: "pacer" as const, home: join(ctx.home, "claude-work"), name: "work", model: "sonnet",
+      orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
+    const grant = `pag_${"ef".repeat(32)}`;
+    const ask = claudeAskTurn(ctx, { turnId: "t-g", conversationId: "c-g", account, grant, model: "sonnet", system: "s", question: "hi", history: [], timeoutMs: 30_000 });
+    try {
+      expect(ask.command.env[CLAUDE_GRANT_ENV]).toBeUndefined();
+      expect(ask.digestFallback!.env[CLAUDE_GRANT_ENV]).toBeUndefined();
+      expect(ask.command.argv.join("\0")).not.toContain(grant);
+    } finally { ask.cleanup(); }
+  });
 
   test("fails when restrictions break on the resumed turn", async () => {
     const { ctx, deps, mode } = claudeSetup();

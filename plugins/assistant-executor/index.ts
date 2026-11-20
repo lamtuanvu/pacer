@@ -20,7 +20,13 @@ interface AskCommand { argv: string[]; cwd: string; env: Record<string, string>;
 export interface ExecutorReplyParams {
   turnId: string;
   session?: string;
-  executor?: { configRef: string; command: AskCommand; fallback?: AskCommand; digestFallback?: AskCommand };
+  executor?: {
+    configRef: string;
+    grantRef?: string;
+    command: AskCommand;
+    fallback?: AskCommand;
+    digestFallback?: AskCommand;
+  };
 }
 export interface ReplyResult {
   message: string;
@@ -170,7 +176,8 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
     try { event = JSON.parse(line); } catch { continue; }
     if (typeof event.session_id === "string") session = event.session_id;
     if (isHookEvent(event)) {
-      error = error ?? "a Claude hook lifecycle event ran";
+      // Hooks always win: a hook after a failed MCP init must still fail the turn (no digest retry).
+      error = "a Claude hook lifecycle event ran";
       tools.push({ tool: "claude:hook", status: "present" });
       continue;
     }
@@ -288,24 +295,27 @@ async function readAll(host: Pick<HostClient, "call">, handle: string): Promise<
   return Buffer.concat(parts).toString("utf8");
 }
 
-/** Well-known secret refs the host binds for opencode ACP / Codex; names only, never values. */
+/** Well-known secret refs the host binds for ask-mode grants; names only, never values. */
 const ASK_GRANT_REF = "secrets:assistantAskGrant";
 
-async function run(host: Pick<HostClient, "call">, configRef: string | undefined, c: AskCommand): Promise<{ code: number; timedOut: boolean; stdout: string }> {
+async function run(
+  host: Pick<HostClient, "call">,
+  refs: { configRef?: string; grantRef?: string },
+  c: AskCommand,
+): Promise<{ code: number; timedOut: boolean; stdout: string }> {
   const claude = c.argv[0] === "claude";
   const acp = c.argv[0] === "opencode" && c.argv[1] === "acp";
   const codex = c.argv[0] === "codex";
-  const env = claude
-    ? { ...c.env }
-    : codex
-      ? { ...c.env, PACER_ASSISTANT_GRANT: { secretRef: ASK_GRANT_REF } }
-      : !configRef
-        ? { ...c.env }
-        : {
-            ...c.env,
-            OPENCODE_CONFIG_CONTENT: { secretRef: configRef },
-            ...(acp ? { PACER_ASSISTANT_GRANT: { secretRef: ASK_GRANT_REF } } : {}),
-          };
+  const mcpAt = c.argv.indexOf("--mcp-config");
+  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  const wantsClaudeGrant = claude && !!refs.grantRef && !!mcp && mcp !== CLAUDE_EMPTY_MCP;
+  const env: Record<string, string | { secretRef: string }> = { ...c.env };
+  if (wantsClaudeGrant && refs.grantRef) env.PACER_ASSISTANT_GRANT = { secretRef: refs.grantRef };
+  else if (codex) env.PACER_ASSISTANT_GRANT = { secretRef: ASK_GRANT_REF };
+  else if (!claude && refs.configRef) {
+    env.OPENCODE_CONFIG_CONTENT = { secretRef: refs.configRef };
+    if (acp) env.PACER_ASSISTANT_GRANT = { secretRef: ASK_GRANT_REF };
+  }
   const result = await host.call<SpawnResult>("capability.process.spawn", {
     argv: c.argv, cwd: c.cwd, stdin: c.stdin, timeoutMs: c.timeoutMs, env,
   });
@@ -318,6 +328,7 @@ const resumeFailed = (r: { code: number; timedOut: boolean }, o: RunOutcome) => 
 
 /** Init said the pacer MCP server did not connect (host may retry digest-only). */
 const mcpConnectFailed = (o: RunOutcome) => !!o.error && /pacer MCP server failed to connect/i.test(o.error);
+const sawHook = (o: RunOutcome) => o.tools.some(t => t.tool === "claude:hook") || /hook lifecycle event/i.test(o.error ?? "");
 
 function parseAsk(command: AskCommand, stdout: string): RunOutcome {
   if (command.argv[0] === "claude") {
@@ -331,21 +342,22 @@ function parseAsk(command: AskCommand, stdout: string): RunOutcome {
 
 export async function reply(p: ExecutorReplyParams, host: Pick<HostClient, "call">, signal: AbortSignal): Promise<ReplyResult> {
   if (!p.executor) throw new PluginError("invalid_input", "The executor backend needs a host-issued ask-mode command.");
-  const { configRef, command, fallback, digestFallback } = p.executor;
+  const { configRef, grantRef, command, fallback, digestFallback } = p.executor;
+  const refs = { configRef, grantRef };
   let active = command;
-  let raw = await run(host, configRef, active), out = parseAsk(active, raw.stdout);
+  let raw = await run(host, refs, active), out = parseAsk(active, raw.stdout);
   if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   // A stored session can be gone (expired, removed, another CLI version): start a new one seeded
   // with the transcript, which the host issued as the fallback command.
   if (p.session && fallback && resumeFailed(raw, out)) {
     active = fallback;
-    raw = await run(host, configRef, active); out = parseAsk(active, raw.stdout);
+    raw = await run(host, refs, active); out = parseAsk(active, raw.stdout);
     if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   }
   // Pacer MCP failed to connect: host-issued digest-only retry (tools unavailable in the prompt).
-  if (digestFallback && mcpConnectFailed(out)) {
+  if (digestFallback && mcpConnectFailed(out) && !sawHook(out)) {
     active = digestFallback;
-    raw = await run(host, configRef, active); out = parseAsk(active, raw.stdout);
+    raw = await run(host, refs, active); out = parseAsk(active, raw.stdout);
     if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   }
   if (raw.timedOut) throw new PluginError("plugin_timeout", "The agent did not answer in time.");

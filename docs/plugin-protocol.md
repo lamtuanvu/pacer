@@ -9762,6 +9762,11 @@ Params:
           "minLength": 1,
           "maxLength": 128
         },
+        "grantRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "command": {
           "type": "object",
           "properties": {

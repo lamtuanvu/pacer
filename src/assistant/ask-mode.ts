@@ -23,7 +23,7 @@ import { toolDefinitions } from "./tools";
 
 /** The reference the plugin passes for the opencode config; the host resolves it when the command runs. */
 export const ASK_CONFIG_REF = "secrets:assistantAskConfig";
-/** The reference for the per-turn assistant grant; resolved only into the ACP/Codex child's env, never into plugin params. */
+/** The reference for the per-turn assistant grant (ACP/Codex/Claude); resolved into the child env at spawn, never into plugin params. */
 export const ASK_GRANT_REF = "secrets:assistantAskGrant";
 
 /** Which agent CLI ask mode drives for an account. */
@@ -128,7 +128,7 @@ export interface AskTurn {
   digestFallback?: AskCommand;
   /** The rendered opencode config, bound to `ASK_CONFIG_REF` for this call only. Empty for claude-code and codex. */
   config: string;
-  /** Per-turn grant for opencode ACP / Codex app-server, bound to `ASK_GRANT_REF` only. Empty for claude-code. */
+  /** Per-turn grant for opencode ACP / Codex app-server, bound to `ASK_GRANT_REF` only. Empty for claude-code (uses `grantRef` instead). */
   grant: string;
   /** Delete the turn's run directory. */
   cleanup: () => void;
@@ -416,6 +416,8 @@ export function claudeAskTurn(ctx: Ctx, o: {
   const sessionId = claudeSessionIdFor(o.conversationId);
   const resume = claudeResumeSession(o.session);
   const expectTools = claudePacerToolNames().join(",");
+  // Grant is not in plain env: the host binds ASK_GRANT_REF and the plugin passes { secretRef }
+  // so capability.process.spawn resolves it into the Claude process for `${VAR}` expansion.
   const env: Record<string, string> = {
     ...minimalEnvironment(ctx.env, "claude"),
     // The default account keeps Claude's own default folder through HOME: naming it explicitly
@@ -423,13 +425,12 @@ export function claudeAskTurn(ctx: Ctx, o: {
     ...(o.account.source === "default" ? {} : { CLAUDE_CONFIG_DIR: configDir }),
     [CLAUDE_EXPECT_VERSION_ENV]: version,
     [CLAUDE_EXPECT_TOOLS_ENV]: expectTools,
-    // Grant/URL/turn/home for mcp-config `${VAR}` expansion only — never on argv (SEC-5 / task).
-    [CLAUDE_GRANT_ENV]: o.grant,
     [CLAUDE_URL_ENV]: serviceUrl(ctx),
     [CLAUDE_TURN_ENV]: o.turnId,
     [CLAUDE_HOME_ENV]: runDir,
   };
-  // Digest-only retry must not expect pacer tools on init.
+  // Digest-only retry: no pacer tools expect, and no grant binding (empty MCP).
+  // o.grant is bound by the host via ASK_GRANT_REF on MCP turns only, never copied into command.env.
   const digestEnv: Record<string, string> = { ...env, [CLAUDE_EXPECT_TOOLS_ENV]: "" };
   const prompt = (useResume: boolean) => useResume ? o.question : seededPrompt(o.history, o.question);
   const baseFlags = (systemPath: string, mcp: string, allowPacer: boolean) => [
@@ -468,7 +469,8 @@ export function claudeAskTurn(ctx: Ctx, o: {
     }
     : undefined;
   const digestFallback: AskCommand = {
-    argv: argv({ sessionId: resume ? claudeSessionIdFor(o.conversationId, `digest:${o.turnId}`) : sessionId, digestOnly: true }),
+    // Always a fresh session id so a failed MCP process cannot collide with the digest retry.
+    argv: argv({ sessionId: claudeSessionIdFor(o.conversationId, `digest:${o.turnId}`), digestOnly: true }),
     cwd, env: digestEnv, stdin: prompt(false), timeoutMs: o.timeoutMs,
   };
   return {
