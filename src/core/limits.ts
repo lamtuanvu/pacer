@@ -1,7 +1,6 @@
 import { resolveRunner } from "../config/runner-id";
 import { type Strategy, loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
-import { bindingWindow } from "../engine/verdict";
 import type { Ctx } from "../types";
 import { markExhausted } from "../usage/reactive";
 import { CoreError } from "./errors";
@@ -26,7 +25,6 @@ export async function check(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<
   const st = await computeStatus(ctx, s);
   return st.accounts.map((a) => {
     const record = a.usageState;
-    const window = record ? bindingWindow(record.windows) : null;
     const error = st.providers.find((p) => p.account === a.name && p.error)?.error ?? null;
     const noData = a.capturedAt === null && (a.kind === "claude" || a.kind === "codex");
     const hint = noData && a.kind === "claude" ? "start a Claude Code session with pacer's status line, or rely on limit errors"
@@ -37,9 +35,9 @@ export async function check(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<
       ageS: a.capturedAt === null ? null : Math.max(0, Math.round(ctx.now - a.capturedAt)),
       stale: record ? record.freshness === "historical" : a.stale,
       verdict: record?.verdict ?? a.verdict,
-      usedPct: record?.figure?.usedPct ?? window?.usedPct ?? a.usedPct,
-      window: record ? window?.name ?? null : a.window,
-      resetsAt: record ? window?.resetsAt ?? null : a.resetsAt,
+      usedPct: record ? record.figure?.usedPct ?? null : a.usedPct,
+      window: record ? record.figure?.window ?? null : a.window,
+      resetsAt: record ? record.figure?.resetsAt ?? null : a.resetsAt,
       runners: a.runners, error, hint,
     };
   });

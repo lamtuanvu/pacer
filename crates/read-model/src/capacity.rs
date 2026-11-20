@@ -25,11 +25,11 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     } else {
         pacer_engine::words::pace_meter_verdict(text(&p["verdict"]))
     };
+    // The row quotes the record's figure, not its binding window (ADR 0030).
     let used = if known {
         match record {
-            // figure.usedPct first; the binding window backs a figure-less record.
-            Some(r) if !r["figure"]["usedPct"].is_null() => r["figure"]["usedPct"].clone(),
-            _ => b["usedPct"].clone(),
+            Some(r) => r["figure"]["usedPct"].clone(),
+            None => b["usedPct"].clone(),
         }
     } else {
         Value::Null
@@ -44,6 +44,10 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     } else {
         Value::Null
     };
+    let out_resets = match record {
+        Some(r) => r["figure"]["resetsAt"].clone(),
+        None => b["resetsAt"].clone(),
+    };
     let mut advice = "No usage reading for the planner yet.".to_owned();
     match verdict {
         "behind" if !delta.is_null() => {
@@ -56,9 +60,9 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         "ahead" if !delta.is_null() => {
             advice = format!("{} pts ahead of pace — delegate more.", stringify(&delta))
         }
-        "out" if !b["resetsAt"].is_null() => {
+        "out" if !out_resets.is_null() => {
             if let Some(d) = zone
-                .timestamp_opt(num(&b["resetsAt"]).floor() as i64, 0)
+                .timestamp_opt(num(&out_resets).floor() as i64, 0)
                 .single()
             {
                 advice = format!(
@@ -87,11 +91,11 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         else{
         Value::Null}
         ,"resetsAt":if known{
-        b["resetsAt"].clone()}
+        out_resets.clone()}
         else{
         Value::Null}
         ,"window":if known{
-        b["name"].clone()}
+        record.map_or(b["name"].clone(),|r|r["figure"]["window"].clone())}
         else{
         Value::Null}
         ,"stale":record.map_or(p.get("stale").cloned().unwrap_or(json!(false)),|r|json!(text(&r["freshness"])=="historical")),"advice":advice,"mode":st["mode"]}
@@ -530,8 +534,7 @@ fn executor(
         row["reason"] = json!(reason);
     }
     row["usedPct"] = match record {
-        Some(r) if !r["figure"]["usedPct"].is_null() => r["figure"]["usedPct"].clone(),
-        Some(_) => record_window["usedPct"].clone(),
+        Some(r) => r["figure"]["usedPct"].clone(),
         None => p["binding"]["usedPct"].clone(),
     };
     row["pacePct"] = if record.is_some() {
@@ -622,10 +625,10 @@ Value::Null}
 ;
  row=merge(&row,&json!({
 "stale":record.map_or(pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),|r|json!(text(&r["freshness"])=="historical")),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],
-"usedPct":record.map_or(pick("usedPct",&p["binding"]["usedPct"]),|r|if r["figure"]["usedPct"].is_null(){window["usedPct"].clone()}else{r["figure"]["usedPct"].clone()}),
+"usedPct":record.map_or(pick("usedPct",&p["binding"]["usedPct"]),|r|r["figure"]["usedPct"].clone()),
 "pacePct":record.map_or(pick("pacePct",&p["binding"]["pace"]),|_|window["pace"].clone()),
-"window":record.map_or(pick("window",&p["binding"]["name"]),|_|window["name"].clone()),
-"resetsAt":record.map_or(pick("resetsAt",&p["binding"]["resetsAt"]),|_|window["resetsAt"].clone()),
+"window":record.map_or(pick("window",&p["binding"]["name"]),|r|r["figure"]["window"].clone()),
+"resetsAt":record.map_or(pick("resetsAt",&p["binding"]["resetsAt"]),|r|r["figure"]["resetsAt"].clone()),
 "verdict":record.map_or(pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),|r|r["verdict"].clone()),
 "signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),
 "spendUsdWeek":record.map_or(status["spendUsd"].clone(),|r|r["spend"]["usdWeek"].clone()),"capUsdWeek":a["weeklyUsd"]}

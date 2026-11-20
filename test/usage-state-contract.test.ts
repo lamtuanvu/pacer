@@ -28,6 +28,7 @@ const CURSOR = "planner: cursor\naccounts:\n  cursor: {kind: cursor}\nrunners:\n
 const CURSOR_UNMETERED = "planner: cursor\naccounts:\n  cursor: {kind: cursor, usage: unmetered}\nrunners:\n  cursor: {}\nrouting:\n  - default: [cursor]\n";
 const CLAUDE = `${PLANNER}accounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nrouting:\n  - default: [claude-code]\n`;
 const EXT = "planner: opencode\naccounts:\n  claude: {kind: claude}\nhosts:\n  devbox: {ssh: devbox, accounts: {claude: {home: ~/claude-devbox}}}\nrunners:\n  claude-code: {}\n  claude-code@devbox: {host: devbox}\nrouting:\n  - default: [claude-code, claude-code@devbox]\n";
+const PAIRED = "planner: claude-code\naccounts:\n  claude: {kind: claude}\nhosts:\n  devbox: {ssh: devbox, accounts: {claude: {home: ~/claude-devbox}}}\nrunners:\n  claude-code: {}\n  claude-code@devbox: {host: devbox}\nrouting:\n  - default: [claude-code, claude-code@devbox]\n";
 
 function load(ctx: Ctx, text: string): Strategy {
   mkdirSync(ctx.pacerHome, {recursive: true});
@@ -233,6 +234,43 @@ test("(g) an unmetered account reports UNMETERED on every surface", async () => 
   expect(runner.observedAt).toBeNull();
   // An unmetered planner runner holds normal mode.
   expect(st.mode).toBe("normal");
+});
+
+test("(h) two limits: a record quotes the latest end and its rows quote the figure", async () => {
+  const ctx = withLoginIndicators(fakeCtx({now}));
+  const s = load(ctx, PAIRED);
+  const scope = accountEvidenceScope(s.accounts.claude!, s.hosts);
+  const T1 = now + 3600, T2 = now + 7200;
+  // An account-scope execution limit ends at T1; a later runner-scoped one ends at T2 > T1.
+  await recordExecutionEvidence(ctx, scope, {endedAt: now, exitCode: 1, timedOut: false, classification: "quota", until: T1});
+  await recordExecutionEvidence(ctx, {...scope, runner: "claude-code", model: "default", host: "local"},
+    {endedAt: now, exitCode: 1, timedOut: false, classification: "quota", until: T2});
+  const st = await computeStatus(ctx, s, {profile: null});
+  const record = st.accounts!.find(a => a.name === "claude")!.usageState!;
+  const local = st.providers.find(p => p.id === "claude-code")!.usageState!;
+  // The runner record carries the latest end and quotes it; its binding window is only the older one.
+  expect(local.limit!.until).toBe(T2);
+  expect(local.figure).toEqual({usedPct: 100, window: "limit", lengthS: 21600, resetsAt: T2});
+  // The account record quotes its own (account-scope) limit.
+  expect(record.figure).toEqual({usedPct: 100, window: "limit", lengthS: 21600, resetsAt: T1});
+  expect(record.limit!.until).toBe(T1);
+  // account.list quotes the same account record fields (its blockedRunners may mask a
+  // runner id that contains @, which the listing's privacy pass redacts).
+  const listRow = (await accountsList(ctx)).find(a => a.name === "claude")!.usageState!;
+  expect({figure: listRow.figure, verdict: listRow.verdict, freshness: listRow.freshness, limit: listRow.limit})
+    .toEqual({figure: record.figure, verdict: record.verdict, freshness: record.freshness, limit: record.limit});
+  const limitsRow = (await limitsCheck(ctx, s)).find(a => a.account === "claude")!;
+  expect(limitsRow).toMatchObject({verdict: "EXHAUSTED", usedPct: 100, window: "limit", resetsAt: T1});
+  // The snapshot's account row carries the record and quotes it.
+  const summary = buildAccounts(st, s, ctx).find(a => a.name === "claude")!;
+  expect(summary.usageState).toEqual(record);
+  expect(summary).toMatchObject({verdict: "EXHAUSTED", usedPct: 100, window: "limit", resetsAt: T1});
+  // Every planner-runner surface quotes T2 from the record, not its binding window.
+  const row = buildExecutors(st, s, [], ctx.now, ctx).find(r => r.id === "claude-code")!;
+  expect(row.usageState).toEqual(local);
+  expect(row.usedPct).toBe(100);
+  expect(buildPlanner(st)).toMatchObject({usedPct: 100, window: "limit", resetsAt: T2});
+  expect(renderHook(st, "claude-code")).toContain("limit 100% EXHAUSTED");
 });
 
 test("mode follows the planner's runner record, not the account summary", async () => {
