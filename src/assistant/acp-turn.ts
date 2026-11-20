@@ -167,6 +167,8 @@ export async function runAcpTurn(
   /** Pre-prompt MCP health only; frozen before session/prompt so mid-turn events cannot reopen tools. */
   let toolsHealthy = false;
   let healthLocked = false;
+  /** Ignore agent text until session/prompt: resume/load can replay earlier turns as chunks. */
+  let captureText = false;
   let error: string | undefined;
   let input = 0, output = 0, measured = false;
   let nextId = 1;
@@ -216,7 +218,7 @@ export async function runAcpTurn(
       const kind = update.sessionUpdate;
       if (kind === "agent_message_chunk" && (update.content as Json)?.type === "text") {
         const t = String((update.content as Json).text ?? "");
-        if (t) { textParts.push(t); deltas.push(t); hooks.onDelta?.(t); }
+        if (t && captureText) { textParts.push(t); deltas.push(t); hooks.onDelta?.(t); }
       }
       if (kind === "tool_call" || kind === "tool_call_update") {
         const title = toolTitle(String(update.title ?? update.toolCallId ?? "tool"));
@@ -322,6 +324,7 @@ export async function runAcpTurn(
       }
     }
 
+    captureText = true;
     const promptResult = await request("session/prompt", {
       sessionId,
       prompt: [{ type: "text", text: promptText }],
