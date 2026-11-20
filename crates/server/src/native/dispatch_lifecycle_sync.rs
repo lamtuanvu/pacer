@@ -17,6 +17,7 @@ pub(crate) fn dispatch_lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &V
 pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
     op == "config.set"
         || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+        || crate::native::client_ops::is_client_op(op)
         || crate::native::terminal_ops::uses_bridge(op)
 }
 
@@ -56,7 +57,7 @@ mod tests {
     }
 
     #[test]
-    fn only_lifecycle_ops_and_config_set_forward_bodies_serde_rejects() {
+    fn only_forwarded_ops_and_config_set_forward_bodies_serde_rejects() {
         const TERMINAL: [&str; 4] = [
             "terminal.list",
             "terminal.create",
@@ -66,6 +67,7 @@ mod tests {
         for op in lifecycle_ops::LIFECYCLE_OPS
             .iter()
             .chain(&["config.set"])
+            .chain(crate::native::client_ops::CLIENT_OPS)
             .chain(TERMINAL.iter())
         {
             assert!(forwards_undecodable_body(op));
