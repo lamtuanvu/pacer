@@ -613,7 +613,7 @@ describe("claude-code ask mode", () => {
     expect(call!.argv.join("\0")).not.toMatch(/pag_[0-9a-f]{64}/);
     expect(call!.argv).toContain(`--settings=${CLAUDE_ASK_SETTINGS}`);
     expect(call!.argv).toContain("--setting-sources=");
-    expect(call!.argv).toContain("--safe-mode");
+    expect(call!.argv).not.toContain("--safe-mode");
     expect(call!.argv).toContain("--disable-slash-commands");
     expect(call!.argv).not.toContain("--bare");
     expect(call!.argv).toContain(`--permission-mode=${CLAUDE_PERMISSION_MODE}`);
@@ -838,6 +838,11 @@ describe("claude-code ask mode", () => {
     expect(judge([
       { tool: "claude:init", status: "pacer" },
       { tool: "mcp__pacer__snapshot", status: "completed" },
+    ], "ok", { ...o, pacerTools: true }).verdict).toBe("pass");
+    // Unissued self-test grant: MCP call is refused → status error still proves the path ran.
+    expect(judge([
+      { tool: "claude:init", status: "pacer" },
+      { tool: "mcp__pacer__snapshot", status: "error" },
     ], "ok", { ...o, pacerTools: true }).verdict).toBe("pass");
     expect(judge([
       { tool: "claude:init", status: "pacer" },

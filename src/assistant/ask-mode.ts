@@ -72,7 +72,8 @@ export const ASK_REMOVED = [
  * - CLI flag belt (second layer): `--tools ''`, `--allowedTools mcp__pacer__*`, `--strict-mcp-config`
  *   with one `pacer` server (`pacer mcp --assistant`; grant only via process env `${VAR}` expansion),
  *   `--disallowedTools`, `--permission-mode dontAsk`, `--settings '{"disableAllHooks":true}'`,
- *   `--safe-mode`, `--setting-sources ''`, `--disable-slash-commands`, empty `CLAUDE.md`.
+ *   `--setting-sources ''`, `--disable-slash-commands`, empty `CLAUDE.md`.
+ *   (`--safe-mode` is omitted: on Claude 2.1.x it disables `--mcp-config` servers.)
  * - `--include-hook-events` surfaces hook lifecycle events so a turn can fail closed if any appear.
  * - Continuity: `--session-id` with a deterministic UUID from the conversation id on the first turn,
  *   then `--resume=<uuid>`; only UUID-validated handles reach argv (SEC-5).
@@ -473,7 +474,6 @@ export function claudeAskTurn(ctx: Ctx, o: {
     `--mcp-config=${mcp}`,
     "--setting-sources=",
     `--settings=${CLAUDE_ASK_SETTINGS}`,
-    "--safe-mode",
     "--disable-slash-commands",
     `--permission-mode=${CLAUDE_PERMISSION_MODE}`,
     `--permission-prompts=${CLAUDE_PERMISSION_PROMPTS}`,

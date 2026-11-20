@@ -136,7 +136,7 @@ export interface ClaudeInitExpect {
 }
 
 /**
- * Built-in Claude Code plugins that `--safe-mode` still lists on init (path must be `builtin`).
+ * Built-in Claude Code plugins that ask-mode init still lists (path must be `builtin`).
  * Any other plugin source fails the turn.
  */
 export const CLAUDE_ASK_BUILTIN_PLUGIN_SOURCES = ["agents-md@builtin", "telemetry@builtin"] as const;
@@ -222,7 +222,7 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
       const plugins = Array.isArray(event.plugins) ? event.plugins : null;
       const slash = Array.isArray(event.slash_commands) ? event.slash_commands : null;
       const skills = Array.isArray(event.skills) ? event.skills : null;
-      // event.agents is intentionally unread: built-in agent names remain listed under --safe-mode
+      // event.agents is intentionally unread: built-in agent names remain listed on init
       // but cannot run without the Agent tool, which --tools '' removes.
       const mode = typeof event.permissionMode === "string" ? event.permissionMode : "";
       const cwd = typeof event.cwd === "string" ? event.cwd : "";

@@ -25,7 +25,6 @@ function controlArgv(over: { omit?: string[]; replace?: Record<string, string>; 
     "--mcp-config={\"mcpServers\":{\"pacer\":{}}}",
     "--setting-sources=",
     "--settings={\"disableAllHooks\":true}",
-    "--safe-mode",
     "--disable-slash-commands",
     "--permission-mode=dontAsk",
     "--permission-prompts=host",
@@ -97,6 +96,11 @@ describe("claude control plan helpers", () => {
       { mcpServers: [{ name: "pacer", status: "connected" }], tools: ["mcp__pacer__snapshot"] },
       ["mcp__pacer__snapshot"],
     )).toBe(true);
+    // Real Claude: bare tool names nested under the server entry.
+    expect(mcpStatusHealthy(
+      { mcpServers: [{ name: "pacer", status: "connected", tools: [{ name: "snapshot" }] }] },
+      ["mcp__pacer__snapshot"],
+    )).toBe(true);
     // Status-only object / bare array cannot confirm tools when some are expected.
     expect(mcpStatusHealthy(
       { mcpServers: [{ name: "pacer", status: "connected" }] },
@@ -126,7 +130,6 @@ describe("claude control plan helpers", () => {
       "--permission-prompt-tool=stdio",
       "--permission-prompts=host",
     ])).toBe(false);
-    expect(isClaudeControlArgv(controlArgv({ omit: ["--safe-mode"] }))).toBe(false);
     expect(isClaudeControlArgv(controlArgv({ omit: ["--strict-mcp-config"] }))).toBe(false);
     expect(isClaudeControlArgv(controlArgv({ replace: { "--tools": "--tools=Bash" } }))).toBe(false);
     expect(isClaudeControlArgv(controlArgv({ replace: { "--permission-mode": "--permission-mode=default" } }))).toBe(false);
@@ -160,17 +163,7 @@ describe("runClaudeControlTurn", () => {
                 type: "control_response",
                 response: { subtype: "success", request_id, response: { commands: [], models: [], capabilities: [] } },
               })}\n`);
-              stdout.write(`${JSON.stringify({
-                type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111",
-                cwd: "/tmp/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
-                tools: ["mcp__pacer__snapshot"],
-                mcp_servers: [{ name: "pacer", status: "connected" }],
-                plugins: [
-                  { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
-                  { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
-                ],
-                slash_commands: [], skills: [],
-              })}\n`);
+              // Real Claude: no system/init until the user message.
             } else if (req.subtype === "mcp_status") {
               stdout.write(`${JSON.stringify({
                 type: "control_response",
@@ -182,6 +175,18 @@ describe("runClaudeControlTurn", () => {
               })}\n`);
             }
           } else if (msg.type === "user") {
+            // Match real Claude: system/init arrives when the turn starts.
+            stdout.write(`${JSON.stringify({
+              type: "system", subtype: "init", session_id: "11111111-1111-4111-8111-111111111111",
+              cwd: "/tmp/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+              tools: ["mcp__pacer__snapshot"],
+              mcp_servers: [{ name: "pacer", status: "connected" }],
+              plugins: [
+                { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
+                { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
+              ],
+              slash_commands: [], skills: [],
+            })}\n`);
             // Builtin attempt → host must deny.
             stdout.write(`${JSON.stringify({
               type: "control_request",
@@ -229,6 +234,68 @@ describe("runClaudeControlTurn", () => {
     expect(result.tools).toContainEqual({ tool: "Bash", status: "denied" });
     expect(result.tools).toContainEqual({ tool: "mcp__pacer__snapshot", status: "completed" });
     expect(result.usage).toMatchObject({ input: 10, output: 4, coverage: "measured" });
+  });
+
+  test("polls mcp_status while the pacer server is pending", async () => {
+    const { child, stdin, stdout } = fakeChild();
+    let mcpPolls = 0;
+    stdin.on("data", (chunk: Buffer) => {
+      for (const line of chunk.toString("utf8").split("\n").filter(Boolean)) {
+        const msg = JSON.parse(line) as Record<string, unknown>;
+        if (msg.type !== "control_request") {
+          if (msg.type === "user") {
+            stdout.write(`${JSON.stringify({
+              type: "system", subtype: "init", session_id: "44444444-4444-4444-8444-444444444444",
+              cwd: "/tmp/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+              tools: ["mcp__pacer__snapshot"],
+              mcp_servers: [{ name: "pacer", status: "connected" }],
+              plugins: [
+                { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
+                { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
+              ],
+              slash_commands: [], skills: [],
+            })}\n`);
+            stdout.write(`${JSON.stringify({
+              type: "assistant", message: { content: [
+                { type: "tool_use", id: "tu", name: "mcp__pacer__snapshot" },
+                { type: "text", text: "ok" },
+              ] },
+            })}\n`);
+            stdout.write(`${JSON.stringify({
+              type: "result", is_error: false, result: "ok",
+              usage: { input_tokens: 1, output_tokens: 1 },
+            })}\n`);
+          }
+          continue;
+        }
+        const req = msg.request as { subtype?: string };
+        const request_id = String(msg.request_id);
+        if (req.subtype === "initialize") {
+          stdout.write(`${JSON.stringify({
+            type: "control_response",
+            response: { subtype: "success", request_id, response: {} },
+          })}\n`);
+        } else if (req.subtype === "mcp_status") {
+          mcpPolls++;
+          const connected = mcpPolls >= 2;
+          stdout.write(`${JSON.stringify({
+            type: "control_response",
+            response: {
+              subtype: "success",
+              request_id,
+              response: connected
+                ? { mcpServers: [{ name: "pacer", status: "connected", tools: [{ name: "snapshot" }] }] }
+                : { mcpServers: [{ name: "pacer", status: "pending" }] },
+            },
+          })}\n`);
+        }
+      }
+    });
+    const result = await runClaudeControlTurn(child as never, plan());
+    expect(mcpPolls).toBeGreaterThanOrEqual(2);
+    expect(result.toolsHealthy).toBe(true);
+    expect(result.tools).toContainEqual({ tool: "claude:init", status: "pacer" });
+    expect(result.tools).toContainEqual({ tool: "mcp__pacer__snapshot", status: "completed" });
   });
 
   test("falls back to digest-only when mcp_status is not connected", async () => {

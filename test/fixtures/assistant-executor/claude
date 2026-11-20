@@ -195,7 +195,7 @@ for await (const line of rl) {
         type: "control_response",
         response: { subtype: "success", request_id, response: { commands: [], models: [], capabilities: [] } },
       });
-      emitInit();
+      // Real Claude emits system/init after the first user message, not after initialize.
     } else if (req.subtype === "mcp_status") {
       out({
         type: "control_response",
@@ -223,6 +223,8 @@ for await (const line of rl) {
       : "";
     // Record the user prompt for tests (CONTROL plan never reaches the child).
     logCall(promptText);
+    // Match real Claude: emit system/init when the turn starts (after the user message).
+    emitInit();
     // Emit can_use_tool requests then wait briefly for host replies before finishing.
     // `leak` / `leak-on-resume` skip the host and complete Bash to simulate a bypass.
     if (!digestOnly && (mode === "deny" || mode === "absent" || mode === "partial" || mode === "agents-leak")) {

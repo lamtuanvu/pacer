@@ -42,7 +42,7 @@ export function isClaudeControlArgv(argv: readonly string[]): boolean {
   if (argv[0] !== "claude" || !argv.includes("-p")) return false;
   if (!argv.includes("--verbose")) return false;
   if (!argv.includes("--strict-mcp-config")) return false;
-  if (!argv.includes("--safe-mode")) return false;
+  // Do not require --safe-mode: on Claude 2.1.x it disables --mcp-config servers entirely.
   if (!argv.includes("--disable-slash-commands")) return false;
   if (!argv.includes("--include-hook-events")) return false;
   if (flagValue(argv, "--input-format") !== "stream-json") return false;
@@ -134,10 +134,22 @@ function mcpServersFromStatus(response: unknown): { name: string; status: string
   });
 }
 
+/** Normalize a Claude MCP tool name to the host's `mcp__pacer__*` form. */
+function normalizeMcpToolName(raw: unknown): string | null {
+  if (typeof raw === "string" && raw) {
+    return raw.startsWith("mcp__") ? raw : `mcp__pacer__${raw}`;
+  }
+  if (isRecord(raw) && typeof raw.name === "string" && raw.name) {
+    return raw.name.startsWith("mcp__") ? raw.name : `mcp__pacer__${raw.name}`;
+  }
+  return null;
+}
+
 /**
  * Fail closed: pacer must be the only connected server, and every expected tool name must be
- * present in the status payload. A bare server list (array or object without tools) cannot
- * confirm the tool set when `allowedTools` is non-empty.
+ * present in the status payload. Real Claude nests tools under `mcpServers[].tools` as bare
+ * names (`snapshot`); fixtures may also put `mcp__pacer__*` strings on the top-level `tools`.
+ * A bare server list without tools cannot confirm the tool set when `allowedTools` is non-empty.
  */
 export function mcpStatusHealthy(
   response: unknown,
@@ -148,10 +160,15 @@ export function mcpStatusHealthy(
   const pacer = servers[0]!;
   if (pacer.name !== "pacer" || pacer.status !== "connected") return false;
   if (!isRecord(response)) return allowedTools.length === 0;
-  const tools = response.tools ?? response.toolNames;
+  let tools = response.tools ?? response.toolNames;
+  if (tools === undefined) {
+    const listed = response.mcpServers ?? response.servers ?? response.mcp_servers;
+    const server = Array.isArray(listed) ? listed.find(s => isRecord(s) && s.name === "pacer") : undefined;
+    tools = isRecord(server) ? server.tools ?? server.toolNames : undefined;
+  }
   if (tools === undefined) return allowedTools.length === 0;
   if (!Array.isArray(tools)) return false;
-  const names = tools.map(String);
+  const names = tools.map(normalizeMcpToolName).filter((n): n is string => !!n);
   if (names.length !== allowedTools.length) return false;
   const want = new Set(allowedTools);
   const have = new Set(names);
@@ -269,6 +286,8 @@ export async function runClaudeControlTurn(
     if (surfaceOk && matches) {
       tools.push({ tool: "claude:init", status: wantPacer ? "pacer" : "empty" });
     } else {
+      // Init arrived late or wrong: stop allowing tools for the rest of the turn.
+      toolsHealthy = false;
       if (listed) for (const name of listed) tools.push({ tool: name, status: "available" });
       if (mcp) for (const server of mcp) {
         if (!isRecord(server)) continue;
@@ -428,25 +447,38 @@ export async function runClaudeControlTurn(
     // initialize with empty hooks (host answers can_use_tool; settings already disableAllHooks).
     await controlRequest("initialize", { hooks: {} });
 
-    // Wait briefly for the stream-json init event if it has not arrived with initialize.
-    if (!sawInit) {
-      await Promise.race([
-        new Promise<void>(r => {
-          const check = setInterval(() => { if (sawInit) { clearInterval(check); r(); } }, 5);
-          setTimeout(() => { clearInterval(check); r(); }, 2_000).unref?.();
-        }),
-        new Promise<void>((_, rej) => hooks.signal?.addEventListener("abort", () => rej(new Error("The turn was cancelled.")), { once: true })),
-      ]);
-    }
-    if (!sawInit) error = error ?? "claude stream-json init event was missing";
-
+    // Real Claude (2.1.x) emits stream-json `system`/`init` only after the first user message,
+    // not after `initialize`. Do not fail closed here — wait until the turn ends (below).
     // MCP health via control protocol (Orca polls mcpServerStatus → subtype mcp_status).
+    // Claude often reports the pacer server as `pending` for a short window after initialize;
+    // poll until connected (with tools) or the budget expires before choosing digest-only.
     if (plan.tools && !error?.includes("hook")) {
+      const mcpWaitMs = 15_000;
+      const mcpStarted = Date.now();
+      let lastStatus: unknown;
       try {
-        const status = await controlRequest("mcp_status");
-        toolsHealthy = mcpStatusHealthy(status, plan.allowedTools)
-          && tools.some(t => t.tool === "claude:init" && t.status === "pacer");
-      } catch {
+        while (Date.now() - mcpStarted < mcpWaitMs) {
+          if (hooks.signal?.aborted) throw new Error("The turn was cancelled.");
+          lastStatus = await controlRequest("mcp_status");
+          if (mcpStatusHealthy(lastStatus, plan.allowedTools)) {
+            toolsHealthy = true;
+            break;
+          }
+          const servers = Array.isArray((lastStatus as { mcpServers?: unknown })?.mcpServers)
+            ? (lastStatus as { mcpServers: { status?: string }[] }).mcpServers
+            : [];
+          const pending = servers.some(s => s.status === "pending" || s.status === "connecting");
+          if (!pending && servers.length > 0) break;
+          await new Promise<void>(r => {
+            const t = setTimeout(r, 200);
+            t.unref?.();
+          });
+        }
+        if (!toolsHealthy && lastStatus !== undefined) {
+          toolsHealthy = mcpStatusHealthy(lastStatus, plan.allowedTools);
+        }
+      } catch (e) {
+        if (e instanceof Error && e.message === "The turn was cancelled.") throw e;
         toolsHealthy = false;
       }
       if (!toolsHealthy) {
@@ -454,11 +486,7 @@ export async function runClaudeControlTurn(
         if (!error || /pacer MCP server failed to connect/i.test(error)) {
           error = "pacer MCP tools were not confirmed via mcp_status; answering from the digest only";
         }
-        // Clear a failed pacer init marker so digest-only evidence can stand if we re-mark empty.
-        const initIdx = tools.findIndex(t => t.tool === "claude:init");
-        if (initIdx >= 0 && tools[initIdx]!.status === "pacer" && !toolsHealthy) {
-          // Keep the init record; health false drives deny-all + unavailable note.
-        }
+        // Keep any init record; health false drives deny-all + unavailable note.
       }
     } else if (!plan.tools) {
       toolsHealthy = false;
