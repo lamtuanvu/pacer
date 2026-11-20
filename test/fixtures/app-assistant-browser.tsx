@@ -15,7 +15,7 @@ import { Button } from "../../app/src/ds/Button";
 const w = window as any;
 w.settingsCalls = []; w.asked = [] as any[]; w.recorded = [] as any[]; w.selftestCalls = [] as any[];
 w.assistantStatus = { available: !location.search.includes("unconfigured"), configured: !location.search.includes("unconfigured"), account: "localmodel", limits: {}, today: { turns: 0, input: 0, output: 0 } };
-w.assistantSettings = { rev: 4, backend: location.search.includes("saved-executor") ? "executor" : "pacer", account: location.search.includes("saved-executor") ? "oc" : null };
+w.assistantSettings = { rev: 4, backend: "pacer", account: null };
 const withExecutors = location.search.includes("executors");
 const card = { id: "card-1", op: "dispatch.retry", params: { id: "t-20261028-101010-ab12", expect_rev: 3 }, title: "Retry task", summary: "Retry “ota: stale plan” as a new attempt in the same worktree, on the executor pacer routes it to.", editable: [{ name: "feedback", label: "Feedback for the new attempt", value: "" }], why: "It failed on a removed worktree.", state: "pending" };
 const turn = (text: string) => ({ id: "turn-1", conversationId: "conv-1", at: 1, question: text, answer: /retry/i.test(text) ? "I suggest a retry." : "Three tasks need you.\n- t-20261028-101010-ab12 failed", state: "done", error: null, account: "localmodel", usage: null, cards: /retry/i.test(text) ? [card] : [], citations: [{ label: "t-20261028-101010-ab12", href: "#/tasks/t-20261028-101010-ab12" }], scope: { kind: "dispatch", days: 7 } });

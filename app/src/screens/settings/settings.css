@@ -1,6 +1,7 @@
 .u3-settings{font-family:var(--font-sans);font-size:var(--type-body-size);line-height:var(--type-body-line);color:var(--ink);min-width:0}
 .u3-settings p{margin:0}
-.u3-settings code,.u3-settings pre{font-family:var(--font-mono);font-size:var(--type-code-size);overflow-wrap:normal;word-break:normal;white-space:pre;max-width:100%;overflow-x:auto}
+.u3-settings code:not(.pc-code-wrap),.u3-settings pre{font-family:var(--font-mono);font-size:var(--type-code-size);overflow-wrap:normal;word-break:normal;white-space:pre;max-width:100%;overflow-x:auto}
+.u3-settings code.pc-code-wrap{font-family:var(--font-mono);font-size:var(--type-code-size);max-width:100%}
 .u3-muted,.u3-heading p{color:var(--ink-secondary);font-size:var(--type-caption-size)}
 .u3-section{display:flex;flex-direction:column;gap:var(--space-3);margin-top:var(--space-6);scroll-margin-top:var(--space-5);border-top:1px solid var(--line);padding-top:var(--space-3)}
 .u3-section>:where(*){margin-block:0}

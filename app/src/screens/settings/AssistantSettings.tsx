@@ -59,7 +59,7 @@ export function AssistantSettingsSection() {
       <Field label="Keep history for (days)" help="Older conversations are deleted. At most 200 conversations are kept."><TextInput type="number" min="1" max="365" value={days} onInput={event => setDays(event.currentTarget.value)} /></Field>
       {chosen?.backend === "executor" && !chosen.available && <Alert tone="warning" title="This account has not passed the ask-mode check">
         <p>{askModeCheckCopy(chosen.reason)} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
-        {chosen.reason && <Disclosure summary="Technical details"><code>{chosen.reason}</code></Disclosure>}
+        {chosen.reason && <Disclosure summary="Technical details"><code className="pc-code-wrap">{chosen.reason}</code></Disclosure>}
         <div><Button busy={busy} onClick={() => void check()}>Run ask-mode check</Button></div>
       </Alert>}
       <div><Button variant="primary" busy={busy} disabled={chosen?.backend === "executor" && !chosen.available} onClick={() => void save()}>Save</Button></div>

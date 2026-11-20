@@ -175,7 +175,7 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
         {notice && <Alert tone="error" title="The assistant could not answer">{notice}</Alert>}
         {!available && <div id="assistant-unavailable-reason" data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status
           ? isAskModeCheckReason(status.reason)
-            ? <><p>{askModeCheckCopy(status.reason)}{status.hint ? ` ${status.hint}` : ""}</p>{status.reason && <Disclosure summary="Technical details"><code>{status.reason}</code></Disclosure>}</>
+            ? <><p>{askModeCheckCopy(status.reason)}{status.hint ? ` ${status.hint}` : ""}</p>{status.reason && <Disclosure summary="Technical details"><code className="pc-code-wrap">{status.reason}</code></Disclosure>}</>
             : `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}`
           : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
       </>}
@@ -284,7 +284,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     })}</div>}
     {!accounts && !error && <p role="status">Loading accounts…</p>}
     {accounts?.length === 0 && <p>No endpoint accounts are configured.</p>}
-    {error && <Alert tone="error" title="Could not set up the assistant">{error}{errorDetail && <Disclosure summary="Technical details"><code>{errorDetail}</code></Disclosure>} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
+    {error && <Alert tone="error" title="Could not set up the assistant">{error}{errorDetail && <Disclosure summary="Technical details"><code className="pc-code-wrap">{errorDetail}</code></Disclosure>} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
     <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/accounts">Add an endpoint account</a> in Settings › Agents › Accounts. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
     {dialogs.dialog}
   </section>;

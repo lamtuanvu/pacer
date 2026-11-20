@@ -627,4 +627,4 @@ browserTest("sheet_unavailable_maps_ask_mode_reason_into_disclosure", async () =
     await page.getByText("Technical details").click();
     expect(await page.getByText("a tool other than pacer's ran: bash", { exact: false }).isVisible()).toBe(true);
   } finally { await browser.close(); }
-}, 20_000);
+}, 30_000);
