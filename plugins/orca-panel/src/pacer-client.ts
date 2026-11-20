@@ -107,7 +107,7 @@ export async function callOp(
 ): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
   let response: Response;
   try {
-    response = await fetch(`${endpoint.baseUrl}/v3/ops/${op}`, {
+    response = await fetch(`${endpoint.baseUrl}/v3/ops/${encodeURIComponent(op)}`, {
       method: "POST",
       headers: { ...authHeaders(endpoint), "content-type": "application/json" },
       body: JSON.stringify(params),
