@@ -62,8 +62,7 @@ impl ToolDyn for HostTool {
                 &this.turn_id,
                 &format!("Using {}…", this.name),
             );
-            let args: Value =
-                serde_json::from_str(&args).map_err(ToolError::JsonError)?;
+            let args: Value = serde_json::from_str(&args).map_err(ToolError::JsonError)?;
             let result = this
                 .host
                 .call(

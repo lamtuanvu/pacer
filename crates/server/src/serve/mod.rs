@@ -206,6 +206,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::dispatch_enforcement_stays_forwarded(&ctx, op.name, &params)
             || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
             || crate::native::client_stays_forwarded(&ctx, op.name)
             || crate::native::terminal_stays_forwarded(&ctx, op.name, &params)
@@ -342,6 +343,26 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
             let result =
                 crate::native::preview_ops::dispatch_preview(&ctx, op.name, params, &mut bridge);
+            return match result.await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
+            crate::native::msg_write_sync::trace(op.name, None);
+            let mut bridge = crate::native::dispatch_enforcement_sync::HttpBridge {
+                target: state.core.target().await,
+            };
+            let result = match op.name {
+                "dispatch.enforcement" => {
+                    crate::native::enforcement_ops::dispatch_enforcement(&ctx, params, &mut bridge)
+                }
+                _ => crate::native::enforcement_ops::dispatch_enforcement_denied(
+                    &ctx,
+                    params,
+                    &mut bridge,
+                ),
+            };
             return match result.await {
                 Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),

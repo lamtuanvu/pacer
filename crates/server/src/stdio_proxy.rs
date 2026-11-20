@@ -371,6 +371,11 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::dispatch_enforcement_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
                 && !crate::native::session_lifecycle_stays_forwarded(
                     &ctx.at_now(),
                     op.name,
@@ -540,6 +545,37 @@ async fn forward_input<
                         &mut bridge,
                     )
                     .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::enforcement_ops::needs_dispatch_parts(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut bridge = crate::native::dispatch_enforcement_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = match op.name {
+                        "dispatch.enforcement" => {
+                            crate::native::enforcement_ops::dispatch_enforcement(
+                                &request_ctx,
+                                params,
+                                &mut bridge,
+                            )
+                            .await
+                        }
+                        _ => {
+                            crate::native::enforcement_ops::dispatch_enforcement_denied(
+                                &request_ctx,
+                                params,
+                                &mut bridge,
+                            )
+                            .await
+                        }
+                    };
                     if let Some(id) = request.get("id") {
                         write_line(out, &rpc_line(id, result)?).await?;
                     }

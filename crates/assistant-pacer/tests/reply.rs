@@ -2,7 +2,6 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 mod support;
-use support::{FakeOpenAi, ScriptedReply};
 use pacer_assistant_pacer::plugin;
 use pacer_plugin::testing::{Harness, HelloSpec};
 use serde_json::{Value, json};
@@ -12,6 +11,7 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
+use support::{FakeOpenAi, ScriptedReply};
 
 fn limits(max_tool_rounds: i64, deadline_ms: i64) -> Value {
     json!({
@@ -91,7 +91,9 @@ async fn missing_secret_fails_closed() {
     }]))
     .await;
     let mut h = start_harness().await;
-    h.on_capability("capability.secrets.resolve", |_| Ok(json!({ "value": null })));
+    h.on_capability("capability.secrets.resolve", |_| {
+        Ok(json!({ "value": null }))
+    });
     let err = h
         .call(
             "assistant.reply",
@@ -181,7 +183,9 @@ async fn empty_resolved_key_still_fails_closed() {
     }]))
     .await;
     let mut h = start_harness().await;
-    h.on_capability("capability.secrets.resolve", |_| Ok(json!({ "value": "   " })));
+    h.on_capability("capability.secrets.resolve", |_| {
+        Ok(json!({ "value": "   " }))
+    });
     let err = h
         .call(
             "assistant.reply",
