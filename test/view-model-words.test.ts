@@ -92,7 +92,8 @@ test("every task, session, executor and pace state has a complete descriptor", a
     expect(['good', 'warn', 'bad', 'info', 'neutral']).toContain(descriptor.tone);
     expect(descriptor.glyph.length).toBeGreaterThan(0);
   }
-  for (const [old, current] of [['BEHIND','behind'], ['OK','on_pace'], ['ON_PACE','on_pace'], ['AHEAD','ahead'], ['NEAR_LIMIT','ahead'], ['EXHAUSTED','out']]) {
+  // OK has its own label ("Available") under the one verdict table (ADR 0030); it no longer aliases on_pace.
+  for (const [old, current] of [['BEHIND','behind'], ['ON_PACE','on_pace'], ['AHEAD','ahead'], ['EXHAUSTED','out']]) {
     expect(paceStatus(old!)).toEqual(paceStatus(current!));
   }
   const task = {id:'finished', state:'done', progress:{phase:'testing'}};
