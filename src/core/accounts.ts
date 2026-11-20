@@ -1,5 +1,6 @@
 import { accountUsageCapability } from "./account-usage-check";
 import { accountEvidenceScope, retireEvidence } from "./evidence";
+import { deleteUsageStore } from "../usage/store";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
 import { parseSize, type AccountCfg } from "../config/accounts";
@@ -222,6 +223,7 @@ export async function remove(ctx: Ctx, name: string, {deleteHome = false}: {dele
     const folder = deleteHome ? deletionHome(ctx, s, name) : null;
     const diff = await edit(doc => doc.removeMappingEntry('accounts', name));
     retireEvidence(ctx, accountEvidenceScope(a, s.hosts));
+    deleteUsageStore(ctx, accountEvidenceScope(a, s.hosts).identity);
     if (folder) rmSync(folder, {recursive: true, force: true});
     return {removed: true as const, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {

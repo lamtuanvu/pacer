@@ -9,7 +9,8 @@ export type { RefreshCapability } from "./adapter";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 import { raisedByPacer } from "../core/errors";
-import { USAGE_MEMO_S } from "./freshness";
+import { USAGE_MEMO_S, markFreshness } from "./freshness";
+import { readUsageEntry, writeUsageEntry } from "./store";
 
 async function base(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg, refresh = false): Promise<UsageReading> {
   return readPluginUsage(ctx, cfg, account, refresh);
@@ -20,11 +21,23 @@ function withoutErrorCode({ errorCode: _code, ...reading }: UsageReading): Usage
 }
 
 const sources = new Map<string, {at:number; value?:UsageReading; pending?:Promise<UsageReading>; refreshing?:boolean}>();
+
+/** Test hook: drop the in-process memo so a second caller behaves like a cold process reading the persisted store. */
+export function clearUsageMemo(): void {
+  sources.clear();
+}
 async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh = false, cacheOnly = false, hosts?: Record<string, import("../config/hosts").HostCfg>):Promise<UsageReading> {
   const source=cfg.usage === "quota" ? cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id : JSON.stringify(cfg);
   const key=`${ctx.pacerHome}:${source}:${JSON.stringify(account ?? null)}:${JSON.stringify(hosts ?? {})}`;
   const hit=sources.get(key);
-  if(cacheOnly)return hit?.value ?? {windows: [], capturedAt: null, stale: true};
+  // The persisted store is the service's shared cache: a one-shot CLI process reads the same
+  // last good reading the service saved, marked stale by the freshness rules. Read lazily so
+  // the hot memo path stays disk-free.
+  const storedFor = () => account ? readUsageEntry(ctx, accountEvidenceScope(account, hosts).identity, source) : null;
+  if(cacheOnly){
+    const reading = hit?.value ?? storedFor();
+    return reading ? markFreshness(reading, ctx.now) : {windows: [], capturedAt: null, stale: true};
+  }
   if(hit?.pending) {
     if (!refresh || hit.refreshing) return hit.pending;
     await hit.pending;
@@ -36,13 +49,15 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
   entry.pending=(async()=>{
     const trace = statusTimer(ctx);
     let timer:ReturnType<typeof setTimeout>|undefined;
+    // Last good reading for a failed or regressed refresh: the live memo, else the persisted store.
+    const lastGood = hit?.value?.windows.length ? hit.value : storedFor();
     try {
       // A code in the plugin's reading is the plugin's claim, so it is dropped; only errors pacer raised keep one (below).
       const value=withoutErrorCode(await Promise.race([base(ctx,cfg,account,refresh),new Promise<never>((_,reject)=>{timer=setTimeout(()=>reject(Error(`usage source ${source} timed out`)),10000);})]));
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
       const replacesHistory = value.availability?.reason === "authentication_failed" || value.availability?.reason === "subscription_missing";
-      entry.value = replacesHistory ? value : value.error && hit?.value?.windows.length
-        ? { ...withoutErrorCode(hit.value), stale: true, error: value.error, ...(value.availability ? { availability: value.availability } : {}) }
+      entry.value = replacesHistory ? value : value.error && lastGood?.windows.length
+        ? { ...withoutErrorCode(lastGood), stale: true, error: value.error, ...(value.availability ? { availability: value.availability } : {}) }
         : hit?.value?.capturedAt != null && (value.capturedAt == null || value.capturedAt < hit.value.capturedAt)
           ? hit.value : value;
       return entry.value;
@@ -51,12 +66,15 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
       const code = raisedByPacer(e) ? { errorCode: e.code } : {};
       const value = {windows: [], capturedAt: null, stale: false, error: String(e), ...code};
       if (account) recordAuthReading(ctx, account.name, value, accountEvidenceScope(account, hosts));
-      entry.value = hit?.value?.windows.length
-        ? { ...withoutErrorCode(hit.value), stale: true, error: value.error, ...code }
+      entry.value = lastGood?.windows.length
+        ? { ...withoutErrorCode(lastGood), stale: true, error: value.error, ...code }
         : value;
       return entry.value;
     }
-    finally{trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;}
+    finally{
+      trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;
+      if (account && entry.value) writeUsageEntry(ctx, accountEvidenceScope(account, hosts).identity, source, entry.value);
+    }
   })();
   return entry.pending;
 }
