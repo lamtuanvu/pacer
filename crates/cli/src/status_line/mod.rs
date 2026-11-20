@@ -76,7 +76,10 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
         .and_then(|s| s.get("at").or_else(|| s.get("generatedAt")))
         .and_then(Value::as_f64)
         .unwrap_or(0.0);
-    let main = if verdict == "out" {
+    // The TUI's "stale reading" marker replaces the figure of a stale reading.
+    let main = if f["stale"] == Value::Bool(true) {
+        "stale reading".into()
+    } else if verdict == "out" {
         let reset = f["resetsAt"].as_f64();
         format!(
             "out · {}",
