@@ -160,6 +160,10 @@ a.pc-btn{text-decoration:none}
 .pc-code-scroll:focus-visible {outline:var(--stroke-focus) solid var(--focus);outline-offset:var(--stroke-focus);
 }
 
+/* Sentence-length technical reasons: wrap at spaces (UI-11), not a one-line scroller. */
+code.pc-code-wrap{display:block;min-width:0;max-width:100%;white-space:pre-wrap;overflow-wrap:anywhere;overflow-x:visible;word-break:normal;user-select:text;
+}
+
 /* Beautiful UI adaptations: controls share compact/touch geometry; no demo timers. */
 .pc-density{min-width:0}
 .pc-btn{gap:var(--space-1\.5);font-weight:var(--type-body-strong-weight);transition:opacity var(--motion-fast) var(--motion-ease)}
