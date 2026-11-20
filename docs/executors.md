@@ -99,6 +99,8 @@ pacer executor block agy --for 6h --reason "Temporarily unavailable"
 pacer executor unblock agy
 ```
 
+`pacer executor unblock` removes a manual block set by `pacer executor block`. When no manual block exists, it reports "was not blocked by you" instead of claiming success. If the executor remains excluded after unblock (for example, due to a quota limit or other eligibility issue), pacer reports the exclusion reason and, when relevant, the account's `allow_paid` status. Use `pacer account set <name> --allow-paid true|false` to change the paid overflow permission; enabling it displays a warning that pacer may spend paid credits.
+
 A direct executor stop stays pending until the exact owned wrapper has a verified exit. Recovery checks existing wrapper evidence even if the launch intent is absent, then releases task capacity. A missing runner or an unrecognized PID alone does not prove the executor exited; those runs remain pending.
 
 Replace `TASK_ID` with an actual task ID. A wait timeout returns exit 2; inspect and wait again. `pacer doctor` checks configuration, CLIs and integration health. See [CLI docs](cli.md) for briefs and review contracts.

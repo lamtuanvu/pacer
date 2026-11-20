@@ -2,7 +2,7 @@ import type { EligibilityDecision } from "../evidence/types";
 import type { StatusTone } from "./words";
 
 const reasons: Record<string, string> = {
-  budget_exhausted: "Budget exhausted; paid execution is not allowed",
+  budget_exhausted: "Budget exhausted; paid overflow is off (allow_paid: false)",
   budget_missing: "No budget observation is available",
   budget_expired_or_unknown: "Budget evidence has expired or is incomplete",
   evidence_conflicting: "Current observations disagree",

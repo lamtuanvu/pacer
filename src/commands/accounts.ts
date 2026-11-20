@@ -98,7 +98,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       return accountCmd(["add",kind,name,...options],ctx,deps);
     }
     const [verb, ...rest] = args;
-    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output","cap-usd","model","name"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
+    const {pos, flags} = commandArgs(rest, verb === "add" || verb === "edit" ? ["home","orca","usage","quota-source","weekly-tokens","base-url","key","models","context","output","cap-usd","model","name"] : verb === "set" ? ["allow-paid"] : [], verb === "list" ? ["json"] : verb === "models" ? ["refresh"] : verb === "add" || verb === "edit" ? ["no-login","no-test"] : ["delete-home","delete-key"]);
     const opencodeAdd = verb === "add" && pos[0] === "opencode" && pos.length === 2;
     if (!opencodeAdd && (flags.model !== undefined || flags.name !== undefined || flags["cap-usd"] !== undefined)) throw Error("--model, --name and --cap-usd are only supported by pacer account add opencode <provider>");
     let s = loadStrategy(ctx);
@@ -107,7 +107,7 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       // The usage column reads the account's usage record, so the table matches the snapshot.
       const quoted = (a: (typeof rows)[number]) => a.usageState?.figure ? `${a.usageState.figure.window}: ${a.usageState.figure.usedPct}%`
         : (a.usageState ?? a.usageReading).windows.map(w=>`${w.name}: ${w.usedPct ?? '?'}%`).join(', ') || a.usage;
-      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageState?.spend?.usdWeek ?? a.usageReading.spendUsd, a.weeklyUsd) ?? quoted(a)}${!a.runnable ? ' · usage-only: account folder not found' : ''}`])));
+      return ok(flags.json ? JSON.stringify(rows.map(({signin_command, ...row}) => row),null,2) : table(['ACCOUNT','KIND','SOURCE','FOLDER','RUNNERS','USAGE'],rows.map(a=>[a.name,a.kind,a.source,compactFolder(ctx,a.folder),a.runners.join(', ') || 'no runners',`${spendCopy(a.usageState?.spend?.usdWeek ?? a.usageReading.spendUsd, a.weeklyUsd) ?? quoted(a)}${!a.runnable ? ' · usage-only: account folder not found' : ''}${a.allowPaid === true ? ' · paid overflow on' : ''}`])));
     }
     if (["add", "edit", "rm"].includes(verb) || (verb === "models" && flags.refresh)) {
       const ensured=ensureAccounts(ctx);
@@ -184,7 +184,15 @@ export async function accountCmd(args: string[], ctx: Ctx, deps: AccountDeps = {
       if (removeKey) await deleteKey(ctx,name,stored!);
       return ok(`Removed account ${name}.\n${diff}`);
     }
-    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | rm <name> [--delete-home] [--delete-key]');
+    if (verb === 'set' && pos.length === 1) {
+      const value = flags['allow-paid'];
+      if (value === undefined) throw Error('usage: pacer account set <name> --allow-paid true|false');
+      if (value !== 'true' && value !== 'false') throw Error('--allow-paid must be true or false');
+      const r = await accounts.setAllowPaid(ctx, pos[0], value === 'true');
+      return ok([...(r.migrated ? migrationLines(strategyPath(ctx), r.migrated) : []), `${pos[0]}: allow_paid ${r.previous} → ${r.allowPaid}`,
+        ...(r.allowPaid && !r.previous ? ['pacer may now launch this account after its included quota is used up; this can spend paid credits.'] : []), r.diff].filter(Boolean).join('\n'));
+    }
+    throw Error('usage: pacer account list [--json] | add <kind> <name> [options] | add opencode <provider> [--model <id>] [--cap-usd <n>] [--usage <quota|metered|unmetered>] [--name <n>] [--no-test] | models <name> [--refresh] | test <name> | edit <name> | set <name> [--allow-paid <true|false>] | rm <name> [--delete-home] [--delete-key]');
   } catch(e) {return fail(e);}
 }
 

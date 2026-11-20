@@ -17,6 +17,7 @@ import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../term
 import { readAccountUsage } from "../usage";
 import { markFreshness } from "../usage/freshness";
 import { computeStatus, type EndpointCell, type Status } from "../engine/status";
+import { isExecutorSession } from "../install/role";
 import { CoreError, toCoreError } from "./errors";
 import { writeEndpointConfig } from "../plugins/endpoint-adapter";
 import { appendActivity } from "../activity/log";
@@ -254,6 +255,20 @@ export async function remove(ctx: Ctx, name: string, {deleteHome = false}: {dele
     const error = toCoreError(e);
     throw new CoreError(error.code, error.message, error.hint ?? "Check the account name, options and configured accounts.");
   }
+}
+
+/** Paid overflow is an explicit per-account opt-in; it lets routing launch past an exhausted included quota. */
+export async function setAllowPaid(ctx: Ctx, name: string, allowPaid: boolean) {
+  try {
+    // Opting into paid overflow can spend the user's money; a delegated task must not grant it to itself.
+    if (allowPaid && isExecutorSession(ctx))
+      throw new CoreError("not_allowed", "PACER_ROLE=executor: enabling allow_paid can spend paid credits; ask the user to run it outside a delegated task.");
+    const {strategy: s, migrated, edit} = ensureAccounts(ctx);
+    const a = s.accounts[name];
+    if (!a) throw new CoreError("not_found", `unknown account: ${name}`, `configured: ${Object.keys(s.accounts).join(", ")}`);
+    const diff = await edit(doc => { doc.setIn(["accounts", name, "allow_paid"], allowPaid); });
+    return {previous: a.allowPaid, allowPaid, diff, ...(migrated ? {migrated} : {})};
+  } catch (e) { throw toCoreError(e); }
 }
 
 const signinPolls = new Map<string, ReturnType<typeof setInterval>>();

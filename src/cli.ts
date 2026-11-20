@@ -123,7 +123,7 @@ const USAGE = `usage: pacer <command>
   api --stdio                                    JSON-RPC (v2 default, v3 negotiation)
   serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
-  account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
+  account list [--json] | add <kind> <name> [options] | set <name> --allow-paid true|false | rm <name> [--delete-home]
   runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>
   config get [key] [--json] | set <key> <value> | migrate
   ${SETUP_USAGE}                connect detected agent CLIs
