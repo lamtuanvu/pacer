@@ -19,13 +19,21 @@ export type AttentionAction = {
   confirm?: { title: string; body: string };
 };
 
-/** Field names copied verbatim from docs/protocol.md's "Attention and actions" section. */
+/**
+ * Field names from docs/protocol.md's "Attention and actions" section, kept to the ones this
+ * plugin uses. `repo` is widened to optional here (the doc lists it without `?`): a global/
+ * unscoped item still renders safely either way. `executor`/`host`/`account` are kept for
+ * completeness even though v1's generic row rendering doesn't branch on them.
+ */
 export type AttentionItem = {
   id: string;
   kind: string;
   severity: "blocked" | "problem" | "decide";
   repo?: string;
   taskId?: string;
+  executor?: string;
+  host?: string;
+  account?: string;
   title: string;
   detail: string;
   raisedAt: number;
