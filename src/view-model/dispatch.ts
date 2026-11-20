@@ -150,11 +150,12 @@ export function tokenSpread(summary: InsightsSummary | null | undefined, planner
   };
 }
 
-/** Planner pace in the board's words; tone and glyph come from the shared vocabulary. */
+/** Planner pace in the board's words; tone and glyph come from the shared vocabulary, canonical verdicts included. */
 export function plannerPace(verdict: string): { label: string; tone: string } {
+  const canonical = ({ BEHIND: "behind", ON_PACE: "on_pace", AHEAD: "ahead" } as Record<string, string>)[verdict] ?? verdict;
   const pace = paceStatus(verdict);
   const words: Record<string, string> = { behind: "Under pace · spend it", on_pace: "On pace", ahead: "Ahead of pace · save it" };
-  return { label: words[verdict] ?? pace.label, tone: pace.tone };
+  return { label: words[canonical] ?? pace.label, tone: pace.tone };
 }
 
 /**

@@ -163,17 +163,21 @@ export interface RoutingPreview { data?: Routing; loading: boolean; error?: unkn
 function PlannerHalf({ snapshot, now, shortWindowPct }: { snapshot: ClientSnapshot; now: number; shortWindowPct?: number | null }) {
   const p = plannerMeter(snapshot);
   if (!p) return null;
-  const name = agentInfo(p.agent).name, pace = paceStatus(p.usageState?.verdict ?? p.verdict), words = plannerPace(p.verdict), budget = plannerBudget(snapshot, now, shortWindowPct)!;  const delta = budget.meter?.live && p.pacePct !== null && p.usedPct !== null ? Math.round(Math.abs(p.pacePct - p.usedPct)) : null;
-  const advice = delta !== null && p.verdict === "behind" ? `${name} is ${delta} points under pace. Small edits can stay on the planner; bulk work still goes out.`
-    : delta !== null && p.verdict === "ahead" ? `${name} is ${delta} points ahead of pace. Keep room for planning and review; send execution to another agent.`
-    : budget.meter?.live && p.verdict === "on_pace" ? `${name} is on pace. Keep room for planning and review; bulk work still goes out.`
+  // Tone and label both follow the record's verdict through the one verdict table; a legacy row without a record keeps its own.
+  const verdict = p.usageState?.verdict ?? p.verdict;
+  const under = verdict === "behind" || verdict === "BEHIND", over = verdict === "ahead" || verdict === "AHEAD", onPace = verdict === "on_pace" || verdict === "ON_PACE";
+  const name = agentInfo(p.agent).name, pace = paceStatus(verdict), words = plannerPace(verdict), budget = plannerBudget(snapshot, now, shortWindowPct)!;
+  const delta = budget.meter?.live && p.pacePct !== null && p.usedPct !== null ? Math.round(Math.abs(p.pacePct - p.usedPct)) : null;
+  const advice = delta !== null && under ? `${name} is ${delta} points under pace. Small edits can stay on the planner; bulk work still goes out.`
+    : delta !== null && over ? `${name} is ${delta} points ahead of pace. Keep room for planning and review; send execution to another agent.`
+    : budget.meter?.live && onPace ? `${name} is on pace. Keep room for planning and review; bulk work still goes out.`
     : budget.lead;
   // The budget caption already states the figure and its freshness (UI-15).
   const caption = budget.caption;
   return <div className="pc-dispatch-split__half" id="planner-budget" aria-label="Planner budget" role="group">
     <div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong title={name}>{name}</strong><Pill tone="info">Planner</Pill>{/* The verdict belongs to the planner's own live reading; a borrowed or historical figure would sit under "Usage unknown". */}{(!budget.meter || budget.meter.live) && <StatusPill status={{ ...pace, label: words.label }} />}</div>
     {advice && <p className="pc-dispatch-advice">{advice}</p>}
-    {budget.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? pace.tone : "neutral"} verdict={budget.meter.live ? p.usageState?.verdict ?? p.verdict : undefined} size="bar" text="none" now={now} />}
+    {budget.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? pace.tone : "neutral"} verdict={budget.meter.live ? verdict : undefined} size="bar" text="none" now={now} />}
     {caption && <span className="muted">{caption}</span>}
   </div>;
 }
@@ -332,14 +336,15 @@ function FirstRunData({ snapshot, query }: { snapshot: ClientSnapshot; query: Ro
 
 function NarrowPlanner({ snapshot, now, routing, shortWindowPct }: { snapshot: ClientSnapshot; now: number; routing: RoutingPreview | null; shortWindowPct: number | null }) {
   const p = plannerMeter(snapshot), budget = plannerBudget(snapshot, now, shortWindowPct);
+  const verdict = p?.usageState?.verdict ?? p?.verdict ?? "unknown";
   const next = routing?.explain ? nextFromExplanation(routing.explain)?.next : routing?.data?.ranked?.[0]?.id;
   const caption = (budget?.caption ?? "Planner usage is not measured yet").split(" · ");
   const mode = modeWords(p?.mode || snapshot.mode?.mode || "");
   const reset = caption.findIndex(part => part.startsWith("resets "));
   if (mode) caption.splice(reset < 0 ? caption.length : reset, 0, mode);
   return <section className="pc-narrow-planner" aria-label="Planner budget">
-    {p ? <><div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong className="grow">{agentInfo(p.agent).name}</strong><StatusPill status={budget?.meter && !budget.meter.live ? { tone: "neutral", glyph: "◷", label: "Historical usage" } : { ...paceStatus(p.usageState?.verdict ?? p.verdict), label: p.verdict === "behind" ? "Under pace" : p.verdict === "ahead" ? "Ahead of pace" : plannerPace(p.verdict).label }} /></div>
-      {budget?.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? paceStatus(p.verdict).tone : "neutral"} size="bar" text="none" now={now} />}
+    {p ? <><div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong className="grow">{agentInfo(p.agent).name}</strong><StatusPill status={budget?.meter && !budget.meter.live ? { tone: "neutral", glyph: "◷", label: "Historical usage" } : { ...paceStatus(verdict), label: plannerPace(verdict).label }} /></div>
+      {budget?.meter && <UsageMeter variant="board" used={budget.meter.used} pace={budget.meter.pace} stale={budget.meter.stale} label={budget.meter.label} tone={budget.meter.live ? paceStatus(verdict).tone : "neutral"} size="bar" text="none" now={now} />}
       <span className="pc-dispatch-caption">{caption.join(" · ")}</span></> : <span>Choose a planner in Dispatcher settings.</span>}
     <span className="pc-dispatch-caption">{next ? <>Next capable task goes to <b>{executorLabel(next)}</b> · {routing?.explain ? nextFromExplanation(routing.explain)?.step ?? "Project order for this repository" : routing?.data?.policy ? "Project order for this repository" : "Highest ranked available agent"}</> : routing?.loading ? "Checking routing…" : "No agent can take new work now."}</span>
   </section>;
