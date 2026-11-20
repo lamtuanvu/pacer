@@ -225,29 +225,35 @@ fn internal(error: impl ToString) -> CoreError {
 /// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
 /// slot-holding tasks when `pacing.balance` is least-loaded. Every refusal precedes the
 /// status read, as in TypeScript.
+/// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
+/// slot-holding tasks when `pacing.balance` is least-loaded. Policy refusals precede the
+/// status read, as in TypeScript, and rows and runners stay in one strategy: the snapshot
+/// the parts were computed against wins over a reload (see `parts_strategy`).
 pub async fn routing_route(
     ctx: &Ctx,
     params: Value,
     parts: OpFuture<'_>,
 ) -> Result<Value, CoreError> {
     let (kind, repo) = parse_route_params(&params)?;
-    let strategy = match load_strategy(&ctx.pacer_home) {
-        Ok(strategy) => strategy,
-        Err(error) => {
-            parts.await?;
-            return Err(internal(error));
-        }
-    };
-    let selection = match repo {
+    // Policy refusals still precede the status read, as in TypeScript.
+    let policy = match &repo {
         None => None,
         Some(value) => {
             let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
-            let repo = policy_repo(ctx, &value, &projects)?;
-            let key = repo["key"].as_str().unwrap_or_default();
-            project_selection(&strategy, key, &projects)
+            let repo = policy_repo(ctx, value, &projects)?;
+            Some((
+                repo["key"].as_str().unwrap_or_default().to_owned(),
+                projects,
+            ))
         }
     };
     let parts = parts.await?;
+    // Rows and runners stay in one strategy: the snapshot the parts were
+    // computed against wins over a reload (see `parts_strategy`).
+    let strategy = parts_strategy(ctx, &parts)?;
+    let selection = policy
+        .as_ref()
+        .and_then(|(key, projects)| project_selection(&strategy, key, projects));
     let mut route = usage_broker::routing_route(&strategy, &parts, &kind, selection.as_ref());
     if strategy["pacing"]["balance"] == "least-loaded" {
         let mut store = TaskStore::open(&ctx.pacer_home).map_err(internal)?;
