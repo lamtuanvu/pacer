@@ -1,9 +1,9 @@
 import type { ActivityProfile } from "../pace/activity";
 import { activeHoursLeft, pacePct } from "../pace/clock";
 import type { UsageWindow, Verdict } from "../types";
+import { EXHAUSTED_PCT, NEAR_LIMIT_PCT } from "../usage/freshness";
 
-export const EXHAUSTED_PCT = 97;
-export const NEAR_LIMIT_PCT = 90;
+export { EXHAUSTED_PCT, NEAR_LIMIT_PCT };
 export const EXPIRING_HOURS = 9;
 export const EXPIRING_UNUSED = 25;
 
