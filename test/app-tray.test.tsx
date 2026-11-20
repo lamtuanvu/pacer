@@ -8,7 +8,8 @@ import { initialState, reduceStore } from "../app/src/data/store";
 import { createApi, type BrowserApi } from "../app/src/data/api";
 import { Tray, moveFocus, performAction } from "../app/src/tray/Tray";
 import { createTrayIpc } from "../app/src/tray/ipc";
-import { actionRoute, executorValue, resetCaption, shortTitle, trayModel } from "../app/src/tray/model";
+import { actionRoute, executorValue, shortTitle, trayModel } from "../app/src/tray/model";
+import { resetWords } from "../src/view-model/usage";
 import { buildApp } from "../app/build";
 import { appRoute, APP_HEADERS } from "../src/serve/app-routes";
 import { fakeCtx } from "./helpers";
@@ -474,11 +475,12 @@ test("needs-you uses the board's waiting and failure glyphs", () => {
   expect(html).not.toContain(">!</span>");
 });
 
-test("reset caption uses local weekday within seven days and date beyond", () => {
+test("reset words use one format: time today, weekday within seven days and date beyond", () => {
   const now = Date.parse("2026-10-29T10:00:00+07:00") / 1000;
-  expect(resetCaption(Date.parse("2026-10-30T12:00:00+07:00") / 1000, now)).toBe("Fri 12:00");
-  expect(resetCaption(Date.parse("2026-10-29T12:00:00+07:00") / 1000, now)).toBe("Thu 12:00");
-  expect(resetCaption(now + 7 * 86400, now)).toBe("5 Nov 10:00");
+  expect(resetWords(Date.parse("2026-10-30T12:00:00+07:00") / 1000, now)).toBe("resets Fri 12:00");
+  expect(resetWords(Date.parse("2026-10-29T12:00:00+07:00") / 1000, now)).toBe("resets 12:00");
+  expect(resetWords(now + 7 * 86400, now)).toBe("resets 5 Nov");
+  expect(resetWords(null, now)).toBe("reset unknown");
 });
 
 test("login item IPC reads and writes native state and propagates failures", async () => {
