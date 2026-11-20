@@ -2,6 +2,7 @@ import type { PlannerMeter } from "../../../src/api/read-model/types";
 import { agentInfo } from "../../../src/view-model/agents";
 import { executorLabel, type StatusTone } from "../../../src/view-model/words";
 import { usageView } from "../../../src/view-model/usage";
+import { clockParts } from "../../../src/view-model/time";
 import type { RouteExplanation, RouteReason } from "../data/explain-route";
 import type { Account } from "./accounts";
 import { kinds as KINDS } from "./tasks";
@@ -149,16 +150,19 @@ const percentFact = (facts: RouteReason["facts"], key: string) => {
   const value = facts[key];
   return typeof value === "number" && Number.isFinite(value) ? String(Math.round(value)) : "";
 };
-const day = (unix: string) => {
+const day = (unix: string, now: number) => {
   const at = Number(unix);
   if (!Number.isFinite(at) || at <= 0) return "";
-  return new Date(at * 1000).toLocaleString(undefined, { weekday: "short", hour: "2-digit", minute: "2-digit", hour12: false });
+  // The one reset calendar form: a weekday and time within the week, the date after it.
+  const { days, time, weekday, date } = clockParts(at, now);
+  const ahead = -days;
+  return ahead >= 0 && ahead < 7 ? `${weekday} ${time}` : `${date} ${time}`;
 };
 /** Plain copy for the documented reason codes (UI-12): the app never shows a code or the service's `text`. */
-export function reasonText(reason: RouteReason, accounts: Account[] = []): string {
+export function reasonText(reason: RouteReason, accounts: Account[] = [], now: number = Date.now() / 1000): string {
   const f = reason.facts, who = reason.subject ? executorLabel(reason.subject, accounts) : "";
   switch (reason.code) {
-    case "quota_exhausted": { const at = day(fact(f, "resetsAt")); return `${who || "This agent"} is out of budget${at ? ` · resets ${at}` : ""}`; }
+    case "quota_exhausted": { const at = day(fact(f, "resetsAt"), now); return `${who || "This agent"} is out of budget${at ? ` · resets ${at}` : ""}`; }
     case "capacity_comfortable": return `${who || "This agent"} has spare capacity${percentFact(f, "headroomPct") ? ` · ${percentFact(f, "headroomPct")}% headroom` : ""}${percentFact(f, "pacePct") ? `, pace ${percentFact(f, "pacePct")}%` : ""}`;
     case "step_match": return `${fact(f, "kind") ? `${kindLabel(fact(f, "kind"))} work` : "This work"} matches ladder step ${fact(f, "stepId") || "1"}`;
     case "repo_access": return `Has access to this repository${fact(f, "host") ? ` on ${fact(f, "host")}` : ""}`;
@@ -197,7 +201,7 @@ export function reasonText(reason: RouteReason, accounts: Account[] = []): strin
     case "engine_failed": return "pacer could not choose an agent; check your dispatcher setup";
     case "step_kind_mismatch": return "This ladder step handles a different kind of task";
     case "step_no_candidates": return "No eligible agent is available at this ladder step";
-    case "paused": { const at = day(fact(f, "until")); return `Delegation is paused${at ? ` until ${at}` : ""}`; }
+    case "paused": { const at = day(fact(f, "until"), now); return `Delegation is paused${at ? ` until ${at}` : ""}`; }
     default: return "Not available right now";
   }
 }
@@ -240,7 +244,7 @@ export function routeCard(explanation: RouteExplanation, accounts: Account[] = [
   const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: usage.meter ?? planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
   const week = window.used === null ? "" : cost.window
     ? `Week ${Math.round(window.used)}%${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`
-    : `${usage.figure} of ${usage.window} used${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;
+    : `${usage.summaryUsed}${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;
   return {
     status: pill,
     lead: chosen && !advisory ? { ...named(chosen.runner, accounts), agent: agentOf(chosen.executor), step: uncertain ? "Likely goes to this agent · checked again at start" : step, pill } : null,

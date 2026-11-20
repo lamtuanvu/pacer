@@ -1,7 +1,7 @@
 /** The frame: top bar, planner strip, body panes, overlays, message line and key bar. */
 import type { ClientSnapshot } from "../../view-model/snapshot";
 import { counts, plannerMeter } from "../../view-model/selectors";
-import { meterText } from "../../view-model/format";
+import { usageView } from "../../view-model/usage";
 import { agentInfo } from "../../view-model/agents";
 import { compactPolicyWords, policyWords, modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";
@@ -94,9 +94,14 @@ function plannerStrip(input: FrameInput, width: number): Line {
   const { s, theme } = input, p = plannerMeter(s);
   if (!p) return [span("Planner · waiting for service data", { fg: "muted" })];
   // As the app's top bar: the planner meter and verdict on every screen. Home adds the advice (UI-15).
+  // The record quotes usageView's own summary; a legacy row keeps its meter fields.
+  const view = usageView(p.usageState, input.now);
+  const pace = p.pacePct !== null ? ` · pace ${Math.round(p.pacePct)}%` : "";
+  const words = p.usageState ? (view.meter !== null ? `${view.summaryUsed}${pace}` : view.figure)
+    : p.usedPct !== null ? `${Math.round(p.usedPct)}% used${pace}` : "usage unknown";
   const status = paceStatus(p.verdict), wide = width >= 100;
   const name = wide ? `${agentInfo(p.agent).name} planner` : agentInfo(p.agent).name;
-  const line: Line = [span(name, { bold: true }), span("  "), ...meter(theme, p.usedPct, p.pacePct, wide ? 20 : 12, status.tone), span("  "), span(meterText(p.usedPct, p.pacePct, "full"), { bold: true }), span("  "), ...statusSpans(theme, status)];
+  const line: Line = [span(name, { bold: true }), span("  "), ...meter(theme, p.usedPct, p.pacePct, wide ? 20 : 12, status.tone), span("  "), span(words, { bold: true }), span("  "), ...statusSpans(theme, status)];
   const extra = [p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : "", p.resetsAt !== null ? `resets ${clock(p.resetsAt, input.now, input.timeZone)}` : "", p.stale ? "stale reading" : ""].filter(Boolean);
   if (extra.length) line.push(span(`  ${extra.join(` ${glyph(theme, "·")} `)}`, { fg: "secondary" }));
   return line;

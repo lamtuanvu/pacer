@@ -1,6 +1,7 @@
 import type { Status } from "../engine/status";
 import { agentInfo, runnerAgent } from "../view-model/agents";
-import { backIn, meterText } from "../view-model/format";
+import { backIn } from "../view-model/format";
+import { usageView } from "../view-model/usage";
 import { counts, plannerMeter } from "../view-model/selectors";
 import type { ClientSnapshot } from "../view-model/snapshot";
 import { compactPolicyWords, policyWords, type PolicySummary, compactVerdictWords, modeWords, offlineWords, toneFor } from "../view-model/words";
@@ -9,6 +10,8 @@ export interface LineOptions { width?: number; color?: boolean; policy?: PolicyS
 export interface LineFields {
   policy?: PolicySummary; online: boolean; planner: string | null; agent: string | null; usedPct: number | null; pacePct: number | null;
   verdict: string | null; resetsAt: number | null; running: number | null; attention: number | null; mode: string | null;
+  /** The planner's one usage record; the renderer quotes usageView over it when present. */
+  usageState?: import("../types").UsageState;
   /** Present only while the planner's reading is historical. */
   stale?: boolean;
 }
@@ -26,7 +29,7 @@ export function lineFields(input: ClientSnapshot | Status | null, policy?: Polic
     const stale = !!p?.stale;
     return { ...offline, policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent,
       usedPct: stale ? null : p?.binding?.usedPct ?? null, pacePct: stale ? null : p?.binding?.pace ?? null,
-      verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, mode: input.mode, ...(stale ? { stale: true } : {}) };
+      verdict: p?.verdict ?? "UNKNOWN", resetsAt: p?.binding?.resetsAt ?? null, usageState: p?.usageState, mode: input.mode, ...(stale ? { stale: true } : {}) };
   }
   const p = plannerMeter(input), c = counts(input);
   const count = (n: number | undefined): number | null => n !== undefined && Number.isInteger(n) && n >= 0 ? n : null;
@@ -40,7 +43,7 @@ export function lineFields(input: ClientSnapshot | Status | null, policy?: Polic
     usedPct: stale ? null : p?.usedPct ?? legacy?.usedPct ?? null,
     pacePct: stale ? null : p?.pacePct ?? legacy?.pacePct ?? null,
     verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
-    resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, running: count(c?.running), attention: count(c?.attention),
+    resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, usageState: p?.usageState, running: count(c?.running), attention: count(c?.attention),
     mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal", ...(stale ? { stale: true } : {}) };
 }
 
@@ -66,11 +69,13 @@ export function renderLine(input: ClientSnapshot | Status | null, options: LineO
   const verdict = compactVerdictWords(f.verdict!);
   const now = input && "at" in input ? input.at : (input as Status).generatedAt;
   // Exhaustion with a known reset wins over staleness; a stale reading without
-  // it shows the TUI's "stale reading" marker instead of any figure.
+  // it shows the TUI's "stale reading" marker instead of any figure. The status
+  // line keeps its width-constrained compact meter; app surfaces quote usageView.
   const main = verdict === "out" && f.resetsAt !== null ? `${verdict} · back ${fmtReset(f.resetsAt, now).slice(2)}`
     : f.stale ? "stale reading"
     : verdict === "out" ? `${verdict} · ${backIn(null, now)}`
-    : `${meterText(f.usedPct, f.pacePct, "compact")}${verdict ? ` ${verdict}` : ""}`;
+    : f.usageState ? `${usageView(f.usageState, now).figure}${f.pacePct !== null ? `·${Math.round(f.pacePct)}` : ""}${verdict ? ` ${verdict}` : ""}`
+    : `${f.usedPct === null ? "usage unknown" : `${Math.round(f.usedPct)}%${f.pacePct === null ? "" : `·${Math.round(f.pacePct)}`}`}${verdict ? ` ${verdict}` : ""}`;
   const used = f.usedPct === null ? "?" : String(Math.round(f.usedPct));
   const running = f.running === null ? "" : paint(`▸${f.running}`, "93c5fd");
   const attention = f.attention ? paint(`⚑${f.attention}`, "fcd34d") : "";

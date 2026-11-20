@@ -2,7 +2,8 @@ import { expect, test } from "bun:test";
 import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { executorLabel, modeWords, phaseWords, taskStatus, toneFor, verdictWords } from "../src/view-model/words";
-import { ago, clock, elapsed, meterText } from "../src/view-model/format";
+import { ago, clock, elapsed } from "../src/view-model/format";
+import { usageView } from "../src/view-model/usage";
 
 test("service tones and verdicts map to one status tone table", () => {
   expect(["good", "info", "warn", "bad", "muted", "EXHAUSTED", "AHEAD", "NEAR_LIMIT", "EXPIRING", "ON_PACE", "BEHIND", "UNMETERED", "whatever"].map(toneFor))
@@ -48,12 +49,13 @@ test("absolute clock times are 24-hour and widen with age", () => {
   expect(clock(Date.UTC(2026, 9, 1, 4, 58) / 1000, now)).toBe("1 Oct 11:58");
 });
 
-test("meter text in full and compact forms", () => {
-  expect(meterText(63, 77, "compact")).toBe("63%·77");
-  expect(meterText(63, 77, "full")).toBe("63% used · pace 77%");
-  expect(meterText(63, null, "full")).toBe("63% used");
-  expect(meterText(63.4, null, "compact")).toBe("63%");
-  expect(meterText(null, 50, "full")).toBe("usage unknown");
+test("meter words live in usageView's summary", () => {
+  // The record's composed captions: "63% of week used" and the states that are never marked "used".
+  const now = Date.UTC(2026, 9, 16, 8, 0) / 1000;
+  const record = usageView({ scope: { account: "a" }, source: "provider-cli", figure: { usedPct: 63, window: "weekly", lengthS: 7 * 86400, resetsAt: now + 86400 }, windows: [], limit: null, blockedRunners: [], observedAt: now, freshness: "fresh", verdict: "OK", eligibility: { state: "eligible", reasons: [], evaluatedAt: now, validUntil: null, evidenceAgeS: 0, availability: "ready", budget: "permitted", spendingRisk: "unknown" }, spend: null, error: null }, now);
+  expect(record.summary).toBe("63% of week");
+  expect(record.summaryUsed).toBe("63% of week used");
+  expect(usageView(null, now).summary).toBe("Usage unknown");
 });
 
 test("view-model stays dependency-free", () => {

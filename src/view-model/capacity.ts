@@ -44,8 +44,9 @@ export function queueWait(task: ClientTask, snapshot: ClientSnapshot): string {
 /** Read pace from its authoritative account/planner verdict, never executor readiness or a percentage threshold. */
 export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
   const record = executor.usageState;
-  if (record?.freshness === "historical") return { ...paceStatus("unknown"), label: "Historical usage" };
-  if (record) return paceStatus(record.verdict);
+  if (record) return record.freshness === "historical" ? { ...paceStatus("unknown"), label: "Historical usage" } : paceStatus(record.verdict);
+  // A legacy row without a record keeps its own stale flag; only then does the marker return.
+  if (executor.stale && executor.usedPct !== null) return { ...paceStatus("unknown"), label: "Historical usage" };
   const planner = snapshot.planner;
   const verdict = planner?.runner === executor.id ? planner.verdict : snapshot.accounts?.find(a => a.executors?.includes(executor.id) || a.name === executor.account)?.verdict;
   return paceStatus(verdict ?? "unknown");

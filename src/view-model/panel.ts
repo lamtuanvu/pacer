@@ -3,7 +3,7 @@ import type { ClientSnapshot } from "./snapshot";
 import { capacity, plannerMeter } from "./selectors";
 import { displayName, duration, backIn } from "./format";
 import { runnerLabel } from "../render/accounts";
-import { windowWords } from "./usage";
+import { usageView, resetWords, windowWords } from "./usage";
 export const providerLabel=(p:ProviderLine)=>p.agent ? runnerLabel(p) : displayName(p.id);
 export { verdictWords, toneFor as tone } from "./words";
 /** Presentation rows for the existing panel and TUI. Only pre-read-model services use budget. */
@@ -11,7 +11,7 @@ export function providers(s: ClientSnapshot): ProviderLine[] {
  if(s.planner === undefined) return s.budget?.providers ?? [];
  return capacity(s).map(e => {
   const a=s.accounts?.find(a=>a.name===e.account);
-  return {eligibility:e.eligibility,id:e.id,agent:e.agent,account:e.account,usedPct:e.usedPct,pacePct:e.pacePct,
+  return {eligibility:e.eligibility,id:e.id,agent:e.agent,account:e.account,usedPct:e.usedPct,pacePct:e.pacePct,usageState:e.usageState,
    resetsAt:a?.resetsAt??null,window:a?.window??null,verdict:e.state==="exhausted"?"EXHAUSTED":a?.verdict??"UNKNOWN",stale:e.rank==="planner"?(plannerMeter(s)?.stale??false):false,
    ...(e.state==="blocked"?{blockedReason:e.reason??"blocked"}:{}),
    ...(e.state==="down"?{brokenReason:e.reason??"not available"}:{}),
@@ -23,7 +23,7 @@ export function plannerProvider(s: ClientSnapshot): ProviderLine | undefined {
  const p=plannerMeter(s);
  if(!p) return undefined;
  const e=capacity(s).find(e=>e.id===p.runner);
- return {eligibility:p.eligibility,id:p.runner,agent:p.agent,account:e?.account,usedPct:p.usedPct,pacePct:p.pacePct,resetsAt:p.resetsAt,window:p.window,stale:p.stale,
+ return {eligibility:p.eligibility,id:p.runner,agent:p.agent,account:e?.account,usedPct:p.usedPct,pacePct:p.pacePct,usageState:p.usageState,resetsAt:p.resetsAt,window:p.window,stale:p.stale,
   verdict:({behind:"BEHIND",on_pace:"ON_PACE",ahead:"AHEAD",out:"EXHAUSTED",unknown:"UNKNOWN"}[p.verdict])};
 }
 export function rankedProviders(s: ClientSnapshot): ProviderLine[] {
@@ -39,13 +39,13 @@ export function mutedProviders(s: ClientSnapshot): ProviderLine[] {
  const ids=new Set(rankedProviders(s).map(p=>p.id)),planner=plannerProvider(s)?.id;
  return providers(s).filter(p=>p.id!==planner&&!ids.has(p.id));
 }
-export function headline(p?: ProviderLine, _now=0): string {
+export function headline(p?: ProviderLine, now = 0): string {
  const name=p?.agent ? providerLabel(p) : "Claude";
  switch(p?.verdict) {
   case "OK": case "ON_PACE": return "You're on pace for the week.";
   case "AHEAD": case "NEAR_LIMIT": return `${name} is ahead of pace. Slow down planning.`;
   case "BEHIND": return `${name} is behind pace. Room for more planning.`;
-  case "EXHAUSTED": return p.resetsAt === null ? `${name} is out of quota until its next reset.` : `${name} is out until ${new Date(p.resetsAt*1000).toLocaleString([], {weekday:"short",hour:"2-digit",minute:"2-digit"})}.`;
+  case "EXHAUSTED": return p.resetsAt === null ? `${name} is out of quota until its next reset.` : `${name} is out of quota · ${resetWords(p.resetsAt, now)}.`;
   default: return "Budget unknown.";
  }
 }
@@ -60,7 +60,12 @@ export function answerDetail(s: ClientSnapshot, now: number): string {
 export function providerDetail(p: ProviderLine, now: number): string {
  if(p.brokenReason) return `Not working · ${p.brokenReason}`;
  if(p.blockedReason) return "Blocked by you";
- if(p.usedPct!==null) return `${Math.round(p.usedPct)}% of ${windowWords(p.window) || "budget"} used${p.resetsAt===null?"":` · resets in ${duration(p.resetsAt-now)}`}${p.stale?" · stale":""}`;
+ // A record quotes the view's own summary and reset words; a legacy row keeps its meter fields.
+ if(p.usageState) {
+  const view = usageView(p.usageState, now);
+  return `${view.summaryUsed}${p.resetsAt === null ? "" : ` · ${resetWords(p.resetsAt, now)}`}${p.stale ? " · stale" : ""}`;
+ }
+ if(p.usedPct!==null) return `${Math.round(p.usedPct)}% of ${windowWords(p.window) || "budget"} used${p.resetsAt===null?"":` · ${resetWords(p.resetsAt, now)}`}${p.stale?" · stale":""}`;
  if(p.id==="local") return "LM Studio · unmetered";
  return p.verdict==="UNKNOWN" ? "No budget reported" : "No limit reported";
 }

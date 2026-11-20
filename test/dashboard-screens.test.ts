@@ -39,7 +39,7 @@ describe("executor eligibility survives the screen redesign", () => {
     const text = renderDashboard(s, 80, 40, s.at, {
       noColor: true, data: data(), state: { screen: "settings", section: "accounts", focus: "detail" },
     });
-    expect(text.replace(/\s+/g, " ")).toContain("Stale reading · check account usage");
+    expect(text.replace(/\s+/g, " ")).toContain("Reading of unknown age · refresh");
   });
   for (const screen of ["home", "settings"] as const) {
     for (const width of [80, 120]) {
@@ -676,8 +676,7 @@ for (const change of [{stale:undefined,capturedAt:undefined}, {stale:undefined,c
     const text = renderDashboard(s, 120, 40, s.at, {noColor:true,data:data(),state:{screen:'settings',section:'accounts',focus:'detail'}}).replace(/\s+/g, ' ');
     expect(text).toContain('17% of week');
     const historical = change.stale !== false || change.capturedAt == null || 'eligibility' in change || 'resetsAt' in change;
-    expect(text.includes('Stale reading') || text.includes('Reading 0s old')).toBe(historical);
-    expect(text.includes('Historical usage')).toBe(historical);
+    expect(/Reading (\S+ old|of unknown age) · refresh/.test(text)).toBe(historical);
     expect(text).not.toContain('\x1b[');
   });
 }
