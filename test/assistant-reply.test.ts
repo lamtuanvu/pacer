@@ -1,10 +1,11 @@
 import { describe, expect, test } from "bun:test";
-import { existsSync, readFileSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability, pluginLogPath } from "../src/plugins/host";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
+import { ASSISTANT_PACER_EXECUTABLE } from "../src/plugins/native-bundled";
 import type { BundledPlugin } from "../src/plugins/types";
 import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
@@ -450,5 +451,71 @@ describe("backend choice", () => {
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false });
     expect(rows[0]).not.toHaveProperty("reason");
+  });
+});
+
+describe("assistant-pacer native host routing", () => {
+  const peer = join(import.meta.dir, "fixtures", "assistant-pacer", "peer.ts");
+  const pacerStubUsage = { input: 7, output: 2, coverage: "measured" as const };
+
+  /** Place a sibling marker next to a fake core so refresh enables the bundled native plugin. */
+  function enableNativeSibling(ctx: Ctx) {
+    const bin = join(ctx.home, "bin");
+    mkdirSync(bin, { recursive: true });
+    writeFileSync(join(bin, "pacer-core"), "#!/bin/sh\n", { mode: 0o755 });
+    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    chmodSync(join(bin, "pacer-core"), 0o755);
+    chmodSync(join(bin, ASSISTANT_PACER_EXECUTABLE), 0o755);
+    ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
+  }
+
+  test("bundled assistant-pacer is refused when its sibling binary is absent", () => {
+    const { ctx } = setup({ fake: false });
+    const info = pluginRegistry(ctx).list(ctx).find(p => p.id === "assistant-pacer");
+    expect(info?.state).toBe("refused");
+    expect(info?.error).toContain(ASSISTANT_PACER_EXECUTABLE);
+    expect(replyProvider(ctx, "pacer")).toBeNull();
+  });
+
+  test("falls back to assistant.respond when assistant-pacer is unavailable", async () => {
+    const { ctx, deps } = setup({ fake: false });
+    expect(replyProvider(ctx, "pacer")).toBeNull();
+    const started = await ask(ctx, { text: "anything", scope, requestId: req() }, {
+      ...deps,
+      respond: async () => ({ message: "respond fallback", usage }),
+    });
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toBe("respond fallback");
+  });
+
+  test("routes backend:pacer to assistant.reply on assistant-pacer and runs tools through the capability", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    expect(replyProvider(ctx, "pacer")).toBe("assistant-pacer");
+    const deps: AssistantDeps = {
+      strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "tool", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toStartWith("via-tool <data tool=\"snapshot\">");
+    expect(turn.answer).toContain('"open":3');
+    expect(turn.usage).toEqual(pacerStubUsage);
+  });
+
+  test("assistant-pacer contributes reply for the pacer backend", () => {
+    const entry = BUNDLED.find(p => p.manifest.id === "assistant-pacer");
+    expect(entry?.executable).toBe(ASSISTANT_PACER_EXECUTABLE);
+    expect(entry?.manifest.contributes.assistant).toEqual({ backend: "pacer", reply: true });
+    expect(entry?.manifest.capabilities.map(c => c.name).sort()).toEqual(["assistant.tool", "net.http", "secrets.resolve"]);
   });
 });

@@ -2,7 +2,7 @@ import type { PluginInfo, SurfaceInfo } from "../../../../src/plugins/registry";
 import { PLUGIN_ICONS } from "../../plugins/icons";
 export function pluginIcon(plugin: string, surfaces: SurfaceInfo[]) {
   if (plugin === "pacer-agent-session") return "plugin-terminal";
-  if (plugin === "pacer-assistant") return "spark";
+  if (plugin === "pacer-assistant" || plugin === "assistant-pacer") return "spark";
   const icon = surfaces.find(s => s.plugin === plugin && (s.surface === "activity" || s.surface === "panelTabs"))?.icon;
   return PLUGIN_ICONS[icon as keyof typeof PLUGIN_ICONS] ?? "plugin";
 }
@@ -18,6 +18,7 @@ export const attentionState = (plugin: PluginInfo) => ["failing","refused","need
 const bundledPresentation: Record<string, { name: string; description: string }> = {
   "pacer-agent-session": { name: "Agent sessions", description: "Live terminal sessions for delegated tasks" },
   "pacer-assistant": { name: "Assistant", description: "The always-on assistant behind ⌘J" },
+  "assistant-pacer": { name: "Pacer assistant", description: "Pacer's own agent (native reply backend)" },
 };
 export function pluginPresentation(plugin: PluginInfo) {
   return (plugin.bundled && bundledPresentation[plugin.id]) || { name: plugin.id, description: null };

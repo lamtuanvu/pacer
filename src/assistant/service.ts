@@ -197,9 +197,12 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   };
 }
 
-/** Answers `capability.secrets.resolve` for the assistant plugin: only the chosen endpoint account's key. */
+/** Answers `capability.secrets.resolve` for the pacer assistant backend: only the chosen endpoint account's key. */
 export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): Promise<string | null> {
-  if (pluginId !== ASSISTANT_PLUGIN) throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
+  // The legacy respond plugin and the native reply plugin (when enabled) may resolve the key.
+  const pacerReply = replyProvider(ctx, "pacer");
+  if (pluginId !== ASSISTANT_PLUGIN && pluginId !== pacerReply)
+    throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
   const settings = readSettings(ctx);
   if (!settings.account || ![`endpoint:${settings.account}`, `endpoint/${settings.account}`].includes(ref)) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
   const account = loadStrategy(ctx).accounts[settings.account];

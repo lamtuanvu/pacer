@@ -43,6 +43,9 @@ test("release CI installs cross-build tools and smoke-tests both executables", (
   const smoke = steps.find(step => step.name === "Smoke test native binary")?.run ?? "";
   expect(smoke).toContain("pacer-core-$os-$arch");
   expect(smoke).toContain("pacer-$os-$arch");
+  expect(smoke).toContain("pacer-assistant-pacer-$os-$arch");
+  expect(smoke).toContain("crates/assistant-pacer/Cargo.toml");
+  expect(smoke).toContain('test -x "$assistant"');
 });
 
 test("Rust front door trust pins come only from explicit build options", async () => {

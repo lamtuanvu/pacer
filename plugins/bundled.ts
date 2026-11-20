@@ -21,6 +21,19 @@ export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerM
   manifest: {id: "pacer-assistant", version: "1.0.0", publisher: "pacer", host: "^1.3", contributes: {assistant: {}}, capabilities: [{name: "secrets.resolve", scopes: ["endpoint"]}, {name: "net.http"}], reentrant: true, tier: "free"},
   main: () => import("./assistant/index"),
 }, {
+  // Pacer's own agent (ADR 0028): native sibling of pacer-core. Absent binary ⇒ refused / unavailable.
+  manifest: {
+    id: "assistant-pacer", version: "1.0.0", publisher: "pacer", host: ">=1.11.0",
+    contributes: { assistant: { backend: "pacer", reply: true } },
+    capabilities: [
+      { name: "secrets.resolve", scopes: ["endpoint"] },
+      { name: "net.http" },
+      { name: "assistant.tool" },
+    ],
+    reentrant: true, tier: "free",
+  },
+  executable: "pacer-assistant-pacer",
+}, {
   // The assistant's executor backend: runs the host-issued ask-mode opencode/claude/codex command only.
   manifest: {id: "assistant-executor", version: "1.0.0", publisher: "pacer", host: ">=1.11.0", contributes: {assistant: {backend: "executor", reply: true}}, capabilities: [{name: "process.spawn", scopes: ["opencode", "claude", "codex"]}, {name: "secrets.resolve", scopes: ["secrets"]}], reentrant: true, tier: "free"},
   main: () => import("./assistant-executor/index"),
