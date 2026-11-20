@@ -5,7 +5,7 @@ use serde_json::{Map, Value, json};
 const PLANNERS: [&str; 4] = ["claude-code", "codex", "cursor", "opencode"];
 
 /// A fact that JavaScript reads as truthy text.
-fn text<'a>(value: Option<&'a Value>) -> Option<&'a str> {
+fn text(value: Option<&Value>) -> Option<&str> {
     value.and_then(Value::as_str).filter(|s| !s.is_empty())
 }
 
