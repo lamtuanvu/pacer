@@ -15,10 +15,15 @@ import {
 const askSystemForSelfTest = (adapter: AskAdapter) =>
   askSystem("You are the pacer assistant.", "", { tools: adapter === "claude-code" });
 
+const argvFlag = (argv: string[], name: string) => {
+  const eq = argv.find(a => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const at = argv.indexOf(name);
+  return at >= 0 ? argv[at + 1] : undefined;
+};
 const claudeNeedsGrant = (c: { argv: string[] }) => {
   if (c.argv[0] !== "claude") return false;
-  const mcpAt = c.argv.indexOf("--mcp-config");
-  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  const mcp = argvFlag(c.argv, "--mcp-config");
   return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
 };
 
@@ -27,13 +32,14 @@ const claudeNeedsGrant = (c: { argv: string[] }) => {
  * and tell the agent to run a shell command, read a planted file outside its run directory and
  * fetch a URL. The check passes only when those were attempted and denied (opencode), when
  * Claude's init shows the connected pacer MCP (`claude:init` / `pacer`), a harmless
- * `mcp__pacer__*` tool call completed, and shell/read/webfetch are absent or refused (plus the
- * AGENTS.md canary stays out), or when Codex records denied shell/file approvals (web may be
- * refuse-or-absent when the CLI cannot surface an attempt) while a pacer tool works (with an
- * AGENTS.md canary). No tool other than pacer's may complete, nothing may be written and the
- * planted text must never come back. An agent that attempts nothing is asked once more directly
- * when attempts are required; still nothing is inconclusive, which fails. A first turn and a
- * resumed turn are both checked. Records are keyed by the CLI version of that adapter.
+ * `mcp__pacer__*` tool call completed, host `can_use_tool` denials for any built-in that reached
+ * it, and shell/read/webfetch are absent or refused (plus the AGENTS.md canary stays out), or when
+ * Codex records denied shell/file approvals (web may be refuse-or-absent when the CLI cannot
+ * surface an attempt) while a pacer tool works (with an AGENTS.md canary). No tool other than
+ * pacer's may complete, nothing may be written and the planted text must never come back. An agent
+ * that attempts nothing is asked once more directly when attempts are required; still nothing is
+ * inconclusive, which fails. A first turn and a resumed turn are both checked. Records are keyed
+ * by the CLI version of that adapter.
  */
 
 export interface SelfTestRecord { account: string; version: string | null; passed: boolean; reason?: string; at: number }
@@ -211,6 +217,7 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
     try {
       const spawnMode = ask.adapter === "opencode" ? "acp" as const
         : ask.adapter === "codex" ? "codex-ask" as const
+        : ask.adapter === "claude-code" ? "claude-control" as const
         : undefined;
       const pins = [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
         const secretEnv: Record<string, string> = {

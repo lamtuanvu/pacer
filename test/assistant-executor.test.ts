@@ -598,41 +598,33 @@ describe("claude-code ask mode", () => {
     expect(one.usage).toMatchObject({ input: 90, output: 5, coverage: "measured" });
     const [call] = calls();
     expect(call!.argv[0]).toBe("-p");
-    expect(call!.argv).toContain("--output-format");
-    expect(call!.argv[call!.argv.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(call!.argv).toContain("--input-format=stream-json");
+    expect(call!.argv).toContain("--output-format=stream-json");
     expect(call!.argv).toContain("--include-hook-events");
-    expect(call!.argv).toContain("--tools");
-    expect(call!.argv[call!.argv.indexOf("--tools") + 1]).toBe("");
-    expect(call!.argv).toContain("--allowedTools");
-    expect(call!.argv[call!.argv.indexOf("--allowedTools") + 1]).toBe(CLAUDE_ALLOWED_PACER_TOOLS);
-    expect(call!.argv).toContain("--disallowedTools");
-    expect(call!.argv[call!.argv.indexOf("--disallowedTools") + 1]).toBe(CLAUDE_ASK_DISALLOWED.join(","));
+    expect(call!.argv).toContain("--tools=");
+    expect(call!.argv).toContain(`--allowedTools=${CLAUDE_ALLOWED_PACER_TOOLS}`);
+    expect(call!.argv).toContain(`--disallowedTools=${CLAUDE_ASK_DISALLOWED.join(",")}`);
     expect(call!.argv).toContain("--strict-mcp-config");
-    expect(call!.argv).toContain("--mcp-config");
-    const mcp = call!.argv[call!.argv.indexOf("--mcp-config") + 1]!;
+    const mcpArg = call!.argv.find(a => a.startsWith("--mcp-config="))!;
+    const mcp = mcpArg.slice("--mcp-config=".length);
     expect(mcp).not.toBe(CLAUDE_EMPTY_MCP);
     expect(JSON.parse(mcp)).toMatchObject({ mcpServers: { pacer: { args: expect.arrayContaining(["mcp", "--assistant"]) } } });
     expect(mcp).toContain(`\${${CLAUDE_GRANT_ENV}}`);
     expect(call!.argv.join("\0")).not.toMatch(/pag_[0-9a-f]{64}/);
-    expect(call!.argv).toContain("--settings");
-    expect(call!.argv[call!.argv.indexOf("--settings") + 1]).toBe(CLAUDE_ASK_SETTINGS);
-    expect(call!.argv).toContain("--setting-sources");
-    expect(call!.argv[call!.argv.indexOf("--setting-sources") + 1]).toBe("");
+    expect(call!.argv).toContain(`--settings=${CLAUDE_ASK_SETTINGS}`);
+    expect(call!.argv).toContain("--setting-sources=");
     expect(call!.argv).toContain("--safe-mode");
     expect(call!.argv).toContain("--disable-slash-commands");
     expect(call!.argv).not.toContain("--bare");
-    expect(call!.argv).toContain("--permission-mode");
-    expect(call!.argv[call!.argv.indexOf("--permission-mode") + 1]).toBe(CLAUDE_PERMISSION_MODE);
-    expect(call!.argv).toContain("--permission-prompts");
-    expect(call!.argv[call!.argv.indexOf("--permission-prompts") + 1]).toBe("none");
-    expect(call!.argv).toContain("--system-prompt-file");
-    expect(call!.argv[call!.argv.indexOf("--system-prompt-file") + 1]).toContain(join("runs", "assistant"));
-    expect(call!.argv).toContain("--session-id");
-    expect(call!.argv[call!.argv.indexOf("--session-id") + 1]).toBe(claudeSessionIdFor(first.conversationId));
+    expect(call!.argv).toContain(`--permission-mode=${CLAUDE_PERMISSION_MODE}`);
+    expect(call!.argv).toContain("--permission-prompts=host");
+    expect(call!.argv).toContain("--permission-prompt-tool=stdio");
+    expect(call!.argv.some(a => a.startsWith("--system-prompt-file=") && a.includes(join("runs", "assistant")))).toBe(true);
+    expect(call!.argv).toContain(`--session-id=${claudeSessionIdFor(first.conversationId)}`);
     expect(call!.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
     expect(call!.argv.length).toBeLessThanOrEqual(32);
-    expect(call!.argv).toContain("--model");
-    expect(call!.argv[call!.argv.indexOf("--model") + 1]).toBe("sonnet");
+    expect(call!.argv).toContain("--model=sonnet");
+    // CONTROL child stdin is frames; the fixture records the user prompt text for evidence.
     expect(call!.stdin).toBe("What needs me?");
     expect(call!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
     expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
@@ -669,7 +661,7 @@ describe("claude-code ask mode", () => {
     const [, resume, fresh] = calls();
     expect(resume!.argv).toContain(`--resume=${CLAUDE_GONE}`);
     expect(fresh!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
-    expect(fresh!.argv).toContain("--session-id");
+    expect(fresh!.argv.some(a => a.startsWith("--session-id="))).toBe(true);
     expect(fresh!.stdin).toContain("Earlier in this conversation:");
     expect(fresh!.stdin).toContain("First question");
     expect(fresh!.stdin.endsWith("Second question")).toBe(true);
@@ -688,12 +680,13 @@ describe("claude-code ask mode", () => {
     });
     try {
       expect(ask.command.argv.every(a => !a.startsWith("--resume"))).toBe(true);
-      expect(ask.command.argv).toContain("--session-id");
+      expect(ask.command.argv.some(a => a.startsWith("--session-id="))).toBe(true);
       expect(ask.command.argv).not.toContain("--setting-sources=user");
       expect(ask.fallback).toBeUndefined();
       expect(ask.digestFallback).toBeDefined();
-      expect(ask.command.stdin).toContain("Earlier in this conversation:");
-      expect(ask.command.stdin).toContain("earlier");
+      const plan = JSON.parse(ask.command.stdin) as { prompt: string };
+      expect(plan.prompt).toContain("Earlier in this conversation:");
+      expect(plan.prompt).toContain("earlier");
     } finally { ask.cleanup(); }
   });
 
@@ -706,8 +699,8 @@ describe("claude-code ask mode", () => {
     const ask = claudeAskTurn(ctx, { turnId: "t-big", conversationId: "c-big", account, grant: `pag_${"cd".repeat(32)}`, model: "sonnet", system, question: "hi", history: [], timeoutMs: 30_000 });
     try {
       expect(ask.command.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
-      expect(ask.command.argv).toContain("--system-prompt-file");
-      expect(ask.command.stdin).toBe("hi");
+      expect(ask.command.argv.some(a => a.startsWith("--system-prompt-file="))).toBe(true);
+      expect(JSON.parse(ask.command.stdin)).toMatchObject({ prompt: "hi", tools: true });
       expect(readFileSync(join(ask.command.cwd, "CLAUDE.md"), "utf8")).toBe("");
       const parsed = assistantReplyParams.safeParse({
         conversationId: "c-big", turnId: "t-big", account: "work", backend: "executor", system: "s", digest: "d",
@@ -724,7 +717,7 @@ describe("claude-code ask mode", () => {
     const { ctx } = claudeSetup();
     const account = { kind: "claude" as const, source: "default" as const, home: null, name: "claude-code", model: "sonnet",
       orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
-    const ask = claudeAskTurn(ctx, { turnId: "t-def", conversationId: "c-def", account, model: "sonnet", system: "s", question: "hi", history: [], timeoutMs: 30_000 });
+    const ask = claudeAskTurn(ctx, { turnId: "t-def", conversationId: "c-def", account, grant: `pag_${"11".repeat(32)}`, model: "sonnet", system: "s", question: "hi", history: [], timeoutMs: 30_000 });
     try {
       expect(ask.command.env.CLAUDE_CONFIG_DIR).toBeUndefined();
       expect(ask.command.env.HOME).toBe(ctx.home);
@@ -783,11 +776,11 @@ describe("claude-code ask mode", () => {
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
   }, 60_000);
 
-  test("retries digest-only when the pacer MCP server fails to connect", async () => {
+  test("continues digest-only in-process when mcp_status is not connected", async () => {
     const { ctx, deps, mode, calls: all } = claudeSetup();
     mode("mcp-failed");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|init|tool/i) });
-    // Live ask path: digestFallback answers after the failed MCP connect.
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/pacer|init|tool|digest/i) });
+    // Live ask path: host CONTROL driver answers digest-only after mcp_status fails (no second spawn required).
     mode("mcp-failed");
     writeSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev });
     // Mark self-test passed so ask is admitted.
@@ -795,15 +788,15 @@ describe("claude-code ask mode", () => {
     recordSelfTest(ctx, { account: "work", version: "2.1.281", passed: true, at: ctx.now });
     const skip = all().length;
     const first = await ask(ctx, { text: "Hello?", scope, requestId: req() }, deps);
-    expect((await finished(ctx, first.turnId)).state).toBe("done");
+    const turn = await finished(ctx, first.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toMatch(/Hello\?/);
     const spawned = all().slice(skip);
-    expect(spawned.length).toBeGreaterThanOrEqual(2);
-    expect(spawned[0]!.argv[spawned[0]!.argv.indexOf("--mcp-config") + 1]).not.toBe(CLAUDE_EMPTY_MCP);
+    expect(spawned.length).toBe(1);
+    const mcp = spawned[0]!.argv.find(a => a.startsWith("--mcp-config="))!.slice("--mcp-config=".length);
+    expect(mcp).not.toBe(CLAUDE_EMPTY_MCP);
     expect(spawned[0]!.env[CLAUDE_GRANT_ENV]).toMatch(/^pag_[0-9a-f]{64}$/);
-    expect(spawned[1]!.argv[spawned[1]!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
-    expect(spawned[1]!.argv).not.toContain("--allowedTools");
-    // Digest-only retry must not receive the grant.
-    expect(spawned[1]!.env[CLAUDE_GRANT_ENV]).toBeUndefined();
+    expect(spawned[0]!.stdin).toMatch(/unavailable|Hello\?/i);
   }, 60_000);
 
   test("does not digest-retry when a hook ran after MCP connect failed", async () => {

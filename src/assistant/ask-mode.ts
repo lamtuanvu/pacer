@@ -12,7 +12,9 @@ import type { Ctx } from "../types";
 import { CODEX_LIVE_ARGV } from "../plugins/capability-spawn";
 import { ACP_PLAN_VERSION, type AcpPlan } from "./acp-turn";
 import { CODEX_PLAN_VERSION, type CodexPlan } from "./codex-turn";
+import { CLAUDE_CONTROL_PLAN_VERSION, isClaudeControlArgv, type ClaudeControlPlan } from "./claude-control-turn";
 import { toolDefinitions } from "./tools";
+export { isClaudeControlArgv };
 
 /**
  * Ask mode for the executor backend (spec §3): one restricted agent-CLI turn per message. The host
@@ -61,24 +63,21 @@ export const ASK_REMOVED = [
  */
 
 /**
- * How ask mode restricts Claude Code (verified against claude 2.1.281 `--help` + changelog, read-only):
- * - `--tools ''` disables every built-in tool; `--allowedTools mcp__pacer__*` (server wildcard) allows
- *   only pacer's MCP tools. `--permission-mode dontAsk` denies anything else.
- * - `--disallowedTools` names dangerous built-ins as a second belt.
- * - `--strict-mcp-config` with `--mcp-config` that names exactly one server `pacer` running
- *   `pacer mcp --assistant`. The per-turn `pag_` grant is set only in the Claude process env; the
- *   server's env references `${PACER_ASSISTANT_GRANT}` (and URL/turn/home) so the value never lands
- *   in argv or a file.
- * - `--settings '{"disableAllHooks":true}'` plus `--safe-mode` disables hooks; `--setting-sources ''`
- *   loads no user/project/local settings; `--disable-slash-commands` drops skills entry points
- *   (not `--bare`, which would block OAuth/keychain sign-in).
- * - An empty `CLAUDE.md` in the conversation cwd stops the built-in `agents-md` plugin walking
- *   ancestors for `AGENTS.md`. Safe mode still keeps CLAUDE.md itself out of the prompt.
+ * How ask mode restricts Claude Code (verified against claude 2.1.281+ `--help` + changelog, read-only):
+ * - Host spawn mode `claude-control` drives the CLI's stream-json CONTROL protocol
+ *   (`--input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio`
+ *   with `--permission-prompts host`): every `can_use_tool` is decided in host code (allow only the
+ *   exact `mcp__pacer__*` names issued for the turn; deny everything else). Cancel sends `interrupt`
+ *   then SIGTERM/SIGKILL. MCP health uses the `mcp_status` control subtype after `initialize`.
+ * - CLI flag belt (second layer): `--tools ''`, `--allowedTools mcp__pacer__*`, `--strict-mcp-config`
+ *   with one `pacer` server (`pacer mcp --assistant`; grant only via process env `${VAR}` expansion),
+ *   `--disallowedTools`, `--permission-mode dontAsk`, `--settings '{"disableAllHooks":true}'`,
+ *   `--safe-mode`, `--setting-sources ''`, `--disable-slash-commands`, empty `CLAUDE.md`.
  * - `--include-hook-events` surfaces hook lifecycle events so a turn can fail closed if any appear.
  * - Continuity: `--session-id` with a deterministic UUID from the conversation id on the first turn,
  *   then `--resume=<uuid>`; only UUID-validated handles reach argv (SEC-5).
- * When the pacer MCP server fails to connect, the host-issued `digestFallback` retries digest-only
- * (empty MCP, no allowed tools) and the system prompt states the tools are unavailable.
+ * When `mcp_status` (or init) does not show a connected pacer server with the expected tools, the
+ * host continues digest-only for that turn and states the tools are unavailable in the prompt.
  * Sign-in stays in the account's own `CLAUDE_CONFIG_DIR` / home; pacer never copies or reads credentials.
  */
 export const CLAUDE_ASK_DISALLOWED = [
@@ -94,6 +93,9 @@ export const CLAUDE_ASK_SETTINGS = '{"disableAllHooks":true}';
 /** Claude Code session ids are UUIDs; anything else must not reach `--resume` / `--session-id` (SEC-5). */
 export const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 export const CLAUDE_PERMISSION_MODE = "dontAsk";
+/** Who answers permission prompts: the host CONTROL driver (`--permission-prompt-tool stdio`). */
+export const CLAUDE_PERMISSION_PROMPTS = "host";
+export const CLAUDE_PERMISSION_PROMPT_TOOL = "stdio";
 /** Env key carrying the CLI version the stream-json init event must match (host-side expect). */
 export const CLAUDE_EXPECT_VERSION_ENV = "CLAUDE_CODE_EXPECT_VERSION";
 /** Comma-separated `mcp__pacer__*` names the init event must list exactly when MCP tools are on. */
@@ -390,11 +392,35 @@ export function claudeResumeSession(session: string | undefined): string | undef
   return session && CLAUDE_SESSION_ID.test(session) ? session : undefined;
 }
 
+/** Build the host-pinned Claude CONTROL plan (plugin echoes it as spawn stdin; host never writes it to the child). */
+export function claudeControlPlan(o: {
+  prompt: string;
+  fallbackPrompt?: string;
+  allowedTools: string[];
+  tools: boolean;
+  permissionMode: string;
+  cwd: string;
+  expectVersion?: string;
+  turnId: string;
+}): ClaudeControlPlan {
+  return {
+    v: CLAUDE_CONTROL_PLAN_VERSION,
+    prompt: o.prompt,
+    ...(o.fallbackPrompt ? { fallbackPrompt: o.fallbackPrompt } : {}),
+    allowedTools: o.allowedTools,
+    tools: o.tools,
+    permissionMode: o.permissionMode,
+    cwd: o.cwd,
+    ...(o.expectVersion ? { expectVersion: o.expectVersion } : {}),
+    turnId: o.turnId,
+  };
+}
+
 /**
- * One `claude -p` turn in ask mode with pacer's MCP read tools. Flags match the installed CLI's
- * `--help` (empty built-ins, allowed `mcp__pacer__*`, strict MCP with one pacer server, safe-mode,
- * disableAllHooks settings, dontAsk). The system prompt and question stay off argv (`--system-prompt-file`
- * + stdin). The grant is only in process env for `${VAR}` expansion in `--mcp-config`.
+ * One `claude -p` CONTROL-protocol turn in ask mode with pacer's MCP read tools. The host drives
+ * stream-json CONTROL (`claude-control` spawn mode); argv carries the flag belt and system prompt
+ * path. The user prompt lives in the pinned plan (stdin metadata), never as child stdin text.
+ * The grant is only in process env for `${VAR}` expansion in `--mcp-config`.
  */
 export function claudeAskTurn(ctx: Ctx, o: {
   turnId: string; conversationId: string; account: AccountCfg; grant: string; model: string | null; session?: string;
@@ -415,7 +441,8 @@ export function claudeAskTurn(ctx: Ctx, o: {
   const mcpConfig = claudePacerMcpConfig(pacer);
   const sessionId = claudeSessionIdFor(o.conversationId);
   const resume = claudeResumeSession(o.session);
-  const expectTools = claudePacerToolNames().join(",");
+  const allowedTools = claudePacerToolNames();
+  const expectTools = allowedTools.join(",");
   // Grant is not in plain env: the host binds ASK_GRANT_REF and the plugin passes { secretRef }
   // so capability.process.spawn resolves it into the Claude process for `${VAR}` expansion.
   const env: Record<string, string> = {
@@ -433,45 +460,58 @@ export function claudeAskTurn(ctx: Ctx, o: {
   // o.grant is bound by the host via ASK_GRANT_REF on MCP turns only, never copied into command.env.
   const digestEnv: Record<string, string> = { ...env, [CLAUDE_EXPECT_TOOLS_ENV]: "" };
   const prompt = (useResume: boolean) => useResume ? o.question : seededPrompt(o.history, o.question);
+  // Prefer `--flag=value` where safe so the pin stays within the spawn argv arity cap (32).
   const baseFlags = (systemPath: string, mcp: string, allowPacer: boolean) => [
     "claude", "-p",
-    "--output-format", "stream-json",
+    "--input-format=stream-json",
+    "--output-format=stream-json",
     "--verbose",
     "--include-hook-events",
-    "--tools", "",
-    "--disallowedTools", CLAUDE_ASK_DISALLOWED.join(","),
+    "--tools=",
+    `--disallowedTools=${CLAUDE_ASK_DISALLOWED.join(",")}`,
     "--strict-mcp-config",
-    "--mcp-config", mcp,
-    "--setting-sources", "",
-    "--settings", CLAUDE_ASK_SETTINGS,
+    `--mcp-config=${mcp}`,
+    "--setting-sources=",
+    `--settings=${CLAUDE_ASK_SETTINGS}`,
     "--safe-mode",
     "--disable-slash-commands",
-    "--permission-mode", CLAUDE_PERMISSION_MODE,
-    "--permission-prompts", "none",
-    "--system-prompt-file", systemPath,
-    ...(allowPacer ? ["--allowedTools", CLAUDE_ALLOWED_PACER_TOOLS] : []),
-    ...(o.model ? ["--model", o.model] : []),
+    `--permission-mode=${CLAUDE_PERMISSION_MODE}`,
+    `--permission-prompts=${CLAUDE_PERMISSION_PROMPTS}`,
+    `--permission-prompt-tool=${CLAUDE_PERMISSION_PROMPT_TOOL}`,
+    `--system-prompt-file=${systemPath}`,
+    ...(allowPacer ? [`--allowedTools=${CLAUDE_ALLOWED_PACER_TOOLS}`] : []),
+    ...(o.model ? [`--model=${o.model}`] : []),
   ];
-  // Restriction flags only on argv; large text never becomes an argv element (protocol max 4096).
+  // Restriction flags only on argv; the CONTROL plan carries the user prompt (protocol max 4096 per arg).
   const argv = (opts: { resume?: string; sessionId?: string; digestOnly?: boolean }) => [
     ...baseFlags(opts.digestOnly ? digestSystemFile : systemFile, opts.digestOnly ? CLAUDE_EMPTY_MCP : mcpConfig, !opts.digestOnly),
-    ...(opts.resume ? [`--resume=${opts.resume}`] : opts.sessionId ? ["--session-id", opts.sessionId] : []),
+    ...(opts.resume ? [`--resume=${opts.resume}`] : opts.sessionId ? [`--session-id=${opts.sessionId}`] : []),
   ];
+  const planFor = (opts: { resume?: boolean; digestOnly?: boolean; turnId?: string }) => JSON.stringify(claudeControlPlan({
+    prompt: prompt(!!opts.resume),
+    ...(opts.resume ? {} : { fallbackPrompt: prompt(false) }),
+    allowedTools: opts.digestOnly ? [] : allowedTools,
+    tools: !opts.digestOnly,
+    permissionMode: CLAUDE_PERMISSION_MODE,
+    cwd,
+    expectVersion: version,
+    turnId: opts.turnId ?? o.turnId,
+  }));
   const command: AskCommand = {
     argv: argv(resume ? { resume } : { sessionId }),
-    cwd, env, stdin: prompt(!!resume), timeoutMs: o.timeoutMs,
+    cwd, env, stdin: planFor({ resume: !!resume }), timeoutMs: o.timeoutMs,
   };
   const fallback: AskCommand | undefined = resume
     ? {
       // Fresh session after a missing resume: new deterministic id so we do not reuse a dead UUID.
       argv: argv({ sessionId: claudeSessionIdFor(o.conversationId, `reseed:${o.turnId}`) }),
-      cwd, env, stdin: prompt(false), timeoutMs: o.timeoutMs,
+      cwd, env, stdin: planFor({ resume: false, turnId: `${o.turnId}-reseed` }), timeoutMs: o.timeoutMs,
     }
     : undefined;
   const digestFallback: AskCommand = {
     // Always a fresh session id so a failed MCP process cannot collide with the digest retry.
     argv: argv({ sessionId: claudeSessionIdFor(o.conversationId, `digest:${o.turnId}`), digestOnly: true }),
-    cwd, env: digestEnv, stdin: prompt(false), timeoutMs: o.timeoutMs,
+    cwd, env: digestEnv, stdin: planFor({ resume: false, digestOnly: true, turnId: `${o.turnId}-digest` }), timeoutMs: o.timeoutMs,
   };
   return {
     adapter: "claude-code", command, ...(fallback ? { fallback } : {}), digestFallback,

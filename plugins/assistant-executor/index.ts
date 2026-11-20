@@ -38,7 +38,41 @@ export interface ReplyResult {
 type SpawnResult = { code: number; timedOut: boolean } & ({ stdout: string; stderr: string } | { output: { stdout: string; stderr: string } });
 
 /** What one ask-mode CLI run produced. */
-export interface RunOutcome { text: string; session?: string; usage: ReplyResult["usage"]; error?: string; tools: { tool: string; status: string }[] }
+export interface RunOutcome {
+  text: string;
+  session?: string;
+  usage: ReplyResult["usage"];
+  error?: string;
+  tools: { tool: string; status: string }[];
+  /** Present for host-driven Claude CONTROL turns. */
+  toolsHealthy?: boolean;
+  claudeControl?: boolean;
+}
+
+/** Read one host Claude CONTROL turn result (single JSON object with `claudeControl: true`). */
+export function parseClaudeControlRun(stdout: string): RunOutcome | null {
+  try {
+    const raw = JSON.parse(stdout) as {
+      claudeControl?: boolean; text?: string; session?: string; error?: string; toolsHealthy?: boolean;
+      tools?: { tool?: string; status?: string }[];
+      usage?: ReplyResult["usage"];
+    };
+    if (!raw || raw.claudeControl !== true) return null;
+    return {
+      text: typeof raw.text === "string" ? raw.text : "",
+      ...(typeof raw.session === "string" ? { session: raw.session } : {}),
+      ...(typeof raw.error === "string" ? { error: raw.error } : {}),
+      tools: Array.isArray(raw.tools)
+        ? raw.tools.map(t => ({ tool: String(t?.tool ?? ""), status: String(t?.status ?? "") }))
+        : [],
+      usage: raw.usage ?? { input: 0, output: 0, coverage: "unknown" },
+      toolsHealthy: raw.toolsHealthy === true,
+      claudeControl: true,
+    };
+  } catch {
+    return null;
+  }
+}
 
 /** Read one host ACP or Codex turn result (single JSON object with `acp: true` or `codex: true`). */
 export function parseAcpRun(stdout: string): RunOutcome | null {
@@ -263,20 +297,25 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
   };
 }
 
+function argvFlag(argv: string[], name: string): string | undefined {
+  const eq = argv.find(a => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const at = argv.indexOf(name);
+  return at >= 0 ? argv[at + 1] : undefined;
+}
+
 /** Expected init surface from a host-issued claude ask-mode command. */
 export function claudeExpectFromCommand(c: AskCommand): ClaudeInitExpect | null {
   if (c.argv[0] !== "claude") return null;
-  const modeAt = c.argv.indexOf("--permission-mode");
+  const permissionMode = argvFlag(c.argv, "--permission-mode");
   const version = c.env.CLAUDE_CODE_EXPECT_VERSION;
-  if (modeAt < 0 || !c.argv[modeAt + 1] || !version) return null;
-  const mcpAt = c.argv.indexOf("--mcp-config");
-  const mcpJson = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
-  const allowAt = c.argv.indexOf("--allowedTools");
-  const allowed = allowAt >= 0 ? c.argv[allowAt + 1] : undefined;
+  if (!permissionMode || !version) return null;
+  const mcpJson = argvFlag(c.argv, "--mcp-config");
+  const allowed = argvFlag(c.argv, "--allowedTools");
   const expectTools = (c.env[CLAUDE_EXPECT_TOOLS_ENV] ?? "").split(",").map(s => s.trim()).filter(Boolean);
   const pacerMcp = !!mcpJson && mcpJson !== CLAUDE_EMPTY_MCP && allowed === CLAUDE_ALLOWED_PACER_TOOLS && expectTools.length > 0;
   return {
-    permissionMode: c.argv[modeAt + 1] ?? CLAUDE_PERMISSION_MODE,
+    permissionMode: permissionMode || CLAUDE_PERMISSION_MODE,
     cwd: c.cwd,
     version,
     pacerMcp,
@@ -306,8 +345,7 @@ async function run(
   const claude = c.argv[0] === "claude";
   const acp = c.argv[0] === "opencode" && c.argv[1] === "acp";
   const codex = c.argv[0] === "codex";
-  const mcpAt = c.argv.indexOf("--mcp-config");
-  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
+  const mcp = argvFlag(c.argv, "--mcp-config");
   const wantsClaudeGrant = claude && !!refs.grantRef && !!mcp && mcp !== CLAUDE_EMPTY_MCP;
   const env: Record<string, string | { secretRef: string }> = { ...c.env };
   if (wantsClaudeGrant && refs.grantRef) env.PACER_ASSISTANT_GRANT = { secretRef: refs.grantRef };
@@ -331,13 +369,12 @@ const mcpConnectFailed = (o: RunOutcome) => !!o.error && /pacer MCP server faile
 const sawHook = (o: RunOutcome) => o.tools.some(t => t.tool === "claude:hook") || /hook lifecycle event/i.test(o.error ?? "");
 
 function parseAsk(command: AskCommand, stdout: string): RunOutcome {
-  if (command.argv[0] === "claude") {
-    const expect = claudeExpectFromCommand(command);
-    if (!expect) throw new PluginError("plugin_refused", "The claude ask-mode command was missing its expected init surface.");
-    return parseClaudeRun(stdout, expect);
-  }
-  // opencode acp / Codex app-server (and legacy run fixtures): parseRun accepts host JSON and JSONL.
-  return parseRun(stdout);
+  if (command.argv[0] !== "claude") return parseRun(stdout);
+  const control = parseClaudeControlRun(stdout);
+  if (control) return control;
+  const expect = claudeExpectFromCommand(command);
+  if (!expect) throw new PluginError("plugin_refused", "The claude ask-mode command was missing its expected init surface.");
+  return parseClaudeRun(stdout, expect);
 }
 
 export async function reply(p: ExecutorReplyParams, host: Pick<HostClient, "call">, signal: AbortSignal): Promise<ReplyResult> {
@@ -361,8 +398,11 @@ export async function reply(p: ExecutorReplyParams, host: Pick<HostClient, "call
     if (signal.aborted) throw new PluginError("plugin_unavailable", "The turn was cancelled.");
   }
   if (raw.timedOut) throw new PluginError("plugin_timeout", "The agent did not answer in time.");
+  // Claude CONTROL digest-only: host already answered after mcp_status failed; accept text.
+  const controlDigestOk = !!out.claudeControl && out.toolsHealthy === false && !!out.text
+    && !!out.error && /digest only/i.test(out.error) && !sawHook(out);
   // Claude: a missing/wrong init or a hook event fails the turn even when text arrived.
-  if (active.argv[0] === "claude" && out.error) throw new PluginError("plugin_refused", out.error);
+  if (active.argv[0] === "claude" && out.error && !controlDigestOk) throw new PluginError("plugin_refused", out.error);
   if (!out.text) throw new PluginError("plugin_unavailable", out.error ?? `The agent exited ${raw.code} without an answer.`);
   return { message: out.text, ...(out.session ? { session: out.session } : {}), ...(out.tools.length ? { tools: out.tools.slice(0, 64) } : {}), usage: out.usage };
 }

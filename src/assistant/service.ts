@@ -32,6 +32,8 @@ import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn }
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
 
+
+
 export const ASSISTANT_PLUGIN = "pacer-assistant";
 
 /** The only ops the read tools may call. A tool can never reach a write op through this list. */
@@ -422,6 +424,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const askGrant = ask?.grant ?? "";
       const spawnMode = ask?.adapter === "opencode" ? "acp" as const
         : ask?.adapter === "codex" ? "codex-ask" as const
+        : ask?.adapter === "claude-code" ? "claude-control" as const
         : undefined;
       const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
         const secretEnv: Record<string, string> = {
