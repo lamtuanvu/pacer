@@ -55,6 +55,11 @@ impl Progress {
             json!({"id": self.id, "data": data}),
         ));
     }
+
+    /// Send a plugin → host notification (for example `assistant.delta`).
+    pub fn notify(&self, method: &str, params: Value) {
+        let _ = self.out.send(wire::notification(method, params));
+    }
 }
 
 pub struct Plugin {

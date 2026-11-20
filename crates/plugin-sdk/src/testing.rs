@@ -70,6 +70,7 @@ struct Inner {
     out: mpsc::UnboundedSender<String>,
     answers: RwLock<HashMap<String, Answer>>,
     progress: RwLock<Vec<Value>>,
+    notifications: RwLock<Vec<(String, Value)>>,
     capability_calls: RwLock<Vec<(String, Value)>>,
     pending: Mutex<HashMap<String, oneshot::Sender<Result<Value, PluginError>>>>,
     next: AtomicU64,
@@ -119,6 +120,9 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                     write_lock(&inner.progress).push(data);
                 }
             }
+            wire::Incoming::Notification { method, params } => {
+                write_lock(&inner.notifications).push((method, params));
+            }
             wire::Incoming::Response { id, result } => {
                 if let Some(tx) = lock(&inner.pending).remove(&id) {
                     let _ = tx.send(result.map_err(|e| PluginError {
@@ -128,7 +132,6 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                     }));
                 }
             }
-            _ => {}
         }
     }
 }
@@ -167,6 +170,7 @@ impl Harness {
             out,
             answers: RwLock::new(HashMap::new()),
             progress: RwLock::new(Vec::new()),
+            notifications: RwLock::new(Vec::new()),
             capability_calls: RwLock::new(Vec::new()),
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
@@ -250,9 +254,51 @@ impl Harness {
         rx.await.unwrap_or_else(|_| Err(unavailable()))
     }
 
+    /// Start a call without waiting; returns the request id for [`Self::cancel`].
+    pub fn start_call(&mut self, method: &str, params: Value) -> Result<String, PluginError> {
+        let id = self.inner.next.fetch_add(1, Ordering::Relaxed).to_string();
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = lock(&self.inner.pending);
+            if self.inner.closed.load(Ordering::Acquire) {
+                return Err(unavailable());
+            }
+            pending.insert(id.clone(), tx);
+        }
+        if self
+            .inner
+            .out
+            .send(wire::request(&id, method, params))
+            .is_err()
+        {
+            lock(&self.inner.pending).remove(&id);
+            return Err(unavailable());
+        }
+        // Keep the receiver alive by parking it on a background task that drops the result;
+        // callers that need the result should use [`Self::call`]. Cancellation tests only
+        // need the id.
+        tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        Ok(id)
+    }
+
+    /// Send `$/cancel` for an in-flight call started with [`Self::call`] or [`Self::start_call`].
+    pub fn cancel(&self, id: &str) {
+        let _ = self.inner.out.send(wire::notification(
+            "$/cancel",
+            json!({"id": id}),
+        ));
+    }
+
     /// The `$/progress` data the plugin has emitted so far.
     pub fn progress(&self) -> Vec<Value> {
         read_lock(&self.inner.progress).clone()
+    }
+
+    /// Plugin → host notifications other than `$/progress` (for example `assistant.delta`).
+    pub fn notifications(&self) -> Vec<(String, Value)> {
+        read_lock(&self.inner.notifications).clone()
     }
 
     /// The capability requests the plugin has made so far.
