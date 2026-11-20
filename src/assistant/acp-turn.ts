@@ -125,6 +125,11 @@ function isPacerTool(mcpName: string, title: string): boolean {
   return t.startsWith(prefix) || t.startsWith("pacer_") || t.startsWith("pacer-");
 }
 
+/** `assistant.reply` tools[].tool is max 128; opencode may put the whole shell command in the title. */
+function toolTitle(title: string): string {
+  return title.length <= 128 ? title : `${title.slice(0, 125)}...`;
+}
+
 function optionId(options: { optionId?: string; kind?: string }[], prefer: "allow" | "reject"): string | null {
   const allow = options.find(o => o.kind === "allow_once" || o.optionId === "once" || o.kind === "allow_always");
   const reject = options.find(o => o.kind === "reject_once" || o.optionId === "reject" || o.kind === "reject_always");
@@ -214,8 +219,8 @@ export async function runAcpTurn(
         if (t) { textParts.push(t); deltas.push(t); hooks.onDelta?.(t); }
       }
       if (kind === "tool_call" || kind === "tool_call_update") {
-        const title = String(update.title ?? update.toolCallId ?? "tool");
-        const status = String(update.status ?? (kind === "tool_call" ? "pending" : ""));
+        const title = toolTitle(String(update.title ?? update.toolCallId ?? "tool"));
+        const status = String(update.status ?? (kind === "tool_call" ? "pending" : "")).slice(0, 32);
         if (status) tools.push({ tool: title, status });
         // Never promote preflight health from mid-turn tool events.
       }
@@ -225,7 +230,7 @@ export async function runAcpTurn(
     }
     if (msg.method === "session/request_permission") {
       const toolCall = ((msg.params as Json)?.toolCall ?? {}) as Json;
-      const title = String(toolCall.title ?? "");
+      const title = toolTitle(String(toolCall.title ?? ""));
       const options = ((msg.params as Json)?.options ?? []) as { optionId?: string; kind?: string }[];
       // Digest-only turns (health failed or tools off) deny every permission request.
       const allow = plan.tools && toolsHealthy && isPacerTool(plan.mcpName, title);
