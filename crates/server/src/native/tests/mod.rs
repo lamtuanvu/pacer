@@ -130,6 +130,8 @@ fn forward_override_removes_only_selected_native_ops() {
         "assistant.card.refresh",
         "account.list",
         "account.signin",
+        "desktop.update.status",
+        "desktop.capture.targets",
     ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
@@ -138,8 +140,6 @@ fn forward_override_removes_only_selected_native_ops() {
         "dispatch.enforcement",
         "dispatch.enforcement.probe",
         "dispatch.enforcement.denied",
-        "desktop.update.status",
-        "desktop.capture.targets",
     ] {
         assert!(registry("").get(name).is_none(), "{name}");
     }
