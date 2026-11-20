@@ -29,18 +29,21 @@ function fmtWindow(w: WindowStatus): string {
 
 export function renderText(st: Status, policy: PolicySummary | undefined = st.policy): string {
   const lines = accountGroups(st.providers).flatMap(group => [...(group.account ? [`Account ${group.account}`] : []), ...group.rows.map((p) => {
+    // The usage record owns what is quoted here; p.windows is its pre-ADR-0030 shape.
+    const record = p.usageState;
+    const windows = record?.windows ?? p.windows;
     const name = runnerLabel(p);
     if (p.eligibility) {
       const decision = eligibilityPresentation(p.eligibility, st.generatedAt);
-      return `- ${name}: ${decision.label} · ${decision.detail}${decision.age ? ` · ${decision.age}` : ""}${p.windows.length ? ` · ${p.windows.map(w => `${fmtWindow(w)}${w.stale ? " [historical]" : ""}`).join("; ")}` : ""}`;
+      return `- ${name}: ${decision.label} · ${decision.detail}${decision.age ? ` · ${decision.age}` : ""}${windows.length ? ` · ${windows.map(w => `${fmtWindow(w)}${w.stale ? " [historical]" : ""}`).join("; ")}` : ""}`;
     }
-    if(p.agent && p.unavailableReason) return `- ${name}: usage-only · ${p.unavailableReason}${p.windows.length ? ` · ${p.windows.map(fmtWindow).join("; ")}` : ""}`;
+    if(p.agent && p.unavailableReason) return `- ${name}: usage-only · ${p.unavailableReason}${windows.length ? ` · ${windows.map(fmtWindow).join("; ")}` : ""}`;
     if(p.brokenReason) return `- ${name}: Not working · ${p.brokenReason}`;
     if(p.blockedReason) return `- ${name}: Blocked by you`;
     if (p.usage === "unmetered") return `- ${name}: local, unmetered OK`;
-    if (!p.windows.length) return `- ${name}: unavailable (${p.error ?? "no data"})`;
-    const stale = p.stale ? " [stale]" : "";
-    return `- ${name}: ${p.windows.map(fmtWindow).join("; ")}${stale}`;
+    if (!windows.length) return `- ${name}: unavailable (${p.error ?? "no data"})`;
+    const stale = (record ? record.freshness === "historical" : p.stale) ? " [stale]" : "";
+    return `- ${name}: ${windows.map(fmtWindow).join("; ")}${stale}`;
   })]);
   const planner = runnerLabel(st.providers.find(p=>p.id===st.planner) ?? {id:st.planner});
   if (st.paused) lines.push(pauseLine(st.paused));

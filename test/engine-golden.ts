@@ -176,7 +176,7 @@ export function engineGoldens() {
     { name: "append-planner", input: { ranking: conversationBase, kind: null, strategy, statuses: { ...statuses, planner: plannerStatus }, requested: "planner" }, output: conversationAppend },
     { name: "already-ranked", input: { ranking: conversationBase, kind: null, strategy, statuses, requested: "alpha" }, output: conversationAlready },
   ];
-  const modes = (["EXHAUSTED", "AHEAD", "NEAR_LIMIT", "BEHIND", "EXPIRING", "ON_PACE", "UNKNOWN", "OK"] as Verdict[])
+  const modes = (["EXHAUSTED", "AHEAD", "NEAR_LIMIT", "BEHIND", "EXPIRING", "ON_PACE", "UNKNOWN", "OK", "UNMETERED"] as Verdict[])
     .map(verdict => ({ name: verdict, input: { verdict }, output: plannerMode(verdict) }));
   const deadlineFact = (source: "configuration" | "execution" | "provider-cli",
     value: { name: string; lengthS: number; resetsAt: number | null }, validUntil: number | null = null,

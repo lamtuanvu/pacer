@@ -13,15 +13,32 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         .iter()
         .find(|p| p["id"] == id)
         .unwrap_or(&Value::Null);
-    let b = &p["binding"];
-    let known = truth(b) && p["verdict"] != "UNKNOWN";
+    // The record owns what the meter quotes; rows derive from it like TypeScript (ADR 0030).
+    let record = p.get("usageState").filter(|v| truth(v));
+    let b = match record {
+        Some(r) => pacer_engine::binding_window(array(&r["windows"])),
+        None => p["binding"].clone(),
+    };
+    // The record's verdict, like TypeScript's `record.verdict ?? p.verdict`.
+    let row_verdict = record.map_or(&p["verdict"], |r| {
+        if r["verdict"].is_null() {
+            &p["verdict"]
+        } else {
+            &r["verdict"]
+        }
+    });
+    let known = truth(&b) && *row_verdict != "UNKNOWN";
     let verdict = if !known {
         "unknown"
     } else {
-        pacer_engine::words::pace_meter_verdict(text(&p["verdict"]))
+        pacer_engine::words::pace_meter_verdict(text(row_verdict))
     };
+    // The row quotes the record's figure, not its binding window (ADR 0030).
     let used = if known {
-        b["usedPct"].clone()
+        match record {
+            Some(r) => r["figure"]["usedPct"].clone(),
+            None => b["usedPct"].clone(),
+        }
     } else {
         Value::Null
     };
@@ -35,6 +52,10 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     } else {
         Value::Null
     };
+    let out_resets = match record {
+        Some(r) => r["figure"]["resetsAt"].clone(),
+        None => b["resetsAt"].clone(),
+    };
     let mut advice = "No usage reading for the planner yet.".to_owned();
     match verdict {
         "behind" if !delta.is_null() => {
@@ -47,9 +68,9 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         "ahead" if !delta.is_null() => {
             advice = format!("{} pts ahead of pace — delegate more.", stringify(&delta))
         }
-        "out" if !b["resetsAt"].is_null() => {
+        "out" if !out_resets.is_null() => {
             if let Some(d) = zone
-                .timestamp_opt(num(&b["resetsAt"]).floor() as i64, 0)
+                .timestamp_opt(num(&out_resets).floor() as i64, 0)
                 .single()
             {
                 advice = format!(
@@ -78,18 +99,21 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
         else{
         Value::Null}
         ,"resetsAt":if known{
-        b["resetsAt"].clone()}
+        out_resets.clone()}
         else{
         Value::Null}
         ,"window":if known{
-        b["name"].clone()}
+        record.map_or(b["name"].clone(),|r|r["figure"]["window"].clone())}
         else{
         Value::Null}
-        ,"stale":p.get("stale").cloned().unwrap_or(json!(false)),"advice":advice,"mode":st["mode"]}
+        ,"stale":record.map_or(p.get("stale").cloned().unwrap_or(json!(false)),|r|json!(text(&r["freshness"])=="historical")),"advice":advice,"mode":st["mode"]}
         ),
     );
     if truth(&st["modeHold"]) {
         row["modeHeldUntil"] = st["modeHold"]["until"].clone();
+    }
+    if let Some(r) = record {
+        row["usageState"] = r.clone();
     }
     row
 }
@@ -356,6 +380,11 @@ fn executor(
         .iter()
         .find(|p| p["id"] == id)
         .unwrap_or(&Value::Null);
+    // The record owns what the row quotes; rows derive from it like TypeScript (ADR 0030).
+    let record = p.get("usageState").filter(|v| truth(v));
+    let record_window = record.map_or(Value::Null, |r| {
+        pacer_engine::binding_window(array(&r["windows"]))
+    });
     let account = r["account"]
         .as_str()
         .or(p["account"].as_str())
@@ -499,7 +528,9 @@ fn executor(
     let mut row = object();
     if truth(&p["eligibility"]) {
         row["eligibility"] = p["eligibility"].clone();
-        if let Some(v) = p.get("stale") {
+        if let Some(r) = record {
+            row["stale"] = json!(text(&r["freshness"]) == "historical");
+        } else if let Some(v) = p.get("stale") {
             row["stale"] = v.clone();
         }
     }
@@ -510,8 +541,15 @@ fn executor(
     if let Some(reason) = reason {
         row["reason"] = json!(reason);
     }
-    row["usedPct"] = p["binding"]["usedPct"].clone();
-    row["pacePct"] = p["binding"]["pace"].clone();
+    row["usedPct"] = match record {
+        Some(r) => r["figure"]["usedPct"].clone(),
+        None => p["binding"]["usedPct"].clone(),
+    };
+    row["pacePct"] = if record.is_some() {
+        record_window["pace"].clone()
+    } else {
+        p["binding"]["pace"].clone()
+    };
     if p["usage"] == "unmetered" {
         row["paceReason"] = json!("unmetered");
     } else if !truth(&p["binding"]) {
@@ -523,6 +561,9 @@ fn executor(
     }
     if untested {
         row["untested"] = json!(true);
+    }
+    if let Some(r) = record {
+        row["usageState"] = r.clone();
     }
     if check.is_object() {
         check["detail"] = json!(redact(text(&check["detail"])));
@@ -572,6 +613,9 @@ let name=&a["name"];
 let runners:Vec<_>=values(&s["runners"]).into_iter().filter(|r|r["account"]==*name).collect();
 let p=array(&st["providers"]).iter().find(|p|p["account"]==*name||runners.iter().any(|r|r["id"]==p["id"])).unwrap_or(&Value::Null);
 let status=array(&st["accounts"]).iter().find(|a|a["name"]==*name).unwrap_or(&Value::Null);
+// The record owns what the row quotes; rows derive from it like TypeScript (ADR 0030).
+let record=status.get("usageState").filter(|v|truth(v));
+let window=record.map_or(Value::Null,|r|pacer_engine::binding_window(array(&r["windows"])));
 let pick=|k:&str,f:&Value|status.get(k).filter(|v|!v.is_null()).unwrap_or(f).clone();
 let mut row=object();
 if truth(&status["eligibility"]){
@@ -588,8 +632,18 @@ else{
 Value::Null}
 ;
  row=merge(&row,&json!({
-"stale":pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
+"stale":record.map_or(pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),|r|json!(text(&r["freshness"])=="historical")),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],
+"usedPct":record.map_or(pick("usedPct",&p["binding"]["usedPct"]),|r|r["figure"]["usedPct"].clone()),
+"pacePct":record.map_or(pick("pacePct",&p["binding"]["pace"]),|_|window["pace"].clone()),
+"window":record.map_or(pick("window",&p["binding"]["name"]),|r|r["figure"]["window"].clone()),
+"resetsAt":record.map_or(pick("resetsAt",&p["binding"]["resetsAt"]),|r|r["figure"]["resetsAt"].clone()),
+"verdict":record.map_or(pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),|r|r["verdict"].clone()),
+"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),
+"spendUsdWeek":record.map_or(status["spendUsd"].clone(),|r|r["spend"]["usdWeek"].clone()),"capUsdWeek":a["weeklyUsd"]}
 ));
+if let Some(r)=record{
+row["usageState"]=r.clone();
+}
 row}
 ).collect()
 }
