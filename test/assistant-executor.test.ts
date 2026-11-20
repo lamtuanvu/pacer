@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { chmodSync, copyFileSync, existsSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, readdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
@@ -8,7 +8,7 @@ import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations,
 import { judge } from "../src/assistant/selftest";
 import {
   askConfig, askSystem, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_VERSION_ENV,
-  CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, seededPrompt, STDIN_CAP,
+  CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, claudeVersionSemver, seededPrompt, STDIN_CAP,
 } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
@@ -301,10 +301,11 @@ describe("ask-mode pieces", () => {
   });
 
   test("parseClaudeRun reads text, session, usage, init evidence and tool_result by tool_use_id", () => {
-    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281-fake" };
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281" };
     const run = parseClaudeRun([
       JSON.stringify({ type: "system", subtype: "init", session_id: "ses_c1", cwd: "/ask", permissionMode: "dontAsk",
-        claude_code_version: "2.1.281-fake", tools: [], mcp_servers: [], plugins: [], skills: [] }),
+        claude_code_version: "2.1.281", tools: [], mcp_servers: [], plugins: [], slash_commands: [], skills: [],
+        agents: ["claude", "Explore"] }),
       JSON.stringify({ type: "assistant", session_id: "ses_c1", message: { content: [
         { type: "tool_use", id: "tu1", name: "Bash" },
         { type: "tool_use", id: "tu2", name: "Read" },
@@ -327,21 +328,60 @@ describe("ask-mode pieces", () => {
   });
 
   test("parseClaudeRun fails closed on missing init, non-empty init and hook events", () => {
-    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281-fake" };
+    const expectInit = { permissionMode: "dontAsk", cwd: "/ask", version: "2.1.281" };
     expect(parseClaudeRun(JSON.stringify({ type: "assistant", message: { content: [{ type: "text", text: "hi" }] } }), expectInit).error)
       .toMatch(/init event was missing/);
     const tools = parseClaudeRun(JSON.stringify({
-      type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281-fake",
-      tools: ["Bash"], mcp_servers: [], plugins: [],
+      type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: ["Bash"], mcp_servers: [], plugins: [], slash_commands: [],
     }), expectInit);
     expect(tools.error).toMatch(/not empty/);
     expect(tools.tools).toContainEqual({ tool: "Bash", status: "available" });
     const hook = parseClaudeRun([
-      JSON.stringify({ type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281-fake", tools: [], mcp_servers: [], plugins: [] }),
+      JSON.stringify({ type: "system", subtype: "init", cwd: "/ask", permissionMode: "dontAsk", claude_code_version: "2.1.281",
+        tools: [], mcp_servers: [], plugins: [], slash_commands: [] }),
       JSON.stringify({ type: "system", subtype: "hook_started" }),
     ].join("\n"), expectInit);
     expect(hook.error).toMatch(/hook/);
     expect(hook.tools).toContainEqual({ tool: "claude:hook", status: "present" });
+  });
+
+  test("claudeVersionSemver extracts the bare version from the real --version line", () => {
+    expect(claudeVersionSemver("2.1.281 (Claude Code)")).toBe("2.1.281");
+    expect(claudeVersionSemver("2.1.281")).toBe("2.1.281");
+    expect(claudeVersionSemver("not a version")).toBeNull();
+  });
+
+  test("parseClaudeRun allows builtin plugins, realpathed cwd, and rejects extras", () => {
+    const dir = mkdtempSync(join(tmpdir(), "pacer-claude-cwd-"));
+    const real = realpathSync(dir);
+    const builtins = [
+      { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
+      { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
+    ];
+    const expectInit = { permissionMode: "dontAsk", cwd: dir, version: "2.1.281" };
+    const ok = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: real, permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: [], mcp_servers: [], plugins: builtins, slash_commands: [], skills: [],
+      agents: ["claude", "Explore", "general-purpose", "Plan"],
+    }), expectInit);
+    expect(ok.error).toBeUndefined();
+    expect(ok.tools).toEqual([{ tool: "claude:init", status: "empty" }]);
+
+    const extra = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: real, permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: [], mcp_servers: [], plugins: [...builtins, { name: "evil", path: "/tmp/x", source: "evil@local" }],
+      slash_commands: [], skills: [],
+    }), expectInit);
+    expect(extra.error).toMatch(/not empty/);
+    expect(extra.tools).toContainEqual({ tool: "evil", status: "available" });
+
+    const slash = parseClaudeRun(JSON.stringify({
+      type: "system", subtype: "init", cwd: real, permissionMode: "dontAsk", claude_code_version: "2.1.281",
+      tools: [], mcp_servers: [], plugins: builtins, slash_commands: ["/help"], skills: [],
+    }), expectInit);
+    expect(slash.error).toMatch(/not empty/);
+    expect(slash.tools).toContainEqual({ tool: "/help", status: "available" });
   });
 });
 
@@ -362,7 +402,7 @@ function claudeSetup() {
     runners: {}, dispatch: { reservePct: 0 },
   }) as unknown as Strategy;
   const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
-  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook") =>
+  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook" | "extra-plugin" | "slash-commands") =>
     writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
@@ -373,7 +413,7 @@ function claudeSetup() {
 describe("claude-code ask mode", () => {
   test("runs one restricted claude -p turn, then resumes its session", async () => {
     const { ctx, deps, calls: all } = claudeSetup();
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281-fake" });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
     const skip = all().length, calls = () => all().slice(skip);
     const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
     const one = await finished(ctx, first.turnId);
@@ -410,7 +450,7 @@ describe("claude-code ask mode", () => {
     expect(call!.argv.every(a => !a.startsWith("--resume"))).toBe(true);
     expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
     expect(call!.env.CLAUDE_CONFIG_DIR).toBe(join(ctx.home, "claude-work"));
-    expect(call!.env[CLAUDE_EXPECT_VERSION_ENV]).toBe("2.1.281-fake");
+    expect(call!.env[CLAUDE_EXPECT_VERSION_ENV]).toBe("2.1.281");
     expect(call!.env.HOME).toBe(ctx.home);
     expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
     expect(call!.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
@@ -512,7 +552,7 @@ describe("claude-code ask mode", () => {
   test("self-test passes only with empty init evidence; non-empty init, hooks and tool_use fail", async () => {
     const { ctx, deps, mode } = claudeSetup();
     mode("absent");
-    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281-fake" });
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
     mode("deny");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/Bash|present|tool/) });
     mode("leak");
@@ -523,6 +563,10 @@ describe("claude-code ask mode", () => {
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|Bash|refused/i) });
     mode("init-mcp");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|extra|refused|mcp/i) });
+    mode("extra-plugin");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|evil|refused|plugin/i) });
+    mode("slash-commands");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/not empty|\/help|refused|slash/i) });
     mode("missing-init");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/init|missing|refused/i) });
     mode("hook");

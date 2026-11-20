@@ -58,6 +58,8 @@ export const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{
 export const CLAUDE_PERMISSION_MODE = "dontAsk";
 /** Env key carrying the CLI version the stream-json init event must match (host-side expect). */
 export const CLAUDE_EXPECT_VERSION_ENV = "CLAUDE_CODE_EXPECT_VERSION";
+/** First semver-like token in `claude --version` (e.g. `2.1.281` from `2.1.281 (Claude Code)`). */
+export const CLAUDE_VERSION_SEMVER = /(\d+\.\d+\.\d+\S*)/;
 
 /** One host-issued command, as the plugin must echo it to `capability.process.spawn`. */
 export interface AskCommand {
@@ -160,13 +162,22 @@ export function askAdapterFor(ctx: Ctx, account: AccountCfg): AskAdapter | null 
   return null;
 }
 
-/** The installed `claude` CLI's version line, or null when it is missing or silent. */
+/** Bare semver from a `claude --version` line (`2.1.281` from `2.1.281 (Claude Code)`), or null. */
+export function claudeVersionSemver(line: string): string | null {
+  const m = line.trim().match(CLAUDE_VERSION_SEMVER);
+  return m?.[1] ?? null;
+}
+
+/**
+ * The installed `claude` CLI's bare version (for the self-test record, expect env and init compare).
+ * `claude --version` prints e.g. `2.1.281 (Claude Code)` while init's `claude_code_version` is `2.1.281`.
+ */
 export function claudeCliVersion(ctx: Ctx): string | null {
   const bin = ctx.which("claude");
   if (!bin) return null;
   const run = spawnSync(bin, ["--version"], { timeout: 10_000, encoding: "utf8", env: { HOME: ctx.home, PATH: ctx.env.PATH ?? "/usr/bin:/bin" } });
-  const version = run.status === 0 ? run.stdout.trim().split("\n")[0]!.trim() : "";
-  return version || null;
+  const line = run.status === 0 ? run.stdout.trim().split("\n")[0]!.trim() : "";
+  return line ? claudeVersionSemver(line) : null;
 }
 
 function conversationDirs(ctx: Ctx, turnId: string, conversationId: string) {

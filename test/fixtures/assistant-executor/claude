@@ -3,10 +3,12 @@
 // Modes (file `mode` beside this script):
 //   absent | deny | leak | partial | slow | leak-on-resume
 //   init-tools | init-mcp | missing-init | hook
+//   extra-plugin | slash-commands
 import { appendFileSync, readFileSync } from "node:fs";
 import { randomUUID } from "node:crypto";
 const argv = process.argv.slice(2);
-if (argv[0] === "--version") { console.log("2.1.281-fake"); process.exit(0); }
+// Real CLI prints "2.1.281 (Claude Code)"; init uses the bare semver.
+if (argv[0] === "--version") { console.log("2.1.281 (Claude Code)"); process.exit(0); }
 const stdin = readFileSync(0, "utf8");
 let mode = "absent"; try { mode = readFileSync(`${import.meta.dir}/mode`, "utf8").trim(); } catch { /* default */ }
 appendFileSync(process.env.FAKE_LOG ?? `${import.meta.dir}/calls.jsonl`, JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\n");
@@ -16,12 +18,19 @@ const session = resumeArg ? resumeArg.slice("--resume=".length) : randomUUID();
 const prompt = stdin || argv[argv.length - 1] || "";
 const modeAt = argv.indexOf("--permission-mode");
 const permissionMode = modeAt >= 0 ? argv[modeAt + 1] : "dontAsk";
-const version = process.env.CLAUDE_CODE_EXPECT_VERSION ?? "2.1.281-fake";
+const expectEnv = process.env.CLAUDE_CODE_EXPECT_VERSION ?? "2.1.281";
+const version = (expectEnv.match(/(\d+\.\d+\.\d+\S*)/) ?? [null, "2.1.281"])[1]!;
 const out = (o: Record<string, unknown>) => console.log(JSON.stringify({ session_id: session, ...o }));
-const emptyInit = () => out({
+const builtinPlugins = [
+  { name: "agents-md", path: "builtin", source: "agents-md@builtin" },
+  { name: "telemetry", path: "builtin", source: "telemetry@builtin" },
+];
+const emptyInit = (extra: Record<string, unknown> = {}) => out({
   type: "system", subtype: "init",
   cwd: process.cwd(), permissionMode, claude_code_version: version,
-  tools: [], mcp_servers: [], plugins: [], skills: [],
+  tools: [], mcp_servers: [], plugins: builtinPlugins, slash_commands: [], skills: [],
+  agents: ["claude", "Explore", "general-purpose", "Plan"],
+  ...extra,
 });
 if (mode === "slow") { appendFileSync(`${import.meta.dir}/pid`, String(process.pid)); await Bun.sleep(30_000); }
 if (mode === "leak-on-resume" && resumeArg) {
@@ -32,17 +41,13 @@ if (session === GONE) { out({ type: "result", is_error: true, result: "Session n
 if (mode === "missing-init") {
   /* skip init */
 } else if (mode === "init-tools") {
-  out({
-    type: "system", subtype: "init",
-    cwd: process.cwd(), permissionMode, claude_code_version: version,
-    tools: ["Bash"], mcp_servers: [], plugins: [], skills: [],
-  });
+  emptyInit({ tools: ["Bash"], plugins: [] });
 } else if (mode === "init-mcp") {
-  out({
-    type: "system", subtype: "init",
-    cwd: process.cwd(), permissionMode, claude_code_version: version,
-    tools: [], mcp_servers: [{ name: "extra" }], plugins: [], skills: [],
-  });
+  emptyInit({ mcp_servers: [{ name: "extra" }], plugins: [] });
+} else if (mode === "extra-plugin") {
+  emptyInit({ plugins: [...builtinPlugins, { name: "evil", path: "/tmp/evil", source: "evil@local" }] });
+} else if (mode === "slash-commands") {
+  emptyInit({ slash_commands: ["/help"] });
 } else if (mode !== "leak-on-resume" || !resumeArg) {
   emptyInit();
 }

@@ -58,6 +58,13 @@ export function parseRun(stdout: string): RunOutcome {
 /** What every Claude ask-mode turn must see on the stream-json `system`/`init` event. */
 export interface ClaudeInitExpect { permissionMode: string; cwd: string; version: string }
 
+/**
+ * Built-in Claude Code plugins that `--safe-mode` still lists on init (path must be `builtin`).
+ * Any other plugin source fails the turn.
+ */
+export const CLAUDE_ASK_BUILTIN_PLUGIN_SOURCES = ["agents-md@builtin", "telemetry@builtin"] as const;
+const CLAUDE_ASK_BUILTIN_PLUGIN_SOURCE_SET = new Set<string>(CLAUDE_ASK_BUILTIN_PLUGIN_SOURCES);
+
 const isHookEvent = (event: Record<string, unknown>) => {
   const type = typeof event.type === "string" ? event.type : "";
   const subtype = typeof event.subtype === "string" ? event.subtype : "";
@@ -65,16 +72,33 @@ const isHookEvent = (event: Record<string, unknown>) => {
 };
 
 /** Compare paths the way Claude's init cwd may realpath them (e.g. /var → /private/var on macOS). */
-function samePath(a: string, b: string): boolean {
+export function samePath(a: string, b: string): boolean {
   if (a === b || resolve(a) === resolve(b)) return true;
   try { return realpathSync(a) === realpathSync(b); } catch { return false; }
+}
+
+function pluginName(plugin: unknown): string {
+  return plugin && typeof plugin === "object" && "name" in plugin
+    ? String((plugin as { name?: unknown }).name ?? "plugin")
+    : "plugin";
+}
+
+/** True when every listed plugin is an allowlisted builtin (`source` + `path: "builtin"`). */
+export function claudePluginsAllowed(plugins: unknown[]): boolean {
+  return plugins.every(plugin => {
+    if (!plugin || typeof plugin !== "object") return false;
+    const p = plugin as { source?: unknown; path?: unknown };
+    return typeof p.source === "string" && CLAUDE_ASK_BUILTIN_PLUGIN_SOURCE_SET.has(p.source) && p.path === "builtin";
+  });
 }
 
 /**
  * Read Claude Code's `--output-format stream-json` lines: assistant text, session_id, usage on the
  * final result, tool_use blocks mapped to tool_result by tool_use_id, and the fail-closed init
- * surface (empty tools/mcp/plugins, matching permissionMode/cwd/version). A missing or non-empty
- * init, or any hook lifecycle event, is an error.
+ * surface (empty tools/mcp/slash_commands/skills, only allowlisted builtin plugins, matching
+ * permissionMode/cwd/version). A missing or non-empty init, or any hook lifecycle event, is an error.
+ * The `agents` list on init is ignored: those names are unreachable without the Agent tool, which
+ * ask mode disables via `--tools ''`.
  */
 export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOutcome {
   const text: string[] = [], tools: RunOutcome["tools"] = [];
@@ -97,11 +121,16 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
       const listed = Array.isArray(event.tools) ? event.tools.map(String) : null;
       const mcp = Array.isArray(event.mcp_servers) ? event.mcp_servers : null;
       const plugins = Array.isArray(event.plugins) ? event.plugins : null;
+      const slash = Array.isArray(event.slash_commands) ? event.slash_commands : null;
       const skills = Array.isArray(event.skills) ? event.skills : null;
+      // event.agents is intentionally unread: built-in agent names remain listed under --safe-mode
+      // but cannot run without the Agent tool, which --tools '' removes.
       const mode = typeof event.permissionMode === "string" ? event.permissionMode : "";
       const cwd = typeof event.cwd === "string" ? event.cwd : "";
       const version = typeof event.claude_code_version === "string" ? event.claude_code_version : "";
-      const empty = !!listed && listed.length === 0 && !!mcp && mcp.length === 0 && !!plugins && plugins.length === 0
+      const pluginsOk = !!plugins && claudePluginsAllowed(plugins);
+      const empty = !!listed && listed.length === 0 && !!mcp && mcp.length === 0 && pluginsOk
+        && !!slash && slash.length === 0
         && (skills === null || skills.length === 0);
       const matches = !expect || (mode === expect.permissionMode && samePath(cwd, expect.cwd) && version === expect.version);
       if (empty && matches) tools.push({ tool: "claude:init", status: "empty" });
@@ -111,10 +140,8 @@ export function parseClaudeRun(stdout: string, expect?: ClaudeInitExpect): RunOu
           const name = server && typeof server === "object" && "name" in server ? String((server as { name?: unknown }).name ?? "mcp") : "mcp";
           tools.push({ tool: name, status: "available" });
         }
-        if (plugins) for (const plugin of plugins) {
-          const name = plugin && typeof plugin === "object" && "name" in plugin ? String((plugin as { name?: unknown }).name ?? "plugin") : "plugin";
-          tools.push({ tool: name, status: "available" });
-        }
+        if (plugins) for (const plugin of plugins) tools.push({ tool: pluginName(plugin), status: "available" });
+        if (slash) for (const name of slash) tools.push({ tool: String(name), status: "available" });
         if (!empty) error = error ?? "claude init surface was not empty";
         else if (!matches) error = error ?? "claude init did not match the issued ask-mode turn";
       }
