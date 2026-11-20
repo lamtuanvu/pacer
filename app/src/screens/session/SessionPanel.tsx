@@ -200,9 +200,10 @@ export function SessionWorkspace({ task }: { task: TaskDetail }) {
 export function SessionInsights({ task, executor }: { task: TaskDetail; executor?: AccountSummary }) {
   const tokens = task.tokens, reported = tokens && tokens.measuredAttempts + tokens.partialAttempts > 0;
   const agent = executorLabel(task.routing?.chosen ?? task.executor);
-  const record = executor?.usageState, now = executor?.capturedAt ?? Date.now() / 1000;
+  const record = executor?.usageState;
+  // Freshness ages against the real clock; the row's capture time is the record's own observation (ADR 0030).
   const pace = paceStatus(record?.verdict ?? executor?.verdict ?? "unknown");
-  const usage = usageView(record, now);
+  const usage = usageView(record, Date.now() / 1000);
   return <>
     {task.routing?.why && <section><SectionHeading as="h3">Why {agent}</SectionHeading><p>{task.routing.policy && task.routing.policy.executors.indexOf(task.routing.chosen) >= 0 && `Ladder step ${task.routing.policy.executors.indexOf(task.routing.chosen) + 1} · `}{task.routing.why}</p><a className="pc-text-action" href={`#/tasks/${encodeURIComponent(task.id)}/trace`}>Dispatch trace</a></section>}
     <section><SectionHeading as="h3">Tokens, live</SectionHeading>
