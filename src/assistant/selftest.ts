@@ -9,23 +9,11 @@ import { pluginRegistry } from "../plugins/index";
 import { assistantReplyResult, ASSISTANT_MAX_DEADLINE_MS } from "../plugins/protocol";
 import type { Ctx } from "../types";
 import {
-  ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, CLAUDE_EMPTY_MCP, type AskAdapter,
+  ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, claudeNeedsGrant, type AskAdapter,
 } from "./ask-mode";
 
 const askSystemForSelfTest = (adapter: AskAdapter) =>
   askSystem("You are the pacer assistant.", "", { tools: adapter === "claude-code" });
-
-const argvFlag = (argv: string[], name: string) => {
-  const eq = argv.find(a => a.startsWith(`${name}=`));
-  if (eq) return eq.slice(name.length + 1);
-  const at = argv.indexOf(name);
-  return at >= 0 ? argv[at + 1] : undefined;
-};
-const claudeNeedsGrant = (c: { argv: string[] }) => {
-  if (c.argv[0] !== "claude") return false;
-  const mcp = argvFlag(c.argv, "--mcp-config");
-  return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
-};
 
 /**
  * The fail-closed ask-mode self-test (spec §3). Canary turns run through the real ask-mode path

@@ -14,15 +14,8 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, CLAUDE_EMPTY_MCP, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
 
-/** Whether a host-issued ask command needs the Claude turn grant resolved into its process env. */
-function claudeNeedsGrant(c: { argv: string[] }): boolean {
-  if (c.argv[0] !== "claude") return false;
-  const mcpAt = c.argv.indexOf("--mcp-config");
-  const mcp = mcpAt >= 0 ? c.argv[mcpAt + 1] : undefined;
-  return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
-}
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";

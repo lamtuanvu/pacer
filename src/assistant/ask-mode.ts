@@ -87,6 +87,21 @@ export const CLAUDE_ASK_DISALLOWED = [
   "BashOutput", "LSP", "Monitor", "ListMcpResourcesTool", "ReadMcpResourceTool",
 ] as const;
 export const CLAUDE_EMPTY_MCP = '{"mcpServers":{}}';
+
+/** Read a Claude argv flag (`--name=value` or `--name value`). */
+export function claudeArgvFlag(argv: readonly string[], name: string): string | undefined {
+  const eq = argv.find(a => a.startsWith(`${name}=`));
+  if (eq) return eq.slice(name.length + 1);
+  const at = argv.indexOf(name);
+  return at >= 0 ? argv[at + 1] : undefined;
+}
+
+/** Whether a host-issued Claude ask command needs the turn grant resolved into process env. */
+export function claudeNeedsGrant(c: { argv: readonly string[] }): boolean {
+  if (c.argv[0] !== "claude") return false;
+  const mcp = claudeArgvFlag(c.argv, "--mcp-config");
+  return !!mcp && mcp !== CLAUDE_EMPTY_MCP;
+}
 /** Claude Code MCP tool allow-list: every tool from the `pacer` server (changelog: `mcp__server__*`). */
 export const CLAUDE_ALLOWED_PACER_TOOLS = "mcp__pacer__*";
 /** Extra Claude settings JSON (verified `--settings` accepts a JSON string). */
