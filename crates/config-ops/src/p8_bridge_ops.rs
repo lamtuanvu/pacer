@@ -1,14 +1,15 @@
-//! P9 `setup.check`, `setup.health` and `doctor.run`, validated in Rust and
-//! executed via the TypeScript core bridge.
+//! Parameter validation and Core requests of `setup.check`, `setup.health` and
+//! `doctor.run`; `doctor_ops::run` answers them from the parts Core returns.
 #![allow(clippy::result_large_err)]
 use pacer_foundation::{
     Ctx,
     api::{CoreError, OpFuture},
 };
-use serde_json::Value;
+use serde_json::{Value, json};
 
 use crate::doctor_ops;
-use crate::host_read_ops::{invalid, object};
+use crate::host_read_ops::invalid;
+use crate::repo_registry_ops::params_object;
 
 pub fn needs_core_bridge(op: &str) -> bool {
     op == "setup.check" || doctor_ops::needs_setup_doctor_bridge(op)
@@ -23,19 +24,12 @@ pub fn bridge_stub(_: &Ctx, _: Value) -> OpFuture<'_> {
     })
 }
 
-fn empty_object(params: &Value) -> Result<(), CoreError> {
-    let map = object(params)?;
-    if !map.is_empty() {
-        return Err(invalid("params: Unrecognized key(s) in object"));
-    }
-    Ok(())
-}
-
 pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
+        // The stripping `z.object({})`: `null` reads as `{}` and other keys are dropped.
         "setup.check" => {
-            empty_object(params)?;
-            Ok(params.clone())
+            params_object(params)?;
+            Ok(json!({}))
         }
         op if doctor_ops::needs_setup_doctor_bridge(op) => doctor_ops::bridge_params(op, params),
         _ => Err(invalid("unknown core bridge op")),

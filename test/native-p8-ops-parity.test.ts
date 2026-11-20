@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { toApiError } from "../src/api/errors";
 import { onboardingSkip } from "../src/core/setup";
-import { checkSetup } from "../src/setup/check";
+import { setupCheckParts } from "../src/api/setup-check-bridge";
+import { checklistReply } from "../src/setup/check";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 
 const root = join(import.meta.dir, "..");
@@ -51,6 +52,6 @@ test("native files.search matches TypeScript without a core bridge", async () =>
 test("native setup.check matches TypeScript with injected bridge", async () => {
   const home = tmpDir();
   const ctx = fakeCtx({ home, pacerHome: home, now: 1_700_000_000, which: () => null, env: { PACER_BIN: "pacer" } });
-  const checklist = await checkSetup(ctx, { snapshotProbe: false, deferStatus: true });
-  expect(nativeResult(home, "setup.check", {}, checklist)).toEqual({ result: checklist });
+  const facts = await setupCheckParts(ctx, false);
+  expect(nativeResult(home, "setup.check", {}, facts)).toEqual({ result: checklistReply(facts, ctx.now, facts.policy) });
 });
