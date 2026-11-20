@@ -4,6 +4,7 @@ import { chromium, type Browser } from 'playwright-core';
 import { TaskTree } from '../app/src/ds/TaskTreeNode';
 import { TaskCard } from '../app/src/ds/TaskCard';
 import { scopedTaskTree, taskTree, workTasks, type TaskNodeView } from '../src/view-model/task-tree';
+import { emptySnapshot, parseOutboxEvent, reduce } from '../src/link/envelope';
 import { TaskNavigator } from '../app/src/screens/session/TaskNavigator';
 import snapshotFixture from './fixtures/ui/snapshot.json';
 import type { ClientSnapshot } from '../src/view-model/snapshot';
@@ -110,6 +111,48 @@ test('work_rows_nest_children_and_omit_unknown_facts', () => {
   expect(nodes.find(node => node.id === 't-0409')!.host).toEqual({ name: 'Local Mac', kind: 'local' });
   // Without a snapshot the row's own state is the only evidence.
   expect(taskTree({ tasks: workTasks(rows) }, { now: 1 }).find(node => node.id === 'w-root')!.children[0]!.attention).toBe('bad');
+});
+
+test('rows_name_the_agent_account_and_model_beside_the_status', () => {
+  // A running opencode row reads "OpenCode · oc-glm · model" next to the status, with the full value in a tooltip.
+  const running = card(leaf('t-10', { agents: ['opencode'], runner: { name: 'OpenCode', account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' } }));
+  expect(running).toContain('pc-task-card__runner');
+  expect(running).toContain('title="OpenCode · oc-glm · opencode-go/glm-5.3-flash"');
+  expect(running).toContain('>OpenCode · oc-glm · opencode-go/glm-5.3-flash</span>');
+  // A settled task keeps its words, with no dangling separator when the model is unknown.
+  const settled = card(leaf('t-11', { state: { tone: 'good', live: false, label: 'Completed' }, active: false, agents: ['codex'], runner: { name: 'Codex', account: 'team' } }));
+  expect(settled).toContain('>Codex · team</span>');
+  expect(settled).not.toContain('undefined');
+  // The mark stays beside the words, and the compact navigator row shows them too.
+  expect(running).toContain('pc-agent-mark--opencode');
+  expect(card(leaf('t-12', { agents: ['opencode'], runner: { name: 'OpenCode', account: 'oc-glm' } }), { density: 'compact' })).toContain('OpenCode · oc-glm');
+  // Without an executor there is no runner text and no empty mark.
+  expect(card(leaf('t-13', { agents: [], runner: undefined }))).not.toContain('pc-task-card__runner');
+  expect(card(leaf('t-13', { agents: [], runner: undefined }))).not.toContain('pc-agent-stack');
+});
+
+test('work_rows_carry_their_account_and_model_into_the_tree', () => {
+  const snapshot = structuredClone(snapshotFixture) as unknown as ClientSnapshot;
+  const rows = [
+    { id: 'w-run', parentId: null, rootId: 'w-run', depth: 0, title: 'Routing work', state: 'running', executor: 'opencode#oc-glm', account: 'oc-glm', model: 'opencode-go/glm-5.3-flash', rev: 1 },
+    { id: 'w-done', parentId: null, rootId: 'w-done', depth: 0, title: 'Settled work', state: 'done', executor: 'codex#team', account: 'team', model: null, rev: 1 },
+    { id: 'w-old', parentId: null, rootId: 'w-old', depth: 0, title: 'Old work', state: 'done', executor: 'opencode#oc-glm', rev: 1 },
+  ];
+  const nodes = taskTree({ tasks: workTasks(rows) }, { now: 1 });
+  expect(nodes.find(node => node.id === 'w-run')!.runner).toEqual({ name: 'OpenCode', account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' });
+  expect(nodes.find(node => node.id === 'w-done')!.runner).toEqual({ name: 'Codex', account: 'team' });
+  // A 2.0 service sends neither field; the runner id still names the account.
+  expect(nodes.find(node => node.id === 'w-old')!.runner).toEqual({ name: 'OpenCode', account: 'oc-glm' });
+});
+
+test('live_snapshot_rows_show_the_model_beside_the_status', () => {
+  // The Tasks page renders from the live link snapshot, so its task rows must carry the fields.
+  const event = parseOutboxEvent({ type: 'task', data: { id: 't-live', state: 'running', goal: 'Ship routing', title: 'Ship routing', executor: 'opencode#oc-glm', backend: null, worktree: null, updatedAt: 1, account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' } });
+  const snapshot = reduce(emptySnapshot(), event!, 1) as unknown as ClientSnapshot;
+  const node = scopedTaskTree(snapshot, { repo: null }, { now: 1 }).find(item => item.id === 't-live')!;
+  expect(node.runner).toEqual({ name: 'OpenCode', account: 'oc-glm', model: 'opencode-go/glm-5.3-flash' });
+  const html = card(node);
+  expect(html).toContain('OpenCode · oc-glm · opencode-go/glm-5.3-flash');
 });
 
 test('filter_buckets_follow_attention_then_activity_then_outcome', () => {

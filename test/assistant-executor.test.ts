@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { parseRun } from "../plugins/assistant-executor/index";
-import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, selfTest } from "../src/assistant/service";
+import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
 import { askConfig, seededPrompt, STDIN_CAP } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
@@ -237,6 +237,15 @@ describe("the fail-closed ask-mode check", () => {
     mode("leak-on-resume");
     expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: false, reason: "on a resumed turn, a tool other than pacer's ran: shell" });
   }, 60_000);
+
+  test("saving checks the backend being saved, not only the stored one", () => {
+    const { ctx, deps } = setup();
+    writeSettings(ctx, { runner: null, account: null, backend: "pacer", expect_rev: readSettings(ctx).rev });
+    // An opencode-sourced account has no pacer-held connection: refused for pacer's agent,
+    // accepted for the executor backend even while the stored backend is still pacer.
+    expect(() => saveSettings(ctx, { runner: null, account: "oc", backend: "pacer", expect_rev: readSettings(ctx).rev }, deps)).toThrow(/Choose an endpoint account with a model/);
+    expect(saveSettings(ctx, { runner: null, account: "oc", backend: "executor", expect_rev: readSettings(ctx).rev }, deps)).toMatchObject({ account: "oc", backend: "executor" });
+  });
 
   test("the native plugin host is refused with a plain reason", async () => {
     const { ctx, deps } = setup();

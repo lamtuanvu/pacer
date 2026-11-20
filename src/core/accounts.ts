@@ -1,5 +1,6 @@
 import { accountUsageCapability } from "./account-usage-check";
 import { accountEvidenceScope, retireEvidence } from "./evidence";
+import { deleteUsageStore } from "../usage/store";
 import { chmodSync, existsSync, lstatSync, mkdirSync, readFileSync, realpathSync, rmSync } from "node:fs";
 import { join, resolve, sep, parse } from "node:path";
 import { parseSize, type AccountCfg } from "../config/accounts";
@@ -222,6 +223,8 @@ export async function remove(ctx: Ctx, name: string, {deleteHome = false}: {dele
     const folder = deleteHome ? deletionHome(ctx, s, name) : null;
     const diff = await edit(doc => doc.removeMappingEntry('accounts', name));
     retireEvidence(ctx, accountEvidenceScope(a, s.hosts));
+    // The account is already gone; a cache file that cannot be removed is retried by nothing and harmless.
+    try { deleteUsageStore(ctx, accountEvidenceScope(a, s.hosts).identity); } catch { /* best effort */ }
     if (folder) rmSync(folder, {recursive: true, force: true});
     return {removed: true as const, diff, ...(migrated ? {migrated} : {})};
   } catch (e) {
@@ -244,7 +247,7 @@ function watchSignin(ctx: Ctx, name: string): void {
     pending = true;
     try {
       const s = loadStrategy(ctx), account = s.accounts[name];
-      if (account) await readAccountUsage({...ctx, now: Date.now() / 1000}, account, Object.values(s.runners).filter(r => r.account === name), true);
+      if (account) await readAccountUsage({...ctx, now: Date.now() / 1000}, account, Object.values(s.runners).filter(r => r.account === name), true, false, s.hosts);
     } catch { /* A later poll can retry a temporary usage or configuration failure. */ }
     finally { pending = false; }
   }, 15000);

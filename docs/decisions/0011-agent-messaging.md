@@ -42,6 +42,10 @@ Live delivery waits until the agent is between turns and no viewer holds termina
 
 API-5 bounds what an executor may *create* to its grant subtree. This amendment adds the following: messaging routes are user-configured guardrails evaluated by the service, and they may allow messages outside a subtree, for example between top-level sessions. A message never grants the power to create work or to run free-form shell text. Identity derivation and argument-vector delivery stay fixed.
 
+## Later amendments
+
+[ADR 0029](0029-workflow-frame.md) amends decisions 2 and 6 for workflow runs only (amendment 0.25.0): run participants get a wider default route, and orchestrator turns of steps marked `interactive` run in an interactive lane. Everything else in this ADR is unchanged.
+
 ## Consequences
 
 Planners and executors can hold multi-turn conversations with full context. Every turn is metered. Per-session planner identity distinguishes planner sessions on one machine; messages addressed to the generic planner-kind inbox remain visible to each session. Human-started managed work can coordinate sub-agents, but strict enforcement requires an eligible certified executor and a headless default. The opt-out preserves an unmanaged task when that coordination is unnecessary.

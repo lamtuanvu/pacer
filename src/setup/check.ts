@@ -15,6 +15,7 @@ import { readManifest, piecesPresent, type FileChange } from "../install/manifes
 import { readText, sha256 } from "../install/fsx";
 import { hasReviewedTask, taskStoreVersion } from "../tasks/store";
 import { computeStatus, type Status } from "../engine/status";
+import { USAGE_MEMO_S } from "../usage/freshness";
 const statuses=new Map<string,{at:number;status:Status}>();
 // Reviewed is monotonic; remember it so polling does not rescan the task store.
 const reviewedHomes=new Set<string>();
@@ -75,7 +76,7 @@ export async function checkSetup(ctx:Ctx, options:{snapshotProbe?:boolean;status
  let status=options.status;
  if(!status&&!options.deferStatus&&strategy){
   const cached=statuses.get(ctx.pacerHome);
-  status=cached&&ctx.now>=cached.at&&ctx.now-cached.at<60?cached.status:await computeStatus({...ctx,readOnly:true},strategy,{cacheOnly:true});
+  status=cached&&ctx.now>=cached.at&&ctx.now-cached.at<USAGE_MEMO_S?cached.status:await computeStatus({...ctx,readOnly:true},strategy,{cacheOnly:true});
  }
  const hookConfiguration = planner === "claude-code" ? claudeHookChecks(ctx,strategy).find(c=>c.name==="Claude hook configuration") : undefined;
  if(hookConfiguration?.level==="warn")connected=false;

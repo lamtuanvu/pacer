@@ -251,7 +251,7 @@ exports[`account and endpoint operation results 1`] = `
           "description": "Unmetered. This account has no quota to check.",
         },
         "usageReading": {
-          "capturedAt": 1791633600,
+          "capturedAt": null,
           "source": "unmetered",
           "stale": false,
           "windows": [],
@@ -303,7 +303,7 @@ exports[`account and endpoint operation results 1`] = `
           "description": "Unmetered. This account has no quota to check.",
         },
         "usageReading": {
-          "capturedAt": 1791633600,
+          "capturedAt": null,
           "source": "unmetered",
           "stale": false,
           "windows": [],

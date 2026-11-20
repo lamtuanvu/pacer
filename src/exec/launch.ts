@@ -54,7 +54,9 @@ export async function providerEnv(ctx: Ctx, cfg: ProviderCfg, options: {probe?: 
   }
   const runner = resolveRunner(strategy, cfg.id);
   if (!runner) throw new Error(`runner not configured: ${cfg.id}`);
-  return runnerEnv(ctx, runner, options.probe);
+  // A task's chosen model (cfg.model, set by the runner or the attempt) wins over the runner's
+  // configured default; without it the OpenCode env would silently launch the default model.
+  return runnerEnv(ctx, cfg.model ? {...runner, model: cfg.model} : runner, options.probe);
 }
 
 /** CLI dotted overrides split on every dot, including quoted paths; use a TOML table value. */

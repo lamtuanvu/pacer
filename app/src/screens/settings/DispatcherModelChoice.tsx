@@ -185,7 +185,7 @@ export function DispatcherModelChoice({ initialConfig, initialInventory, initial
         <Card className="pc-model-choice__answer">
           <div className="pc-model-choice__count"><strong>{steered}<span> of {count}</span></strong><span className="u3-muted">executors follow it</span></div>
           <div className="pc-model-choice__copy"><strong>{headline}</strong><span className="u3-muted">{detail}</span></div>
-          {hasMatrix && steered === 0 && count > 0 && <div className="u3-actions"><ButtonLink href={scoped(hrefFor(routes.settings("models")))} variant="secondary" size="sm">Open model matrix</ButtonLink></div>}
+          {hasMatrix && <div className="u3-actions"><ButtonLink href={scoped(hrefFor(routes.settings("models")))} variant="secondary" size="sm">Open model matrix</ButtonLink></div>}
         </Card>
 
         <div className="pc-model-choice__presets" role="group" aria-label="Presets">

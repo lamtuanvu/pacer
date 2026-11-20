@@ -7,7 +7,7 @@ import { renderOpencodeConfig as renderPluginConfig } from "../plugins/pacer-end
 import { projectEndpointAccounts, writeEndpointConfig } from "../src/plugins/endpoint-adapter";
 const renderOpencodeConfig = (strategy: ReturnType<typeof loadStrategy>) => renderPluginConfig(projectEndpointAccounts(strategy.accounts));
 const writeOpencodeConfig = (ctx: ReturnType<typeof fakeCtx>) => writeEndpointConfig(ctx, loadStrategy(ctx).accounts);
-import { runnerEnv } from "../src/exec/launch";
+import { runnerEnv, providerEnv } from "../src/exec/launch";
 import { selectBackend } from "../src/exec/backend";
 import { fakeCtx } from "./helpers";
 
@@ -111,6 +111,24 @@ test("OpenCode model and agent are invocation-scoped config for full TUI compati
       theme:"custom", provider:{custom:{name:"retained"}},default_agent:"build",model:strategy.runners[id].model,
     });
   }
+});
+
+test("providerEnv launches the task's chosen model, not the runner default", async () => {
+  const {ctx, strategy} = setup();
+  const provider = strategy.providers["opencode#local"], runnerDefault = strategy.runners["opencode#local"].model;
+  expect(runnerDefault).toBeTruthy();
+  ctx.env.OPENCODE_CONFIG_CONTENT = "{}";
+  // The per-task choice (cfg.model) travels through the launch env, for probes and real launches alike.
+  for (const options of [{}, {probe: true}] as const) {
+    const env = await providerEnv(ctx, {...provider, model: "chosen/model"}, options);
+    expect(JSON.parse(env.OPENCODE_CONFIG_CONTENT!).model).toBe("chosen/model");
+  }
+  // Without a choice the runner's configured default still applies.
+  const fallback = await providerEnv(ctx, provider);
+  expect(JSON.parse(fallback.OPENCODE_CONFIG_CONTENT!).model).toBe(runnerDefault);
+  // Non-OpenCode runners keep their env free of a model pin (no argv change either).
+  const claude = await providerEnv(ctx, {...strategy.providers["claude-code"], model: "claude-chosen"});
+  expect(claude).toEqual({});
 });
 
 test("invalid inline OpenCode config fails without logging its contents", async () => {

@@ -36,7 +36,8 @@ import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
-import { localHuman } from "./messaging/participants";
+import { callerParticipant, localHuman } from "./messaging/participants";
+import { callerReach } from "./messaging/caller-reach";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
@@ -67,7 +68,7 @@ import { lineFields, renderLine } from "./render/line";
 import { renderText } from "./render/text";
 import { renderRoute } from "./render/accounts";
 import { DEFAULT_PORT, startServer } from "./serve/http";
-import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
+import { DelegateError, EXECUTOR_DELEGATE_ERROR, parseDelegateBrief, summarizeTask, attemptLine, taskWait, type SpawnRunner, spawnRunner } from "./tasks/api";
 import { runTask } from "./tasks/runner";
 import { terminalEnv } from "./exec/login-env";
 import { TERMINAL_STATES, type TaskRecord } from "./tasks/types";
@@ -294,8 +295,9 @@ const fallbackText = (f: NonNullable<TaskRecord["executorFallback"]>) => `reques
 
 function renderTask(t: TaskRecord): string {
   const r = t.result;
+  const shown = attemptLine(t), detail = [shown.account, shown.model].filter(Boolean).join(" · ");
   const lines = [
-    `${t.id}  ${t.state}  executor: ${r?.executor ?? t.executor ?? t.attempts.at(-1)?.executor ?? "-"}`,
+    `${t.id}  ${t.state}  executor: ${shown.executor}${detail ? ` · ${detail}` : ""}`,
     `goal: ${t.brief.goal}`,
     `repo: ${t.brief.repo}`,
   ];
@@ -338,11 +340,15 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
+    // This process is the caller's own, so its env can record how to reach it again.
+    const origin=localHuman(ctx), reach=origin?null:callerReach(ctx,callerParticipant(ctx).id);
+    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin,...(reach?{callerReach:reach}:{})},cliDeps.spawnRunner);
     const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
+    // The caller reach is a delivery hint for the broker, not part of the task the caller sees.
+    const shown = ({ callerReach: _reach, ...rest }: typeof t) => rest;
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(shown(t), null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
-    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: warning };
+    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(shown(done), null, 1) : renderTask(done), err: warning };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }
@@ -390,7 +396,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     code: 0,
     out: (await Promise.all(list.map(async (t) => {
       const control=await controlProgress(ctx,t);
-      return `${t.id}  ${t.state.padEnd(8)}  ${(t.result?.executor ?? t.attempts.at(-1)?.executor ?? "-").padEnd(12)}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
+      const shown=attemptLine(t), detail=[shown.account,shown.model].filter(Boolean).join(" · ");
+      return `${t.id}  ${t.state.padEnd(8)}  ${shown.executor.padEnd(12)}${detail?`  ${detail}`:""}  ${t.brief.goal.slice(0, 60)}${t.executorFallback?`  (requested ${t.executorFallback.requested}: ${t.executorFallback.reason})`:""}${t.placement?.mode?`  ${t.placement.mode} (${t.placement.why})`:""}${control?`  ${control}`:""}`;
     }))).join("\n"),
     err: "",
   };

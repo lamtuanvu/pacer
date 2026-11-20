@@ -209,7 +209,7 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
   </>;
 }
 
-interface Candidate { runners?: { id: string }[]; account: string; models: { id: string; name: string }[] }
+interface Candidate { runners?: { id: string }[]; account: string; backend?: "pacer" | "executor"; available?: boolean; reason?: string; models: { id: string; name: string }[] }
 interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageReading?: { windows?: { usedPct?: number }[] } }
 function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
   const [accounts, setAccounts] = useState<(Candidate & { name: string; note: string; local: boolean })[] | null>(null);
@@ -228,29 +228,48 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
         const used = detail?.usageReading?.windows?.[0]?.usedPct;
         return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : typeof used === "number" ? `${Math.round(used)}% used` : detail?.usage ?? "usage unknown"].join(" · ") };
       }));
-    }).catch(() => { if (live) setError("Could not load endpoint accounts. Try again."); });
+    }).catch(() => { if (live) setError("Could not load accounts. Try again."); });
     return () => { live = false; };
   }, [api, attempt]);
-  const choose = async (account: string) => {
+  // One row per account and backend: the same account can answer through pacer's agent and an agent CLI.
+  const rowKey = (row: Candidate) => `${row.backend ?? "pacer"}:${row.account}`;
+  const choose = async (row: Candidate) => {
     if (busy) return;
-    setBusy(account); setError(null);
+    setBusy(rowKey(row)); setError(null);
     try {
       const settings = await api.call<{ rev: number }>("assistant.settings.get", {});
-      await api.call("assistant.settings.set", { account, runner: null, expect_rev: settings.rev });
+      await api.call("assistant.settings.set", { account: row.account, backend: row.backend ?? "pacer", runner: null, expect_rev: settings.rev });
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
     finally { setBusy(null); }
   };
-  const primary = accounts?.find(account => account.local)?.account;
+  // An agent CLI answers only after it passes the ask-mode check; run it from here, then reload the rows.
+  const check = async (row: Candidate) => {
+    if (busy) return;
+    setBusy(rowKey(row)); setError(null);
+    try {
+      const result = await api.call<{ passed: boolean; reason?: string }>("assistant.selftest", { account: row.account });
+      if (!result.passed) setError(`${row.account} did not pass the ask-mode check${result.reason ? `: ${result.reason}` : "."}`);
+      setAttempt(n => n + 1);
+    } catch (error) { setError(error instanceof Error ? error.message : "Could not run the ask-mode check."); }
+    finally { setBusy(null); }
+  };
+  const primary = accounts?.find(account => account.local && account.backend !== "executor");
   return <section className="pc-assistant-setup" data-assistant-setup tabIndex={-1} aria-labelledby="assistant-setup-heading">
-    <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one OpenAI-compatible endpoint account and never moves to another. Your question and what it reads go to that account’s model.</p></div></div>
-    {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => <div className="pc-assistant-setup__account" key={account.account}>
-      <AgentMark agent={agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-      <div className="pc-assistant-setup__name"><strong>{account.name}</strong><span title={account.note}>{account.note}</span></div>
-      <Button size="sm" variant={account.account === primary ? "primary" : "secondary"} busy={busy === account.account} disabled={!!busy} onClick={() => void choose(account.account)}>Use {account.name}</Button>
-    </div>)}</div>}
-    {!accounts && !error && <p role="status">Loading endpoint accounts…</p>}
-    {accounts?.length === 0 && <p>No OpenAI-compatible endpoint accounts are configured.</p>}
+    <div className="pc-assistant-setup__intro"><AuroraAvatar /><div><h2 id="assistant-setup-heading">Choose where the assistant runs</h2><p>It answers on one account and never moves to another. Through pacer's agent it calls the account's model directly; through opencode it runs the agent CLI on this Mac with every tool denied, after a one-time check. Your question and what pacer reads for it go to that account's model.</p></div></div>
+    {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => {
+      const executor = account.backend === "executor", ready = !executor || account.available !== false;
+      const note = executor ? (ready ? "via opencode · checked" : `via opencode · ${account.reason ?? "needs the ask-mode check"}`) : account.note;
+      return <div className="pc-assistant-setup__account" key={rowKey(account)}>
+        <AgentMark agent={executor ? "opencode" : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
+        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via opencode" : ""}</strong><span title={note}>{note}</span></div>
+        {ready
+          ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
+          : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}
+      </div>;
+    })}</div>}
+    {!accounts && !error && <p role="status">Loading accounts…</p>}
+    {accounts?.length === 0 && <p>No endpoint accounts are configured.</p>}
     {error && <Alert tone="error" title="Could not set up the assistant">{error} <Button size="sm" onClick={() => setAttempt(n => n + 1)}>Try again</Button></Alert>}
     <p>No endpoint you want here? <a className="pc-inline-link" href="#/settings/accounts">Add an endpoint account</a> in Settings › Agents › Accounts. Hide this button in <a className="pc-inline-link" href="#/settings/app">App preferences</a>.</p>
   </section>;
