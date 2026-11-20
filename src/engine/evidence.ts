@@ -1,7 +1,7 @@
 import { createHash } from "node:crypto";
 import type { AccountEvidence, Evidence, EvidenceScope, ReconciledEvidence } from "../evidence/types";
 import type { UsageWindow } from "../types";
-import { EXHAUSTED_PCT, SPENDING_LIFETIME_S, staleAfterS, AVAILABILITY_FALLBACK_S } from "../usage/freshness";
+import { EXHAUSTED_PCT, EVIDENCE_PRUNE_AFTER_S, SPENDING_LIFETIME_S, staleAfterS, AVAILABILITY_FALLBACK_S } from "../usage/freshness";
 
 export const emptyEvidence = (): AccountEvidence => ({ availability: [], budget: [], spending: [] });
 export function evidenceFact<T>(scope: EvidenceScope, source: Evidence<T>["source"], observedAt: number | null,
@@ -122,6 +122,12 @@ export function reconcileEvidence(previous: AccountEvidence, incoming: AccountEv
     || (f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT && (f.value.resetsAt === null || f.value.resetsAt > now));
   facts.budget = facts.budget.filter(f => kept(f)
     || !witnesses.some(g => g.source === f.source && appliesTo(g, f.scope) && g.observedAt! > f.observedAt!));
+  // Availability and spending facts whose validity ended long ago are history: with no
+  // per-fact deadline left to judge them by, they would otherwise pin observation ages
+  // and stale conflicts forever. Budget facts keep their own freshness handling.
+  const pruneCutoff = now - EVIDENCE_PRUNE_AFTER_S;
+  facts.availability = facts.availability.filter(f => f.validUntil === null || f.validUntil > pruneCutoff);
+  facts.spending = facts.spending.filter(f => f.validUntil === null || f.validUntil > pruneCutoff);
   const retained = [...facts.availability, ...facts.budget, ...facts.spending];
   return { facts, conflicts: conflicts.filter(id => retained.some(f => f.id === id)).sort() };
 }

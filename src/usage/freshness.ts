@@ -14,6 +14,7 @@ export const NEAR_LIMIT_PCT = constants.nearLimitPct;
 export const LIMIT_WINDOW_LENGTH_S = constants.limitWindowLengthS;
 export const OBSERVATION_EXPIRY_S = constants.observationExpiryS;
 export const USAGE_MEMO_S = constants.usageMemoS;
+export const EVIDENCE_PRUNE_AFTER_S = constants.evidencePruneAfterS;
 
 /** Bounded age applies even when an observation reported exhaustion. */
 export function staleAfterS(w: UsageWindow): number {
