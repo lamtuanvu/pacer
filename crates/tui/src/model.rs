@@ -271,15 +271,9 @@ pub fn outcome(t: &V) -> Line {
     })
 }
 pub fn pace(s: &str) -> Line {
-    line(match s {
-        "behind" | "BEHIND" => "↓ Behind pace",
-        "on_pace" | "ON_PACE" | "OK" => "✓ On pace",
-        "ahead" | "AHEAD" | "NEAR_LIMIT" => "↑ Ahead of pace",
-        "out" | "EXHAUSTED" => "! Out of quota",
-        "UNMETERED" => "∞ Unmetered",
-        "EXPIRING" | "EXPIRING_SOON" => "! Expiring soon",
-        _ => "? Usage unknown",
-    })
+    // `paceStatus` (`src/view-model/words.ts`) renders as "{glyph} {label}".
+    let status = pacer_engine::words::pace_status(s);
+    line(format!("{} {}", status.glyph, status.label))
 }
 pub fn task<'a>(s: &'a V, id: &str) -> Option<&'a V> {
     arr(&s["tasks"]).iter().find(|t| text(&t["id"]) == id)
@@ -526,28 +520,7 @@ pub fn capacity_note(e: &V, s: &V) -> Option<String> {
     })
 }
 fn eligibility_reason(s: &str) -> &str {
-    match s {
-        "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-        "budget_missing" => "No budget observation is available",
-        "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-        "evidence_conflicting" => "Current observations disagree",
-        "evidence_missing" => "Execution evidence is missing",
-        "availability_unknown" => "Executor availability is not confirmed",
-        "subscription_missing" => "No active subscription",
-        "subscription_failed" => "Subscription is unavailable",
-        "subscription_response_invalid" => "Subscription status could not be read",
-        "authentication_failed" | "signed_out" => "Sign-in is required",
-        "refresh_failed" => "Could not refresh execution evidence",
-        "disabled" => "Disabled",
-        "not_installed" => "Not installed",
-        "blocked" => "Blocked by you",
-        "broken" => "Executor is not working",
-        "unavailable" => "Executor is unavailable",
-        "planner" => "Reserved for planning",
-        "not_configured" => "Not configured",
-        "quota_failure" => "The executor reported a quota limit",
-        _ => "Execution evidence needs attention",
-    }
+    pacer_engine::words::eligibility_reason(s)
 }
 pub fn reason(s: &str) -> String {
     if let Some(label) = reason_label(s) {

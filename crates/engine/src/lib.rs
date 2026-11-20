@@ -9,6 +9,7 @@ pub mod pause;
 pub mod status;
 pub mod usage_broker;
 pub mod usage_refresh;
+pub mod words;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
@@ -398,30 +399,7 @@ fn restriction(mut decision: Value, code: Option<&str>) -> Value {
 fn eligibility_detail(decision: &Value) -> String {
     array(&decision["reasons"])
         .iter()
-        .map(|reason| match string(&reason["code"]) {
-            "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-            "budget_missing" => "No budget observation is available",
-            "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-            "evidence_conflicting" => "Current observations disagree",
-            "evidence_missing" => "Execution evidence is missing",
-            "availability_unknown" => "Executor availability is not confirmed",
-            "subscription_missing" => "No active subscription",
-            "subscription_failed" => "Subscription is unavailable",
-            "subscription_response_invalid" => "Subscription status could not be read",
-            "authentication_failed" => "Sign-in is required",
-            "refresh_failed" => "Could not refresh execution evidence",
-            "disabled" => "Disabled",
-            "not_installed" => "Not installed",
-            "signed_out" => "Sign-in is required",
-            "blocked" => "Blocked by you",
-            "broken" => "Executor is not working",
-            "unavailable" => "Executor is unavailable",
-            "planner" => "Reserved for planning",
-            "not_configured" => "Not configured",
-            "quota_failure" => "The executor reported a quota limit",
-            "machine_load" | "machine_memory_pressure" => "Execution evidence needs attention",
-            _ => "Execution evidence needs attention",
-        })
+        .map(|reason| words::eligibility_reason(string(&reason["code"])))
         .collect::<Vec<_>>()
         .join("; ")
 }

@@ -1980,6 +1980,7 @@ name = "pacer-tui"
 version = "0.2.3"
 dependencies = [
  "chrono",
+ "pacer-engine",
  "ratatui",
  "regex",
  "ryu-js",
