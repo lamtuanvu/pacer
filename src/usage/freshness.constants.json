@@ -1,0 +1,15 @@
+{
+  "windowCapShortMaxLengthS": 21600,
+  "windowCapShortS": 7200,
+  "windowCapLongS": 86400,
+  "authLifetimeS": 7200,
+  "executionLifetimeS": 7200,
+  "spendingLifetimeS": 7200,
+  "availabilityFallbackS": 86400,
+  "exhaustedPct": 97,
+  "nearLimitPct": 90,
+  "limitWindowLengthS": 21600,
+  "observationExpiryS": 60,
+  "usageMemoS": 60,
+  "evidencePruneAfterS": 604800
+}

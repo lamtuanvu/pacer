@@ -3,6 +3,7 @@ import type { Progress } from "../supervisor/progress";
 import type { WorktreeMode } from "../config/execution";
 import type { ResultCheck } from "../classify/hooks";
 import type { ProcessIdentity } from "../update/desktop/process-identity";
+import type { CallerReach } from "../messaging/caller-reach";
 
 export type InteractionMode = "delegated" | "conversation";
 export type ConversationActivity = "starting" | "working" | "waiting" | "idle" | "ended";
@@ -321,6 +322,8 @@ export interface TaskRecord {
   dismissed?: boolean;
   /** Participant that started this task when it has no work parent: "human" or "external:<key>". */
   origin?: string;
+  /** How to reach that caller again for a decision; recorded at delegate from its env, kept on retries. */
+  callerReach?: CallerReach;
   /**
    * Set while a message turn is queued or running; cleared when the run ends. `session` is the native session captured
    * when the turn started; `replay` launches fresh with the brief and the thread after a failed resume.

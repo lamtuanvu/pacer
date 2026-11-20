@@ -1,6 +1,7 @@
 import type { Ctx } from "../types";
 import { observationSchema, type Observation, type ObservationMethod, type ObservationScope } from "./types";
 import type { Status } from "../engine/status";
+import { OBSERVATION_EXPIRY_S } from "../usage/freshness";
 
 export interface ObservationAdapter {
   readonly id: string;
@@ -45,7 +46,7 @@ export function statusObservationAdapter(status: Status): ObservationAdapter {
       const provider = status.providers.find(p => p.id === scope.runner);
       const account = status.accounts?.find(a => a.name === scope.account);
       const observedAt = account?.capturedAt ?? status.generatedAt;
-      const expiresAt = Math.min(observedAt + 60, ...((provider?.windows ?? []).flatMap(w => w.resetsAt === null ? [] : [w.resetsAt])));
+      const expiresAt = Math.min(observedAt + OBSERVATION_EXPIRY_S, ...((provider?.windows ?? []).flatMap(w => w.resetsAt === null ? [] : [w.resetsAt])));
       const base = { source: "status-cache", scope, method, observedAt, expiresAt };
       if (!provider || provider.stale || account?.stale) return [{ ...base, state: "unknown" }];
       if (method === "health") return [{ ...base, state: "known", value: { healthy: provider.installed && !provider.unavailableReason && !provider.signedOutReason && !provider.blockedReason && !provider.brokenReason && provider.eligibility?.state !== "ineligible" } }];

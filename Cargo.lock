@@ -1243,7 +1243,6 @@ dependencies = [
 name = "pacer-account-ops"
 version = "0.0.0"
 dependencies = [
- "icu_collator",
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
@@ -1326,6 +1325,7 @@ dependencies = [
  "hex",
  "indexmap",
  "pacer-foundation",
+ "pacer-js-json",
  "ryu-js",
  "saphyr-parser",
  "serde",
@@ -1412,6 +1412,7 @@ dependencies = [
 name = "pacer-dispatch"
 version = "0.0.0"
 dependencies = [
+ "pacer-engine",
  "pacer-foundation",
  "pacer-js-json",
  "pacer-store",
@@ -1515,6 +1516,7 @@ dependencies = [
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
+ "icu_collator",
  "ryu-js",
  "serde",
  "serde_json",
@@ -1617,7 +1619,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",
@@ -1634,7 +1636,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-agent-session-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1643,7 +1645,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-assistant-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1674,7 +1676,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-decision-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1683,7 +1685,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-exec-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1717,7 +1719,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-hosts-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1727,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-install-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1773,7 +1775,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin-protocol"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "regress",
  "serde",
@@ -1808,6 +1810,7 @@ dependencies = [
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-store",
  "regex",
  "rusqlite",
@@ -1977,6 +1980,7 @@ name = "pacer-tui"
 version = "0.2.3"
 dependencies = [
  "chrono",
+ "pacer-engine",
  "ratatui",
  "regex",
  "ryu-js",

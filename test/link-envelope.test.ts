@@ -74,3 +74,18 @@ test("task progress round-trips and is validated", () => {
   expect(parseOutboxEvent({ type: "task", data })).toMatchObject({ data: { progress: data.progress } });
   expect(parseOutboxEvent({ type: "task", data: { ...data, progress: { phase: 3 } } })?.data).not.toHaveProperty("progress");
 });
+
+test("task account and model round-trip and respect their limits", () => {
+  const data = { id: "t-1", state: "running", goal: "g", executor: "opencode#oc-glm", backend: null, worktree: null, updatedAt: 1,
+    account: "oc-glm", model: "opencode-go/glm-5.3-flash" };
+  expect(parseOutboxEvent(JSON.parse(JSON.stringify({ type: "task", data })))).toEqual({ type: "task", data });
+  // Account truncates at 64 UTF-16 units, model at 200, keeping whole astral characters.
+  const parsed = parseOutboxEvent({ type: "task", data: { ...data, account: "x".repeat(62) + "😀z", model: "y".repeat(501) } });
+  expect(parsed?.type === "task" && parsed.data.account).toBe("x".repeat(62) + "😀");
+  expect(parsed?.type === "task" && parsed.data.model).toBe("y".repeat(200));
+  // Unknown values stay off the row, like every optional field.
+  for (const value of [null, undefined, "", 1, -1.5, [], {}]) {
+    expect(parseOutboxEvent({ type: "task", data: { ...data, account: value } })?.data).not.toHaveProperty("account");
+    expect(parseOutboxEvent({ type: "task", data: { ...data, model: value } })?.data).not.toHaveProperty("model");
+  }
+});

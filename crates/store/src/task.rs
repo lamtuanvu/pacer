@@ -370,6 +370,25 @@ static FILE_SIGNATURES: LazyLock<Mutex<SignatureMemory>> =
     LazyLock::new(|| Mutex::new(HashMap::new()));
 
 /// Same object list as TypeScript `schemaReady` in `src/tasks/store.ts`.
+/// Retries `run` while SQLite reports SQLITE_BUSY, for up to `limit`.
+fn retry_busy<T>(
+    limit: Duration,
+    mut run: impl FnMut() -> rusqlite::Result<T>,
+) -> rusqlite::Result<T> {
+    let deadline = std::time::Instant::now() + limit;
+    loop {
+        match run() {
+            Err(rusqlite::Error::SqliteFailure(error, _))
+                if error.code == rusqlite::ErrorCode::DatabaseBusy
+                    && std::time::Instant::now() < deadline =>
+            {
+                std::thread::sleep(Duration::from_millis(25));
+            }
+            result => return result,
+        }
+    }
+}
+
 fn schema_ready(db: &Connection) -> Result<bool> {
     let fields: Vec<String> = db
         .prepare("PRAGMA table_info(tasks)")?
@@ -440,7 +459,11 @@ impl TaskStore {
         drop(private_file(&path)?);
         let mut db = Connection::open(&path)?;
         db.busy_timeout(Duration::from_millis(5000))?;
-        db.pragma_update(None, "journal_mode", "WAL")?;
+        // SQLite can answer a journal-mode change with SQLITE_BUSY without consulting the
+        // busy handler (WAL recovery or another process's checkpoint on close).
+        retry_busy(Duration::from_millis(5000), || {
+            db.pragma_update(None, "journal_mode", "WAL")
+        })?;
         db.pragma_update(None, "synchronous", "NORMAL")?;
         // Skip the IMMEDIATE schema transaction once the schema is ready, so a
         // request-path open never waits behind another writer's reservation
@@ -1144,4 +1167,51 @@ pub fn retention_eligible(task: &Value, days: i64, now: f64) -> bool {
     .flatten()
     .filter_map(Value::as_str)
     .all(|p| p.is_empty() || !Path::new(p).exists())
+}
+
+#[cfg(test)]
+mod retry_busy_tests {
+    use super::retry_busy;
+    use std::time::Duration;
+
+    fn failure(code: std::os::raw::c_int) -> rusqlite::Error {
+        rusqlite::Error::SqliteFailure(rusqlite::ffi::Error::new(code), None)
+    }
+
+    #[test]
+    fn retries_busy_until_success() {
+        let mut calls = 0;
+        let result = retry_busy(Duration::from_secs(5), || {
+            calls += 1;
+            if calls < 3 {
+                Err(failure(rusqlite::ffi::SQLITE_BUSY))
+            } else {
+                Ok("wal")
+            }
+        });
+        assert!(matches!(result, Ok("wal")));
+        assert_eq!(calls, 3);
+    }
+
+    #[test]
+    fn returns_other_errors_at_once() {
+        let mut calls = 0;
+        let result: rusqlite::Result<()> = retry_busy(Duration::from_secs(5), || {
+            calls += 1;
+            Err(failure(rusqlite::ffi::SQLITE_IOERR))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
+
+    #[test]
+    fn gives_up_after_the_deadline() {
+        let mut calls = 0;
+        let result: rusqlite::Result<()> = retry_busy(Duration::ZERO, || {
+            calls += 1;
+            Err(failure(rusqlite::ffi::SQLITE_BUSY))
+        });
+        assert!(result.is_err());
+        assert_eq!(calls, 1);
+    }
 }

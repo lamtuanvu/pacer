@@ -2,6 +2,7 @@ use crate::snapshot::ActiveCounts;
 use crate::{js::*, read};
 use chrono::{Datelike, TimeZone, Timelike};
 use pacer_foundation::Ctx;
+use pacer_js_json::js_semantics::locale_compare;
 use serde_json::{Value, json};
 pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     let id = text(&st["planner"]);
@@ -17,13 +18,7 @@ pub fn planner(st: &Value, zone: chrono_tz::Tz) -> Value {
     let verdict = if !known {
         "unknown"
     } else {
-        match text(&p["verdict"]) {
-            "BEHIND" | "EXPIRING" => "behind",
-            "ON_PACE" | "OK" => "on_pace",
-            "AHEAD" | "NEAR_LIMIT" => "ahead",
-            "EXHAUSTED" => "out",
-            _ => "unknown",
-        }
+        pacer_engine::words::pace_meter_verdict(text(&p["verdict"]))
     };
     let used = if known {
         b["usedPct"].clone()
@@ -200,28 +195,7 @@ pub(crate) fn redact(s: &str) -> String {
 fn eligibility(decision: &Value, now: f64) -> (String, String, Option<String>) {
     let detail = array(&decision["reasons"])
         .iter()
-        .map(|r| match text(&r["code"]) {
-            "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-            "budget_missing" => "No budget observation is available",
-            "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-            "evidence_conflicting" => "Current observations disagree",
-            "evidence_missing" => "Execution evidence is missing",
-            "availability_unknown" => "Executor availability is not confirmed",
-            "subscription_missing" => "No active subscription",
-            "subscription_failed" => "Subscription is unavailable",
-            "subscription_response_invalid" => "Subscription status could not be read",
-            "authentication_failed" | "signed_out" => "Sign-in is required",
-            "refresh_failed" => "Could not refresh execution evidence",
-            "disabled" => "Disabled",
-            "not_installed" => "Not installed",
-            "blocked" => "Blocked by you",
-            "broken" => "Executor is not working",
-            "unavailable" => "Executor is unavailable",
-            "planner" => "Reserved for planning",
-            "not_configured" => "Not configured",
-            "quota_failure" => "The executor reported a quota limit",
-            _ => "Execution evidence needs attention",
-        })
+        .map(|r| pacer_engine::words::eligibility_reason(text(&r["code"])))
         .collect::<Vec<_>>()
         .join("; ");
     let age = decision["evidenceAgeS"].as_f64().map(|age| {
@@ -492,7 +466,7 @@ fn executor(
         .filter(|r| r["account"] == account)
         .map(|r| r["host"].as_str().unwrap_or("this Mac").to_owned())
         .collect();
-    places.sort();
+    places.sort_by(|a, b| locale_compare(a, b));
     places.dedup();
     places.sort_by_key(|p| p != "this Mac");
     let places = if places.is_empty() {
@@ -500,15 +474,7 @@ fn executor(
     } else {
         places.join(" + ")
     };
-    let verdict = match text(&p["verdict"]) {
-        "BEHIND" | "EXPIRING" => "Behind pace",
-        "AHEAD" => "Ahead of pace",
-        "EXHAUSTED" => "Out of quota",
-        "ON_PACE" => "On pace",
-        "OK" => "Available",
-        "NEAR_LIMIT" => "Near limit",
-        _ => "Unknown",
-    };
+    let verdict = pacer_engine::words::verdict_words(text(&p["verdict"]));
     let sub = if truth(&p["eligibility"]) {
         format!(
             "{} · {}{} · {places}",
@@ -622,15 +588,17 @@ else{
 Value::Null}
 ;
  row=merge(&row,&json!({
-"stale":status.get("stale").or(p.get("stale")).cloned().unwrap_or(json!(true)),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
+"stale":pick("stale",p.get("stale").filter(|v|!v.is_null()).unwrap_or(&json!(true))),"capturedAt":status["capturedAt"],"name":name,"agent":runners.first().map_or(&a["kind"],|r|&r["agent"]),"source":a["source"],"usedPct":pick("usedPct",&p["binding"]["usedPct"]),"pacePct":pick("pacePct",&p["binding"]["pace"]),"window":pick("window",&p["binding"]["name"]),"resetsAt":pick("resetsAt",&p["binding"]["resetsAt"]),"verdict":pick("verdict",p.get("verdict").filter(|v|!v.is_null()).unwrap_or(&json!("UNKNOWN"))),"signedIn":signed,"executors":runners.iter().map(|r|r["id"].clone()).collect::<Vec<_>>(),"spendUsdWeek":status["spendUsd"],"capUsdWeek":a["weeklyUsd"]}
 ));
 row}
 ).collect()
 }
 /// Stored authentication observations are scoped to account configuration, never
-/// inferred by opening an agent's native credentials.
+/// inferred by opening an agent's native credentials. Evidence files are keyed by
+/// `pacer_config::evidence::evidence_identity`, the same identity TypeScript's
+/// `accountEvidenceScope` computes and `account-ops` retires with.
 pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
-    use sha2::{Digest, Sha256};
+    use pacer_config::evidence::evidence_identity;
     let mut rows = accounts(st, s);
     let marks = read(ctx, "state/auth-failed.json");
     let evidence = read(ctx, "state/auth-evidence.json");
@@ -643,35 +611,7 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         if account["kind"] == "endpoint" {
             continue;
         }
-        let mut hosts: Vec<_> = s["hosts"]
-            .as_object()
-            .into_iter()
-            .flat_map(|h| h.iter())
-            .collect();
-        hosts.sort_by(|a, b| a.0.cmp(b.0));
-        let hosts: Vec<_> = hosts
-            .iter()
-            .map(|(alias, h)| json!([alias, h["ssh"], h["accounts"][name]["home"]]))
-            .collect();
-        let mut signature = vec![
-            account["name"].clone(),
-            account["kind"].clone(),
-            account["source"].clone(),
-            account["home"].clone(),
-            account["orcaAccount"].clone(),
-            account["usageSource"].clone(),
-            account["quotaSource"].clone(),
-            account["connection"]["base_url"].clone(),
-            account["connection"]["key"].clone(),
-            json!(hosts),
-        ];
-        if truth(&account["provider"]) {
-            signature.push(account["provider"].clone());
-        }
-        let identity = format!(
-            "{:x}",
-            Sha256::digest(stringify(&json!(signature)).as_bytes())
-        );
+        let identity = evidence_identity(account, &s["hosts"]);
         let observation = &evidence[name];
         let at = observation["at"].as_f64();
         let scope = &observation["scope"];
@@ -692,4 +632,37 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         }
     }
     rows
+}
+
+#[cfg(test)]
+#[allow(clippy::unwrap_used)]
+mod tests {
+    use super::accounts;
+    use serde_json::json;
+
+    /// `verdict` falls through an explicit null like TypeScript's
+    /// `status?.verdict ?? p?.verdict ?? "UNKNOWN"`.
+    #[test]
+    fn accounts_verdict_falls_through_an_explicit_null() {
+        let s = json!({
+            "planner": {"agent": "claude-code", "account": "claude"},
+            "accounts": {"claude": {"name": "claude", "kind": "claude"}},
+            "runners": {"claude-code": {"id": "claude-code", "agent": "claude-code", "account": "claude"}},
+        });
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": "ON_PACE", "binding": {"usedPct": 63}}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "ON_PACE");
+        let st = json!({
+            "providers": [{"id": "claude-code", "verdict": null}],
+            "accounts": [{"name": "claude", "verdict": null}],
+        });
+        assert_eq!(accounts(&st, &s)[0]["verdict"], "UNKNOWN");
+        // No status row and no provider at all still reads "UNKNOWN".
+        assert_eq!(
+            accounts(&json!({"providers": []}), &s)[0]["verdict"],
+            json!("UNKNOWN")
+        );
+    }
 }

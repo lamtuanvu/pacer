@@ -8,7 +8,7 @@ The current Model choice section asks for a tier per difficulty through three fu
 
 ## Model choice (Settings › Dispatcher)
 
-1. **Answer card.** States how many executors the tier choice steers ("0 of 9 executors follow it") and why, computed from `dispatch.models`: an executor is *steered* when it has at least one exact model with a rated tier. When none are, the card offers *Open model matrix*.
+1. **Answer card.** States how many executors the tier choice steers ("0 of 9 executors follow it") and why, computed from `dispatch.models`: an executor is *steered* when it has at least one exact model with a rated tier. The card always offers *Open model matrix*, whatever the count.
 2. **Tier grid.** One row per difficulty (Simple, Standard, Complex), one column per tier (Small, Medium, Frontier), as radio groups. Picking a cell lowers earlier rows above it and raises later rows below it, so `dispatch.tierTargets` never decreases and the validation error can no longer be reached. Presets: Economical (small, small, medium), Balanced (small, medium, frontier), Quality first (medium, frontier, frontier), Frontier only. A non-matching mapping shows *Custom*.
 3. **Preview grouped by behavior**, using the same `selectModel` the dispatcher uses:
    - *Follow the tier*: per difficulty, the chosen model (with a note for an upward fallback when nothing smaller is free). An executor whose rated models are all below the target — and which has no unrated model — is skipped by automatic dispatch, shown as such, and runs its default only when picked directly (plain delegation), matching the "can take it" count in the column headers.

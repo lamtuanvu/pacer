@@ -63,6 +63,21 @@ const invalidCounts = snapshot();
 counts(invalidCounts).running = -1;
 counts(invalidCounts).attention = NaN;
 
+/** A stale planner reading shows the TUI's "stale reading" marker. */
+const stalePlanner = snapshot();
+planner(stalePlanner).stale = true;
+
+/** Exhaustion with a known reset wins over staleness. */
+const staleOut = snapshot();
+planner(staleOut).stale = true;
+planner(staleOut).verdict = "out";
+
+/** A stale reading without a known reset still shows the marker, not a figure. */
+const staleOutNoResets = snapshot();
+planner(staleOutNoResets).stale = true;
+planner(staleOutNoResets).verdict = "out";
+planner(staleOutNoResets).resetsAt = null;
+
 /** `Status`-shaped input: the `generatedAt`-present branch of lineFields.
  *  Mirrors the snapshot scenario for the installed agent status-bar capture path. */
 // Recorded as a loose, older Status shape on purpose: the renderer must tolerate it.
@@ -85,6 +100,12 @@ const statusInput = {
   executors: { ranked: [], excluded: [] },
 } as unknown as Status;
 
+/** The Status shape carries the same stale rule on its provider row. */
+const statusStale = {
+  ...statusInput,
+  providers: [{ ...statusInput.providers[0], stale: true }],
+} as unknown as Status;
+
 interface Input { label: string; value: ClientSnapshot | Status | null }
 const inputs: Input[] = [
   { label: "fixture", value: base },
@@ -95,8 +116,12 @@ const inputs: Input[] = [
   { label: "verdict-out-no-resetsAt", value: outNoResets },
   { label: "codex-agent", value: codex },
   { label: "invalid-counts", value: invalidCounts },
+  { label: "stale-planner", value: stalePlanner },
+  { label: "stale-out-with-resetsAt", value: staleOut },
+  { label: "stale-out-no-resetsAt", value: staleOutNoResets },
   { label: "null-input", value: null },
   { label: "status-shaped", value: statusInput },
+  { label: "status-shaped-stale", value: statusStale },
 ];
 // Keep every original case and add backend policy facts to both input shapes.
 for (const policy of [
