@@ -26,15 +26,22 @@ export type AskAdapter = "opencode" | "claude-code";
 
 /**
  * How ask mode restricts opencode over ACP (verified against opencode 2.2.3):
- * - Agent-permission deny hides built-ins (bash/shell, read, edit, webfetch, execute, task, …)
- *   from the model's list while leaving pacer MCP tools callable as `{server}_{tool}`.
- * - The `tool.use` policy still denies everything except `pacer_*`, so a leftover builtin attempt
- *   fails with "Blocked by configuration policy" (self-test evidence).
+ * - Agent-permission deny hides tools that ignore `tool.use` policy (notably Code Mode `execute`)
+ *   and other non-canary builtins (edit/write/task/…).
+ * - `shell`, `read` and `webfetch` stay visible so the ask-mode self-test can observe attempts;
+ *   the `tool.use` policy still denies everything except `pacer_*`, so those attempts fail with
+ *   "Blocked by configuration policy" (self-test evidence). Hiding them made real models skip the
+ *   canary and fail as inconclusive.
  * - MCP is not in OPENCODE_CONFIG_CONTENT: the host passes `pacer mcp --assistant` in the ACP
  *   session/new `mcpServers` field, with the grant only in env pairs.
  */
+/** Built-ins hidden from the agent list (policy alone does not stop Code Mode `execute`). */
+export const ASK_HIDDEN = [
+  "bash", "edit", "write", "execute", "task", "grep", "glob", "list", "patch",
+] as const;
+/** Every non-pacer builtin ask mode refuses: hidden ones plus the canary-visible policy-denied set. */
 export const ASK_REMOVED = [
-  "bash", "shell", "read", "edit", "write", "webfetch", "execute", "task", "grep", "glob", "list", "patch",
+  ...ASK_HIDDEN, "shell", "read", "webfetch",
 ] as const;
 
 /**
@@ -131,7 +138,7 @@ export function askConfig(o: { system: string; tools?: boolean }): string {
         mode: "primary",
         system: o.system,
         permissions: [
-          ...ASK_REMOVED.map(action => ({ action, resource: "*", effect: "deny" })),
+          ...ASK_HIDDEN.map(action => ({ action, resource: "*", effect: "deny" })),
           { action: "pacer_*", resource: "*", effect: "allow" },
         ],
       },

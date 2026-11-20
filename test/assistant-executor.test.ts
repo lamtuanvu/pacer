@@ -299,12 +299,16 @@ describe("ask-mode pieces", () => {
       .toBe("provider.no-route: Model unavailable");
   });
 
-  test("ask config hides built-ins and never embeds MCP or the grant", () => {
+  test("ask config hides Code Mode and never embeds MCP or the grant", () => {
     const config = JSON.parse(askConfig({ system: "s", tools: false }));
     expect(config.mcp).toBeUndefined();
     expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }]);
     expect(config.agents["pacer-ask"].permissions).toContainEqual({ action: "execute", resource: "*", effect: "deny" });
     expect(config.agents["pacer-ask"].permissions).toContainEqual({ action: "bash", resource: "*", effect: "deny" });
+    // Canary-visible: policy denies these; hiding them made real models skip the self-test.
+    expect(config.agents["pacer-ask"].permissions).not.toContainEqual({ action: "shell", resource: "*", effect: "deny" });
+    expect(config.agents["pacer-ask"].permissions).not.toContainEqual({ action: "read", resource: "*", effect: "deny" });
+    expect(config.agents["pacer-ask"].permissions).not.toContainEqual({ action: "webfetch", resource: "*", effect: "deny" });
     expect(JSON.stringify(config)).not.toContain("pag_");
   });
 
