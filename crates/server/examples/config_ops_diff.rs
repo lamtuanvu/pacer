@@ -194,13 +194,18 @@ async fn main() -> io::Result<()> {
         } else {
             None
         };
-        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
-            let bridge_result = if input["bridgeEcho"] == json!(true) {
-                pacer_server::native::core_bridge_params(name, &input["params"])
-                    .unwrap_or(Value::Null)
-            } else {
-                input.get("bridgeResult").cloned().unwrap_or(Value::Null)
+        if input["bridgeEcho"] == json!(true) {
+            // The request Core would receive, without answering it.
+            let output = match pacer_server::native::core_bridge_params(name, &input["params"]) {
+                Ok(value) => json!({"result":value}),
+                Err(error) => error.body(),
             };
+            serde_json::to_writer(&mut stdout, &output)?;
+            stdout.write_all(b"\n")?;
+            continue;
+        }
+        let core_bridge_sync = if matches!(name, "setup.check" | "setup.health" | "doctor.run") {
+            let bridge_result = input.get("bridgeResult").cloned().unwrap_or(Value::Null);
             Some(Box::pin(async move { Ok(bridge_result) }) as pacer_foundation::api::OpFuture<'_>)
         } else {
             None
