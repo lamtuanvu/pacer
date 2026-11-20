@@ -36,21 +36,21 @@ export function visibleFailure(failure: { message: string; item?: string } | nul
 export const actionSupported = (action: Action, ops: ReadonlySet<string>) => !["dispatch.retry", "dispatch.answer"].includes(action.op) || ops.has(action.op);
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** The row's figure for compact labels: the record's, or a legacy row's meter fields. */
-export function executorUsage(executor: ExecutorRow): { meter: number | null; figure: string } {
-  const view = usageView(executor.usageState, 0);
+export function executorUsage(executor: ExecutorRow, now: number): { meter: number | null; figure: string } {
+  const view = usageView(executor.usageState, now);
   if (executor.usageState) return { meter: view.meter, figure: view.figure };
   return { meter: executor.usedPct != null ? Math.round(executor.usedPct) : null, figure: executor.usedPct != null ? `${Math.round(executor.usedPct)}%` : "Usage unknown" };
 }
 
 /** Compact capacity values never invent an unknown usage percentage; the figure comes from the row's record. */
 const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);
-export function executorValue(executor: ExecutorRow): string {
+export function executorValue(executor: ExecutorRow, now: number): string {
   // Eligibility is authoritative; operational failures and old prose can coexist
   // with a permitted budget. Never let those legacy hints hide a real reading.
   if (!executor.enabled || executor.state === "disabled") return "off";
   // Freshness words never matter in the strip; the figure and verdict come from the one record (ADR 0030).
-  const { meter } = executorUsage(executor);
-  const exhausted = executor.usageState ? usageView(executor.usageState, 0).verdictLabel === "Out of quota" : executor.state === "exhausted";
+  const { meter } = executorUsage(executor, now);
+  const exhausted = executor.usageState ? usageView(executor.usageState, now).verdictLabel === "Out of quota" : executor.state === "exhausted";
   if (executor.eligibility?.state === "eligible" && meter !== null) return `${meter}%`;
   if (executor.eligibility?.state === "uncertain") return "?";
   if (executor.eligibility?.state === "ineligible") return executor.eligibility.budget === "exhausted" ? "out" : "off";

@@ -40,3 +40,12 @@ test("usage freshness constants live only in src/usage/freshness.ts and the pres
     || /\b(7200|21600)\b/.test(file.text));
   expect(offenders.map(f => f.path)).toEqual([]);
 });
+
+test("resets and capture ages are formatted by the shared clock helpers, not toLocaleString or ago", () => {
+  const offenders = files.filter(file =>
+    // toLocaleDateString/toLocaleString formatting a reset or an "until" — the one reset
+    // format is resetWords/clockParts; ago(capturedAt) bypasses freshnessWords.
+    /\.toLocale(?:Date)?String\([^)]*(?:resetsAt|until|capturedAt)/.test(file.text)
+    || /\bago\(\s*(?:[a-zA-Z_$][\w$]*\.)?capturedAt\b/.test(file.text));
+  expect(offenders.map(f => f.path)).toEqual([]);
+});

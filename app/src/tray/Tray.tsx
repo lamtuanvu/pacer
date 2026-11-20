@@ -11,7 +11,7 @@ import type { Action } from "../../../src/attention/types";
 import { agentInfo, markAgent, runnerAgent } from "../../../src/view-model/agents";
 import { backIn, clock, durationWords } from "../../../src/view-model/time";
 import { attentionStatus, paceStatus, taskStatus } from "../../../src/view-model/words";
-import { usageView } from "../../../src/view-model/usage";
+import { usageView, captionReset } from "../../../src/view-model/usage";
 import { plannerMeter } from "../../../src/view-model/selectors";
 import { AgentMark } from "../ds/AgentMark";
 import { UsageMeter } from "../ds/UsageMeter";
@@ -192,7 +192,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   const plannerReset = plannerView?.reset || (planner?.resetsAt != null ? resetWords(planner.resetsAt, snapshot!.at) : "");
   const pace = paceStatus(planner?.usageState?.verdict ?? planner?.verdict ?? "unknown");
   const tone = pace.tone;
-  const offExecutors = model?.executors.filter(executor => executorValue(executor) === "off") ?? [];
+  const offExecutors = model?.executors.filter(executor => executorValue(executor, snapshot!.at) === "off") ?? [];
   const mode = snapshot?.pause ? "Paused" : ({ normal: "Normal", relaxed: "Relaxed", strict: "Strict" } as Record<string, string>)[planner?.mode ?? snapshot?.mode?.mode ?? snapshot?.budget?.mode ?? "normal"] ?? "Normal";
   const pauseLabel = snapshot?.pause ? "Resume delegation" : "Pause delegation for 1 hour";
   const next = model?.queued[0];
@@ -205,7 +205,7 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
     <section className="tray-planner" aria-label="Planner budget">
       <div className="tray-line">{planner && <AgentMark agent={planner.agent} size={18} labelled={false} />}<strong title={`${planner ? agentInfo(planner.agent).name : "pacer"} planner`}>{planner ? agentInfo(planner.agent).name : "pacer"}</strong><span className="tray-planner-label">planner</span><span className="tray-grow" /><Pill tone={pace.tone} title={pace.label}><StatusGlyph status={pace} /><span className="tray-pace-label">{pace.label}</span></Pill><span className="tray-mode" title={mode}><span className="tray-mode-label">{mode}</span></span></div>
       <UsageMeter used={plannerMeterValue} pace={planner?.pacePct ?? null} tone={tone} size="bar" label="Planner usage" text="none" stale={planner?.usageState?.freshness === "historical"} />
-      <div className="tray-caption"><span>{plannerMeterValue !== null ? `${planner?.usageState ? plannerView!.summaryUsed : `${plannerFigure} of ${plannerWindow} used`} · pace ${planner?.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : plannerFigure}</span><span>{plannerReset.startsWith("resets ") ? plannerReset : "reset unknown"}</span></div>
+      <div className="tray-caption"><span>{plannerMeterValue !== null ? `${planner?.usageState ? plannerView!.summaryUsed : `${plannerFigure} of ${plannerWindow} used`} · pace ${planner?.pacePct != null ? Math.round(planner.pacePct) + "%" : "unknown"}` : plannerFigure}</span><span>{captionReset(plannerReset) ?? "reset unknown"}</span></div>
       {model && <div className="tray-policy">{model.policy}</div>}
     </section>
     {snapshot?.pause && <div className="tray-paused" role="status"><Icon name="pause" /><span className="tray-grow"><strong>Delegation paused</strong><span className="tray-reason">New work waits {snapshot.pause.until === null ? "until you resume" : `until ${timeOnly(snapshot.pause.until)}`}{!!model?.waiting && ` · ${model.waiting} ${model.waiting === 1 ? "task" : "tasks"} waiting`}</span></span><Button size="sm" busy={busy} disabled={sessionEnded} onClick={() => act(() => api.call("delegation.resume", {}))}>Resume</Button></div>}
@@ -240,9 +240,9 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
         </ListRowLink>)}
         {waitingRow}
       </section> : waitingRow}
-      <section ref={strip} className="tray-executors" aria-label="Executors">{model.executors.filter(executor => executorValue(executor) !== "off").map(executor => {
-        const value = executorValue(executor);
-        const usage = executorUsage(executor);
+      <section ref={strip} className="tray-executors" aria-label="Executors">{model.executors.filter(executor => executorValue(executor, snapshot!.at) !== "off").map(executor => {
+        const value = executorValue(executor, snapshot!.at);
+        const usage = executorUsage(executor, snapshot!.at);
         const readiness = executorEligibility(executor, snapshot.at);
         const valueStatus = value === "?" || value === "—" ? { ...readiness, tone: "muted" } : value.endsWith("%") ? executorPace(executor, snapshot) : readiness;
         const label = `${agentInfo(executor.agent).name}: ${readiness.label} · ${readiness.detail}${readiness.age ? ` · ${readiness.age}` : ""} · ${executorPace(executor, snapshot).label}${executor.reason ? ` · ${executor.reason}` : ""} · ${executor.slots.used}/${executor.slots.max} parallel tasks${usage.meter !== null ? ` · ${usage.figure} used${executor.pacePct != null ? ` · pace ${Math.round(executor.pacePct)}%` : ""}` : ""}`;

@@ -135,7 +135,7 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
- expect(html).toContain(`17% of week · resets 07:00`);expect(html).not.toContain('ON_PACE');
+ expect(html).toContain(`17% of week · reset due`);expect(html).not.toContain('ON_PACE');
  for(const label of ['No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
  expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));

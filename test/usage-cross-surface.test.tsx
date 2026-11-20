@@ -98,7 +98,7 @@ for (const state of states) {
     const section = html.slice(html.indexOf(`aria-label="${state.account} usage"`));
     const figureRe = /Out of quota|No usage figure|Unmetered|Usage unknown|\d+%/;
     const popoverFigure = section.match(figureRe)?.[0];
-    const popoverReset = section.match(/resets [^<"]*|reset unknown/)?.[0];
+    const popoverReset = section.match(/resets [^<"]*|reset due|reset unknown/)?.[0];
     const popoverFreshness = section.match(/Updated \S+ ago|Reading \S+ old · refresh|Reading of unknown age · refresh/)?.[0];
 
     const record = usageView(summaryRow.usageState, ctx.now);

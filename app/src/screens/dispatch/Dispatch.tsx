@@ -340,7 +340,7 @@ function NarrowPlanner({ snapshot, now, routing, shortWindowPct }: { snapshot: C
   const next = routing?.explain ? nextFromExplanation(routing.explain)?.next : routing?.data?.ranked?.[0]?.id;
   const caption = (budget?.caption ?? "Planner usage is not measured yet").split(" · ");
   const mode = modeWords(p?.mode || snapshot.mode?.mode || "");
-  const reset = caption.findIndex(part => part.startsWith("resets "));
+  const reset = caption.findIndex(part => part.startsWith("resets ") || part === "reset due");
   if (mode) caption.splice(reset < 0 ? caption.length : reset, 0, mode);
   return <section className="pc-narrow-planner" aria-label="Planner budget">
     {p ? <><div className="pc-dispatch-who"><AgentMark agent={p.agent} size={20} labelled={false} /><strong className="grow">{agentInfo(p.agent).name}</strong><StatusPill status={budget?.meter && !budget.meter.live ? { tone: "neutral", glyph: "◷", label: "Historical usage" } : { ...paceStatus(verdict), label: plannerPace(verdict).label }} /></div>

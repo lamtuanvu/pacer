@@ -60,7 +60,7 @@ import {
   executorReadiness,
   machineHardCap,
 } from "../../../../src/view-model/capacity";
-import { usageView, windowWords, resetWords } from "../../../../src/view-model/usage";
+import { usageView, windowWords, resetWords, captionReset } from "../../../../src/view-model/usage";
 import { desktopHost } from "../../data/desktop";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
@@ -321,7 +321,7 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
         <div className="pc-budget-identity"><AgentMark agent={agent} size={20}/><b>{name}</b><Pill tone="info">Planner</Pill>{mode && <Pill tone={mode === "relaxed" ? "good" : mode === "strict" ? "warn" : mode === "emergency" ? "bad" : "neutral"}>{modeWords(mode)} mode</Pill>}</div>
         {sentence && <strong className="pc-budget-sentence">{sentence}</strong>}
         <UsageMeter used={plannerView.meter} pace={planner?.pacePct ?? null} tone={plannerView.tone} size="bar" label={`${name} ${planner?.window ?? "budget"} usage`} stale={plannerRecord?.freshness === "historical"} text="none"/>
-        <span className="pc-settings-board__caption">{[plannerView.meter !== null ? (plannerRecord ? plannerView.summaryUsed : `${plannerView.figure}${plannerView.window ? ` of ${plannerView.window}` : ""} used`) : plannerView.figure, planner?.pacePct != null ? `pace ${percentage(planner.pacePct)}` : null, value("pacing.planner_reserve") ? `${percentage(Number(value("pacing.planner_reserve")))} kept for planning and review` : null, plannerView.reset.startsWith("resets ") ? plannerView.reset : null].filter(Boolean).join(" · ")}</span>
+        <span className="pc-settings-board__caption">{[plannerView.meter !== null ? (plannerRecord ? plannerView.summaryUsed : `${plannerView.figure}${plannerView.window ? ` of ${plannerView.window}` : ""} used`) : plannerView.figure, planner?.pacePct != null ? `pace ${percentage(planner.pacePct)}` : null, value("pacing.planner_reserve") ? `${percentage(Number(value("pacing.planner_reserve")))} kept for planning and review` : null, captionReset(plannerView.reset)].filter(Boolean).join(" · ")}</span>
       </div>
       <div className="pc-budget-modes" role="img" aria-label={`Pace modes: Emergency, Strict, Normal, Relaxed; ${mode && modes.includes(mode) ? `${modeWords(mode)} is active` : "active mode unavailable"}`}>
         <span className="pc-settings-board__label">Mode is set by pace</span>

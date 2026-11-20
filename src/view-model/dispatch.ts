@@ -7,7 +7,7 @@ import { compactCount, scopedTaskTree, type TaskAttention, type TaskNodeView } f
 import { attentionStatus, executorLabel, paceStatus } from "./words";
 import type { PlannerMeter } from "../api/read-model/types";
 import { ago, clock } from "./time";
-import { usageView, windowWords, resetWords } from "./usage";
+import { usageView, windowWords, resetWords, captionReset } from "./usage";
 import { knownRouteReason, routeReasonCopy, type RouteReason } from "./route-explanation";
 
 export type NeedsYouCard =
@@ -173,7 +173,7 @@ export function plannerCaption(p: PlannerMeter, now: number, shortWindowPct?: nu
   return [
     meter !== null ? (p.usageState ? view.summaryUsed : `${meter}% of ${window} used`) : null,
     p.pacePct !== null ? `pace ${Math.round(p.pacePct)}%` : null,
-    reset.startsWith("resets ") ? reset : null,
+    captionReset(reset),
     // The planner's own window may already be the 5-hour one; then it is not stated twice.
     typeof shortWindowPct === "number" && window.toLowerCase() !== "5 h" ? `5h window ${Math.round(shortWindowPct)}%` : null,
   ].filter(Boolean).join(" · ");

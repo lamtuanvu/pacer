@@ -50,16 +50,19 @@ export function freshnessWords(state: Pick<UsageState, "freshness" | "observedAt
   return "";
 }
 
-/** The one reset format: same day "resets 14:00", within 7 days "resets Fri 14:00", else "resets 11 Dec". */
+/** The one reset format: same day "resets 14:00", within 7 days "resets Fri 14:00", else "resets 11 Dec"; a reset already past is "reset due". */
 export function resetWords(resetsAt: number | null, now: number): string {
   if (resetsAt === null) return "reset unknown";
+  // A reset already past is due, not a stale-looking future time.
+  if (resetsAt <= now) return "reset due";
   const { days, time, weekday, date } = clockParts(resetsAt, now);
   // clockParts counts backwards (now − at); a reset sits in the future, so the distance is −days.
-  const ahead = -days;
-  if (ahead <= 0) return `resets ${time}`;
-  if (ahead < 7) return `resets ${weekday} ${time}`;
-  return `resets ${date}`;
+  if (days === 0) return `resets ${time}`;
+  return -days < 7 ? `resets ${weekday} ${time}` : `resets ${date}`;
 }
+
+/** The reset words a caption shows: null when nothing is known, including the placeholder. */
+export const captionReset = (reset: string): string | null => reset && reset !== "reset unknown" ? reset : null;
 
 /** The record's figure in words: absence of a figure is a state, never a number (spec section 5). */
 export function figureWords(state: UsageState | null | undefined): { figure: string; meter: number | null } {

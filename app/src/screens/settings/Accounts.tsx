@@ -3,7 +3,7 @@ import { markAgent } from "../../../../src/view-model/agents";
 import { useState } from "preact/hooks";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { accountLabel, accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
-import { usageView } from "../../../../src/view-model/usage";
+import { usageView, captionReset } from "../../../../src/view-model/usage";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import { Disclosure, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -66,7 +66,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
                       {view.meter !== null && <UsageMeter used={view.meter} pace={historical ? null : summary?.pacePct ?? null} tone={historical ? "neutral" : view.tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={historical} />}
-                      <div className="u3-muted">{[spend || view.summary, view.reset.startsWith("resets ") ? view.reset : null].filter(Boolean).join(" · ")}{freshness && ` · ${freshness}`}</div>
+                      <div className="u3-muted">{[spend || view.summary, captionReset(view.reset)].filter(Boolean).join(" · ")}{freshness && ` · ${freshness}`}</div>
                       <div className="u3-muted">{view.source}</div>
                     </td>
                     <td data-label="Status">

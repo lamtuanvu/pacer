@@ -137,6 +137,8 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
     // The account's one usage record; the deprecated raw reading is not read (ADR 0030).
     const state = account.usageState;
     const view = usageView(state, now);
+    // Source and read failure render only when known; an unknown source is not a label (UI-10).
+    const meta = [view.source === "Source unknown" ? null : view.source, state?.error ? "Reading failed" : null].filter(Boolean).join(" · ");
     return <section className="pc-usage-account" key={account.name} aria-label={`${account.name} usage`}>
       <div className="pc-usage-account__head"><AgentMark agent={markAgent(account.kind === "claude" ? "claude-code" : account.kind, account.name)} size={20} labelled={false} /><strong>{account.name}</strong><span className="muted">{[view.figure, view.freshness].filter(Boolean).join(" · ")}</span></div>
       {state?.windows.length ? state.windows.map(window => {
@@ -149,7 +151,7 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
           <span className="muted">{row.reset}</span>
         </div>;
       }) : <p className="muted">{view.figure} · no quota windows reported.</p>}
-      <p className="pc-usage-account__meta muted">{[view.source, state?.error ? "Reading failed" : null].filter(Boolean).join(" · ")}</p>
+      {meta && <p className="pc-usage-account__meta muted">{meta}</p>}
     </section>;
   })}</div>;
 }
