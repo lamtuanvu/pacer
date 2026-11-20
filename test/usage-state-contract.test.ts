@@ -88,9 +88,21 @@ async function surfaces(ctx: Ctx, s: Strategy, account: string, planner?: string
       record.blockedRunners.some(b => b.runner === p.id && b.model === (s.runners[p.id]?.model ?? "default") && b.reason === "quota_failure")))
       expect(record.verdict).toBe("EXHAUSTED");
   }
-  // The hook quotes the same figure and verdict in words.
+  // The hook quotes the same windows: each window's verdict, its reset marker when it
+  // rolled, and its staleness marker — the record owns all three.
   const text = renderHook(st, planner ?? s.planner.agent);
-  if (record.figure) expect(text).toContain(`${record.figure.window} ${record.figure.usedPct.toFixed(0)}%`);
+  const fmt = (w: (typeof record.windows)[number]) => {
+    if (w.usedPct === null) return `${w.name} ?`;
+    let s = `${w.name} ${w.usedPct.toFixed(0)}%`;
+    if (w.pace !== undefined) s += ` (pace ${w.pace.toFixed(0)}%, ${(w.activeHoursLeft ?? 0).toFixed(0)} active-h left)`;
+    if (w.rolled) s += " [reset since last reading]";
+    return `${s} ${w.verdict}`;
+  };
+  for (const w of record.windows) expect(text).toContain(`${fmt(w)}${w.stale ? " [historical]" : ""}`);
+  if (record.figure && !record.windows.some(w => w.name === record.figure!.window)) {
+    // A limit figure without a matching window still quotes its verdict in words.
+    expect(text.toLowerCase()).toContain(record.figure.window);
+  }
   return {st, record, text};
 }
 
@@ -280,12 +292,16 @@ test("(h) two limits: a record quotes the latest end and its rows quote the figu
 
 test("mode follows the planner's runner record, not the account summary", async () => {
   const ctx = withLoginIndicators(fakeCtx({now}));
-  const s = load(ctx, CLAUDE);
+  const s = load(ctx, PAIRED);
   const scope = accountEvidenceScope(s.accounts.claude!, s.hosts);
-  markExhausted(ctx, "claude", now + 3600, {scope: {...scope, runner: "claude-code", model: "default", host: "local"}});
+  // The limit is on the planner runner only; the remote runner stays unblocked, so the
+  // account is not EXHAUSTED while the planner still holds emergency.
+  markExhausted(ctx, "claude-code", now + 3600, {scope: {...scope, runner: "claude-code", model: "default", host: "local"}});
   const st = await computeStatus(ctx, s, {profile: null});
   expect(st.mode).toBe("emergency");
-  expect(st.accounts!.find(a => a.name === "claude")!.verdict).toBe("EXHAUSTED");
+  expect(st.accounts!.find(a => a.name === "claude")!.verdict).not.toBe("EXHAUSTED");
+  expect(st.accounts!.find(a => a.name === "claude")!.usageState!.blockedRunners.map(b => b.runner))
+    .toEqual(["claude-code"]);
 });
 
 test("an expired mark stops constraining records and eligibility", async () => {

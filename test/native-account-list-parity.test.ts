@@ -71,10 +71,14 @@ function home(): string {
 }
 
 // Unmetered readings are captured at the reading process's clock; the usage record's
-// observation and evaluation times are the computing process's clock the same way.
+// evaluation time is the computing process's clock. The record's error.at is the failed
+// read's time in the computing process, so the native and forwarded runs cannot agree on
+// it and it is masked precisely; observedAt is compared (it is null after D2), and so is
+// every other timestamp.
 const clocks = (text: string, dir: string) => text.replaceAll(dir, "<home>")
   .replace(/"capturedAt":[\d.]+/g, '"capturedAt":"<now>"')
-  .replace(/"(evaluatedAt|observedAt|at)":[\d.]+/g, '"$1":"<now>"');
+  .replace(/"(evaluatedAt)":([\d.]+)/g, '"$1":"<now>"')
+  .replace(/("error":\{"message":"(?:[^"\\]|\\.)*","at":)[\d.]+/g, '$1"<now>"');
 
 const CLOSED_PORT = closedPort();
 
@@ -135,6 +139,17 @@ test.skipIf(!front)("account.list rows and account.signin refusals match forced 
   const rows = JSON.parse(native[0]!).result as Record<string, unknown>[];
   expect(rows.map(row => row.name)).toEqual(["7", "claude", "codex", "work", "out", "mail", "linked", "gone", "ep", "fk", "ext"]);
   const byName = Object.fromEntries(rows.map(row => [row.name, row]));
+  // Every row carries the usage record and the raw readings as diagnostics.
+  for (const name of Object.keys(byName)) {
+    expect(byName[name]).toHaveProperty("usageState");
+    expect(byName[name]).toHaveProperty("diagnostics");
+  }
+  // The records quote the same figure shape and verdict fields across native and forwarded.
+  for (const name of Object.keys(byName)) {
+    expect(byName[name].usageState).toMatchObject({scope: {account: name}});
+    expect(typeof byName[name].usageState.freshness).toBe("string");
+    expect(byName[name].diagnostics).toMatchObject({readings: expect.any(Array)});
+  }
   expect(byName.linked).toMatchObject({ label: "Team Codex", runnable: true });
   expect(byName.gone).toMatchObject({ runnable: false, folder: null });
   expect(byName.mail).toMatchObject({ home: "[redacted]", folder: "[redacted]" });
