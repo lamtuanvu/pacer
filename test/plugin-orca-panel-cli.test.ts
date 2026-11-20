@@ -32,7 +32,7 @@ test("installOrcaPanel runs exactly `orca plugin install <pluginDir> --json` and
 });
 
 test("installOrcaPanel surfaces approval_required as needsApprove, not a crash", async () => {
-  const run: RunFn = async () => ({ code: 3, stdout: "", stderr: '{"error":{"code":"approval_required","data":{"fingerprint":"ap1-x"}}}' });
+  const run: RunFn = async () => ({ code: 3, stdout: "", stderr: '{"error":{"code":"approval_required","data":{"approvalFingerprint":"ap1-x"}}}' });
   const r = await installOrcaPanel(run, "src");
   expect(r).toEqual({ ok: false, error: expect.any(String), needsApprove: "ap1-x" });
 });
@@ -51,7 +51,7 @@ test("updateOrcaPanel runs `orca plugin update <id> --json`", async () => {
 });
 
 test("updateOrcaPanel reports a failed update instead of crashing", async () => {
-  const run: RunFn = async () => ({ code: 3, stdout: "", stderr: '{"error":{"code":"approval_required","data":{"fingerprint":"ap2-y"}}}' });
+  const run: RunFn = async () => ({ code: 3, stdout: "", stderr: '{"error":{"code":"approval_required","data":{"approvalFingerprint":"ap2-y"}}}' });
   const r = await updateOrcaPanel(run);
   expect(r.ok).toBe(false);
   if (!r.ok) expect(r.error).toContain("ap2-y");

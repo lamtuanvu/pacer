@@ -29,7 +29,7 @@ function orcaErrorOutcome(error: Record<string, unknown>): OrcaOutcome {
   const message = String(error.message ?? "");
   if (code === "approval_required") {
     const data = isObj(error.data) ? error.data : {};
-    const fingerprint = typeof data.fingerprint === "string" ? data.fingerprint : "";
+    const fingerprint = typeof data.approvalFingerprint === "string" ? data.approvalFingerprint : "";
     return {
       ok: false,
       error: message || `orca needs approval for the ${ORCA_PANEL_PLUGIN_ID} plugin (fingerprint ${fingerprint})`,
