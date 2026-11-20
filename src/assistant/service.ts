@@ -391,7 +391,13 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
         // Pacer backends need the account connection URL; executor turns get spawn pins instead.
-        ...(settings.backend === "pacer" ? { endpoint: { baseUrl: endpoint.baseUrl } } : {}),
+        // key=none (local servers) is an explicit keyless flag so the native plugin omits Authorization.
+        ...(settings.backend === "pacer" ? {
+          endpoint: {
+            baseUrl: endpoint.baseUrl,
+            ...(endpoint.account.connection?.key === "none" ? { keyless: true as const } : {}),
+          },
+        } : {}),
         ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };

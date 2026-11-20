@@ -1,11 +1,15 @@
 //! Rig tools that forward each call to `capability.assistant.tool`.
+//!
+//! Implements [`ToolDyn`] directly (not [`Tool`]) so the host's result text is returned
+//! as-is. Rig's blanket `Tool` → `ToolDyn` adapter JSON-encodes `Output`, which would
+//! turn a `String` into a quoted JSON string literal in the tool message.
 
 use crate::delta;
 use pacer_plugin::{Host, Progress};
 use rig::completion::ToolDefinition;
-use rig::tool::Tool;
+use rig::tool::{ToolDyn, ToolError};
+use rig::wasm_compat::WasmBoxedFuture;
 use serde_json::{Value, json};
-use std::future::Future;
 use std::sync::{
     Arc,
     atomic::{AtomicUsize, Ordering},
@@ -29,48 +33,37 @@ pub struct HostTool {
     pub max_rounds: usize,
 }
 
-impl Tool for HostTool {
-    // Overridden by [`name`](Self::name); each instance carries its own name.
-    const NAME: &'static str = "host_tool";
-
-    type Error = ForwardError;
-    type Args = Value;
-    type Output = String;
-
+impl ToolDyn for HostTool {
     fn name(&self) -> String {
         self.name.clone()
     }
 
-    fn definition(
-        &self,
-        _prompt: String,
-    ) -> impl Future<Output = ToolDefinition> + Send + Sync {
+    fn definition(&self, _prompt: String) -> WasmBoxedFuture<'_, ToolDefinition> {
         let def = ToolDefinition {
             name: self.name.clone(),
             description: self.description.clone(),
             parameters: self.parameters.clone(),
         };
-        async move { def }
+        Box::pin(async move { def })
     }
 
-    fn call(
-        &self,
-        args: Self::Args,
-    ) -> impl Future<Output = Result<Self::Output, Self::Error>> + Send {
+    fn call(&self, args: String) -> WasmBoxedFuture<'_, Result<String, ToolError>> {
         let this = self.clone();
-        async move {
+        Box::pin(async move {
             let used = this.rounds.fetch_add(1, Ordering::SeqCst);
             if used >= this.max_rounds {
-                return Err(ForwardError(format!(
+                return Err(ToolError::ToolCallError(Box::new(ForwardError(format!(
                     "stopped after {} tool rounds",
                     this.max_rounds
-                )));
+                )))));
             }
             delta::activity(
                 &this.progress,
                 &this.turn_id,
                 &format!("Using {}…", this.name),
             );
+            let args: Value =
+                serde_json::from_str(&args).map_err(ToolError::JsonError)?;
             let result = this
                 .host
                 .call(
@@ -82,13 +75,14 @@ impl Tool for HostTool {
                     }),
                 )
                 .await
-                .map_err(|e| ForwardError(e.message))?;
+                .map_err(|e| ToolError::ToolCallError(Box::new(ForwardError(e.message))))?;
             let content = result
                 .get("content")
                 .and_then(Value::as_str)
                 .unwrap_or("")
                 .to_owned();
+            // Pass through as plain text — do not JSON-encode again.
             Ok(content)
-        }
+        })
     }
 }

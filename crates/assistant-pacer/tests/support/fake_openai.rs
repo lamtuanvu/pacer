@@ -34,6 +34,11 @@ pub enum ScriptedReply {
         status: u16,
         body: String,
     },
+    /// Like [`Text`](Self::Text) but omit the `created` field some openai-compatible servers skip.
+    TextWithoutCreated {
+        content: String,
+        usage: (u64, u64),
+    },
 }
 
 pub struct FakeOpenAi {
@@ -105,6 +110,14 @@ impl FakeOpenAi {
                             });
                             let parsed: Value =
                                 serde_json::from_str(&body).unwrap_or(Value::Null);
+                            // Spec §7: max_tokens must reach the provider on every completion call.
+                            assert!(
+                                parsed
+                                    .get("max_tokens")
+                                    .and_then(Value::as_u64)
+                                    .is_some(),
+                                "chat completions body must include max_tokens, got {parsed}"
+                            );
                             reqs.lock().unwrap().push(RecordedRequest {
                                 body: parsed,
                                 authorization,
@@ -142,6 +155,24 @@ impl FakeOpenAi {
                                                 "total_tokens": usage.0 + usage.1
                                             }
                                         }),
+                                        ScriptedReply::TextWithoutCreated { content, usage } => {
+                                            // No `created` — CompatHttp defaults it for Rig.
+                                            json!({
+                                                "id": "chatcmpl-test",
+                                                "object": "chat.completion",
+                                                "model": "test-model",
+                                                "choices": [{
+                                                    "index": 0,
+                                                    "message": { "role": "assistant", "content": content },
+                                                    "finish_reason": "stop"
+                                                }],
+                                                "usage": {
+                                                    "prompt_tokens": usage.0,
+                                                    "completion_tokens": usage.1,
+                                                    "total_tokens": usage.0 + usage.1
+                                                }
+                                            })
+                                        }
                                         ScriptedReply::ToolCalls { calls, usage } => {
                                             let tool_calls: Vec<Value> = calls
                                                 .into_iter()

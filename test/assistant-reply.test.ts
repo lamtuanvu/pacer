@@ -107,6 +107,7 @@ describe("the turn-level plugin interface", () => {
     };
     expect(assistantReplyParams.safeParse(valid).success).toBe(true);
     expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "https://api.example/v1" } }).success).toBe(true);
+    expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "https://api.example/v1", keyless: true } }).success).toBe(true);
     expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "" } }).success).toBe(false);
     expect(assistantReplyParams.safeParse({ ...valid, endpoint: { baseUrl: "x", extra: 1 } }).success).toBe(false);
     expect(assistantReplyParams.safeParse({ ...valid, extra: 1 }).success).toBe(false);
@@ -534,8 +535,38 @@ describe("assistant-pacer native host routing", () => {
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("baseUrl=http://x/v1");
+    // strategy() uses connection.key: "none" → host must set keyless.
+    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=true");
     expect(turn.usage).toEqual(pacerStubUsage);
+  });
+
+  test("backend:pacer turns omit keyless when the account holds a real key source", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const withFileKey = () => ({
+      ...strategy(),
+      accounts: {
+        ep: {
+          kind: "endpoint", model: null,
+          connection: { api: "openai-compatible", base_url: "http://x/v1", key: "file", models: [{ id: "m1" }] },
+        },
+      },
+    }) as unknown as Strategy;
+    const deps: AssistantDeps = {
+      strategy: withFileKey, status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=false");
   });
 
   test("assistant-pacer contributes reply for the pacer backend", () => {

@@ -39,6 +39,12 @@ fn base_params(message: &str, tools: Value, limits: Value, base_url: &str) -> Va
     })
 }
 
+fn keyless_params(message: &str, tools: Value, limits: Value, base_url: &str) -> Value {
+    let mut params = base_params(message, tools, limits, base_url);
+    params["endpoint"]["keyless"] = json!(true);
+    params
+}
+
 async fn start_harness() -> Harness {
     let mut h = Harness::start(
         plugin(),
@@ -127,10 +133,83 @@ async fn plain_answer() {
         deltas.iter().any(|(_, p)| p["kind"] == "text"),
         "expected a text delta, got {deltas:?}"
     );
-    assert_eq!(
-        fake.requests.lock().unwrap()[0].authorization.as_deref(),
-        Some("Bearer test-key")
+    let (auth, max_tokens) = {
+        let reqs = fake.requests.lock().unwrap();
+        (
+            reqs[0].authorization.clone(),
+            reqs[0].body["max_tokens"].clone(),
+        )
+    };
+    assert_eq!(auth.as_deref(), Some("Bearer test-key"));
+    assert_eq!(max_tokens, 1024);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn keyless_endpoint_omits_authorization() {
+    let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::Text {
+        content: "local model".into(),
+        usage: (4, 2),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    // secrets.resolve would return a key; keyless must not call it / must not send Authorization.
+    h.on_capability("capability.secrets.resolve", |_| {
+        panic!("keyless turns must not resolve a key");
+    });
+    let result = h
+        .call(
+            "assistant.reply",
+            keyless_params("hi", json!([]), limits(0, 30_000), &fake.base_url),
+        )
+        .await
+        .expect("keyless reply");
+    assert_eq!(result["message"], "local model");
+    assert!(
+        fake.requests.lock().unwrap()[0].authorization.is_none(),
+        "keyless must omit Authorization, got {:?}",
+        fake.requests.lock().unwrap()[0].authorization
     );
+    h.close().await;
+}
+
+#[tokio::test]
+async fn empty_resolved_key_still_fails_closed() {
+    let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::Text {
+        content: "should not run".into(),
+        usage: (1, 1),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.secrets.resolve", |_| Ok(json!({ "value": "   " })));
+    let err = h
+        .call(
+            "assistant.reply",
+            base_params("hi", json!([]), limits(0, 30_000), &fake.base_url),
+        )
+        .await
+        .expect_err("whitespace key");
+    assert_eq!(err.code, "plugin_unavailable");
+    assert!(fake.requests.lock().unwrap().is_empty());
+    h.close().await;
+}
+
+#[tokio::test]
+async fn response_without_created_is_tolerated() {
+    let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::TextWithoutCreated {
+        content: "no created field".into(),
+        usage: (3, 1),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let result = h
+        .call(
+            "assistant.reply",
+            base_params("hi", json!([]), limits(0, 30_000), &fake.base_url),
+        )
+        .await
+        .expect("missing created");
+    assert_eq!(result["message"], "no created field");
     h.close().await;
 }
 
@@ -160,7 +239,7 @@ async fn tool_call_loop_forwards_to_host() {
         assert_eq!(params["name"], "snapshot");
         Ok(json!({
             "name": "snapshot",
-            "content": "<data>3 tasks</data>",
+            "content": "<data tool=\"snapshot\">\n{\"open\":3}\n</data>",
             "ok": true
         }))
     });
@@ -189,6 +268,30 @@ async fn tool_call_loop_forwards_to_host() {
         .into_iter()
         .any(|(m, p)| m == "assistant.delta" && p["kind"] == "activity");
     assert!(activity, "expected an activity delta for the tool");
+    // Tool message content must be the host text as-is (not a JSON string literal of it).
+    let second_body = fake.requests.lock().unwrap()[1].body.clone();
+    let tool_msg = second_body["messages"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .find(|m| m["role"] == "tool")
+        .expect("tool message on second request");
+    let tool_text = match &tool_msg["content"] {
+        Value::String(s) => s.clone(),
+        Value::Array(parts) => parts
+            .iter()
+            .find_map(|p| p.get("text").and_then(Value::as_str).map(str::to_owned))
+            .unwrap_or_default(),
+        other => panic!("unexpected tool content shape: {other}"),
+    };
+    assert!(
+        tool_text.starts_with("<data tool="),
+        "tool content must start with <data tool=, got {tool_text:?}"
+    );
+    assert!(
+        !tool_text.starts_with('"'),
+        "tool content must not be a JSON-encoded string, got {tool_text:?}"
+    );
     h.close().await;
 }
 

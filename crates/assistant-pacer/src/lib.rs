@@ -4,6 +4,7 @@
 //! call; each forwards to `capability.assistant.tool`. No MCP, no instruction files, no session.
 
 mod delta;
+mod http;
 mod reply;
 mod tools;
 

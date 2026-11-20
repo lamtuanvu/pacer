@@ -1441,6 +1441,7 @@ name = "pacer-assistant-pacer"
 version = "0.0.0"
 dependencies = [
  "pacer-plugin",
+ "reqwest",
  "rig-core",
  "serde",
  "serde_json",

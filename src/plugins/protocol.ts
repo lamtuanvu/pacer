@@ -233,8 +233,10 @@ export const assistantReplyParams = z.object({
    * Pacer backend only: the chosen account's openai-compatible base URL. The host sends this from
    * the account connection (`context.backend.baseUrl` on the older respond path); the plugin must
    * not read it from `capability.config.get`. Absent or empty means the plugin fails closed.
+   * `keyless: true` means `connection.key` is `none` (local LM Studio/Ollama): the plugin must call
+   * without an Authorization header. Other key sources that resolve empty still fail closed.
    */
-  endpoint: z.object({ baseUrl: z.string().min(1).max(2048) }).strict().optional(),
+  endpoint: z.object({ baseUrl: z.string().min(1).max(2048), keyless: z.boolean().optional() }).strict().optional(),
   /**
    * Executor backend only: the host-issued `opencode run` commands for this turn, as the plugin
    * must echo them to `capability.process.spawn`. Their config, which carries the turn's grant, is

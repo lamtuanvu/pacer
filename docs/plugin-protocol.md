@@ -9743,6 +9743,9 @@ Params:
           "type": "string",
           "minLength": 1,
           "maxLength": 2048
+        },
+        "keyless": {
+          "type": "boolean"
         }
       },
       "required": [

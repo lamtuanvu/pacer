@@ -80,6 +80,9 @@ pub mod error {
 ///          "type": "string",
 ///          "maxLength": 2048,
 ///          "minLength": 1
+///        },
+///        "keyless": {
+///          "type": "boolean"
 ///        }
 ///      },
 ///      "additionalProperties": false
@@ -544,6 +547,9 @@ impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
 ///      "type": "string",
 ///      "maxLength": 2048,
 ///      "minLength": 1
+///    },
+///    "keyless": {
+///      "type": "boolean"
 ///    }
 ///  },
 ///  "additionalProperties": false
@@ -555,6 +561,8 @@ impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
 pub struct AssistantReplyParamsEndpoint {
     #[serde(rename = "baseUrl")]
     pub base_url: AssistantReplyParamsEndpointBaseUrl,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub keyless: ::std::option::Option<bool>,
 }
 ///`AssistantReplyParamsEndpointBaseUrl`
 ///

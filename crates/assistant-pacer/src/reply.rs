@@ -1,6 +1,7 @@
 //! `assistant.reply` handler: Rig agent loop over an openai-compatible endpoint.
 
 use crate::delta;
+use crate::http::CompatChatModel;
 use crate::manifest;
 use crate::tools::HostTool;
 use pacer_plugin::types::{
@@ -10,12 +11,11 @@ use pacer_plugin::types::{
 };
 use pacer_plugin::{Ctx, Plugin, PluginError, Progress};
 use rig::agent::{AgentBuilder, CancelSignal, PromptHook};
-use rig::client::CompletionClient;
 use rig::completion::{
     AssistantContent, CompletionModel, CompletionResponse, Message, Prompt, PromptError, Usage,
 };
 use rig::message::UserContent;
-use rig::providers::openai;
+use rig::tool::server::ToolServer;
 use serde_json::{Value, json};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -79,46 +79,60 @@ async fn run_reply(
         .ok_or_else(|| PluginError::new("invalid_input", "assistant.reply requires a model"))?;
 
     let base_url = resolve_base_url(&params)?;
-    let key = resolve_key(&ctx, &account).await?;
+    let keyless = params
+        .endpoint
+        .as_ref()
+        .and_then(|e| e.keyless)
+        .unwrap_or(false);
+    // key=none: skip secrets.resolve and call without Authorization. Other sources still fail closed.
+    let key = if keyless {
+        None
+    } else {
+        Some(resolve_key(&ctx, &account).await?)
+    };
 
-    let client = openai::Client::builder(&key).base_url(&base_url).build();
-    // openai-compatible endpoints (and our tests) speak Chat Completions, not Responses.
-    let completion = client.completion_model(&model).completions_api();
+    // CompatChatModel: Chat Completions with optional Authorization and default `created`.
+    let completion = CompatChatModel::new(&base_url, key, &model);
 
     let system = format!("{}\n\n{}", params.system.as_str(), params.digest.as_str());
     let max_output = params.limits.max_output_tokens.get();
     let max_input = params.limits.max_input_tokens.max(0) as u64;
     let max_tool_rounds = params.limits.max_tool_rounds.max(0) as usize;
 
+    // Rig's openai Completions TryFrom drops max_tokens; pass it via additional_params (§7).
+    let completion_params = json!({ "max_tokens": max_output });
+
     let offer_tools = max_tool_rounds > 0 && !params.tools.is_empty();
     let rounds = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+    // HostTool implements ToolDyn (not Tool) so result text is not JSON-encoded again.
     let agent = if offer_tools {
-        let mut tools = params.tools.iter();
-        let Some(first) = tools.next() else {
-            return Err(PluginError::new("internal", "tools list was empty"));
-        };
-        let make = |tool: &pacer_plugin::types::AssistantReplyParamsToolsItem| HostTool {
-            name: tool.name.to_string(),
-            description: tool.description.to_string(),
-            parameters: tool.parameters.clone(),
-            turn_id: turn_id.clone(),
-            host: ctx.host.clone(),
-            progress: ctx.progress.clone(),
-            rounds: rounds.clone(),
-            max_rounds: max_tool_rounds,
-        };
-        let mut builder = AgentBuilder::new(completion)
+        let handle = ToolServer::new().run();
+        for tool in &params.tools {
+            let host_tool = HostTool {
+                name: tool.name.to_string(),
+                description: tool.description.to_string(),
+                parameters: tool.parameters.clone(),
+                turn_id: turn_id.clone(),
+                host: ctx.host.clone(),
+                progress: ctx.progress.clone(),
+                rounds: rounds.clone(),
+                max_rounds: max_tool_rounds,
+            };
+            handle.add_tool(host_tool).await.map_err(|e| {
+                PluginError::new("internal", format!("Could not register tool: {e}"))
+            })?;
+        }
+        AgentBuilder::new(completion)
             .preamble(&system)
             .max_tokens(max_output)
-            .tool(make(first));
-        for tool in tools {
-            builder = builder.tool(make(tool));
-        }
-        builder.build()
+            .additional_params(completion_params)
+            .tool_server_handle(handle)
+            .build()
     } else {
         AgentBuilder::new(completion)
             .preamble(&system)
             .max_tokens(max_output)
+            .additional_params(completion_params)
             .build()
     };
 
@@ -347,20 +361,44 @@ async fn resolve_key(ctx: &Ctx, account: &str) -> Result<String, PluginError> {
     Ok(key.to_owned())
 }
 
-/// Map provider failures to a short fixed message; detail goes to `capability.log` (capped).
+/// Classify a provider failure without echoing its body (bodies can contain keys).
+fn provider_error_class(detail: &str) -> &'static str {
+    if detail.contains("401") || detail.contains("403") || detail.contains("Unauthorized") {
+        "auth"
+    } else if detail.contains("429") {
+        "rate_limited"
+    } else if detail.contains("status")
+        && (detail.contains("500")
+            || detail.contains("502")
+            || detail.contains("503")
+            || detail.contains("504"))
+    {
+        "provider"
+    } else if detail.contains("error decoding response body")
+        || detail.contains("missing field")
+        || detail.contains("invalid type")
+    {
+        "response_shape"
+    } else if detail.contains("error sending request") || detail.contains("connection") {
+        "transport"
+    } else {
+        "unknown"
+    }
+}
+
+/// Map provider failures to a short fixed message; log only the error class (never the body).
 async fn map_provider_error(ctx: &Ctx, err: &PromptError) -> PluginError {
     let detail = err.to_string();
-    let capped: String = detail.chars().take(500).collect();
-    let _ = ctx.host.log("warn", &format!("provider error: {capped}")).await;
-    // Never put the raw provider body (or a key fragment) in the user-visible error.
-    let status_hint = if detail.contains("401") || detail.contains("403") {
-        " (auth)"
-    } else if detail.contains("429") {
-        " (rate limited)"
-    } else if detail.contains("5") && detail.contains("status") {
-        " (provider error)"
-    } else {
-        ""
+    let class = provider_error_class(&detail);
+    let _ = ctx
+        .host
+        .log("warn", &format!("provider error class={class}"))
+        .await;
+    let status_hint = match class {
+        "auth" => " (auth)",
+        "rate_limited" => " (rate limited)",
+        "provider" => " (provider error)",
+        _ => "",
     };
     PluginError::new(
         "plugin_unavailable",
