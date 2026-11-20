@@ -13,7 +13,11 @@ ryu-js = "1"
 regex = "1"
 serde_json.workspace = true
 chrono = { version = "0.4", default-features = false, features = ["std"] }
-pacer-engine = { path = "../engine" }
+
+[dev-dependencies]
+# Parity pin only: CRATE-4 keeps pacer-tui off domain crates at runtime, so the
+# engine is read by the tests alone, under a package rename.
+engine = { package = "pacer-engine", path = "../engine" }
 
 [lints]
 workspace = true

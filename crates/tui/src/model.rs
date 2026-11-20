@@ -272,7 +272,7 @@ pub fn outcome(t: &V) -> Line {
 }
 pub fn pace(s: &str) -> Line {
     // `paceStatus` (`src/view-model/words.ts`) renders as "{glyph} {label}".
-    let status = pacer_engine::words::pace_status(s);
+    let status = crate::words::pace_status(s);
     line(format!("{} {}", status.glyph, status.label))
 }
 pub fn task<'a>(s: &'a V, id: &str) -> Option<&'a V> {
@@ -403,7 +403,7 @@ pub fn eligibility(e: &V, now: f64) -> (Line, String, Option<String>) {
             "! Unavailable",
             arr(&d["reasons"])
                 .iter()
-                .map(|r| eligibility_reason(text(&r["code"])))
+                .map(|r| crate::words::eligibility_reason(text(&r["code"])))
                 .collect::<Vec<_>>()
                 .join("; "),
         ),
@@ -411,7 +411,7 @@ pub fn eligibility(e: &V, now: f64) -> (Line, String, Option<String>) {
             "? Uncertain fallback",
             arr(&d["reasons"])
                 .iter()
-                .map(|r| eligibility_reason(text(&r["code"])))
+                .map(|r| crate::words::eligibility_reason(text(&r["code"])))
                 .collect::<Vec<_>>()
                 .join("; "),
         ),
@@ -518,9 +518,6 @@ pub fn capacity_note(e: &V, s: &V) -> Option<String> {
     } else {
         format!("Limited to {} by {place}", js_string(cap))
     })
-}
-fn eligibility_reason(s: &str) -> &str {
-    pacer_engine::words::eligibility_reason(s)
 }
 pub fn reason(s: &str) -> String {
     if let Some(label) = reason_label(s) {
