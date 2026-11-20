@@ -223,9 +223,6 @@ fn internal(error: impl ToString) -> CoreError {
 }
 
 /// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
-/// slot-holding tasks when `pacing.balance` is least-loaded. Every refusal precedes the
-/// status read, as in TypeScript.
-/// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
 /// slot-holding tasks when `pacing.balance` is least-loaded. Policy refusals precede the
 /// status read, as in TypeScript, and rows and runners stay in one strategy: the snapshot
 /// the parts were computed against wins over a reload (see `parts_strategy`).
