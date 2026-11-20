@@ -158,9 +158,18 @@ createInterface({ input: process.stdin }).on("line", (line) => {
     case "session/cancel":
       cancelled();
       return;
+    case "session/set_config_option": {
+      log({ method: "session/set_config_option", params: frame.params });
+      const value = frame.params?.value;
+      return reply({
+        configOptions: [{ id: frame.params?.configId ?? "model", currentValue: value }],
+      });
+    }
+    // Legacy names kept so a regressing client fails loudly in logs if revived.
     case "session/set_model":
     case "session/setConfigOption":
-      return reply({});
+      log({ method: frame.method, ignored: true });
+      return send({ id: frame.id, error: { code: -32601, message: `"Method not found": ${frame.method}` } });
     default:
       if (frame.id !== undefined) return reply({});
   }

@@ -304,9 +304,17 @@ export async function runAcpTurn(
       ? `${TOOLS_UNAVAILABLE_NOTE}\n\n${promptBody}`
       : promptBody;
 
+    // opencode 2.2.3 ACP: model is a session config option (`session/set_config_option`).
+    // `session/set_model` / camelCase variants are not implemented; silently ignoring leaves the
+    // agent's free default (e.g. tidepool-alpha-free) and burns into provider.free-limit.
     if (plan.model) {
-      await request("session/set_model", { sessionId, modelId: plan.model }).catch(() => undefined);
-      await request("session/setConfigOption", { sessionId, configId: "model", value: plan.model }).catch(() => undefined);
+      const set = await request("session/set_config_option", {
+        sessionId, configId: "model", value: plan.model,
+      }) as { configOptions?: { id?: string; currentValue?: string }[] };
+      const current = set?.configOptions?.find(o => o.id === "model")?.currentValue;
+      if (current !== plan.model) {
+        throw new Error(`opencode ACP model is ${current ?? "unset"}, wanted ${plan.model}`);
+      }
     }
 
     const promptResult = await request("session/prompt", {

@@ -57,6 +57,7 @@ await import(${JSON.stringify(FIXTURE)});
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as {
         argv?: string[]; cwd?: string; stdin?: string; env?: Record<string, string>;
         method?: string; prompt?: string; sessionId?: string; resumed?: boolean;
+        params?: { sessionId?: string; configId?: string; value?: string };
         id?: string; result?: { outcome?: { outcome?: string; optionId?: string } };
       })
     : [];
@@ -92,6 +93,11 @@ describe("the executor backend in ask mode", () => {
     expect(call!.env?.OPENCODE_ENABLE_QUESTION_TOOL).toBe("false");
     expect(call!.env?.hasGrant).toBeTruthy();
     expect(call!.env?.hasConfig).toBeTruthy();
+    // Model must be set via session/set_config_option (opencode 2.2.3); set_model is not implemented.
+    const modelSets = calls().filter(c => c.method === "session/set_config_option");
+    expect(modelSets.length).toBeGreaterThan(0);
+    expect(modelSets[0]!.params).toMatchObject({ configId: "model", value: "opencode-go/glm-test" });
+    expect(calls().some(c => c.method === "session/set_model" || c.method === "session/setConfigOption")).toBe(false);
     const session = readBackendSession(ctx, first.conversationId)!;
     expect(session).toMatchObject({ account: "oc", backend: "executor" });
     expect(session.handle).toMatch(/^ses_new_/);
