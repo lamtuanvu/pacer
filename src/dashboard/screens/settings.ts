@@ -1,8 +1,8 @@
 /** Settings: sections on the left, the selected section on the right. Every read and write is an API op (ARCH-1). */
 import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
 import { capacityNote, executorEligibility } from "../../view-model/capacity";
+import { accountUsageFreshness } from "../legacy-usage";
 import { executorLabel, type Status } from "../../view-model/words";
-import { usageView, windowWords, resetWords, freshnessWords } from "../../view-model/usage";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
@@ -136,19 +136,10 @@ const accounts: Build = (ctx, width) => {
       { content: [a.kind, a.source].filter(Boolean).join(" · "), width: w[1]!, style: { fg: "secondary" } },
       { content: statusSpans(ctx.theme, SIGNIN[String(signed)]!), width: w[2]! },
     ], GAP, ctx.theme) });
-    // One presentation function over the account's usage record (ADR 0030); a legacy row keeps its meter fields.
-    const record = usage?.usageState, view = usageView(record, ctx.s.at);
-    const used = record ? view.summary
-      : usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${windowWords(usage.window) || "quota"}${usage.resetsAt ? ` · ${resetWords(usage.resetsAt, ctx.s.at)}` : ""}` : view.figure;
-    const historical = record ? record.freshness === "historical"
-      : !!usage && (usage.usedPct != null || usage.spendUsdWeek != null) && (usage.stale !== false || usage.eligibility?.budget === "unknown"
-        || usage.capturedAt == null || !Number.isFinite(usage.capturedAt) || usage.capturedAt > ctx.s.at
-        || (usage.resetsAt != null && usage.resetsAt <= ctx.s.at)
-        || (usage.capturedAt != null && ctx.s.at - usage.capturedAt > 86400));
-    const freshness = historical ? (usage && usage.capturedAt != null && Number.isFinite(usage.capturedAt) && usage.capturedAt <= ctx.s.at
-      ? freshnessWords({ freshness: "historical", observedAt: usage.capturedAt }, ctx.s.at) : "Reading of unknown age · refresh") : "";
+    const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
+    const freshness = usage ? accountUsageFreshness(usage, ctx.s.at) : null;
     const users = a.executors ?? a.runners ?? [];
-    rows.push(...prose(id, `${used}${freshness ? ` · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
+    rows.push(...prose(id, `${used}${freshness ? ` · Historical usage · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
   rows.push(blank());
   for (const [id, act] of [["account-add", add], ["account-link", link]] as const) {
