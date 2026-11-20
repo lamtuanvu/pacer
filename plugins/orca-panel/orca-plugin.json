@@ -16,8 +16,8 @@
         "id": "pacer",
         "title": "Pacer",
         "icon": "blocks",
-        "entry": "src/panel.tsx",
-        "ui": "components"
+        "entry": "src/panel.html",
+        "ui": "html"
       }
     ],
     "statusBarItems": [

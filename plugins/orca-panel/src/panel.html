@@ -1,0 +1,183 @@
+<!-- The html panel's page. Orca injects this file's content into the generated frame page
+     (after its <head>), so this is body content, not a full document. The style block defines
+     pacer's OWN design tokens (copied from the app's app/src/ds/tokens.css) instead of Orca's
+     --orca-* theme variables, so the panel looks like pacer, not like a generic Orca panel.
+     Orca's frame shell toggles a bare `light`/`dark` class on <html> (not a data-theme
+     attribute), so the dark block keys off `:root.dark`. -->
+<style>
+  :root {
+    color-scheme: light;
+    /* pacer design tokens (light) */
+    --surface-page: #ffffff;
+    --surface-card: #fafafa;
+    --line: #e4e4e7;
+    --ink: #18181b;
+    --ink-secondary: #52525b;
+    --ink-muted: #6b6b74;
+    --track: #65a30d;
+    --good-fg: #166534;
+    --good-bg: #dcfce7;
+    --warn-fg: #92400e;
+    --warn-bg: #fef3c7;
+    --bad-fg: #991b1b;
+    --bad-bg: #fee2e2;
+    --bad-fill: #dc2626;
+    --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+    --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
+    --type-headline-size: 16px;
+    --type-headline-line: 22px;
+    --type-headline-weight: 650;
+    --type-headline-tracking: -0.01em;
+    --type-body-size: 13px;
+    --type-body-line: 19px;
+    --type-caption-size: 12px;
+    --type-caption-line: 16px;
+    --type-label-weight: 600;
+    --type-label-tracking: 0.06em;
+    --space-1: 4px;
+    --space-2: 8px;
+    --space-3: 12px;
+    --space-4: 16px;
+    --space-5: 20px;
+    --radius-sm: 6px;
+    --radius-md: 8px;
+  }
+  /* Orca's frame sets a bare class on <html> (html.dark), so match that, not data-theme. */
+  :root.dark {
+    color-scheme: dark;
+    /* pacer design tokens (dark) */
+    --surface-page: #09090b;
+    --surface-card: #18181b;
+    --line: #3f3f46;
+    --ink: #fafafa;
+    --ink-secondary: #a1a1aa;
+    --ink-muted: #a1a1aa;
+    --track: #a3e635;
+    --good-fg: #86efac;
+    --good-bg: #14532d;
+    --warn-fg: #fcd34d;
+    --warn-bg: #451a03;
+    --bad-fg: #fca5a5;
+    --bad-bg: #450a0a;
+    --bad-fill: #ef4444;
+  }
+  body {
+    margin: 0;
+    background: var(--surface-page);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: var(--type-body-size);
+    line-height: var(--type-body-line);
+    font-variant-numeric: tabular-nums;
+  }
+  #pacer-panel {
+    padding: var(--space-4);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+  }
+  .heading {
+    margin: 0;
+    font-size: var(--type-headline-size);
+    line-height: var(--type-headline-line);
+    font-weight: var(--type-headline-weight);
+    letter-spacing: var(--type-headline-tracking);
+    color: var(--ink);
+  }
+  .muted {
+    margin: 0;
+    color: var(--ink-muted);
+  }
+  .empty {
+    margin: 0;
+    padding: var(--space-5) var(--space-3);
+    text-align: center;
+    color: var(--ink-secondary);
+    border: 1px dashed var(--line);
+    border-radius: var(--radius-md);
+  }
+  .callout {
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+  }
+  .callout.warn {
+    background: var(--warn-bg);
+    color: var(--warn-fg);
+  }
+  .callout-title {
+    margin: 0 0 var(--space-1);
+    font-weight: 600;
+  }
+  .callout-body {
+    margin: 0;
+  }
+  .confirm {
+    background: var(--surface-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+  }
+  .confirm.danger {
+    background: var(--bad-bg);
+    border-color: transparent;
+    color: var(--bad-fg);
+  }
+  .card {
+    background: var(--surface-card);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-md);
+    padding: var(--space-3);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-1);
+  }
+  .card-title {
+    font-weight: 600;
+  }
+  .card-meta {
+    display: flex;
+    gap: var(--space-1);
+    color: var(--ink-muted);
+    font-size: var(--type-caption-size);
+    line-height: var(--type-caption-line);
+  }
+  .card-actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    margin-top: var(--space-1);
+  }
+  .btn {
+    font: inherit;
+    font-size: var(--type-caption-size);
+    font-weight: var(--type-label-weight);
+    color: var(--ink);
+    background: transparent;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-sm);
+    padding: var(--space-1) var(--space-3);
+    cursor: pointer;
+  }
+  .btn:hover {
+    border-color: var(--ink-muted);
+  }
+  .btn:focus-visible {
+    outline: 2px solid var(--track);
+    outline-offset: 1px;
+  }
+  .btn.solid {
+    background: var(--track);
+    border-color: var(--track);
+    color: #ffffff;
+  }
+  .btn.danger {
+    background: var(--bad-fill);
+    border-color: var(--bad-fill);
+    color: #ffffff;
+  }
+</style>
+<div id="pacer-panel"></div>
+<script type="module" src="./panel.ts"></script>
