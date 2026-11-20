@@ -5,7 +5,7 @@ import { BUNDLED } from "../plugins/bundled";
 import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability, pluginLogPath } from "../src/plugins/host";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
-import { ASSISTANT_PACER_EXECUTABLE } from "../src/plugins/native-bundled";
+import { ASSISTANT_PACER_BIN_ENV, ASSISTANT_PACER_EXECUTABLE, resolveBundledNativeExecutable } from "../src/plugins/native-bundled";
 import type { BundledPlugin } from "../src/plugins/types";
 import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
@@ -17,11 +17,13 @@ import { createRedactor } from "../src/assistant/redact";
 import { assistantDatabase, conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import { answersTurn, assistantTurnFor, openAssistantTurn, type AssistantToolState } from "../src/assistant/turn-tools";
 import type { AssistantLimits, AssistantScope } from "../src/assistant/types";
+import { writeKey } from "../src/endpoints/keys";
 import type { Strategy } from "../src/config/strategy";
+import { strategyPath } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
 import type { Ctx } from "../src/types";
 import { taskDatabase } from "../src/tasks/store";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 
 // Phase 1A of docs/specs/2026-11-17-assistant-backends-design.md: the turn-level plugin method,
 // the tool capability that answers only under it, `assistant.delta`, routing, and `backend`.
@@ -542,4 +544,187 @@ describe("assistant-pacer native host routing", () => {
     expect(entry?.manifest.contributes.assistant).toEqual({ backend: "pacer", reply: true });
     expect(entry?.manifest.capabilities.map(c => c.name).sort()).toEqual(["assistant.tool", "net.http", "secrets.resolve"]);
   });
+
+  test("turn errors from assistant.reply are redacted", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const deps: AssistantDeps = {
+      strategy: () => strategy(), status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "leak-key", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("error");
+    expect(turn.error).toBeTruthy();
+    expect(turn.error).not.toContain(KEY);
+  });
+
+  test("bundled manifest matches crates/assistant-pacer/manifest.json", () => {
+    const fromFile = JSON.parse(readFileSync(join(import.meta.dir, "../crates/assistant-pacer/manifest.json"), "utf8"));
+    const entry = BUNDLED.find(p => p.manifest.id === "assistant-pacer")!;
+    expect(entry.manifest.id).toBe(fromFile.id);
+    expect(entry.manifest.version).toBe(fromFile.version);
+    expect(entry.manifest.host).toBe(fromFile.host);
+    expect(entry.manifest.contributes).toEqual(fromFile.contributes);
+    expect(entry.manifest.capabilities).toEqual(fromFile.capabilities);
+  });
+
+  test("source-mode resolve never uses bun's or PACER_BIN's directory", () => {
+    const home = tmpDir();
+    const bunDir = join(home, "bun-bin");
+    const localBin = join(home, ".local", "bin");
+    const coreDir = join(home, "core");
+    mkdirSync(bunDir, { recursive: true });
+    mkdirSync(localBin, { recursive: true });
+    mkdirSync(coreDir, { recursive: true });
+    writeFileSync(join(bunDir, ASSISTANT_PACER_EXECUTABLE), "bad", { mode: 0o755 });
+    writeFileSync(join(localBin, ASSISTANT_PACER_EXECUTABLE), "bad-local", { mode: 0o755 });
+    writeFileSync(join(coreDir, "pacer-core"), "core", { mode: 0o755 });
+    writeFileSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), "good", { mode: 0o755 });
+    const bun = join(bunDir, "bun");
+    writeFileSync(bun, "#!/bin/sh\n", { mode: 0o755 });
+
+    expect(resolveBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, {
+      PACER_BIN: join(localBin, "pacer"),
+    }, bun)).toBeNull();
+
+    expect(resolveBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, {
+      PACER_CORE_ARGV: JSON.stringify([join(coreDir, "pacer-core")]),
+      PACER_BIN: join(localBin, "pacer"),
+    }, bun)).toBe(join(coreDir, ASSISTANT_PACER_EXECUTABLE));
+
+    const explicit = join(home, "explicit-bin");
+    writeFileSync(explicit, "x", { mode: 0o755 });
+    expect(resolveBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, {
+      [ASSISTANT_PACER_BIN_ENV]: explicit,
+    }, bun)).toBe(explicit);
+  });
+});
+
+describe("real pacer-assistant-pacer binary against the host", () => {
+  function locateBinary(): string | null {
+    const envPath = process.env.PACER_ASSISTANT_PACER_BIN;
+    if (envPath && existsSync(envPath)) return envPath;
+    const target = process.env.CARGO_TARGET_DIR;
+    if (!target) return null;
+    for (const rel of ["debug/pacer-assistant-pacer", "release/pacer-assistant-pacer"]) {
+      const path = join(target, rel);
+      if (existsSync(path)) return path;
+    }
+    return null;
+  }
+
+  test("handshake and one tool round through capability.assistant.tool", async () => {
+    if (!Bun.which("cargo")) {
+      console.warn("skip: cargo unavailable");
+      return;
+    }
+    let binary = locateBinary();
+    if (!binary) {
+      const target = process.env.CARGO_TARGET_DIR ?? join(process.env.TMPDIR ?? "/tmp", "pacer-target-d5fd");
+      process.env.CARGO_TARGET_DIR = target;
+      const build = Bun.spawn(["cargo", "build", "-p", "pacer-assistant-pacer", "--bin", ASSISTANT_PACER_EXECUTABLE], {
+        cwd: join(import.meta.dir, ".."),
+        env: { ...process.env, CARGO_TARGET_DIR: target },
+        stdout: "pipe",
+        stderr: "pipe",
+      });
+      const code = await build.exited;
+      if (code !== 0) {
+        const err = await new Response(build.stderr).text();
+        console.warn(`skip: cargo build failed:\n${err.slice(0, 400)}`);
+        return;
+      }
+      binary = join(target, "debug", ASSISTANT_PACER_EXECUTABLE);
+      if (!existsSync(binary)) {
+        console.warn("skip: binary not produced");
+        return;
+      }
+    }
+
+    const round = { n: 0 };
+    const server = Bun.serve({
+      hostname: "127.0.0.1",
+      port: 0,
+      async fetch(req) {
+        if (req.method !== "POST") return new Response("no", { status: 404 });
+        const auth = req.headers.get("authorization") ?? "";
+        expect(auth).toStartWith("Bearer ");
+        expect(auth).not.toContain("undefined");
+        round.n++;
+        if (round.n === 1) {
+          return Response.json({
+            id: "chatcmpl-1", object: "chat.completion", created: 1, model: "m1",
+            choices: [{
+              index: 0,
+              message: {
+                role: "assistant", content: null,
+                tool_calls: [{ id: "call-1", type: "function", function: { name: "snapshot", arguments: "{}" } }],
+              },
+              finish_reason: "tool_calls",
+            }],
+            usage: { prompt_tokens: 10, completion_tokens: 4, total_tokens: 14 },
+          });
+        }
+        return Response.json({
+          id: "chatcmpl-2", object: "chat.completion", created: 1, model: "m1",
+          choices: [{ index: 0, message: { role: "assistant", content: "There are 3 open tasks." }, finish_reason: "stop" }],
+          usage: { prompt_tokens: 40, completion_tokens: 8, total_tokens: 48 },
+        });
+      },
+    });
+
+    const ctx = fakeCtx();
+    const bin = join(ctx.home, "bin");
+    mkdirSync(bin, { recursive: true });
+    mkdirSync(ctx.pacerHome, { recursive: true, mode: 0o700 });
+    writeFileSync(join(bin, "pacer-core"), "#!/bin/sh\n", { mode: 0o755 });
+    chmodSync(join(bin, "pacer-core"), 0o755);
+    ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
+    ctx.env.PACER_ASSISTANT_PACER_BIN = binary;
+
+    const baseUrl = `http://127.0.0.1:${server.port}/v1`;
+    // Real binary resolves the key through the host; write a file-backed endpoint key and strategy.
+    writeFileSync(strategyPath(ctx), `planner: claude-code
+accounts:
+  claude-code: {kind: claude}
+  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: "${baseUrl}", key: file, models: [{id: m1, context: 1000, output: 100, tools: true}]}}
+runners:
+  claude-code: {}
+  opencode#ep: {model: m1}
+`, { mode: 0o600 });
+    await writeKey(ctx, "ep", "file", KEY);
+
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor"),
+      spawnBundled: (c, id) => bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    expect(replyProvider(ctx, "pacer")).toBe("assistant-pacer");
+
+    const deps: AssistantDeps = {
+      status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+
+    try {
+      const started = await ask(ctx, { text: "how many tasks?", scope, requestId: req() }, deps);
+      const turn = await finished(ctx, started.turnId);
+      expect(turn.state).toBe("done");
+      expect(turn.answer).toContain("3");
+      expect(turn.answer).not.toContain(KEY);
+      expect(turn.error).toBeNull();
+      expect(round.n).toBeGreaterThanOrEqual(2);
+      expect(turn.usage?.input).toBeGreaterThan(0);
+    } finally {
+      server.stop(true);
+    }
+  }, 120_000);
 });

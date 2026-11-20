@@ -10,22 +10,12 @@ mod tools;
 pub use reply::{plugin, reply};
 
 use pacer_plugin::Manifest;
-use serde_json::json;
 
-/// Manifest for the bundled native plugin (wired by a later task).
+/// Manifest for the bundled native plugin. Single source of truth: `manifest.json` next to this crate
+/// (also imported by `plugins/bundled.ts`).
 pub fn manifest() -> Manifest {
-    Manifest(json!({
-        "id": "assistant-pacer",
-        "version": "0.1.0",
-        "publisher": "pacer",
-        "host": ">=1.11.0",
-        "contributes": { "assistant": { "backend": "pacer", "reply": true } },
-        "capabilities": [
-            { "name": "secrets.resolve", "scopes": ["endpoint"] },
-            { "name": "net.http" },
-            { "name": "assistant.tool" }
-        ],
-        "reentrant": true,
-        "tier": "free"
-    }))
+    match serde_json::from_str(include_str!("../manifest.json")) {
+        Ok(value) => Manifest(value),
+        Err(error) => panic!("crates/assistant-pacer/manifest.json must be valid JSON: {error}"),
+    }
 }

@@ -29,6 +29,11 @@ pub enum ScriptedReply {
     },
     /// Hold the connection open until cancelled or the test drops the server.
     Hang,
+    /// HTTP error body (status + text). Used to assert provider errors stay out of the reply.
+    HttpError {
+        status: u16,
+        body: String,
+    },
 }
 
 pub struct FakeOpenAi {
@@ -110,6 +115,15 @@ impl FakeOpenAi {
                                     let mut sink = [0u8; 64];
                                     let _ = stream.read(&mut sink).await;
                                 }
+                                ScriptedReply::HttpError { status, body } => {
+                                    let resp = format!(
+                                        "HTTP/1.1 {status} ERR\r\ncontent-type: text/plain\r\ncontent-length: {}\r\nconnection: close\r\n\r\n{}",
+                                        body.len(),
+                                        body
+                                    );
+                                    let _ = stream.write_all(resp.as_bytes()).await;
+                                    let _ = stream.shutdown().await;
+                                }
                                 other => {
                                     let payload = match other {
                                         ScriptedReply::Text { content, usage } => json!({
@@ -165,7 +179,9 @@ impl FakeOpenAi {
                                                 }
                                             })
                                         }
-                                        ScriptedReply::Hang => unreachable!(),
+                                        ScriptedReply::Hang | ScriptedReply::HttpError { .. } => {
+                                            unreachable!()
+                                        }
                                     };
                                     let body = payload.to_string();
                                     let resp = format!(

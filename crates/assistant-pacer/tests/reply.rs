@@ -326,3 +326,121 @@ async fn no_tools_when_max_tool_rounds_is_zero() {
     assert_eq!(offered, vec![Vec::<String>::new()]);
     h.close().await;
 }
+
+#[tokio::test]
+async fn input_cap_stops_before_another_completion() {
+    // First completion is a tool call; the huge tool result then exceeds maxInputTokens
+    // before a second completion is sent.
+    let fake = FakeOpenAi::start(VecDeque::from([
+        ScriptedReply::ToolCalls {
+            calls: vec![("call-1".into(), "snapshot".into(), json!({}))],
+            usage: (50, 5),
+        },
+        ScriptedReply::Text {
+            content: "should not run".into(),
+            usage: (1, 1),
+        },
+    ]))
+    .await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.assistant.tool", |_| {
+        Ok(json!({
+            "name": "snapshot",
+            "content": "X".repeat(8_000),
+            "ok": true
+        }))
+    });
+    let tools = json!([{
+        "name": "snapshot",
+        "description": "Read",
+        "parameters": { "type": "object" }
+    }]);
+    let tight = json!({
+        "maxInputTokens": 200,
+        "maxOutputTokens": 1024,
+        "maxToolRounds": 4,
+        "deadlineMs": 30_000
+    });
+    let result = h
+        .call(
+            "assistant.reply",
+            base_params("cap", tools, tight, &fake.base_url),
+        )
+        .await
+        .expect("input cap returns a reply");
+    let msg = result["message"].as_str().unwrap_or("");
+    assert!(
+        msg.contains("input limit") || !msg.contains("should not run"),
+        "unexpected message: {msg}"
+    );
+    assert_eq!(
+        fake.requests.lock().unwrap().len(),
+        1,
+        "second completion must not run past the input cap"
+    );
+    assert!(result["usage"]["input"].as_i64().unwrap_or(0) >= 50);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn max_depth_reports_accumulated_usage() {
+    let script = (0..4)
+        .map(|i| ScriptedReply::ToolCalls {
+            calls: vec![(format!("call-{i}"), "snapshot".into(), json!({}))],
+            usage: (30, 7),
+        })
+        .collect::<VecDeque<_>>();
+    let fake = FakeOpenAi::start(script).await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.assistant.tool", |_| {
+        Ok(json!({ "name": "snapshot", "content": "ok", "ok": true }))
+    });
+    let tools = json!([{
+        "name": "snapshot",
+        "description": "Read",
+        "parameters": { "type": "object" }
+    }]);
+    // depth = max_tool_rounds + 1 = 2; forcing MaxDepth after tool rounds.
+    let result = h
+        .call(
+            "assistant.reply",
+            base_params("depth", tools, limits(1, 30_000), &fake.base_url),
+        )
+        .await
+        .expect("max-depth still returns a result");
+    let input = result["usage"]["input"].as_i64().unwrap_or(0);
+    let output = result["usage"]["output"].as_i64().unwrap_or(0);
+    assert!(
+        input > 0 || output > 0,
+        "max-depth path must report real usage, got {:?}",
+        result["usage"]
+    );
+    assert_eq!(result["usage"]["coverage"], "measured");
+    h.close().await;
+}
+
+#[tokio::test]
+async fn provider_error_hides_key_material() {
+    let secret = "sk-leaked-provider-key-VALUE";
+    let fake = FakeOpenAi::start(VecDeque::from([ScriptedReply::HttpError {
+        status: 401,
+        body: format!("unauthorized key={secret} in request"),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let err = h
+        .call(
+            "assistant.reply",
+            base_params("boom", json!([]), limits(0, 30_000), &fake.base_url),
+        )
+        .await
+        .expect_err("provider error");
+    assert_eq!(err.code, "plugin_unavailable");
+    assert!(
+        !err.message.contains(secret),
+        "user-visible error leaked key: {}",
+        err.message
+    );
+    assert!(err.message.contains("model call failed"));
+    h.close().await;
+}

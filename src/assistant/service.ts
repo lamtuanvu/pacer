@@ -489,7 +489,9 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   } catch (e) {
     state = entry.cancelled ? "cancelled" : "error";
     const core = e instanceof CoreError ? e : null;
-    error = core ? core.message : "The assistant could not answer.";
+    const raw = core ? core.message : "The assistant could not answer.";
+    // SEC-2: never store or show unredacted provider/plugin error text (keys, endpoints).
+    error = entry.redactor ? entry.redactor.text(raw) : raw;
   }
   // The turn ends here: its tools close and its `pag_` grant is revoked before the final state lands.
   closeTurn?.();

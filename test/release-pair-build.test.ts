@@ -46,6 +46,23 @@ test("release CI installs cross-build tools and smoke-tests both executables", (
   expect(smoke).toContain("pacer-assistant-pacer-$os-$arch");
   expect(smoke).toContain("crates/assistant-pacer/Cargo.toml");
   expect(smoke).toContain('test -x "$assistant"');
+  expect(smoke).toContain("plugin.hello");
+  expect(smoke).toContain('"id":"assistant-pacer"');
+  expect(smoke).toContain('"version":"1.0.0"');
+});
+
+test("writeRelease checksums the assistant sibling in SHA256SUMS without adding a companion", () => {
+  const out = tmpDir(), version = "0.8.0", platform = { os: "linux", arch: "x64" } as const;
+  const dir = join(out, version); mkdirSync(dir, { recursive: true });
+  const front = Buffer.from("rust front door"), core = Buffer.from("compiled core");
+  const assistant = Buffer.from("assistant-pacer binary");
+  writeFileSync(join(dir, assetFile(platform)), front);
+  writeFileSync(join(dir, companionFile(platform)), core);
+  writeFileSync(join(dir, `pacer-assistant-pacer-${platform.os}-${platform.arch}`), assistant);
+  const manifest = writeRelease(out, version, [platform], { paired: true });
+  expect(manifest.assets[0].companions?.map(c => c.name)).toEqual(["pacer-core"]);
+  const sums = parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8"));
+  expect(sums.get(`pacer-assistant-pacer-${platform.os}-${platform.arch}`)).toBe(sha256Hex(assistant));
 });
 
 test("Rust front door trust pins come only from explicit build options", async () => {

@@ -155,8 +155,21 @@ export function writeRelease(outRoot: string, version: string, platforms: Platfo
     }
     return asset;
   });
+  // Optional native assistant sibling: checksummed in SHA256SUMS but not a manifest companion
+  // (older updaters reject unknown companion names — see review S4).
+  const assistantSums: { file: string; sha256: string }[] = [];
+  for (const p of platforms) {
+    const file = assistantPacerFile(p);
+    const path = join(dir, file);
+    if (!existsSync(path)) continue;
+    const bytes = readFileSync(path);
+    assistantSums.push({ file, sha256: sha256Hex(bytes) });
+  }
   const manifest: Manifest = { version, assets };
-  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums(assets.flatMap(asset => [asset, ...(asset.companions ?? [])])));
+  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums([
+    ...assets.flatMap(asset => [asset, ...(asset.companions ?? [])]),
+    ...assistantSums,
+  ]));
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const latestPath = join(outRoot, "latest.json");
   const prev = readLatestVersion(latestPath);

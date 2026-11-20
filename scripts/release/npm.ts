@@ -1,7 +1,7 @@
 #!/usr/bin/env bun
 import { chmodSync, copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { assetFile, parseManifest, sha256Hex, TARGETS } from "../../src/update/manifest";
+import { assetFile, parseManifest, parseSha256Sums, sha256Hex, TARGETS } from "../../src/update/manifest";
 
 export const NPM_USAGE = "usage: bun run release:npm --release-dir <dir> --out <dir>";
 export function generateNpm(releaseDir: string, out: string, root = resolve(import.meta.dir, "../..")): void {
@@ -53,8 +53,14 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
     }
     // Optional sibling of pacer-core when the release built the native assistant plugin.
     if (hasAssistant) {
+      const sums = parseSha256Sums(readFileSync(join(releaseDir, "SHA256SUMS"), "utf8"));
+      const expected = sums.get(assistantFile);
+      const bytes = readFileSync(assistantPath);
+      if (!expected || sha256Hex(bytes) !== expected) {
+        throw new Error(`checksum mismatch for ${assistantFile}`);
+      }
       const assistant = join(dir, "bin/pacer-assistant-pacer");
-      copyFileSync(assistantPath, assistant);
+      writeFileSync(assistant, bytes);
       chmodSync(assistant, 0o755);
     }
   }

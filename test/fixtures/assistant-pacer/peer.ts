@@ -2,11 +2,19 @@
  * Stub for the native `assistant-pacer` plugin: speaks the plugin protocol on stdio and
  * answers `assistant.reply` by running tools through `capability.assistant.tool` under the
  * turn's authority. Used when the real `pacer-assistant-pacer` binary is not built yet.
+ *
+ * Capability requests only attach `_meta.capabilityCall` (same as the Rust SDK). They do not
+ * forward other host `_meta` fields the real SDK ignores.
  */
 import { createInterface } from "node:readline";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 type Json = Record<string, unknown>;
 const write = (frame: Json) => process.stdout.write(`${JSON.stringify({ jsonrpc: "2.0", ...frame })}\n`);
+const bundled = JSON.parse(
+  readFileSync(join(import.meta.dir, "../../../crates/assistant-pacer/manifest.json"), "utf8"),
+) as { id: string; version: string };
 
 const pending = new Map<string | number, { resolve: (value: unknown) => void; reject: (error: Error) => void }>();
 let token: string | undefined;
@@ -16,12 +24,10 @@ function toolCall(turnId: string, name: string): Promise<{ name: string; content
   const id = `p${nextId++}`;
   return new Promise((resolve, reject) => {
     pending.set(id, { resolve: resolve as (value: unknown) => void, reject });
-    write({
-      id,
-      method: "capability.assistant.tool",
-      params: { turnId, name, params: {} },
-      ...(token ? { _meta: { capabilityCall: token } } : {}),
-    });
+    // Match the Rust SDK: only capabilityCall, and only when the owning reply carried one.
+    const frame: Json = { id, method: "capability.assistant.tool", params: { turnId, name, params: {} } };
+    if (token) frame._meta = { capabilityCall: token };
+    write(frame);
   });
 }
 
@@ -35,6 +41,11 @@ async function answer(p: {
   const scenario = p.message.trim();
   if (scenario === "ping") return { message: "assistant-pacer stub", usage };
   if (scenario === "endpoint") return { message: `baseUrl=${p.endpoint?.baseUrl ?? ""}`, usage };
+  if (scenario === "leak-key") {
+    throw Object.assign(new Error(`provider said key=${["sk", "-reply-test-key"].join("")} is bad`), {
+      code: "plugin_unavailable",
+    });
+  }
   const out = await toolCall(p.turnId, "snapshot");
   return { message: `via-tool ${out.content}`, usage };
 }
@@ -56,7 +67,7 @@ async function handle(line: string): Promise<void> {
   }
   if (method === "$/cancel") return;
   if (method === "plugin.hello") {
-    write({ id, result: { protocol: "1.11.0", id: "assistant-pacer", version: "1.0.0", contributes: ["assistant"] } });
+    write({ id, result: { protocol: "1.11.0", id: bundled.id, version: bundled.version, contributes: ["assistant"] } });
     return;
   }
   if (id === undefined || id === null) return;
