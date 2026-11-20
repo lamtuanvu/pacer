@@ -7,9 +7,10 @@ import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
 import {
-  askConfig, askSystem, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_VERSION_ENV,
+  askConfig, askSystem, ASK_MCP_ENV_KEYS, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, CLAUDE_EXPECT_VERSION_ENV,
   CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, claudeVersionSemver, seededPrompt, STDIN_CAP,
 } from "../src/assistant/ask-mode";
+import { ACP_PLAN_VERSION, isPacerMcpPermission, mcpHealthEnv, mcpToolsListHealthy } from "../src/assistant/acp-turn";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -57,6 +58,7 @@ await import(${JSON.stringify(FIXTURE)});
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as {
         argv?: string[]; cwd?: string; stdin?: string; env?: Record<string, string>;
         method?: string; prompt?: string; sessionId?: string; resumed?: boolean;
+        mcpServers?: { name?: string; command?: string; args?: string[]; envKeys?: string[] }[];
         params?: { sessionId?: string; configId?: string; value?: string };
         id?: string; result?: { outcome?: { outcome?: string; optionId?: string } };
       })
@@ -111,7 +113,7 @@ describe("the executor backend in ask mode", () => {
     expect(resumed.cwd).toBe(call!.cwd);
   }, 60_000);
 
-  test("when MCP tools are absent, digests only and denies pacer permissions", async () => {
+  test("when MCP tools are absent, digests only, drops MCP, and denies pacer permissions", async () => {
     const { ctx, deps, mode, calls: all } = setup();
     expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
     mode("no-tools");
@@ -121,10 +123,32 @@ describe("the executor backend in ask mode", () => {
     expect(turn.state).toBe("done");
     const prompts = calls().filter(c => c.method === "session/prompt");
     expect(prompts.some(c => String(c.prompt ?? "").includes("pacer MCP tools were not reported"))).toBe(true);
+    // F3: unhealthy preflight opens a replacement session without mcpServers (no live grant).
+    const news = calls().filter(c => c.method === "session/new");
+    expect(news.length).toBeGreaterThanOrEqual(2);
+    expect(news[0]!.mcpServers?.length).toBeGreaterThan(0);
+    expect(news.at(-1)!.mcpServers).toEqual([]);
+    expect(String(prompts[0]!.sessionId ?? "")).toMatch(/^ses_digest_/);
     const replies = calls().filter(c => c.method === "permission_reply");
     const pacer = replies.find(c => c.id === "perm_pacer") as { result?: { outcome?: { outcome?: string; optionId?: string } } } | undefined;
     expect(pacer?.result?.outcome?.outcome).toBe("selected");
     expect(pacer?.result?.outcome?.optionId).toBe("reject");
+    const spoof = replies.find(c => c.id === "perm_spoof") as { result?: { outcome?: { outcome?: string; optionId?: string } } } | undefined;
+    expect(spoof?.result?.outcome?.optionId).toBe("reject");
+  }, 60_000);
+
+  test("permission allow requires MCP-safe kind; title pacer_snapshot with kind execute is denied", async () => {
+    const { ctx, deps, calls: all } = setup();
+    expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
+    const skip = all().length, calls = () => all().slice(skip);
+    const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
+    expect((await finished(ctx, first.turnId)).state).toBe("done");
+    const replies = calls().filter(c => c.method === "permission_reply");
+    const spoof = replies.find(c => c.id === "perm_spoof") as { result?: { outcome?: { outcome?: string; optionId?: string } } } | undefined;
+    expect(spoof?.result?.outcome?.outcome).toBe("selected");
+    expect(spoof?.result?.outcome?.optionId).toBe("reject");
+    const pacer = replies.find(c => c.id === "perm_pacer") as { result?: { outcome?: { outcome?: string; optionId?: string } } } | undefined;
+    expect(pacer?.result?.outcome?.optionId).toBe("once");
   }, 60_000);
 
   test("starts a new session seeded with the transcript when the stored one cannot be resumed", async () => {
@@ -289,6 +313,94 @@ describe("the fail-closed ask-mode check", () => {
 });
 
 describe("ask-mode pieces", () => {
+  test("mcp health env is only the issued turn keys; service sentinels never reach the child", async () => {
+    const prev = {
+      PACER_TOKEN: process.env.PACER_TOKEN,
+      PACER_WORK_GRANT: process.env.PACER_WORK_GRANT,
+      PACER_KEY_X: process.env.PACER_KEY_X,
+    };
+    process.env.PACER_TOKEN = "sentinel-token";
+    process.env.PACER_WORK_GRANT = "sentinel-grant";
+    process.env.PACER_KEY_X = "sentinel-key";
+    try {
+      const turnEnv = {
+        PATH: "/usr/bin:/bin",
+        HOME: "/tmp/ask-home",
+        TMPDIR: "/tmp",
+        LANG: "C",
+        PACER_ASSISTANT_GRANT: "pag_test",
+        PACER_ASSISTANT_URL: "http://127.0.0.1:9",
+        PACER_ASSISTANT_TURN: "t1",
+        PACER_HOME: "/tmp/ask-run",
+        PACER_TOKEN: "should-not-copy-from-turn-either-unless-allowlisted",
+      };
+      const health = mcpHealthEnv(turnEnv, ASK_MCP_ENV_KEYS);
+      expect(health).toEqual({
+        PATH: "/usr/bin:/bin",
+        HOME: "/tmp/ask-home",
+        TMPDIR: "/tmp",
+        LANG: "C",
+        PACER_ASSISTANT_GRANT: "pag_test",
+        PACER_ASSISTANT_URL: "http://127.0.0.1:9",
+        PACER_ASSISTANT_TURN: "t1",
+        PACER_HOME: "/tmp/ask-run",
+      });
+      expect(health).not.toHaveProperty("PACER_TOKEN");
+      expect(health).not.toHaveProperty("PACER_WORK_GRANT");
+      expect(health).not.toHaveProperty("PACER_KEY_X");
+
+      const dir = mkdtempSync(join(tmpdir(), "pacer-mcp-health-"));
+      const envOut = join(dir, "env.json");
+      const mcp = join(dir, "fake-mcp.mjs");
+      writeFileSync(mcp, `#!/usr/bin/env node
+import { writeFileSync } from "node:fs";
+writeFileSync(${JSON.stringify(envOut)}, JSON.stringify(process.env));
+import { createInterface } from "node:readline";
+const send = (f) => process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...f }) + "\\n");
+createInterface({ input: process.stdin }).on("line", (line) => {
+  let msg; try { msg = JSON.parse(line); } catch { return; }
+  if (msg.method === "initialize") return send({ id: msg.id, result: { protocolVersion: "2024-11-05", capabilities: {}, serverInfo: { name: "fake" } } });
+  if (msg.method === "tools/list") return send({ id: msg.id, result: { tools: [{ name: "pacer_snapshot" }] } });
+});
+`);
+      chmodSync(mcp, 0o755);
+      const ok = await mcpToolsListHealthy({
+        v: ACP_PLAN_VERSION, prompt: "x", mcpName: "pacer", mcpCommand: process.execPath,
+        mcpArgs: [mcp], mcpEnvKeys: [...ASK_MCP_ENV_KEYS], tools: true,
+      }, turnEnv);
+      expect(ok).toBe(true);
+      const childEnv = JSON.parse(readFileSync(envOut, "utf8")) as Record<string, string>;
+      expect(childEnv.PACER_ASSISTANT_GRANT).toBe("pag_test");
+      expect(childEnv.PACER_TOKEN).toBeUndefined();
+      expect(childEnv.PACER_WORK_GRANT).toBeUndefined();
+      expect(childEnv.PACER_KEY_X).toBeUndefined();
+    } finally {
+      for (const [k, v] of Object.entries(prev)) {
+        if (v === undefined) delete process.env[k];
+        else process.env[k] = v;
+      }
+    }
+  });
+
+  test("isPacerMcpPermission denies execute-kind spoof of a pacer title", () => {
+    type ToolCall = Parameters<typeof isPacerMcpPermission>[1];
+    const cases: [ToolCall, boolean][] = [
+      [{ title: "pacer_snapshot", kind: "other" }, true],
+      [{ title: "pacer_snapshot" }, true],
+      [{ toolName: "pacer_status", kind: "other" }, true],
+      [{ title: "pacer_snapshot", kind: "execute" }, false],
+      [{ title: "pacer_snapshot", kind: "edit" }, false],
+      [{ title: "pacer_snapshot", kind: "delete" }, false],
+      [{ title: "pacer_snapshot", kind: "move" }, false],
+      [{ title: "pacer_snapshot", kind: "fetch" }, false],
+      [{ title: "pacer_snapshot", kind: "weird" }, false],
+      [{ title: "shell", kind: "other" }, false],
+    ];
+    for (const [toolCall, allow] of cases) {
+      expect(isPacerMcpPermission("pacer", toolCall)).toBe(allow);
+    }
+  });
+
   test("parseRun reads text, the session, usage and errors from opencode's JSON events", () => {
     const run = parseRun([
       JSON.stringify({ type: "step_start", sessionID: "ses_1", part: {} }),

@@ -10,17 +10,39 @@ import { createInterface } from "node:readline";
 /** Kept here (not imported from ask-mode) to avoid a cycle; keep wording aligned with ASK_TOOLS_UNAVAILABLE. */
 const TOOLS_UNAVAILABLE_NOTE = "[pacer] pacer MCP tools were not reported for this ACP session. Answer only from the digest and conversation; do not invent tool results.";
 
+/** Minimal keys needed to exec the health-check MCP child (never spread process.env). */
+const MCP_HEALTH_EXEC_KEYS = ["PATH", "HOME", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE"] as const;
+
+/** MCP-safe ACP `toolCall.kind` values; anything else (execute/edit/delete/move/fetch/unknown) is denied. */
+const MCP_SAFE_KINDS = new Set(["", "other"]);
+
+/**
+ * Build the health-check child env from the issued turn env only: exec keys plus the plan's MCP
+ * grant keys. Never copies ambient `process.env` (no PACER_TOKEN / PACER_WORK_GRANT / PACER_KEY_*).
+ */
+function pickStringEnv(env: Record<string, string>, keys: readonly string[]): Record<string, string> {
+  const out: Record<string, string> = Object.create(null);
+  for (const key of keys) {
+    if (typeof env[key] === "string") out[key] = env[key]!;
+  }
+  return out;
+}
+
+export function mcpHealthEnv(env: Record<string, string>, mcpEnvKeys: readonly string[]): Record<string, string> {
+  return pickStringEnv(env, [...MCP_HEALTH_EXEC_KEYS, ...mcpEnvKeys]);
+}
+
 /**
  * When the agent publishes no `mcpTools` list, confirm the same mcpServers entry answers
  * `tools/list` with a pacer tool (fail closed on timeout/error/empty).
  */
-async function mcpToolsListHealthy(plan: AcpPlan, env: Record<string, string>, signal?: AbortSignal): Promise<boolean> {
+export async function mcpToolsListHealthy(plan: AcpPlan, env: Record<string, string>, signal?: AbortSignal): Promise<boolean> {
   if (!plan.tools) return false;
   return await new Promise<boolean>((resolve) => {
     let settled = false;
     const done = (ok: boolean) => { if (!settled) { settled = true; resolve(ok); } };
     const child = nodeSpawn(plan.mcpCommand, plan.mcpArgs, {
-      env: { ...process.env, ...env },
+      env: mcpHealthEnv(env, plan.mcpEnvKeys),
       stdio: ["pipe", "pipe", "ignore"],
     });
     const timer = setTimeout(() => { try { child.kill("SIGTERM"); } catch { /* ignore */ }; done(false); }, 3_000);
@@ -38,10 +60,7 @@ async function mcpToolsListHealthy(plan: AcpPlan, env: Record<string, string>, s
           if (msg.id === 2 && Array.isArray(msg.result?.tools)) {
             clearTimeout(timer);
             try { child.kill("SIGTERM"); } catch { /* ignore */ }
-            const ok = msg.result!.tools!.some(t => {
-              const n = String(t.name ?? "").toLowerCase();
-              return n.startsWith("pacer") || n.includes("pacer_");
-            });
+            const ok = msg.result!.tools!.some(t => isPacerToolName(plan.mcpName, String(t.name ?? "")));
             done(ok);
             return;
           }
@@ -102,27 +121,39 @@ function settle(signal: AbortSignal | undefined, ms: number): Promise<void> {
   ]);
 }
 
-/** Read MCP tool health from an ACP session result `_meta` (agent reporting). Fail closed. */
-/** Agent MCP surface: healthy / explicitly unhealthy / silent (try tools/list). */
+/** Agent MCP surface: healthy / explicitly unhealthy / silent (try tools/list). Fail closed. */
 function mcpHealthFromMeta(meta: Json | undefined, mcpName: string): "healthy" | "unhealthy" | "silent" {
   if (!meta) return "silent";
   if (meta.mcpHealthy === false || meta.mcpError) return "unhealthy";
   const listed = meta.mcpTools ?? meta["opencode/mcpTools"];
   if (listed === undefined) return "silent";
   if (!Array.isArray(listed) || !listed.length) return "unhealthy";
-  const needle = mcpName.toLowerCase();
-  const ok = listed.some(t => {
-    const name = String(t).toLowerCase();
-    return name.includes("pacer") || name.includes(needle) || name.startsWith(`${needle}_`);
-  });
+  const ok = listed.some(t => isPacerToolName(mcpName, String(t)));
   return ok ? "healthy" : "unhealthy";
 }
 
-/** True only when the tool identity (title) is a pacer MCP tool — never match on arguments. */
-function isPacerTool(mcpName: string, title: string): boolean {
-  const t = title.toLowerCase();
+/** True when a tool identity string is a pacer MCP tool — never match on arguments / rawInput. */
+function isPacerToolName(mcpName: string, name: string): boolean {
+  const t = name.toLowerCase();
   const prefix = `${mcpName}_`.toLowerCase();
   return t.startsWith(prefix) || t.startsWith("pacer_") || t.startsWith("pacer-");
+}
+
+/**
+ * Fail-closed permission gate: title (or a stable ACP tool id when present) must be a pacer MCP
+ * tool, and `kind` must be missing or MCP-safe (`other` / empty). Never allow execute/edit/delete/
+ * move/fetch or unknown kinds — a spoofed title with kind execute is denied.
+ */
+export function isPacerMcpPermission(mcpName: string, toolCall: {
+  title?: unknown; kind?: unknown; toolName?: unknown; name?: unknown; toolCallId?: unknown;
+}): boolean {
+  const kind = toolCall.kind == null ? "" : String(toolCall.kind).toLowerCase();
+  if (!MCP_SAFE_KINDS.has(kind)) return false;
+  for (const field of [toolCall.toolName, toolCall.name, toolCall.title]) {
+    const id = String(field ?? "");
+    if (id && isPacerToolName(mcpName, id)) return true;
+  }
+  return false;
 }
 
 /** `assistant.reply` tools[].tool is max 128; opencode may put the whole shell command in the title. */
@@ -131,7 +162,8 @@ function toolTitle(title: string): string {
 }
 
 function optionId(options: { optionId?: string; kind?: string }[], prefer: "allow" | "reject"): string | null {
-  const allow = options.find(o => o.kind === "allow_once" || o.optionId === "once" || o.kind === "allow_always");
+  // Prefer allow_once only — never sticky allow_always (review F6).
+  const allow = options.find(o => o.kind === "allow_once" || o.optionId === "once");
   const reject = options.find(o => o.kind === "reject_once" || o.optionId === "reject" || o.kind === "reject_always");
   if (prefer === "allow") return allow?.optionId ?? null;
   return reject?.optionId ?? options.find(o => String(o.kind ?? "").startsWith("reject"))?.optionId ?? null;
@@ -167,6 +199,8 @@ export async function runAcpTurn(
   /** Pre-prompt MCP health only; frozen before session/prompt so mid-turn events cannot reopen tools. */
   let toolsHealthy = false;
   let healthLocked = false;
+  /** Effective tools flag: flipped off when preflight is unhealthy so policy + permissions deny pacer_*. */
+  let toolsEnabled = plan.tools;
   /** Ignore agent text until session/prompt: resume/load can replay earlier turns as chunks. */
   let captureText = false;
   let error: string | undefined;
@@ -191,7 +225,7 @@ export async function runAcpTurn(
     else if (h === "unhealthy") toolsHealthy = false;
   };
 
-  const mcpServers = plan.tools
+  const buildMcpServers = (attach: boolean) => attach
     ? [{
         name: plan.mcpName,
         command: plan.mcpCommand,
@@ -201,6 +235,8 @@ export async function runAcpTurn(
           .map(name => ({ name, value: env[name]! })),
       }]
     : [];
+
+  let mcpServers = buildMcpServers(toolsEnabled);
 
   const onLine = (line: string) => {
     let msg: Json;
@@ -234,8 +270,8 @@ export async function runAcpTurn(
       const toolCall = ((msg.params as Json)?.toolCall ?? {}) as Json;
       const title = toolTitle(String(toolCall.title ?? ""));
       const options = ((msg.params as Json)?.options ?? []) as { optionId?: string; kind?: string }[];
-      // Digest-only turns (health failed or tools off) deny every permission request.
-      const allow = plan.tools && toolsHealthy && isPacerTool(plan.mcpName, title);
+      // Digest-only / tools off deny every request; otherwise title+kind must be MCP-safe pacer.
+      const allow = toolsEnabled && toolsHealthy && isPacerMcpPermission(plan.mcpName, toolCall);
       const id = optionId(options, allow ? "allow" : "reject");
       tools.push({ tool: title || "permission", status: allow ? "allowed" : "denied" });
       if (!id) {
@@ -281,7 +317,7 @@ export async function runAcpTurn(
     if (!sessionId) {
       const created = await request("session/new", { cwd, mcpServers }) as { sessionId?: string; _meta?: Json };
       sessionId = created?.sessionId;
-      if (plan.tools && mcpServers.length > 0) {
+      if (toolsEnabled && mcpServers.length > 0) {
         const reported = mcpHealthFromMeta(created?._meta, plan.mcpName);
         if (reported === "healthy") toolsHealthy = true;
         else if (reported === "unhealthy") toolsHealthy = false;
@@ -291,7 +327,7 @@ export async function runAcpTurn(
           if (!toolsHealthy) toolsHealthy = await mcpToolsListHealthy(plan, env, hooks.signal);
         }
       }
-    } else if (plan.tools && mcpServers.length > 0 && !toolsHealthy) {
+    } else if (toolsEnabled && mcpServers.length > 0 && !toolsHealthy) {
       // Resume: agent usually silent on load; only probe when health was never confirmed (not when meta said unhealthy).
       await settle(hooks.signal, 400);
       if (!toolsHealthy) toolsHealthy = await mcpToolsListHealthy(plan, env, hooks.signal);
@@ -300,12 +336,18 @@ export async function runAcpTurn(
 
     // Freeze health before the prompt: mid-turn tool_call / permission frames must not reopen tools.
     healthLocked = true;
-    const preflightHealthy = plan.tools && toolsHealthy;
+    const preflightHealthy = toolsEnabled && toolsHealthy;
     toolsHealthy = preflightHealthy;
 
-    // When tools were requested but the agent reported none, continue digest-only for this turn.
-    if (plan.tools && !preflightHealthy) {
+    // Unhealthy preflight: digest-only — drop MCP+grant from the session and flip tools off so
+    // policy/permissions also deny pacer_*. Do not prompt on a session that still holds the grant.
+    if (toolsEnabled && !preflightHealthy) {
+      toolsEnabled = false;
+      mcpServers = [];
       error = error ?? "pacer MCP tools were not reported on the ACP session; answering from the digest only";
+      const replacement = await request("session/new", { cwd, mcpServers: [] }) as { sessionId?: string };
+      if (!replacement?.sessionId) throw new Error("opencode ACP returned no digest-only session id");
+      sessionId = replacement.sessionId;
     }
     const promptText = plan.tools && !preflightHealthy
       ? `${TOOLS_UNAVAILABLE_NOTE}\n\n${promptBody}`

@@ -23,6 +23,15 @@ const mode = () => {
 const logPath = process.env.FAKE_LOG ?? `${dir}/calls.jsonl`;
 const log = (row) => appendFileSync(logPath, JSON.stringify(row) + "\n");
 
+function summarizeMcpServers(servers, { includeArgs = true } = {}) {
+  return servers.map((s) => ({
+    name: s?.name,
+    command: s?.command,
+    ...(includeArgs ? { args: s?.args } : {}),
+    envKeys: Array.isArray(s?.env) ? s.env.map((e) => e?.name) : [],
+  }));
+}
+
 if (process.argv.includes("--version")) {
   process.stdout.write("2.2.3-fake\n");
   process.exit(0);
@@ -76,6 +85,19 @@ async function prompt(frame) {
         },
       });
     }
+    // Spoof: pacer title with execute kind must be denied (title alone is not enough).
+    permIds.push("perm_spoof");
+    send({
+      jsonrpc: "2.0", id: "perm_spoof", method: "session/request_permission",
+      params: {
+        sessionId,
+        toolCall: { toolCallId: "t_spoof", title: "pacer_snapshot", kind: "execute", status: "pending", rawInput: { command: "echo x" } },
+        options: [
+          { optionId: "once", kind: "allow_once", name: "Allow once" },
+          { optionId: "reject", kind: "reject_once", name: "Reject" },
+        ],
+      },
+    });
     // Even when health failed (no-tools), emit a pacer permission so the host must deny it.
     update({ sessionUpdate: "tool_call", toolCallId: "t_pacer", title: "pacer_snapshot", kind: "other", status: "pending" });
     permIds.push("perm_pacer");
@@ -133,19 +155,29 @@ createInterface({ input: process.stdin }).on("line", (line) => {
       });
     case "session/new": {
       const m = mode();
+      const servers = Array.isArray(frame.params?.mcpServers) ? frame.params.mcpServers : [];
+      // Digest-only replacement sessions get a distinct id and no MCP tools meta.
+      if (!servers.length && m === "no-tools") {
+        sessionId = `ses_digest_${Math.random().toString(36).slice(2, 8)}`;
+      } else {
+        sessionId = `ses_new_${Math.random().toString(36).slice(2, 8)}`;
+      }
+      log({ method: "session/new", sessionId, mcpServers: summarizeMcpServers(servers) });
       const mcpTools = m === "no-tools" ? [] : ["pacer_snapshot", "pacer_status"];
       return reply({
         sessionId,
         configOptions: [],
-        _meta: { mcpTools },
+        _meta: { mcpTools: servers.length ? mcpTools : [] },
       });
     }
     case "session/load": {
       if (frame.params?.sessionId === "ses_gone" || mode() === "gone") {
         return send({ id: frame.id, error: { code: -32000, message: "Session not found" } });
       }
+      const servers = Array.isArray(frame.params?.mcpServers) ? frame.params.mcpServers : [];
       sessionId = frame.params.sessionId;
       resumed = true;
+      log({ method: "session/load", sessionId, mcpServers: summarizeMcpServers(servers, { includeArgs: false }) });
       return reply({ modes: null });
     }
     case "session/prompt": {
