@@ -14,7 +14,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, askSystem, askTurn, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, type AskTurn } from "./ask-mode";
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -76,12 +76,12 @@ function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
   return configuredSecrets(ctx, strategy.accounts);
 }
 
-function endpointFor(strategy: Strategy, settings: AssistantSettings) {
+function endpointFor(ctx: Ctx, strategy: Strategy, settings: AssistantSettings) {
   const account = settings.account ? strategy.accounts[settings.account] : undefined;
-  // The executor backend runs the account through its agent CLI (opencode), which holds the
-  // connection itself; any endpoint account it drives qualifies, and opencode picks the default model.
+  // The executor backend runs the account through its agent CLI (opencode or Claude Code), which
+  // holds the connection itself; opencode endpoint accounts and claude accounts qualify.
   if (settings.backend === "executor") {
-    if (!account || account.kind !== "endpoint") return null;
+    if (!account || !askAdapterFor(ctx, account)) return null;
     const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
     return { name: settings.account!, account, model: runner?.model ?? account.model ?? account.connection?.models[0]?.id ?? null, baseUrl: "" };
   }
@@ -151,13 +151,14 @@ export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admissi
   if (settings.backend === "executor" && !replyProvider(ctx, "executor"))
     return { ok: false, reason: "No plugin answers the assistant's executor backend.", hint: "Choose pacer's agent in Settings › Assistant." };
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
-  const endpoint = endpointFor(strategy, settings);
+  const endpoint = endpointFor(ctx, strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
-  // Ask mode runs only on an account that passed the fail-closed check with today's opencode (spec §3).
+  // Ask mode runs only on an account that passed the fail-closed check with today's CLI (spec §3).
   if (settings.backend === "executor") {
     // The native plugin owner's bridge cannot carry the ask-mode config binding yet.
     if (ctx.env.PACER_HOST_SOCKET) return { ok: false, reason: "The executor backend is not available with the native plugin host yet.", hint: "Choose pacer's agent in Settings › Assistant." };
-    const check = (deps.selfTest ?? selfTestStatus)(ctx, endpoint.name);
+    const adapter = askAdapterFor(ctx, endpoint.account)!;
+    const check = deps.selfTest ? deps.selfTest(ctx, endpoint.name) : selfTestStatus(ctx, endpoint.name, adapter);
     if (!check.ok) return { ok: false, reason: check.reason, hint: "Run the ask-mode check in Settings › Assistant." };
   }
   if (turnsToday(ctx) >= settings.limits.turnsPerDay) return { ok: false, reason: `The assistant reached its limit of ${settings.limits.turnsPerDay} turns today.`, hint: "The limit resets at midnight, or raise it in Settings." };
@@ -199,7 +200,10 @@ export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1
     // Check against the backend being saved (absent keeps the stored one), not only the stored one.
     const stored = readSettings(ctx);
     const probe: AssistantSettings = { ...stored, account: input.account, runner: input.runner, backend: input.backend ?? stored.backend };
-    if (!endpointFor(strategy, probe)) throw new CoreError("invalid_input", "Choose an endpoint account with a model.", "Add one in Settings › Accounts.");
+    if (!endpointFor(ctx, strategy, probe)) {
+      const want = probe.backend === "executor" ? "an opencode or Claude Code account" : "an endpoint account with a model";
+      throw new CoreError("invalid_input", `Choose ${want}.`, "Add one in Settings › Accounts.");
+    }
   }
   return writeSettings(ctx, input);
 }
@@ -326,7 +330,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   let closeTurn: (() => void) | null = null, grant: string | null = null, ask: AskTurn | null = null;
   try {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
-    const endpoint = endpointFor(strategy, settings);
+    const endpoint = endpointFor(ctx, strategy, settings);
     if (!endpoint) throw new CoreError("not_allowed", "The account chosen for the assistant is no longer available.");
     const redactor = createRedactor(await (deps.keys ?? defaultKeys)(ctx, strategy), ctx.home);
     entry.redactor = redactor;
@@ -361,10 +365,10 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       // Resume the backend's own session only on the account and backend it belongs to (spec §6).
       const stored = readBackendSession(ctx, turn.conversationId);
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
-      // Executor turns: the host builds the restricted `opencode run` commands and their config, which
-      // carries the grant; the plugin gets the command shapes and a reference, never the config.
+      // Executor turns: the host builds the restricted CLI commands (and opencode's config, which
+      // carries the grant); the plugin gets the command shapes and a reference, never the config.
       if (settings.backend === "executor" && grant)
-        ask = askTurn(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
+        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
@@ -373,13 +377,19 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
-      const askConfigText = ask?.config;
-      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({ argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin, secretEnv: { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } })) : [];
+      const askConfigText = ask?.config ?? "";
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({
+        argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
+        ...(askConfigText ? { secretEnv: { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } } : {}),
+      })) : [];
       emit(turn.turnId, { status: "Thinking…" });
       const raw = await Promise.race([
         pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, {
           deadlineMs, signal: entry.abort.signal, assistantTurn,
-          ...(ask ? { resources: { reads: [], commands: pins, stores: [] }, credentialBindings: [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText! }] } : {}),
+          ...(ask ? {
+            resources: { reads: [], commands: pins, stores: [] },
+            ...(askConfigText ? { credentialBindings: [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText }] } : {}),
+          } : {}),
         }),
         entry.stopped,
       ]);
@@ -508,13 +518,19 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   // Executor rows (spec §5): every account the executor backend's agent CLI drives, available only
   // after it passed the ask-mode check with today's CLI.
   const executor = replyProvider(ctx, "executor") ? Object.entries(strategy.accounts).flatMap(([name, account]) => {
-    if (account.kind !== "endpoint") return [];
-    const check = (deps.selfTest ?? selfTestStatus)(ctx, name);
-    return [{
-      account: name, backend: "executor" as AssistantBackend, available: check.ok, ...(check.ok ? {} : { reason: check.reason }),
+    const row = {
+      account: name, backend: "executor" as AssistantBackend,
       models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
       runners: runnersOf(name), isPlanner: strategy.planner.account === name,
-    }];
+    };
+    // A non-default Claude account without its own config dir must not fall back to the default.
+    if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
+      return [{ ...row, available: false, reason: `${name} has no Claude config directory.` }];
+    }
+    const adapter = askAdapterFor(ctx, account);
+    if (!adapter) return [];
+    const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
+    return [{ ...row, available: check.ok, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
   return [...pacerRows(strategy), ...executor];
 }
@@ -543,7 +559,7 @@ export async function selfTest(ctx: Ctx, account: string, deps: AssistantDeps = 
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const plugin = replyProvider(ctx, "executor");
   if (!plugin) throw new CoreError("not_allowed", "No plugin answers the assistant's executor backend.");
-  const target = endpointFor(strategy, { ...readSettings(ctx), account, backend: "executor", runner: null });
+  const target = endpointFor(ctx, strategy, { ...readSettings(ctx), account, backend: "executor", runner: null });
   if (!target) throw new CoreError("not_found", `${account} is not an account the executor backend can run.`);
-  return runSelfTest(ctx, account, { model: target.model, plugin });
+  return runSelfTest(ctx, account, { model: target.model, plugin, accountCfg: target.account });
 }
