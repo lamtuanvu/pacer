@@ -24,11 +24,21 @@ function recordingRun(reply: RunResult | ((argv: string[]) => RunResult) = ok(),
 
 test("installOrcaPanel runs exactly `orca plugin install <pluginDir> --json` and nothing else", async () => {
   const calls: Call[] = [];
-  const r = await installOrcaPanel(recordingRun(ok(), calls), "/path/to/plugins/orca-panel");
-  expect(calls.map((c) => c.argv)).toEqual([["orca", "plugin", "install", "/path/to/plugins/orca-panel", "--json"]]);
+  // Any existing directory stands in for the real plugin folder here; installOrcaPanel checks
+  // the path exists before shelling out (see the dedicated test below for the opposite case).
+  const existingDir = process.cwd();
+  const r = await installOrcaPanel(recordingRun(ok(), calls), existingDir);
+  expect(calls.map((c) => c.argv)).toEqual([["orca", "plugin", "install", existingDir, "--json"]]);
   expect(calls[0]!.timeoutMs).toBeGreaterThan(0);
   expect(calls[0]!.env).toBeDefined();
   expect(r).toEqual({ ok: true });
+});
+
+test("installOrcaPanel refuses a nonexistent pluginDir without shelling out (a packaged install with no bundled plugin files)", async () => {
+  const calls: Call[] = [];
+  const r = await installOrcaPanel(recordingRun(ok(), calls), "/path/to/plugins/orca-panel");
+  expect(calls).toEqual([]);
+  expect(r).toEqual({ ok: false, error: expect.stringContaining("not available in this pacer install") });
 });
 
 test("installOrcaPanel surfaces approval_required as needsApprove, not a crash", async () => {

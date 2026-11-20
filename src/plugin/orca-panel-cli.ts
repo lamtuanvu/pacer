@@ -1,3 +1,4 @@
+import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { parseOrcaOutput, sanitizedOrcaEnv } from "../exec/orca/client";
 import type { RunFn, RunResult } from "../types";
@@ -59,6 +60,11 @@ async function orcaCall(run: RunFn, args: string[]): Promise<OrcaOutcome> {
 
 /** `orca plugin install <pluginDir> --json`; approval_required surfaces as `needsApprove`. */
 export async function installOrcaPanel(run: RunFn, pluginDir: string): Promise<{ ok: true } | { ok: false; error: string; needsApprove?: string }> {
+  // `resolveOrcaPanelDir()` only resolves correctly from a source checkout today; a packaged
+  // install (npm, Homebrew, a release binary) has no plugins/orca-panel/ next to it yet. Fail
+  // with a clear reason instead of letting `orca` report a path error against a path the user
+  // never supplied.
+  if (!existsSync(pluginDir)) return { ok: false, error: `the panel plugin's files are not available in this pacer install (expected ${pluginDir}); run from a source checkout for now` };
   const o = await orcaCall(run, ["plugin", "install", pluginDir]);
   if (o.ok) return { ok: true };
   return o.needsApprove !== undefined
