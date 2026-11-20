@@ -40110,7 +40110,7 @@
           {
             "id": "beta",
             "account": "other",
-            "reason": "Not working \u00b7 crash loop",
+            "reason": "Not working · crash loop",
             "eligibility": {
               "state": "ineligible",
               "reasons": [

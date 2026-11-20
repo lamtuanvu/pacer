@@ -365,7 +365,10 @@ mod tests {
             work["usageState"],
             json!({"scope": {"account": "work"}, "verdict": "OK"})
         );
-        assert_eq!(work["diagnostics"], json!({"readings": [{"source": "snapshot"}]}));
+        assert_eq!(
+            work["diagnostics"],
+            json!({"readings": [{"source": "snapshot"}]})
+        );
     }
 
     #[tokio::test]
