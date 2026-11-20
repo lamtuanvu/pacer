@@ -92,18 +92,28 @@ async function exchange(dir: string, cases: [string, unknown][], forward: boolea
 const ERRORS: [string, unknown][] = [
   ["desktop.capture.register", { client_id: "", worker_token: "short" }],
   ["desktop.capture.register", { client_id: 5, worker_token: "a".repeat(64), extra: 1 }],
+  ["desktop.capture.register", null],
   ["desktop.capture.targets", 5], ["desktop.capture.targets", "s"], ["desktop.capture.targets", []],
   ["desktop.capture.request", { client_id: "c", window: "other" }],
   ["desktop.capture.request", { client_id: "c", window: "main", mode: 5 }],
   ["desktop.capture.request", "s"],
+  ["desktop.capture.request", null],
   ["desktop.capture.claim", { client_id: "c" }],
   ["desktop.capture.claim", { client_id: "c", worker_token: "z".repeat(64), windows: "x" }],
+  // Zod 4.6.5 reports per-element issues AND the array `max(2)` size error
+  // for an over-length array holding invalid elements. Rust mirrors both.
+  ["desktop.capture.claim", { client_id: "c", worker_token: "a".repeat(64), windows: [
+    { label: "main", window_id: "1", pid: 1 }, { label: "t", window_id: "2", pid: 3 },
+    { label: "main", window_id: "3", pid: 4 },
+  ] }],
   ["desktop.capture.complete", { request_id: "r", worker_token: "z", error: "nope" }],
   ["desktop.capture.result", {}],
   ["desktop.update.status", {}], ["desktop.update.status", { installationId: "-" }], ["desktop.update.status", { x: 1 }],
+  ["desktop.update.status", null],
   ["desktop.update.check", {}], ["desktop.update.check", { installationId: "a", requestId: "b", expectRevision: -1 }],
   ["desktop.update.restart", { installationId: "a", requestId: "b", expectRevision: 0, version: "x" }],
   ["desktop.update.configure", { installationId: "a", requestId: "b", expectRevision: 0, autoDownload: "y" }],
+  ["desktop.update.configure", null],
   ["desktop.update.cancel", {}], ["desktop.update.adopt", 5], ["desktop.update.adoptCancel", "s"],
 ];
 
@@ -121,6 +131,8 @@ test("native desktop capture and update ops reject invalid params like TypeScrip
 test("native requests carry the validated params to Core", () => {
   const dir = home();
   expect(nativeResult(dir, "desktop.capture.targets", {}, { echo: true }).result)
+    .toEqual({ op: "desktop.capture.targets", params: {} });
+  expect(nativeResult(dir, "desktop.capture.targets", null, { echo: true }).result)
     .toEqual({ op: "desktop.capture.targets", params: {} });
   expect(nativeResult(dir, "desktop.capture.targets", { x: 1 }, { echo: true }).result)
     .toEqual({ op: "desktop.capture.targets", params: {} });

@@ -154,12 +154,20 @@ fn unknown_keys(map: &Map<String, Value>, known: &[&str], issues: &mut Vec<Strin
 }
 
 pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
-    let map = params.as_object().ok_or_else(|| {
-        invalid(format!(
-            "params: Invalid input: expected object, received {}",
-            type_name(params)
-        ))
-    })?;
+    let empty = Map::new();
+    let map = if params.is_null() {
+        // TypeScript's `params ?? {}` (src/api/ops.ts) reads an explicit
+        // `null` params object as empty; the strict schema's field issues
+        // then surface instead of a `params` type error.
+        &empty
+    } else {
+        params.as_object().ok_or_else(|| {
+            invalid(format!(
+                "params: Invalid input: expected object, received {}",
+                type_name(params)
+            ))
+        })?
+    };
     let mut parsed = Map::new();
     let mut issues = Vec::new();
     let known = match op {
@@ -254,6 +262,15 @@ mod tests {
         assert_eq!(
             message("desktop.update.status", json!({})),
             "installationId: Invalid input: expected string, received undefined"
+        );
+        // Explicit `null` reads as `{}` (TypeScript's `params ?? {}`).
+        assert_eq!(
+            message("desktop.update.status", Value::Null),
+            "installationId: Invalid input: expected string, received undefined"
+        );
+        assert_eq!(
+            message("desktop.update.configure", Value::Null),
+            "installationId: Invalid input: expected string, received undefined; requestId: Invalid input: expected string, received undefined; expectRevision: Invalid input: expected number, received undefined; autoDownload: Invalid input: expected boolean, received undefined"
         );
     }
 

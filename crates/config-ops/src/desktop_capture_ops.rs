@@ -27,8 +27,14 @@ pub fn needs_capture_bridge(op: &str) -> bool {
     CAPTURE_OPS.contains(&op)
 }
 
+/// `z.string().regex(/^[0-9a-f]{64}$/)`: lowercase hex only, matching the
+/// regex (Zod would reject uppercase A-F even though `is_ascii_hexdigit`
+/// would accept them).
 fn hex64(text: &str) -> bool {
-    text.len() == 64 && text.bytes().all(|b| b.is_ascii_hexdigit())
+    text.len() == 64
+        && text
+            .bytes()
+            .all(|b| b.is_ascii_digit() || matches!(b, b'a'..=b'f'))
 }
 
 fn digits(text: &str, max: usize) -> bool {
@@ -177,8 +183,12 @@ fn window_params(
     }
 }
 
-/// `z.array(window).max(2).optional()`. Like Zod, an over-length array is
-/// reported as a single size error and element checks are skipped.
+/// `z.array(window).max(2).optional()`. Zod 4.6.5 parses each element and
+/// reports element issues (`windows.<i>.<field>`) and, for an over-length
+/// array, also reports the array's own `max(2)` size error; both appear in
+/// the combined message (verified against zod 4.6.5 with invalid elements
+/// in an over-length array). We mirror that: collect the element issues
+/// first, then the size error, so the order matches zod.
 fn windows_issue(value: Option<&Value>, issues: &mut Vec<String>) -> Option<Vec<Value>> {
     let Some(Value::Array(items)) = value else {
         if let Some(other) = value {
@@ -189,27 +199,35 @@ fn windows_issue(value: Option<&Value>, issues: &mut Vec<String>) -> Option<Vec<
         }
         return None;
     };
-    if items.len() > 2 {
-        issues.push("windows: Too big: expected array to have <=2 items".into());
-        return Some(Vec::new());
-    }
     let mut parsed = Vec::new();
     for (index, item) in items.iter().enumerate() {
         if let Some(window) = window_params(&format!("windows.{index}"), Some(item), issues) {
             parsed.push(Value::Object(window));
         }
     }
+    if items.len() > 2 {
+        issues.push("windows: Too big: expected array to have <=2 items".into());
+    }
     Some(parsed)
 }
 
-/// Captures the validated params into `parsed` for the bridge body.
+/// Captures the validated params into `parsed` for the bridge body. Like
+/// TypeScript's `params ?? {}` (src/api/ops.ts), an explicit `null` params
+/// object reads as an empty object rather than a type error.
 pub fn bridge_params(op: &str, params: &Value) -> Result<Value, CoreError> {
-    let map = params.as_object().ok_or_else(|| {
-        invalid(format!(
-            "params: Invalid input: expected object, received {}",
-            type_name(params)
-        ))
-    })?;
+    let empty = Map::new();
+    let map = if params.is_null() {
+        // TypeScript's `params ?? {}` (src/api/ops.ts) reads an explicit
+        // `null` params object as empty rather than as a type error.
+        &empty
+    } else {
+        params.as_object().ok_or_else(|| {
+            invalid(format!(
+                "params: Invalid input: expected object, received {}",
+                type_name(params)
+            ))
+        })?
+    };
     let mut parsed = Map::new();
     let mut issues = Vec::new();
     match op {
@@ -335,6 +353,38 @@ mod tests {
             message("desktop.capture.targets", json!(5)),
             "params: Invalid input: expected object, received number"
         );
+        // An explicit `null` reads as `{}` (TypeScript's `params ?? {}`).
+        assert_eq!(
+            bridge_params("desktop.capture.targets", &Value::Null).unwrap(),
+            json!({"op": "desktop.capture.targets", "params": {}})
+        );
+    }
+
+    #[test]
+    fn null_params_validates_as_empty_object_for_other_ops() {
+        assert_eq!(
+            message("desktop.capture.register", Value::Null),
+            "client_id: Invalid input: expected string, received undefined; worker_token: Invalid input: expected string, received undefined"
+        );
+        assert_eq!(
+            message("desktop.capture.request", Value::Null),
+            "client_id: Invalid input: expected string, received undefined; window: Invalid option: expected one of \"main\"|\"tray\""
+        );
+    }
+
+    #[test]
+    fn worker_token_rejects_uppercase_hex() {
+        assert_eq!(
+            message(
+                "desktop.capture.register",
+                json!({"client_id": "c", "worker_token": "A".repeat(64)})
+            ),
+            "worker_token: Invalid string: must match pattern /^[0-9a-f]{64}$/"
+        );
+        assert!(hex64(&"a".repeat(64)));
+        assert!(hex64(&format!("{}d", "a".repeat(63))));
+        assert!(!hex64(&"A".repeat(64)));
+        assert!(!hex64(&"g".repeat(64)));
     }
 
     #[test]
@@ -379,7 +429,7 @@ mod tests {
                     {"label": "main", "window_id": "3", "pid": 4}
                 ]})
             ),
-            "windows: Too big: expected array to have <=2 items"
+            "windows.0.pid: Too small: expected number to be >=2; windows.1.label: Invalid option: expected one of \"main\"|\"tray\"; windows: Too big: expected array to have <=2 items"
         );
     }
 
