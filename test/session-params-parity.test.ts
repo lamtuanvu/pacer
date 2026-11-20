@@ -36,6 +36,8 @@ test("session operation param bounds match the Rust params module goldens", () =
       { input: "ffffffff-ffff-ffff-ffff-ffffffffffff", valid: true },
       { input: "bad", valid: false },
       { input: "00000000-0000-9000-8000-000000000000", valid: false },
+      { input: "123e4567-e89b-12d3-a456-4266-4174000", valid: false },
+      { input: "123e4567e89b12d3a456426614174000", valid: false },
     ],
     agent_uuid: [
       { input: "550e8400-e29b-41d4-a716-446655440000", valid: true },

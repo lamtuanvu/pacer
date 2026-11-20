@@ -15,7 +15,9 @@ pub(crate) fn dispatch_lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &V
 /// replaces invalid UTF-8 and drops a BOM, and `JSON.parse` accepts unpaired
 /// surrogate escapes and numbers past the f64 range.
 pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
-    op == "config.set" || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+    op == "config.set"
+        || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+        || pacer_task_ops::session_lifecycle_ops::uses_admission(op)
 }
 
 #[cfg(test)]

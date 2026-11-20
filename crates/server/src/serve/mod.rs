@@ -205,6 +205,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::session_lifecycle_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
                 return proxy::unavailable(false);
@@ -228,6 +229,32 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
                     proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                         .await
                 }
+                Err(error) => native_error(error),
+            };
+        }
+        if crate::native::session_lifecycle_ops::uses_admission(op.name) {
+            use crate::native::session_lifecycle_ops::{Admission, admit, bridge_request};
+            crate::native::msg_write_sync::trace(op.name, None);
+            let result = match admit(&ctx, op.name, &params) {
+                Ok(Admission::Native(reply)) => Ok(reply),
+                Ok(Admission::Core) => {
+                    let request = bridge_request(
+                        op.name,
+                        params,
+                        header_value(&parts.headers, "x-pacer-client").as_deref(),
+                        header_value(&parts.headers, "x-pacer-client-instance").as_deref(),
+                    );
+                    crate::native::core_bridge_sync::http(
+                        state.core.target().await,
+                        "session.lifecycle",
+                        serde_json::json!({ "request": request }),
+                    )
+                    .await
+                }
+                Err(error) => Err(error),
+            };
+            return match result {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
                 Err(error) => native_error(error),
             };
         }

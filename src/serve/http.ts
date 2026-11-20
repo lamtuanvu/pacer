@@ -474,6 +474,27 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/session-lifecycle" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { sessionLifecycleBridge } = await import("../api/session-lifecycle-bridge");
+            const base = getCtx(), parent = base.operation;
+            // The front door drops this request when its caller disconnects, as a forwarded request would be.
+            const operation = { signal: parent ? AbortSignal.any([parent.signal, req.signal]) : req.signal, ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}) };
+            // `opts.opDeps` (which carries `spawnRunner`) is the full opDeps subset these handlers read: the
+            // session lifecycle operations only consume `spawnRunner` (plus the caller identity the bridge
+            // re-derives from the request's own headers). The forwarded `/v3/ops/` route adds per-request
+            // flags (`usageRefreshDone`, `snapshotProbe`, `terminalPresetsOnly`, `appAuthenticated`,
+            // `participant`) that no session lifecycle handler reads, so passing `opts.opDeps` is safe.
+            return Response.json({ result: await sessionLifecycleBridge({ ...base, operation }, request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
