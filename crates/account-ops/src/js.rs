@@ -2,7 +2,6 @@
 use regex::Regex;
 use serde_json::Value;
 use std::{
-    cmp::Ordering,
     path::{Component, Path, PathBuf},
     sync::LazyLock,
 };
@@ -45,10 +44,6 @@ pub(crate) fn account_name(name: &str) -> bool {
         && bytes
             .iter()
             .all(|b| b.is_ascii_lowercase() || b.is_ascii_digit() || *b == b'-')
-}
-
-pub(crate) fn locale_compare(a: &str, b: &str) -> Ordering {
-    icu_collator::CollatorBorrowed::new_root(Default::default()).compare(a, b)
 }
 
 fn number(v: &Value) -> String {

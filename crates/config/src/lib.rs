@@ -2,6 +2,7 @@
 
 pub mod config_writes;
 pub mod doc;
+pub mod evidence;
 pub mod executor_settings;
 pub mod host;
 mod js_semantics;
