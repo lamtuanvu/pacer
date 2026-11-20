@@ -32,7 +32,7 @@ The same account shows different usage on different surfaces at the same moment.
 9. **Rust-specific.** `read-model/capacity.rs` sorts host aliases by bytes while TS and `account-ops` use locale compare, so evidence identities differ when aliases differ in case. `limits.check` and `routing.status` reload strategy after the TS parts were computed. Engine ports of `deadline`, conflicts and `binding_window` differ from TS and are used only by goldens. The status line shows stale percentages.
 10. **Dead code.** `readUsage`, `limitWindow`, `app/src/model/accounts.ts` `accountsModel`, `app/src/model/home.ts` `homeModel`, the unreachable reactive branch in `plugins/pacer-usage`.
 
-The full inventory with file references is kept with the review records for this change.
+The file references for each item are listed in the appendix.
 
 ## Goals
 
@@ -59,7 +59,8 @@ interface UsageState {
   source: "status-line" | "session-log" | "provider-cli" | "metered" | "reactive" | "unmetered" | "unknown";
   figure: { usedPct: number; window: string; lengthS: number; resetsAt: number | null } | null; // null = no figure
   windows: UsageWindowState[];          // every measured window, each with its own freshness
-  limit: { until: number; observedAt: number | null; manual: boolean; scopeLabel: string | null } | null;
+  limit: { until: number; observedAt: number | null; manual: boolean } | null; // applies to this whole scope
+  blockedRunners: { runner: string; model: string; until: number | null; reason: "quota_failure" | "authentication_failed" | "subscription_missing" }[]; // account records only
   observedAt: number | null;            // when the binding fact was observed
   freshness: "fresh" | "historical" | "unknown";
   verdict: Verdict;                     // EXHAUSTED when `limit` is active
@@ -71,29 +72,41 @@ interface UsageState {
 
 Rules:
 
-- **Limit marks apply everywhere.** An active mark or limit fact sets `limit`, makes the figure `{usedPct: 100, window: "limit", resetsAt: until}` for the scopes it covers and sets the verdict to EXHAUSTED.
-- **Account state covers its runners.** An account-scope record takes account facts plus every runner-scoped limit or auth fact. If every runner of the account is blocked, the account is blocked. If some are, the account record keeps its measured figure and lists the blocked runners in `limit.scopeLabel` (for example "auto model"). The account and runner records never report opposite verdicts for the same fact.
-- **Mode follows the planner runner.** `Status.mode` comes from the planner's runner record in both TS and Rust.
-- **Model scope.** Execution facts are recorded with the runner's configured model key (`runner.model ?? "default"`); the attempt model is kept as a detail on the fact.
+- **Limit marks apply everywhere.** An active mark or limit fact whose scope covers a record sets that record's `limit`, makes its figure `{usedPct: 100, window: "limit", resetsAt: until}` and sets its verdict to EXHAUSTED. Account-name marks (manual reports, `exhausted.json` keys) cover the account and all its runners.
+- **Account state covers its runners.** A runner is blocked when its own record has an active `limit` or an `authentication_failed`/`subscription_missing` availability fact. The account record lists blocked runners in `blockedRunners`. Its verdict is:
+  - EXHAUSTED when the account itself has `limit`, or when it has at least one runner and every runner is blocked by a quota failure;
+  - otherwise the verdict of its measured figure, with `blockedRunners` shown next to it.
+  An account with no runners uses its measured figure only. Auth facts never change a verdict; they change eligibility and appear in `blockedRunners`. "Opposite verdicts" means an account record saying OK, ON_PACE, AHEAD or BEHIND while a fact that applies to all of its runners makes them EXHAUSTED; this cannot happen under these rules.
+- **Mode.** An active `modeHold` wins. Otherwise mode follows the verdict of the planner's runner record. A planner without an account (for example `opencode`) or without a record gives `normal`. TS and Rust implement the same rule.
+- **Model scope.** Execution facts keep their actual runner, model and host scope, as [ADR 0002](../decisions/0002-executor-eligibility.md) requires. A runner record's lookup matches facts for its configured model and for every model its tiers can select, so a limit hit on a tier-selected model reaches the runner.
 - **observedAt is the binding fact's time.** Age shown anywhere is `now - observedAt` of the binding budget fact, or of the newest availability fact when there is no budget fact. `reconcileEvidence` prunes availability and spending facts whose validity ended more than 7 days ago.
-- **Reactive and unmetered sources produce no windows.** The broker returns `{windows: [], capturedAt: null, source}`. A reactive account without a limit has `figure: null` and `freshness: "fresh"` with verdict OK. The unreachable plugin branch is deleted.
+- **Reactive and unmetered sources produce no windows.** The broker and the `plugins/pacer-usage` reactive and unmetered branches return `{windows: [], capturedAt: null, stale: false, source}`. The `usage.read` input enum keeps `reactive` and `unmetered`, so there is no plugin protocol change. A reactive account without a limit has `figure: null`, `observedAt: null`, `freshness: "unknown"` and verdict OK; `usageView` labels it "No usage figure". An unmetered account has the same shape with verdict UNMETERED, labelled "Unmetered". The single verdict-label table maps OK to "Available" and UNMETERED to "Unmetered".
 
 ### 2. One freshness module
 
-`src/usage/freshness.ts` owns every constant: the per-window cap (7200 s for windows of 6 h or less, else 86400 s), auth and execution lifetimes, the exhaustion threshold, the near-limit threshold, cooldown defaults and observation expiry. `engine/evidence.ts`, dispatch candidates and observations, and the Rust engine read these values. Rust gets them through generated constants with a parity test. `view-model` and the TUI stop computing freshness and read `freshness` from the projection.
+`src/usage/freshness.ts` owns every constant: the per-window cap (7200 s for windows of 6 h or less, else 86400 s), auth and execution lifetimes, the exhaustion threshold, the near-limit threshold, cooldown defaults and observation expiry. `engine/evidence.ts`, dispatch candidates and observations, and the Rust engine read these values. Rust gets them from code generated by `cargo xtask gen` (RUST-5), and the existing generator freshness check fails when the generated file is out of date. `view-model` and the TUI stop computing freshness and read `freshness` from the projection.
 
 Dispatch candidates exhaust at the same threshold as the verdict (97).
 
 ### 3. One cache owned by the service
 
-Readings, last good readings and refresh outcomes persist under `PACER_HOME/state/usage/` (per-account JSON, atomic writes, mode 0600). `cachedBase`, `cacheOnly` and `limits.refresh` read and write this store, so a one-shot CLI process and the service see the same last reading. The in-process memo stays only as a 60 s request de-duplicator.
+Readings, last good readings and refresh outcomes persist under `PACER_HOME/state/usage/<evidence identity>.json`, keyed by the account's evidence identity rather than its name, so a removed and re-created account does not inherit old readings (the [ADR 0002](../decisions/0002-executor-eligibility.md) lifetime boundary). Account removal deletes the file. Files carry `schemaVersion: 1`.
+
+- Directory mode 0700, files 0600, written to a temp file opened with `wx` and renamed (ARCH-16, SEC-7).
+- Writes take the per-account `usage-store` lock used by `withLockSync`, so the service, one-shot CLI processes and Rust bridges never interleave.
+- A write happens when the windows, error, availability or source change, or when the stored reading is older than its freshness cap. A new `capturedAt` alone does not cause a write unless the stored one would otherwise turn stale.
+- Only the core reads or writes the store (ARCH-1). Rust reaches it through the existing TS bridges.
+
+`cachedBase`, `cacheOnly` and `limits.refresh` read and write this store, so a one-shot CLI process and the service see the same last reading. The in-process memo stays only as a 60 s request de-duplicator.
 
 ### 4. Operations
 
 - `snapshot.get`, `limits.check`, `routing.status`, the hook text, `pacer status` and MCP `budget_status` read `UsageState` from status.
-- `account.list` returns `usage: UsageState` taken from the same status computation, plus `diagnostics.readings[]` with the raw provider readings for the Diagnostics and account details views. `usageReading` stays in protocol 3.x as a deprecated alias with the raw reading and is removed one minor release later. Clients stop reading it in this change.
+- `account.list` returns `usage: UsageState` taken from the same status computation, plus `diagnostics.readings[]` with the raw provider readings for the Diagnostics and account details views. Both fields are additive. `usageReading` stays for the whole of protocol 3.x as a deprecated field and is removed in protocol 4.0 through the compat adapter (API-2). The CHANGELOG records the deprecation and the removal release. Clients stop reading it in this change.
+- `usageReading` changes meaning for reactive and unmetered accounts: it no longer carries an invented `limit` window. The CHANGELOG states this.
+- The Rust `account.list` (`crates/account-ops/src/account_list_ops.rs`) passes `usage` and `diagnostics` through in the same PR that adds them on the TS side, since it copies only named fields.
 - The Rust read model and `account-ops` pass `UsageState` through without re-deriving verdicts, labels or freshness. Strategy is passed with the parts (as `account.list` already does) so rows and runners come from one strategy snapshot. Host aliases sort with the same locale compare as TS.
-- Dormant Rust engine ports (`deadline`, conflicts, `binding_window`) are aligned with TS by golden tests or deleted if nothing needs them.
+- Dormant Rust engine ports: `deadline`, the conflict check and `binding_window` are aligned with TS and covered by golden tests generated from the TS implementation, because `rank_executors` and `compose_status` sit next to them and a later native cutover would use them.
 
 ### 5. One presentation function
 
@@ -119,7 +132,7 @@ The Rust TUI and status line implement the same function in `crates/tui` with go
 ### 6. Guards
 
 - **Cross-surface test.** Fixture states: (a) reactive account with an active limit mark; (b) reactive account without a mark; (c) failed read with an older cached reading; (d) quota reading several days old with a fresh execution fact; (e) runner-scoped limit on one of two runners; (f) 5 h and weekly windows with different freshness. For each, the test checks that `computeStatus`, the snapshot (TS and Rust), `account.list` (TS and Rust), the hook text, `limits.check` and `usageView` for every app surface report the same figure, verdict, reset and freshness.
-- **Import rule.** A lint test fails if anything under `app/` or `src/view-model/` reads `usageReading`, raw `windows`, or freshness constants outside `src/usage/freshness.ts`.
+- **Import rule.** A lint test fails if anything under `app/` or `src/view-model/` (other than `src/view-model/usage.ts`) reads the `usageReading` field, imports the `UsageReading` or `UsageWindow` types from `src/types.ts` or `src/plugins/usage-protocol.ts`, or defines a freshness constant outside `src/usage/freshness.ts`.
 - **Live validation.** Seed state (a) to (f) in a sandbox home and record the status bar, popover, Agents table, Accounts tab, Budget and pacing, Dispatch home, tray and TUI side by side (CT-11).
 
 ## Delivery
@@ -127,12 +140,21 @@ The Rust TUI and status line implement the same function in `crates/tui` with go
 | PR | Scope | Depends on |
 |---|---|---|
 | 1 | This spec and ADR 0030 | — |
-| 2 | Service: projection, scope and mode fixes, reactive without windows, freshness module, persisted usage store, evidence age and pruning, `account.list` `usage`, CLI and hook text, dead TS code, contract tests for (a) to (f) | 1 |
+| 2 | Service: projection, scope and mode fixes, reactive without windows, freshness module, persisted usage store, evidence age and pruning, `account.list` `usage` and `diagnostics` (TS and the Rust pass-through), CLI and hook text, dead TS code, CHANGELOG, contract tests for (a) to (f) | 1 |
 | 3 | Rust: pass-through of `UsageState` in read model, account-ops, status ops, TUI and status line; identity sort; strategy snapshot; freshness constants; engine ports | 2 |
 | 4 | App: `usageView`, every surface moved to it, merges and helpers deleted, import rule, cross-surface test, canvas check, live validation | 2 (3 for TUI parity) |
 
 ## Risks
 
 - Account-level verdicts become stricter where runner limits used to be hidden. Routing uses runner records, so routing does not change; only presentation and mode do.
-- Removing the fabricated reactive window changes `account.list` for plugins and scripts that read `usageReading`. The deprecated alias keeps the field for one minor release.
+- Removing the fabricated reactive window changes the content of `usageReading` for reactive and unmetered accounts. Scripts that read a 0% `limit` window will see no windows. The field itself stays until protocol 4.0.
 - The persisted usage store adds disk writes on every reading; writes are per account and only when the reading changes.
+
+## Appendix: file references (2026-11-20)
+
+- Pipelines: `src/engine/status.ts` (`computeStatus`, account budgets around line 135, providers around 166, mode at 211); `src/core/accounts.ts` `accountListPart`; `src/usage/index.ts` `readUsage` (dead), `readAccountUsage`, `cachedBase`; `src/usage/reactive.ts`; `src/usage/freshness.ts`; `src/plugins/usage-broker.ts`; `plugins/pacer-usage/index.ts`.
+- Evidence: `src/engine/evidence.ts` (`evidenceDeadline`, `reconcileEvidence`, `readingEvidence`), `src/engine/eligibility.ts` (`evidenceAgeS`), `src/core/evidence.ts` (`recordExecutionEvidence`), `src/tasks/runner.ts` (outcome scope, launch verdict override), `src/executors/availability.ts` (`executorExclusion`).
+- Process-local caches: `src/usage/refresh.ts`, `src/core/dispatch.ts`, `src/assistant/service.ts`, `src/core/task-detail.ts`, `src/dispatch/observations.ts`.
+- Output: `src/render/hook.ts`, `src/render/text.ts`, `src/view-model/eligibility.ts`, `src/core/limits.ts`, `src/commands/accounts.ts`, `src/mcp/server.ts`, `src/api/read-model/capacity.ts`, `src/api/v2-compat.ts`, `src/view-model/panel.ts`.
+- Rust: `crates/account-ops/src/account_list_ops.rs`, `crates/account-ops/src/model.rs`, `crates/read-model/src/capacity.rs`, `crates/read-model/src/snapshot.rs`, `crates/task-ops/src/status_ops.rs`, `crates/engine/src/lib.rs`, `crates/engine/src/status.rs`, `crates/dispatch/src/candidates.rs`, `crates/dispatch/src/status_adapter.rs`, `crates/tui/src/model.rs`, `crates/cli/src/status_line/fields.rs`, `crates/config-ops/src/runner_ops.rs`.
+- App: `app/src/shell/StatusBar.tsx`, `app/src/shell/TopBar.tsx`, `app/src/screens/settings/{Executors,Accounts,General,DispatcherSetup}.tsx`, `app/src/screens/dispatch/Dispatch.tsx`, `app/src/tray/{Tray.tsx,model.ts}`, `app/src/shell/panels/WorkPanels.tsx`, `app/src/screens/session/SessionPanel.tsx`, `app/src/screens/new-task/NewTask.tsx`, `app/src/model/{accounts,home,new-task}.ts`, `app/src/shell/assistant/AssistantHost.tsx`, `app/src/screens/setup/steps.tsx`, `app/src/screens/insights/model.ts`, `app/src/screens/needs-you/NeedsYou.tsx`, `src/view-model/{capacity,dispatch,words,selectors,route-explain,diagnostics}.ts`.
