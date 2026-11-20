@@ -76,6 +76,7 @@ use pacer_task_ops::task_get_ops;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
+pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
 pub(crate) use pacer_core_bridge::task_wait_sync;
@@ -836,6 +837,14 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "assistant.candidates",
         call: assistant_ops::assistant_candidates,
+    },
+    NativeOp {
+        name: "assistant.ask",
+        call: assistant_ops::turn::assistant_ask,
+    },
+    NativeOp {
+        name: "assistant.cancel",
+        call: assistant_ops::turn::assistant_cancel,
     },
     NativeOp {
         name: "assistant.conversations",
