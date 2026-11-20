@@ -36,10 +36,11 @@ export function visibleFailure(failure: { message: string; item?: string } | nul
 export const actionSupported = (action: Action, ops: ReadonlySet<string>) => !["dispatch.retry", "dispatch.answer"].includes(action.op) || ops.has(action.op);
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
 /** The row's figure for compact labels: the record's, or a legacy row's meter fields. */
-export function executorUsage(executor: ExecutorRow, now: number): { meter: number | null; figure: string } {
+export function executorUsage(executor: ExecutorRow, now: number): { meter: number | null; figure: string; summaryUsed: string } {
   const view = usageView(executor.usageState, now);
-  if (executor.usageState) return { meter: view.meter, figure: view.figure };
-  return { meter: executor.usedPct != null ? Math.round(executor.usedPct) : null, figure: executor.usedPct != null ? `${Math.round(executor.usedPct)}%` : "Usage unknown" };
+  if (executor.usageState) return { meter: view.meter, figure: view.figure, summaryUsed: view.summaryUsed };
+  const figure = executor.usedPct != null ? `${Math.round(executor.usedPct)}%` : "Usage unknown";
+  return { meter: executor.usedPct != null ? Math.round(executor.usedPct) : null, figure, summaryUsed: executor.usedPct != null ? `${figure} used` : figure };
 }
 
 /** Compact capacity values never invent an unknown usage percentage; the figure comes from the row's record. */

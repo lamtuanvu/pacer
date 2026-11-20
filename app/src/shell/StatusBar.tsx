@@ -56,11 +56,17 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
     return view.meter !== null && !(markedPlanner && executor.id === markedPlanner.runner);
   }) : [];
   const historical = (state: { freshness?: string } | null | undefined) => state?.freshness === "historical";
+  // One warning word per chip, shown as "!" and spoken in the button's label (UI-2).
+  const warningFor = (state: Parameters<typeof usageView>[0]) => historical(state) ? "Historical usage"
+    : state?.verdict === "AHEAD" ? "Ahead of pace"
+    : state?.verdict === "NEAR_LIMIT" ? "Near limit"
+    : state?.verdict === "EXHAUSTED" ? "Out of quota" : null;
+  const spoken = (state: Parameters<typeof usageView>[0], figure: string) => { const w = warningFor(state); return w && w !== figure ? `, ${w.toLowerCase()}` : ""; };
   const usageNames = [
-    ...(markedPlanner && markedPlannerView ? [`${agentInfo(markedPlanner.agent).name} planner${plannerFigure ? ` ${markedPlannerView.figure}${markedPlanner.usageState?.verdict === "AHEAD" ? ", ahead of pace" : ""}${historical(markedPlanner.usageState) ? " historical usage" : ""}` : ", shown in Planner budget"}`] : []),
+    ...(markedPlanner && markedPlannerView ? [`${agentInfo(markedPlanner.agent).name} planner${plannerFigure ? ` ${markedPlannerView.figure}${spoken(markedPlanner.usageState, markedPlannerView.figure)}` : ", shown in Planner budget"}`] : []),
     ...executors.map(executor => {
       const view = usageView(executor.usageState, now);
-      return `${executorLabel(executor.id)} ${view.figure}${historical(executor.usageState) ? " historical usage" : ""}`;
+      return `${executorLabel(executor.id)} ${view.figure}${spoken(executor.usageState, view.figure)}`;
     }),
   ];
   const counts = snapshot ? snapshotCounts(snapshot) : null;
@@ -68,10 +74,7 @@ export function StatusBar({ route, snapshot, registry, terminal }: { route?: Rou
   const budget = (key: string, agent: string, name: string, state: Parameters<typeof usageView>[0]) => {
     const view = usageView(state, now);
     // The meter takes the record's tone; the warning follows the verdict, not the label string (NEAR_LIMIT and EXHAUSTED warn too).
-    const warning = historical(state) ? "Stale reading"
-      : state?.verdict === "AHEAD" ? "Ahead of pace"
-      : state?.verdict === "NEAR_LIMIT" ? "Near limit"
-      : state?.verdict === "EXHAUSTED" ? "Out of quota" : null;
+    const warning = warningFor(state);
     return <span className="pc-statusbar__item" key={key} title={`${name} · ${view.figure}${warning ? ` · ${warning.toLowerCase()}` : ""}`}>
       <AgentMark agent={agent} size={16} labelled={false} /><span className="pc-num pc-statusbar__pct">{view.figure}</span>
       <UsageMeter used={view.meter} pace={null} tone={view.tone} size="mini" text="none" label={`${name} usage`} stale={historical(state)} />
@@ -148,7 +151,7 @@ export function UsageDetails({ accounts, now }: { accounts: Account[]; now: numb
           {/* Each window keeps its own staleness and verdict tone; the record's freshness is the head's words (fixture f). */}
           <UsageMeter used={row.meter} pace={null} tone={row.tone} size="top" text="none" label={`${account.name} ${row.label} usage`} stale={row.stale} staleAt={state.observedAt ?? undefined} now={now} />
           <span className="pc-num">{row.figure}</span>
-          <span className="muted">{row.reset}</span>
+          <span className="muted">{[row.tone === "warn" || row.tone === "bad" ? row.verdictLabel : null, row.reset].filter(Boolean).join(" · ")}</span>
         </div>;
       }) : <p className="muted">{view.figure} · no quota windows reported.</p>}
       {meta && <p className="pc-usage-account__meta muted">{meta}</p>}

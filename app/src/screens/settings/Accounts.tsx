@@ -52,7 +52,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                   users = summary?.executors ?? account.runners ?? [],
                   spend = spendCopy(record?.spend?.usdWeek ?? null, record?.spend?.capUsdWeek ?? null),
                   status = record?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
-                    : readiness.signedIn === true && record ? paceStatus(record.verdict)
+                    : readiness.signedIn === true && record ? (record.freshness === "historical" && record.figure ? { ...paceStatus("unknown"), label: "Historical usage" } : paceStatus(record.verdict))
                     : accountStatus(readiness),
                   hasAction = arkcliSignInRequired(account) || accountNeedsSignIn(readiness),
                   expanded = hasAction && openActions === account.name, actionsId = `account-actions-${encodeURIComponent(account.name)}`;

@@ -94,7 +94,7 @@ export function budgetOf(agent: string, snapshot: import("../../../../src/view-m
   const own = snapshot?.accounts?.filter(a => a.agent === agent || a.executors.some(r => markAgent(r) === agent || runnerAgent(r) === agent)) ?? [];
   const verdictOf = (a: typeof own[number]): string => String(a.usageState?.verdict ?? a.verdict);
   const historical = (a: typeof own[number]): boolean => a.usageState ? a.usageState.freshness === "historical" : a.stale === true;
-  if (own.length && own.every(historical)) return { label: "Stale reading", tone: "warn" };
+  if (own.length && own.every(historical)) return { label: "Historical usage", tone: "warn" };
   const live = own.filter(a => !historical(a));
   if (live.some(a => paceStatus(verdictOf(a)).label === "Out of quota")) return verdict(paceStatus("EXHAUSTED"));
   if (live.some(a => paceStatus(verdictOf(a)).label === "Ahead of pace")) return verdict(paceStatus("AHEAD"));

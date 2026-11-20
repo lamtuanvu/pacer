@@ -152,7 +152,7 @@ test('Accounts never present stale measured usage as current pace', () => {
  const accounts = [{name:'team',kind:'codex',signedIn:true}];
  for (const [overrides, label] of [
   [{}, 'On pace'],
-  [{freshness:'historical' as const}, 'On pace'],
+  [{freshness:'historical' as const}, 'Historical usage'],
  ] as const) {
   // The record owns freshness; the status pill quotes the record's verdict and the quota column states the age.
   const record = { ...usageStateFor({usedPct:17,window:'week',resetsAt:now+3600,verdict:'ON_PACE',capturedAt:now}, now), ...(overrides.freshness ? {freshness:overrides.freshness,observedAt:now-86401} : {}) };

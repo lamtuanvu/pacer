@@ -48,8 +48,9 @@ test("stale planner usage visibly marks freshness and names it for assistive tec
   const historical = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, stale: true } });
   const html = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
   expect(html).toContain("historical usage");
-  expect(html).toContain('role="img" aria-label="Stale reading" class="pc-statusbar__stale">!</span>');
-  expect(html).not.toContain("Historical usage");
+  expect(html).toContain('role="img" aria-label="Historical usage" class="pc-statusbar__stale">!</span>');
+  // The chip shows the "!" mark, not the words; the words are its accessible name.
+  expect(html).not.toContain(">Historical usage<");
   expect(html).not.toContain("behind pace");
 });
 
@@ -116,7 +117,7 @@ test("Dispatch keeps the planner mark without a figure when its main reading is 
   expect(usage).not.toContain("28%");
   expect(usage).not.toContain("pc-meter");
   const elsewhere = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
-  expect(elsewhere).toContain("Codex · team 28% historical usage");
+  expect(elsewhere).toContain("Codex · team 28%, historical usage");
   expect(elsewhere).toContain("pc-meter--mini");
 });
 

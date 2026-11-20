@@ -562,7 +562,7 @@ test('Budget windows use pace only on matching windows and preserve individual f
   expect(html.match(/pc-meter__pace/g)).toHaveLength(1);
   expect(html.match(/pc-meter--stale/g)).toHaveLength(1);
   expect(html).toContain('18% · pace 38%');
-  expect(html).toContain('Stale reading');
+  expect(html).toContain('Historical usage');
 });
 
 test('Budget labels synthetic reactive zeroes and absent windows as unmeasured', () => {

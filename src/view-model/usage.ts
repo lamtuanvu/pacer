@@ -94,7 +94,7 @@ export function usageView(state: UsageState | null | undefined, now: number): Us
 }
 
 /** One window of a record's `windows` list, quoted with the same words and verdict tone as the record itself. */
-export function usageWindowView(window: UsageWindowState, now: number): { label: string; figure: string; meter: number | null; reset: string; tone: StatusTone; stale: boolean } {
+export function usageWindowView(window: UsageWindowState, now: number): { label: string; figure: string; meter: number | null; reset: string; tone: StatusTone; stale: boolean; verdictLabel: string } {
   return {
     label: windowWords(window.name),
     figure: window.usedPct === null ? "Usage unknown" : `${Math.round(window.usedPct)}%`,
@@ -102,5 +102,6 @@ export function usageWindowView(window: UsageWindowState, now: number): { label:
     reset: resetWords(window.resetsAt, now),
     tone: verdictTone(window.verdict),
     stale: window.stale === true,
+    verdictLabel: verdictWords(window.verdict),
   };
 }
