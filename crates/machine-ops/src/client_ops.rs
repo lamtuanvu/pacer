@@ -12,7 +12,7 @@ use pacer_foundation::{
     api::{Code, CoreError, OpFuture},
     fsutil::write_private,
 };
-use pacer_js_json::{number_string, quoted};
+use pacer_js_json::quoted;
 use serde_json::{Map, Number, Value, json};
 use std::{
     fs,
@@ -475,7 +475,58 @@ fn js_number(n: f64) -> Option<Value> {
 }
 
 fn exact_number(n: f64) -> bool {
-    js_number(n).is_some_and(|value| value.to_string() == number_string(n))
+    // serde's number text must repeat exactly what `JSON.stringify` writes, or
+    // the plain reply would diverge from the bridged TypeScript string. Render
+    // serde's `value` into a fixed stack buffer and ryu-js's `n` into its own,
+    // then compare the two text slices — no owned String is created just for the
+    // comparison.
+    let Some(value) = js_number(n) else {
+        return false;
+    };
+    let mut serde_txt = NumberText::default();
+    let mut js = ryu_js::Buffer::new();
+    serde_txt.render(&value);
+    serde_txt.as_slice() == js.format(n).as_bytes()
+}
+
+/// A fixed stack buffer for the short decimal a JSON number renders as. The
+/// largest is a binary64 exponent string (~24 chars); 96 bytes leaves headroom
+/// for a full 64-bit integer too. Only ASCII digits are ever written here.
+struct NumberText {
+    bytes: [u8; 96],
+    len: usize,
+}
+
+impl Default for NumberText {
+    fn default() -> Self {
+        Self {
+            bytes: [0; 96],
+            len: 0,
+        }
+    }
+}
+
+impl NumberText {
+    fn render(&mut self, value: &Value) {
+        use std::fmt::Write as _;
+        let _ = write!(self, "{value}");
+    }
+
+    fn as_slice(&self) -> &[u8] {
+        &self.bytes[..self.len]
+    }
+}
+
+impl std::fmt::Write for NumberText {
+    fn write_str(&mut self, text: &str) -> std::fmt::Result {
+        let end = self.len + text.len();
+        if end > self.bytes.len() {
+            return Err(std::fmt::Error);
+        }
+        self.bytes[self.len..end].copy_from_slice(text.as_bytes());
+        self.len = end;
+        Ok(())
+    }
 }
 
 /// Text or numbers a plain serde reply would not repeat as `JSON.stringify` writes them.
