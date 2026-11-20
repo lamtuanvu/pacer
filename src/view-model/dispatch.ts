@@ -169,9 +169,7 @@ export function plannerCaption(p: PlannerMeter, now: number, shortWindowPct?: nu
   const window = view.window || windowWords(p.window);
   const reset = view.reset || (p.resetsAt != null ? resetWords(p.resetsAt, now) : "");
   return [
-    meter !== null ? (view.meter !== null
-      ? (view.figure === `${view.meter}%` ? `${view.figure} of ${window} used` : view.figure)
-      : `${meter}% of ${window} used`) : null,
+    meter !== null ? (p.usageState ? view.summaryUsed : `${meter}% of ${window} used`) : null,
     p.pacePct !== null ? `pace ${Math.round(p.pacePct)}%` : null,
     reset.startsWith("resets ") ? reset : null,
     // The planner's own window may already be the 5-hour one; then it is not stated twice.
@@ -201,7 +199,7 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
     lead: "Usage reading is out of date.",
     meter: { used: meter, pace: null, stale: true, live: false, label },
     // The meter states the figure; the caption adds the window and the reading's age (UI-15).
-    caption: [`${view.meter !== null ? view.figure : `${meter}%`}${window ? ` of ${window}` : ""} used`, view.freshness || "Reading of unknown age · refresh"].filter(Boolean).join(" · "),
+    caption: [p.usageState ? view.summaryUsed : `${meter}% of ${window} used`, view.freshness || "Reading of unknown age · refresh"].filter(Boolean).join(" · "),
   };
   // No figure is a state: the advice leads and the verdict pill carries the words.
   return { lead: p.advice, caption: "" };

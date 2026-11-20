@@ -236,7 +236,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
         const local = location === "on this Mac" && detail?.usage === "unmetered";
         // The account's one usage record, quoted through usageView (ADR 0030).
         const view = usageView(detail?.usageState, Date.now() / 1000);
-        return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : view.meter !== null ? `${view.figure} of ${view.window} used` : detail?.usage ?? view.figure].join(" · ") };
+        return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : view.figure.endsWith("%") ? view.summaryUsed : detail?.usage ?? view.figure].join(" · ") };
       }));
     }).catch(() => { if (live) setError("Could not load accounts. Try again."); });
     return () => { live = false; };

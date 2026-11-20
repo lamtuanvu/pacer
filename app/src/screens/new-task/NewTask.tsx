@@ -297,9 +297,11 @@ function PlannerRow({ p }: { p: ViewProps }) {
   // The planner's one usage record, quoted through usageView (ADR 0030); a legacy row keeps its meter fields.
   const usage = usageView(planner.usageState, Date.now() / 1000);
   const used = usage.meter ?? planner.usedPct;
-  const figure = planner.usageState ? usage.figure : used !== null ? `${Math.round(used)}%` : "Usage unknown";
   const plannerRecord = planner.usageState;
-  const view = p.card?.planner ?? { cost: "Not measured yet", used, pace: planner.pacePct, note: used === null ? "" : `${figure} of ${usage.window || "week"} used${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}` };
+  const view = p.card?.planner ?? { cost: "Not measured yet", used, pace: planner.pacePct, note: used === null ? ""
+    : planner.usageState && usage.figure.endsWith("%") ? `${usage.summaryUsed}${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}`
+    : planner.usageState ? usage.figure
+    : `${Math.round(used)}% of ${usage.window || "week"} used${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}` };
   const name = agentInfo(planner.agent).name;
   return <div className="pc-route-card__planner">
     <span className="pc-route-card__planner-head"><AgentMark agent={planner.agent} size={18} labelled={false} /><span className="pc-route-card__planner-title">Planner cost</span><span className="pc-route-card__planner-cost">{view.cost}</span></span>

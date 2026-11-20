@@ -209,7 +209,7 @@ export function SessionInsights({ task, executor }: { task: TaskDetail; executor
       <span className="pc-session-token-value">{reported ? `${tokens.lowerBound ? "≥ " : ""}${compactCount(tokens.total)}` : "—"}</span>
       <p className="muted">{reported ? "This session" : "No token usage reported yet"}{tokens?.lowerBound ? " · partial usage" : ""}</p>
       <UsageMeter used={record ? usage.meter : executor?.usedPct ?? null} pace={executor?.pacePct ?? null} tone={pace.tone} size="slim" label={`${agent} weekly usage`} text="none"/>
-      <p className="muted">{(usage.meter !== null || (record === undefined && executor?.usedPct != null)) && <>{agent} {usage.meter !== null ? `${usage.figure} of ${usage.window}` : `${Math.round(executor!.usedPct!)}% of week`}{pace.label !== "Usage unknown" && ` · ${pace.label.toLowerCase()}`}</>}</p>
+      <p className="muted">{(usage.meter !== null || (record === undefined && executor?.usedPct != null)) && <>{agent} {record !== undefined ? usage.summary : `${Math.round(executor!.usedPct!)}% of week`}{pace.label !== "Usage unknown" && ` · ${pace.label.toLowerCase()}`}</>}</p>
     </section>
   </>;
 }

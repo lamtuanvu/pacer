@@ -14,6 +14,8 @@ export interface UsageView {
   source: string;       // "Status line", "Provider reading", "Observed limits", ...
   tone: StatusTone;
   verdictLabel: string; // from the one verdict table
+  summary: string;      // figure and window composed once: "68% of week", "Out of quota", "No usage figure", "Unmetered", "Usage unknown"
+  summaryUsed: string;  // the metered summary marked used: "68% of week used"; a limit or a missing figure is not "used"
 }
 
 /** Source labels, moved here from the Usage popover so every surface spells them once. */
@@ -81,7 +83,11 @@ export function usageView(state: UsageState | null | undefined, now: number): Us
   const source = usageSourceWords(state?.source ?? "unknown");
   const tone: StatusTone = state ? verdictTone(state.verdict) : "neutral";
   const verdictLabel = state ? verdictWords(state.verdict) : "Usage unknown";
-  return { figure, meter, window, reset, freshness, source, tone, verdictLabel };
+  // A measured figure states its window once; a limit, a missing figure or an unknown record is a state on its own.
+  const metered = figure.endsWith("%");
+  const summary = metered && window ? `${figure} of ${window}` : figure;
+  const summaryUsed = metered ? (window ? `${figure} of ${window} used` : `${figure} used`) : figure;
+  return { figure, meter, window, reset, freshness, source, tone, verdictLabel, summary, summaryUsed };
 }
 
 /** One window of a record's `windows` list, quoted with the same words as the record itself. */

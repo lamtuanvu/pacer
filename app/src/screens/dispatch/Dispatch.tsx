@@ -226,7 +226,7 @@ function AgentUsage({ snapshot, query }: { snapshot: ClientSnapshot; query: Rout
     <div className="pc-card-section__head"><SectionHeading id="agent-usage">Executors</SectionHeading></div>
     <ul className="pc-dispatch-agents">{rows.map(row => {
       // Figure and pace come from the row's one usage record (ADR 0030); a stale reading says so.
-      const view = usageView(row.usageState, snapshot.at ?? Date.now() / 1000), usage = view.meter !== null ? `${view.figure} used` : view.figure;
+      const view = usageView(row.usageState, snapshot.at ?? Date.now() / 1000), usage = view.figure.endsWith("%") ? view.summaryUsed : view.figure;
       const pace = executorPace(row, snapshot);
       return <li key={row.id}><ListRowLink className="pc-dispatch-agent" href={withQuery("#/settings/executors", query)} aria-label={`${executorLabel(row.id)} · ${usage} · ${pace.label}`}>
         <AgentMark agent={markAgent(row.id, row.account)} size={20} labelled={false} /><span className="pc-dispatch-agent__name">{executorLabel(row.id)}</span>

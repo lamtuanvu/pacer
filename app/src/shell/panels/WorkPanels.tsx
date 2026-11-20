@@ -172,8 +172,8 @@ function TaskInspector({ id, query }: { id: string; query: RouteQuery }) {
               text="none"
             />
             <span className="pc-work-panel-caption">
-              {executorUsageView.meter !== null
-                ? `${executorUsageView.figure} of ${executorUsageView.window} used${executor.pacePct != null ? ` · pace ${Math.round(executor.pacePct)}%` : ""}`
+              {executorUsageView.figure.endsWith("%")
+                ? `${executorUsageView.summaryUsed}${executor.pacePct != null ? ` · pace ${Math.round(executor.pacePct)}%` : ""}`
                 : executorUsageView.figure}
             </span>
           </>
