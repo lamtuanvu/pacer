@@ -527,6 +527,18 @@ describe("claude-code ask mode", () => {
     } finally { ask.cleanup(); }
   });
 
+  test("the default Claude account keeps Claude's own folder: no CLAUDE_CONFIG_DIR override", () => {
+    // Claude Code keys its Keychain sign-in by config folder; naming the default folder reads as "Not logged in".
+    const { ctx } = claudeSetup();
+    const account = { kind: "claude" as const, source: "default" as const, home: null, name: "claude-code", model: "sonnet",
+      orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
+    const ask = claudeAskTurn(ctx, { turnId: "t-def", conversationId: "c-def", account, model: "sonnet", system: "s", question: "hi", history: [], timeoutMs: 30_000 });
+    try {
+      expect(ask.command.env.CLAUDE_CONFIG_DIR).toBeUndefined();
+      expect(ask.command.env.HOME).toBe(ctx.home);
+    } finally { ask.cleanup(); }
+  });
+
   test("admission and candidates require a passing check for today's claude", async () => {
     const { ctx, deps } = claudeSetup();
     expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "work has not passed the ask-mode check yet." });

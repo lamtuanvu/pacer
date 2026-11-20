@@ -253,7 +253,9 @@ export function claudeAskTurn(ctx: Ctx, o: {
   writeFileSync(systemFile, o.system, { mode: 0o600 });
   const env: Record<string, string> = {
     ...minimalEnvironment(ctx.env, "claude"),
-    CLAUDE_CONFIG_DIR: configDir,
+    // The default account keeps Claude's own default folder through HOME: naming it explicitly
+    // makes Claude Code look up a different Keychain credential and report "Not logged in".
+    ...(o.account.source === "default" ? {} : { CLAUDE_CONFIG_DIR: configDir }),
     [CLAUDE_EXPECT_VERSION_ENV]: version,
   };
   const session = claudeResumeSession(o.session);
