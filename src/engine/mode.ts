@@ -11,6 +11,7 @@ export function plannerMode(v: Verdict): Mode {
     case "NEAR_LIMIT": return "strict";
     case "BEHIND":
     case "EXPIRING": return "relaxed";
+    case "UNMETERED": return "normal";
     default: return "normal";
   }
 }

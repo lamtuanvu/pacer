@@ -217,9 +217,10 @@ export async function computeStatus(
         ...(!["execution", "configuration"].includes(bindingFact.source) ? { source: bindingFact.source as UsageSource } : {}) } : {}),
     };
     // Nothing to pace against: unmetered usage, or metered usage with no token budget and no dollar cap (spend is
-    // still reported). Such accounts are available rather than unknown, so routing does not rank them last.
+    // still reported). Unmetered records are UNMETERED; such accounts are otherwise available rather than unknown,
+    // so routing does not rank them last.
     const unlimited = usage === "unmetered" || usage === "reactive" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
-    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const verdict: Verdict = usage === "unmetered" && !windows.length ? "UNMETERED" : unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, budgetRequired: !unlimited, allowPaid: account.allowPaid,
@@ -242,7 +243,7 @@ export async function computeStatus(
         paceScale: account.name === s.planner.account ? 1 - s.pacing.plannerReserve / 100 : 1,
       }));
     const live = windows.filter(w => !w.stale), binding = bindingWindow(live) ?? bindingWindow(windows);
-    const verdict: Verdict = unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
+    const verdict: Verdict = usage === "unmetered" && !windows.length ? "UNMETERED" : unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     // Remote and endpoint runners have separate authentication; local login files do not describe them.
     const signIn = (opts.includePlannerSignIn || !(runner.agent === s.planner.agent && runner.account === s.planner.account)) && runner.host === null && account.kind !== "endpoint" ? accountSignIn(ctx, account, runnerScope) : null;
     const provider: ProviderStatus = {

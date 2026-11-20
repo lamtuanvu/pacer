@@ -48,7 +48,7 @@ test("assembles verdicts, planner mode and the default executor ranking", async 
   const by = Object.fromEntries(st.providers.map((p) => [p.id, p]));
   expect(by["claude-code"].verdict).toBe("ON_PACE");
   expect(by["opencode#byteplus"].verdict).toBe("EXPIRING");
-  expect(by["opencode#local"].verdict).toBe("OK");
+  expect(by["opencode#local"].verdict).toBe("UNMETERED");
   expect(st.executors.ranked[0].id).toBe("opencode#byteplus");
 });
 
@@ -90,7 +90,7 @@ test("unreadable activity logs do not prevent status without a profile override"
     const st = await computeStatus(ctx, s);
     expect(st.calendarPace).toBe(true);
     expect(st.providers).toHaveLength(Object.keys(s.providers).length);
-    expect(st.providers.find((p) => p.id === "opencode#local")?.verdict).toBe("OK");
+    expect(st.providers.find((p) => p.id === "opencode#local")?.verdict).toBe("UNMETERED");
   } finally {
     chmodSync(path, mode);
   }

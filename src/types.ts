@@ -1,5 +1,5 @@
 export type Verdict =
-  | "EXHAUSTED" | "NEAR_LIMIT" | "AHEAD" | "ON_PACE" | "BEHIND" | "EXPIRING" | "OK" | "UNKNOWN";
+  | "EXHAUSTED" | "NEAR_LIMIT" | "AHEAD" | "ON_PACE" | "BEHIND" | "EXPIRING" | "OK" | "UNMETERED" | "UNKNOWN";
 
 export type UsageKind = "quota" | "metered" | "reactive" | "unmetered";
 

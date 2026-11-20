@@ -25,6 +25,7 @@ afterEach(cleanupUsageFixtures);
 const now = localTs(2026, 11, 20, 10, 0);
 const PLANNER = "planner: claude-code\n";
 const CURSOR = "planner: cursor\naccounts:\n  cursor: {kind: cursor}\nrunners:\n  cursor: {}\nrouting:\n  - default: [cursor]\n";
+const CURSOR_UNMETERED = "planner: cursor\naccounts:\n  cursor: {kind: cursor, usage: unmetered}\nrunners:\n  cursor: {}\nrouting:\n  - default: [cursor]\n";
 const CLAUDE = `${PLANNER}accounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nrouting:\n  - default: [claude-code]\n`;
 const EXT = "planner: opencode\naccounts:\n  claude: {kind: claude}\nhosts:\n  devbox: {ssh: devbox, accounts: {claude: {home: ~/claude-devbox}}}\nrunners:\n  claude-code: {}\n  claude-code@devbox: {host: devbox}\nrouting:\n  - default: [claude-code, claude-code@devbox]\n";
 
@@ -213,6 +214,25 @@ test("(f) 5h and weekly windows keep their own freshness; the record quotes the 
   // The planner meter quotes the same binding window.
   const planner = buildPlanner(st);
   expect(planner).toMatchObject({usedPct: 40, window: "weekly", resetsAt: byName.weekly.resetsAt});
+});
+
+test("(g) an unmetered account reports UNMETERED on every surface", async () => {
+  const ctx = withLoginIndicators(fakeCtx({now}));
+  const s = load(ctx, CURSOR_UNMETERED);
+  const {st, record} = await surfaces(ctx, s, "cursor");
+  expect(record.verdict).toBe("UNMETERED");
+  expect(record.figure).toBeNull();
+  expect(record.windows).toEqual([]);
+  expect(record.limit).toBeNull();
+  expect(record.freshness).toBe("unknown");
+  expect(record.observedAt).toBeNull();
+  expect(record.spend).toBeNull();
+  const runner = st.providers.find(p => p.id === "cursor")!.usageState!;
+  expect(runner.verdict).toBe("UNMETERED");
+  expect(runner.figure).toBeNull();
+  expect(runner.observedAt).toBeNull();
+  // An unmetered planner runner holds normal mode.
+  expect(st.mode).toBe("normal");
 });
 
 test("mode follows the planner's runner record, not the account summary", async () => {

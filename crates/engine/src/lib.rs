@@ -122,6 +122,7 @@ fn verdict_rank(verdict: &str) -> i32 {
         "EXHAUSTED" => 0,
         "NEAR_LIMIT" => 1,
         "AHEAD" => 2,
+        "UNMETERED" => 3,
         "ON_PACE" => 4,
         "BEHIND" => 5,
         "EXPIRING" => 6,
@@ -421,6 +422,7 @@ pub fn planner_mode(verdict: &str) -> &'static str {
         "EXHAUSTED" => "emergency",
         "AHEAD" | "NEAR_LIMIT" => "strict",
         "BEHIND" | "EXPIRING" => "relaxed",
+        "UNMETERED" => "normal",
         _ => "normal",
     }
 }
@@ -924,6 +926,7 @@ mod tests {
         assert_eq!(planner_mode("ON_PACE"), "normal");
         assert_eq!(planner_mode("UNKNOWN"), "normal");
         assert_eq!(planner_mode("OK"), "normal");
+        assert_eq!(planner_mode("UNMETERED"), "normal");
     }
 
     fn two_runner_strategy() -> Value {

@@ -34,7 +34,7 @@ export function evaluateWindow(w: UsageWindow, now: number, profile: ActivityPro
 }
 
 const RANK: Record<Verdict, number> = {
-  EXHAUSTED: 0, NEAR_LIMIT: 1, AHEAD: 2, UNKNOWN: 3, OK: 3, ON_PACE: 4, BEHIND: 5, EXPIRING: 6,
+  EXHAUSTED: 0, NEAR_LIMIT: 1, AHEAD: 2, UNKNOWN: 3, OK: 3, UNMETERED: 3, ON_PACE: 4, BEHIND: 5, EXPIRING: 6,
 };
 
 /** The window that decides a provider's verdict. */
