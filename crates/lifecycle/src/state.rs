@@ -82,6 +82,29 @@ impl AdmissionState {
         dependencies(self.tasks.connection()?, id)
     }
 }
+/// `getWork(ctx, id) !== null`, or `None` when the store cannot answer. A store that has never
+/// held managed work has no `work_nodes` table.
+pub fn work_node_exists(store: &mut TaskStore, id: &str) -> Option<bool> {
+    let db = store.connection().ok()?;
+    let table: Option<i64> = db
+        .query_row(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='work_nodes'",
+            [],
+            |r| r.get(0),
+        )
+        .optional()
+        .ok()?;
+    if table.is_none() {
+        return Some(false);
+    }
+    let node: Option<i64> = db
+        .query_row("SELECT 1 FROM work_nodes WHERE task_id=?", [id], |r| {
+            r.get(0)
+        })
+        .optional()
+        .ok()?;
+    Some(node.is_some())
+}
 pub(crate) fn read_task(db: &Connection, id: &str) -> Result<Option<Value>, AdmissionError> {
     let text: Option<String> = db
         .query_row("SELECT record FROM tasks WHERE id=?", [id], |r| r.get(0))

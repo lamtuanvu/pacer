@@ -212,6 +212,28 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
         }
+        if crate::native::task_delegation_ops::is_delegation_op(op.name) {
+            use crate::native::task_delegation_ops::{Admission, admit};
+            let reply = match admit(&ctx, op.name, &params) {
+                Ok(Admission::Core) => {
+                    let Some(target) = state.core.target().await else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(Admission::Native(result)) => {
+                    native_json(StatusCode::OK, serde_json::json!({"result":result}))
+                }
+                Err(error) => native_error(error),
+            };
+            crate::native::msg_write_sync::trace(op.name, None);
+            return reply;
+        }
         if crate::native::msg_writes::uses_bridge(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);
             let mut bridge = crate::native::msg_write_sync::HttpBridge {

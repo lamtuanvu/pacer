@@ -373,6 +373,23 @@ async fn forward_input<
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
                 let request_ctx = ctx.at_now();
+                if crate::native::task_delegation_ops::is_delegation_op(op.name) {
+                    use crate::native::task_delegation_ops::{Admission, admit};
+                    let result = match admit(&request_ctx, op.name, &params) {
+                        Ok(Admission::Core) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(Admission::Native(reply)) => Ok(reply),
+                        Err(error) => Err(error),
+                    };
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::msg_writes::uses_bridge(op.name) {
                     use crate::native::{msg_write_sync, msg_writes};
                     msg_write_sync::trace(op.name, request.get("id"));
