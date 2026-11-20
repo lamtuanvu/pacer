@@ -6,7 +6,7 @@ export function pluginIcon(plugin: string, surfaces: SurfaceInfo[]) {
   const icon = surfaces.find(s => s.plugin === plugin && (s.surface === "activity" || s.surface === "panelTabs"))?.icon;
   return PLUGIN_ICONS[icon as keyof typeof PLUGIN_ICONS] ?? "plugin";
 }
-const capabilities: Record<string,string> = { "tasks.read":"Read tasks", "events.subscribe":"Follow events", "process.spawn":"Run programs", "fs.read":"Read files", "net.http":"Reach the network", "secrets.resolve":"Use secret references", "config.get":"Read its settings", "entitlement.report":"Report its licence", log:"Write logs" };
+const capabilities: Record<string,string> = { "tasks.read":"Read tasks", "events.subscribe":"Follow events", "process.spawn":"Run programs", "fs.read":"Read files", "net.http":"Reach the network", "assistant.tool":"Read pacer data for the assistant", "secrets.resolve":"Use secret references", "config.get":"Read its settings", "entitlement.report":"Report its licence", log:"Write logs" };
 export const capabilityWords = (plugin: PluginInfo) => plugin.capabilities.map(cap => `${capabilities[cap.name] ?? cap.name}${cap.scopes?.length ? `: ${cap.scopes.join(", ")}` : ""}`);
 export function pluginAdditions(plugin: PluginInfo) {
   const names = {settings:"Settings page",activity:"Activity view",panelTabs:"Right-panel tab",status:"Status bar item"};
