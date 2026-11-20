@@ -68,7 +68,10 @@ export function refusal(args: string[]): string | undefined {
   if (configSetsPlanner(args)) return "D3: config set planner installs planner integrations in-process, bypassing D8";
   if (command === "desktop-update" && action !== "status") return "D3: desktop update requires a verified OTA fixture";
   if (["integrations", "install", "uninstall", "init", "setup", "statusline", "update", "orca"].includes(command)) return `D3: ${command} changes the real user environment`;
-  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["uninstall", "remove"], account: ["add", "rm", "login"] };
+  // plugin install/update/uninstall now reach the real Orca app (ADR 2026-11-19): pacer shells
+  // out to `orca plugin install/update/uninstall` for its own panel, unlike the pre-revival
+  // no-op that only explained the removal. Only `status` stays read-only enough to allow.
+  const blocked: Record<string, string[]> = { service: ["install", "uninstall"], plugin: ["install", "update", "uninstall", "remove"], account: ["add", "rm", "login"] };
   if (blocked[command]?.includes(action)) return `D3: ${command} ${action} changes the real user environment`;
   if (command === "host") return hostRefusal(args);
   if (command === "open" && !args.includes("--print")) return "D3: open requires --print; use the agent's browser tools";
