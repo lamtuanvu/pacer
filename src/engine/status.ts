@@ -103,7 +103,12 @@ function freshnessOf(reading: { error?: string; stale: boolean }, binding: Windo
  *  measured records use the eligibility age (newest budget fact, else newest availability fact). */
 function observedAtOf(usage: string, limit: UsageLimit | null, eligibility: import("../evidence/types").EligibilityDecision, now: number): number | null {
   if (usage === "reactive" || usage === "unmetered") return limit?.observedAt ?? null;
-  return eligibility.evidenceAgeS === null ? null : Math.max(0, now - eligibility.evidenceAgeS);
+  return eligibility.evidenceAgeS === null ? null : now - eligibility.evidenceAgeS;
+}
+
+/** Models the runner's tiers can select (its declared inventory, else its configured model). */
+function selectableModels(runner: RunnerCfg): Set<string> {
+  return new Set(runner.models?.length ? runner.models.map(m => m.id) : runner.model ? [runner.model] : []);
 }
 
 /**
@@ -124,12 +129,17 @@ function blockedRunnersOf(accountScope: EvidenceScope, runners: RunnerCfg[], sna
   for (const runner of runners) {
     const model = runner.model ?? "default";
     const base = { account: accountScope.account, identity: accountScope.identity, runner: runner.name, host: hostOf(runner) };
+    const selectable = selectableModels(runner);
     for (const fact of snapshot.evidence.facts.budget) {
       if (fact.value.name !== "limit" || fact.value.resetsAt === null) continue;
       const until = fact.validUntil ?? fact.value.resetsAt;
       if (appliesTo(fact, { ...base, model })) add({ runner: runner.name, model, until, reason: "quota_failure" });
+      // A fact recorded for another model stays at that model, and only when the runner's
+      // tiers can actually select it and the fact is really this account's (appliesTo's
+      // account/identity check).
       else if (fact.scope.runner === runner.name && fact.scope.model && fact.scope.model !== model
-        && (!fact.scope.host || fact.scope.host === base.host))
+        && selectable.has(fact.scope.model) && (!fact.scope.host || fact.scope.host === base.host)
+        && fact.scope.account === base.account && fact.scope.identity === base.identity)
         add({ runner: runner.name, model: fact.scope.model, until, reason: "quota_failure" });
     }
     for (const fact of snapshot.evidence.facts.availability) {
@@ -137,7 +147,8 @@ function blockedRunnersOf(accountScope: EvidenceScope, runners: RunnerCfg[], sna
         || !currentEvidence(fact, now)) continue;
       if (appliesTo(fact, { ...base, model })) add({ runner: runner.name, model, until: null, reason: fact.reason });
       else if (fact.scope.runner === runner.name && fact.scope.model && fact.scope.model !== model
-        && (!fact.scope.host || fact.scope.host === base.host))
+        && selectable.has(fact.scope.model) && (!fact.scope.host || fact.scope.host === base.host)
+        && fact.scope.account === base.account && fact.scope.identity === base.identity)
         add({ runner: runner.name, model: fact.scope.model, until: null, reason: fact.reason });
     }
   }
@@ -227,7 +238,10 @@ export async function computeStatus(
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, budgetRequired: !unlimited, allowPaid: account.allowPaid,
       evidence: snapshot.evidence, restrictions: [] });
-    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility, usage, unlimited };
+    // A stale or failed reading is history for the account record too (D7); evaluated once here.
+    const accountEligibility: import("../evidence/types").EligibilityDecision = (reading.error || reading.stale) && eligibility.state === "eligible"
+      ? { ...eligibility, state: "uncertain" as const, reasons: [{ code: "refresh_failed", evidenceIds: [] }] } : eligibility;
+    return { account, runners, reading: reconciledReading, windows, binding, verdict, endpointReason, endpointNotTested: endpoint.state === "not_tested", scope, snapshot, eligibility: accountEligibility, usage, unlimited };
   }));
   trace("budgets");
   const byAccount = Object.fromEntries(budgets.map(b => [b.account.name, b]));
@@ -308,7 +322,7 @@ export async function computeStatus(
     calendarPace: isCalendar(profile),
     ...(warnings.length ? { warnings } : {}),
     accounts: budgets.map((budget) => {
-      const { account, runners, binding, verdict, reading, snapshot, unlimited, usage, scope: accountScope } = budget;
+      const { account, runners, binding, verdict, reading, snapshot, unlimited, usage, scope: accountScope, eligibility: accountEligibility } = budget;
       // Account-name marks and facts cover the account scope; runner-scoped ones never do.
       const accountLimit = pickLimit(snapshot.evidence.facts.budget.filter(f =>
         f.value.name === "limit" && f.value.resetsAt !== null && appliesTo(f, accountScope)));
@@ -318,12 +332,6 @@ export async function computeStatus(
       const everyRunnerBlocked = runners.length > 0 && runners.every(r =>
         blocked.some(b => b.runner === r.name && b.model === (r.model ?? "default") && b.reason === "quota_failure"));
       const accountVerdict: Verdict = accountLimit || everyRunnerBlocked ? "EXHAUSTED" : verdict;
-      let accountEligibility = evaluateEligibility({ now: ctx.now, scope: accountScope, usage, budgetRequired: !unlimited,
-        allowPaid: account.allowPaid, evidence: snapshot.evidence, restrictions: [] });
-      // A stale or failed reading is history for the account record too (D7).
-      if ((reading.error || reading.stale) && accountEligibility.state === "eligible") {
-        accountEligibility = { ...accountEligibility, state: "uncertain", reasons: [{ code: "refresh_failed", evidenceIds: [] }] };
-      }
       const record: UsageState = {
         scope: { account: account.name },
         source: reading.source ?? "unknown",
@@ -339,8 +347,7 @@ export async function computeStatus(
         error: reading.error ? { message: reading.error, at: ctx.now } : null,
       };
       return {
-        name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,
-        usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
+        name: account.name, kind: account.kind, verdict: accountVerdict, eligibility: accountEligibility, evidence: snapshot.evidence,        usedPct: binding?.usedPct ?? null, pacePct: binding?.pace ?? null,
         resetsAt: binding?.resetsAt ?? null, window: binding?.name ?? null,
         stale: record.freshness === "historical", runners: runners.map(r => r.name),
         source: reading.source ?? null, capturedAt: reading.capturedAt,
