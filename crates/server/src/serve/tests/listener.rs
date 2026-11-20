@@ -101,9 +101,8 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
 
 #[tokio::test]
 async fn host_effects_bridge_to_core_over_http() {
-    // Admitted host.check, host.clean and host.repo.setup requests reach Core's
-    // whole-operation host effects bridge; refusals and dry runs never reach Core;
-    // host.terminal is forwarded.
+    // Admitted host.check, host.clean, host.repo.setup and host.terminal requests reach Core's
+    // whole-operation host effects bridge; refusals and dry runs never reach Core.
     let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,async fetch(req){const path=new URL(req.url).pathname;const body=await req.text();return Response.json({result:{path,body:body?JSON.parse(body):null}})}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
     let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
         .map(|dir| dir.join("bun"))
@@ -170,11 +169,6 @@ async fn host_effects_bridge_to_core_over_http() {
         let path = format!("/v3/ops/{op}");
         async move { request(port, "POST", &path, &headers).await }
     };
-    let terminal = post("host.terminal", r#"{"alias":"dev"}"#).await;
-    assert!(
-        terminal.contains(r#""path":"/v3/ops/host.terminal""#),
-        "{terminal}"
-    );
     let setup = r#"{"alias":"dev","key":"github.com/acme/app","consent":true}"#;
     let response = post("host.repo.setup", setup).await;
     assert!(response.starts_with("HTTP/1.1 200"), "{response}");
@@ -191,7 +185,7 @@ async fn host_effects_bridge_to_core_over_http() {
         assert!(response.starts_with("HTTP/1.1 400"), "{response}");
         assert!(!response.contains("\"path\""), "{response}");
     }
-    for op in ["host.check", "host.clean"] {
+    for op in ["host.check", "host.clean", "host.terminal"] {
         let response = post(op, r#"{"alias":"dev"}"#).await;
         assert!(response.starts_with("HTTP/1.1 200"), "{op}: {response}");
         let bridged = format!(

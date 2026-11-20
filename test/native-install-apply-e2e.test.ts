@@ -1,9 +1,10 @@
 /**
- * `service.install` and `update.apply` through the real Rust front doors (`pacer serve`, `pacer api --stdio`) and the
- * real Core bridge, against the test core in fixtures/install-apply-core.ts: recorded effects instead of launchd,
- * systemd or a release, in a disposable HOME and PACER_HOME. Each scenario runs natively and with both ops in
- * PACER_FORWARD_OPS; the replies and the effects must match. `service.handover` and `service.work` are not native:
- * their replies through both front doors must be byte-identical to forcing them through PACER_FORWARD_OPS.
+ * `service.install`, `update.apply`, `service.handover`, `service.work`, `onboarding.try` and
+ * `host.terminal` through the real Rust front doors (`pacer serve`, `pacer api --stdio`) and the real Core
+ * bridge, against the test core in fixtures/install-apply-core.ts: recorded effects instead of launchd,
+ * systemd, a release or an SSH terminal, in a disposable HOME and PACER_HOME. Each scenario runs natively and
+ * with the ops in PACER_FORWARD_OPS; the replies and the effects must match, and the native run must trace
+ * each op it dispatches on the front door while the forced-forward run must not.
  * The front door is a test-ops build, whose PACER_TEST_BRIDGE_DEADLINE_MS shortens the deadline of the other Core
  * bridges, so a deadline on the install and update effects would fail within seconds instead of after 120.
  * Every child, and the core each front door starts, gets PACER_PORT: its own server port or a closed one, never 4317.
@@ -101,6 +102,9 @@ function normalize(body: any): unknown {
   const job = body?.result?.job;
   return job ? {...body, result: {...body.result, job: {kind: job.kind, target: job.target}}} : body;
 }
+
+/** The reply `server.op` returns: body is the JSON body (or the raw text when untagged). */
+type Reply = { status: number; body: { result?: unknown; error?: { code?: string; message?: string } } };
 
 async function serve(forward?: string, home?: string, extra: Record<string, string> = {}) {
   const port = await freePort();
@@ -439,7 +443,7 @@ describe("install and update effects outlive a short bridge deadline", () => {
   }, LONG);
 });
 
-describe("service.handover and service.work stay forwarded", () => {
+describe("service.handover and service.work", () => {
   const HANDOVER_WORK = "service.handover,service.work";
   const UNTRACED = /native (service\.handover|service\.work)/;
   const GRANT = `pwg_${"ab".repeat(32)}`;
@@ -479,7 +483,10 @@ describe("service.handover and service.work stay forwarded", () => {
     const native = await run();
     const forwarded = await run(HANDOVER_WORK);
     expect(native.replies).toEqual(forwarded.replies);
-    for (const trace of [native.stderr, forwarded.stderr]) expect(trace).not.toMatch(UNTRACED);
+    // Native dispatches both ops on the front door; the forced-forward run must show no native trace.
+    expect(native.stderr).toMatch(/native service\.handover/);
+    expect(native.stderr).toMatch(/native service\.work/);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
 
     const [handover, handoverDefault, tooLong, array, malformed, work, workArray, workCookie, handoverCookie, noOrigin, unauthenticated, grantHandover, grantWork] = native.replies;
     const v = JSON.parse(handover.body).result.pacer;
@@ -518,11 +525,12 @@ describe("service.handover and service.work stay forwarded", () => {
     const native = await run();
     const forwarded = await run(HANDOVER_WORK);
     expect(native.lines).toEqual(forwarded.lines);
-    for (const traces of [native.traces, forwarded.traces]) {
-      // A work-grant session forwards everything, hello included.
-      expect(traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
-      for (const trace of traces) expect(trace).not.toMatch(UNTRACED);
-    }
+    // Native operator and executor runs trace both ops on the front door; the work-grant session forwards
+    // everything (hello included) and the forced-forward run must show no native trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
+    for (const trace of native.traces.slice(0, 2)) expect(trace).toMatch(/native service\.(handover|work)/);
+    expect(native.traces[2]).not.toMatch(UNTRACED);
+    for (const trace of forwarded.traces) expect(trace).not.toMatch(UNTRACED);
 
     const replies = native.lines.map(line => JSON.parse(line!));
     const [operator, executor, granted] = [replies.slice(0, 6), replies.slice(6, 12), replies.slice(12)];
@@ -533,5 +541,163 @@ describe("service.handover and service.work stay forwarded", () => {
     expect(executor[0].error).toMatchObject({message: UPGRADE_REFUSAL, data: {code: "not_allowed"}});
     expect(executor[4].result.tasks).toEqual(operator[4].result.tasks);
     for (const reply of [granted[0], granted[4]]) expect(reply.error).toBeDefined();
+  }, LONG);
+});
+
+describe("onboarding.try", () => {
+  const FORWARD_TRY = "onboarding.try";
+  const UNTRACED = /native onboarding\.try/;
+  const GRANT = `pwg_${"ab".repeat(32)}`;
+  const NO_EXECUTOR = {code: "unknown_executor", message: "Add an executor first"};
+  const EXEC = "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.";
+
+  // The fixture's onboardingRoute returns no executors, so every admitted onboarding.try resolves
+  // deterministically to `unknown_executor` ("Add an executor first"), proving the front door
+  // relays Core's whole-op reply without needing a real runner.
+
+  test("HTTP replies are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const server = await serve(forward);
+      const replies = [
+        await server.op("onboarding.try", {}),
+        await server.op("onboarding.try", []),
+        await server.op("onboarding.try", "x"),
+      ];
+      await server.stop();
+      return {replies, stderr: server.stderr.text};
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TRY);
+    expect(native.replies).toEqual(forwarded.replies);
+    expect(native.stderr).toMatch(/native onboarding\.try/);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
+
+    const [empty, array, string] = native.replies as Reply[];
+    expect(empty).toMatchObject({status: 404, body: {error: NO_EXECUTOR}});
+    expect(array.body.error?.code).toBe("invalid_input");
+    expect(string.body.error?.code).toBe("invalid_input");
+  }, LONG);
+
+  test("stdio reply lines are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const lines: Array<string | undefined> = [], traces: string[] = [];
+      for (const extra of [{}, {PACER_ROLE: "executor"}, {PACER_WORK_GRANT: GRANT}] as Record<string, string>[]) {
+        const rpc = connect(forward, extra);
+        expect((await rpc.call("hello", {protocol: 3})).result.protocol).toStartWith("3.");
+        for (const params of [{}, [], "x"] as unknown[]) {
+          const {id} = await rpc.call("onboarding.try", params);
+          lines.push(rpc.line(id));
+        }
+        await rpc.close();
+        traces.push(rpc.stderr.text);
+      }
+      return {lines, traces};
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TRY);
+    expect(native.lines).toEqual(forwarded.lines);
+    expect(forwarded.traces.every(trace => !UNTRACED.test(trace))).toBe(true);
+
+    const replies = native.lines.map(line => JSON.parse(line!));
+    const [operator, executor, granted] = [replies.slice(0, 3), replies.slice(3, 6), replies.slice(6)];
+    // stdio errors carry the JSON-RPC code (-32000) on `error.code`; the API error (code, hint)
+    // is the payload on `error.data`, so the operator's no-executor reply is asserted through data.
+    expect(operator[0].error.message).toBe("Add an executor first");
+    // stdio puts the API error payload (code, hint) on `error.data`; the plain-text message is on
+    // `error.message`, so the operator's no-executor reply is asserted through those two fields.
+    expect(operator[0].error.data).toMatchObject({code: "unknown_executor", hint: "Run pacer runner add"});
+    // `onboarding.try` is not an upgrade op, so `parseOpParams` accepts executors and an executor
+    // with non-object params is refused for the schema first (matching a full forward), not as an
+    // executor; only a valid `{}` reaches `tryDelegation`'s executor refusal.
+    for (const reply of [operator[1], operator[2], executor[1], executor[2]]) expect(reply.error.data.code).toBe("invalid_input");
+    expect(executor[0].error).toMatchObject({message: EXEC, data: {code: "not_allowed"}});
+    // The work-grant session forwards everything to Core (like handover), so onboarding's three
+    // replies are Core's forwarded errors; parity with forcing is the byte-identical comparison
+    // above, and the native front door does not trace the op.
+    for (const reply of granted) expect(reply.error).toBeDefined();
+    // Operator and executor sessions trace the op on the front door; the work-grant session
+    // forwards everything (hello included), so it leaves no native onboarding trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, true, false]);
+    expect(native.traces[0]).toMatch(/native onboarding\.try/);
+    expect(native.traces[1]).toMatch(/native onboarding\.try/);
+    expect(native.traces[2]).not.toMatch(UNTRACED);
+  }, LONG);
+});
+
+describe("host.terminal", () => {
+  const FORWARD_TERMINAL = "host.terminal";
+  const UNTRACED = /native host\.terminal/;
+  const GRANT = `pwg_${"ac".repeat(32)}`;
+  const STRATEGY = "planner: claude-code\naccounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nhosts:\n  dev:\n    ssh: dev.example.invalid\n";
+  const VALID = "12345678-1234-4234-8234-1234567890ab";
+
+  // The fixture's openInTerminal records an effect and returns a fixed reply, so an admitted
+  // host.terminal proves the front door relays Core's whole-op reply (and its opener effect)
+  // without needing a real SSH terminal. Rust's front door answers the schema and unknown-host
+  // refusals itself; a forced forward reaches the same refusals in Core, so replies match too.
+
+  test("HTTP replies and terminal effects are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const server = await serve(forward);
+      writeFileSync(join(server.pacerHome, "strategy.yaml"), STRATEGY);
+      const replies = [
+        await server.op("host.terminal", { alias: "dev" }),
+        await server.op("host.terminal", { alias: "dev", request_id: VALID }),
+        await server.op("host.terminal", { alias: "dev", request_id: "not-a-uuid" }),
+        await server.op("host.terminal", { alias: "missing" }),
+      ];
+      await server.stop();
+      return { replies, effects: server.effects(), stderr: server.stderr.text };
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TERMINAL);
+    expect(native.replies).toEqual(forwarded.replies);
+    expect(native.effects).toEqual(forwarded.effects);
+    expect(native.stderr).toMatch(UNTRACED);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
+
+    const [open, openWithId, badUuid, unknown] = native.replies as Reply[];
+    expect(open).toMatchObject({ status: 200, body: { result: { opened: true, target: "terminal", command: "ssh dev.example.invalid" } } });
+    expect(openWithId).toMatchObject({ status: 200, body: { result: { opened: true } } });
+    expect(badUuid.body.error).toMatchObject({ code: "invalid_input", message: "request_id: Invalid UUID" });
+    expect(unknown.body.error).toMatchObject({ code: "invalid_input", message: "unknown host missing" });
+    expect(native.effects).toEqual([`terminal SSH dev`, `terminal SSH dev`]);
+  }, LONG);
+
+  test("stdio reply lines are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const lines: Array<string | undefined> = [], traces: string[] = [];
+      for (const extra of [{}, { PACER_WORK_GRANT: GRANT }] as Record<string, string>[]) {
+        const rpc = connect(forward, extra);
+        writeFileSync(join(rpc.pacerHome, "strategy.yaml"), STRATEGY);
+        expect((await rpc.call("hello", { protocol: 3 })).result.protocol).toStartWith("3.");
+        for (const params of [{ alias: "dev" }, { alias: "dev", request_id: VALID }, { alias: "missing" }] as unknown[]) {
+          const { id } = await rpc.call("host.terminal", params);
+          lines.push(rpc.line(id));
+        }
+        await rpc.close();
+        traces.push(rpc.stderr.text);
+      }
+      return { lines, traces };
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TERMINAL);
+    expect(native.lines).toEqual(forwarded.lines);
+    expect(forwarded.traces.every(trace => !UNTRACED.test(trace))).toBe(true);
+
+    const replies = native.lines.map(line => JSON.parse(line!));
+    const [operator, granted] = [replies.slice(0, 3), replies.slice(3)];
+    expect(operator[0].result).toMatchObject({ opened: true });
+    expect(operator[1].result).toMatchObject({ opened: true });
+    expect(operator[2].error.data).toMatchObject({ code: "invalid_input" });
+    // The work-grant session forwards everything to Core (like handover and onboarding), so its
+    // replies are Core's forwarded ones; parity with forcing is the byte-identical comparison
+    // above, and the native front door does not trace the op.
+    for (const reply of granted) expect(reply.error ?? reply.result).toBeDefined();
+    // The operator session traces the op on the front door; the work-grant session forwards
+    // everything (hello included), so it leaves no native host.terminal trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, false]);
+    expect(native.traces[0]).toMatch(UNTRACED);
+    expect(native.traces[1]).not.toMatch(UNTRACED);
   }, LONG);
 });

@@ -4,6 +4,8 @@ import {mkdtempSync, readdirSync, realpathSync, rmSync} from "node:fs";
 import {tmpdir} from "node:os";
 import {join} from "node:path";
 import {callOp, parseOpParams} from "../src/api/ops";
+import {handoverEffectsBridge} from "../src/api/handover-bridge";
+import {onboardingEffectsBridge} from "../src/api/onboarding-bridge";
 import {serviceEffectsBridge, updateEffectsBridge} from "../src/api/install-apply-bridge";
 import {toApiError} from "../src/api/errors";
 import {fakeCtx} from "./helpers";
@@ -28,8 +30,24 @@ const homes: string[] = [];
 afterAll(() => { for (const home of homes) rmSync(home, {recursive: true, force: true}); });
 const home = () => { const dir = realpathSync(mkdtempSync(join(tmpdir(), "native-install-apply-"))); homes.push(dir); return dir; };
 
-type Step = {op: "service.install" | "update.apply"; params: unknown; env?: Record<string, string>};
+type Op = "service.install" | "update.apply" | "service.handover" | "service.work" | "onboarding.try";
+type Step = {op: Op; params: unknown; env?: Record<string, string>};
 const EFFECT = {installed: true, running: true, restarting: true};
+
+/** The single Core effect an accepted native op requests, mirroring the Rust bridge call. */
+function expectedEffect(step: Step): unknown {
+  switch (step.op) {
+    case "service.install": return {kind: "install"};
+    case "update.apply": return {kind: "apply"};
+    case "service.work": return {kind: "work"};
+    case "onboarding.try": return {kind: "onboarding-try"};
+    case "service.handover": {
+      const raw = (step.params as Record<string, unknown> | null | undefined)?.wait_s;
+      const wait = typeof raw === "number" && Number.isInteger(raw) ? raw : 60;
+      return {kind: "handover", wait_s: wait};
+    }
+  }
+}
 
 /** Native answers each step through a recording Core bridge that replies with `EFFECT`. */
 function native(steps: Step[], dir: string): Array<Record<string, unknown>> {
@@ -56,7 +74,7 @@ function compare(steps: Step[]) {
       expect(effects, label).toEqual([]);
     } else {
       expect(reply, label).toEqual({result: EFFECT});
-      expect(effects, label).toEqual([{kind: step.op === "service.install" ? "install" : "apply"}]);
+      expect(effects, label).toEqual([expectedEffect(step)]);
     }
   });
   expect(readdirSync(rs)).toEqual([]);
@@ -84,12 +102,64 @@ test("native update.apply refuses and validates like TypeScript and hands the jo
   ]);
 }, 600_000);
 
+test("native service.handover refuses and validates like TypeScript and hands the wait to Core", () => {
+  const handover = (params: unknown, env?: Record<string, string>): Step => ({op: "service.handover", params, env});
+  compare([
+    handover({}), handover({wait_s: 0}), handover({wait_s: 60}), handover({wait_s: 5, extra: 1}),
+    handover(null), handover({wait_s: "5"}), handover({wait_s: 1.5}), handover({wait_s: -1}), handover({wait_s: 61}),
+    handover([]), handover("x"), handover(1), handover(false),
+    // `service.handover` is an upgrade op: executors are refused like install and apply.
+    handover({}, {PACER_ROLE: "executor"}),
+    handover({}, {PACER_ROLE: "executor", PACER_ENFORCEMENT_TOKEN: "t"}),
+    handover({}, {PACER_ENFORCEMENT_TOKEN: "t"}),
+  ]);
+}, 600_000);
+
+test("native service.work refuses and validates like TypeScript and hands the inventory to Core", () => {
+  const work = (params: unknown, env?: Record<string, string>): Step => ({op: "service.work", params, env});
+  compare([
+    work({}), work(null),
+    work([]), work("x"), work(0), work(false),
+    // `service.work` is not an upgrade op: executors pass through.
+    work({}, {PACER_ROLE: "executor"}),
+    work({}, {PACER_ENFORCEMENT_TOKEN: "t"}),
+  ]);
+}, 600_000);
+
+test("native onboarding.try validates like TypeScript and hands the delegation to Core", () => {
+  const try_ = (params: unknown, env?: Record<string, string>): Step => ({op: "onboarding.try", params, env});
+  compare([
+    try_({}), try_(null), try_({extra: 1}),
+    try_([]), try_("x"), try_(0), try_(false),
+    // Enforcement identity is refused like parseOpParams; executors are refused by the handler (see below).
+    try_({}, {PACER_ENFORCEMENT_TOKEN: "t"}),
+  ]);
+}, 600_000);
+
+test("native onboarding.try refuses executor sessions like the Core handler", () => {
+  // `parseOpParams` accepts executors (onboarding.try is not an upgrade op); the refusal comes from
+  // `tryDelegation`'s `isExecutorSession` check. Rust answers it natively with no Core effect.
+  const step: Step = {op: "onboarding.try", params: {}, env: {PACER_ROLE: "executor"}};
+  const dir = home();
+  const [reply] = native([step], dir);
+  expect(reply).toMatchObject({
+    error: {
+      code: "not_allowed",
+      message: "PACER_ROLE=executor: pacer executors cannot delegate onward; complete the assigned task directly.",
+    },
+  });
+  expect(reply.effects).toEqual([]);
+  expect(readdirSync(dir)).toEqual([]);
+}, 600_000);
+
 test("work-grant callers stay on the TypeScript path", () => {
   const steps: Step[] = [
     {op: "service.install", params: {consent: true}, env: {PACER_WORK_GRANT: "pwg_x"}},
     {op: "update.apply", params: {}, env: {PACER_WORK_GRANT: "pwg_x"}},
+    {op: "service.handover", params: {wait_s: 0}, env: {PACER_WORK_GRANT: "pwg_x"}},
+    {op: "service.work", params: {}, env: {PACER_WORK_GRANT: "pwg_x"}},
   ];
-  expect(native(steps, home())).toEqual([{forwarded: true}, {forwarded: true}]);
+  expect(native(steps, home())).toEqual([{forwarded: true}, {forwarded: true}, {forwarded: true}, {forwarded: true}]);
 }, 600_000);
 
 test("the Core effects bridge runs only the effect it names", async () => {
@@ -111,4 +181,18 @@ test("the update effect runs the reference update.apply preflight", async () => 
   const viaBridge = await reply(() => updateEffectsBridge(ctx, {kind: "apply"}, deps));
   expect(viaBridge).toEqual(await reply(() => callOp(ctx, "update.apply", {}, deps)));
   expect(viaBridge).toMatchObject({error: {code: "not_allowed"}});
+});
+
+test("the handover effects bridge runs only the effect it names", async () => {
+  const ctx = fakeCtx({pacerHome: home(), now: NOW});
+  for (const request of [undefined, null, [], {}, {kind: "apply"}, {kind: "work "}, {kind: "handover "}]) {
+    await expect(handoverEffectsBridge(ctx, request)).rejects.toMatchObject({code: "invalid_input", message: "handover effect required"});
+  }
+});
+
+test("the onboarding effects bridge runs only the effect it names", async () => {
+  const ctx = fakeCtx({pacerHome: home(), now: NOW});
+  for (const request of [undefined, null, [], {}, {kind: "handover"}, {kind: "onboarding-try "}]) {
+    await expect(onboardingEffectsBridge(ctx, request)).rejects.toMatchObject({code: "invalid_input", message: "onboarding effect required"});
+  }
 });

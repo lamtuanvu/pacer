@@ -1,17 +1,18 @@
-//! Native `host.check`, `host.clean` and `host.repo.setup` over Core's whole-operation host
-//! effects bridge (`/_internal/host-effects`, `_internal.host.effects`).
+//! Native `host.check`, `host.clean`, `host.repo.setup` and `host.terminal` over Core's
+//! whole-operation host effects bridge (`/_internal/host-effects`, `_internal.host.effects`).
 //!
 //! Rust answers what needs no Core effect: the enforcement-identity refusal, the published
 //! params schemas (setup's `consent` must be literal `true`), the unknown-host refusal before
 //! any SSH (`configured` in `src/remote/hosts.ts`), setup's canonical-key and repo-not-mapped
 //! refusal (`setupJob`), and `host.clean` dry runs, which read the task store, run the local
 //! transfer gate and `pacer-lifecycle::hosts::clean`, and write nothing. Every other request is
-//! the reference operation's job (`checkJob`, `cleanJob`, `setupJob`): the bridge carries
-//! `{"kind": <op>, "params": <the original params>}`, Core runs that operation, and its result
-//! or error is the reply unchanged. Jobs, the local checkout search, SSH probes, clones,
-//! identity writes and clean mutations through the bundled plugins, one-use grants,
-//! `state/host-checks.json` and the remote usage cache stay in Core. Over stdio those requests
-//! are forwarded instead, so the core child keeps answering pipelined requests while a job runs.
+//! the reference operation's job (`checkJob`, `cleanJob`, `setupJob`, or `terminal` opening an
+//! SSH shell): the bridge carries `{"kind": <op>, "params": <the original params>}`, Core runs
+//! that operation, and its result or error is the reply unchanged. Jobs, the local checkout
+//! search, SSH probes, clones, identity writes, clean mutations and the terminal opener through
+//! the bundled plugins, one-use grants, `state/host-checks.json` and the remote usage cache
+//! stay in Core. Over stdio those requests are forwarded instead, so the core child keeps
+//! answering pipelined requests while a job runs.
 #![allow(clippy::result_large_err)]
 use pacer_config::strategy::load_strategy;
 use pacer_foundation::{
@@ -48,7 +49,10 @@ pub enum Admission {
 
 /// Ops a front door answers through [`admit`] and, for admitted requests, Core.
 pub fn needs_host_effects(op: &str) -> bool {
-    matches!(op, "host.check" | "host.clean" | "host.repo.setup")
+    matches!(
+        op,
+        "host.check" | "host.clean" | "host.repo.setup" | "host.terminal"
+    )
 }
 
 /// Registry entry for ops that run only through [`call`].
@@ -73,11 +77,12 @@ pub fn host_stays_forwarded(ctx: &Ctx, op: &str, _params: &Value) -> bool {
 /// `parseOpParams` and the reference operation up to its first Core effect. A strategy or
 /// task store Rust cannot read leaves the request to Core, which reports its own error.
 pub fn admit(ctx: &Ctx, op: &str, params: &Value) -> Result<Admission, CoreError> {
-    use Field::{Bool, Id, NonEmpty, True};
+    use Field::{Bool, Id, NonEmpty, True, Uuid};
     authorize(ctx)?;
     let schema: &[(&str, Field)] = match op {
         "host.check" => &[("alias", Id), ("repo", NonEmpty)],
         "host.clean" => &[("alias", Id), ("dry_run", Bool)],
+        "host.terminal" => &[("alias", Id), ("request_id", Uuid)],
         "host.repo.setup" => &[
             ("alias", Id),
             ("key", Id),
@@ -140,6 +145,8 @@ enum Field {
     Bool,
     /// `z.literal(true)`.
     True,
+    /// `z.uuid().optional()` (`zod_uuid` in `strategy_build_ops`).
+    Uuid,
 }
 
 /// `def.params.safeParse(params ?? {})` with Zod's issue texts in schema order.
@@ -159,9 +166,13 @@ fn parse(params: &Value, schema: &[(&str, Field)]) -> Result<Map<String, Value>,
 fn issue(name: &str, field: &Field, value: Option<&Value>) -> Option<String> {
     match (field, value) {
         (Field::True, Some(Value::Bool(true)))
-        | (Field::NonEmpty | Field::Bool, None)
+        | (Field::NonEmpty | Field::Bool | Field::Uuid, None)
         | (Field::Bool, Some(Value::Bool(_))) => None,
+        (Field::Uuid, Some(Value::String(text))) if crate::strategy_build_ops::zod_uuid(text) => {
+            None
+        }
         (Field::True, _) => Some(format!("{name}: Invalid input: expected true")),
+        (Field::Uuid, Some(Value::String(_))) => Some(format!("{name}: Invalid UUID")),
         (Field::Id | Field::NonEmpty, Some(Value::String(text))) => {
             match text.encode_utf16().count() {
                 0 => Some(too_small(name)),
@@ -171,7 +182,7 @@ fn issue(name: &str, field: &Field, value: Option<&Value>) -> Option<String> {
                 _ => None,
             }
         }
-        (Field::Id | Field::NonEmpty, other) => Some(expected(name, "string", other)),
+        (Field::Id | Field::NonEmpty | Field::Uuid, other) => Some(expected(name, "string", other)),
         (Field::Bool, other) => Some(expected(name, "boolean", other)),
     }
 }
