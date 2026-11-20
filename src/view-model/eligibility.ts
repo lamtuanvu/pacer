@@ -22,7 +22,9 @@ export function eligibilityPresentation(decision: EligibilityDecision | undefine
 } {
   if (!decision) return { label: "Eligibility unknown", tone: "neutral", detail: "No execution decision is available", age: null, glyph: "?" };
   const ageS = decision.evidenceAgeS === null ? null : Math.max(0, decision.evidenceAgeS + now - decision.evaluatedAt);
-  const age = ageS === null ? null : `observed ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} ago`;
+  // Days once an observation is two days old; hours stop being readable there.
+  const age = ageS === null ? null : ageS >= 172800 ? `observed ${Math.floor(ageS / 86400)}d ago`
+    : ageS < 60 ? `observed ${Math.floor(ageS)}s ago` : ageS < 3600 ? `observed ${Math.floor(ageS / 60)}m ago` : `observed ${Math.floor(ageS / 3600)}h ago`;
   const detail = decision.reasons.map(reason => reasons[reason.code] ?? "Execution evidence needs attention").join("; ");
   if (decision.state === "ineligible") return { label: "Unavailable", tone: "bad", detail, age, glyph: "!" };
   if (decision.state === "uncertain") return { label: "Uncertain fallback", tone: "warn", detail, age, glyph: "?" };

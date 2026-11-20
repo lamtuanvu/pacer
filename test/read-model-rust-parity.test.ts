@@ -3,6 +3,8 @@ import { buildAccounts, buildExecutors, buildPlanner } from "../src/api/read-mod
 import { apiTasks } from "../src/api/read-model/tasks";
 import { writeJsonAtomic } from "../src/fsutil";
 import { join } from "node:path";
+import { mkdirSync } from "node:fs";
+import { dirname } from "node:path";
 import { capacityFixture, record } from "./read-model-helpers";
 
 import { buildRustProbe, rustRequest, closeRustProbe, readModelCtx as fakeCtx } from "./read-model-rust-helpers";
@@ -32,6 +34,35 @@ test("Rust capacity matches TS for priority, failure precedence, shared caps, ch
     expect(JSON.stringify(actual)).toBe(JSON.stringify(expected));
   }
 },120_000);
+
+test("Rust capacity rows quote the usage record like TS", async () => {
+  const { computeStatus } = await import("../src/engine/status");
+  const { validateStrategy } = await import("../src/config/strategy");
+  const { claudeCachePaths } = await import("../src/usage/claude");
+  const { markExhausted } = await import("../src/usage/reactive");
+  const { withLoginIndicators } = await import("./helpers");
+  const compare = async (ctx: Parameters<typeof computeStatus>[0], s: Parameters<typeof computeStatus>[1], st: Awaited<ReturnType<typeof computeStatus>>) =>
+    expect(JSON.stringify(await rustRequest(ctx, { op: "capacity", status: st, strategy: s, tasks: [] })))
+      .toBe(JSON.stringify({ executors: buildExecutors(st, s, [], ctx.now, ctx), accounts: buildAccounts(st, s, ctx), planner: buildPlanner(st) }));
+  const ctx = withLoginIndicators(fakeCtx({ now: 100000 }));
+  const s = validateStrategy({ planner: "claude-code", accounts: { claude: { kind: "claude" } }, runners: { "claude-code": {} }, pacing: { policy: "even" }, routing: [{ default: ["claude-code"] }] }, "test");
+  const file = claudeCachePaths(ctx, s.accounts.claude)[0]!;
+  mkdirSync(dirname(file), { recursive: true });
+  await Bun.write(file, JSON.stringify({
+    seven_day: { used_percentage: 40, resets_at: ctx.now + 3 * 86400 },
+    five_hour: { used_percentage: 20, resets_at: ctx.now + 3600 },
+    captured_at: ctx.now - 60,
+  }));
+  const st = await computeStatus(ctx, s, { profile: null });
+  expect(st.accounts![0]!.usageState!.figure).toMatchObject({ window: "weekly", usedPct: 40 });
+  expect(st.providers[0]!.usageState!.freshness).toBe("fresh");
+  await compare(ctx, s, st);
+  // An active mark makes the record quote the limit figure; the rows follow.
+  markExhausted(ctx, "claude", ctx.now + 3600, { manual: true });
+  const st2 = await computeStatus(ctx, s, { profile: null });
+  expect(st2.accounts![0]!.usageState!.figure).toMatchObject({ window: "limit", usedPct: 100, resetsAt: ctx.now + 3600 });
+  await compare(ctx, s, st2);
+}, 120_000);
 
 test("Rust task titles, UTF-16 bounds, archived/old windows and legacy labels match TS", async () => {
   const ctx = fakeCtx();

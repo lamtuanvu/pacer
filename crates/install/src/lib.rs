@@ -6,6 +6,7 @@
 //! hit is answered here.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
 
+pub mod agent_ops;
 pub mod install_ops;
 
 use pacer_foundation::{

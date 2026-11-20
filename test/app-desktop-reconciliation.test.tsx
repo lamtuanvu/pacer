@@ -5,7 +5,7 @@ import { initialState, reduceStore } from '../app/src/data/store';
 
 const hello = (diagnostic: unknown) => ({ protocol: '3.0.0', pacer: '1.0.0', ops: [], events: [], desktopBuildDiagnostic: diagnostic });
 test('desktop build claims are bounded, unverified and have no mutation action', () => {
-  for (const [status, copy] of [['unverified', 'core descriptor claims match'], ['mismatch', 'core descriptor claims differ'], ['unknown', 'could not compare']] as const) {
+  for (const [status, copy] of [['unverified', 'core descriptor claims match'], ['mismatch', 'core descriptor claims differ'], ['unknown', 'could not compare'], ['legacy', 'predates this build check']] as const) {
     const html = renderToString(<ServiceBuildGuidance diagnostic={status} connected />);
     expect(html).toContain(copy);
     expect(html).toContain('not verified');
@@ -29,4 +29,21 @@ test('missing, hostile and stale diagnostics fail closed and reconnect replaces 
   }
   state = reduceStore(state, {type:'hello', hello:hello({status:'unverified', proof:'unverified'})});
   expect(state.desktopBuildDiagnostic).toBe('unverified');
+  state = reduceStore(state, {type:'hello', hello:hello({status:'legacy', proof:'unverified'})});
+  expect(state.desktopBuildDiagnostic).toBe('legacy');
+});
+test('a legacy service names its version but keeps the same finish-work and ownership warnings', () => {
+  // 0.14.0 already sends coreBuild (#637); use a version from before that to stay honest.
+  const html = renderToString(<ServiceBuildGuidance diagnostic="legacy" connected serviceVersion="0.13.0"/>);
+  expect(html).toContain('0.13.0');
+  expect(html).toContain('predates this build check');
+  // A legacy service is still an old updater of unknown ownership: the old
+  // Settings -> Updates button can restart live work, so this must not read
+  // as safe to update "normally" or drop the finish-work/ownership guidance.
+  expect(html).not.toContain('normally');
+  expect(html).toContain('Service reconciliation is unavailable');
+  expect(html).toContain('terminal sessions');
+  expect(html).toContain('installation documentation');
+  expect(html).not.toContain('<button');
+  expect(renderToString(<ServiceBuildGuidance diagnostic="legacy" connected serviceVersion={null}/>)).not.toContain('()');
 });

@@ -164,6 +164,17 @@ fn providers_by_id(providers: &Value) -> Map<String, Value> {
     map
 }
 
+/// The status mode: an active hold wins; otherwise the verdict of the provider
+/// whose id is the planner runner decides, else `normal` (a planner without a
+/// provider record). Every implementation of the status mode uses this rule.
+pub fn status_mode(mode_hold: &Value, planner_verdict: Option<&str>) -> String {
+    mode_hold
+        .get("mode")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+        .unwrap_or_else(|| planner_mode(planner_verdict.unwrap_or("")).to_string())
+}
+
 /// Compose a Status-shaped document from injected parts.
 ///
 /// Required keys: `now`, `strategy` (validated strategy JSON), `providers`
@@ -172,7 +183,7 @@ fn providers_by_id(providers: &Value) -> Map<String, Value> {
 /// `planner` (display id; defaults to [`planner_runner_id`]).
 ///
 /// Ranking uses [`rank_executors`]. Mode prefers an active hold, else the
-/// planner account provider verdict via [`planner_mode`].
+/// planner runner's provider verdict via [`status_mode`].
 pub fn compose_status(input: &Value) -> Value {
     let now = number(&input["now"]);
     let strategy = &input["strategy"];
@@ -186,22 +197,21 @@ pub fn compose_status(input: &Value) -> Value {
         "includePlanner": false,
     }));
     let mode_hold = input.get("modeHold").cloned().unwrap_or(Value::Null);
-    let planner_account = string(&strategy["planner"]["account"]);
-    let planner_verdict = by_id
-        .values()
-        .find(|p| string(&p["account"]) == planner_account)
-        .map(|p| string(&p["verdict"]))
-        .unwrap_or("UNKNOWN");
-    let mode = mode_hold
-        .get("mode")
-        .and_then(Value::as_str)
-        .map(str::to_string)
-        .unwrap_or_else(|| planner_mode(planner_verdict).to_string());
     let planner = input
         .get("planner")
         .and_then(Value::as_str)
         .map(str::to_string)
         .unwrap_or_else(|| planner_runner_id(strategy));
+    // Mode follows the planner runner's record verdict, like TypeScript's statusMode (ADR 0030);
+    // a provider without a record stays normal.
+    let mode = status_mode(
+        &mode_hold,
+        by_id
+            .get(&planner)
+            .and_then(|p| p.get("usageState"))
+            .and_then(|u| u.get("verdict"))
+            .and_then(Value::as_str),
+    );
     // TypeScript `computeStatus` key order; `policy` and `warnings` only when supplied.
     let mut status = json!({});
     if let Some(policy) = input.get("policy") {
@@ -270,8 +280,8 @@ pub(crate) mod tests {
             "name": "default",
             "planner": {"agent": "claude-code", "account": "claude"},
             "accounts": {
-                "claude": {"kind": "claude"},
-                "codex": {"kind": "codex"},
+                "claude": {"name": "claude", "kind": "claude"},
+                "codex": {"name": "codex", "kind": "codex"},
             },
             "runners": {
                 "claude-code": {"agent": "claude-code", "account": "claude", "enabled": true},
@@ -291,6 +301,7 @@ pub(crate) mod tests {
             "windows": [],
             "binding": null,
             "verdict": verdict,
+            "usageState": {"verdict": verdict},
             "installed": true,
             "stale": false,
             "eligibility": {
@@ -390,6 +401,57 @@ pub(crate) mod tests {
             "providers": [provider("claude-code", "claude", "ON_PACE")],
         }));
         assert_eq!(status["mode"], "emergency");
+    }
+
+    /// The mode rule: the planner runner's record verdict decides (its provider row's
+    /// verdict never overrides the record), a planner without a record stays normal,
+    /// and an active hold wins over both.
+    #[test]
+    fn mode_rule_matches_typescript_planner_mode_and_hold() {
+        // The account's own ON_PACE never softens an exhausted planner runner.
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [
+                provider("codex", "codex", "ON_PACE"),
+                provider("claude-code", "claude", "EXHAUSTED"),
+            ],
+        }));
+        assert_eq!(status["mode"], "emergency");
+        // The record's verdict wins over the row's provider verdict.
+        let mut on_pace = provider("claude-code", "claude", "ON_PACE");
+        on_pace["usageState"] = json!({"verdict": "EXHAUSTED"});
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [on_pace],
+        }));
+        assert_eq!(status["mode"], "emergency");
+        // A planner row without a record stays normal, like TypeScript's missing record.
+        let mut no_record = provider("claude-code", "claude", "EXHAUSTED");
+        no_record.as_object_mut().unwrap().remove("usageState");
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [no_record],
+        }));
+        assert_eq!(status["mode"], "normal");
+        // No provider whose id is the planner runner: normal.
+        let status = compose_status(&json!({
+            "now": 100.0,
+            "strategy": strategy(),
+            "providers": [provider("codex", "codex", "EXHAUSTED")],
+        }));
+        assert_eq!(status["mode"], "normal");
+        assert_eq!(status_mode(&Value::Null, None), "normal");
+        // An active hold wins over the planner's verdict.
+        assert_eq!(
+            status_mode(
+                &json!({"mode": "relaxed", "until": 160.0}),
+                Some("EXHAUSTED")
+            ),
+            "relaxed"
+        );
     }
 
     #[test]

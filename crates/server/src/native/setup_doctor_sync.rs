@@ -1,6 +1,6 @@
 //! Core bridge routes for `setup.health` and `doctor.run`. The planner and plugin
 //! checks read Core's in-process plugin registry and the Claude handler probes run
-//! the TypeScript hook handlers, so both reports are produced by Core.
+//! the TypeScript hook handlers, so Core supplies the checks and Rust owns the rest.
 use serde_json::{Value, json};
 
 pub(crate) fn routes(op: &str) -> bool {
