@@ -182,10 +182,12 @@ export function Tray({ snapshot, api, ipc, connected = true, sessionEnded = fals
   });
   const planner = snapshot && plannerMeter(snapshot);
   const plannerView = planner ? usageView(planner.usageState, snapshot.at) : null;
-  // A legacy service row carries only the raw meter fields; the record wins when present.
-  const plannerMeterValue = plannerView?.meter ?? (planner?.usedPct != null ? Math.round(planner.usedPct) : null);
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state ("No usage figure"), never the row's old percent.
+  const plannerMeterValue = planner?.usageState ? plannerView!.meter : plannerView?.meter ?? (planner?.usedPct != null ? Math.round(planner.usedPct) : null);
   const plannerWindow = plannerView?.window || windowWords(planner?.window);
-  const plannerFigure = plannerView && plannerView.meter !== null ? plannerView.figure
+  const plannerFigure = planner?.usageState ? plannerView!.figure
+    : plannerView && plannerView.meter !== null ? plannerView.figure
     : planner?.usedPct != null ? `${Math.round(planner.usedPct)}%` : plannerView?.figure ?? "Usage unknown";
   const plannerReset = plannerView?.reset || (planner?.resetsAt != null ? resetWords(planner.resetsAt, snapshot!.at) : "");
   const pace = paceStatus(planner?.usageState?.verdict ?? planner?.verdict ?? "unknown");

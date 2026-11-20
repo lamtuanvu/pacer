@@ -59,9 +59,10 @@ export function ConnectChanges({ planner, preview }: { planner: string; preview:
 }
 export function budgetLine(provider?: ProviderStatus) {
   if (provider?.usage === 'unmetered') return 'No subscription budget';
-  // The runner's one usage record, quoted through usageView (ADR 0030); legacy providers keep their binding.
+  // The runner's one usage record, quoted through usageView (ADR 0030); a record without a figure is a
+  // state, and only a legacy provider without a record falls back to its binding.
   const view = usageView(provider?.usageState, Date.now() / 1000);
-  const used = view.meter ?? provider?.binding?.usedPct;
+  const used = provider?.usageState ? view.meter : view.meter ?? provider?.binding?.usedPct;
   if (used == null) return provider?.usageState ? view.figure : 'No usage reading yet';
   return `${provider?.usageState ? view.figure : `${Math.round(used)}%`}${provider?.usageState && view.window ? ` of ${view.window}` : ' of budget'} used · ${paceStatus(provider!.usageState?.verdict ?? provider!.verdict).label.toLowerCase()}`;
 }

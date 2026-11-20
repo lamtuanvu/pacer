@@ -241,7 +241,7 @@ export function routeCard(explanation: RouteExplanation, accounts: Account[] = [
   // The planner's own usage record quotes the figure and window through usageView (ADR 0030);
   // the dispatcher's estimate keeps its own week wording.
   const usage = usageView(planner?.usageState, Date.now() / 1000);
-  const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: usage.meter ?? planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
+  const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: planner?.usageState ? usage.meter : usage.meter ?? planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
   const week = window.used === null ? "" : cost.window
     ? `Week ${Math.round(window.used)}%${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`
     : `${usage.summaryUsed}${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;

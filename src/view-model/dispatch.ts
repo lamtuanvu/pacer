@@ -165,8 +165,9 @@ export function plannerPace(verdict: string): { label: string; tone: string } {
  */
 export function plannerCaption(p: PlannerMeter, now: number, shortWindowPct?: number | null): string {
   const view = usageView(p.usageState, now);
-  // A legacy service row carries only the raw meter fields; both spellings share one word list.
-  const meter = view.meter ?? (p.usedPct != null ? Math.round(p.usedPct) : null);
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state ("No usage figure"), never the row's old percent.
+  const meter = p.usageState ? view.meter : (p.usedPct != null ? Math.round(p.usedPct) : null);
   const window = view.window || windowWords(p.window);
   const reset = view.reset || (p.resetsAt != null ? resetWords(p.resetsAt, now) : "");
   return [
@@ -186,8 +187,9 @@ export function plannerBudget(snapshot: ClientSnapshot, now: number, shortWindow
   if (!p) return null;
   const name = agentInfo(p.agent).name;
   const view = usageView(p.usageState, now);
-  // A legacy service row carries only the raw meter fields; the record wins when present.
-  const meter = view.meter ?? (p.usedPct != null ? Math.round(p.usedPct) : null);
+  // A legacy service row carries only the raw meter fields; the record wins when present, and a record
+  // without a figure is a state, never the row's old percent.
+  const meter = p.usageState ? view.meter : (p.usedPct != null ? Math.round(p.usedPct) : null);
   const window = view.window || windowWords(p.window);
   const label = `${name} ${window ? `${window} ` : ""}usage`;
   const historical = p.usageState ? p.usageState.freshness === "historical" : p.stale;

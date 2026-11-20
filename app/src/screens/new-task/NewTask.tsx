@@ -294,9 +294,10 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
 function PlannerRow({ p }: { p: ViewProps }) {
   const planner = p.planner;
   if (!planner || p.preview.empty) return null;
-  // The planner's one usage record, quoted through usageView (ADR 0030); a legacy row keeps its meter fields.
+  // The planner's one usage record, quoted through usageView (ADR 0030); a legacy row keeps its meter fields,
+  // and a record without a figure is a state, never the row's old percent.
   const usage = usageView(planner.usageState, Date.now() / 1000);
-  const used = usage.meter ?? planner.usedPct;
+  const used = planner.usageState ? usage.meter : usage.meter ?? planner.usedPct;
   const plannerRecord = planner.usageState;
   const view = p.card?.planner ?? { cost: "Not measured yet", used, pace: planner.pacePct, note: used === null ? ""
     : planner.usageState && usage.figure.endsWith("%") ? `${usage.summaryUsed}${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}`
