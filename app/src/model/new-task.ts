@@ -1,6 +1,7 @@
 import type { PlannerMeter } from "../../../src/api/read-model/types";
 import { agentInfo } from "../../../src/view-model/agents";
 import { executorLabel, type StatusTone } from "../../../src/view-model/words";
+import { usageView } from "../../../src/view-model/usage";
 import type { RouteExplanation, RouteReason } from "../data/explain-route";
 import type { Account } from "./accounts";
 import { kinds as KINDS } from "./tasks";
@@ -233,8 +234,13 @@ export function routeCard(explanation: RouteExplanation, accounts: Account[] = [
     : reasons.map(reason => ({ ...glyphFor(reason.outcome), text: reasonText(reason, accounts) })))];
   const then = explanation.fallbacks.filter(f => f.state !== "excluded").map(f => ({ ...named(f.runner, accounts), agent: agentOf(f.executor), excluded: f.state === "excluded", reason: f.reason ? reasonText(f.reason, accounts) : null }));
   const cost = explanation.planner;
-  const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
-  const week = window.used === null ? "" : `Week ${Math.round(window.used)}%${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;
+  // The planner's own usage record quotes the figure and window through usageView (ADR 0030);
+  // the dispatcher's estimate keeps its own week wording.
+  const usage = usageView(planner?.usageState, Date.now() / 1000);
+  const window = cost.window ? { used: cost.window.usedPct, pace: cost.window.pacePct } : { used: usage.meter ?? planner?.usedPct ?? null, pace: planner?.pacePct ?? null };
+  const week = window.used === null ? "" : cost.window
+    ? `Week ${Math.round(window.used)}%${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`
+    : `${usage.figure} of ${usage.window} used${window.pace === null ? "" : ` · pace ${Math.round(window.pace)}%`}`;
   return {
     status: pill,
     lead: chosen && !advisory ? { ...named(chosen.runner, accounts), agent: agentOf(chosen.executor), step: uncertain ? "Likely goes to this agent · checked again at start" : step, pill } : null,

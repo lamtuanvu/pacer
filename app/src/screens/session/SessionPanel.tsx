@@ -19,6 +19,7 @@ import { StatusPill } from "../../ds/StatusPill";
 import { UsageMeter } from "../../ds/UsageMeter";
 import { compactCount } from "../../../../src/view-model/task-tree";
 import { paceStatus, taskStatus } from "../../../../src/view-model/words";
+import { usageView } from "../../../../src/view-model/usage";
 import { markAgent } from "../../../../src/view-model/agents";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import type { SessionFileResult } from "../../../../src/session/files";
@@ -195,18 +196,20 @@ export function SessionWorkspace({ task }: { task: TaskDetail }) {
   </section>;
 }
 
-/** Reported tokens and weekly usage retain their independent sources. */
+/** Reported tokens and the executor's one usage record retain their independent sources. */
 export function SessionInsights({ task, executor }: { task: TaskDetail; executor?: AccountSummary }) {
   const tokens = task.tokens, reported = tokens && tokens.measuredAttempts + tokens.partialAttempts > 0;
   const agent = executorLabel(task.routing?.chosen ?? task.executor);
-  const pace = paceStatus(executor?.verdict ?? "unknown");
+  const record = executor?.usageState, now = executor?.capturedAt ?? Date.now() / 1000;
+  const pace = paceStatus(record?.verdict ?? executor?.verdict ?? "unknown");
+  const usage = usageView(record, now);
   return <>
     {task.routing?.why && <section><SectionHeading as="h3">Why {agent}</SectionHeading><p>{task.routing.policy && task.routing.policy.executors.indexOf(task.routing.chosen) >= 0 && `Ladder step ${task.routing.policy.executors.indexOf(task.routing.chosen) + 1} · `}{task.routing.why}</p><a className="pc-text-action" href={`#/tasks/${encodeURIComponent(task.id)}/trace`}>Dispatch trace</a></section>}
     <section><SectionHeading as="h3">Tokens, live</SectionHeading>
       <span className="pc-session-token-value">{reported ? `${tokens.lowerBound ? "≥ " : ""}${compactCount(tokens.total)}` : "—"}</span>
       <p className="muted">{reported ? "This session" : "No token usage reported yet"}{tokens?.lowerBound ? " · partial usage" : ""}</p>
-      <UsageMeter used={executor?.usedPct ?? null} pace={executor?.pacePct ?? null} tone={pace.tone} size="slim" label={`${agent} weekly usage`} text="none"/>
-      <p className="muted">{executor?.usedPct != null && <>{agent} {executor.usedPct}% of week{executor.verdict !== "unknown" && ` · ${pace.label.toLowerCase()}`}</>}</p>
+      <UsageMeter used={record ? usage.meter : executor?.usedPct ?? null} pace={executor?.pacePct ?? null} tone={pace.tone} size="slim" label={`${agent} weekly usage`} text="none"/>
+      <p className="muted">{(usage.meter !== null || (record === undefined && executor?.usedPct != null)) && <>{agent} {usage.meter !== null ? `${usage.figure} of ${usage.window}` : `${Math.round(executor!.usedPct!)}% of week`}{pace.label !== "Usage unknown" && ` · ${pace.label.toLowerCase()}`}</>}</p>
     </section>
   </>;
 }

@@ -16,6 +16,7 @@ import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
 import { askModeCheckCopy, isAskModeCheckReason } from "../../../../src/view-model/copy";
+import { usageView } from "../../../../src/view-model/usage";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
 import { ActionCardView } from "./ActionCardView";
@@ -217,7 +218,7 @@ function TurnRows({ turn, call, onNewTask, reload }: { turn: TurnView; call: <T>
 }
 
 interface Candidate { runners?: { id: string }[]; account: string; backend?: "pacer" | "executor"; available?: boolean; reason?: string; models: { id: string; name: string }[] }
-interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageReading?: { windows?: { usedPct?: number }[] } }
+interface AccountDetail { name: string; label?: string; usage?: string; connection?: { base_url_host: string }; usageState?: import("../../../../src/types").UsageState }
 function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params: unknown) => Promise<T> }; refresh: () => Promise<void> }) {
   const dialogs = useDialogs();
   const [accounts, setAccounts] = useState<(Candidate & { name: string; note: string; local: boolean })[] | null>(null);
@@ -233,8 +234,9 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
         let location = "Endpoint";
         try { const host = new URL(`http://${detail?.connection?.base_url_host ?? ""}`).hostname; location = ["localhost", "127.0.0.1", "[::1]"].includes(host) ? "on this Mac" : host; } catch { /* Older services may omit connection details. */ }
         const local = location === "on this Mac" && detail?.usage === "unmetered";
-        const used = detail?.usageReading?.windows?.[0]?.usedPct;
-        return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : typeof used === "number" ? `${Math.round(used)}% used` : detail?.usage ?? "usage unknown"].join(" · ") };
+        // The account's one usage record, quoted through usageView (ADR 0030).
+        const view = usageView(detail?.usageState, Date.now() / 1000);
+        return { ...candidate, name: detail?.label ?? candidate.account, local, note: [candidate.models.map(model => model.name).join(", "), location, detail?.usage === "unmetered" ? "unmetered" : view.meter !== null ? `${view.figure} of ${view.window} used` : detail?.usage ?? view.figure].join(" · ") };
       }));
     }).catch(() => { if (live) setError("Could not load accounts. Try again."); });
     return () => { live = false; };
