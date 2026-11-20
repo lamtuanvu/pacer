@@ -19,15 +19,20 @@ const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$/;
 
 /** Codex answers `codex exec resume [OPTIONS] [SESSION_ID] [PROMPT]` (verified with codex exec resume --help). */
 /**
- * The unattended turn may only read and run pacer (maintainer decision, design §3): it reviews the result and
- * records a verdict, and never edits, builds or pushes. Anything else is denied without a prompt nobody answers.
+ * The unattended turn may only read and record a decision (maintainer decision, design §3): pacer's decision
+ * commands and read-only file tools, nothing that edits, builds, pushes, delegates or changes configuration.
+ * The user's and project's own allow rules, hooks and MCP servers must not widen this, so the built-in tool set
+ * is fixed, project and local settings and MCP servers are not loaded, and anything else is denied unasked.
  */
-export const RESUME_ALLOWED_TOOLS = ["Bash(pacer:*)", "Read", "Grep", "Glob"];
-export const RESUME_DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Task"];
+export const RESUME_DECISION_COMMANDS = ["pacer review", "pacer msg inbox", "pacer msg read", "pacer msg send", "pacer msg log",
+  "pacer tasks", "pacer wait", "pacer task request-review"];
+export const RESUME_ALLOWED_TOOLS = [...RESUME_DECISION_COMMANDS.map(c => `Bash(${c}:*)`), "Read", "Grep", "Glob"];
+export const RESUME_DENIED_TOOLS = ["Edit", "Write", "NotebookEdit", "WebFetch", "WebSearch", "Agent", "Task", "mcp__*"];
 
 export function resumeArgv(kind: PlannerKind, session: string, prompt: string): string[] | null {
   if (!SESSION_ID.test(session)) return null;
-  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--permission-mode", "default",
+  if (kind === "claude-code") return ["claude", `--resume=${session}`, "-p", "--permission-mode", "dontAsk",
+    "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config", "--setting-sources", "user",
     "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS, "--", prompt];
   if (kind === "codex") return ["codex", "exec", "resume", "--", session, prompt];
   return null;

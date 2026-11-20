@@ -104,3 +104,13 @@ test("wait blocks until the task settles and prints its final summary",async()=>
  const timer=setTimeout(()=>updateTask(ctx,task.id,t=>{t.state="partial";}),20);
  try{const r=await main(["wait",task.id,"--timeout","2","--json"],ctx);expect(r.code).toBe(0);expect(JSON.parse(r.out).state).toBe("partial");}finally{clearTimeout(timer);}
 });
+
+test("a resumed caller session may only review and decide", async () => {
+  const ctx = setup(), env = { ...ctx.env, PACER_CALLER_RESUME: "t-1" };
+  for (const argv of [["delegate", "--goal", "x"], ["api", "call", "task.delegate"], ["config", "set", "x", "y"], ["install", "claude-code"], ["msg", "close", "t-1"]]) {
+    const r = await main(argv, { ...ctx, env });
+    expect(r.code).toBe(2);
+    expect(r.err).toContain("may only review and decide");
+  }
+  expect((await main(["tasks", "--json"], { ...ctx, env })).err).not.toContain("may only review and decide");
+});

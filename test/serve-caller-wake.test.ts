@@ -53,16 +53,17 @@ test("an error becomes unavailable", async () => {
 const claudeReach = (): CallerReach => ({ participant: "external:claude-code:s1", session: "s1", cwd: tmpDir(), terminal: { kind: "uncontrolled" }, at: 1 });
 
 /** Resume with its preconditions met, unless a test overrides one. */
-async function resumeWith(o: { reach?: CallerReach; wrote?: boolean; admitted?: boolean; alive?: "alive" | "gone" | "unknown" } = {}) {
+async function resumeWith(o: { reach?: CallerReach; wrote?: boolean; admitted?: boolean; open?: boolean; alive?: "alive" | "gone" | "unknown" } = {}) {
   const reach = o.reach ?? claudeReach();
   const wrote = spyOn(caller_wake.resumeGuards, "executorWroteCallerCwd").mockReturnValue(o.wrote ?? false);
   const admitted = spyOn(caller_wake.resumeGuards, "plannerAdmitted").mockResolvedValue(o.admitted ?? true);
+  const open = spyOn(caller_wake.resumeGuards, "plannerOpenInCwd").mockResolvedValue(o.open ?? false);
   const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue(o.alive ?? "gone");
   const resumeSpy = spyOn(plannerResume, "resumeCaller").mockResolvedValue("resumed");
   try {
     const out = await callerWake(fakeCtx(), reach, "text", "resume", "task-9");
     return { out, calls: resumeSpy.mock.calls, isAlive: resumeSpy.mock.calls[0]?.[3].isAlive, aliveSpy };
-  } finally { wrote.mockRestore(); admitted.mockRestore(); aliveSpy.mockRestore(); resumeSpy.mockRestore(); }
+  } finally { wrote.mockRestore(); admitted.mockRestore(); open.mockRestore(); aliveSpy.mockRestore(); resumeSpy.mockRestore(); }
 }
 
 test("a closed Claude Code caller is resumed with its session and the task id", async () => {
@@ -71,6 +72,34 @@ test("a closed Claude Code caller is resumed with its session and the task id", 
   expect(out).toBe("resumed");
   expect(calls[0]![1]).toEqual({ kind: "claude-code", session: "s1", cwd: reach.cwd });
   expect(calls[0]![3].task).toBe("task-9");
+  expect(calls[0]![2]).toStartWith(caller_wake.RESUME_PREAMBLE);
+});
+
+test("a planner reopened in the caller folder makes the resume wait", async () => {
+  const { out, calls } = await resumeWith({ open: true });
+  expect(out).toBe("busy");
+  expect(calls).toHaveLength(0);
+});
+
+test("a Claude Code process working in the caller folder counts as open", async () => {
+  const cwd = tmpDir(), other = tmpDir();
+  const run = (cwdOfClaude: string) => async (argv: string[]) => argv[0] === "ps"
+    ? { code: 0, stdout: "  101 /usr/bin/zsh\n  202 /opt/homebrew/bin/claude\n", stderr: "" }
+    : { code: 0, stdout: `p202\nfcwd\nn${cwdOfClaude}\n`, stderr: "" };
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: run(cwd) as never }, cwd)).toBe(true);
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: run(other) as never }, cwd)).toBe(false);
+  // A process list that cannot be read fails safe: treat the planner as possibly open.
+  expect(await caller_wake.plannerOpenInCwd({ ...fakeCtx(), run: (async () => ({ code: 1, stdout: "", stderr: "" })) as never }, cwd)).toBe(true);
+});
+
+test("another in-place task of the same caller also blocks the resume", () => {
+  const ctx = fakeCtx(), callerCwd = tmpDir(), elsewhere = tmpDir();
+  const own = createTask(ctx, { brief: { goal: "a", repo: elsewhere }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, own.id, x => { x.state = "done"; x.origin = "external:claude-code:s1"; x.placement = { requested: "new", mode: "new" } as typeof x.placement; });
+  expect(caller_wake.executorWroteCallerCwd(ctx, own.id, callerCwd)).toBe(false);
+  const sibling = createTask(ctx, { brief: { goal: "b", repo: callerCwd }, kind: null, requestedExecutor: null, timeoutS: 60 });
+  updateTask(ctx, sibling.id, x => { x.state = "running"; x.origin = "external:claude-code:s1"; x.placement = { requested: "current", mode: "current" } as typeof x.placement; });
+  expect(caller_wake.executorWroteCallerCwd(ctx, own.id, callerCwd)).toBe(true);
 });
 
 test("resume is refused for Codex and unknown planners, an executor-written checkout, and an exhausted planner", async () => {

@@ -452,7 +452,15 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
    } catch (e) { return {code: 2, out: "", err: `pacer: ${(e as Error).message}`}; }
  }
 
- export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
+ /** The commands a resumed caller turn may run: the decision commands its Claude Code tool limit allows, plus pacer's hooks. */
+export function resumedCallerMayRun(cmd: string, rest: string[]): boolean {
+  if (["review", "tasks", "wait"].includes(cmd)) return true;
+  if (cmd === "msg") return ["inbox", "read", "send", "log", "hook"].includes(rest[0] ?? "");
+  if (cmd === "task") return rest[0] === "request-review";
+  return cmd === "status" && rest.includes("--hook");
+}
+
+export async function main(argv: string[], ctx: Ctx = makeCtx()): Promise<Result> {
   // Only this Core may hold its secrets: no environment it passes on carries them.
   let secretsOnStdin: boolean;
   let secrets: CoreSecrets = {};
@@ -474,6 +482,9 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
+  // A planner turn pacer resumed unattended may only review and decide; its own hooks still run.
+  if (ctx.env.PACER_CALLER_RESUME && !resumedCallerMayRun(cmd, rest))
+    return {code:2,out:"",err:"pacer: a resumed caller session may only review and decide (pacer review, tasks, wait, task request-review, msg inbox|read|send|log)"};
   if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
     if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
     try {

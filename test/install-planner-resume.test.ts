@@ -11,7 +11,8 @@ import { readActivity } from "../src/activity/log";
 const BIN = tmpDir();
 for (const name of ["claude", "codex"]) { writeFileSync(join(BIN, name), "#!/bin/sh\nexit 0\n"); chmodSync(join(BIN, name), 0o755); }
 const planCtx = (o: Parameters<typeof fakeCtx>[0] = {}) => fakeCtx({ ...o, env: { PATH: BIN, ...(o?.env ?? {}) } });
-const CLAUDE_FLAGS = ["-p", "--permission-mode", "default", "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS];
+const CLAUDE_FLAGS = ["-p", "--permission-mode", "dontAsk", "--permission-prompts", "none", "--tools", "Bash,Read,Grep,Glob", "--strict-mcp-config",
+  "--setting-sources", "user", "--allowedTools", ...RESUME_ALLOWED_TOOLS, "--disallowedTools", ...RESUME_DENIED_TOOLS];
 
 const UNKNOWN = "opencode" as unknown as PlannerKind;
 const calls: ResumeSpawn[] = [];
@@ -172,10 +173,14 @@ test("a planner CLI missing from the login PATH is unavailable", async () => {
   expect(calls).toHaveLength(0);
 });
 
-test("the resumed turn may only read and run pacer", () => {
+test("the resumed turn may only read and record a decision", () => {
   const argv = resumeArgv("claude-code", "a1b2", "review")!;
   const allowed = argv.slice(argv.indexOf("--allowedTools") + 1, argv.indexOf("--disallowedTools"));
-  expect(allowed).toEqual(["Bash(pacer:*)", "Read", "Grep", "Glob"]);
-  expect(argv).toContain("Edit"); expect(argv).toContain("Write");
-  expect(argv.indexOf("--disallowedTools")).toBeLessThan(argv.indexOf("--"));
+  expect(allowed).toEqual(["Bash(pacer review:*)", "Bash(pacer msg inbox:*)", "Bash(pacer msg read:*)", "Bash(pacer msg send:*)",
+    "Bash(pacer msg log:*)", "Bash(pacer tasks:*)", "Bash(pacer wait:*)", "Bash(pacer task request-review:*)", "Read", "Grep", "Glob"]);
+  expect(allowed.some(t => t === "Bash(pacer:*)" || t.includes("delegate"))).toBe(false);
+  for (const flag of ["--strict-mcp-config", "mcp__*", "Agent", "Edit", "Write"]) expect(argv).toContain(flag);
+  expect(argv[argv.indexOf("--permission-mode") + 1]).toBe("dontAsk");
+  expect(argv[argv.indexOf("--setting-sources") + 1]).toBe("user");
+  expect(argv[argv.indexOf("--tools") + 1]).toBe("Bash,Read,Grep,Glob");
 });
