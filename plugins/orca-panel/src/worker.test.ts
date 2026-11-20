@@ -133,7 +133,9 @@ async function startPacer(options: FixtureOptions = {}): Promise<PacerFixture> {
     if (req.method === 'GET' && url.pathname === '/v3/snapshot') {
       fixture.snapshotRequests++
       res.writeHead(200, { 'content-type': 'application/json' })
-      res.end(JSON.stringify(options.snapshot?.() ?? snapshotWith()))
+      // Real wire shape (docs/protocol.md "HTTP routes"): `{ protocol, seq, snapshot }`.
+      const snapshot = (options.snapshot?.() ?? snapshotWith()) as { seq: number }
+      res.end(JSON.stringify({ protocol: '3.0.0', seq: snapshot.seq, snapshot }))
       return
     }
     if (req.method === 'POST' && url.pathname.startsWith('/v3/ops/')) {

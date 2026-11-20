@@ -86,12 +86,16 @@ export async function getSnapshot(endpoint: PacerEndpoint): Promise<PacerSnapsho
     return response.ok ? { error: `invalid snapshot response (HTTP ${response.status})` } : { error: errorText(null, response.status) };
   }
   if (!response.ok) return { error: errorText(body, response.status) };
-  const snapshot = body as Partial<PacerSnapshot> | null;
-  if (!snapshot || typeof snapshot.seq !== "number" || !Array.isArray(snapshot.attention) || !Array.isArray(snapshot.repos)) {
+  // The wire response is `{ protocol, seq, snapshot }` (docs/protocol.md "HTTP routes"); the
+  // fields this type cares about live under `snapshot`, not the envelope.
+  const envelope = body as { seq?: unknown; snapshot?: Partial<PacerSnapshot> } | null;
+  const snapshot = envelope?.snapshot;
+  const seq = typeof envelope?.seq === "number" ? envelope.seq : snapshot?.seq;
+  if (!snapshot || typeof seq !== "number" || !Array.isArray(snapshot.attention) || !Array.isArray(snapshot.repos)) {
     return { error: "invalid snapshot response" };
   }
   return {
-    seq: snapshot.seq,
+    seq,
     planner: snapshot.planner,
     counts: snapshot.counts,
     attention: snapshot.attention as AttentionItem[],

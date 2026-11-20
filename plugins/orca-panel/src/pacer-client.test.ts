@@ -69,24 +69,30 @@ test("getSnapshot sends the bearer token and parses the snapshot", async () => {
   const server = await startServer((req, res) => {
     path = new URL(req.url ?? "/", "http://127.0.0.1").pathname;
     auth = req.headers.authorization ?? null;
+    // Real wire shape (docs/protocol.md "HTTP routes"): `{ protocol, seq, snapshot }`, not a
+    // flat body - the fields under test live inside `snapshot`.
     jsonResponse(res, 200, {
+      protocol: "3.0.0",
       seq: 5,
-      planner: { pace: 50 },
-      counts: { attention: 1 },
-      attention: [
-        {
-          id: "a1",
-          kind: "review",
-          severity: "decide",
-          title: "Review the change",
-          detail: "d",
-          raisedAt: 100,
-          since: 100,
-          actions: [],
-          notify: false,
-        },
-      ],
-      repos: [{ key: "k1", label: "jawfish", path: "/repo" }],
+      snapshot: {
+        seq: 5,
+        planner: { pace: 50 },
+        counts: { attention: 1 },
+        attention: [
+          {
+            id: "a1",
+            kind: "review",
+            severity: "decide",
+            title: "Review the change",
+            detail: "d",
+            raisedAt: 100,
+            since: 100,
+            actions: [],
+            notify: false,
+          },
+        ],
+        repos: [{ key: "k1", label: "jawfish", path: "/repo" }],
+      },
     });
   });
   try {
