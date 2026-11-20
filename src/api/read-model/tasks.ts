@@ -1,3 +1,4 @@
+import { owesDecision } from "../../messaging/liveness";
 import { getWork } from "../../dispatch/work";
 import { activeAgentSessions } from "../../session/agents-state";
 import { fullTaskTitle } from "../../core/short-title";
@@ -23,7 +24,9 @@ export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>,
  // parentOfTask(ctx,t), not parentOf(ctx,`task:${t.id}`): t is already a fresh read of this
  // exact record, so this skips a second store lookup of it (see parentOfTask's comment).
  const own=lookupLiveness(`task:${t.id}`), parent=parentOfTask(ctx,t), parentRow=parent?lookupLiveness(parent):null;
- const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt?parentRow:null;
+ // A caller's owed decision marks only the settled tasks it owes; failed, limit and question tasks raise their own item.
+ const parentApplies=parentRow?.reason!=="caller_decision"||(["done","partial"].includes(t.state)&&owesDecision(t));
+ const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt&&parentApplies?parentRow:null;
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
  const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
  // The read model places the diagnostics fields after host (Rust parity), so leave them out of the event shape here.

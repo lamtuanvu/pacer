@@ -1,9 +1,13 @@
 import { expect, spyOn, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { brokerTick } from "../src/messaging/broker";
+import { brokerTick, type BrokerDeps } from "../src/messaging/broker";
+import type { CallerReach } from "../src/messaging/caller-reach";
+import * as callerReach from "../src/messaging/caller-reach";
 import { getLiveness } from "../src/messaging/liveness-store";
 import { byRequest, insertMessage, markRead, messagesDatabase } from "../src/messaging/store";
+import { ownProcessIdentity } from "../src/update/desktop/process-identity";
+import type { Ctx } from "../src/types";
 import * as runs from "../src/supervisor/run";
 import * as turns from "../src/messaging/turns";
 import { apiTask } from "../src/api/read-model/tasks";
@@ -324,4 +328,255 @@ test("strict mode escalates a no_progress stall instead of pinging it", async ()
     expect(getLiveness(ctx, node)).toMatchObject({ nudges: 0, stalledAt: ctx.now, escalatedAt: ctx.now });
     expect(attention(ctx, id, ctx.now).some(i => i.kind === "stalled" && i.taskId === id)).toBe(true);
   } finally { stop.mockRestore(); }
+});
+
+const callerMode = async () => "normal" as const;
+
+function callerTask(ctx: ReturnType<typeof fakeCtx>, origin = "external:claude-code:s1", terminalKind = "orca", settledAt = ctx.now) {
+  const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => {
+    t.state = "done"; t.settledAt = settledAt;
+    t.origin = origin;
+    if (origin !== "human") {
+      t.callerReach = { participant: origin, session: "s1", cwd: tmpDir(), terminal: { kind: terminalKind as "orca", handle: "term_x" }, at: ctx.now } as CallerReach;
+      if (terminalKind !== "orca") (t.callerReach!.terminal as { kind: string }).kind = terminalKind;
+    }
+  });
+  return task;
+}
+
+test("hooks first: no wake before caller_wake_after_s", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, text: string) => { calls.push(text); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 299 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(aliveSpy).not.toHaveBeenCalled();
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("pings an open Orca caller after the wake delay", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, text: string) => { calls.push(text); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(1);
+    expect(calls[0]).toBe(`pacer: task ${task.id} is done. Review and decide: pacer review ${task.id} --accept|--reject, or pacer msg inbox.`);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges).toBe(1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("a busy terminal is retried next tick without spending a wake", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  let wakeCount = 0;
+  const callerWake = async () => { wakeCount++; return "busy" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges).toBe(0);
+    const before = wakeCount;
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(wakeCount).toBe(before + 1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("an uncontrolled or unknown caller is not woken and is notified after escalate_after_s", async () => {
+  {
+    const ctx = fakeCtx({ now: 1_000_000 });
+    callerTask(ctx, "external:claude-code:s1", "uncontrolled");
+    const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+    const calls: string[] = [];
+    const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+    try {
+      await brokerTick(ctx, { mode: callerMode, callerWake });
+      await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode, callerWake });
+      expect(calls).toHaveLength(0);
+      expect(getLiveness(ctx, "external:claude-code:s1")?.stalledAt).toBe(1_000_900);
+      expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(1_000_900);
+    } finally { aliveSpy.mockRestore(); }
+  }
+  {
+    const ctx = fakeCtx({ now: 1_000_000 });
+    callerTask(ctx);
+    const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("unknown");
+    const calls: string[] = [];
+    const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+    try {
+      await brokerTick(ctx, { mode: callerMode, callerWake });
+      await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode, callerWake });
+      expect(calls).toHaveLength(0);
+      expect(getLiveness(ctx, "external:claude-code:s1")?.stalledAt).toBe(1_000_900);
+      expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(1_000_900);
+    } finally { aliveSpy.mockRestore(); }
+  }
+});
+
+test("a decision clears the ladder", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const callerWake = async () => "sent" as const;
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    updateTask(ctx, task.id, t => { t.review = { accepted: true, kind: null, note: null, at: ctx.now + 300 }; });
+    await brokerTick({ ...ctx, now: ctx.now + 301 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, "external:claude-code:s1")).toBeNull();
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("strict mode notifies only", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(aliveSpy).not.toHaveBeenCalled();
+    expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(ctx.now);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("a human origin is only notified", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx, "human");
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(aliveSpy).not.toHaveBeenCalled();
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("resumes a closed caller after the wake delay", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: { step: string; taskId: string }[] = [];
+  const callerWake = async (_c: any, _r: any, _text: any, step: any, taskId: any) => { calls.push({ step, taskId }); return "resumed" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(1);
+    expect(calls[0].step).toBe("resume");
+    expect(calls[0].taskId).toBe(task.id);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges).toBe(1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("never resumes an open caller", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx, "external:claude-code:s1", "tmux");
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "sent" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.nudges ?? 0).toBe(0);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("resume unavailable falls through to notification", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, _t: any, step: any) => { calls.push(step); return "unavailable" as const; };
+  try {
+    await brokerTick(ctx, { mode: callerMode, callerWake });
+    await brokerTick({ ...ctx, now: ctx.now + 300 }, { mode: callerMode, callerWake });
+    expect(calls).toContain("resume");
+    await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, "external:claude-code:s1")?.stalledAt).toBe(1_000_900);
+    expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(1_000_900);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("strict mode never resumes", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("gone");
+  const calls: string[] = [];
+  const callerWake = async () => { calls.push("wake"); return "resumed" as const; };
+  try {
+    await brokerTick(ctx, { mode: async () => "strict" as const, callerWake });
+    expect(calls).toHaveLength(0);
+    expect(aliveSpy).not.toHaveBeenCalled();
+    expect(getLiveness(ctx, "external:claude-code:s1")?.escalatedAt).toBe(ctx.now);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("a task that settles later restores the wake budget", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  callerTask(ctx);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const callerWake = async () => "sent" as const;
+  try {
+    for (const at of [0, 300, 600, 1200, 2400]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(3);
+    callerTask({ ...ctx, now: ctx.now + 2500 }, node, "orca", ctx.now + 2500);
+    await brokerTick({ ...ctx, now: ctx.now + 2500 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(0);
+    await brokerTick({ ...ctx, now: ctx.now + 2800 }, { mode: callerMode, callerWake });
+    expect(getLiveness(ctx, node)?.nudges).toBe(1);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("the wake names the oldest task with a reach", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 });
+  // The store stamps settledAt when a task settles, so each task settles at its own clock.
+  const at = (dt: number) => ({ ...ctx, now: ctx.now + dt });
+  const noReach = callerTask(at(-50), "external:claude-code:s1", "orca", ctx.now - 50);
+  updateTask(ctx, noReach.id, t => { delete t.callerReach; });
+  const older = callerTask(at(-40), "external:claude-code:s1", "orca", ctx.now - 40);
+  callerTask(at(-10), "external:claude-code:s1", "orca", ctx.now - 10);
+  const aliveSpy = spyOn(callerReach, "callerAlive").mockResolvedValue("alive");
+  const calls: string[] = [];
+  const callerWake = async (_c: any, _r: any, text: string) => { calls.push(text); return "sent" as const; };
+  try {
+    for (const at of [0, 300]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode, callerWake });
+    expect(calls).toEqual([expect.stringContaining(`task ${older.id} is done`)]);
+  } finally { aliveSpy.mockRestore(); }
+});
+
+test("an escalation survives the switch to caller_decision and back", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  const task = createTask(ctx, { brief: { goal: "g", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, task.id, t => { t.state = "running"; t.origin = node; });
+  insertMessage(ctx, { taskId: task.id, rootId: `task:${task.id}`, from: `task:${task.id}`, to: node, kind: "message", body: "fyi", replyTo: null, requestId: "fyi" });
+  await brokerTick(ctx, { mode: callerMode });
+  await brokerTick({ ...ctx, now: ctx.now + 900 }, { mode: callerMode });
+  const escalated = getLiveness(ctx, node)!;
+  expect(escalated).toMatchObject({ reason: "unread_external", escalatedAt: ctx.now + 900 });
+  updateTask(ctx, task.id, t => { t.state = "done"; t.settledAt = ctx.now + 950; });
+  await brokerTick({ ...ctx, now: ctx.now + 960 }, { mode: callerMode });
+  expect(getLiveness(ctx, node)).toMatchObject({ reason: "caller_decision", escalatedAt: escalated.escalatedAt, since: escalated.since });
+});
+
+test("an escalated decision marks only the task it is owed for, with the planned text", async () => {
+  const ctx = fakeCtx({ now: 1_000_000 }), node = "external:claude-code:s1";
+  const owed = callerTask(ctx, node, "uncontrolled");
+  const running = createTask(ctx, { brief: { goal: "other", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  updateTask(ctx, running.id, t => { t.state = "running"; t.origin = node; });
+  for (const at of [0, 900]) await brokerTick({ ...ctx, now: ctx.now + at }, { mode: callerMode });
+  expect(getLiveness(ctx, node)?.escalatedAt).toBe(ctx.now + 900);
+  expect(attention(ctx, owed.id, ctx.now + 900).find(i => i.kind === "stalled"))
+    .toMatchObject({ taskId: owed.id, detail: "Waiting for claude-code to review and decide" });
+  expect(attention(ctx, running.id, ctx.now + 900).some(i => i.kind === "stalled")).toBe(false);
 });
