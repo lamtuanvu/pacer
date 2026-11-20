@@ -308,6 +308,9 @@ export async function runAcpTurn(
       try {
         await request("session/load", { sessionId: plan.session, cwd, mcpServers });
         sessionId = plan.session;
+        // opencode ACP `session/load` across a fresh process does not rehydrate a model-visible
+        // transcript. Prefer the host-seeded fallback whenever the caller provided one (spec §6).
+        if (plan.fallbackPrompt) promptBody = plan.fallbackPrompt;
       } catch {
         // Resume failed: fall through to session/new with the seeded fallback prompt when present.
         sessionId = undefined;
@@ -345,6 +348,8 @@ export async function runAcpTurn(
       toolsEnabled = false;
       mcpServers = [];
       error = error ?? "pacer MCP tools were not reported on the ACP session; answering from the digest only";
+      // Replacement session has no prior turns; seed from the host transcript when available.
+      if (plan.fallbackPrompt) promptBody = plan.fallbackPrompt;
       const replacement = await request("session/new", { cwd, mcpServers: [] }) as { sessionId?: string };
       if (!replacement?.sessionId) throw new Error("opencode ACP returned no digest-only session id");
       sessionId = replacement.sessionId;

@@ -111,6 +111,11 @@ describe("the executor backend in ask mode", () => {
     const resumed = calls().filter(c => Array.isArray(c.argv)).at(-1)!;
     expect(resumed.argv).toEqual(["acp"]);
     expect(resumed.cwd).toBe(call!.cwd);
+    // Successful session/load still seeds the host transcript into the prompt (ACP load is hollow).
+    const prompts = calls().filter(c => c.method === "session/prompt");
+    const seeded = prompts.find(c => typeof c.prompt === "string" && c.prompt.includes("Earlier in this conversation:"));
+    expect(seeded?.prompt).toContain("What needs me?");
+    expect(seeded?.prompt).toContain("And now?");
   }, 60_000);
 
   test("when MCP tools are absent, digests only, drops MCP, and denies pacer permissions", async () => {
