@@ -549,7 +549,7 @@ Params JSON Schema:
 
 ### `account.list`
 
-Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, also on snapshot rows as usage) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.
+Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.
 
 Params JSON Schema:
 

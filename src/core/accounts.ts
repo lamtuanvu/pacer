@@ -150,7 +150,7 @@ export async function accountListPart(ctx: Ctx, s: Strategy, orca: Awaited<Retur
     : checked.some(v => v.signedIn === false) ? false
     : checked.length ? true
     : accountSignIn(ctx, a, scope).signedIn ?? (accountAuthFailure(ctx, scope) ? false : null);
-  return {label: identity?.label, signedIn: signedIn ?? (identity ? true : null), usageReading, usageState: st.accounts?.find(row => row.name === a.name)?.usage,
+  return {label: identity?.label, signedIn: signedIn ?? (identity ? true : null), usageReading, usageState: st.accounts?.find(row => row.name === a.name)?.usageState,
     diagnostics: {readings: [usageReading, ...(usageReading.alternatives ?? [])]}, endpoint: await endpointRow(ctx, a)};
 }
 export async function list(ctx: Ctx) {

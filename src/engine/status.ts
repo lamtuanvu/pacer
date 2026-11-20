@@ -43,8 +43,8 @@ export interface AccountStatus {
   capturedAt: number | null;
   runners: string[];
   spendUsd: number | null;
-  /** Additive: the account's one usage record (ADR 0030). */
-  usage?: UsageState;
+  /** Additive: the account's one usage record (ADR 0030). Named `usageState` because `usage` is already this row's UsageKind. */
+  usageState?: UsageState;
 }
 
 export interface Status {
@@ -341,7 +341,7 @@ export async function computeStatus(
         stale: reading.stale, runners: runners.map(r => r.name),
         source: reading.source ?? null, capturedAt: reading.capturedAt,
         spendUsd: reading.spendUsd ?? null,
-        usage: record,
+        usageState: record,
         ...(reading.remoteHost ? { remoteHost: reading.remoteHost } : {}),
       };
     }),

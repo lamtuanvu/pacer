@@ -25,7 +25,7 @@ export interface LimitsRow {
 export async function check(ctx: Ctx, s: Strategy = loadStrategy(ctx)): Promise<LimitsRow[]> {
   const st = await computeStatus(ctx, s);
   return st.accounts.map((a) => {
-    const record = a.usage;
+    const record = a.usageState;
     const window = record ? bindingWindow(record.windows) : null;
     const error = st.providers.find((p) => p.account === a.name && p.error)?.error ?? null;
     const noData = a.capturedAt === null && (a.kind === "claude" || a.kind === "codex");

@@ -58,7 +58,7 @@ export function buildExecutors(st: Status,s: Strategy,tasks: Pick<ApiTask, "stat
   const places=[...new Set(Object.values(s.runners).filter(other=>other.account===account).map(other=>other.host??"this Mac"))].sort((a,b)=>a==="this Mac"?-1:b==="this Mac"?1:a.localeCompare(b)).join(" + ")||"this Mac";
   const tones:Record<ExecutorRow["state"],ExecutorRow["tone"]>={ready:"good",busy:"info",full:"info",failing:"warn",down:"bad",exhausted:"bad",blocked:"muted",disabled:"muted",checking:"info"};
   const assessment=eligibilityPresentation(p?.eligibility,now);
-  return {...(p?.eligibility?{eligibility:p.eligibility,stale:record?record.freshness==="historical":p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:record?record.figure?.usedPct??recordWindow?.usedPct??null:p?.binding?.usedPct??null,pacePct:record?recordWindow?.pace??null:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),...(record?{usage:record}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
+  return {...(p?.eligibility?{eligibility:p.eligibility,stale:record?record.freshness==="historical":p.stale}:{}),id,agent:r?.agent??p?.agent??parseRunnerId(id)?.agent??id,account,host,model:r?.model??null,rank:id===planner?"planner":index,enabled,state,tone:p?.eligibility?.state==="uncertain"?"warn":tones[state],sub:reason??(!p?.eligibility?`${verdictWords(p?.verdict??"UNKNOWN")} · ${places}`:`${assessment.label} · ${assessment.detail}${assessment.age?` · ${assessment.age}`:""} · ${places}`),...(reason?{reason}:{}),usedPct:record?record.figure?.usedPct??recordWindow?.usedPct??null:p?.binding?.usedPct??null,pacePct:record?recordWindow?.pace??null:p?.binding?.pace??null,...(p?.usage==="unmetered"?{paceReason:"unmetered"}:!p?.binding?{paceReason:"no limit reported"}:{}),slots:{used,max},...(limitedBy?{limitedBy}:{}),...(untested?{untested:true as const}:{}),...(record?{usageState:record}:{}),lastCheck:lastCheck?{...lastCheck,detail:redactEndpointError(lastCheck.detail).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]")}:null,recentFailures,next:false};
  });
  const next=st.executors.ranked.find(e=>rows.some(r=>r.id===e.id&&r.eligibility?.state!=="ineligible"&&["ready","busy","failing"].includes(r.state)));
  if(next)rows.find(r=>r.id===next.id)!.next=true;
@@ -83,14 +83,14 @@ export function buildAccounts(st: Status,s: Strategy,ctx?: Ctx): AccountSummary[
  const failures=ctx?Object.fromEntries(Object.values(s.accounts).filter(a=>accountAuthFailure(ctx,accountEvidenceScope(a,s.hosts))).map(a=>[a.name,ctx.now])):{};
  return Object.values(s.accounts).map(a=>{
   const runners=Object.values(s.runners).filter(r=>r.account===a.name),p=st.providers.find(p=>p.account===a.name||runners.some(r=>r.id===p.id)),status=st.accounts?.find(row=>row.name===a.name);
-  const record=status?.usage,window=recordBinding(record);
+  const record=status?.usageState,window=recordBinding(record);
   const row={...(status?.eligibility?{eligibility:status.eligibility}:{}),stale:record?record.freshness==="historical":status?.stale??p?.stale??true,capturedAt:status?.capturedAt??null,name:a.name,agent:runners[0]?.agent??a.kind,source:a.source,
    usedPct:record?record.figure?.usedPct??window?.usedPct??null:status?.usedPct??p?.binding?.usedPct??null,
    pacePct:record?window?.pace??null:status?.pacePct??p?.binding?.pace??null,
    window:record?window?.name??null:status?.window??p?.binding?.name??null,
    resetsAt:record?window?.resetsAt??null:status?.resetsAt??p?.binding?.resetsAt??null,
    verdict:record?.verdict??status?.verdict??p?.verdict??"UNKNOWN",signedIn:signedIn(st,s,a.name,failures),executors:runners.map(r=>r.id),spendUsdWeek:record?record.spend?.usdWeek??null:status?.spendUsd??null,capUsdWeek:a.weeklyUsd};
-  return record?{...row,usage:record}:row;
+  return record?{...row,usageState:record}:row;
  });
 }
 export function buildPlanner(st: Status): PlannerMeter | null {
@@ -104,5 +104,5 @@ export function buildPlanner(st: Status): PlannerMeter | null {
  if(verdict==="on_pace")advice="On pace.";
  if(verdict==="ahead"&&deltaPts!==null)advice=`${deltaPts} pts ahead of pace — delegate more.`;
  if(verdict==="out"&&b?.resetsAt!=null){const d=new Date(b.resetsAt*1000);advice=`Out of quota — back ${["Sun","Mon","Tue","Wed","Thu","Fri","Sat"][d.getDay()]} ${String(d.getHours()).padStart(2,"0")}:${String(d.getMinutes()).padStart(2,"0")}.`;}
- return {...(p?.eligibility?{eligibility:p.eligibility}:{}),runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:record?record.freshness==="historical":p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{}),...(record?{usage:record}:{})};
+ return {...(p?.eligibility?{eligibility:p.eligibility}:{}),runner:st.planner,agent:p?.agent??parseRunnerId(st.planner)?.agent??st.planner,usedPct,pacePct,deltaPts,verdict,activeHoursLeft:known?b!.activeHoursLeft??null:null,resetsAt:known?b!.resetsAt:null,window:known?b!.name:null,stale:record?record.freshness==="historical":p?.stale??false,advice,mode:st.mode,...(st.modeHold?{modeHeldUntil:st.modeHold.until}:{}),...(record?{usageState:record}:{})};
 }

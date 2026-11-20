@@ -22,8 +22,8 @@ export interface ExecutorRow {
  limitedBy?: "machine" | "host";
  slots: { used: number; max: number }; lastCheck: { at: number; passed: boolean; detail?: string } | null;
  recentFailures: number; next: boolean;
- /** Additive: the runner's one usage record (ADR 0030); the row's quoted fields derive from it. */
- usage?: UsageState;
+ /** Additive: the runner's one usage record (ADR 0030); the row's quoted fields derive from it. Named `usageState` because `usage` is already this row's UsageKind. */
+ usageState?: UsageState;
 }
 export interface AccountSummary {
  stale?: boolean; capturedAt?: number | null;
@@ -31,8 +31,8 @@ export interface AccountSummary {
  name: string; agent: string; source: string; usedPct: number | null; pacePct: number | null;
  window: string | null; resetsAt: number | null; verdict: string; signedIn: boolean | null; executors: string[];
  spendUsdWeek: number | null; capUsdWeek: number | null;
- /** Additive: the account's one usage record (ADR 0030); the row's quoted fields derive from it. */
- usage?: UsageState;
+ /** Additive: the account's one usage record (ADR 0030); the row's quoted fields derive from it. Named `usageState` because `usage` is already this row's UsageKind. */
+ usageState?: UsageState;
 }
 export interface PlannerMeter {
  eligibility?: import("../../evidence/types").EligibilityDecision;
@@ -40,8 +40,8 @@ export interface PlannerMeter {
  verdict: "behind" | "on_pace" | "ahead" | "out" | "unknown";
  activeHoursLeft: number | null; resetsAt: number | null; window: string | null; stale: boolean;
  advice: string; mode: string; modeHeldUntil?: number;
- /** Additive: the planner runner's one usage record (ADR 0030). */
- usage?: UsageState;
+ /** Additive: the planner runner's one usage record (ADR 0030). Named `usageState` because `usage` is already this row's UsageKind. */
+ usageState?: UsageState;
 }
 export interface Counts {
  attention: number; problems: number; review: number; running: number; queued: number; ready: number; executors: number; setupOpen: number; hostsWithProblems: number;

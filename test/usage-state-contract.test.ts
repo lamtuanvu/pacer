@@ -51,7 +51,7 @@ function claudeReading(capturedAt: number, weekly: number, fiveHour: number, res
 /** Every surface quotes the same record. */
 async function surfaces(ctx: Ctx, s: Strategy, account: string, planner?: string) {
   const st = await computeStatus(ctx, s, {profile: null});
-  const record = st.accounts!.find(a => a.name === account)!.usage!;
+  const record = st.accounts!.find(a => a.name === account)!.usageState!;
   const listRows = await accountsList(ctx);
   const listRow = listRows.find(a => a.name === account)!.usageState!;
   const limitsRows = await limitsCheck(ctx, s);
@@ -68,14 +68,14 @@ async function surfaces(ctx: Ctx, s: Strategy, account: string, planner?: string
       resetsAt: record.figure?.resetsAt ?? null, stale: record.freshness === "historical"});
   // Snapshot rows carry the record and derive their quoted fields from it.
   const summary = buildAccounts(st, s, ctx).find(a => a.name === account)!;
-  expect(summary.usage).toEqual(record);
+  expect(summary.usageState).toEqual(record);
   expect({verdict: summary.verdict, usedPct: summary.usedPct, window: summary.window, resetsAt: summary.resetsAt, stale: summary.stale})
     .toEqual({verdict: record.verdict, usedPct: record.figure?.usedPct ?? null, window: record.figure ? record.figure.window : null,
       resetsAt: record.figure?.resetsAt ?? null, stale: record.freshness === "historical"});
   const accountRunners = st.providers.filter(p => p.account === account);
   for (const provider of accountRunners) {
     const row = buildExecutors(st, s, [], ctx.now, ctx).find(r => r.id === provider.id)!;
-    expect(row.usage).toEqual(provider.usageState);
+    expect(row.usageState).toEqual(provider.usageState);
     expect(row.usedPct).toBe(provider.usageState!.figure?.usedPct ?? null);
     expect(row.stale).toBe(provider.usageState!.freshness === "historical");
     // A runner may be EXHAUSTED while the account is not only when the account lists it as
@@ -253,7 +253,7 @@ test("a stale reading downgrades account and runner eligibility the same way (D7
   const s = load(ctx, CLAUDE);
   claudeRateLimit(ctx, s.accounts.claude!, claudeReading(now - 3 * 86400, 40, 20));
   const st = await computeStatus(ctx, s, {profile: null});
-  const record = st.accounts!.find(a => a.name === "claude")!.usage!;
+  const record = st.accounts!.find(a => a.name === "claude")!.usageState!;
   const runner = st.providers.find(p => p.id === "claude-code")!.usageState!;
   expect(record.freshness).toBe("historical");
   expect(runner.freshness).toBe("historical");
