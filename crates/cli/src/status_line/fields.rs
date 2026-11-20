@@ -75,13 +75,14 @@ pub fn fields(input: Option<&Value>) -> Value {
     };
     let stale = truth(p.get("stale").unwrap_or(&Value::Null));
     let mut fields = with_policy(
-    json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
+        json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
     "usedPct":coalesce(&[if stale {&Value::Null} else {&p["usedPct"]},&legacy["usedPct"]]),
     "pacePct":coalesce(&[if stale {&Value::Null} else {&p["pacePct"]},&legacy["pacePct"]]),
     "verdict":coalesce(&[&p["verdict"],&legacy["verdict"],&json!("unknown")]),
     "resetsAt":coalesce(&[&p["resetsAt"],&legacy["resetsAt"]]),
     "running":count(&c["running"]),"attention":count(&c["attention"]),
-    "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])}));
+    "mode":coalesce(&[&p["mode"],&input["mode"]["mode"],&budget["mode"],&json!("normal")])}),
+    );
     if stale {
         fields["stale"] = json!(true);
     }

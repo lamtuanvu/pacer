@@ -135,7 +135,10 @@ mod tests {
         assert_eq!(verdict_words("on_pace"), "On pace");
         assert_eq!(verdict_words("nope"), "Unknown");
         let pace = pace_status("OK");
-        assert_eq!((pace.label, pace.tone, pace.glyph), ("On pace", "good", "✓"));
+        assert_eq!(
+            (pace.label, pace.tone, pace.glyph),
+            ("On pace", "good", "✓")
+        );
         let pace = pace_status("NEAR_LIMIT");
         assert_eq!(
             (pace.label, pace.tone, pace.glyph),

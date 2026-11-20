@@ -489,14 +489,25 @@ fn candidates_exhaust_at_the_verdict_threshold() {
     let inventory: Vec<Object> = vec![model.as_object().unwrap().clone()];
     let usage = |used: f64| -> Vec<Object> {
         vec![
-            observation("health", json!({"healthy": true})).as_object().unwrap().clone(),
-            observation("usage", json!({"windows": [{"pool": "weekly", "usedPct": used}]})).as_object().unwrap().clone(),
+            observation("health", json!({"healthy": true}))
+                .as_object()
+                .unwrap()
+                .clone(),
+            observation(
+                "usage",
+                json!({"windows": [{"pool": "weekly", "usedPct": used}]}),
+            )
+            .as_object()
+            .unwrap()
+            .clone(),
         ]
     };
     let exhausted = build_candidates(&strategy, &task, &inventory, &usage(97.0), 2.0);
     assert_eq!(
         exhausted.excluded,
-        vec![json!({"id": r#"["codex",{"kind":"default","id":"default"}]"#, "reason": "Quota exhausted"})]
+        vec![
+            json!({"id": r#"["codex",{"kind":"default","id":"default"}]"#, "reason": "Quota exhausted"})
+        ]
     );
     let spare = build_candidates(&strategy, &task, &inventory, &usage(96.0), 2.0);
     assert_eq!(spare.excluded, Vec::<Value>::new());
