@@ -402,7 +402,7 @@ function claudeSetup() {
     runners: {}, dispatch: { reservePct: 0 },
   }) as unknown as Strategy;
   const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
-  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook" | "extra-plugin" | "slash-commands") =>
+  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume" | "init-tools" | "init-mcp" | "missing-init" | "hook" | "extra-plugin" | "slash-commands" | "agents-leak") =>
     writeFileSync(join(dir, "mode"), m);
   const calls = () => existsSync(join(dir, "calls.jsonl"))
     ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
@@ -516,6 +516,7 @@ describe("claude-code ask mode", () => {
       expect(ask.command.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
       expect(ask.command.argv).toContain("--system-prompt-file");
       expect(ask.command.stdin).toBe("hi");
+      expect(readFileSync(join(ask.command.cwd, "CLAUDE.md"), "utf8")).toBe("");
       const parsed = assistantReplyParams.safeParse({
         conversationId: "c-big", turnId: "t-big", account: "work", backend: "executor", system: "s", digest: "d",
         tools: [], history: [], message: "hi",
@@ -571,6 +572,10 @@ describe("claude-code ask mode", () => {
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/init|missing|refused/i) });
     mode("hook");
     expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/hook|refused/i) });
+    mode("agents-leak");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/AGENTS\.md/) });
+    mode("absent");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281" });
   }, 60_000);
 
   test("fails when restrictions break on the resumed turn", async () => {
@@ -586,6 +591,8 @@ describe("claude-code ask mode", () => {
     expect(judge([{ tool: "claude:init", status: "empty" }], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
     expect(judge([{ tool: "claude:init", status: "empty" }, { tool: "Bash", status: "error" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
     expect(judge([{ tool: "Bash", status: "available" }], "ok", { ...o, absentOk: true }).verdict).toBe("fail");
+    expect(judge([{ tool: "claude:init", status: "empty" }], "ok with pacer-agents-xyz", { ...o, absentOk: true, agentsCanary: "pacer-agents-xyz" }).verdict).toBe("fail");
+    expect(judge([{ tool: "claude:init", status: "empty" }], "ok", { ...o, absentOk: true, agentsCanary: "pacer-agents-xyz" }).verdict).toBe("pass");
   });
 
   test("saving accepts a Claude Code account for the executor backend", () => {

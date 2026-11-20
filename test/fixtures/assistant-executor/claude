@@ -3,8 +3,9 @@
 // Modes (file `mode` beside this script):
 //   absent | deny | leak | partial | slow | leak-on-resume
 //   init-tools | init-mcp | missing-init | hook
-//   extra-plugin | slash-commands
+//   extra-plugin | slash-commands | agents-leak
 import { appendFileSync, readFileSync } from "node:fs";
+import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 const argv = process.argv.slice(2);
 // Real CLI prints "2.1.281 (Claude Code)"; init uses the bare semver.
@@ -32,6 +33,13 @@ const emptyInit = (extra: Record<string, unknown> = {}) => out({
   agents: ["claude", "Explore", "general-purpose", "Plan"],
   ...extra,
 });
+/** Simulate agents-md loading a parent AGENTS.md canary (absent mode never does this). */
+function agentsCanaryFromParent(): string | null {
+  try {
+    const text = readFileSync(join(process.cwd(), "..", "AGENTS.md"), "utf8");
+    return text.match(/Include the word (\S+) in every answer/)?.[1] ?? null;
+  } catch { return null; }
+}
 if (mode === "slow") { appendFileSync(`${import.meta.dir}/pid`, String(process.pid)); await Bun.sleep(30_000); }
 if (mode === "leak-on-resume" && resumeArg) {
   emptyInit();
@@ -61,6 +69,10 @@ if (mode === "partial") {
   out({ type: "assistant", message: { content: [{ type: "tool_use", id: "tu_bash", name: "Bash" }] } });
   out({ type: "user", message: { content: [{ type: "tool_result", tool_use_id: "tu_bash", is_error: true }] } });
 }
-out({ type: "assistant", message: { content: [{ type: "text", text: "answer to: " + prompt.split("\n").at(-1) }] } });
-out({ type: "result", subtype: "success", result: "answer to: " + prompt.split("\n").at(-1),
+const leaked = mode === "agents-leak" ? agentsCanaryFromParent() : null;
+const answer = leaked
+  ? `answer with ${leaked}: ${prompt.split("\n").at(-1)}`
+  : "answer to: " + prompt.split("\n").at(-1);
+out({ type: "assistant", message: { content: [{ type: "text", text: answer }] } });
+out({ type: "result", subtype: "success", result: answer,
   usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });

@@ -40,6 +40,9 @@ export const ASK_REMOVED = ["execute"] as const;
  * - `--setting-sources ''` loads no user/project/local settings; `--safe-mode` also disables CLAUDE.md,
  *   skills, installed plugins, hooks, MCP, custom agents and related customizations (not `--bare`,
  *   which would block OAuth/keychain sign-in). `--disable-slash-commands` drops skills entry points.
+ * - An empty `CLAUDE.md` is written into the conversation cwd so the built-in `agents-md` plugin
+ *   (still listed under `--safe-mode`) stops walking ancestors for `AGENTS.md` and does not inject
+ *   those files into the digest-only context. Safe mode still keeps CLAUDE.md itself out of the prompt.
  * - `--permission-mode dontAsk` denies anything not pre-allowed (there is no allow rule);
  *   `--permission-prompts none` denies anything that would ask.
  * - `--include-hook-events` surfaces hook lifecycle events so a turn can fail closed if any appear.
@@ -244,6 +247,8 @@ export function claudeAskTurn(ctx: Ctx, o: {
   const version = claudeCliVersion(ctx);
   if (!version) throw new Error("claude is not installed or did not report its version");
   const { runDir, cwd } = conversationDirs(ctx, o.turnId, o.conversationId);
+  // Sentinel: agents-md@builtin skips AGENTS.md ancestors when any CLAUDE.md is on the walk.
+  writeFileSync(join(cwd, "CLAUDE.md"), "", { mode: 0o600 });
   const systemFile = join(runDir, "system.txt");
   writeFileSync(systemFile, o.system, { mode: 0o600 });
   const env: Record<string, string> = {
