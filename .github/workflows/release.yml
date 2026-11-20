@@ -132,6 +132,16 @@ jobs:
           case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
           test "$("./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
+          # Native assistant plugin is built with pacer-core when crates/assistant-pacer is present.
+          # When the crate is in tree the release asset is required (not optional).
+          assistant="./dist/release/$version/pacer-assistant-pacer-$os-$arch"
+          if [ -f crates/assistant-pacer/Cargo.toml ]; then
+            test -x "$assistant"
+            # Handshake smoke: prove the binary speaks plugin.hello with the bundled id/version.
+            hello=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"plugin.hello","params":{"protocol":"1.11.0","config":{},"grants":[]}}' | "$assistant" | head -n 1)
+            echo "$hello" | grep -q '"id":"assistant-pacer"'
+            echo "$hello" | grep -q '"version":"1.0.0"'
+          fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: binaries-${{ matrix.runner }}

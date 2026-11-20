@@ -2,10 +2,10 @@ import { CoreError } from "../core/errors";
 import type { Ctx } from "../types";
 import type { OpDeps } from "./ops";
 
-const KINDS: readonly string[] = ["host.check", "host.clean", "host.repo.setup"];
+const KINDS: readonly string[] = ["host.check", "host.clean", "host.repo.setup", "host.terminal"];
 
-/** Native host.check, host.clean and host.repo.setup: Core runs the reference operation of the same name, so its
- * parameter validation, job, SSH effects through the bundled host-runner and remote-caller plugins, host-check and
+/** Native host.check, host.clean, host.repo.setup and host.terminal: Core runs the reference operation of the same name,
+ * so its parameter validation, job, SSH effects through the bundled host-runner and remote-caller plugins, host-check and
  * usage-cache writes, errors and reply are those of a forwarded request. The request carries only that operation's
  * params; the remote scripts, argv and one-use grants are derived by Core exactly as for the forwarded call. Callers set
  * no deadline: a forwarded request has none, and setup's local checkout probes and the SSH steps can outlast one. */

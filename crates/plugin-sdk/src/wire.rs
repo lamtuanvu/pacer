@@ -25,6 +25,8 @@ pub enum Incoming {
         id: Id,
         method: String,
         params: Value,
+        /// Host → plugin `_meta` (for example `{ "capabilityCall": "…" }`).
+        meta: Option<Value>,
     },
     Notification {
         method: String,
@@ -47,12 +49,14 @@ pub fn parse(line: &str) -> Option<Incoming> {
         .get("params")
         .cloned()
         .unwrap_or_else(|| Value::Object(Map::new()));
+    let meta = o.get("_meta").cloned().filter(|m| m.is_object());
     if let Some(method) = o.get("method").and_then(Value::as_str) {
         return match o.get("id") {
             Some(id @ (Value::String(_) | Value::Number(_))) => Some(Incoming::Request {
                 id: id.clone(),
                 method: method.to_owned(),
                 params,
+                meta,
             }),
             None | Some(Value::Null) => Some(Incoming::Notification {
                 method: method.to_owned(),
@@ -92,10 +96,27 @@ pub fn error(id: &Id, code: i64, message: &str, data: Value) -> String {
     line(json!({"jsonrpc":"2.0","id":id,"error":{"code":code,"message":message,"data":data}}))
 }
 pub fn request(id: &str, method: &str, params: Value) -> String {
-    line(json!({"jsonrpc":"2.0","id":id,"method":method,"params":params}))
+    request_with_meta(id, method, params, None)
+}
+pub fn request_with_meta(id: &str, method: &str, params: Value, meta: Option<&Value>) -> String {
+    let mut body = json!({"jsonrpc":"2.0","id":id,"method":method,"params":params});
+    if let Some(meta) = meta
+        && let Some(obj) = body.as_object_mut()
+    {
+        obj.insert("_meta".into(), meta.clone());
+    }
+    line(body)
 }
 pub fn notification(method: &str, params: Value) -> String {
     line(json!({"jsonrpc":"2.0","method":method,"params":params}))
+}
+
+/// Extract the host's `capabilityCall` token from request `_meta`, if present.
+pub fn capability_call_token(meta: Option<&Value>) -> Option<String> {
+    meta.and_then(|m| m.get("capabilityCall"))
+        .and_then(Value::as_str)
+        .filter(|s| !s.is_empty())
+        .map(str::to_owned)
 }
 
 #[cfg(test)]
@@ -108,8 +129,16 @@ mod tests {
     fn parses_requests_notifications_and_responses() {
         assert!(matches!(
             parse(r#"{"jsonrpc":"2.0","id":1,"method":"diagnostic.ping","params":{}}"#),
-            Some(Incoming::Request { .. })
+            Some(Incoming::Request { meta: None, .. })
         ));
+        match parse(
+            r#"{"jsonrpc":"2.0","id":1,"method":"assistant.reply","params":{},"_meta":{"capabilityCall":"tok"}}"#,
+        ) {
+            Some(Incoming::Request { meta: Some(m), .. }) => {
+                assert_eq!(m["capabilityCall"], "tok");
+            }
+            other => panic!("{other:?}"),
+        }
         assert!(matches!(
             parse(r#"{"jsonrpc":"2.0","method":"$/cancel","params":{"id":1}}"#),
             Some(Incoming::Notification { .. })
@@ -146,5 +175,13 @@ mod tests {
             serde_json::from_str::<serde_json::Value>(&l).unwrap()["error"]["data"]["code"],
             "invalid_input"
         );
+        let with_meta = request_with_meta(
+            "p1",
+            "capability.assistant.tool",
+            json!({}),
+            Some(&json!({"capabilityCall":"t"})),
+        );
+        let v: Value = serde_json::from_str(with_meta.trim_end()).unwrap();
+        assert_eq!(v["_meta"]["capabilityCall"], "t");
     }
 }

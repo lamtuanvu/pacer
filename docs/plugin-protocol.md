@@ -9737,6 +9737,23 @@ Params:
       "minLength": 1,
       "maxLength": 4096
     },
+    "endpoint": {
+      "type": "object",
+      "properties": {
+        "baseUrl": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2048
+        },
+        "keyless": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "baseUrl"
+      ],
+      "additionalProperties": false
+    },
     "executor": {
       "type": "object",
       "properties": {

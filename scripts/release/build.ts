@@ -9,6 +9,7 @@ import {
 } from "../../src/update/manifest";
 import { signLocal } from "../../src/update/signing";
 import { compareVersions, isVersion } from "../../src/update/version";
+import { assistantPacerFile, compileAssistantPacer, frontDoorCargoTargetDir } from "../lib/assistant-pacer-bin";
 
 export const BUILD_USAGE = "usage: bun run release [--host | --targets <os-arch,...>] [--write-only] [--desktop-production] [--out <dir>] [--version <x.y.z>]";
 
@@ -112,14 +113,14 @@ export function frontDoorBuildCommand(platform: Platform): string[] {
 export function frontDoorBuildEnvironment(o: CompileOptions, inherited: NodeJS.ProcessEnv = Bun.env): NodeJS.ProcessEnv {
   validateDesktopTrust(o.desktopTrust);
   if (o.desktopTrust && o.target.os !== "darwin") throw Error("Desktop trust requires a macOS target");
-  return { ...inherited, PACER_BUILD_VERSION: o.version, PACER_COMPONENT_BUILD_ID: randomUUID(), CARGO_TARGET_DIR: join(o.root, "target"),
+  return { ...inherited, PACER_BUILD_VERSION: o.version, PACER_COMPONENT_BUILD_ID: randomUUID(), CARGO_TARGET_DIR: frontDoorCargoTargetDir(o.root),
     PACER_BUILD_APPLE_TEAM_ID: o.desktopTrust?.appleTeamId ?? "",
     PACER_BUILD_SIGNING_CERT_SHA1: o.desktopTrust?.signingCertSha1 ?? "",
     PACER_BUILD_DESKTOP_FIXTURE: "" };
 }
 
 export async function compileFrontDoor(o: CompileOptions): Promise<void> {
-  const targetDir = join(o.root, "target");
+  const targetDir = frontDoorCargoTargetDir(o.root);
   const process = Bun.spawn(frontDoorBuildCommand(o.target), {
     cwd: o.root,
     env: frontDoorBuildEnvironment(o),
@@ -154,8 +155,21 @@ export function writeRelease(outRoot: string, version: string, platforms: Platfo
     }
     return asset;
   });
+  // Optional native assistant sibling: checksummed in SHA256SUMS but not a manifest companion
+  // (older updaters reject unknown companion names — see review S4).
+  const assistantSums: { file: string; sha256: string }[] = [];
+  for (const p of platforms) {
+    const file = assistantPacerFile(p);
+    const path = join(dir, file);
+    if (!existsSync(path)) continue;
+    const bytes = readFileSync(path);
+    assistantSums.push({ file, sha256: sha256Hex(bytes) });
+  }
   const manifest: Manifest = { version, assets };
-  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums(assets.flatMap(asset => [asset, ...(asset.companions ?? [])])));
+  writeFileSync(join(dir, "SHA256SUMS"), formatSha256Sums([
+    ...assets.flatMap(asset => [asset, ...(asset.companions ?? [])]),
+    ...assistantSums,
+  ]));
   writeFileSync(join(dir, "manifest.json"), `${JSON.stringify(manifest, null, 2)}\n`);
   const latestPath = join(outRoot, "latest.json");
   const prev = readLatestVersion(latestPath);
@@ -187,6 +201,14 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
     log(`building ${assetFile(t)} (${t.bunTarget})`);
     await compileCore({ root: o.root, target: t, version, outfile: join(dir, companionFile(t)), bunExe: o.bunExe, desktopTrust: o.desktopTrust });
     await compileFrontDoor({ root: o.root, target: t, version, outfile: join(dir, assetFile(t)), desktopTrust: o.desktopTrust });
+    // Sibling of pacer-core when crates/assistant-pacer is present; signing matches compileCore (darwin).
+    const host = hostPlatform();
+    const smoke = host !== null && host.os === t.os && host.arch === t.arch;
+    const built = await compileAssistantPacer({
+      root: o.root, target: t, outfile: join(dir, assistantPacerFile(t)), smoke,
+      cargoTargetDir: frontDoorCargoTargetDir(o.root),
+    });
+    if (built) log(`built ${assistantPacerFile(t)}`);
   }
   return { dir, manifest: writeRelease(outRoot, version, targets, { paired: true }) };
 }

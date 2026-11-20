@@ -27,6 +27,9 @@ use pacer_dispatch_ops::planning_ops;
 pub(crate) use pacer_dispatch_ops::preview_ops;
 pub(crate) mod dispatch_preview_sync;
 pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
+pub(crate) mod dispatch_enforcement_sync;
+pub use dispatch_enforcement_sync::dispatch_enforcement_stays_forwarded;
+pub(crate) use pacer_dispatch_ops::enforcement_ops;
 use pacer_dispatch_ops::tier_targets_ops;
 pub use pacer_task_ops::session_lifecycle_ops::session_lifecycle_stays_forwarded;
 use pacer_update::desktop_reconcile_ops;
@@ -41,9 +44,11 @@ pub(crate) use pacer_core_bridge::host_read_sync;
 use pacer_task_ops::attention_ops;
 use pacer_task_ops::files_search_ops;
 use pacer_task_ops::job_ops;
-#[allow(unused_imports)]
 use pacer_update::handover;
+pub(crate) mod handover_sync;
+use pacer_update::onboarding;
 pub(crate) mod install_apply_sync;
+pub(crate) mod onboarding_sync;
 use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
 pub(crate) use pacer_machine_ops::client_ops;
@@ -155,6 +160,7 @@ pub fn service_agent_stays_forwarded(ctx: &Ctx, op: &str, params: &Value) -> boo
         }
         "limits.refresh" => limits_refresh_ops::limits_refresh_stays_forwarded(ctx, params),
         "service.install" | "update.apply" => install_apply_sync::stays_forwarded(ctx, op),
+        "service.handover" | "service.work" => handover_sync::stays_forwarded(ctx),
         _ => pacer_update::service_update_stays_forwarded(ctx, op),
     }
 }
@@ -467,6 +473,10 @@ static OPS: &[NativeOp] = &[
     },
     NativeOp {
         name: "host.repo.setup",
+        call: host_check_clean_setup_ops::host_effects_stub,
+    },
+    NativeOp {
+        name: "host.terminal",
         call: host_check_clean_setup_ops::host_effects_stub,
     },
     NativeOp {
@@ -834,6 +844,18 @@ static OPS: &[NativeOp] = &[
         call: apply::update_apply_stub,
     },
     NativeOp {
+        name: "service.handover",
+        call: handover::handover_effect_stub,
+    },
+    NativeOp {
+        name: "service.work",
+        call: handover::handover_effect_stub,
+    },
+    NativeOp {
+        name: "onboarding.try",
+        call: onboarding::onboarding_effect_stub,
+    },
+    NativeOp {
         name: "agent.preview",
         call: agent_ops_mod::agent_effects_stub,
     },
@@ -1012,6 +1034,18 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "dispatch.enforcement.consent",
         call: planning_ops::dispatch_enforcement_consent,
+    },
+    NativeOp {
+        name: "dispatch.enforcement",
+        call: enforcement_ops::enforcement_stub,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.probe",
+        call: enforcement_ops::dispatch_enforcement_probe,
+    },
+    NativeOp {
+        name: "dispatch.enforcement.denied",
+        call: enforcement_ops::enforcement_stub,
     },
     NativeOp {
         name: "dispatch.preview",

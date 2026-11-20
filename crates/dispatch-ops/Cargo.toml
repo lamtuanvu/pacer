@@ -7,6 +7,7 @@ license.workspace = true
 rust-version.workspace = true
 
 [dependencies]
+hex = "0.4"
 serde_json.workspace = true
 pacer-foundation = { path = "../foundation" }
 pacer-config = { path = "../config" }
@@ -18,6 +19,7 @@ pacer-store = { path = "../store" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 icu_collator = { version = "=2.4.0", features = ["unstable"] }
 ryu-js = "1"
+sha2 = "0.10"
 
 [target.'cfg(unix)'.dependencies]
 nix = { version = "0.31", features = ["signal"] }
