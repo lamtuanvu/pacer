@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.
+
 ## [0.17.6] - 2026-11-20
 
 ### Added
