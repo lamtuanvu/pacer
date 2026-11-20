@@ -60,11 +60,10 @@ test("actual bundled provider cache uses only the pinned synthetic executable an
 });
 
 test("public usage dispatch reports a disabled contribution without falling back to a built-in reader", async () => {
-  const { readUsage } = await import("../src/usage");
   const ctx = fakeCtx({ now: 100 }); mkdirSync(join(ctx.pacerHome, "cache"), { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\nplugins:\n  disabled: [pacer-usage]\n");
   writeFileSync(join(ctx.pacerHome, "cache", "claude-rate-limits.json"), JSON.stringify({ captured_at: 90, seven_day: { used_percentage: 25 } }));
-  try { expect((await readUsage(ctx, cfg("quota", "claude-code"))).error).toContain("no enabled plugin reads claude-code usage"); }
+  try { expect((await readPluginUsage(ctx, cfg("quota", "claude-code"))).error).toContain("no enabled plugin reads claude-code usage"); }
   finally { await shutdownPlugins(ctx); }
 });
 
@@ -79,7 +78,7 @@ test("readOnly passive telemetry does not require or create a pacer home directo
 });
 
 test("public Codex dispatch preserves >4MiB current-account state and a >1MiB rich result", async () => {
-  const { statSync } = await import("node:fs"), { readUsage } = await import("../src/usage");
+  const { statSync } = await import("node:fs");
   const ctx = fakeCtx({ now: 1000 });
   const sessions = join(ctx.home, ".codex", "sessions"), state = join(ctx.pacerHome, "state");
   mkdirSync(sessions, { recursive: true }); mkdirSync(state, { recursive: true });
@@ -94,7 +93,7 @@ test("public Codex dispatch preserves >4MiB current-account state and a >1MiB ri
   expect(Buffer.byteLength(snapshot)).toBeGreaterThan(4 * 1024 * 1024);
   writeFileSync(join(state, "codex-cursors.json"), snapshot);
   try {
-    const reading = await readUsage(ctx, cfg("quota", "codex"));
+    const reading = await readPluginUsage(ctx, cfg("quota", "codex"));
     expect(reading.error).toBeUndefined();
     expect(Buffer.byteLength(JSON.stringify(reading))).toBeGreaterThan(1024 * 1024);
     expect(reading.alternatives).toHaveLength(5000);

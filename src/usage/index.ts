@@ -6,7 +6,6 @@ import type { ProviderCfg } from "../config/strategy";
 import type { Ctx, UsageReading } from "../types";
 import { usageAdapter } from "./adapter";
 export type { RefreshCapability } from "./adapter";
-import { limitWindow } from "./reactive";
 import { recordAuthReading } from "./auth";
 import { cachedRemoteUsage } from "../remote/usage";
 import { raisedByPacer } from "../core/errors";
@@ -60,13 +59,6 @@ async function cachedBase(ctx:Ctx,cfg:ProviderCfg,account?:AccountCfg, refresh =
     finally{trace(`usage.${cfg.quotaSource === "arkcli" ? "arkcli" : cfg.id}`);clearTimeout(timer);entry.pending=undefined;}
   })();
   return entry.pending;
-}
-
-/** A provider's usage reading, with any active exhausted mark applied on top. */
-export async function readUsage(ctx: Ctx, cfg: ProviderCfg, account?: AccountCfg): Promise<UsageReading> {
-  const r = await cachedBase(ctx, cfg, account);
-  const lim = limitWindow(ctx, cfg.id);
-  return lim ? { ...r, windows: [...r.windows.filter((w) => w.name !== "limit"), lim] } : r;
 }
 
 /** Read one budget per account, aggregating metered model usage exactly once. */
