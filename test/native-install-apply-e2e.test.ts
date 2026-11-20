@@ -1,10 +1,10 @@
 /**
- * `service.install`, `update.apply`, `service.handover` and `service.work` through the real Rust front doors
- * (`pacer serve`, `pacer api --stdio`) and the real Core bridge, against the test core in
- * fixtures/install-apply-core.ts: recorded effects instead of launchd, systemd or a release, in a disposable
- * HOME and PACER_HOME. Each scenario runs natively and with the ops in PACER_FORWARD_OPS; the replies and the
- * effects must match, and the native run must trace each op it dispatches on the front door while the forced-forward
- * run must not.
+ * `service.install`, `update.apply`, `service.handover`, `service.work`, `onboarding.try` and
+ * `host.terminal` through the real Rust front doors (`pacer serve`, `pacer api --stdio`) and the real Core
+ * bridge, against the test core in fixtures/install-apply-core.ts: recorded effects instead of launchd,
+ * systemd, a release or an SSH terminal, in a disposable HOME and PACER_HOME. Each scenario runs natively and
+ * with the ops in PACER_FORWARD_OPS; the replies and the effects must match, and the native run must trace
+ * each op it dispatches on the front door while the forced-forward run must not.
  * The front door is a test-ops build, whose PACER_TEST_BRIDGE_DEADLINE_MS shortens the deadline of the other Core
  * bridges, so a deadline on the install and update effects would fail within seconds instead of after 120.
  * Every child, and the core each front door starts, gets PACER_PORT: its own server port or a closed one, never 4317.
@@ -102,6 +102,9 @@ function normalize(body: any): unknown {
   const job = body?.result?.job;
   return job ? {...body, result: {...body.result, job: {kind: job.kind, target: job.target}}} : body;
 }
+
+/** The reply `server.op` returns: body is the JSON body (or the raw text when untagged). */
+type Reply = { status: number; body: { result?: unknown; error?: { code?: string; message?: string } } };
 
 async function serve(forward?: string, home?: string, extra: Record<string, string> = {}) {
   const port = await freePort();
@@ -569,10 +572,10 @@ describe("onboarding.try", () => {
     expect(native.stderr).toMatch(/native onboarding\.try/);
     expect(forwarded.stderr).not.toMatch(UNTRACED);
 
-    const [empty, array, string] = native.replies;
+    const [empty, array, string] = native.replies as Reply[];
     expect(empty).toMatchObject({status: 404, body: {error: NO_EXECUTOR}});
-    expect(array.body.error.code).toBe("invalid_input");
-    expect(string.body.error.code).toBe("invalid_input");
+    expect(array.body.error?.code).toBe("invalid_input");
+    expect(string.body.error?.code).toBe("invalid_input");
   }, LONG);
 
   test("stdio reply lines are byte-identical to PACER_FORWARD_OPS forcing", async () => {
@@ -618,5 +621,83 @@ describe("onboarding.try", () => {
     expect(native.traces[0]).toMatch(/native onboarding\.try/);
     expect(native.traces[1]).toMatch(/native onboarding\.try/);
     expect(native.traces[2]).not.toMatch(UNTRACED);
+  }, LONG);
+});
+
+describe("host.terminal", () => {
+  const FORWARD_TERMINAL = "host.terminal";
+  const UNTRACED = /native host\.terminal/;
+  const GRANT = `pwg_${"ac".repeat(32)}`;
+  const STRATEGY = "planner: claude-code\naccounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nhosts:\n  dev:\n    ssh: dev.example.invalid\n";
+  const VALID = "12345678-1234-4234-8234-1234567890ab";
+
+  // The fixture's openInTerminal records an effect and returns a fixed reply, so an admitted
+  // host.terminal proves the front door relays Core's whole-op reply (and its opener effect)
+  // without needing a real SSH terminal. Rust's front door answers the schema and unknown-host
+  // refusals itself; a forced forward reaches the same refusals in Core, so replies match too.
+
+  test("HTTP replies and terminal effects are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const server = await serve(forward);
+      writeFileSync(join(server.pacerHome, "strategy.yaml"), STRATEGY);
+      const replies = [
+        await server.op("host.terminal", { alias: "dev" }),
+        await server.op("host.terminal", { alias: "dev", request_id: VALID }),
+        await server.op("host.terminal", { alias: "dev", request_id: "not-a-uuid" }),
+        await server.op("host.terminal", { alias: "missing" }),
+      ];
+      await server.stop();
+      return { replies, effects: server.effects(), stderr: server.stderr.text };
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TERMINAL);
+    expect(native.replies).toEqual(forwarded.replies);
+    expect(native.effects).toEqual(forwarded.effects);
+    expect(native.stderr).toMatch(UNTRACED);
+    expect(forwarded.stderr).not.toMatch(UNTRACED);
+
+    const [open, openWithId, badUuid, unknown] = native.replies as Reply[];
+    expect(open).toMatchObject({ status: 200, body: { result: { opened: true, target: "terminal", command: "ssh dev.example.invalid" } } });
+    expect(openWithId).toMatchObject({ status: 200, body: { result: { opened: true } } });
+    expect(badUuid.body.error).toMatchObject({ code: "invalid_input", message: "request_id: Invalid UUID" });
+    expect(unknown.body.error).toMatchObject({ code: "invalid_input", message: "unknown host missing" });
+    expect(native.effects).toEqual([`terminal SSH dev`, `terminal SSH dev`]);
+  }, LONG);
+
+  test("stdio reply lines are byte-identical to PACER_FORWARD_OPS forcing", async () => {
+    async function run(forward?: string) {
+      const lines: Array<string | undefined> = [], traces: string[] = [];
+      for (const extra of [{}, { PACER_WORK_GRANT: GRANT }] as Record<string, string>[]) {
+        const rpc = connect(forward, extra);
+        writeFileSync(join(rpc.pacerHome, "strategy.yaml"), STRATEGY);
+        expect((await rpc.call("hello", { protocol: 3 })).result.protocol).toStartWith("3.");
+        for (const params of [{ alias: "dev" }, { alias: "dev", request_id: VALID }, { alias: "missing" }] as unknown[]) {
+          const { id } = await rpc.call("host.terminal", params);
+          lines.push(rpc.line(id));
+        }
+        await rpc.close();
+        traces.push(rpc.stderr.text);
+      }
+      return { lines, traces };
+    }
+    const native = await run();
+    const forwarded = await run(FORWARD_TERMINAL);
+    expect(native.lines).toEqual(forwarded.lines);
+    expect(forwarded.traces.every(trace => !UNTRACED.test(trace))).toBe(true);
+
+    const replies = native.lines.map(line => JSON.parse(line!));
+    const [operator, granted] = [replies.slice(0, 3), replies.slice(3)];
+    expect(operator[0].result).toMatchObject({ opened: true });
+    expect(operator[1].result).toMatchObject({ opened: true });
+    expect(operator[2].error.data).toMatchObject({ code: "invalid_input" });
+    // The work-grant session forwards everything to Core (like handover and onboarding), so its
+    // replies are Core's forwarded ones; parity with forcing is the byte-identical comparison
+    // above, and the native front door does not trace the op.
+    for (const reply of granted) expect(reply.error ?? reply.result).toBeDefined();
+    // The operator session traces the op on the front door; the work-grant session forwards
+    // everything (hello included), so it leaves no native host.terminal trace.
+    expect(native.traces.map(trace => trace.includes("native hello 1"))).toEqual([true, false]);
+    expect(native.traces[0]).toMatch(UNTRACED);
+    expect(native.traces[1]).not.toMatch(UNTRACED);
   }, LONG);
 });

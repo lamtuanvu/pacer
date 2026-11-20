@@ -346,18 +346,21 @@ fn onboarding_try_is_native_with_a_core_effects_bridge() {
 }
 
 #[test]
-fn host_check_clean_and_repo_setup_are_registered() {
-    // host.check, host.clean and host.repo.setup answer refusals (and clean dry runs)
+fn host_check_clean_repo_setup_and_terminal_are_registered() {
+    // host.check, host.clean, host.repo.setup and host.terminal answer refusals
     // natively and run their jobs through Core's whole-operation host effects bridge;
-    // host.terminal stays on TypeScript.
-    for name in ["host.check", "host.clean", "host.repo.setup"] {
+    // the terminal opening itself stays in Core.
+    for name in [
+        "host.check",
+        "host.clean",
+        "host.repo.setup",
+        "host.terminal",
+    ] {
         assert!(registry("").get(name).is_some(), "{name}");
         assert!(super::service_registry("").get(name).is_some(), "{name}");
         assert!(registry(name).get(name).is_none(), "{name}");
         assert!(super::needs_host_effects(name), "{name}");
     }
-    assert!(registry("").get("host.terminal").is_none());
-    assert!(super::service_registry("").get("host.terminal").is_none());
 }
 
 #[test]

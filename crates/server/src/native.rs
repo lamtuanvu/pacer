@@ -401,6 +401,10 @@ static OPS: &[NativeOp] = &[
         call: host_check_clean_setup_ops::host_effects_stub,
     },
     NativeOp {
+        name: "host.terminal",
+        call: host_check_clean_setup_ops::host_effects_stub,
+    },
+    NativeOp {
         name: "config.set",
         call: config_writes::config_set,
     },

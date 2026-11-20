@@ -47,11 +47,15 @@ const opDeps: OpDeps = {
     return { standalone: b.standalone ?? true, execPath: join(ctx.pacerHome, "bin/pacer") };
   },
   runUpdate: async () => { log("update job"); return { code: 0, out: "", err: "" }; },
-  onboardingRoute: async (_ctx: unknown, kind: unknown) => {
+  onboardingRoute: async (_ctx, kind) => {
     log(`onboarding route ${String(kind)}`);
     // No executors: `tryDelegation` returns the deterministic `unknown_executor` refusal,
     // so the e2e can prove the front door relays Core's reply without needing a real runner.
     return { kind, ranked: [], excluded: [] };
+  },
+  openInTerminal: async (_ctx, o) => {
+    log(`terminal ${String(o.title)}`);
+    return { opened: true, target: "terminal", command: o.argv.join(" ") };
   },
 };
 
