@@ -118,8 +118,6 @@ fn forward_override_removes_only_selected_native_ops() {
         "desktop.reconcile.status",
         "desktop.reconcile.request",
         "desktop.reconcile.cancel",
-        "desktop.update.status",
-        "desktop.capture.targets",
         "assistant.status",
         "assistant.settings.get",
         "assistant.settings.set",
