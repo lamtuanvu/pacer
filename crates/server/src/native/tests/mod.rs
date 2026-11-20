@@ -177,19 +177,18 @@ fn forward_override_removes_only_selected_native_ops() {
     assert!(registry("task.list").get("task.get").is_some());
     assert!(registry("snapshot.get").get("snapshot.get").is_none());
     assert!(registry("snapshot.get").get("task.list").is_some());
-    assert!(registry("").get("task.delegate").is_none());
+    for op in pacer_task_ops::task_delegation_ops::DELEGATION_OPS {
+        assert!(registry("").get(op).is_some());
+        assert!(registry(op).get(op).is_none());
+    }
     assert!(registry("").get("task.stop").is_some());
     assert!(registry("task.stop").get("task.stop").is_none());
-    assert!(registry("").get("task.answer").is_none());
     assert!(registry("").get("task.send").is_some());
     assert!(registry("task.send").get("task.send").is_none());
     assert!(registry("").get("task.wait").is_some());
     assert!(registry("task.wait").get("task.wait").is_none());
-    assert!(registry("").get("task.retry").is_none());
-    assert!(registry("").get("task.retry_all").is_none());
     assert!(registry("").get("task.review").is_some());
     assert!(registry("task.review").get("task.review").is_none());
-    assert!(registry("").get("task.ask").is_none());
     assert!(registry("").get("limits.refresh").is_some());
     assert!(registry("limits.refresh").get("limits.refresh").is_none());
     assert!(registry("").get("runner.check").is_some());

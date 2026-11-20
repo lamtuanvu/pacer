@@ -206,6 +206,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             || crate::native::host_stays_forwarded(&ctx, op.name, &params)
             || crate::native::strategy_settings_stays_forwarded(&ctx, op.name, &params)
             || crate::native::dispatch_preview_stays_forwarded(&ctx, op.name, &params)
+            || crate::native::client_stays_forwarded(&ctx, op.name)
             || crate::native::terminal_stays_forwarded(&ctx, op.name, &params)
         {
             let Some(target) = state.core.target().await else {
@@ -213,6 +214,51 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             };
             return proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
                 .await;
+        }
+        if crate::native::task_delegation_ops::is_delegation_op(op.name) {
+            use crate::native::task_delegation_ops::{Admission, admit};
+            let reply = match admit(&ctx, op.name, &params) {
+                Ok(Admission::Core) => {
+                    let Some(target) = state.core.target().await else {
+                        return proxy::unavailable(false);
+                    };
+                    return proxy::forward(
+                        Request::from_parts(parts, Body::from(bytes)),
+                        target,
+                        auth,
+                    )
+                    .await;
+                }
+                Ok(Admission::Native(result)) => {
+                    native_json(StatusCode::OK, serde_json::json!({"result":result}))
+                }
+                Err(error) => native_error(error),
+            };
+            crate::native::msg_write_sync::trace(op.name, None);
+            return reply;
+        }
+        if crate::native::client_ops::is_client_op(op.name) {
+            use crate::native::{client_control_sync::HttpBridge, client_ops};
+            crate::native::msg_write_sync::trace(op.name, None);
+            let target = state.core.target().await;
+            if target.is_none() && client_ops::needs_core(op.name, &params) {
+                return proxy::unavailable(false);
+            }
+            let mut bridge = HttpBridge {
+                target: target.clone(),
+            };
+            let request_ctx = ctx.at_now();
+            return match client_ops::call(&request_ctx, op.name, params, &mut bridge).await {
+                Ok(result) => native_json(StatusCode::OK, serde_json::json!({"result":result})),
+                Err(error) if error.message == client_ops::FORWARD_TO_CORE => {
+                    let Some(target) = target else {
+                        return proxy::unavailable(false);
+                    };
+                    proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth)
+                        .await
+                }
+                Err(error) => native_error(error),
+            };
         }
         if crate::native::msg_writes::uses_bridge(op.name) {
             crate::native::msg_write_sync::trace(op.name, None);

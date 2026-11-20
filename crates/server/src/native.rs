@@ -12,6 +12,7 @@ use pacer_account_ops::account_list_ops;
 use pacer_config_ops::config_writes;
 use pacer_config_ops::doctor_ops;
 use pacer_config_ops::executor_setup_ops;
+pub(crate) use pacer_core_bridge::client_control_sync;
 pub(crate) use pacer_core_bridge::config_host_sync;
 pub(crate) use pacer_core_bridge::config_sync;
 pub(crate) use pacer_core_bridge::core_bridge_sync;
@@ -44,6 +45,8 @@ use pacer_update::handover;
 pub(crate) mod install_apply_sync;
 use pacer_install::agent_ops as agent_ops_mod;
 use pacer_install::install_ops;
+pub(crate) use pacer_machine_ops::client_ops;
+pub use pacer_machine_ops::client_ops::client_stays_forwarded;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
@@ -72,6 +75,7 @@ pub(crate) use pacer_core_bridge::task_read_sync;
 pub(crate) use pacer_core_bridge::task_review_sync;
 use pacer_task_ops::snapshot_get_ops;
 pub(crate) use pacer_task_ops::status_ops;
+pub(crate) use pacer_task_ops::task_delegation_ops;
 use pacer_task_ops::task_diff_ops;
 pub(crate) use pacer_task_ops::task_dismiss_ops;
 use pacer_task_ops::task_get_ops;
@@ -239,6 +243,42 @@ fn discovery_network_set(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpF
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "client.register",
+        call: client_ops::client_register,
+    },
+    NativeOp {
+        name: "client.heartbeat",
+        call: client_ops::client_heartbeat,
+    },
+    NativeOp {
+        name: "client.list",
+        call: client_ops::client_list,
+    },
+    NativeOp {
+        name: "client.control.enroll",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.targets",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.request",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.result",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.claim",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.complete",
+        call: client_ops::control_stub,
+    },
     NativeOp {
         name: "terminal.list",
         call: terminal_ops::terminal_stub,
@@ -570,6 +610,30 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "task.send",
         call: task_send_ops::task_send_stub,
+    },
+    NativeOp {
+        name: "task.delegate",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.retry",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.retry_all",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.answer",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "task.ask",
+        call: task_delegation_ops::task_delegation_stub,
+    },
+    NativeOp {
+        name: "doctor.fix.delegate",
+        call: task_delegation_ops::task_delegation_stub,
     },
     NativeOp {
         name: "task.wait",
