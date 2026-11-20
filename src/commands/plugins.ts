@@ -9,9 +9,9 @@ import type { Ctx } from "../types";
 import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 
-const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin uninstall   (removes the Orca plugin an earlier pacer installed)";
-/** Orca plugin verbs retired in 0.5.0: `uninstall` still cleans up an old install; the others explain the retirement. */
-const ORCA_VERBS = ["uninstall", "install", "status", "set"];
+const USAGE = "usage: pacer plugin list [--json] | enable <id> [--yes] | disable <id> | remove <id> | doctor [<id>] [--json]\n       pacer plugin settings get <id> | set <id> --values <json> [--rev <n>]   |   pacer plugin ui list [--json]\n       pacer plugin install | update | status | uninstall   (pacer's own Orca panel plugin; no arguments)";
+/** `install`/`update`/`status`/`uninstall` manage pacer's own Orca panel plugin via the `orca` CLI; plugin settings are edited in Orca's own Settings UI, so `set` is no longer bridged. */
+const ORCA_VERBS = ["uninstall", "install", "update", "status"];
 /** Plugin commands share the service's executor-session policy. */
 const callOp = (ctx: Ctx, name: string, params: Record<string, unknown>) => { assertCallerCanInvoke(ctx, name, params); return rawCallOp(ctx, name, params); };
 const fail = (code: number, e: unknown): Result => ({ code, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` });
@@ -99,5 +99,5 @@ export async function pluginsCmd(args: string[], ctx: Ctx): Promise<Result> {
 
 const usage = (cmd: string, desc: string): string => `${cmd.padEnd(47)}${desc}`;
 export const COMMANDS: Command[] = [
-  { name: "plugin", usage: usage("plugin list|enable|disable|remove|doctor", "manage plugins (uninstall: remove the old Orca plugin)"), run: pluginsCmd },
+  { name: "plugin", usage: usage("plugin list|enable|disable|remove|doctor", "manage plugins (install/update/status/uninstall: the Orca panel plugin)"), run: pluginsCmd },
 ];
