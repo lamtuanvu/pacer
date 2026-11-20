@@ -41830,6 +41830,13 @@
         "verdict": "OK"
       },
       "output": "normal"
+    },
+    {
+      "name": "UNMETERED",
+      "input": {
+        "verdict": "UNMETERED"
+      },
+      "output": "normal"
     }
   ],
   "deadline": [

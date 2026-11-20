@@ -41,15 +41,19 @@ for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "m
 for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
 for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result"]) V3_ONLY_OPS.add(op);
 
+// v2 is frozen: the UNMETERED verdict is a protocol 3 addition, so 2.x rows keep OK.
+const v2Verdict = (verdict: string) => verdict === 'UNMETERED' ? 'OK' : verdict;
+
 function budget(s: SnapshotV3): BudgetData | null {
  if(!s.planner)return null;
  return {generatedAt:s.at,strategy:s.strategies.flatMap(x=>typeof x!=='string'&&x.active?[x.name]:[])[0]??'default',planner:s.planner.runner,mode:s.planner.mode,
- providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:a?.verdict??'UNKNOWN',usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
- ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN'}))};
+ providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:v2Verdict(a?.verdict??'UNKNOWN'),usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
+ ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
+ const withVerdicts={...compatible,accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{
   if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
@@ -65,7 +69,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
  // ceiling is the sum of the local executors' own limits.
  const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
- return {...compatible,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...withVerdicts,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 /**
@@ -170,6 +174,8 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";
+ // The usage record and its deprecation note are protocol 3 additions; 2.x keeps its frozen text.
+ schemas['account.list'].description="Accounts, usage and sign-in commands without account emails.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};
  // Property order is part of the generated document.
