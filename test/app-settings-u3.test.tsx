@@ -135,8 +135,8 @@ test('Accounts show usage words, sign-in pills, used-by and sign-in commands onl
   {name:'out',kind:'codex',signedIn:false,signin_command:'CODEX_HOME=$HOME/.codex-out codex login'},{name:'local',kind:'endpoint',signedIn:null,state:'ready'},{name:'nokey',kind:'endpoint',signedIn:null,state:'key_missing'}];
  const s={...state,snapshot:{...state.snapshot,at:Date.UTC(2026,9,20)/1000,accounts:[{name:'team',agent:'codex',usedPct:17,window:'week',resetsAt:Date.UTC(2026,9,19)/1000,verdict:'ON_PACE',signedIn:true,executors:[executor.id]}]}};
  const html=render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>,s);
- expect(html).toContain(`17% of week · resets ${clock(Date.UTC(2026,9,19)/1000,Date.UTC(2026,9,20)/1000)}`);expect(html).not.toContain('ON_PACE');
- for(const label of ['Stale reading','No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
+ expect(html).toContain(`17% of week · resets 07:00`);expect(html).not.toContain('ON_PACE');
+ for(const label of ['No subscription','Unknown','Signed out','Ready','Key missing'])expect(html).toMatch(new RegExp(`pc-pill[^"]*"[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
  expect(html).toContain('<th scope="col">Status</th>');expect(html).toContain('<th scope="col">Sign-in</th>');
  expect(html).toContain('<th scope="col">Used by</th>');expect(html).toContain(executorLabel(executor.id));
  expect(html).not.toContain(executor.id);
@@ -159,7 +159,7 @@ test('Accounts never present stale measured usage as current pace', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{...settings,accounts}}/>, {...state,snapshot:{...state.snapshot,at:now,accounts:[{name:'team',agent:'codex',signedIn:true,usageState:record}]}});
   expect(html).toMatch(new RegExp(`data-label="Status"><span class="pc-pill[^>]*>(?:<span[^>]*>[^<]*</span>)?${label}</span>`));
   expect(html).toContain('17% of week');
-  if (overrides.freshness) expect(html).toContain('Reading 1d old · refresh');
+  if (overrides.freshness) expect(html).toContain('Reading 24h old · refresh');
  }
 });
 
@@ -248,7 +248,7 @@ test('board pages render their headline and other editors retain shell titles', 
 test('Settings and host executors share uncertainty; retained account usage is historical',()=>{
  const decision={state:'uncertain',reasons:[{code:'budget_expired_or_unknown',evidenceIds:[]}],evaluatedAt:1000,validUntil:null,evidenceAgeS:null,availability:'unknown',budget:'unknown',spendingRisk:'unknown'} as const;
  const uncertain={...executor,eligibility:decision};
- const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,agent:'codex',signedIn:true,usageState:usageStateFor({usedPct:61,window:'5h',stale:true,capturedAt:900},1000)}]};
+ const snapshot={...state.snapshot,at:1000,executors:[uncertain],accounts:[{name:settings.accounts![0]!.name,agent:'codex',signedIn:true,usageState:usageStateFor({usedPct:61,window:'5h',stale:true,capturedAt:null},1000)}]};
  const general=render(<SettingsGeneral section="accounts" initialData={settings}/>,{...state,snapshot});
  const executors=render(<SettingsGeneral section="executors" initialData={settings}/>,{...state,snapshot});
  expect(executors).toContain('Skipped');expect(general).toContain('Reading of unknown age · refresh');
@@ -295,14 +295,17 @@ test('Add executor offers sign-in only for a signed-out native account',()=>{
 });
 test('Accounts show an endpoint account\'s weekly dollar spend against its cap', () => {
  const name = settings.accounts[0]!.name;
- const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $'}]}});
+ // The one record carries the spend; the legacy row fields are not read (ADR 0030).
+ const record = { ...usageStateFor({usedPct:64, window:'weekly', verdict:'OK'}, Date.now()/1000), spend:{usdWeek:3.2, capUsdWeek:5} };
+ const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}});
  expect(html).toContain('$3.20 of $5 this week');
 });
 test('historical endpoint usage keeps its weekly spend and cap', () => {
  const name = settings.accounts[0]!.name;
- const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', usedPct: 64, spendUsdWeek: 3.2, capUsdWeek: 5, window: '7d $', stale: true}]}});
+ const record = { ...usageStateFor({usedPct:64, window:'weekly', verdict:'OK', stale:true}, Date.now()/1000), spend:{usdWeek:3.2, capUsdWeek:5} };
+ const html = render(<SettingsGeneral section="accounts" initialData={settings}/>, {...state, snapshot: {...state.snapshot, accounts: [{name, agent: 'opencode', signedIn: true, usageState: record}]}});
  expect(html).toContain('$3.20 of $5 this week');
- expect(html).toContain('Stale reading · check account usage');
+ expect(html).toContain('Reading 26h old · refresh');
 });
 
 test('Updates identifies the service and preserves failed-check status', () => {

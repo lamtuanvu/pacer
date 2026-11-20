@@ -8,7 +8,7 @@ const verdictOf = (verdict: string | null | undefined): Verdict => {
 
 /** One usageState record over the legacy row fields (usedPct, window, resetsAt, stale, verdict). */
 export function usageStateFor(
-  row: { usedPct?: number | null; window?: string | null; resetsAt?: number | null; stale?: boolean | null; verdict?: string | null; source?: string | null; capturedAt?: number | null },
+  row: { usedPct?: number | null; window?: string | null; resetsAt?: number | null; stale?: boolean | null; verdict?: string | null; source?: string | null; capturedAt?: number | null; spend?: { usdWeek: number; capUsdWeek: number | null } | null },
   now: number,
 ): UsageState {
   const stale = row.stale === true;
@@ -29,7 +29,7 @@ export function usageStateFor(
     freshness: row.usedPct == null ? (stale ? "historical" : "unknown") : stale ? "historical" : "fresh",
     verdict: verdictOf(row.verdict),
     eligibility: { state: "eligible", reasons: [], evaluatedAt: now, validUntil: null, evidenceAgeS: 0, availability: "ready", budget: "permitted", spendingRisk: "unknown" },
-    spend: null,
+    spend: row.spend ?? null,
     error: null,
   };
 }

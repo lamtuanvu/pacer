@@ -66,7 +66,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
                       {view.meter !== null && <UsageMeter used={view.meter} pace={historical ? null : summary?.pacePct ?? null} tone={historical ? "neutral" : view.tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={historical} />}
-                      <div className="u3-muted">{[spend || view.figure, view.window && view.meter !== null ? `of ${view.window}` : null, view.reset.startsWith("resets ") ? view.reset : null].filter(Boolean).join(" · ")}{freshness && ` · ${freshness}`}</div>
+                      <div className="u3-muted">{[spend || (view.figure.endsWith("%") && view.window ? `${view.figure} of ${view.window}` : view.figure), view.reset.startsWith("resets ") ? view.reset : null].filter(Boolean).join(" · ")}{freshness && ` · ${freshness}`}</div>
                       <div className="u3-muted">{view.source}</div>
                     </td>
                     <td data-label="Status">
