@@ -3,14 +3,15 @@ import { chmodSync, existsSync, mkdirSync, mkdtempSync, readFileSync, readdirSyn
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
-import { parseRun } from "../plugins/assistant-executor/index";
+import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
 import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
-import { askConfig, seededPrompt, STDIN_CAP } from "../src/assistant/ask-mode";
+import { askConfig, askSystem, CLAUDE_ASK_DISALLOWED, CLAUDE_EMPTY_MCP, claudeAskTurn, seededPrompt, STDIN_CAP } from "../src/assistant/ask-mode";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
+import { assistantReplyParams } from "../src/plugins/protocol";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
 import type { Ctx } from "../src/types";
 import { fakeCtx } from "./helpers";
@@ -294,5 +295,199 @@ describe("ask-mode pieces", () => {
     expect(config.agents["pacer-ask"].permissions.at(-1)).toEqual({ action: "pacer_*", resource: "*", effect: "allow" });
     expect(config.policies).toEqual([{ action: "tool.use", resource: "*", effect: "deny" }, { action: "tool.use", resource: "pacer_*:*", effect: "allow" }]);
     expect(config.mcp.servers.pacer.environment).toEqual({ PACER_ASSISTANT_GRANT: "pag_x", PACER_ASSISTANT_URL: "http://127.0.0.1:1", PACER_ASSISTANT_TURN: "t", PACER_HOME: "/r" });
+  });
+
+  test("parseClaudeRun reads text, the session, usage and tool denials from stream-json", () => {
+    const run = parseClaudeRun([
+      JSON.stringify({ type: "system", subtype: "init", session_id: "ses_c1" }),
+      JSON.stringify({ type: "assistant", session_id: "ses_c1", message: { content: [
+        { type: "tool_use", name: "Bash", is_error: true },
+        { type: "text", text: "Hello " },
+      ] } }),
+      JSON.stringify({ type: "assistant", session_id: "ses_c1", message: { content: [{ type: "text", text: "there" }] } }),
+      JSON.stringify({ type: "result", subtype: "success", session_id: "ses_c1", result: "Hello there",
+        usage: { input_tokens: 10, output_tokens: 2, cache_read_input_tokens: 4, cache_creation_input_tokens: 1 } }),
+      "not json",
+    ].join("\n"));
+    expect(run).toMatchObject({ text: "Hello there", session: "ses_c1", usage: { input: 10, output: 2, cacheRead: 4, cacheWrite: 1, coverage: "measured" } });
+    expect(run.tools).toEqual([{ tool: "Bash", status: "error" }]);
+  });
+});
+
+/** A fake `claude`: records each invocation and answers as `claude -p --output-format stream-json`. */
+const FAKE_CLAUDE = `#!/usr/bin/env bun
+import { appendFileSync, readFileSync } from "node:fs";
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") { console.log("2.1.281-fake"); process.exit(0); }
+const stdin = readFileSync(0, "utf8");
+let mode = "absent"; try { mode = readFileSync("${"$"}{import.meta.dir}/mode", "utf8").trim(); } catch {}
+appendFileSync(process.env.FAKE_LOG ?? "${"$"}{import.meta.dir}/calls.jsonl", JSON.stringify({ argv, cwd: process.cwd(), stdin, env: process.env }) + "\\n");
+const at = argv.indexOf("--resume"), session = at >= 0 ? argv[at + 1] : "ses_claude_" + Math.random().toString(36).slice(2, 8);
+const prompt = stdin || argv[argv.length - 1] || "";
+const out = (o) => console.log(JSON.stringify({ session_id: session, ...o }));
+if (mode === "slow") { appendFileSync("${"$"}{import.meta.dir}/pid", String(process.pid)); await Bun.sleep(30_000); }
+if (mode === "leak-on-resume" && at >= 0) { out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } }); }
+if (session === "ses_gone") { out({ type: "result", is_error: true, result: "Session not found" }); process.exit(1); }
+out({ type: "system", subtype: "init" });
+if (mode === "deny") for (const name of ["Bash", "Read", "WebFetch"]) out({ type: "assistant", message: { content: [{ type: "tool_use", name, is_error: true }] } });
+if (mode === "leak") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash" }] } });
+if (mode === "partial") out({ type: "assistant", message: { content: [{ type: "tool_use", name: "Bash", is_error: true }] } });
+out({ type: "assistant", message: { content: [{ type: "text", text: "answer to: " + prompt.split("\\n").at(-1) }] } });
+out({ type: "result", subtype: "success", result: "answer to: " + prompt.split("\\n").at(-1),
+  usage: { input_tokens: 90, output_tokens: 5, cache_read_input_tokens: 10, cache_creation_input_tokens: 0 } });
+`;
+
+function claudeSetup() {
+  const dir = mkdtempSync(join(tmpdir(), "pacer-ask-claude-")), bin = join(dir, "claude");
+  writeFileSync(bin, FAKE_CLAUDE.replace("#!/usr/bin/env bun", `#!${process.execPath}`).replaceAll(`${"$"}{import.meta.dir}`, dir)); chmodSync(bin, 0o755);
+  const base = fakeCtx();
+  const c = { ...base, env: { ...base.env, HOME: base.home, PATH: process.env.PATH ?? "/usr/bin:/bin" }, which: (name: string) => name === "claude" ? bin : base.which(name) } as typeof base;
+  pluginRegistry(c, { bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
+  writeSettings(c, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(c).rev });
+  const strategy = () => ({
+    planner: { agent: "claude-code", account: "work" },
+    accounts: { work: { kind: "claude", source: "pacer", home: join(base.home, "claude-work"), model: "sonnet" } },
+    runners: {}, dispatch: { reservePct: 0 },
+  }) as unknown as Strategy;
+  const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
+  const mode = (m: "absent" | "deny" | "leak" | "partial" | "slow" | "leak-on-resume") => writeFileSync(join(dir, "mode"), m);
+  const calls = () => existsSync(join(dir, "calls.jsonl"))
+    ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; cwd: string; stdin: string; env: Record<string, string> })
+    : [];
+  return { ctx: c, deps, calls, mode, dir };
+}
+
+describe("claude-code ask mode", () => {
+  test("runs one restricted claude -p turn, then resumes its session", async () => {
+    const { ctx, deps, calls: all } = claudeSetup();
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281-fake" });
+    const skip = all().length, calls = () => all().slice(skip);
+    const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
+    const one = await finished(ctx, first.turnId);
+    expect(one.state).toBe("done");
+    expect(one.answer).toBe("answer to: What needs me?");
+    expect(one.usage).toMatchObject({ input: 90, output: 5, coverage: "measured" });
+    const [call] = calls();
+    expect(call!.argv[0]).toBe("-p");
+    expect(call!.argv).toContain("--output-format");
+    expect(call!.argv[call!.argv.indexOf("--output-format") + 1]).toBe("stream-json");
+    expect(call!.argv).toContain("--tools");
+    expect(call!.argv[call!.argv.indexOf("--tools") + 1]).toBe("");
+    expect(call!.argv).toContain("--disallowedTools");
+    expect(call!.argv[call!.argv.indexOf("--disallowedTools") + 1]).toBe(CLAUDE_ASK_DISALLOWED.join(","));
+    expect(call!.argv).toContain("--strict-mcp-config");
+    expect(call!.argv).toContain("--mcp-config");
+    expect(call!.argv[call!.argv.indexOf("--mcp-config") + 1]).toBe(CLAUDE_EMPTY_MCP);
+    expect(call!.argv).toContain("--setting-sources");
+    expect(call!.argv[call!.argv.indexOf("--setting-sources") + 1]).toBe("");
+    expect(call!.argv).toContain("--permission-mode");
+    expect(call!.argv[call!.argv.indexOf("--permission-mode") + 1]).toBe("plan");
+    expect(call!.argv).toContain("--permission-prompts");
+    expect(call!.argv[call!.argv.indexOf("--permission-prompts") + 1]).toBe("none");
+    expect(call!.argv).toContain("--system-prompt-file");
+    expect(call!.argv[call!.argv.indexOf("--system-prompt-file") + 1]).toContain(join("runs", "assistant"));
+    expect(call!.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
+    expect(call!.argv).toContain("--model");
+    expect(call!.argv[call!.argv.indexOf("--model") + 1]).toBe("sonnet");
+    expect(call!.stdin).toBe("What needs me?");
+    expect(call!.argv).not.toContain("--resume");
+    expect(call!.cwd).toContain(join("runs", "assistant", "conversations", first.conversationId));
+    expect(call!.env.CLAUDE_CONFIG_DIR).toBe(join(ctx.home, "claude-work"));
+    expect(call!.env.HOME).toBe(ctx.home);
+    expect(Object.keys(call!.env).filter(k => k.startsWith("PACER_"))).toEqual([]);
+    expect(call!.env.OPENCODE_CONFIG_CONTENT).toBeUndefined();
+    expect(assistantGrantFor(first.turnId)).toBeNull();
+    expect(existsSync(join(ctx.pacerHome, "runs", "assistant", first.turnId))).toBe(false);
+    const session = readBackendSession(ctx, first.conversationId)!;
+    expect(session).toMatchObject({ account: "work", backend: "executor" });
+    expect(session.handle).toMatch(/^ses_claude_/);
+
+    const second = await ask(ctx, { text: "And now?", conversationId: first.conversationId, scope, requestId: req() }, deps);
+    expect((await finished(ctx, second.turnId)).state).toBe("done");
+    const resumed = calls()[1]!;
+    expect(resumed.argv).toContain("--resume");
+    expect(resumed.argv[resumed.argv.indexOf("--resume") + 1]).toBe(session.handle);
+    expect(resumed.stdin).toBe("And now?");
+    expect(resumed.cwd).toBe(call!.cwd);
+  }, 60_000);
+
+  test("starts a new session seeded with the transcript when the stored one cannot be resumed", async () => {
+    const { ctx, deps, calls: all } = claudeSetup();
+    expect((await selfTest(ctx, "work", deps)).passed).toBe(true);
+    const skip = all().length, calls = () => all().slice(skip);
+    const first = await ask(ctx, { text: "First question", scope, requestId: req() }, deps);
+    expect((await finished(ctx, first.turnId)).state).toBe("done");
+    writeBackendSession(ctx, first.conversationId, { handle: "ses_gone", account: "work", backend: "executor" });
+    const second = await ask(ctx, { text: "Second question", conversationId: first.conversationId, scope, requestId: req() }, deps);
+    expect((await finished(ctx, second.turnId)).state).toBe("done");
+    const [, resume, fresh] = calls();
+    expect(resume!.argv[resume!.argv.indexOf("--resume") + 1]).toBe("ses_gone");
+    expect(fresh!.argv).not.toContain("--resume");
+    expect(fresh!.stdin).toContain("Earlier in this conversation:");
+    expect(fresh!.stdin).toContain("First question");
+    expect(fresh!.stdin.endsWith("Second question")).toBe(true);
+    expect(readBackendSession(ctx, first.conversationId)!.handle).toMatch(/^ses_claude_/);
+  }, 60_000);
+
+  test("a max-size digest system prompt stays off argv and validates against assistant.reply", () => {
+    const { ctx } = claudeSetup();
+    const system = askSystem("You are the pacer assistant.", "x".repeat(8000));
+    expect(system.length).toBeGreaterThan(4096);
+    const account = { kind: "claude" as const, source: "pacer" as const, home: join(ctx.home, "claude-work"), name: "work", model: "sonnet",
+      orcaAccount: null, usage: "quota" as const, usageSource: "native" as const, quotaSource: null, provider: null, weeklyUsd: null, weeklyTokens: null, cooldownS: 0, allowPaid: false };
+    const ask = claudeAskTurn(ctx, { turnId: "t-big", conversationId: "c-big", account, model: "sonnet", system, question: "hi", history: [], timeoutMs: 30_000 });
+    try {
+      expect(ask.command.argv.every(a => Buffer.byteLength(a, "utf8") <= 4096)).toBe(true);
+      expect(ask.command.argv).toContain("--system-prompt-file");
+      expect(ask.command.stdin).toBe("hi");
+      const parsed = assistantReplyParams.safeParse({
+        conversationId: "c-big", turnId: "t-big", account: "work", backend: "executor", system: "s", digest: "d",
+        tools: [], history: [], message: "hi",
+        executor: { configRef: "secrets:assistantAskConfig", command: ask.command },
+        limits: { maxInputTokens: 32_000, maxOutputTokens: 4_000, maxToolRounds: 6, deadlineMs: 60_000 },
+      });
+      expect(parsed.success).toBe(true);
+    } finally { ask.cleanup(); }
+  });
+
+  test("admission and candidates require a passing check for today's claude", async () => {
+    const { ctx, deps } = claudeSetup();
+    expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "work has not passed the ask-mode check yet." });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: false });
+    expect((await selfTest(ctx, "work", deps)).passed).toBe(true);
+    expect((await admit(ctx, deps)).ok).toBe(true);
+    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true });
+  }, 60_000);
+
+  test("self-test passes when tools are absent, fails when one ran, inconclusive when only some were attempted", async () => {
+    const { ctx, deps, mode } = claudeSetup();
+    mode("absent");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, version: "2.1.281-fake" });
+    mode("deny");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true });
+    mode("leak");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "a tool other than pacer's ran: Bash" });
+    mode("partial");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "the agent did not attempt: read, webfetch" });
+  }, 60_000);
+
+  test("fails when restrictions break on the resumed turn", async () => {
+    const { ctx, deps, mode } = claudeSetup();
+    mode("leak-on-resume");
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: false, reason: "on a resumed turn, a tool other than pacer's ran: Bash" });
+  }, 60_000);
+
+  test("judge treats absent tools as a pass only when absentOk", () => {
+    const o = { planted: "secret-x", pwned: "/nonexistent/pwned" };
+    expect(judge([], "ok", o).verdict).toBe("inconclusive");
+    expect(judge([], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
+    expect(judge([{ tool: "Bash", status: "error" }, { tool: "Read", status: "error" }, { tool: "WebFetch", status: "error" }], "ok", { ...o, absentOk: true }).verdict).toBe("pass");
+  });
+
+  test("saving accepts a Claude Code account for the executor backend", () => {
+    const { ctx, deps } = claudeSetup();
+    writeSettings(ctx, { runner: null, account: null, backend: "pacer", expect_rev: readSettings(ctx).rev });
+    expect(() => saveSettings(ctx, { runner: null, account: "work", backend: "pacer", expect_rev: readSettings(ctx).rev }, deps)).toThrow(/Choose an endpoint account with a model/);
+    expect(saveSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev }, deps)).toMatchObject({ account: "work", backend: "executor" });
   });
 });
