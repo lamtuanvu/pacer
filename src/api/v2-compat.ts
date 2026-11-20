@@ -168,6 +168,8 @@ export function v2OpJsonSchemas():ReturnType<typeof opJsonSchemas> {
  // v3 describes the additive per-file changes and undo flag; v2 keeps its frozen text.
  schemas['agent.preview'].description="Preview agent integration files and the undo command before consenting.";
  schemas['agent.connect'].description="Connect an agent after explicit consent to write its integration files.";
+ // The usage record and its deprecation note are protocol 3 additions; 2.x keeps its frozen text.
+ schemas['account.list'].description="Accounts, usage and sign-in commands without account emails.";
  const review=schemas['task.review'].params as {properties:Record<string,unknown>;required:string[]};
  review.properties.accepted={type:'boolean'};
  // Property order is part of the generated document.
