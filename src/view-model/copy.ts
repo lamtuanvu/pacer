@@ -26,9 +26,15 @@ export function reasonCopy(raw: string | null | undefined): string {
 export function askModeCheckCopy(raw: string | null | undefined): string {
   if (!raw) return 'Not checked yet.';
   if (/has not passed the ask-mode check yet/i.test(raw)) return 'Not checked yet.';
+  if (/not installed|did not report its version/i.test(raw)) return "opencode isn't installed, or didn't report its version.";
   if (/changed since .+ passed the ask-mode check|opencode changed/i.test(raw)) return 'The CLI version changed.';
   if (/failed the ask-mode check|a tool other than|planted file|file outside|attempted none|did not attempt/i.test(raw)) return 'The ask-mode check failed.';
   return 'The ask-mode check is incomplete.';
+}
+/** True when a status/admission reason is an ask-mode check string (plain copy + technical details). */
+export function isAskModeCheckReason(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  return /ask-mode check|opencode changed|not installed|did not report its version|a tool other than|planted file|file outside|attempted none|did not attempt|no session to resume/i.test(raw);
 }
 export function costCopy(cost: {account: string; deltaPct: number | null; window: string | null; reason?: string} | null): string {
   if (!cost) return 'Cost not recorded';

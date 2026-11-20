@@ -15,7 +15,7 @@ import { DensityContext } from "../../ds/Density";
 import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
-import { askModeCheckCopy } from "../../../../src/view-model/copy";
+import { askModeCheckCopy, isAskModeCheckReason } from "../../../../src/view-model/copy";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
 import { ActionCardView } from "./ActionCardView";
@@ -173,7 +173,11 @@ export default function AssistantHost({ route, narrow, repo, repoLabel, onNewTas
           <div className="pc-aurora-reply" aria-hidden="true"><AuroraAvatar /><div className="pc-aurora-reply__body">{pending.partial ? <Prose text={pending.partial} /> : <Thinking label={pending.status} />}</div></div>
         </>}
         {notice && <Alert tone="error" title="The assistant could not answer">{notice}</Alert>}
-        {!available && <div id="assistant-unavailable-reason" data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status ? `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}` : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
+        {!available && <div id="assistant-unavailable-reason" data-assistant-refusal tabIndex={-1}><Alert tone="warning" title={status ? "The assistant is unavailable" : "Connecting to the assistant"}>{status
+          ? isAskModeCheckReason(status.reason)
+            ? <><p>{askModeCheckCopy(status.reason)}{status.hint ? ` ${status.hint}` : ""}</p>{status.reason && <Disclosure summary="Technical details"><code>{status.reason}</code></Disclosure>}</>
+            : `${status.reason ?? "The assistant could not be reached."}${status.hint ? ` ${status.hint}` : ""}`
+          : "Waiting for the service. Try reopening the sheet if this continues."}</Alert></div>}
       </>}
       suggestions={!pending && available ? SUGGESTIONS.map(s => <Button key={s} size="sm" className="pc-aurora-chip" onClick={() => void send(s)}>{s}</Button>) : undefined}
       composer={!setup && <form className="pc-aurora-composer" onSubmit={event => { event.preventDefault(); void send(text); }}>
@@ -239,12 +243,11 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
   const rowKey = (row: Candidate) => `${row.backend ?? "pacer"}:${row.account}`;
   const choose = async (row: Candidate) => {
     if (busy) return;
-    setError(null); setErrorDetail(null);
+    setBusy(rowKey(row)); setError(null); setErrorDetail(null);
     try {
       const settings = await api.call<{ rev: number; backend?: string }>("assistant.settings.get", {});
-      // Same one-time trust confirmation as Settings when switching onto an agent CLI.
+      // Same trust confirmation as Settings when switching onto an agent CLI.
       if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm))) return;
-      setBusy(rowKey(row));
       await api.call("assistant.settings.set", { account: row.account, backend: row.backend ?? "pacer", runner: null, expect_rev: settings.rev });
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
@@ -257,7 +260,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     try {
       const result = await api.call<{ passed: boolean; reason?: string }>("assistant.selftest", { account: row.account });
       if (!result.passed) {
-        setError(`${row.account} did not pass the ask-mode check. ${askModeCheckCopy(result.reason)}`);
+        setError(`${row.account}: ${askModeCheckCopy(result.reason)}`);
         setErrorDetail(result.reason ?? null);
       }
       setAttempt(n => n + 1);
@@ -273,7 +276,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
       const note = executor ? (ready ? "via opencode · checked" : `via opencode · ${plain}`) : account.note;
       return <div className="pc-assistant-setup__account" key={rowKey(account)}>
         <AgentMark agent={executor ? "opencode" : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via opencode" : ""}</strong><span title={executor && !ready && account.reason ? account.reason : note}>{note}</span></div>
+        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via opencode" : ""}</strong><span title={note}>{note}</span></div>
         {ready
           ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
           : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}

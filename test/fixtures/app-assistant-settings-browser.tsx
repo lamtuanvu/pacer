@@ -8,11 +8,20 @@ import { DensityContext } from "../../app/src/ds/Density";
 const w = window as any;
 w.settingsCalls = [] as unknown[];
 w.selftestCalls = [] as unknown[];
-w.assistantSettings = { rev: 2, account: null, backend: "pacer", runner: null, limits: { turnsPerDay: 50 }, retention: { days: 30 } };
+// `?already-executor` starts with the executor backend saved so Save must not re-prompt.
+const alreadyExecutor = location.search.includes("already-executor");
+w.assistantSettings = alreadyExecutor
+  ? { rev: 2, account: "oc", backend: "executor", runner: null, limits: { turnsPerDay: 50 }, retention: { days: 30 } }
+  : { rev: 2, account: null, backend: "pacer", runner: null, limits: { turnsPerDay: 50 }, retention: { days: 30 } };
 w.candidates = {
   accounts: [
     { account: "localmodel", backend: "pacer", available: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel", model: "qwen" }], isPlanner: false },
-    { account: "oc", backend: "executor", available: false, reason: "oc has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc", model: "glm" }], isPlanner: false },
+    {
+      account: "oc", backend: "executor",
+      available: alreadyExecutor,
+      ...(alreadyExecutor ? {} : { reason: "oc has not passed the ask-mode check yet." }),
+      models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc", model: "glm" }], isPlanner: false,
+    },
   ],
   reads: [
     "Counts, attention items, the pacing mode and whether delegation is paused.",

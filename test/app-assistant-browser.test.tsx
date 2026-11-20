@@ -512,9 +512,9 @@ async function buildSettings() {
   const css = [generateTokensCss(readTokens("app/src/ds")), ...await Promise.all(["app/src/ds/components.css", "app/src/ds/feedback.css", "app/src/styles.css", "app/src/screens/settings/settings.css"].map(path => Bun.file(path).text()))].join("\n");
   return { source: await result.outputs[0]!.text(), css };
 }
-async function openSettings(page: Page, built: { source: string; css: string }) {
+async function openSettings(page: Page, built: { source: string; css: string }, search = "") {
   await page.route("http://pacer.test/**", route => route.fulfill({ contentType: "text/html", body: '<!doctype html><title>assistant settings</title><div id="app"></div>' }));
-  await page.goto("http://pacer.test/");
+  await page.goto(`http://pacer.test/${search}`);
   await page.evaluate(css => { document.head.insertAdjacentHTML("beforeend", `<style>${css}</style>`); }, built.css);
   await page.evaluate(async code => { const url = URL.createObjectURL(new Blob([code], { type: "text/javascript" })); await import(url); URL.revokeObjectURL(url); }, built.source);
   await page.getByRole("region", { name: "Assistant" }).waitFor();
@@ -552,11 +552,79 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     await page.getByRole("button", { name: "Save", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();
-    const title = await dialog.getByRole("heading").textContent();
-    expect(title).toBeTruthy();
-    expect(title).not.toBe("Use the agent CLI");
-    await dialog.getByRole("button", { name: "Use the agent CLI", exact: true }).click();
+    expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
+    await expect(dialog.getAttribute("aria-label")).resolves.toBe("Answer through the agent CLI?");
+    // Cancel leaves settings unchanged and returns focus to Save.
+    await dialog.getByRole("button", { name: "Cancel" }).click();
+    await page.waitForFunction(() => !document.querySelector("dialog[open]"));
+    expect(await page.evaluate(() => (window as any).settingsCalls.length)).toBe(0);
+    await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.textContent === "Save");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByRole("dialog").waitFor();
+    await page.getByRole("dialog").getByRole("button", { name: "Use the agent CLI", exact: true }).click();
     await page.getByText("Saved.").waitFor();
     expect(await page.evaluate(() => (window as any).settingsCalls.at(-1))).toMatchObject({ account: "oc", backend: "executor" });
   } finally { await browser.close(); }
 }, 30_000);
+
+browserTest("settings_assistant_skips_confirm_when_executor_already_saved", async () => {
+  const built = await buildSettings();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await openSettings(page, built, "?already-executor");
+    await page.getByRole("button", { name: "Save", exact: true }).click();
+    await page.getByText("Saved.").waitFor();
+    expect(await page.locator("dialog[open]").count()).toBe(0);
+    expect(await page.evaluate(() => (window as any).settingsCalls.at(-1))).toMatchObject({ account: "oc", backend: "executor" });
+  } finally { await browser.close(); }
+}, 20_000);
+
+browserTest("sheet_setup_confirms_executor_and_escape_closes_dialog_only", async () => {
+  const built = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?unconfigured&executors");
+    await page.getByRole("button", { name: "Open assistant" }).waitFor();
+    await page.keyboard.press("Meta+j");
+    await focused(page, "[data-assistant-setup]");
+    const use = page.getByRole("button", { name: "Use Local model" }).nth(1);
+    await use.click();
+    const dialog = page.getByRole("dialog");
+    await dialog.waitFor();
+    expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
+    // Escape dismisses only the confirm; the sheet stays open and nothing is saved.
+    await page.keyboard.press("Escape");
+    await page.waitForFunction(() => !document.querySelector("dialog[open]"));
+    expect(await page.locator(".pc-aurora").getAttribute("data-state")).toBe("open");
+    expect(await page.evaluate(() => (window as any).settingsCalls.length)).toBe(0);
+    await page.waitForFunction(() => (document.activeElement as HTMLElement | null)?.textContent?.includes("Use Local model") === true);
+    // Cancel path
+    await use.click();
+    await page.getByRole("dialog").getByRole("button", { name: "Cancel" }).click();
+    await page.waitForFunction(() => !document.querySelector("dialog[open]"));
+    expect(await page.evaluate(() => (window as any).settingsCalls.length)).toBe(0);
+    // Accept path persists the executor backend.
+    await use.click();
+    await page.getByRole("dialog").getByRole("button", { name: "Use the agent CLI", exact: true }).click();
+    await page.waitForFunction(() => (window as any).settingsCalls.length === 1);
+    expect(await page.evaluate(() => (window as any).settingsCalls[0])).toMatchObject({ account: "oc", backend: "executor" });
+  } finally { await browser.close(); }
+}, 30_000);
+
+browserTest("sheet_unavailable_maps_ask_mode_reason_into_disclosure", async () => {
+  const built = await build();
+  const browser = await chromium.launch({ executablePath: browserPath!, headless: true });
+  try {
+    const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
+    await open(page, built, "?unavailable-ask");
+    await page.getByRole("button", { name: "Open assistant" }).waitFor();
+    await page.keyboard.press("Meta+j");
+    await focused(page, "[data-assistant-refusal]");
+    await page.getByText("The ask-mode check failed.").waitFor();
+    expect(await page.getByText("a tool other than pacer's ran: bash", { exact: false }).isVisible()).toBe(false);
+    await page.getByText("Technical details").click();
+    expect(await page.getByText("a tool other than pacer's ran: bash", { exact: false }).isVisible()).toBe(true);
+  } finally { await browser.close(); }
+}, 20_000);
