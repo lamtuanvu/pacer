@@ -315,6 +315,11 @@ async function runClaudeControl(
   let killTimer: ReturnType<typeof setTimeout> | undefined, pipeTimer: ReturnType<typeof setTimeout> | undefined;
   let settle!: () => void;
   const settled = new Promise<void>(resolve => { settle = resolve; });
+  // Local controller so pin timeout / revoke abort the turn driver (CONTROL interrupt) before signals.
+  const turnAbort = new AbortController();
+  const abortTurn = () => { try { if (!turnAbort.signal.aborted) turnAbort.abort(); } catch { /* ignore */ } };
+  if (authority.signal.aborted) abortTurn();
+  else authority.signal.addEventListener("abort", abortTurn, { once: true });
   const signalChild = (signal: NodeJS.Signals) => {
     if (exited || !child?.pid) return;
     try { process.kill(process.platform === "win32" ? child.pid : -child.pid, signal); }
@@ -324,8 +329,13 @@ async function runClaudeControl(
       }
     }
   };
-  const stop = () => { signalChild("SIGTERM"); killTimer ??= setTimeout(() => signalChild("SIGKILL"), 100); };
-  const detach = authority.onRevoke(async () => { stop(); await settled; if (cleanupFailure) throw cleanupFailure; });
+  /** @param interrupt when true, abort the turn first so it sends CONTROL `interrupt` then SIGTERM/SIGKILL. */
+  const stop = (opts: { interrupt?: boolean } = {}) => {
+    if (opts.interrupt) abortTurn();
+    signalChild("SIGTERM");
+    killTimer ??= setTimeout(() => signalChild("SIGKILL"), 100);
+  };
+  const detach = authority.onRevoke(async () => { stop({ interrupt: true }); await settled; if (cleanupFailure) throw cleanupFailure; });
   try {
     authority.assertActive();
     validatePin(pin);
@@ -340,7 +350,8 @@ async function runClaudeControl(
     throw new CoreError("plugin_unavailable", "provider could not be started");
   }
   child.stderr?.resume();
-  const timer = setTimeout(() => { timedOut = true; stop(); }, Math.max(1, Math.min(timeoutMs, authority.deadlineMs - Date.now())));
+  // Pin timeout: interrupt via CONTROL (turn abort → interruptThenKill) before process-group signals.
+  const timer = setTimeout(() => { timedOut = true; stop({ interrupt: true }); }, Math.max(1, Math.min(timeoutMs, authority.deadlineMs - Date.now())));
   child.on("error", () => { failure ??= new CoreError("plugin_unavailable", "provider could not be started"); });
   child.on("exit", () => {
     exited = true;
@@ -359,13 +370,13 @@ async function runClaudeControl(
     // Pin stdin is the CONTROL plan (host metadata), not bytes for the child.
     const turnId = plan.turnId;
     result = await runClaudeControlTurn(child as import("node:child_process").ChildProcessWithoutNullStreams, plan, {
-      signal: authority.signal,
+      signal: turnAbort.signal,
       onDelta: (text) => { if (turnId) forwardAssistantDelta(turnId, "text", text); },
     });
     stop();
   } catch (error) {
     failure ??= error instanceof Error ? error : new CoreError("plugin_unavailable", String(error));
-    stop();
+    stop({ interrupt: true });
   }
   const code = await closedP;
   clearTimeout(timer); if (killTimer) clearTimeout(killTimer); if (pipeTimer) clearTimeout(pipeTimer);

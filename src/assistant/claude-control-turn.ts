@@ -20,9 +20,15 @@ const TOOLS_UNAVAILABLE_NOTE =
 
 export const CLAUDE_CONTROL_PLAN_VERSION = 1 as const;
 
-/** Matches ask-mode's permission-prompt flags (kept here to avoid an import cycle with capability-spawn). */
+/**
+ * Matches ask-mode's CONTROL identity + security belt (kept here to avoid an import cycle with
+ * ask-mode / capability-spawn). Fail closed at issuance: identity alone is not enough.
+ */
 const CONTROL_PERMISSION_PROMPTS = "host";
 const CONTROL_PERMISSION_PROMPT_TOOL = "stdio";
+const CONTROL_PERMISSION_MODE = "dontAsk";
+const CONTROL_ASK_SETTINGS = '{"disableAllHooks":true}';
+const CONTROL_ALLOWED_PACER_TOOLS = "mcp__pacer__*";
 
 function flagValue(argv: readonly string[], name: string): string | undefined {
   const eq = argv.find(a => a.startsWith(`${name}=`));
@@ -31,14 +37,31 @@ function flagValue(argv: readonly string[], name: string): string | undefined {
   return at >= 0 ? argv[at + 1] : undefined;
 }
 
-/** True when argv is a host-issued Claude CONTROL ask-mode command. */
+/** True when argv is a host-issued Claude CONTROL ask-mode command with the full security flag belt. */
 export function isClaudeControlArgv(argv: readonly string[]): boolean {
   if (argv[0] !== "claude" || !argv.includes("-p")) return false;
-  return argv.includes("--verbose")
-    && flagValue(argv, "--input-format") === "stream-json"
-    && flagValue(argv, "--output-format") === "stream-json"
-    && flagValue(argv, "--permission-prompt-tool") === CONTROL_PERMISSION_PROMPT_TOOL
-    && flagValue(argv, "--permission-prompts") === CONTROL_PERMISSION_PROMPTS;
+  if (!argv.includes("--verbose")) return false;
+  if (!argv.includes("--strict-mcp-config")) return false;
+  if (!argv.includes("--safe-mode")) return false;
+  if (!argv.includes("--disable-slash-commands")) return false;
+  if (!argv.includes("--include-hook-events")) return false;
+  if (flagValue(argv, "--input-format") !== "stream-json") return false;
+  if (flagValue(argv, "--output-format") !== "stream-json") return false;
+  if (flagValue(argv, "--permission-prompt-tool") !== CONTROL_PERMISSION_PROMPT_TOOL) return false;
+  if (flagValue(argv, "--permission-prompts") !== CONTROL_PERMISSION_PROMPTS) return false;
+  if (flagValue(argv, "--permission-mode") !== CONTROL_PERMISSION_MODE) return false;
+  if (flagValue(argv, "--settings") !== CONTROL_ASK_SETTINGS) return false;
+  // Empty tools / setting-sources (host issues `--tools=` / `--setting-sources=`).
+  if (flagValue(argv, "--tools") !== "") return false;
+  if (flagValue(argv, "--setting-sources") !== "") return false;
+  if (flagValue(argv, "--mcp-config") === undefined) return false;
+  if (flagValue(argv, "--system-prompt-file") === undefined) return false;
+  const disallowed = flagValue(argv, "--disallowedTools");
+  if (disallowed === undefined || disallowed.length === 0) return false;
+  // Digest-only omits --allowedTools; MCP turns must be exactly the pacer wildcard.
+  const allowed = flagValue(argv, "--allowedTools");
+  if (allowed !== undefined && allowed !== CONTROL_ALLOWED_PACER_TOOLS) return false;
+  return true;
 }
 
 /** Host-issued Claude control plan on the pinned command's stdin (no grant values). */
@@ -111,7 +134,11 @@ function mcpServersFromStatus(response: unknown): { name: string; status: string
   });
 }
 
-/** Fail closed: pacer must be the only connected server and every expected tool name must be known when listed. */
+/**
+ * Fail closed: pacer must be the only connected server, and every expected tool name must be
+ * present in the status payload. A bare server list (array or object without tools) cannot
+ * confirm the tool set when `allowedTools` is non-empty.
+ */
 export function mcpStatusHealthy(
   response: unknown,
   allowedTools: readonly string[],
@@ -120,14 +147,15 @@ export function mcpStatusHealthy(
   if (servers.length !== 1) return false;
   const pacer = servers[0]!;
   if (pacer.name !== "pacer" || pacer.status !== "connected") return false;
-  if (!isRecord(response)) return allowedTools.length >= 0;
+  if (!isRecord(response)) return allowedTools.length === 0;
   const tools = response.tools ?? response.toolNames;
-  if (tools === undefined) return true; // status-only reply: connected is enough
+  if (tools === undefined) return allowedTools.length === 0;
   if (!Array.isArray(tools)) return false;
   const names = tools.map(String);
   if (names.length !== allowedTools.length) return false;
   const want = new Set(allowedTools);
-  return names.every(n => want.has(n));
+  const have = new Set(names);
+  return names.every(n => want.has(n)) && allowedTools.every(n => have.has(n));
 }
 
 function samePathLoose(a: string, b: string): boolean {

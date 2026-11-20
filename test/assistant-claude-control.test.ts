@@ -4,11 +4,46 @@ import { PassThrough } from "node:stream";
 import {
   CLAUDE_CONTROL_PLAN_VERSION,
   isAllowedPacerTool,
+  isClaudeControlArgv,
   mcpStatusHealthy,
   parseClaudeControlPlan,
   runClaudeControlTurn,
   type ClaudeControlPlan,
 } from "../src/assistant/claude-control-turn";
+
+/** Minimal host-shaped CONTROL argv (security belt + identity). */
+function controlArgv(over: { omit?: string[]; replace?: Record<string, string>; digestOnly?: boolean } = {}): string[] {
+  const flags = [
+    "claude", "-p",
+    "--input-format=stream-json",
+    "--output-format=stream-json",
+    "--verbose",
+    "--include-hook-events",
+    "--tools=",
+    "--disallowedTools=Bash,Read,Write",
+    "--strict-mcp-config",
+    "--mcp-config={\"mcpServers\":{\"pacer\":{}}}",
+    "--setting-sources=",
+    "--settings={\"disableAllHooks\":true}",
+    "--safe-mode",
+    "--disable-slash-commands",
+    "--permission-mode=dontAsk",
+    "--permission-prompts=host",
+    "--permission-prompt-tool=stdio",
+    "--system-prompt-file=/tmp/system.txt",
+    ...(over.digestOnly ? [] : ["--allowedTools=mcp__pacer__*"]),
+  ];
+  let out = flags.filter(f => !(over.omit ?? []).some(o => f === o || f.startsWith(`${o}=`)));
+  if (over.replace) {
+    out = out.map(f => {
+      for (const [k, v] of Object.entries(over.replace!)) {
+        if (f === k || f.startsWith(`${k}=`)) return v.startsWith("--") ? v : `${k}=${v}`;
+      }
+      return f;
+    });
+  }
+  return out;
+}
 
 function fakeChild() {
   const stdin = new PassThrough();
@@ -57,10 +92,47 @@ describe("claude control plan helpers", () => {
     expect(isAllowedPacerTool(["mcp__pacer__snapshot"], "Bash")).toBe(false);
   });
 
-  test("mcpStatusHealthy requires a connected pacer server", () => {
-    expect(mcpStatusHealthy({ mcpServers: [{ name: "pacer", status: "connected" }] }, ["mcp__pacer__snapshot"])).toBe(true);
+  test("mcpStatusHealthy requires connected pacer and the expected tools", () => {
+    expect(mcpStatusHealthy(
+      { mcpServers: [{ name: "pacer", status: "connected" }], tools: ["mcp__pacer__snapshot"] },
+      ["mcp__pacer__snapshot"],
+    )).toBe(true);
+    // Status-only object / bare array cannot confirm tools when some are expected.
+    expect(mcpStatusHealthy(
+      { mcpServers: [{ name: "pacer", status: "connected" }] },
+      ["mcp__pacer__snapshot"],
+    )).toBe(false);
+    expect(mcpStatusHealthy(
+      [{ name: "pacer", status: "connected" }],
+      ["mcp__pacer__snapshot"],
+    )).toBe(false);
+    expect(mcpStatusHealthy(
+      { mcpServers: [{ name: "pacer", status: "connected" }], tools: ["mcp__pacer__snapshot", "Bash"] },
+      ["mcp__pacer__snapshot"],
+    )).toBe(false);
     expect(mcpStatusHealthy({ mcpServers: [{ name: "pacer", status: "failed" }] }, ["mcp__pacer__snapshot"])).toBe(false);
     expect(mcpStatusHealthy({ mcpServers: [] }, ["mcp__pacer__snapshot"])).toBe(false);
+  });
+
+  test("isClaudeControlArgv requires the full security flag belt", () => {
+    expect(isClaudeControlArgv(controlArgv())).toBe(true);
+    expect(isClaudeControlArgv(controlArgv({ digestOnly: true }))).toBe(true);
+    // Identity without the belt fails closed.
+    expect(isClaudeControlArgv([
+      "claude", "-p",
+      "--input-format=stream-json",
+      "--output-format=stream-json",
+      "--verbose",
+      "--permission-prompt-tool=stdio",
+      "--permission-prompts=host",
+    ])).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ omit: ["--safe-mode"] }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ omit: ["--strict-mcp-config"] }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ replace: { "--tools": "--tools=Bash" } }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ replace: { "--permission-mode": "--permission-mode=default" } }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ replace: { "--settings": "--settings={}" } }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ replace: { "--allowedTools": "--allowedTools=Bash" } }))).toBe(false);
+    expect(isClaudeControlArgv(controlArgv({ omit: ["--disallowedTools"] }))).toBe(false);
   });
 });
 
@@ -232,7 +304,7 @@ describe("runClaudeControlTurn", () => {
           stdout.write(`${JSON.stringify({
             type: "control_response",
             response: { subtype: "success", request_id, response: req.subtype === "mcp_status"
-              ? { mcpServers: [{ name: "pacer", status: "connected" }] }
+              ? { mcpServers: [{ name: "pacer", status: "connected" }], tools: ["mcp__pacer__snapshot"] }
               : {} },
           })}\n`);
           if (req.subtype === "initialize") {
@@ -248,6 +320,7 @@ describe("runClaudeControlTurn", () => {
               slash_commands: [], skills: [],
             })}\n`);
           }
+          // Same path pin timeout uses: abort the turn signal → CONTROL interrupt then kill.
           if (req.subtype === "mcp_status") ac.abort();
         }
       }
