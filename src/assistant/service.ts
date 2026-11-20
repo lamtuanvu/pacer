@@ -197,9 +197,12 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   };
 }
 
-/** Answers `capability.secrets.resolve` for the assistant plugin: only the chosen endpoint account's key. */
+/** Answers `capability.secrets.resolve` for the pacer assistant backend: only the chosen endpoint account's key. */
 export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): Promise<string | null> {
-  if (pluginId !== ASSISTANT_PLUGIN) throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
+  // The legacy respond plugin and the native reply plugin (when enabled) may resolve the key.
+  const pacerReply = replyProvider(ctx, "pacer");
+  if (pluginId !== ASSISTANT_PLUGIN && pluginId !== pacerReply)
+    throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
   const settings = readSettings(ctx);
   if (!settings.account || ![`endpoint:${settings.account}`, `endpoint/${settings.account}`].includes(ref)) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
   const account = loadStrategy(ctx).accounts[settings.account];
@@ -387,6 +390,14 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
+        // Pacer backends need the account connection URL; executor turns get spawn pins instead.
+        // key=none (local servers) is an explicit keyless flag so the native plugin omits Authorization.
+        ...(settings.backend === "pacer" ? {
+          endpoint: {
+            baseUrl: endpoint.baseUrl,
+            ...(endpoint.account.connection?.key === "none" ? { keyless: true as const } : {}),
+          },
+        } : {}),
         ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
@@ -484,7 +495,9 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   } catch (e) {
     state = entry.cancelled ? "cancelled" : "error";
     const core = e instanceof CoreError ? e : null;
-    error = core ? core.message : "The assistant could not answer.";
+    const raw = core ? core.message : "The assistant could not answer.";
+    // SEC-2: never store or show unredacted provider/plugin error text (keys, endpoints).
+    error = entry.redactor ? entry.redactor.text(raw) : raw;
   }
   // The turn ends here: its tools close and its `pag_` grant is revoked before the final state lands.
   closeTurn?.();

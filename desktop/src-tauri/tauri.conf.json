@@ -25,7 +25,8 @@
     ],
     "externalBin": [
       "binaries/pacer",
-      "binaries/pacer-core"
+      "binaries/pacer-core",
+      "binaries/pacer-assistant-pacer"
     ],
     "icon": [
       "icons/32x32.png",

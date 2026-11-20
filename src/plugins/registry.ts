@@ -43,6 +43,7 @@ import { MAX_LINE_BYTES } from "./lines";
 import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
 import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult, RESULT_CHUNK_METHOD, resultChunkParams, chunkedResult } from "./protocol";
 import type { BundledPlugin } from "./types";
+import { resolveBundledNativeExecutable } from "./native-bundled";
 import { currentVersion } from "../update/version";
 import { controlDir, sshArgv } from "../remote/ssh";
 import { SCRIPTS } from "../remote/scripts";
@@ -1705,7 +1706,11 @@ export class PluginRegistry {
     for (const b of this.deps.bundled) {
       const e = this.entry(b.manifest.id, b.manifest, true, null);
       if (this.canonicalClassifier(e)) this.updateGeneration(ctx, e, this.classifierGeneration(this.classifierConfig(ctx)));
-      apply(e, hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`, null);
+      let refusal: string | null = hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
+      // Native bundled plugins are unavailable until their sibling of pacer-core is present (ADR 0028).
+      if (!refusal && b.executable && !resolveBundledNativeExecutable(b.executable, ctx.env))
+        refusal = `native executable ${b.executable} is not installed next to pacer-core`;
+      apply(e, refusal, null);
     }
     const root = join(ctx.pacerHome, "plugins");
     const folders = existsSync(root) ? readdirSync(root).filter(f => statSync(join(root, f)).isDirectory()) : [];

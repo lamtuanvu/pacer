@@ -5,6 +5,9 @@
 //! closures registered with [`Harness::on_capability`]; a capability with no
 //! registered answer is denied with `capability_denied`, matching what the real
 //! host returns for an ungranted capability.
+//!
+//! Scoped capabilities (matching the TypeScript host) require the plugin to echo
+//! the owning call's `_meta.capabilityCall` token.
 
 use crate::{Plugin, PluginError, wire};
 use serde_json::{Value, json};
@@ -66,11 +69,36 @@ fn write_lock<T>(r: &RwLock<T>) -> RwLockWriteGuard<'_, T> {
     }
 }
 
+/// Capability methods that require an owning-call token on the real host
+/// (`src/plugins/host.ts`), excluding `capability.secrets.resolve`.
+fn requires_capability_call(method: &str) -> bool {
+    matches!(
+        method,
+        "capability.fs.read"
+            | "capability.fs.write"
+            | "capability.process.spawn"
+            | "capability.usage.state"
+            | "capability.net.http"
+            | "capability.secrets.check"
+            | "capability.hosts"
+            | "capability.worktree"
+            | "capability.orca"
+            | "capability.assistant.tool"
+    ) || method.starts_with("capability.fs.")
+        || method.starts_with("capability.process.")
+        || method.starts_with("capability.hosts.")
+        || method.starts_with("capability.worktree.")
+        || method.starts_with("capability.orca.")
+}
+
 struct Inner {
     out: mpsc::UnboundedSender<String>,
     answers: RwLock<HashMap<String, Answer>>,
     progress: RwLock<Vec<Value>>,
-    capability_calls: RwLock<Vec<(String, Value)>>,
+    notifications: RwLock<Vec<(String, Value)>>,
+    capability_calls: RwLock<Vec<(String, Value, Option<Value>)>>,
+    /// Token of the in-flight host→plugin call; scoped capabilities must echo it.
+    active_token: RwLock<Option<String>>,
     pending: Mutex<HashMap<String, oneshot::Sender<Result<Value, PluginError>>>>,
     next: AtomicU64,
     closed: AtomicBool,
@@ -95,22 +123,34 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
             continue;
         };
         match msg {
-            wire::Incoming::Request { id, method, params } => {
-                write_lock(&inner.capability_calls).push((method.clone(), params.clone()));
-                let answer = read_lock(&inner.answers).get(&method).cloned();
-                let reply = match answer {
-                    Some(f) => match f(params) {
-                        Ok(value) => wire::result(&id, value),
-                        Err((code, message)) => {
-                            wire::error(&id, -32000, &message, json!({"code": code}))
-                        }
-                    },
-                    None => wire::error(
-                        &id,
-                        -32000,
-                        "capability denied",
-                        json!({"code": "capability_denied"}),
-                    ),
+            wire::Incoming::Request {
+                id,
+                method,
+                params,
+                meta,
+            } => {
+                write_lock(&inner.capability_calls).push((
+                    method.clone(),
+                    params.clone(),
+                    meta.clone(),
+                ));
+                let reply = if requires_capability_call(&method) {
+                    let expected = read_lock(&inner.active_token).clone();
+                    let got = wire::capability_call_token(meta.as_ref());
+                    if expected.is_none()
+                        || got.as_ref() != expected.as_ref()
+                    {
+                        wire::error(
+                            &id,
+                            -32000,
+                            "scoped capability requires an active owning call",
+                            json!({"code": "capability_denied"}),
+                        )
+                    } else {
+                        answer_capability(&inner, &id, &method, params)
+                    }
+                } else {
+                    answer_capability(&inner, &id, &method, params)
                 };
                 let _ = inner.out.send(reply);
             }
@@ -118,6 +158,9 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                 if let Some(data) = params.get("data").cloned() {
                     write_lock(&inner.progress).push(data);
                 }
+            }
+            wire::Incoming::Notification { method, params } => {
+                write_lock(&inner.notifications).push((method, params));
             }
             wire::Incoming::Response { id, result } => {
                 if let Some(tx) = lock(&inner.pending).remove(&id) {
@@ -128,8 +171,23 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                     }));
                 }
             }
-            _ => {}
         }
+    }
+}
+
+fn answer_capability(inner: &Inner, id: &Value, method: &str, params: Value) -> String {
+    let answer = read_lock(&inner.answers).get(method).cloned();
+    match answer {
+        Some(f) => match f(params) {
+            Ok(value) => wire::result(id, value),
+            Err((code, message)) => wire::error(id, -32000, &message, json!({"code": code})),
+        },
+        None => wire::error(
+            id,
+            -32000,
+            "capability denied",
+            json!({"code": "capability_denied"}),
+        ),
     }
 }
 
@@ -167,7 +225,9 @@ impl Harness {
             out,
             answers: RwLock::new(HashMap::new()),
             progress: RwLock::new(Vec::new()),
+            notifications: RwLock::new(Vec::new()),
             capability_calls: RwLock::new(Vec::new()),
+            active_token: RwLock::new(None),
             pending: Mutex::new(HashMap::new()),
             next: AtomicU64::new(1),
             closed: AtomicBool::new(false),
@@ -226,10 +286,21 @@ impl Harness {
         write_lock(&self.inner.answers).insert(method.to_owned(), Arc::new(f));
     }
 
+    fn issue_token(&self) -> String {
+        let token = format!(
+            "harness-{}",
+            self.inner.next.fetch_add(1, Ordering::Relaxed)
+        );
+        *write_lock(&self.inner.active_token) = Some(token.clone());
+        token
+    }
+
     /// Invoke the plugin, answering any capability requests it makes while the
-    /// call is in flight.
+    /// call is in flight. Sends `_meta.capabilityCall` so scoped capabilities can succeed.
     pub async fn call(&mut self, method: &str, params: Value) -> Result<Value, PluginError> {
         let id = self.inner.next.fetch_add(1, Ordering::Relaxed).to_string();
+        let token = self.issue_token();
+        let meta = json!({ "capabilityCall": token });
         let (tx, rx) = oneshot::channel();
         {
             let mut pending = lock(&self.inner.pending);
@@ -241,13 +312,64 @@ impl Harness {
         if self
             .inner
             .out
-            .send(wire::request(&id, method, params))
+            .send(wire::request_with_meta(
+                &id,
+                method,
+                params,
+                Some(&meta),
+            ))
             .is_err()
         {
             lock(&self.inner.pending).remove(&id);
             return Err(unavailable());
         }
-        rx.await.unwrap_or_else(|_| Err(unavailable()))
+        let result = rx.await.unwrap_or_else(|_| Err(unavailable()));
+        *write_lock(&self.inner.active_token) = None;
+        result
+    }
+
+    /// Start a call without waiting; returns the request id for [`Self::cancel`].
+    pub fn start_call(&mut self, method: &str, params: Value) -> Result<String, PluginError> {
+        let id = self.inner.next.fetch_add(1, Ordering::Relaxed).to_string();
+        let token = self.issue_token();
+        let meta = json!({ "capabilityCall": token });
+        let (tx, rx) = oneshot::channel();
+        {
+            let mut pending = lock(&self.inner.pending);
+            if self.inner.closed.load(Ordering::Acquire) {
+                return Err(unavailable());
+            }
+            pending.insert(id.clone(), tx);
+        }
+        if self
+            .inner
+            .out
+            .send(wire::request_with_meta(
+                &id,
+                method,
+                params,
+                Some(&meta),
+            ))
+            .is_err()
+        {
+            lock(&self.inner.pending).remove(&id);
+            return Err(unavailable());
+        }
+        // Keep the receiver alive by parking it on a background task that drops the result;
+        // callers that need the result should use [`Self::call`]. Cancellation tests only
+        // need the id.
+        tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        Ok(id)
+    }
+
+    /// Send `$/cancel` for an in-flight call started with [`Self::call`] or [`Self::start_call`].
+    pub fn cancel(&self, id: &str) {
+        let _ = self.inner.out.send(wire::notification(
+            "$/cancel",
+            json!({"id": id}),
+        ));
     }
 
     /// The `$/progress` data the plugin has emitted so far.
@@ -255,8 +377,21 @@ impl Harness {
         read_lock(&self.inner.progress).clone()
     }
 
-    /// The capability requests the plugin has made so far.
+    /// Plugin → host notifications other than `$/progress` (for example `assistant.delta`).
+    pub fn notifications(&self) -> Vec<(String, Value)> {
+        read_lock(&self.inner.notifications).clone()
+    }
+
+    /// The capability requests the plugin has made so far (method, params).
     pub fn capability_calls(&self) -> Vec<(String, Value)> {
+        read_lock(&self.inner.capability_calls)
+            .iter()
+            .map(|(m, p, _)| (m.clone(), p.clone()))
+            .collect()
+    }
+
+    /// Capability requests with their `_meta` (for asserting token echo).
+    pub fn capability_calls_with_meta(&self) -> Vec<(String, Value, Option<Value>)> {
         read_lock(&self.inner.capability_calls).clone()
     }
 

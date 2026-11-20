@@ -82,8 +82,16 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   // Bun JSC requires allow-jit. Native transport uses the signed same-Team dylib;
   // runtime C compilation is forbidden. Library validation stays enabled.
   writeFileSync(entitlements, '<?xml version="1.0" encoding="UTF-8"?><plist version="1.0"><dict><key>com.apple.security.cs.allow-jit</key><true/></dict></plist>\n', { mode: 0o600 });
+  const assistantPacer = join(resources, "pacer-assistant-pacer");
+  if (existsSync(assistantPacer)) {
+    const stat = lstatSync(assistantPacer);
+    if (!stat.isFile() || stat.isSymbolicLink() || (stat.mode & 0o111) === 0) throw Error("Desktop assistant-pacer must be a regular executable");
+    verifyDesktopExecutable(readFileSync(assistantPacer), o.arch);
+  }
   const components: [string, string, string[]][] = [[shim, "dev.pacer.desktop.native-shim", []],
     ...(paired ? [[core, "dev.pacer.cli", ["--entitlements", entitlements]] as [string, string, string[]]] : []),
+    // Native assistant plugin is signed on the same CLI path when staged next to pacer-core.
+    ...(existsSync(assistantPacer) ? [[assistantPacer, "dev.pacer.cli", ["--entitlements", entitlements]] as [string, string, string[]]] : []),
     [join(resources, "pacer"), "dev.pacer.cli", paired ? [] : ["--entitlements", entitlements]],
     [join(resources, "pacer-update-helper"), "dev.pacer.desktop.update-helper", []],
     ...(existsSync(permissionHelper) ? [[permissionHelper, "dev.pacer.permission-setup", []] as [string, string, string[]]] : []),
