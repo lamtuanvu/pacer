@@ -1,7 +1,8 @@
 /** Settings: sections on the left, the selected section on the right. Every read and write is an API op (ARCH-1). */
 import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
-import { accountUsageFreshness, capacityNote, executorEligibility } from "../../view-model/capacity";
+import { capacityNote, executorEligibility } from "../../view-model/capacity";
 import { executorLabel, type Status } from "../../view-model/words";
+import { usageView } from "../../view-model/usage";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
@@ -135,10 +136,11 @@ const accounts: Build = (ctx, width) => {
       { content: [a.kind, a.source].filter(Boolean).join(" · "), width: w[1]!, style: { fg: "secondary" } },
       { content: statusSpans(ctx.theme, SIGNIN[String(signed)]!), width: w[2]! },
     ], GAP, ctx.theme) });
-    const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
-    const freshness = usage ? accountUsageFreshness(usage, ctx.s.at) : null;
+    // One presentation function over the account's usage record (ADR 0030).
+    const view = usageView(usage?.usageState, ctx.s.at);
+    const used = view.meter !== null ? `${view.figure} of ${view.window}${view.reset.startsWith("resets ") ? ` · ${view.reset}` : ""}` : view.figure;
     const users = a.executors ?? a.runners ?? [];
-    rows.push(...prose(id, `${used}${freshness ? ` · Historical usage · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
+    rows.push(...prose(id, `${used}${view.freshness ? ` · ${view.freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
   rows.push(blank());
   for (const [id, act] of [["account-add", add], ["account-link", link]] as const) {

@@ -2,7 +2,8 @@ import { expect, test } from 'bun:test';
 import { renderToString } from 'preact-render-to-string';
 import { Stepper, CheckList } from '../app/src/ds/Stepper';
 import { SettingsGeneral, AddExecutor } from '../app/src/screens/settings/index';
-import { accountUsageWords } from '../app/src/screens/settings/Accounts';
+import { usageView } from '../src/view-model/usage';
+import { usageStateFor } from './usage-fixtures';
 import { AddHost, hostNameFrom, hostNameProblem, checkItems } from '../app/src/screens/settings/Machines';
 import { AGENT_KINDS, agentStepProblem, blankAgentDraft, furthestAgentStep } from '../app/src/model/wizard';
 import { TaskContext } from '../app/src/screens/task-shared';
@@ -68,10 +69,14 @@ test('wizard screen: a later step cannot be opened early, Continue is disabled w
 const accounts = [
   { name: 'team', kind: 'codex', signedIn: true, runners: [executor.id] },
   { name: 'out', kind: 'codex', signedIn: false, signin_command: 'codex login' },
-  { name: 'ark', kind: 'endpoint', quotaSource: 'arkcli', state: 'not_tested', usageCheck: { action: 'refresh', consentRequired: false, description: 'Read provider usage' }, usageReading: { windows: [], error: 'x', availability: { state: 'unknown', reason: 'authentication_failed' } } },
+  { name: 'ark', kind: 'endpoint', quotaSource: 'arkcli', state: 'not_tested', usageCheck: { action: 'refresh', consentRequired: false, description: 'Read provider usage' }, diagnostics: { readings: [{ windows: [], error: 'x', availability: { state: 'unknown', reason: 'authentication_failed' } }] } },
   { name: 'stale', kind: 'codex', signedIn: true }, { name: 'bare', kind: 'codex' },
 ] as any;
-const summary = (over: object) => ({ agent: 'codex', source: 'Codex sign-in', usedPct: 40, pacePct: 30, window: 'week', resetsAt: null, verdict: 'ON_PACE', signedIn: true, executors: [], spendUsdWeek: null, capUsdWeek: null, ...over });
+const summary = (over: object) => {
+  const base = { agent: 'codex', source: 'Codex sign-in', usedPct: 40, pacePct: 30, window: 'week', resetsAt: null, verdict: 'ON_PACE', signedIn: true, executors: [], spendUsdWeek: null, capUsdWeek: null, ...over };
+  // The snapshot row carries the one usage record derived from its own fields (ADR 0030).
+  return { ...base, usageState: usageStateFor(base, 1000) };
+};
 
 test('Accounts: status pill with a fix link only where the fix can work', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [
@@ -93,13 +98,13 @@ test('Accounts: status pill with a fix link only where the fix can work', () => 
 test('unknown data is omitted, never shown as zero or a measured value', () => {
   const html = render(<SettingsGeneral section="accounts" initialData={{ ...settings, accounts }} />, withState({ accounts: [summary({ name: 'team', usedPct: null, pacePct: null }), summary({ name: 'stale', usedPct: 0, pacePct: null })] }));
   // team: no reading at all -> no meter. stale: a real 0% reading is a measured fact and keeps its meter.
-  expect(accountUsageWords(undefined)).toBe('Usage unknown');
-  expect(accountUsageWords(summary({ usedPct: null }) as any)).toBe('No usage reported');
-  expect(accountUsageWords(summary({ usedPct: 0 }) as any)).toBe('0% of week');
+  expect(usageView(undefined, 1000).figure).toBe('Usage unknown');
+  expect(usageView(usageStateFor({ usedPct: null }, 1000), 1000).figure).toBe('No usage figure');
+  expect(usageView(usageStateFor({ usedPct: 0, window: 'week' }, 1000), 1000).figure).toBe('0%');
   expect((html.match(/role="meter"/g) ?? []).length).toBe(1);
   expect(html).not.toContain('0% of week · resets');
   const none = render(<SettingsGeneral section="executors" initialData={settings} />, withState({ executors: [{ ...executor, usedPct: null, pacePct: null }] }));
-  expect(none).toContain('No usage reported');
+  expect(none).toContain('Usage unknown');
   expect(none).not.toContain('role="meter"');
   expect(none).not.toMatch(/>0%</);
 });

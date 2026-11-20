@@ -56,11 +56,11 @@ import {
 } from "../../../../src/view-model/words";
 import { StatusPill } from "../../ds/StatusPill";
 import {
-  accountUsageFreshness,
   capacityNote,
   executorReadiness,
   machineHardCap,
 } from "../../../../src/view-model/capacity";
+import { usageView, windowWords, resetWords } from "../../../../src/view-model/usage";
 import { desktopHost } from "../../data/desktop";
 import { applyTheme, THEME_KEY, type ThemeChoice } from "../../theme";
 import { useEffect, useId, useRef, useState } from "preact/hooks";
@@ -211,7 +211,11 @@ function GeneralOverview({ query, initialData }: { query: RouteQuery; initialDat
     if (status.label !== "Ready") checks.push({ title: `${executorLabel(e.id)} · ${status.label}`, detail: status.reason, tone: status.tone === "info" ? "neutral" : status.tone, tooltip: status.tooltip, page: "executors", link: e.stale ? "Refresh usage" : "Open agent", ...(e.stale ? {account:e.account} : {}) });
   }
   for (const account of snapshot?.accounts ?? []) {
-    if (account.stale && !executors?.some(e => e.account === account.name && stale(e))) checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: accountUsageFreshness(account) ?? undefined, tone: "warn", page: "executors", link: "Refresh usage", account: account.name });
+    // Freshness comes from the account's one usage record (ADR 0030); the view says why a reading needs refreshing.
+    if (account.usageState?.freshness === "historical" && !executors?.some(e => e.account === account.name && stale(e))) {
+      const view = usageView(account.usageState, Date.now() / 1000);
+      checks.push({ title: `${accountLabel(account)} usage reading is stale`, detail: view.freshness || undefined, tone: "warn", page: "executors", link: "Refresh usage", account: account.name });
+    }
   }
   checks.push({title:diagnostics.checked ? "Diagnostics checked" : "Diagnostics not run yet",detail:diagnostics.checked ? `${diagnostics.issues} checks need attention` : "Check that your setup is connected",tone:diagnostics.checked && !diagnostics.issues ? "good" : "warn",page:"diagnostics",link:"Run checks"});
   if (snapshot?.planner && !snapshot.console) checks.push({title:"Planner connection not observed",detail:"Open a planner session to verify its hooks",tone:"neutral",page:"planner",link:"Budget & pacing"});
@@ -292,17 +296,20 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
     ? `${name} is ${delta === 0 ? "on pace" : `${Math.abs(delta)} points ${delta < 0 ? "under" : "ahead of"} pace`}${modeCopy ? `, ${modeCopy}` : "."}`
     : planner?.advice;
   const summary = state.snapshot?.accounts ?? [];
-  // account.list exposes every measured window; the snapshot supplies pace/verdict only for its binding window.
+  const now = state.snapshot?.at ?? Date.now() / 1000;
+  const plannerRecord = planner?.usageState, plannerView = usageView(plannerRecord, now);
+  // Every account's one record lists its measured windows; reactive and unmetered records have none and say why.
   const windows = (accounts.data ?? []).flatMap(account => {
-    const binding = summary.find(row => row.name === account.name);
-    const readings = ["reactive", "unmetered"].includes(account.usageReading?.source ?? "") ? [{name:"unknown",usedPct:null,resetsAt:null}] : account.usageReading?.windows.length ? account.usageReading.windows : (binding?.window ? [{ name: binding.window, usedPct: binding.usedPct, resetsAt: binding.resetsAt }] : [{name:"unknown",usedPct:null,resetsAt:null}]);
-    return readings.map(window => {
-      const matched = binding?.window === window.name ? binding : undefined;
-      const captured = account.usageReading?.capturedAt ?? binding?.capturedAt;
-      const stale = !!((window.stale ?? account.usageReading?.stale ?? binding?.stale) || binding?.stale || (captured != null && (state.snapshot?.at ?? Date.now()/1000) - captured > 86400) || (window.resetsAt != null && window.resetsAt <= (state.snapshot?.at ?? Date.now()/1000)));
-      const capturedAt = account.usageReading?.capturedAt ?? matched?.capturedAt;
-      const note = window.usedPct == null ? "Usage unknown · No usage reported" : stale ? `Stale${capturedAt != null ? ` · ${ago(capturedAt,state.snapshot?.at ?? Date.now()/1000)}` : " reading"} · refresh to use` : [window.usedPct != null ? `${Math.round(window.usedPct)}%` : "Usage unknown", matched?.pacePct != null ? `pace ${Math.round(matched.pacePct)}%` : null, matched?.verdict === "AHEAD" ? "ahead" : null, stale ? "Stale reading" : null].filter(Boolean).join(" · ");
-      return { account, window, binding: matched, stale, capturedAt, note };
+    const record = account.usageState ?? summary.find(row => row.name === account.name)?.usageState;
+    const view = usageView(record, now);
+    const rows = record?.windows.length ? record.windows : [{ name: record?.figure?.window ?? "unknown", usedPct: record?.figure?.usedPct ?? null, resetsAt: record?.figure?.resetsAt ?? null, lengthS: 0, paced: false, stale: record?.freshness === "historical", verdict: record?.verdict ?? "UNKNOWN" }];
+    return rows.map(window => {
+      const stale = record?.freshness === "historical" || window.stale === true;
+      const figure = window.usedPct == null ? "Usage unknown" : `${Math.round(window.usedPct)}%`;
+      const note = window.usedPct == null ? view.figure === "Usage unknown" ? "Usage unknown · No usage reported" : `${view.figure} · no quota windows reported`
+        : stale ? view.freshness || "Stale reading · refresh to use"
+        : [figure, window.pace != null ? `pace ${Math.round(window.pace)}%` : null, window.verdict === "AHEAD" ? "ahead of pace" : null].filter(Boolean).join(" · ");
+      return { account, window, view, stale, note };
     });
   });
   return <><PageHead><header className="pc-settings-board__header"><h1>Budget &amp; pacing</h1><p>How much of each subscription pacer may use, and how fast. Changes apply to the next decision.</p></header></PageHead>
@@ -311,8 +318,8 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       <div className="pc-budget-summary__copy">
         <div className="pc-budget-identity"><AgentMark agent={agent} size={20}/><b>{name}</b><Pill tone="info">Planner</Pill>{mode && <Pill tone={mode === "relaxed" ? "good" : mode === "strict" ? "warn" : mode === "emergency" ? "bad" : "neutral"}>{modeWords(mode)} mode</Pill>}</div>
         {sentence && <strong className="pc-budget-sentence">{sentence}</strong>}
-        <UsageMeter used={planner.usedPct ?? null} pace={planner.pacePct ?? null} tone={toneFor(planner.verdict)} size="bar" label={`${name} ${planner.window ?? "budget"} usage`} stale={planner.stale} text="none"/>
-        <span className="pc-settings-board__caption">{[planner.usedPct != null ? `${percentage(planner.usedPct)}${planner.window ? ` of ${planner.window}` : ""} used` : null, planner.pacePct != null ? `pace ${percentage(planner.pacePct)}` : null, value("pacing.planner_reserve") ? `${percentage(Number(value("pacing.planner_reserve")))} kept for planning and review` : null, planner.resetsAt != null ? `resets ${time(planner.resetsAt)}` : null].filter(Boolean).join(" · ")}</span>
+        <UsageMeter used={plannerView.meter} pace={planner?.pacePct ?? null} tone={plannerView.tone} size="bar" label={`${name} ${planner?.window ?? "budget"} usage`} stale={plannerRecord?.freshness === "historical"} text="none"/>
+        <span className="pc-settings-board__caption">{[plannerView.meter !== null ? `${plannerView.figure}${plannerView.window ? ` of ${plannerView.window}` : ""} used` : plannerView.figure, planner?.pacePct != null ? `pace ${percentage(planner.pacePct)}` : null, value("pacing.planner_reserve") ? `${percentage(Number(value("pacing.planner_reserve")))} kept for planning and review` : null, plannerView.reset.startsWith("resets ") ? plannerView.reset : null].filter(Boolean).join(" · ")}</span>
       </div>
       <div className="pc-budget-modes" role="img" aria-label={`Pace modes: Emergency, Strict, Normal, Relaxed; ${mode && modes.includes(mode) ? `${modeWords(mode)} is active` : "active mode unavailable"}`}>
         <span className="pc-settings-board__label">Mode is set by pace</span>
@@ -350,12 +357,15 @@ export function PlannerPacing({ initialData, initialAccounts }: { initialData?: 
       </section>
     </>}</ResourceState>
     <section className="pc-settings-board__section" aria-labelledby="budget-windows-h"><h2 id="budget-windows-h" className="pc-settings-board__label">Budget windows</h2>
-      <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, binding, stale, capturedAt, note }) => <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
-        <span className="pc-budget-identity"><AgentMark agent={markAgent(account.runners?.[0] ?? binding?.agent ?? account.kind,account.name)} size={20}/><b>{accountLabel(account)}</b></span>
-        <span className="pc-settings-board__caption">{window.name === "weekly" || window.name === "week" ? "Weekly" : window.name === "5h" ? "5 hours" : window.name === "unknown" ? "No reading" : words(window.name)}</span>
-        <span className="pc-budget-window__usage"><UsageMeter used={stale ? null : window.usedPct} pace={stale ? null : binding?.pacePct ?? null} tone={toneFor(binding?.verdict ?? "unknown")} size="row" label={`${accountLabel(account)} ${window.name} usage`} stale={stale} staleAt={capturedAt ?? undefined} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
-        <span className="pc-settings-board__caption">{window.resetsAt != null ? time(window.resetsAt) : ""}</span>
-      </div>)}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
+      <ResourceState resource={accounts}>{windows.length ? <div className="pc-budget-windows">{windows.map(({ account, window, view, stale, note }) => {
+        const label = windowWords(window.name), reset = window.resetsAt == null ? "" : resetWords(window.resetsAt, now);
+        return <div className="pc-budget-window" key={`${account.name}:${window.name}`}>
+        <span className="pc-budget-identity"><AgentMark agent={markAgent(account.runners?.[0] ?? account.kind,account.name)} size={20}/><b>{accountLabel(account)}</b></span>
+        <span className="pc-settings-board__caption">{window.name === "unknown" ? "No reading" : label.charAt(0).toUpperCase() + label.slice(1)}</span>
+        <span className="pc-budget-window__usage"><UsageMeter used={stale ? null : window.usedPct} pace={stale ? null : window.pace ?? null} tone={toneFor(window.verdict)} size="row" label={`${accountLabel(account)} ${label} usage`} stale={stale} text="none"/><span className="pc-settings-board__caption">{note}</span></span>
+        <span className="pc-settings-board__caption">{reset.replace(/^resets /, "")}</span>
+      </div>;
+      })}</div> : <span className="pc-settings-board__caption">No budget windows reported.</span>}</ResourceState>
     </section>
     {chosen && <PlannerConsent planner={chosen} close={closePlanner} done={query.reload} immediate={plannerSave.current ? async request => {
       try {await api.call(request.op,request.params); plannerSave.current?.resolve(true);}

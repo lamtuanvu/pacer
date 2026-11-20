@@ -1,10 +1,9 @@
 import { ImmediateSetting } from "./ImmediateSetting";
 import { markAgent } from "../../../../src/view-model/agents";
 import { useState } from "preact/hooks";
-import { clock } from "../../../../src/view-model/time";
 import { spendCopy } from "../../../../src/view-model/copy";
 import { accountLabel, accountNeedsSignIn, accountStatus, executorLabel, paceStatus } from "../../../../src/view-model/words";
-import { accountBudgetStatus, accountUsageFreshness } from "../../../../src/view-model/capacity";
+import { usageView } from "../../../../src/view-model/usage";
 import type { AccountSummary } from "../../../../src/api/read-model/types";
 import { Disclosure, TextInput } from "../../ds/Controls";
 import { ChoicePicker } from "../../ds/ChoicePicker";
@@ -17,7 +16,7 @@ import type { ConfigData } from "../../model/strategy";
 import { SectionHeading } from "../../ds/SectionHeading";
 import { Stack } from "../../ds/Page";
 import { Button, IconButton, TextAction } from "../../ds/Button";
-import { accountQuotaLabel, accountObservation, arkcliSignInRequired, type Account } from "../../model/accounts";
+import { accountRecord, arkcliSignInRequired, type Account } from "../../model/accounts";
 import { useTaskContext } from "../task-shared";
 import { AgentsIntro } from "./Executors";
 import { Feedback, Field, ResourceState, SettingsBoard, useOperation, useResource, useScoped } from "./shared";
@@ -25,16 +24,6 @@ import { Feedback, Field, ResourceState, SettingsBoard, useOperation, useResourc
 import { AccountUsage } from "./AccountUsage";
 
 const agentOf = (account: Account, summary?: AccountSummary) => summary?.agent ?? (account.kind === "claude" ? "claude-code" : account.kind === "endpoint" ? "opencode" : account.kind);
-
-/** Usage in words; a missing reading says so rather than showing zero. */
-export function accountUsageWords(summary?: AccountSummary): string {
-  if (!summary) return "Usage unknown";
-  const spend = spendCopy(summary.spendUsdWeek, summary.capUsdWeek);
-  if (spend) return spend;
-  if (summary.usedPct == null) return "No usage reported";
-  const window = summary.window === "weekly" || summary.window === "week" ? "week" : summary.window ?? "window";
-  return `${Math.round(summary.usedPct)}% of ${window}${summary.resetsAt ? ` · resets ${clock(summary.resetsAt, Date.now() / 1000)}` : ""}`;
-}
 
 export function AccountsSection({ initialData, initialConfig }: { initialData?: Account[]; initialConfig?: ConfigData }) {
   const scoped = useScoped();
@@ -56,15 +45,15 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
               {query.data?.map(account => {
                 const summary = state.snapshot?.accounts?.find(a => a.name === account.name),
                   readiness = { ...account, signedIn: summary?.signedIn ?? account.signedIn },
-                  quotaLabel = accountQuotaLabel(account, summary),
-                  observation = accountObservation(account, summary), usage = observation?.usage, observedAt = usage?.capturedAt,
-                  freshness = usage && accountUsageFreshness(usage, state.snapshot?.at), users = summary?.executors ?? account.runners ?? [],
-                  pace = paceStatus(usage?.verdict ?? "unknown"),
-                  status = quotaLabel ? accountStatus({}) : observation?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
-                    : readiness.signedIn === true && usage
-                      ? pace.label === "Usage unknown" && (usage.usedPct != null || usage.spendUsdWeek != null)
-                        ? {...pace, label: freshness ? "Historical usage" : "Usage observed"} : accountBudgetStatus(usage, state.snapshot?.at)
-                      : accountStatus(readiness),
+                  record = accountRecord(account, summary),
+                  view = usageView(record, state.snapshot?.at ?? Date.now() / 1000),
+                  historical = record?.freshness === "historical",
+                  freshness = view.freshness,
+                  users = summary?.executors ?? account.runners ?? [],
+                  spend = spendCopy(record?.spend?.usdWeek ?? null, record?.spend?.capUsdWeek ?? null),
+                  status = record?.error ? {...paceStatus("unknown"), label: "Usage check failed", tone: "warn" as const}
+                    : readiness.signedIn === true && record ? paceStatus(record.verdict)
+                    : accountStatus(readiness),
                   hasAction = arkcliSignInRequired(account) || accountNeedsSignIn(readiness),
                   expanded = hasAction && openActions === account.name, actionsId = `account-actions-${encodeURIComponent(account.name)}`;
                 return (
@@ -76,9 +65,9 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                     </td>
                     <td data-label="Sign-in"><span>{readiness.signedIn===true?'Signed in':readiness.signedIn===false?'Signed out':'Unknown'}</span><div className="u3-muted">{account.kind==='endpoint'?'Model endpoint':`${executorLabel(agentOf(account))}’s own sign-in`}</div></td>
                     <td data-label="Quota">
-                      {usage?.usedPct != null && <UsageMeter used={usage.usedPct} pace={freshness ? null : usage.pacePct??null} tone={freshness ? "neutral" : pace.tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={!!freshness} />}
-                      <div className="u3-muted">{quotaLabel ?? accountUsageWords(usage)}{freshness && ` · ${freshness}`}</div>
-                      {!quotaLabel && <div className="u3-muted">{observedAt == null ? "No observation time available" : `Last observed ${clock(observedAt, Date.now()/1000)}${freshness ? " · historical reading" : ""}`}</div>}
+                      {view.meter !== null && <UsageMeter used={view.meter} pace={historical ? null : summary?.pacePct ?? null} tone={historical ? "neutral" : view.tone} size="slim" text="none" label={`${accountLabel(account)} usage`} stale={historical} />}
+                      <div className="u3-muted">{[spend || view.figure, view.window && view.meter !== null ? `of ${view.window}` : null, view.reset.startsWith("resets ") ? view.reset : null].filter(Boolean).join(" · ")}{freshness && ` · ${freshness}`}</div>
+                      <div className="u3-muted">{view.source}</div>
                     </td>
                     <td data-label="Status">
                       <StatusPill status={status} />
@@ -87,7 +76,7 @@ export function AccountsSection({ initialData, initialConfig }: { initialData?: 
                       {users.length ? <div className="u3-chips">{users.map(id => <span className="u3-chip" key={id} title={executorLabel(id)}><AgentMark agent={markAgent(id, account.name)} size={16} />{executorLabel(id)}</span>)}</div> : <span className="u3-muted">Not used</span>}
                     </td>
                     <td data-label="Actions" className={expanded ? "u3-account-actions--open" : undefined}>
-                      <AccountUsage account={account} reload={query.reload} sourceError={observation?.error}/>
+                      <AccountUsage account={account} reload={query.reload} sourceError={record?.error?.message}/>
                       {hasAction && <>
                         <IconButton icon="more" size="sm" variant="quiet" aria-label={`More actions for ${accountLabel(account)}`} aria-expanded={expanded} aria-controls={actionsId} onClick={() => setOpenActions(expanded ? null : account.name)} />
                         <div id={actionsId} hidden={!expanded}>

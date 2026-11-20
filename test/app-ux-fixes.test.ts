@@ -12,7 +12,6 @@ import { executorLabel } from "../src/view-model/words";
 import { executorStatus, routingStatus } from "../app/src/model/executors";
 import { homeModel } from "../app/src/model/home";
 import { endpointResult, modelsFound } from "../app/src/model/wizard";
-import { accountsModel } from "../app/src/model/accounts";
 
 // 1–3: all server fixtures are isolated from the user's account and agent homes.
 test("setup.init leaves editable current accounts and runners", async () => {
@@ -76,13 +75,4 @@ test("wizard and delegate controls have wrapping labels", () => {
  expect(prefix.lastIndexOf("<label")).toBeGreaterThan(prefix.lastIndexOf("</label>"));
  }
  }
-});
-test("accounts capitalize guidance and simplify default-folder sign-in commands", () => {
- const rows=accountsModel([{name:"personal",kind:"claude",signedIn:false,folder:"/fixture/.claude",signin_command:"CLAUDE_CONFIG_DIR='/fixture/.claude' claude\n# Then run /login to sign in."},{name:"work",kind:"codex",signedIn:false,folder:"/fixture/.codex-work",signin_command:"CODEX_HOME='/fixture/.codex-work' codex login"}], [{account:"personal",capturedAt:1,stale:true,hint:"run codex login"}]);
- expect(rows[0]?.signin).toBe("claude\n# Then run /login to sign in.");
- expect(rows[1]?.signin).toContain("CODEX_HOME");
- expect(accountsModel([{name:"default",kind:"codex",signedIn:false,folder:"/fixture/.codex",signin_command:"CODEX_HOME=fixture codex login"}],[])[0]?.signin).toBe("codex login");
- expect(rows[0]?.freshness).toStartWith("Stale since");
- expect(rows[0]?.hint).toBe("Run codex login");
-
 });

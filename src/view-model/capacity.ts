@@ -1,5 +1,5 @@
 import { eligibilityPresentation } from "./eligibility";
-import { percentage, executorRowStatus, paceStatus } from "./words";
+import { executorRowStatus, paceStatus } from "./words";
 import type { ExecutorRow } from "../api/read-model/types";
 import type { ClientMachine, ClientSnapshot, ClientTask } from "./snapshot";
 
@@ -43,7 +43,9 @@ export function queueWait(task: ClientTask, snapshot: ClientSnapshot): string {
 
 /** Read pace from its authoritative account/planner verdict, never executor readiness or a percentage threshold. */
 export function executorPace(executor: ExecutorRow, snapshot: ClientSnapshot) {
-  if (executor.stale && executor.usedPct !== null) return { ...paceStatus("unknown"), label: "Historical usage" };
+  const record = executor.usageState;
+  if (record?.freshness === "historical") return { ...paceStatus("unknown"), label: "Historical usage" };
+  if (record) return paceStatus(record.verdict);
   const planner = snapshot.planner;
   const verdict = planner?.runner === executor.id ? planner.verdict : snapshot.accounts?.find(a => a.executors?.includes(executor.id) || a.name === executor.account)?.verdict;
   return paceStatus(verdict ?? "unknown");
@@ -65,32 +67,18 @@ export function executorEligibility(executor: ExecutorRow, now: number) {
     : eligibility;
 }
 
-/** Legacy readings remain visible, but freshness requires explicit, timed evidence. */
-export function accountUsageHistorical(account: import("../api/read-model/types").AccountSummary, now = Date.now()/1000) {
-  return (account.usedPct != null || account.spendUsdWeek != null)
-    && (account.stale !== false || account.eligibility?.budget === "unknown"
-      || account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now
-      || (account.resetsAt != null && account.resetsAt <= now)
-      || (account.capturedAt != null && now - account.capturedAt > 86400));
-}
-
-export function accountUsageFreshness(account: import("../api/read-model/types").AccountSummary, now = account.eligibility?.evaluatedAt ?? Date.now()/1000) {
-  if (!accountUsageHistorical(account, now)) return null;
-  const ageS = account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now || !account.eligibility ? null
-    : Math.max(0, now - account.capturedAt);
-  return ageS === null ? "Stale reading · check account usage"
-    : `Reading ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} old`;
-}
-
 /** Board vocabulary for readiness; routing decisions remain untouched. */
 export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapshot) {
   const now = snapshot.at ?? Date.now() / 1000;
   const technical = executorEligibility(executor, now);
   const account = snapshot.accounts?.find(a => a.executors?.includes(executor.id) || a.name === executor.account);
+  const record = executor.usageState ?? account?.usageState;
   const decision = executor.eligibility;
   const codes = decision?.reasons.map(r => r.code) ?? [];
-  const stale = executor.stale || account?.stale;
-  const age = account?.capturedAt != null ? Math.max(0, now - account.capturedAt)
+  // Freshness and reading age come from the one usage record (ADR 0030); legacy rows keep their fields as a fallback.
+  const stale = record ? record.freshness === "historical" : !!(executor.stale || account?.stale);
+  const observedAt = record?.observedAt ?? account?.capturedAt ?? null;
+  const age = observedAt != null ? Math.max(0, now - observedAt)
     : decision?.evidenceAgeS == null ? null : Math.max(0, decision.evidenceAgeS + now - decision.evaluatedAt);
   let label = "Ready", tone = "good" as import("./words").StatusTone, reason = "Ready to take work";
   if (!executor.enabled || executor.state === "disabled") { label = "Off"; tone = "neutral"; reason = "Takes work is turned off"; }
@@ -110,21 +98,4 @@ export function executorReadiness(executor: ExecutorRow, snapshot: ClientSnapsho
   if ((label === "Ready" || label === "Ahead of pace") && executor.state === "failing" && executor.recentFailures > 0) reason = `${executor.recentFailures} recent failures`;
   return { label, tone, glyph: tone === "good" ? "✓" : tone === "neutral" ? "■" : "!", reason,
     tooltip: [technical.label, technical.detail, technical.age, executor.sub].filter(Boolean).join(" · ") };
-}
-
-export function executorWeekUsage(executor: ExecutorRow, snapshot: ClientSnapshot): string {
-  const account = snapshot.accounts?.find(a => a.executors?.includes(executor.id) || a.name === executor.account);
-  if (executor.stale || account?.stale || executor.eligibility?.reasons.some(r => r.code === "budget_expired_or_unknown")) return "Stale · check account usage";
-  if (account?.verdict === "UNMETERED" || executor.eligibility?.budget === "not_required") return "Unmetered";
-  if (executor.usedPct == null) return "No usage reported";
-  const window = account?.window === "weekly" ? "week" : account?.window ?? "week";
-  const reset = account?.resetsAt == null ? "" : ` · resets ${new Date(account.resetsAt * 1000).toLocaleDateString("en-GB", { weekday: "short" })}`;
-  return `${percentage(executor.usedPct)} of ${window}${reset}`;
-}
-
-/** Account pace is meaningful only while a measured budget window is current. */
-export function accountBudgetStatus(account: import("../api/read-model/types").AccountSummary, now = Date.now()/1000) {
-  if (account.usedPct == null && account.spendUsdWeek == null) return {...paceStatus("unknown"),label:"Usage unknown"};
-  if (accountUsageHistorical(account, now)) return {...paceStatus("unknown"),label:"Stale reading",tone:"warn" as const,glyph:"!"};
-  return paceStatus(account.verdict);
 }
