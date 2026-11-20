@@ -517,6 +517,21 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if crate::native::agent_apply_sync::uses_effects(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    match crate::native::agent_apply_sync::admit(&request_ctx, op.name, &params) {
+                        Ok(()) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                        }
+                        Err(error) => {
+                            if let Some(id) = request.get("id") {
+                                write_line(out, &rpc_line(id, Err(error))?).await?;
+                            }
+                        }
+                    }
+                    continue;
+                }
                 if crate::native::needs_host_effects(op.name) {
                     use pacer_config_ops::host_check_clean_setup_ops::{Admission, admit};
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
