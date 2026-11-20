@@ -130,9 +130,9 @@ test("expired equal-authority execution limit marks stop blocking reactive execu
     ],
     spending: [],
   };
-  // A reactive usage refresh writes no synthetic 0% limit window; reconciliation must still heal.
+  // A reactive usage refresh reports no synthetic limit window; reconciliation must still heal.
   const incoming = readingEvidence(scope, {
-    windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }],
+    windows: [],
     capturedAt: now, stale: false, source: "reactive",
   }, "reactive");
   const merged = reconcileEvidence(previous, incoming, now);

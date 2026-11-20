@@ -12,8 +12,8 @@ test("reactive and unmetered readings never start a plugin child", async () => {
   const ctx = fakeCtx({ now: 100 });
   mkdirSync(ctx.pacerHome, { recursive: true });
   try {
-    expect(await readPluginUsage(ctx, cfg("reactive"))).toEqual({ windows: [{ name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false }], capturedAt: 100, stale: false, source: "reactive" });
-    expect(await readPluginUsage(ctx, cfg("unmetered"))).toEqual({ windows: [], capturedAt: 100, stale: false, source: "unmetered" });
+    expect(await readPluginUsage(ctx, cfg("reactive"))).toEqual({ windows: [], capturedAt: null, stale: false, source: "reactive" });
+    expect(await readPluginUsage(ctx, cfg("unmetered"))).toEqual({ windows: [], capturedAt: null, stale: false, source: "unmetered" });
     const { pluginRegistry } = await import("../src/plugins");
     expect(pluginRegistry(ctx).list(ctx).every(plugin => plugin.pid === null)).toBe(true);
   } finally { await shutdownPlugins(ctx); }

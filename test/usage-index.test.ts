@@ -34,12 +34,11 @@ test("metered: counts input+output+reasoning for the configured model only, agai
   expect(r.windows).toEqual([{ name: "7d", usedPct: 10, resetsAt: null, lengthS: 604800, paced: false }]);
 });
 
-test("unmetered has no windows; reactive has an OK limit window; quota dispatches by provider", async () => {
+test("unmetered and reactive have no windows; quota dispatches by provider", async () => {
   const ctx = fakeCtx();
   expect((await readUsage(ctx, strategy.providers["opencode#local"])).windows).toEqual([]);
-  expect((await readUsage(ctx, strategy.providers.cursor)).windows).toEqual([
-    { name: "limit", usedPct: 0, resetsAt: null, lengthS: 0, paced: false },
-  ]);
+  expect((await readUsage(ctx, strategy.providers.cursor)).windows).toEqual([]);
+  expect((await readUsage(ctx, strategy.providers.cursor)).source).toBe("reactive");
   expect((await readUsage(ctx, strategy.providers["claude-code"])).error).toContain("no Claude rate-limit data");
 });
 
