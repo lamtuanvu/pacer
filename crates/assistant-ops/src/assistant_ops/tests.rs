@@ -114,11 +114,16 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();
     let strategy = strategy(&ctx(&dir, &[])).unwrap();
-    assert!(endpoint_ok(&strategy, "ep", None));
-    assert!(endpoint_ok(&strategy, "ep", Some("opencode#ep")));
-    assert!(!endpoint_ok(&strategy, "bare", None));
-    assert!(!endpoint_ok(&strategy, "claude", None));
-    assert!(!endpoint_ok(&strategy, "missing", None));
+    assert!(endpoint_ok(&strategy, "ep", None, false));
+    assert!(endpoint_ok(&strategy, "ep", Some("opencode#ep"), false));
+    assert!(!endpoint_ok(&strategy, "bare", None, false));
+    assert!(!endpoint_ok(&strategy, "claude", None, false));
+    assert!(!endpoint_ok(&strategy, "missing", None, false));
+    // The executor backend's agent CLI holds the connection: any endpoint account qualifies.
+    assert!(endpoint_ok(&strategy, "ep", None, true));
+    assert!(endpoint_ok(&strategy, "bare", None, true));
+    assert!(!endpoint_ok(&strategy, "claude", None, true));
+    assert!(!endpoint_ok(&strategy, "missing", None, true));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
         r#"[{"account":"ep","backend":"pacer","available":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
