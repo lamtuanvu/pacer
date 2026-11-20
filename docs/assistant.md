@@ -10,6 +10,10 @@ The assistant is off until you choose an account in **Settings › Assistant**. 
 account (a hosted model or a local one) and never moves to another account. If you choose the planner's account it follows
 the planner's pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.
 
+Local endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an `Authorization`
+header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server omits that field
+on chat-completion responses (Rig's OpenAI client requires it).
+
 ## What it can read, and what it cannot
 
 It reads through fixed tools, in-process, from pacer's own data: counts and attention, task titles, states, executors,

@@ -1,0 +1,19 @@
+{
+  "id": "assistant-pacer",
+  "version": "1.0.0",
+  "publisher": "pacer",
+  "host": ">=1.11.0",
+  "contributes": {
+    "assistant": {
+      "backend": "pacer",
+      "reply": true
+    }
+  },
+  "capabilities": [
+    { "name": "secrets.resolve", "scopes": ["endpoint"] },
+    { "name": "net.http" },
+    { "name": "assistant.tool" }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}
