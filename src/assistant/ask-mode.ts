@@ -8,21 +8,24 @@ import { DEFAULT_PORT } from "../serve/constants";
 import { pacerArgv } from "../install/self";
 import { minimalEnvironment } from "../plugins/capability-spawn";
 import type { Ctx } from "../types";
+import { CODEX_LIVE_ARGV } from "../plugins/capability-spawn";
 import { ACP_PLAN_VERSION, type AcpPlan } from "./acp-turn";
+import { CODEX_PLAN_VERSION, type CodexPlan } from "./codex-turn";
 
 /**
  * Ask mode for the executor backend (spec §3): one restricted agent-CLI turn per message. The host
- * builds every command (and, for opencode, the config and ACP plan); the plugin only runs a command
- * it was issued and reads its output, so the grant never reaches it. Opencode uses `opencode acp`.
+ * builds every command (and, for opencode, the config and ACP plan; for Codex, the app-server plan);
+ * the plugin only runs a command it was issued and reads its output, so the grant never reaches it.
+ * Opencode uses `opencode acp`. Codex uses `codex -s read-only -a never app-server`.
  */
 
 /** The reference the plugin passes for the opencode config; the host resolves it when the command runs. */
 export const ASK_CONFIG_REF = "secrets:assistantAskConfig";
-/** The reference for the per-turn assistant grant; resolved only into the ACP child's env, never into plugin params. */
+/** The reference for the per-turn assistant grant; resolved only into the ACP/Codex child's env, never into plugin params. */
 export const ASK_GRANT_REF = "secrets:assistantAskGrant";
 
 /** Which agent CLI ask mode drives for an account. */
-export type AskAdapter = "opencode" | "claude-code";
+export type AskAdapter = "opencode" | "claude-code" | "codex";
 
 /**
  * How ask mode restricts opencode over ACP (verified against opencode 2.2.3):
@@ -43,6 +46,17 @@ export const ASK_HIDDEN = [
 export const ASK_REMOVED = [
   ...ASK_HIDDEN, "shell", "read", "webfetch",
 ] as const;
+
+/**
+ * How ask mode restricts Codex over app-server (verified against codex-cli 0.167.2 schema/help, read-only):
+ * - Launch is host-pinned `codex -s read-only -a never app-server` (same argv as live usage).
+ * - Thread config turns off shell/plugins/web search and related features; `config/read` lists MCP
+ *   servers so each is set `mcp_servers.<n>.enabled=false` (refuse if a managed layer re-enables one).
+ * - Pacer's MCP is added only via dotted `mcp_servers.pacer.*` keys (grant env-only, by reference).
+ * - The host answers approvals: allow only pacer MCP tool-call elicitations; decline commands, file
+ *   changes and other elicitations. Continuity uses `thread/resume` with `excludeTurns`.
+ * Sign-in stays in the account's own `CODEX_HOME` / default `~/.codex`; pacer never copies credentials.
+ */
 
 /**
  * How ask mode restricts Claude Code (verified against claude 2.1.281 `--help`, read-only):
@@ -91,9 +105,9 @@ export interface AskTurn {
   command: AskCommand;
   /** A new session seeded with the transcript, for when resuming fails. Absent without a session. */
   fallback?: AskCommand;
-  /** The rendered opencode config, bound to `ASK_CONFIG_REF` for this call only. Empty for claude-code. */
+  /** The rendered opencode config, bound to `ASK_CONFIG_REF` for this call only. Empty for claude-code and codex. */
   config: string;
-  /** Per-turn grant for opencode ACP, bound to `ASK_GRANT_REF` only. Empty for claude-code. */
+  /** Per-turn grant for opencode ACP / Codex app-server, bound to `ASK_GRANT_REF` only. Empty for claude-code. */
   grant: string;
   /** Delete the turn's run directory. */
   cleanup: () => void;
@@ -167,7 +181,27 @@ export const STDIN_CAP = 262144;
 export function askAdapterFor(ctx: Ctx, account: AccountCfg): AskAdapter | null {
   if (account.kind === "endpoint") return "opencode";
   if (account.kind === "claude") return claudeAskConfigDir(ctx, account) ? "claude-code" : null;
+  if (account.kind === "codex") return codexAskConfigDir(ctx, account) ? "codex" : null;
   return null;
+}
+
+/**
+ * The account's Codex home for ask mode: its own folder, never copied credentials.
+ * A non-default account without a folder returns null (never falls back to the default account).
+ */
+export function codexAskConfigDir(ctx: Ctx, account: AccountCfg): string | null {
+  if (account.kind !== "codex") return null;
+  if (account.source === "default") return defaultAccountFolder(ctx, "codex");
+  return accountFolder(ctx, account);
+}
+
+/** The installed `codex` CLI's version line (for the self-test record). */
+export function codexCliVersion(ctx: Ctx): string | null {
+  const bin = ctx.which("codex");
+  if (!bin) return null;
+  const run = spawnSync(bin, ["--version"], { timeout: 10_000, encoding: "utf8", env: { HOME: ctx.home, PATH: ctx.env.PATH ?? "/usr/bin:/bin" } });
+  const line = run.status === 0 ? run.stdout.trim().split("\n")[0]!.trim() : "";
+  return line || null;
 }
 
 /** Bare semver from a `claude --version` line (`2.1.281` from `2.1.281 (Claude Code)`), or null. */
@@ -209,6 +243,28 @@ export function acpPlan(o: {
   return {
     v: ACP_PLAN_VERSION,
     prompt: o.prompt,
+    ...(o.fallbackPrompt ? { fallbackPrompt: o.fallbackPrompt } : {}),
+    ...(o.session ? { session: o.session } : {}),
+    ...(o.model ? { model: o.model } : {}),
+    mcpName: "pacer",
+    mcpCommand: command!,
+    mcpArgs,
+    mcpEnvKeys: [...ASK_MCP_ENV_KEYS],
+    tools: o.tools,
+    turnId: o.turnId,
+  };
+}
+
+/** Build the Codex app-server plan stdin the host pins for one ask-mode turn. */
+export function codexPlan(o: {
+  prompt: string; fallbackPrompt?: string; session?: string; system: string; model: string | null; tools: boolean; turnId: string;
+  pacer: string[];
+}): CodexPlan {
+  const [command, ...mcpArgs] = o.pacer.length ? [...o.pacer, "mcp", "--assistant"] : ["pacer", "mcp", "--assistant"];
+  return {
+    v: CODEX_PLAN_VERSION,
+    prompt: o.prompt,
+    system: o.system,
     ...(o.fallbackPrompt ? { fallbackPrompt: o.fallbackPrompt } : {}),
     ...(o.session ? { session: o.session } : {}),
     ...(o.model ? { model: o.model } : {}),
@@ -328,6 +384,45 @@ export function claudeAskTurn(ctx: Ctx, o: {
   return { adapter: "claude-code", command, ...(fallback ? { fallback } : {}), config: "", grant: "", cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
 }
 
+/**
+ * One `codex … app-server` turn in ask mode. Argv matches the live usage pin; the plan rides stdin.
+ * The default account keeps Codex's own default home through HOME (no CODEX_HOME); named accounts
+ * set CODEX_HOME to their folder. An empty AGENTS.md is written in the conversation cwd so a parent
+ * canary does not inject instructions.
+ */
+export function codexAskTurn(ctx: Ctx, o: {
+  turnId: string; conversationId: string; account: AccountCfg; grant: string; model: string | null; session?: string;
+  system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
+  tools?: boolean;
+}): AskTurn {
+  const configDir = codexAskConfigDir(ctx, o.account);
+  if (!configDir) throw new Error(`${o.account.name ?? "account"} has no Codex home.`);
+  if (!codexCliVersion(ctx)) throw new Error("codex is not installed or did not report its version");
+  const { runDir, cwd } = conversationDirs(ctx, o.turnId, o.conversationId);
+  writeFileSync(join(cwd, "AGENTS.md"), "", { mode: 0o600 });
+  const tools = o.tools ?? ASK_PACER_TOOLS;
+  const pacer = pacerArgv(ctx.env);
+  const env: Record<string, string> = {
+    ...minimalEnvironment(ctx.env, "codex"),
+    // The default account keeps Codex's own default folder through HOME: naming CODEX_HOME
+    // explicitly can point at a different auth path than the signed-in default.
+    ...(o.account.source === "default" ? {} : { CODEX_HOME: configDir }),
+    PACER_ASSISTANT_URL: serviceUrl(ctx),
+    PACER_ASSISTANT_TURN: o.turnId,
+    PACER_HOME: runDir,
+    PWD: cwd,
+  };
+  const seeded = seededPrompt(o.history, o.question);
+  const plan = JSON.stringify(codexPlan({
+    prompt: o.session ? o.question : seeded,
+    system: o.system,
+    ...(o.session ? { session: o.session, fallbackPrompt: seeded } : {}),
+    model: o.model, tools, turnId: o.turnId, pacer,
+  }));
+  const command: AskCommand = { argv: [...CODEX_LIVE_ARGV], cwd, env, stdin: plan, timeoutMs: o.timeoutMs };
+  return { adapter: "codex", command, config: "", grant: o.grant, cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
+}
+
 /** Build the ask-mode turn for the account's adapter. */
 export function askTurnFor(ctx: Ctx, account: AccountCfg, o: {
   turnId: string; conversationId: string; grant: string; model: string | null; session?: string;
@@ -335,5 +430,6 @@ export function askTurnFor(ctx: Ctx, account: AccountCfg, o: {
 }): AskTurn {
   const adapter = askAdapterFor(ctx, account);
   if (adapter === "claude-code") return claudeAskTurn(ctx, { ...o, account });
+  if (adapter === "codex") return codexAskTurn(ctx, { ...o, account });
   return askTurn(ctx, o);
 }

@@ -14,7 +14,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, type AskTurn } from "./ask-mode";
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -90,8 +90,8 @@ function runnerModel(strategy: Strategy, account: string, runnerId: string | nul
 
 function endpointFor(ctx: Ctx, strategy: Strategy, settings: AssistantSettings) {
   const account = settings.account ? strategy.accounts[settings.account] : undefined;
-  // The executor backend runs the account through its agent CLI (opencode or Claude Code), which
-  // holds the connection itself; opencode endpoint accounts and claude accounts qualify.
+  // The executor backend runs the account through its agent CLI (opencode, Claude Code or Codex),
+  // which holds the connection itself; those accounts qualify.
   if (settings.backend === "executor") {
     if (!account || !askAdapterFor(ctx, account)) return null;
     const model = runnerModel(strategy, settings.account!, settings.runner)
@@ -214,7 +214,7 @@ export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1
     const stored = readSettings(ctx);
     const probe: AssistantSettings = { ...stored, account: input.account, runner: input.runner, backend: input.backend ?? stored.backend };
     if (!endpointFor(ctx, strategy, probe)) {
-      const want = probe.backend === "executor" ? "an opencode or Claude Code account" : "an endpoint account with a model";
+      const want = probe.backend === "executor" ? "an opencode, Claude Code or Codex account" : "an endpoint account with a model";
       throw new CoreError("invalid_input", `Choose ${want}.`, "Add one in Settings › Accounts.");
     }
   }
@@ -392,10 +392,12 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       };
       const askConfigText = ask?.config ?? "";
       const askGrant = ask?.grant ?? "";
-      const opencodeAcp = ask?.adapter === "opencode";
+      const spawnMode = ask?.adapter === "opencode" ? "acp" as const
+        : ask?.adapter === "codex" ? "codex-ask" as const
+        : undefined;
       const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({
         argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
-        ...(opencodeAcp ? { mode: "acp" as const } : {}),
+        ...(spawnMode ? { mode: spawnMode } : {}),
         ...((askConfigText || askGrant) ? {
           secretEnv: {
             ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
@@ -548,9 +550,12 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
       models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
       runners: runnersOf(name), isPlanner: strategy.planner.account === name,
     };
-    // A non-default Claude account without its own config dir must not fall back to the default.
+    // A non-default Claude/Codex account without its own config dir must not fall back to the default.
     if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
       return [{ ...row, available: false, reason: `${name} has no Claude config directory.` }];
+    }
+    if (account.kind === "codex" && !codexAskConfigDir(ctx, account)) {
+      return [{ ...row, available: false, reason: `${name} has no Codex home.` }];
     }
     const adapter = askAdapterFor(ctx, account);
     if (!adapter) return [];

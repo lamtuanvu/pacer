@@ -5,8 +5,9 @@ import type { HostClient } from "@pacer/plugin";
 
 /**
  * The assistant's executor backend (spec §3): answers a turn by running the host-issued ask-mode
- * command (`opencode acp` or `claude -p`) and reading its result. The host built the command and,
- * for opencode, its config plus ACP plan; the grant is bound only as a secret env reference.
+ * command (`opencode acp`, `claude -p`, or `codex … app-server`) and reading its result. The host
+ * built the command and, for opencode/Codex, its plan; the grant is bound only as a secret env
+ * reference.
  */
 
 interface AskCommand { argv: string[]; cwd: string; env: Record<string, string>; stdin: string; timeoutMs: number }
@@ -27,15 +28,15 @@ type SpawnResult = { code: number; timedOut: boolean } & ({ stdout: string; stde
 /** What one ask-mode CLI run produced. */
 export interface RunOutcome { text: string; session?: string; usage: ReplyResult["usage"]; error?: string; tools: { tool: string; status: string }[] }
 
-/** Read one host ACP turn result (single JSON object with `acp: true`). */
+/** Read one host ACP or Codex turn result (single JSON object with `acp: true` or `codex: true`). */
 export function parseAcpRun(stdout: string): RunOutcome | null {
   try {
     const raw = JSON.parse(stdout.trim()) as {
-      acp?: boolean; text?: string; session?: string; error?: string; toolsHealthy?: boolean;
+      acp?: boolean; codex?: boolean; text?: string; session?: string; error?: string; toolsHealthy?: boolean;
       tools?: { tool: string; status: string }[];
       usage?: RunOutcome["usage"];
     };
-    if (!raw || raw.acp !== true) return null;
+    if (!raw || (raw.acp !== true && raw.codex !== true)) return null;
     return {
       text: typeof raw.text === "string" ? raw.text : "",
       ...(typeof raw.session === "string" ? { session: raw.session } : {}),
@@ -232,19 +233,24 @@ async function readAll(host: Pick<HostClient, "call">, handle: string): Promise<
   return Buffer.concat(parts).toString("utf8");
 }
 
-/** Well-known secret refs the host binds for opencode ACP; names only, never values. */
+/** Well-known secret refs the host binds for opencode ACP / Codex; names only, never values. */
 const ASK_GRANT_REF = "secrets:assistantAskGrant";
 
 async function run(host: Pick<HostClient, "call">, configRef: string | undefined, c: AskCommand): Promise<{ code: number; timedOut: boolean; stdout: string }> {
   const claude = c.argv[0] === "claude";
   const acp = c.argv[0] === "opencode" && c.argv[1] === "acp";
-  const env = claude || !configRef
+  const codex = c.argv[0] === "codex";
+  const env = claude
     ? { ...c.env }
-    : {
-        ...c.env,
-        OPENCODE_CONFIG_CONTENT: { secretRef: configRef },
-        ...(acp ? { PACER_ASSISTANT_GRANT: { secretRef: ASK_GRANT_REF } } : {}),
-      };
+    : codex
+      ? { ...c.env, PACER_ASSISTANT_GRANT: { secretRef: ASK_GRANT_REF } }
+      : !configRef
+        ? { ...c.env }
+        : {
+            ...c.env,
+            OPENCODE_CONFIG_CONTENT: { secretRef: configRef },
+            ...(acp ? { PACER_ASSISTANT_GRANT: { secretRef: ASK_GRANT_REF } } : {}),
+          };
   const result = await host.call<SpawnResult>("capability.process.spawn", {
     argv: c.argv, cwd: c.cwd, stdin: c.stdin, timeoutMs: c.timeoutMs, env,
   });
@@ -261,7 +267,7 @@ function parseAsk(command: AskCommand, stdout: string): RunOutcome {
     if (!expect) throw new PluginError("plugin_refused", "The claude ask-mode command was missing its expected init surface.");
     return parseClaudeRun(stdout, expect);
   }
-  // opencode acp (and legacy run fixtures): parseRun accepts both ACP JSON and JSONL events.
+  // opencode acp / Codex app-server (and legacy run fixtures): parseRun accepts host JSON and JSONL.
   return parseRun(stdout);
 }
 

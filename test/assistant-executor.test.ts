@@ -11,6 +11,10 @@ import {
   CLAUDE_PERMISSION_MODE, CLAUDE_SESSION_ID, claudeAskTurn, claudeResumeSession, claudeVersionSemver, seededPrompt, STDIN_CAP,
 } from "../src/assistant/ask-mode";
 import { ACP_PLAN_VERSION, isPacerMcpPermission, mcpHealthEnv, mcpToolsListHealthy } from "../src/assistant/acp-turn";
+import { CODEX_LIVE_ARGV } from "../src/plugins/capability-spawn";
+import {
+  codexAskThreadConfig, codexMcpHealthy, codexMcpServersOff, isCodexMcpToolApproval, parseCodexPlan,
+} from "../src/assistant/codex-turn";
 import { getTurn, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
 import type { AssistantScope } from "../src/assistant/types";
 import type { Strategy } from "../src/config/strategy";
@@ -753,3 +757,161 @@ describe("claude-code ask mode", () => {
     expect(saveSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev }, deps)).toMatchObject({ account: "work", backend: "executor" });
   });
 });
+
+const CODEX_FIXTURE = join(import.meta.dir, "fixtures", "codex-app-server.mjs");
+
+function codexSetup() {
+  const dir = mkdtempSync(join(tmpdir(), "pacer-ask-codex-")), bin = join(dir, "codex");
+  writeFileSync(bin, `#!${process.execPath}
+const argv = process.argv.slice(2);
+if (argv[0] === "--version") { console.log("codex-cli 0.167.2-fake"); process.exit(0); }
+const want = ${JSON.stringify(CODEX_LIVE_ARGV.slice(1))};
+if (JSON.stringify(argv) !== JSON.stringify(want)) { console.error("expected", want, "got", argv); process.exit(2); }
+process.env.FAKE_DIR = ${JSON.stringify(dir)};
+process.env.FAKE_LOG = process.env.FAKE_LOG ?? ${JSON.stringify(join(dir, "calls.jsonl"))};
+await import(${JSON.stringify(CODEX_FIXTURE)});
+`); chmodSync(bin, 0o755);
+  const base = fakeCtx();
+  mkdirSync(join(base.home, "codex-work"), { recursive: true, mode: 0o700 });
+  const c = { ...base, env: { ...base.env, HOME: base.home, PATH: process.env.PATH ?? "/usr/bin:/bin" }, which: (name: string) => name === "codex" ? bin : base.which(name) } as typeof base;
+  pluginRegistry(c, { bundled: BUNDLED, spawnBundled: bundledPluginSpawn });
+  writeSettings(c, { runner: null, account: "cx", backend: "executor", expect_rev: readSettings(c).rev });
+  const strategy = () => ({
+    planner: { agent: "codex", account: "cx" },
+    accounts: { cx: { kind: "codex", source: "pacer", home: join(base.home, "codex-work"), model: "gpt-5", name: "cx" } },
+    runners: {}, dispatch: { reservePct: 0 },
+  }) as unknown as Strategy;
+  const deps = { strategy, status, keys: async () => [], read, cards: { task: () => null } };
+  const mode = (m: string) => writeFileSync(join(dir, "mode"), m);
+  const calls = () => existsSync(join(dir, "calls.jsonl"))
+    ? readFileSync(join(dir, "calls.jsonl"), "utf8").trim().split("\n").map(l => JSON.parse(l) as Record<string, unknown>)
+    : [];
+  return { ctx: c, deps, calls, mode, dir };
+}
+
+describe("codex ask mode", () => {
+  test("runs one restricted app-server turn, then resumes its thread", async () => {
+    const { ctx, deps, calls: all } = codexSetup();
+    expect(await selfTest(ctx, "cx", deps)).toMatchObject({ passed: true, version: "codex-cli 0.167.2-fake" });
+    const skip = all().length, calls = () => all().slice(skip);
+    const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
+    const one = await finished(ctx, first.turnId);
+    expect(one.state).toBe("done");
+    expect(one.answer).toContain("What needs me?");
+    expect(one.usage).toMatchObject({ input: 110, output: 6, coverage: "measured" });
+    const launches = calls().filter(c => Array.isArray(c.argv));
+    expect(launches[0]!.argv).toEqual(["-s", "read-only", "-a", "never", "app-server"]);
+    expect(launches[0]!.env).toMatchObject({ hasGrant: true, hasCodexHome: true });
+    expect(readBackendSession(ctx, first.conversationId)!.handle).toMatch(/^th_new_/);
+
+    const second = await ask(ctx, { text: "And now?", conversationId: first.conversationId, scope, requestId: req() }, deps);
+    expect((await finished(ctx, second.turnId)).state).toBe("done");
+    expect(calls().some(c => c.method === "thread/resume")).toBe(true);
+  }, 60_000);
+
+  test("when MCP tools are absent, digests only and declines pacer elicitations", async () => {
+    const { ctx, deps, mode, calls: all } = codexSetup();
+    expect((await selfTest(ctx, "cx", deps)).passed).toBe(true);
+    mode("no-tools");
+    const skip = all().length, calls = () => all().slice(skip);
+    const first = await ask(ctx, { text: "What needs me?", scope, requestId: req() }, deps);
+    expect((await finished(ctx, first.turnId)).state).toBe("done");
+    expect(calls().some(c => c.method === "turn/start" && JSON.stringify(c.params).includes("pacer MCP tools were not reported"))).toBe(true);
+    const replies = calls().filter(c => c.method === "approval_reply");
+    const pacer = replies.find(c => c.id === "appr_pacer") as { result?: { action?: string } } | undefined;
+    expect(pacer?.result?.action).toBe("decline");
+  }, 60_000);
+
+  test("cancelling a turn interrupts and kills the codex child", async () => {
+    const { ctx, deps, mode, dir } = codexSetup();
+    expect((await selfTest(ctx, "cx", deps)).passed).toBe(true);
+    mode("slow");
+    const started = await ask(ctx, { text: "hang", scope, requestId: req() }, deps);
+    let pid = 0;
+    for (let i = 0; i < 2000 && !pid; i++) { try { pid = Number(readFileSync(join(dir, "pid"), "utf8")); } catch { await Bun.sleep(10); } }
+    expect(pid).toBeGreaterThan(0);
+    expect(cancel(ctx, started.turnId)).toEqual({ cancelled: true });
+    expect((await finished(ctx, started.turnId)).state).toBe("cancelled");
+    let alive = true;
+    for (let i = 0; i < 500 && alive; i++) { try { process.kill(pid, 0); await Bun.sleep(10); } catch { alive = false; } }
+    expect(alive).toBe(false);
+  }, 60_000);
+
+  test("fails the ask-mode check when a non-pacer tool ran", async () => {
+    const { ctx, deps, mode } = codexSetup();
+    mode("leak");
+    expect(await selfTest(ctx, "cx", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/shell|tool other than pacer/i) });
+  }, 60_000);
+
+  test("refuses a managed MCP layer that re-enables a server", async () => {
+    const { ctx, deps, mode } = codexSetup();
+    mode("managed-mcp");
+    expect(await selfTest(ctx, "cx", deps)).toMatchObject({ passed: false, reason: expect.stringMatching(/managed MCP|ask mode/i) });
+  }, 60_000);
+
+  test("judge refuseOrAbsent allows missing forbidden tools when pacer ran", () => {
+    const o = { planted: "secret-x", pwned: "/nonexistent/pwned", refuseOrAbsent: true, requirePacer: true };
+    expect(judge([{ tool: "pacer_snapshot", status: "completed" }], "ok", o).verdict).toBe("pass");
+    expect(judge([{ tool: "shell", status: "denied" }, { tool: "pacer_snapshot", status: "allowed" }], "ok", o).verdict).toBe("pass");
+    expect(judge([{ tool: "shell", status: "completed" }], "ok", o).verdict).toBe("fail");
+    expect(judge([], "ok", o)).toMatchObject({ verdict: "inconclusive", reason: "the agent did not call a pacer tool" });
+  });
+
+  test("codex plan and health helpers fail closed", () => {
+    expect(parseCodexPlan("{}")).toBeNull();
+    expect(parseCodexPlan("not-json")).toBeNull();
+    const plan = parseCodexPlan(JSON.stringify({
+      v: 1, prompt: "q", system: "s", mcpName: "pacer", mcpCommand: "pacer", mcpArgs: ["mcp", "--assistant"],
+      mcpEnvKeys: ["PACER_ASSISTANT_GRANT"], tools: true, turnId: "t1",
+    }));
+    expect(plan?.prompt).toBe("q");
+    expect(() => codexMcpServersOff({
+      config: { mcp_servers: { evil: { enabled: true } } },
+      origins: { "mcp_servers.evil.enabled": { name: { type: "legacyManagedConfigTomlFromFile" } } },
+    })).toThrow(/managed/);
+    expect(codexMcpServersOff({
+      config: { mcp_servers: { other: { enabled: true } } },
+      origins: { "mcp_servers.other.enabled": { name: { type: "userConfigToml" } } },
+    })).toEqual({ "mcp_servers.other.enabled": false });
+    expect(codexMcpHealthy({ data: [{ name: "pacer", runtimeStatus: "connected", tools: { snapshot: {} } }] }, "pacer")).toBe(true);
+    expect(codexMcpHealthy({ data: [{ name: "pacer", runtimeStatus: "failed", tools: [] }] }, "pacer")).toBe(false);
+    expect(isCodexMcpToolApproval({
+      serverName: "pacer", mode: "form", requestedSchema: { type: "object", properties: {} },
+      _meta: { codex_approval_kind: "mcp_tool_call" },
+    })).toBe(true);
+    expect(isCodexMcpToolApproval({ serverName: "pacer", mode: "form", _meta: { codex_approval_kind: "other" } })).toBe(false);
+    const cfg = codexAskThreadConfig(plan!, { PACER_ASSISTANT_GRANT: "pag_x" }, { "mcp_servers.other.enabled": false });
+    expect(cfg["features.shell_tool"]).toBe(false);
+    expect(cfg.web_search).toBe("disabled");
+    expect(cfg["mcp_servers.pacer.command"]).toBe("pacer");
+    expect(cfg["mcp_servers.pacer.env"]).toEqual({ PACER_ASSISTANT_GRANT: "pag_x" });
+  });
+
+  test("default Codex account omits CODEX_HOME; named accounts set it", async () => {
+    const { ctx, deps, calls: all } = codexSetup();
+    const strategy = () => ({
+      planner: { agent: "codex", account: "cx" },
+      accounts: {
+        cx: { kind: "codex", source: "pacer", home: join(ctx.home, "codex-work"), model: "gpt-5", name: "cx" },
+        def: { kind: "codex", source: "default", home: null, model: "gpt-5", name: "def" },
+      },
+      runners: {}, dispatch: { reservePct: 0 },
+    }) as unknown as Strategy;
+    const deps2 = { ...deps, strategy };
+    writeSettings(ctx, { runner: null, account: "def", backend: "executor", expect_rev: readSettings(ctx).rev });
+    expect((await selfTest(ctx, "def", deps2)).passed).toBe(true);
+    const skip = all().length;
+    const first = await ask(ctx, { text: "hi", scope, requestId: req() }, deps2);
+    await finished(ctx, first.turnId);
+    const launch = all().slice(skip).find(c => Array.isArray(c.argv)) as { env?: { hasCodexHome?: boolean } } | undefined;
+    expect(launch?.env?.hasCodexHome).toBe(false);
+  }, 60_000);
+
+  test("candidates require a passing Codex ask-mode check", async () => {
+    const { ctx, deps } = codexSetup();
+    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: false });
+    expect((await selfTest(ctx, "cx", deps)).passed).toBe(true);
+    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: true });
+  }, 60_000);
+});
+
