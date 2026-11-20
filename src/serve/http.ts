@@ -603,6 +603,30 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/desktop-capture" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { captureBridge } = await import("../api/desktop-capture-bridge");
+            return Response.json({ result: await captureBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/desktop-update" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { updateBridge } = await import("../api/desktop-update-bridge");
+            return Response.json({ result: await updateBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");
