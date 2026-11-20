@@ -36253,6 +36253,79 @@
       }
     },
     {
+      "name": "reactive-limit-mark",
+      "input": {
+        "now": 1798000000,
+        "scope": {
+          "account": "quota",
+          "identity": "user",
+          "runner": "codex#quota@local"
+        },
+        "usage": "reactive",
+        "allowPaid": false,
+        "evidence": {
+          "facts": {
+            "availability": [
+              {
+                "id": "availability-expired",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "execution",
+                "observedAt": 1797460000,
+                "validUntil": 1797467200,
+                "reason": "execution_success",
+                "value": "ready"
+              }
+            ],
+            "budget": [
+              {
+                "id": "limit-mark",
+                "scope": {
+                  "account": "quota",
+                  "identity": "user",
+                  "runner": "codex#quota@local"
+                },
+                "source": "execution",
+                "observedAt": 1797755200,
+                "validUntil": 1798010800,
+                "reason": "quota_failure",
+                "value": {
+                  "name": "limit",
+                  "usedPct": 100,
+                  "resetsAt": 1798010800,
+                  "lengthS": 21600,
+                  "paced": false
+                }
+              }
+            ],
+            "spending": []
+          },
+          "conflicts": []
+        },
+        "restrictions": []
+      },
+      "output": {
+        "state": "ineligible",
+        "reasons": [
+          {
+            "code": "budget_exhausted",
+            "evidenceIds": [
+              "limit-mark"
+            ]
+          }
+        ],
+        "evaluatedAt": 1798000000,
+        "validUntil": 1798010800,
+        "evidenceAgeS": 244800,
+        "availability": "unknown",
+        "budget": "exhausted",
+        "spendingRisk": "unknown"
+      }
+    },
+    {
       "name": "unmetered",
       "input": {
         "now": 1798000000,

@@ -63,7 +63,7 @@ test("exhausted, not installed and paid-overflow rules exclude with reasons", ()
   s.codex = st("codex", "EXHAUSTED", { used: 100, pace: 30 });
   s.cursor = { ...st("cursor", "OK"), installed: false };
   const r = rankExecutors(null, strategy(), s);
-  expect(r.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "Budget exhausted; paid execution is not allowed" }));
+  expect(r.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "Budget exhausted; paid overflow is off (allow_paid: false)" }));
   expect(r.excluded).toContainEqual(expect.objectContaining({ id: "cursor", account: "cursor", reason: "not installed" }));
   s.codex.eligibility = { ...eligibility(), budget: "exhausted" };
   const paid = rankExecutors(null, strategy("even", { codex: { allow_paid: true } }), s);
@@ -116,7 +116,7 @@ test("priority: exhausted providers are excluded", () => {
   statuses.codex = st("codex", "EXHAUSTED");
   const r = rankExecutors(null, priorityStrategy(), statuses);
   expect(r.ranked.map((e) => e.id)).toEqual(["cursor", "agy", "opencode#byteplus", "opencode#local"]);
-  expect(r.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "Budget exhausted; paid execution is not allowed" }));
+  expect(r.excluded).toContainEqual(expect.objectContaining({ id: "codex", account: "codex", reason: "Budget exhausted; paid overflow is off (allow_paid: false)" }));
 });
 
 test("priority: EXPIRING goes first", () => {

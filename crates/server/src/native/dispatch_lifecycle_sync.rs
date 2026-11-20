@@ -17,6 +17,7 @@ pub(crate) fn dispatch_lifecycle_stays_forwarded(ctx: &Ctx, op: &str, params: &V
 pub(crate) fn forwards_undecodable_body(op: &str) -> bool {
     op == "config.set"
         || lifecycle_ops::LIFECYCLE_OPS.contains(&op)
+        || pacer_task_ops::session_lifecycle_ops::uses_admission(op)
         || pacer_task_ops::task_delegation_ops::is_delegation_op(op)
         || crate::native::client_ops::is_client_op(op)
         || crate::native::terminal_ops::uses_bridge(op)

@@ -96,7 +96,22 @@ async fn list_composes_blocks_breaks_and_eligibility() {
     let rows = list(parts).await.unwrap();
     assert_eq!(
         rows,
-        json!([{"id":"codex","eligibility":{"state":"ineligible","budget":"exhausted","validUntil":5,"reasons":[{"code":"budget_exhausted"},{"code":"x"}]},"state":"exhausted","until":5,"reason":"Budget exhausted; paid execution is not allowed; Execution evidence needs attention"}])
+        json!([{"id":"codex","eligibility":{"state":"ineligible","budget":"exhausted","validUntil":5,"reasons":[{"code":"budget_exhausted"},{"code":"x"}]},"state":"exhausted","until":5,"reason":"Budget exhausted; paid overflow is off (allow_paid: false); Execution evidence needs attention"}])
+    );
+    // The quota row ends at its latest exhausted reset; budget exhaustion without the reason is not a quota limit.
+    let parts = json!({"providers":[{"id":"codex","windows":[{"usedPct":100,"resetsAt":900,"stale":false},{"usedPct":100,"resetsAt":9000,"stale":true},{"usedPct":40,"resetsAt":99999}],
+        "eligibility":{"state":"ineligible","budget":"exhausted","validUntil":5,"reasons":[{"code":"budget_exhausted"}]}}]});
+    let rows = list(parts).await.unwrap();
+    assert_eq!(
+        (rows[0]["state"].clone(), rows[0]["until"].as_f64()),
+        (json!("exhausted"), Some(900.0))
+    );
+    let parts = json!({"providers":[{"id":"codex","windows":[{"usedPct":100,"resetsAt":900}],
+        "eligibility":{"state":"ineligible","budget":"exhausted","validUntil":5,"reasons":[{"code":"signed_out"}]}}]});
+    let rows = list(parts).await.unwrap();
+    assert_eq!(
+        (rows[0]["state"].clone(), rows[0]["until"].clone()),
+        (json!("broken"), json!(5))
     );
     let rows = list(json!({"providers":[]})).await.unwrap();
     assert_eq!(

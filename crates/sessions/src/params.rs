@@ -13,21 +13,18 @@ pub fn valid_session_id(id: &str) -> bool {
     valid_task_id(id)
 }
 
-/// `draftId` / `attachmentId` (Zod uuid pattern with nil/max sentinels).
+/// `draftId` / `attachmentId` (Zod `z.string().uuid()`: strict 8-4-4-4-12 with
+/// version nibble `1-8`, variant nibble `8|9|a|b`, and nil/max sentinels).
 pub fn valid_draft_uuid(text: &str) -> bool {
     if text.len() != 36 {
         return false;
     }
-    if ![8, 13, 18, 23]
-        .iter()
-        .all(|index| text.as_bytes()[*index] == b'-')
-    {
-        return false;
-    }
-    if !text
-        .bytes()
-        .all(|byte| byte == b'-' || byte.is_ascii_hexdigit())
-    {
+    // Exactly four hyphens, at the canonical group boundaries only; a sixth
+    // group (e.g. `-…-a456-4266-4174000`) must be rejected like Zod.
+    if !text.bytes().enumerate().all(|(index, byte)| match byte {
+        b'-' => matches!(index, 8 | 13 | 18 | 23),
+        _ => byte.is_ascii_hexdigit(),
+    }) {
         return false;
     }
     if text == "00000000-0000-0000-0000-000000000000"
@@ -45,19 +42,13 @@ pub fn valid_agent_uuid(text: &str) -> bool {
     if text.len() != 36 {
         return false;
     }
-    if ![8, 13, 18, 23]
-        .iter()
-        .all(|index| text.as_bytes()[*index] == b'-')
-    {
+    if !text.bytes().enumerate().all(|(index, byte)| match byte {
+        b'-' => matches!(index, 8 | 13 | 18 | 23),
+        _ => byte.is_ascii_hexdigit(),
+    }) {
         return false;
     }
     let bytes = text.as_bytes();
-    if !bytes
-        .iter()
-        .all(|byte| byte.is_ascii_hexdigit() || *byte == b'-')
-    {
-        return false;
-    }
     matches!(bytes[19].to_ascii_lowercase(), b'8' | b'9' | b'a' | b'b')
 }
 

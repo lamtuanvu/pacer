@@ -371,6 +371,11 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::session_lifecycle_stays_forwarded(
+                    &ctx.at_now(),
+                    op.name,
+                    &params,
+                )
                 && !crate::native::client_stays_forwarded(&ctx.at_now(), op.name)
                 && !crate::native::terminal_stays_forwarded(&ctx.at_now(), op.name, &params)
             {
@@ -456,6 +461,25 @@ async fn forward_input<
                     }
                     if let Some(id) = id {
                         write_line(out, &rpc_line(&id, result)?).await?;
+                    }
+                    continue;
+                }
+                if crate::native::session_lifecycle_ops::uses_admission(op.name) {
+                    use crate::native::session_lifecycle_ops::{Admission, admit};
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    // An admitted request is forwarded unchanged: the Core child answers
+                    // forwarded requests concurrently, and a session start can take minutes.
+                    let result = match admit(&request_ctx, op.name, &params) {
+                        Ok(Admission::Core) => {
+                            core.write_all(&line).await?;
+                            core.flush().await?;
+                            continue;
+                        }
+                        Ok(Admission::Native(reply)) => Ok(reply),
+                        Err(error) => Err(error),
+                    };
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
                     }
                     continue;
                 }

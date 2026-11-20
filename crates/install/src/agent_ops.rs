@@ -175,10 +175,7 @@ fn schema(op: &str, params: &Value) -> Result<(), CoreError> {
     let mut issues = Vec::new();
     match map.get("agent") {
         Some(Value::String(agent)) if AGENTS.contains(&agent.as_str()) => {}
-        _ => issues.push(
-            "agent: Invalid option: expected one of \"claude-code\"|\"codex\"|\"cursor\"|\"opencode\""
-                .to_string(),
-        ),
+        _ => issues.push("agent: Invalid option: expected one of \"claude-code\"|\"codex\"|\"cursor\"|\"opencode\"".to_string()),
     }
     if op == "agent.connect" || op == "agent.undo" {
         if let Some(value) = map.get("consent")

@@ -383,10 +383,8 @@ pub async fn runner_list(
     let rows = executor_ids(&strategy)
         .into_iter()
         .map(|id| {
-            let eligibility = providers
-                .iter()
-                .find(|p| p["id"] == id.as_str())
-                .and_then(|p| p.get("eligibility"));
+            let provider = providers.iter().find(|p| p["id"] == id.as_str());
+            let eligibility = provider.and_then(|p| p.get("eligibility"));
             if let Some(block) = blocked.get(&id) {
                 return row(
                     &id,
@@ -407,16 +405,30 @@ pub async fn runner_list(
             }
             match eligibility {
                 Some(e) if e["state"] == "ineligible" => {
-                    let state = if e["budget"] == "exhausted" {
-                        "exhausted"
-                    } else {
-                        "broken"
-                    };
+                    let quota = e["reasons"]
+                        .as_array()
+                        .is_some_and(|r| r.iter().any(|r| r["code"] == "budget_exhausted"));
+                    // The limit lasts until its last exhausted window resets, not the earliest fact deadline.
+                    let reset = provider
+                        .and_then(|p| p["windows"].as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter(|w| {
+                            w["stale"] != true && w["usedPct"].as_f64().is_some_and(|u| u >= 97.0)
+                        })
+                        .map(|w| &w["resetsAt"])
+                        .filter(|v| v.is_number())
+                        .max_by(|a, b| {
+                            a.as_f64()
+                                .unwrap_or(0.0)
+                                .total_cmp(&b.as_f64().unwrap_or(0.0))
+                        });
+                    let until = if quota { reset } else { None }.or(e.get("validUntil"));
                     row(
                         &id,
                         Some(e),
-                        state,
-                        e.get("validUntil"),
+                        if quota { "exhausted" } else { "broken" },
+                        until,
                         json!(eligibility_detail(e)),
                     )
                 }

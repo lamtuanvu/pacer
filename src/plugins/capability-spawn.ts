@@ -46,7 +46,7 @@ export function minimalEnvironment(env: Readonly<Record<string, string | undefin
   const base=["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"];
   const extra=executable==="notify-send"?["DBUS_SESSION_BUS_ADDRESS","DISPLAY","WAYLAND_DISPLAY","XDG_RUNTIME_DIR"]
     :executable==="arkcli"?[...NETWORK_ENV,...ARK_ENV]
-    :executable==="opencode"?[...NETWORK_ENV]:[];
+    :executable==="opencode"||executable==="claude"?[...NETWORK_ENV]:[];
   return Object.fromEntries([...base,...extra]
     .flatMap(key => typeof env[key] === "string" ? [[key, env[key]]] : []));
 }

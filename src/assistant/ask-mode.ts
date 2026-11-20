@@ -1,18 +1,25 @@
-import { mkdirSync, rmSync } from "node:fs";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, rmSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import type { AccountCfg } from "../config/accounts";
+import { defaultAccountFolder } from "../exec/account-folder";
+import { accountFolder } from "../install/role";
 import { DEFAULT_PORT } from "../serve/constants";
 import { pacerArgv } from "../install/self";
 import { minimalEnvironment } from "../plugins/capability-spawn";
 import type { Ctx } from "../types";
 
 /**
- * Ask mode for the executor backend (spec §3): one `opencode run` per turn, restricted to pacer's
- * own tools. The host builds every command and the config that carries the turn's grant; the
- * plugin only runs a command it was issued and reads its output, so the grant never reaches it.
+ * Ask mode for the executor backend (spec §3): one restricted agent-CLI turn per message. The host
+ * builds every command (and, for opencode, the config that carries the turn's grant); the plugin
+ * only runs a command it was issued and reads its output, so the grant never reaches it.
  */
 
-/** The reference the plugin passes for the config; the host resolves it when the command runs. */
+/** The reference the plugin passes for the opencode config; the host resolves it when the command runs. */
 export const ASK_CONFIG_REF = "secrets:assistantAskConfig";
+
+/** Which agent CLI ask mode drives for an account. */
+export type AskAdapter = "opencode" | "claude-code";
 
 /**
  * How ask mode restricts opencode (verified against opencode 2.2.3 with a real model):
@@ -25,6 +32,38 @@ export const ASK_CONFIG_REF = "secrets:assistantAskConfig";
  */
 export const ASK_REMOVED = ["execute"] as const;
 
+/**
+ * How ask mode restricts Claude Code (verified against claude 2.1.281 `--help`, read-only):
+ * - `--tools ''` disables every built-in tool (digest-only v1).
+ * - `--disallowedTools` names dangerous ones as a second belt (widened beyond the common edit/shell set).
+ * - `--strict-mcp-config` with an empty `--mcp-config` loads no MCP servers.
+ * - `--setting-sources ''` loads no user/project/local settings; `--safe-mode` also disables CLAUDE.md,
+ *   skills, installed plugins, hooks, MCP, custom agents and related customizations (not `--bare`,
+ *   which would block OAuth/keychain sign-in). `--disable-slash-commands` drops skills entry points.
+ * - An empty `CLAUDE.md` is written into the conversation cwd so the built-in `agents-md` plugin
+ *   (still listed under `--safe-mode`) stops walking ancestors for `AGENTS.md` and does not inject
+ *   those files into the digest-only context. Safe mode still keeps CLAUDE.md itself out of the prompt.
+ * - `--permission-mode dontAsk` denies anything not pre-allowed (there is no allow rule);
+ *   `--permission-prompts none` denies anything that would ask.
+ * - `--include-hook-events` surfaces hook lifecycle events so a turn can fail closed if any appear.
+ * Continuity uses `--resume=<uuid>` only when the stored handle is a UUID; otherwise the seeded
+ * transcript fallback runs. Sign-in stays in the account's own `CLAUDE_CONFIG_DIR` / home; pacer
+ * never copies or reads credentials.
+ */
+export const CLAUDE_ASK_DISALLOWED = [
+  "Bash", "PowerShell", "REPL", "Read", "Write", "Edit", "MultiEdit", "Glob", "Grep",
+  "WebFetch", "WebSearch", "Agent", "Task", "Skill", "ToolSearch", "NotebookEdit", "NotebookRead",
+  "BashOutput", "LSP", "Monitor", "ListMcpResourcesTool", "ReadMcpResourceTool",
+] as const;
+export const CLAUDE_EMPTY_MCP = '{"mcpServers":{}}';
+/** Claude Code session ids are UUIDs; anything else must not reach `--resume` (SEC-5). */
+export const CLAUDE_SESSION_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+export const CLAUDE_PERMISSION_MODE = "dontAsk";
+/** Env key carrying the CLI version the stream-json init event must match (host-side expect). */
+export const CLAUDE_EXPECT_VERSION_ENV = "CLAUDE_CODE_EXPECT_VERSION";
+/** First semver-like token in `claude --version` (e.g. `2.1.281` from `2.1.281 (Claude Code)`). */
+export const CLAUDE_VERSION_SEMVER = /(\d+\.\d+\.\d+\S*)/;
+
 /** One host-issued command, as the plugin must echo it to `capability.process.spawn`. */
 export interface AskCommand {
   argv: string[];
@@ -35,11 +74,12 @@ export interface AskCommand {
 }
 
 export interface AskTurn {
+  adapter: AskAdapter;
   /** Resumes `session` when one is stored for this account and backend, else starts one. */
   command: AskCommand;
   /** A new session seeded with the transcript, for when resuming fails. Absent without a session. */
   fallback?: AskCommand;
-  /** The rendered opencode config, bound to `ASK_CONFIG_REF` for this call only. */
+  /** The rendered opencode config, bound to `ASK_CONFIG_REF` for this call only. Empty for claude-code. */
   config: string;
   /** Delete the turn's run directory. */
   cleanup: () => void;
@@ -118,6 +158,40 @@ export function seededPrompt(history: readonly { role: "user" | "assistant"; con
 /** The spawn capability's stdin limit. */
 export const STDIN_CAP = 262144;
 
+/** Which ask-mode adapter an account uses, or null when the executor backend cannot drive it. */
+export function askAdapterFor(ctx: Ctx, account: AccountCfg): AskAdapter | null {
+  if (account.kind === "endpoint") return "opencode";
+  if (account.kind === "claude") return claudeAskConfigDir(ctx, account) ? "claude-code" : null;
+  return null;
+}
+
+/** Bare semver from a `claude --version` line (`2.1.281` from `2.1.281 (Claude Code)`), or null. */
+export function claudeVersionSemver(line: string): string | null {
+  const m = line.trim().match(CLAUDE_VERSION_SEMVER);
+  return m?.[1] ?? null;
+}
+
+/**
+ * The installed `claude` CLI's bare version (for the self-test record, expect env and init compare).
+ * `claude --version` prints e.g. `2.1.281 (Claude Code)` while init's `claude_code_version` is `2.1.281`.
+ */
+export function claudeCliVersion(ctx: Ctx): string | null {
+  const bin = ctx.which("claude");
+  if (!bin) return null;
+  const run = spawnSync(bin, ["--version"], { timeout: 10_000, encoding: "utf8", env: { HOME: ctx.home, PATH: ctx.env.PATH ?? "/usr/bin:/bin" } });
+  const line = run.status === 0 ? run.stdout.trim().split("\n")[0]!.trim() : "";
+  return line ? claudeVersionSemver(line) : null;
+}
+
+function conversationDirs(ctx: Ctx, turnId: string, conversationId: string) {
+  const runDir = join(ctx.pacerHome, "runs", "assistant", turnId);
+  const cwd = join(ctx.pacerHome, "runs", "assistant", "conversations", conversationId);
+  rmSync(runDir, { recursive: true, force: true });
+  mkdirSync(runDir, { recursive: true, mode: 0o700 });
+  mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  return { runDir, cwd };
+}
+
 /** Build one turn's commands: a per-turn config directory and the conversation's empty working directory. */
 export function askTurn(ctx: Ctx, o: {
   turnId: string; conversationId: string; grant: string; model: string | null; session?: string;
@@ -125,11 +199,7 @@ export function askTurn(ctx: Ctx, o: {
 }): AskTurn {
   // opencode binds a session to its working directory, so each conversation keeps one empty
   // directory to resume in; the turn's own directory holds its isolated config and is deleted after.
-  const runDir = join(ctx.pacerHome, "runs", "assistant", o.turnId);
-  const cwd = join(ctx.pacerHome, "runs", "assistant", "conversations", o.conversationId);
-  rmSync(runDir, { recursive: true, force: true });
-  mkdirSync(runDir, { recursive: true, mode: 0o700 });
-  mkdirSync(cwd, { recursive: true, mode: 0o700 });
+  const { runDir, cwd } = conversationDirs(ctx, o.turnId, o.conversationId);
   const config = askConfig({ pacer: pacerArgv(ctx.env), grant: o.grant, url: serviceUrl(ctx), turnId: o.turnId, runDir, system: o.system });
   // Only configuration is isolated: HOME and XDG_DATA_HOME stay the user's, so opencode finds its
   // own sign-in for the account and pacer never reads or copies the key.
@@ -144,5 +214,84 @@ export function askTurn(ctx: Ctx, o: {
     ...(o.model ? ["--model", o.model] : []), ...(session ? ["--session", session] : ["--title", "pacer assistant"])];
   const command: AskCommand = { argv: argv(o.session), cwd, env, stdin: o.session ? o.question : seededPrompt(o.history, o.question), timeoutMs: o.timeoutMs };
   const fallback: AskCommand | undefined = o.session ? { ...command, argv: argv(), stdin: seededPrompt(o.history, o.question) } : undefined;
-  return { command, ...(fallback ? { fallback } : {}), config, cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
+  return { adapter: "opencode", command, ...(fallback ? { fallback } : {}), config, cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
+}
+
+/**
+ * The account's Claude config folder for ask mode: its own home, never copied credentials.
+ * A non-default account without a folder returns null (never falls back to the default account).
+ */
+export function claudeAskConfigDir(ctx: Ctx, account: AccountCfg): string | null {
+  if (account.source === "default") return defaultAccountFolder(ctx, "claude");
+  return accountFolder(ctx, account);
+}
+
+/** Accept only a Claude session UUID for `--resume=<id>`; anything else is dropped (SEC-5). */
+export function claudeResumeSession(session: string | undefined): string | undefined {
+  return session && CLAUDE_SESSION_ID.test(session) ? session : undefined;
+}
+
+/**
+ * One `claude -p` turn in digest-only ask mode. Flags match the installed CLI's `--help`
+ * (tools empty, empty MCP under --strict-mcp-config, safe-mode, dontAsk permission mode).
+ * The system prompt (with digest) and the user/seeded question stay off argv: the protocol caps
+ * each argv element at 4096 bytes, so the system text is a file under the turn's run directory
+ * (`--system-prompt-file`) and the question rides stdin.
+ */
+export function claudeAskTurn(ctx: Ctx, o: {
+  turnId: string; conversationId: string; account: AccountCfg; model: string | null; session?: string;
+  system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
+}): AskTurn {
+  const configDir = claudeAskConfigDir(ctx, o.account);
+  if (!configDir) throw new Error(`${o.account.name ?? "account"} has no Claude config directory.`);
+  const version = claudeCliVersion(ctx);
+  if (!version) throw new Error("claude is not installed or did not report its version");
+  const { runDir, cwd } = conversationDirs(ctx, o.turnId, o.conversationId);
+  // Sentinel: agents-md@builtin skips AGENTS.md ancestors when any CLAUDE.md is on the walk.
+  writeFileSync(join(cwd, "CLAUDE.md"), "", { mode: 0o600 });
+  const systemFile = join(runDir, "system.txt");
+  writeFileSync(systemFile, o.system, { mode: 0o600 });
+  const env: Record<string, string> = {
+    ...minimalEnvironment(ctx.env, "claude"),
+    // The default account keeps Claude's own default folder through HOME: naming it explicitly
+    // makes Claude Code look up a different Keychain credential and report "Not logged in".
+    ...(o.account.source === "default" ? {} : { CLAUDE_CONFIG_DIR: configDir }),
+    [CLAUDE_EXPECT_VERSION_ENV]: version,
+  };
+  const session = claudeResumeSession(o.session);
+  const prompt = (resume?: string) => resume ? o.question : seededPrompt(o.history, o.question);
+  // Restriction flags only on argv; large text never becomes an argv element (protocol max 4096).
+  const argv = (resume?: string) => [
+    "claude", "-p",
+    "--output-format", "stream-json",
+    "--verbose",
+    "--include-hook-events",
+    "--tools", "",
+    "--disallowedTools", CLAUDE_ASK_DISALLOWED.join(","),
+    "--strict-mcp-config",
+    "--mcp-config", CLAUDE_EMPTY_MCP,
+    "--setting-sources", "",
+    "--safe-mode",
+    "--disable-slash-commands",
+    "--permission-mode", CLAUDE_PERMISSION_MODE,
+    "--permission-prompts", "none",
+    "--system-prompt-file", systemFile,
+    ...(o.model ? ["--model", o.model] : []),
+    ...(resume ? [`--resume=${resume}`] : []),
+  ];
+  const command: AskCommand = { argv: argv(session), cwd, env, stdin: prompt(session), timeoutMs: o.timeoutMs };
+  const fallback: AskCommand | undefined = session
+    ? { argv: argv(), cwd, env, stdin: prompt(), timeoutMs: o.timeoutMs }
+    : undefined;
+  return { adapter: "claude-code", command, ...(fallback ? { fallback } : {}), config: "", cleanup: () => rmSync(runDir, { recursive: true, force: true }) };
+}
+
+/** Build the ask-mode turn for the account's adapter. */
+export function askTurnFor(ctx: Ctx, account: AccountCfg, o: {
+  turnId: string; conversationId: string; grant: string; model: string | null; session?: string;
+  system: string; question: string; history: readonly { role: "user" | "assistant"; content: string }[]; timeoutMs: number;
+}): AskTurn {
+  const adapter = askAdapterFor(ctx, account);
+  if (adapter === "claude-code") return claudeAskTurn(ctx, { ...o, account });
+  return askTurn(ctx, o);
 }
