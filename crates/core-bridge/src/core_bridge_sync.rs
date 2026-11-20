@@ -23,6 +23,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("/_internal/setup-check"),
         "setup.effects" => Ok("/_internal/setup-effects"),
+        "client.control" => Ok("/_internal/client-control"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("/_internal/setup-doctor"),
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
@@ -35,6 +36,7 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
     match op {
         "setup.check" => Ok("_internal.setup.check"),
         "setup.effects" => Ok("_internal.setup.effects"),
+        "client.control" => Ok("_internal.client-control"),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok("_internal.setup.doctor"),
         "host.effects" => Ok("_internal.host.effects"),
         _ => Err(unavailable("core bridge unavailable")),
@@ -67,9 +69,8 @@ fn bridge_deadline() -> std::time::Duration {
 pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
     match op {
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects" => {
-            Ok(params.clone())
-        }
+        "setup.check" | "setup.effects" | "client.control" | "service.effects"
+        | "update.effects" | "host.effects" => Ok(params.clone()),
         _ => Err(unavailable("core bridge unavailable")),
     }
 }

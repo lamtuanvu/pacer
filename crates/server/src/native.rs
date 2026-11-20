@@ -11,6 +11,7 @@ use pacer_account_ops::account_list_ops;
 use pacer_config_ops::config_writes;
 use pacer_config_ops::doctor_ops;
 use pacer_config_ops::executor_setup_ops;
+pub(crate) use pacer_core_bridge::client_control_sync;
 pub(crate) use pacer_core_bridge::config_host_sync;
 pub(crate) use pacer_core_bridge::config_sync;
 pub(crate) use pacer_core_bridge::core_bridge_sync;
@@ -42,6 +43,8 @@ use pacer_task_ops::job_ops;
 use pacer_update::handover;
 pub(crate) mod install_apply_sync;
 use pacer_install::install_ops;
+pub(crate) use pacer_machine_ops::client_ops;
+pub use pacer_machine_ops::client_ops::client_stays_forwarded;
 use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
@@ -225,6 +228,42 @@ fn discovery_network_set(ctx: &Ctx, params: Value) -> pacer_foundation::api::OpF
 }
 
 static OPS: &[NativeOp] = &[
+    NativeOp {
+        name: "client.register",
+        call: client_ops::client_register,
+    },
+    NativeOp {
+        name: "client.heartbeat",
+        call: client_ops::client_heartbeat,
+    },
+    NativeOp {
+        name: "client.list",
+        call: client_ops::client_list,
+    },
+    NativeOp {
+        name: "client.control.enroll",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.targets",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.request",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.result",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.claim",
+        call: client_ops::control_stub,
+    },
+    NativeOp {
+        name: "client.control.complete",
+        call: client_ops::control_stub,
+    },
     NativeOp {
         name: "strategy.list",
         call: config_writes::strategy_list,

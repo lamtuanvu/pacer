@@ -371,8 +371,30 @@ async fn forward_input<
                     &params,
                 )
                 && !crate::native::dispatch_preview_stays_forwarded(&ctx.at_now(), op.name, &params)
+                && !crate::native::client_stays_forwarded(&ctx.at_now(), op.name)
             {
                 let request_ctx = ctx.at_now();
+                if crate::native::client_ops::is_client_op(op.name) {
+                    use crate::native::{client_control_sync::StdioBridge, client_ops};
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut bridge = StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = client_ops::call(&request_ctx, op.name, params, &mut bridge).await;
+                    if matches!(&result, Err(error) if error.message == client_ops::FORWARD_TO_CORE)
+                    {
+                        core.write_all(&line).await?;
+                        core.flush().await?;
+                        continue;
+                    }
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::msg_writes::uses_bridge(op.name) {
                     use crate::native::{msg_write_sync, msg_writes};
                     msg_write_sync::trace(op.name, request.get("id"));
