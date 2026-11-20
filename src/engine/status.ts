@@ -77,6 +77,9 @@ export function binaryFor(cfg: ProviderCfg): string {
 
 export { displayName } from "../render/accounts";
 
+/** An account's endpoint row as `computeStatus` probed it: the listing reuses it (ADR 0030). */
+export type EndpointCell = Awaited<ReturnType<typeof endpointRow>> | import("../endpoints/state").EndpointState;
+
 /** The active limit behind the record: the covering mark/fact with the latest end. */
 function pickLimit(facts: { source: import("../evidence/types").Evidence<unknown>["source"]; observedAt: number | null; validUntil: number | null; value: { resetsAt: number | null } }[]): UsageLimit | null {
   const withEnd = facts.filter(f => (f.validUntil ?? f.value.resetsAt) !== null);
@@ -156,7 +159,7 @@ function blockedRunnersOf(accountScope: EvidenceScope, runners: RunnerCfg[], sna
 }
 
 export async function computeStatus(
-  ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; servicePath?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; refreshAccounts?: readonly string[] } = {},
+  ctx: Ctx, s: Strategy, opts: { includePlannerSignIn?: boolean; cacheOnly?: boolean; servicePath?: boolean; profile?: ActivityProfile | null; readings?: Map<string, UsageReading>; endpoints?: Map<string, EndpointCell>; refreshAccounts?: readonly string[] } = {},
 ): Promise<Status & { accounts: AccountStatus[] }> {
   const trace = statusTimer(ctx);
   const warnings = Object.values(s.accounts).filter(a => a.usageSource === "orca")
@@ -176,6 +179,9 @@ export async function computeStatus(
       ?? await readAccountUsage(ctx, account, runners, opts.refreshAccounts?.includes(account.name) ?? false, opts.cacheOnly, s.hosts).catch((e): UsageReading => ({
         windows: [], capturedAt: null, stale: false, error: String(e),
       }));
+    // Callers may reuse what this computation already made: the reading keyed both
+    // by the account name and by its model inventory (ADR 0030's single owner).
+    opts.readings?.set(account.name, reading);
     opts.readings?.set(key, reading);
     const th = {
       ahead: s.pacing.aheadThreshold,
@@ -235,6 +241,8 @@ export async function computeStatus(
     const unlimited = usage === "unmetered" || usage === "reactive" || account.usage === "metered" && account.weeklyUsd === null && account.weeklyTokens === null;
     const verdict: Verdict = usage === "unmetered" && !windows.length ? "UNMETERED" : unlimited && !windows.length ? "OK" : live.length ? binding?.verdict ?? "UNKNOWN" : "UNKNOWN";
     const endpoint = opts.cacheOnly ? (account.connection || account.source === "opencode" ? readEndpointState(ctx, account.name) : {}) : await endpointRow(ctx, account);
+    // The endpoint row the computation probed; account.list reuses it instead of repeating it.
+    opts.endpoints?.set(account.name, endpoint);
     const endpointReason = endpoint.state === "key_missing" ? "Key missing" : endpoint.state === "not_working" ? `Not working · ${endpoint.detail ?? "test task failed"}` : undefined;
     const eligibility = evaluateEligibility({ now: ctx.now, scope, usage, budgetRequired: !unlimited, allowPaid: account.allowPaid,
       evidence: snapshot.evidence, restrictions: [] });

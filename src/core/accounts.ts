@@ -16,12 +16,12 @@ import { accountSignIn } from "../usage/signin";
 import { openInTerminal, type TerminalDeps, type TerminalOptions } from "../terminal/open";
 import { readAccountUsage } from "../usage";
 import { markFreshness } from "../usage/freshness";
-import { computeStatus, type Status } from "../engine/status";
+import { computeStatus, type EndpointCell, type Status } from "../engine/status";
 import { CoreError, toCoreError } from "./errors";
 import { writeEndpointConfig } from "../plugins/endpoint-adapter";
 import { appendActivity } from "../activity/log";
 import { endpointRow } from "../endpoints/row";
-import type { Ctx } from "../types";
+import type { Ctx, UsageReading } from "../types";
 
 /** Load and upgrade settings before editing, retaining an optimistic concurrency snapshot. */
 export function ensureAccounts(ctx: Ctx) {
@@ -132,11 +132,14 @@ function publicValue<T>(value: T): T {
  * `usage` comes from one `computeStatus` for the whole listing (passed in by the caller, or computed here), so the
  * record matches the snapshot and nothing is recomputed per account. Raw readings are diagnostics.
  */
-export async function accountListPart(ctx: Ctx, s: Strategy, orca: Awaited<ReturnType<typeof readOrcaAccounts>>, a: AccountCfg, status?: Status) {
+export async function accountListPart(ctx: Ctx, s: Strategy, orca: Awaited<ReturnType<typeof readOrcaAccounts>>, a: AccountCfg, status?: Status,
+  readings?: Map<string, UsageReading>, endpoints?: Map<string, EndpointCell>) {
   const st = status ?? await computeStatus({...ctx, readOnly: true}, s);
   const runners = Object.values(s.runners).filter(r=>r.account===a.name);
   const identity = a.orcaAccount && (a.kind === "claude" || a.kind === "codex") ? orca?.[a.kind].find(v=>v.id===a.orcaAccount) : undefined;
-  const usageReading = markFreshness(await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts), ctx.now);
+  // Reuse the reading the listing's computeStatus already made; read only when it
+  // was not passed through (ADR 0030: the computation is the single owner).
+  const usageReading = markFreshness(readings?.get(a.name) ?? await readAccountUsage({...ctx,readOnly:true},a,runners,false,false,s.hosts), ctx.now);
   // The same per-runner sign-in derivation the snapshot's account rows use (ADR 0030 D6):
   // local non-planner runners are checked individually. Accounts with no checked local runner
   // (no runners, planner-only, or all remote) keep the account-scope check, which the snapshot
@@ -151,15 +154,18 @@ export async function accountListPart(ctx: Ctx, s: Strategy, orca: Awaited<Retur
     : checked.length ? true
     : accountSignIn(ctx, a, scope).signedIn ?? (accountAuthFailure(ctx, scope) ? false : null);
   return {label: identity?.label, signedIn: signedIn ?? (identity ? true : null), usageReading, usageState: st.accounts?.find(row => row.name === a.name)?.usageState,
-    diagnostics: {readings: [usageReading, ...(usageReading.alternatives ?? [])]}, endpoint: await endpointRow(ctx, a)};
+    diagnostics: {readings: [usageReading, ...(usageReading.alternatives ?? [])]}, endpoint: endpoints?.get(a.name) ?? await endpointRow(ctx, a)};
 }
 export async function list(ctx: Ctx) {
   const s = loadStrategy(ctx);
-  const [orca, status] = await Promise.all([readOrcaAccounts(ctx), computeStatus({...ctx, readOnly: true}, s)]);
+  // One computation per listing: its readings and endpoint rows feed every account row.
+  const readings = new Map<string, UsageReading>();
+  const endpoints = new Map<string, EndpointCell>();
+  const [orca, status] = await Promise.all([readOrcaAccounts(ctx), computeStatus({...ctx, readOnly: true}, s, {readings, endpoints})]);
   const rows = await Promise.all(Object.values(s.accounts).map(async a => {
     const runners = Object.values(s.runners).filter(r=>r.account===a.name);
     const folder = accountFolder(ctx,a);
-    const {label, signedIn, usageReading, usageState, diagnostics, endpoint} = await accountListPart(ctx, s, orca, a, status);
+    const {label, signedIn, usageReading, usageState, diagnostics, endpoint} = await accountListPart(ctx, s, orca, a, status, readings, endpoints);
     // Keep listing order stable when declarations precede inferred runners.
     return {...a, label: label ?? a.name, folder, runners:runners.map(r=>r.id).sort(), executors:runners.map(r=>r.id).sort(),
       ...(s.planner.account === a.name ? {locked: "Planner — can't remove"} : runners.length ? {locked: `In use by ${runners.length} executor(s)`} : {}),
