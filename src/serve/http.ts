@@ -41,6 +41,7 @@ import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { brokerTick } from "../messaging/broker";
+import { callerWake } from "./caller-wake";
 
 import { DEFAULT_PORT } from "./constants";
 import { writeJsonAtomic, sweepAtomicWriteTmps } from "../fsutil";
@@ -916,7 +917,7 @@ export function startServer(
     brokering = true;
     void brokerTick(getCtx(), { spawnRunner: opts.opDeps?.spawnRunner, mode: async () => {
       try { return (await status()).mode; } catch { return undefined; }
-    } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
+    }, callerWake }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
       .finally(() => { brokering = false; });
   };
   if (!bg) brokerTimer = setInterval(broker, 15_000);

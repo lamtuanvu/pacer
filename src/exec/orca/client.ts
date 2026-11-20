@@ -13,7 +13,13 @@ export interface StatusResult {
 }
 export interface RepoRow { id: string; path: string }
 /** `agentIdentity` is the agent Orca sees in the terminal's foreground (`claude`, `codex`), or null for a plain shell. */
-export interface TerminalRow { handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean; preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null }
+export interface TerminalRow {
+  handle: string; incarnationId?: string; exitCause?: { kind: string }; connected?: boolean; writable?: boolean;
+  preview?: string; worktreeId?: string; worktreePath?: string; agentIdentity?: string | null;
+  title?: string | null; lastOutputAt?: number | null;
+  /** Null = Orca looked and found no interactive wait; absent = never evaluated (older host, unreadable pane). */
+  agentWait?: { source?: string; reason?: string } | null;
+}
 export interface RunRow { id: string; coordinator_handle?: string; objective?: string }
 export interface WorkerStartResult {
   runId?: string;
@@ -135,6 +141,10 @@ export class OrcaClient {
   worktreeRemove(id: string, force: boolean) { return this.call<Record<string, unknown>>(["worktree", "rm", "--worktree", `id:${id}`, ...(force ? ["--force"] : [])], 60_000); }
   terminalList(worktree: string) { return this.call<{ terminals?: TerminalRow[]; truncated?: boolean }>(["terminal", "list", "--worktree", worktree]); }
   terminalShow(handle: string) { return this.call<{ terminal?: TerminalRow }>(["terminal", "show", "--terminal", handle]); }
+  /** The bottom `limit` screen rows (`source: "screen"`), which include the prompt box the `show` preview lacks. */
+  terminalScreen(handle: string, limit: number) {
+    return this.call<{ terminal?: { source?: string; tail?: string[] } }>(["terminal", "read", "--terminal", handle, "--screen", "--limit", String(limit)]);
+  }
   terminalClose(handle: string) { return this.call<Record<string, unknown>>(["terminal", "close", "--terminal", handle]); }
   terminalSend(handle: string, text: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--text", text, "--enter"]); }
   terminalEnter(handle: string) { return this.call<Record<string, unknown>>(["terminal", "send", "--terminal", handle, "--enter"]); }

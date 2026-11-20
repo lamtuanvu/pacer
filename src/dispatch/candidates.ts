@@ -1,5 +1,6 @@
 import type { Strategy } from "../config/strategy";
 import type { Candidate, DecisionRequest, DispatchPreview, ModelRecord, Observation, TaskRequirements } from "./types";
+import { EXHAUSTED_PCT } from "../usage/freshness";
 
 export const TIERS = { unknown: -1, small: 0, medium: 1, frontier: 2 };
 export function meetsRequirements(model: ModelRecord, requirements: TaskRequirements): boolean {
@@ -24,7 +25,7 @@ export function buildCandidates(strategy: Strategy, task: DecisionRequest["task"
     const windows = usage.flatMap(o => o.value?.windows ?? []);
     const pools = new Map<string, number>();
     for (const window of windows) pools.set(window.pool, Math.max(pools.get(window.pool) ?? 0, window.usedPct));
-    if ([...pools.values()].some(used => used >= 100)) { reject("Quota exhausted"); continue; }
+    if ([...pools.values()].some(used => used >= EXHAUSTED_PCT)) { reject("Quota exhausted"); continue; }
     const known = health.some(o => o.value?.healthy === true) && usage.length > 0 && (pools.size > 0 || usage.some(o => o.value?.unmetered === true));
     const headroom = known ? (pools.size ? Math.min(...[...pools.values()].map(used => 100 - used)) : 100) : null;
     const burns = windows.filter(w => w.hoursLeft !== undefined).map(w => (100 - w.usedPct) / Math.max(1, w.hoursLeft!));

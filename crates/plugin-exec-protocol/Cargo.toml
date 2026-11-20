@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin-exec-protocol"
-version = "0.2.0"
+version = "0.3.0"
 publish = true
 description = "Generated executor and process capability wire types for the pacer plugin protocol."
 readme = "README.md"

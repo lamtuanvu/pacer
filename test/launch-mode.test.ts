@@ -363,3 +363,23 @@ test("a Codex account routed through OpenCode uses no native Codex version probe
   expect(plan.launch.argv).not.toContain("--dangerously-bypass-hook-trust");
   expect(plan.files.some(f=>f.name==="report-hook.sh")).toBe(false);
 });
+
+test("an OpenCode launch carries the task's chosen model in config, for headless and interactive alike", async () => {
+  const {ctx,task}=setup("opencode","exit 0");
+  mkdirSync(ctx.pacerHome,{recursive:true});
+  // The runner's configured default differs from the model the task chose.
+  writeFileSync(join(ctx.pacerHome,"strategy.yaml"),
+    'planner: claude-code\nproviders:\n  claude-code: {}\n  byteplus: { via: opencode, model: "default/model", usage: unmetered }\n');
+  const cfg={...s.providers.codex,id:"opencode#byteplus",via:"opencode" as const};
+  for (const session of ["headless","interactive"] as const) {
+    const plan=await planOwnedLaunch(ctx,{cfg:{...cfg,model:"chosen/model",session},task,
+      execution:validateExecution(undefined),placement:"current",workdir:task.brief.repo,dir:tmpDir(),brief:"test",repoRoots:[task.brief.repo]});
+    expect("refused" in plan).toBe(false);
+    if ("refused" in plan) throw Error(plan.refused);
+    // Interactive launches reject -m, so the config env is the only channel for the model.
+    const config=JSON.parse(plan.env.OPENCODE_CONFIG_CONTENT!);
+    expect(config.model).toBe("chosen/model");
+    expect(config.model).not.toBe("default/model");
+    expect(config.default_agent).toBe("build");
+  }
+});
