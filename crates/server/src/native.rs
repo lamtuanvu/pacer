@@ -28,6 +28,7 @@ pub(crate) use pacer_dispatch_ops::preview_ops;
 pub(crate) mod dispatch_preview_sync;
 pub use dispatch_preview_sync::dispatch_preview_stays_forwarded;
 use pacer_dispatch_ops::tier_targets_ops;
+pub use pacer_task_ops::session_lifecycle_ops::session_lifecycle_stays_forwarded;
 use pacer_update::desktop_reconcile_ops;
 pub(crate) mod dispatch_lifecycle_sync;
 use pacer_config_ops::engine_ops;
@@ -51,6 +52,7 @@ use pacer_machine_ops::machine_identity;
 use pacer_machine_ops::machine_ops;
 use pacer_task_ops::lifecycle_ops;
 use pacer_task_ops::session_context_ops;
+pub(crate) use pacer_task_ops::session_lifecycle_ops;
 mod meta_ops;
 pub(crate) use pacer_config_ops::p8_bridge_ops;
 pub(crate) use pacer_core_bridge::msg_write_sync;
@@ -534,6 +536,74 @@ static OPS: &[NativeOp] = &[
     NativeOp {
         name: "session.context",
         call: session_context_ops::session_context,
+    },
+    NativeOp {
+        name: "session.create",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.resume",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.end",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.prepare",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.draft.create",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.file.read",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.attachment.prepare",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.create",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.list",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.get",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.end",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.retry",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "session.agent.resume",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "task.attach",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "task.session",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "task.takeover",
+        call: session_lifecycle_ops::session_lifecycle_stub,
+    },
+    NativeOp {
+        name: "task.hand_back",
+        call: session_lifecycle_ops::session_lifecycle_stub,
     },
     NativeOp {
         name: "snapshot.get",

@@ -33,6 +33,7 @@ fn http_path(op: &str) -> Result<&'static str, CoreError> {
         "service.effects" => Ok("/_internal/service-effects"),
         "update.effects" => Ok("/_internal/update-effects"),
         "host.effects" => Ok("/_internal/host-effects"),
+        "session.lifecycle" => Ok("/_internal/session-lifecycle"),
         "agent.effects" => Ok("/_internal/agent-effects"),
         _ => Err(unavailable("core bridge unavailable")),
     }
@@ -57,7 +58,8 @@ fn stdio_method(op: &str) -> Result<&'static str, CoreError> {
 /// `unavailable` for an effect still in flight.
 pub fn deadline(op: &str) -> Option<std::time::Duration> {
     match op {
-        "service.effects" | "update.effects" | "host.effects" | "agent.effects" => None,
+        "service.effects" | "update.effects" | "host.effects" | "session.lifecycle"
+        | "agent.effects" => None,
         _ => Some(bridge_deadline()),
     }
 }
@@ -80,8 +82,8 @@ pub fn request_body(op: &str, params: &Value) -> Result<Value, CoreError> {
         op if desktop_capture_ops::needs_capture_bridge(op) => Ok(params.clone()),
         op if desktop_update_ops::needs_update_bridge(op) => Ok(params.clone()),
         op if doctor_ops::needs_setup_doctor_bridge(op) => Ok(params.clone()),
-        "setup.check" | "setup.effects" | "client.control" | "terminal.parts"
-        | "service.effects" | "update.effects" | "host.effects" | "agent.effects" => {
+        "setup.check" | "setup.effects" | "service.effects" | "update.effects" | "host.effects"
+        | "session.lifecycle" | "client.control" | "terminal.parts" | "agent.effects" => {
             Ok(params.clone())
         }
         _ => Err(unavailable("core bridge unavailable")),

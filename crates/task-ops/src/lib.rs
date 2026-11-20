@@ -4,6 +4,7 @@ pub mod files_search_ops;
 pub mod job_ops;
 pub mod lifecycle_ops;
 pub mod session_context_ops;
+pub mod session_lifecycle_ops;
 pub mod session_ops;
 pub mod snapshot_get_ops;
 pub mod status_ops;
