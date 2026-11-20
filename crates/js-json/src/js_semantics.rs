@@ -23,6 +23,13 @@ pub fn utf16_len(value: &str) -> usize {
     value.encode_utf16().count()
 }
 
+/// `String.prototype.localeCompare` under the default locale (ICU root collation),
+/// the order `Object.entries(...).sort` gives host aliases in evidence identities
+/// and the places captions.
+pub fn locale_compare(a: &str, b: &str) -> std::cmp::Ordering {
+    icu_collator::CollatorBorrowed::new_root(Default::default()).compare(a, b)
+}
+
 pub fn codepoint_len(value: &str) -> usize {
     value.chars().count()
 }

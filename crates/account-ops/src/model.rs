@@ -1,7 +1,8 @@
 //! Account folders, evidence identity, endpoint keys and state, and the
 //! TypeScript object shapes of loaded accounts and runners.
-use crate::js::{array_index, expand_home, locale_compare, stringify};
+use crate::js::{array_index, expand_home, stringify};
 use pacer_foundation::Ctx;
+use pacer_js_json::js_semantics::locale_compare;
 use serde_json::{Map, Value, json};
 use sha2::{Digest, Sha256};
 use std::{

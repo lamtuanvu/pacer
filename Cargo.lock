@@ -1243,10 +1243,10 @@ dependencies = [
 name = "pacer-account-ops"
 version = "0.0.0"
 dependencies = [
- "icu_collator",
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-js-json",
  "regex",
  "ryu-js",
  "serde_json",
@@ -1515,6 +1515,7 @@ dependencies = [
 name = "pacer-js-json"
 version = "0.1.0"
 dependencies = [
+ "icu_collator",
  "ryu-js",
  "serde",
  "serde_json",
@@ -1808,6 +1809,7 @@ dependencies = [
  "pacer-config",
  "pacer-engine",
  "pacer-foundation",
+ "pacer-js-json",
  "pacer-store",
  "regex",
  "rusqlite",
