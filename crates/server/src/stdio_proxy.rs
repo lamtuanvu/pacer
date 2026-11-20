@@ -419,6 +419,26 @@ async fn forward_input<
                     }
                     continue;
                 }
+                if crate::native::assistant_turn_sync::needs_bridge(op.name) {
+                    crate::native::msg_write_sync::trace(op.name, request.get("id"));
+                    let mut bridge = crate::native::assistant_turn_sync::StdioBridge {
+                        core: &mut core,
+                        prefix: sync.0,
+                        key: sync.1,
+                        replies: &mut *sync.2,
+                    };
+                    let result = crate::native::assistant_turn_sync::call(
+                        &request_ctx,
+                        op.name,
+                        params,
+                        &mut bridge,
+                    )
+                    .await;
+                    if let Some(id) = request.get("id") {
+                        write_line(out, &rpc_line(id, result)?).await?;
+                    }
+                    continue;
+                }
                 if crate::native::task_send_ops::needs_task_send_bridge(op.name) {
                     crate::native::msg_write_sync::trace(op.name, request.get("id"));
                     let by =

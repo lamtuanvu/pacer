@@ -78,6 +78,7 @@ use pacer_task_ops::task_get_ops;
 use pacer_task_ops::task_reads;
 use pacer_task_ops::task_review_ops;
 pub(crate) use pacer_task_ops::task_send_ops;
+pub(crate) mod assistant_turn_sync;
 pub(crate) mod task_send_sync;
 pub(crate) use pacer_core_bridge::task_stop_sync;
 pub(crate) use pacer_core_bridge::task_wait_sync;
@@ -860,6 +861,14 @@ static OPS: &[NativeOp] = &[
         call: assistant_ops::assistant_candidates,
     },
     NativeOp {
+        name: "assistant.ask",
+        call: assistant_ops::turn::assistant_ask,
+    },
+    NativeOp {
+        name: "assistant.cancel",
+        call: assistant_ops::turn::assistant_cancel,
+    },
+    NativeOp {
         name: "assistant.conversations",
         call: assistant_ops::assistant_conversations,
     },
@@ -1118,14 +1127,14 @@ pub async fn call_native(
         })?;
         account_list_ops::account_list(ctx, params, parts).await?
     } else if needs_core_bridge(op.name) {
-        let _ = p8_bridge_ops::bridge_params(op.name, &params)?;
+        let parsed = p8_bridge_ops::bridge_params(op.name, &params)?;
         let parts = core_bridge_sync.ok_or_else(|| {
             CoreError::new(
                 pacer_foundation::api::Code::Unavailable,
                 "core bridge unavailable",
             )
         })?;
-        parts.await?
+        doctor_ops::run(ctx, op.name, &parsed, parts).await?
     } else if needs_host_effects(op.name) {
         host_check_clean_setup_ops::call(ctx, op.name, params, core_bridge_sync).await?
     } else {
