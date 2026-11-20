@@ -68,6 +68,8 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
     const item: Item = { id: `executor:${e.id}`, primary: open, actions: defined([block]), keys: block ? { b: block } : {} };
     const off = ["down", "failing", "disabled", "blocked", "exhausted"].includes(e.state) || !e.enabled;
     const pace = executorPace(e, s), status = executorEligibility(e, ctx.now), w = capacityWidths(width, wide);
+    // The pace pill reads the verdict word; don't repeat the unmetered usage kind under it.
+    const paceReason = e.reason ?? (e.paceReason === "unmetered" && pace.label === "Unmetered" ? undefined : e.paceReason);
     const used = e.usedPct === null ? "—" : `${Math.round(e.usedPct)}%`, slots = `${e.slots.used}/${e.slots.max}`;
     const name = executorName(theme, e.id, s.accounts?.map(a => ({ name: a.name, runners: a.executors, source: a.source })));
     const muted = off ? { fg: "muted" as const } : undefined;
@@ -77,7 +79,7 @@ export function homeScreen(ctx: ScreenCtx): ScreenView {
         { content: name, width: w[1]! },
         { content: statusSpans(theme, status), width: w[2]! },
         { content: e.next ? "next" : "", width: w[3]!, style: { fg: "info", bold: true } },
-        { content: `${pace.label}${e.reason ?? e.paceReason ? ` · ${e.reason ?? e.paceReason}` : ""}`, width: w[4]!, style: { fg: "secondary" } },
+        { content: `${pace.label}${paceReason ? ` · ${paceReason}` : ""}`, width: w[4]!, style: { fg: "secondary" } },
         { content: e.paceReason === "unmetered" ? [span("unmetered", { fg: "muted" })] : meter(theme, e.usedPct, e.pacePct, w[5]!, pace.tone), width: w[5]! },
         { content: used, width: w[6]!, align: "right", ...(muted ? { style: muted } : {}) },
         { content: slots, width: w[7]!, align: "right", ...(muted ? { style: muted } : {}) },

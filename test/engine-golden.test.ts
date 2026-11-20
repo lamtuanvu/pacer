@@ -39,5 +39,5 @@ test("rank goldens cover kind routing, exclusions, planner include and conversat
     expect(names).toContain(name);
   }
   expect(engineGoldens().conversation.map(item => item.name)).toEqual(["append-planner", "already-ranked"]);
-  expect(engineGoldens().mode).toHaveLength(8);
+  expect(engineGoldens().mode).toHaveLength(9);
 });

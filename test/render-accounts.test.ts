@@ -100,7 +100,7 @@ test("list commands use aligned labeled columns and JSON retains its shape",asyn
  }
  expect(JSON.parse((await main(["runner","list","--json"],ctx)).out).find((r:any)=>r.id==="codex#team")).toMatchObject({agent:"codex",account:"team",model:null});
  const route=await main(["route"],ctx);
- expect(route.out).toContain("1. opencode#byteplus (BytePlus): ok");
+ expect(route.out).toContain("1. opencode#byteplus (BytePlus): unmetered");
  expect(route.out).not.toContain("Account ");
 });
 
@@ -123,7 +123,7 @@ test("starter text preserves provider names and main route format", async () => 
  expect(providerLabel(snapshot.budget.providers.find(p=>p.id==="opencode#byteplus")!)).toBe("BytePlus");
  const route=await main(["route"],ctx);
  expect(route.code).toBe(0);
- expect(route.out.split("\n").slice(0,4)).toEqual(["1. codex (Codex): on pace, used 19% / pace 18%","2. opencode#byteplus (BytePlus): ok","3. opencode#local (Local): ok","4. agy (Antigravity): ok"]);
+ expect(route.out.split("\n").slice(0,4)).toEqual(["1. codex (Codex): on pace, used 19% / pace 18%","2. opencode#byteplus (BytePlus): unmetered","3. opencode#local (Local): unmetered","4. agy (Antigravity): ok"]);
  expect(route.out).not.toContain("Account ");
  expect(JSON.parse((await main(["route","--json"],ctx)).out).ranked[1].id).toBe("opencode#byteplus");
 });
