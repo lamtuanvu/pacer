@@ -23,8 +23,6 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
-import { accountEvidenceScope } from "../evidence/scope";
-import { pruneOrphanUsageStores } from "../usage/store";
 
 export interface HostFacts {
   os: string | null;
@@ -106,7 +104,6 @@ export async function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paus
     if (o.paused !== undefined) doc.setIn(["hosts", alias, "paused"], o.paused);
   });
   if(o.paused===true&&!before.paused)appendActivity(ctx,{kind:"host_state",level:"info",host:alias,text:`${alias} paused · new work goes elsewhere`});
-  pruneOrphanUsageStores(ctx);
   return summary(ctx, configured(ctx, alias));
 }
 export async function detail(ctx: Ctx, alias: string): Promise<HostDetail> {
@@ -238,15 +235,9 @@ export async function mapRepo(ctx: Ctx, alias: string, key: string, path: string
 
 export async function addAccount(ctx: Ctx, alias: string, account: string, home: string) {
   configured(ctx, alias);
-  const before = loadStrategy(ctx);
-  const cfg = before.accounts[account];
+  const cfg = loadStrategy(ctx).accounts[account];
   if (!cfg || !["codex", "claude"].includes(cfg.kind)) throw new CoreError("invalid_input", "host account must be a configured codex or claude account");
-  const previousIdentity = accountEvidenceScope(cfg, before.hosts).identity;
   await applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
-  const after = loadStrategy(ctx);
-  const nextIdentity = accountEvidenceScope(after.accounts[account]!, after.hosts).identity;
-  // The prune keeps a store another strategy file still uses; only true orphans go.
-  if (previousIdentity !== nextIdentity) pruneOrphanUsageStores(ctx);
   // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
   const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
@@ -384,7 +375,6 @@ export async function add(ctx: Ctx, {alias, ssh}: {alias: string; ssh: string}) 
   if (alias === "local" || !/^[a-z0-9][a-z0-9-]*$/.test(alias)) throw new CoreError("invalid_input", "invalid or reserved host alias", "Use lowercase letters, digits and hyphens; local is reserved.");
   if (Object.hasOwn(s.hosts, alias)) throw new CoreError("conflict", `host ${alias} already exists`, "Choose a different alias or remove the existing host.");
   await applyEdit(ctx, doc => doc.setIn(["hosts", alias], {ssh}));
-  pruneOrphanUsageStores(ctx);
   return {alias};
 }
 export async function remove(ctx: Ctx, alias: string) {
@@ -395,6 +385,5 @@ export async function remove(ctx: Ctx, alias: string) {
   const reference = Object.values(s.runners).find(r => r.host === alias);
   if (reference) throw new CoreError("conflict", `${alias} is used by ${reference.id}`, "Remove its runners first.");
   await applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
-  pruneOrphanUsageStores(ctx);
   return {removed: true as const};
 }
