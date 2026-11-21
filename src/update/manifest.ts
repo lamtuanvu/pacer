@@ -7,7 +7,9 @@ export type ReleaseArch = "arm64" | "x64";
 export interface Platform { os: ReleaseOs; arch: ReleaseArch }
 export interface Target extends Platform { bunTarget: string }
 export interface Companion { name: "pacer-core"; file: string; sha256: string; size: number }
-export interface ReleaseAsset extends Platform { file: string; sha256: string; size: number; companions?: Companion[] }
+/** Optional native plugin sibling of pacer-core. Unknown to pre-S4 updaters (ignored as an extra asset field). */
+export interface NativePlugin { name: "pacer-assistant-pacer"; file: string; sha256: string; size: number }
+export interface ReleaseAsset extends Platform { file: string; sha256: string; size: number; companions?: Companion[]; nativePlugins?: NativePlugin[] }
 export interface Manifest { version: string; assets: ReleaseAsset[] }
 
 /** Release platforms, in manifest order. Names verified against Bun 1.4.2 Bun.Build.CompileTarget. */
@@ -24,6 +26,10 @@ export function assetFile(p: Platform): string {
 
 export function companionFile(p: Platform): string {
   return `pacer-core-${p.os}-${p.arch}`;
+}
+
+export function nativePluginFile(name: NativePlugin["name"], p: Platform): string {
+  return `${name}-${p.os}-${p.arch}`;
 }
 
 /** Maps Node-style platform/arch names to a release platform; null when there is no build for it. */
@@ -108,7 +114,28 @@ export function parseManifest(raw: unknown): Manifest {
           companions.push(c as unknown as Companion);
         });
       }
-      if (x.file === file && shaOk && sizeOk) assets.push({ os: plat.os, arch: plat.arch, file, sha256: x.sha256 as string, size: x.size as number, ...(x.companions === undefined ? {} : { companions }) });
+      const nativePlugins: NativePlugin[] = [];
+      if (x.nativePlugins !== undefined) {
+        if (!Array.isArray(x.nativePlugins)) p.push(`assets[${i}].nativePlugins must be a list`);
+        else x.nativePlugins.forEach((value: unknown, j: number) => {
+          const n = (typeof value === "object" && value !== null ? value : {}) as Record<string, unknown>;
+          const location = `assets[${i}].nativePlugins[${j}]`;
+          if (n.name !== "pacer-assistant-pacer") p.push(`${location}: unknown native plugin name`);
+          const expectedFile = n.name === "pacer-assistant-pacer" ? nativePluginFile("pacer-assistant-pacer", plat) : "";
+          if (n.file !== expectedFile) p.push(`${location}: file must be "${expectedFile}"`);
+          if (typeof n.sha256 !== "string" || !/^[0-9a-f]{64}$/.test(n.sha256)) p.push(`${location}: sha256 must be 64 lowercase hex characters`);
+          if (typeof n.size !== "number" || !Number.isSafeInteger(n.size) || n.size <= 0) p.push(`${location}: size must be a positive integer`);
+          if (j > 0) p.push(`${location}: duplicate native plugin`);
+          nativePlugins.push(n as unknown as NativePlugin);
+        });
+      }
+      if (x.file === file && shaOk && sizeOk) {
+        assets.push({
+          os: plat.os, arch: plat.arch, file, sha256: x.sha256 as string, size: x.size as number,
+          ...(x.companions === undefined ? {} : { companions }),
+          ...(x.nativePlugins === undefined ? {} : { nativePlugins }),
+        });
+      }
     });
   }
   if (p.length) throw new ReleaseError(`invalid manifest.json: ${p.join("; ")}`);

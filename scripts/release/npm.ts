@@ -20,7 +20,8 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
     const bytes = verified(asset);
     const companion = asset.companions?.find(core => core.name === "pacer-core");
     if (paired && !companion) throw new Error(`manifest is missing pacer-core for ${file}`);
-    return { ...p, file, bytes, core: companion ? verified(companion) : undefined };
+    const plugin = asset.nativePlugins?.find(entry => entry.name === "pacer-assistant-pacer");
+    return { ...p, file, bytes, core: companion ? verified(companion) : undefined, plugin };
   });
   const source = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
   const optionalDependencies: Record<string, string> = {};
@@ -35,9 +36,10 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
   for (const b of binaries) {
     const name = `@lamtuanvu/${b.file}`; const dir = join(out, b.file);
     optionalDependencies[name] = manifest.version; order.push(b.file);
-    const assistantFile = `pacer-assistant-pacer-${b.os}-${b.arch}`;
+    const plugin = b.plugin;
+    const assistantFile = plugin?.file ?? `pacer-assistant-pacer-${b.os}-${b.arch}`;
     const assistantPath = join(releaseDir, assistantFile);
-    const hasAssistant = existsSync(assistantPath);
+    const hasAssistant = plugin !== undefined || existsSync(assistantPath);
     const files = b.core
       ? ["bin/pacer", "bin/pacer-core", ...(hasAssistant ? ["bin/pacer-assistant-pacer"] : [])]
       : ["bin/pacer"];
@@ -51,14 +53,15 @@ export function generateNpm(releaseDir: string, out: string, root = resolve(impo
       const core = join(dir, "bin/pacer-core");
       writeFileSync(core, b.core); chmodSync(core, 0o755);
     }
-    // Optional sibling of pacer-core when the release built the native assistant plugin.
+    // Optional sibling of pacer-core when the release lists nativePlugins or still has the SHA256SUMS asset.
     if (hasAssistant) {
       const sums = parseSha256Sums(readFileSync(join(releaseDir, "SHA256SUMS"), "utf8"));
-      const expected = sums.get(assistantFile);
       const bytes = readFileSync(assistantPath);
-      if (!expected || sha256Hex(bytes) !== expected) {
+      const expected = plugin?.sha256 ?? sums.get(assistantFile);
+      if (!expected || sha256Hex(bytes) !== expected || (plugin !== undefined && bytes.length !== plugin.size)) {
         throw new Error(`checksum mismatch for ${assistantFile}`);
       }
+      if (sums.get(assistantFile) !== expected) throw new Error(`SHA256SUMS and manifest disagree about ${assistantFile}`);
       const assistant = join(dir, "bin/pacer-assistant-pacer");
       writeFileSync(assistant, bytes);
       chmodSync(assistant, 0o755);

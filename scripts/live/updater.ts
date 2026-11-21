@@ -6,7 +6,7 @@ import { findIdentity } from "../../src/update/signing";
 import { checkout, healthy, liveRoot, record, shellQuote, validId, type Session } from "./core";
 
 const OLD = "0.0.1", NEXT = "0.0.2";
-const scenarios = ["pair", "new-companion", "legacy", "checksum", "smoke", "rollback"] as const;
+const scenarios = ["pair", "new-companion", "legacy", "checksum", "smoke", "rollback", "native-plugin"] as const;
 type Scenario = typeof scenarios[number];
 
 /** This fixed fixture mode grants no authority to ordinary guarded update calls. */
@@ -75,8 +75,10 @@ export async function exerciseUpdater(session: Session): Promise<void> {
     const bin = join(directory, "bin"), home = join(directory, "home"), temporary = join(directory, "tmp");
     for (const path of [bin, home, temporary]) mkdirSync(path, { mode: 0o700 });
     const front = join(bin, "pacer"), core = join(bin, "pacer-core");
+    const assistant = join(bin, "pacer-assistant-pacer");
     copyFileSync(baseline, front);
     if (scenario !== "new-companion") copyFileSync(baseline, core);
+    if (scenario === "native-plugin") copyFileSync(baseline, assistant);
     // A fixed failure probe removes only its own known staged fixture path. It
     // passes the version check, then the real front-door commit rename fails,
     // after the real updater has already installed the core.
@@ -84,8 +86,14 @@ export async function exerciseUpdater(session: Session): Promise<void> {
     const badSmoke = Buffer.from("#!/bin/sh\nprintf 'pacer 0.0.0\\n'\n");
     const frontBytes = scenario === "rollback" ? brokenFront : newBytes;
     const coreBytes = scenario === "smoke" ? badSmoke : newBytes;
+    const assistantBytes = newBytes;
     const file = assetFile(target!), companion = companionFile(target!);
-    const entries = [{ file, bytes: frontBytes }, ...(scenario === "legacy" ? [] : [{ file: companion, bytes: coreBytes }])];
+    const assistantFile = `pacer-assistant-pacer-${target!.os}-${target!.arch}`;
+    const entries = [
+      { file, bytes: frontBytes },
+      ...(scenario === "legacy" ? [] : [{ file: companion, bytes: coreBytes }]),
+      ...(scenario === "native-plugin" ? [{ file: assistantFile, bytes: assistantBytes }] : []),
+    ];
     const manifest = {
       version: NEXT,
       assets: [{
@@ -94,6 +102,9 @@ export async function exerciseUpdater(session: Session): Promise<void> {
         ...(scenario === "legacy" ? {} : {
           companions: [{ name: "pacer-core", file: companion, size: coreBytes.length, sha256: sha256Hex(coreBytes) }],
         }),
+        ...(scenario === "native-plugin" ? {
+          nativePlugins: [{ name: "pacer-assistant-pacer", file: assistantFile, size: assistantBytes.length, sha256: sha256Hex(assistantBytes) }],
+        } : {}),
       }],
     };
     const files = new Map<string, string | Buffer>([
@@ -127,13 +138,17 @@ export async function exerciseUpdater(session: Session): Promise<void> {
         const output = await new Response(process.stdout).text();
         must(await process.exited === 0, "version probe failed"); return output.trim().split(/\s+/).at(-1);
       };
-      if (["pair", "new-companion", "legacy"].includes(scenario)) {
+      if (["pair", "new-companion", "legacy", "native-plugin"].includes(scenario)) {
         must(code === 0, "update failed");
         must(await version(front) === NEXT, "front door did not advance");
         must(hash(`${front}.bak`) === oldHash, "front backup differs");
         must(await version(core) === (scenario === "legacy" ? OLD : NEXT), "unexpected companion version");
         if (scenario === "pair") must(hash(`${core}.bak`) === oldHash, "core backup differs");
         if (scenario === "new-companion") must(!existsSync(`${core}.bak`), "invented a missing core backup");
+        if (scenario === "native-plugin") {
+          must(await version(assistant) === NEXT, "assistant sibling did not advance");
+          must(hash(`${assistant}.bak`) === oldHash, "assistant backup differs");
+        }
       } else {
         const expected = scenario === "checksum" ? "checksum mismatch" : scenario === "smoke" ? "did not report version" : "could not replace pair";
         must(code !== 0 && stderr.includes(expected), `expected ${expected}`);
@@ -142,6 +157,7 @@ export async function exerciseUpdater(session: Session): Promise<void> {
         if (scenario === "rollback") must(existsSync(`${front}.bak`) && !existsSync(`${core}.bak`), "core backup was not consumed by rollback");
       }
       must(!existsSync(`${front}.new`) && !existsSync(`${core}.new`), "staging files remain");
+      if (scenario === "native-plugin") must(!existsSync(`${assistant}.new`), "assistant staging file remains");
     } finally { server.stop(true); }
   }
 }

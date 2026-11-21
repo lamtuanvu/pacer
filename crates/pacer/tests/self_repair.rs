@@ -119,12 +119,16 @@ struct Feed {
 }
 impl Feed {
     fn new(version: &str, core: &[u8], hash: &str) -> Self {
-        Self::altered(version, core, hash, |_| {})
+        Self::altered(version, core, hash, None, |_| {})
+    }
+    fn with_assistant(version: &str, core: &[u8], hash: &str, assistant: &[u8], assistant_hash: &str) -> Self {
+        Self::altered(version, core, hash, Some((assistant, assistant_hash)), |_| {})
     }
     fn altered(
         version: &str,
         core: &[u8],
         hash: &str,
+        assistant: Option<(&[u8], &str)>,
         alter: impl FnOnce(&mut serde_json::Value),
     ) -> Self {
         let os = if cfg!(target_os = "macos") {
@@ -138,17 +142,29 @@ impl Feed {
             "x64"
         };
         let file = format!("pacer-core-{os}-{arch}");
+        let assistant_file = format!("pacer-assistant-pacer-{os}-{arch}");
         let mut manifest = serde_json::json!({"version":version,"assets":[{
             "os":os,"arch":arch,"file":format!("pacer-{os}-{arch}"),
             "sha256":"0".repeat(64),"size":1,
             "companions":[{"name":"pacer-core","file":file,"sha256":hash,"size":core.len()}]
         }]});
+        if let Some((bytes, assistant_hash)) = assistant {
+            manifest["assets"][0]["nativePlugins"] = serde_json::json!([{
+                "name":"pacer-assistant-pacer",
+                "file":assistant_file,
+                "sha256":assistant_hash,
+                "size":bytes.len()
+            }]);
+        }
         alter(&mut manifest);
         let manifest = manifest.to_string();
-        let routes = HashMap::from([
+        let mut routes = HashMap::from([
             (format!("/{version}/manifest.json"), manifest.into_bytes()),
             (format!("/{version}/{file}"), core.to_vec()),
         ]);
+        if let Some((bytes, _)) = assistant {
+            routes.insert(format!("/{version}/{assistant_file}"), bytes.to_vec());
+        }
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
         listener.set_nonblocking(true).unwrap();
         let base = format!("http://{}", listener.local_addr().unwrap());
@@ -214,7 +230,7 @@ fn invalid_manifest_identity_and_sizes_never_download_the_core() {
     for case in ["version", "duplicate", "name", "file", "oversize", "zero"] {
         let install = Install::new();
         let script = install.script();
-        let feed = Feed::altered(&install.version, &script, &hash(&script), |v| match case {
+        let feed = Feed::altered(&install.version, &script, &hash(&script), None, |v| match case {
             "version" => v["version"] = "0.0.1".into(),
             "duplicate" => {
                 let asset = v["assets"][0].clone();
@@ -341,7 +357,37 @@ fn explicit_repair_replaces_wrong_version_and_is_idempotent() {
         );
     }
     assert_eq!(fs::read(install.core()).unwrap(), script);
-    assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
+    // Second call re-reads the manifest when the optional assistant sibling is absent
+    // (ADR 0031: self-repair may still need to install it when the release lists one).
+    assert_eq!(feed.requests.load(Ordering::Relaxed), 3);
+}
+
+#[test]
+fn explicit_repair_restores_missing_assistant_when_manifest_lists_it() {
+    let install = Install::new();
+    let script = install.script();
+    let feed = Feed::with_assistant(
+        &install.version,
+        &script,
+        &hash(&script),
+        &script,
+        &hash(&script),
+    );
+    fs::write(install.core(), &script).unwrap();
+    fs::set_permissions(install.core(), fs::Permissions::from_mode(0o755)).unwrap();
+    let assistant = install.dir.path().join("pacer-assistant-pacer");
+    assert!(!assistant.exists());
+    let output = install.run(&["self-repair", "--base", &feed.base], &feed.base, false);
+    assert!(
+        output.status.success(),
+        "{}",
+        String::from_utf8_lossy(&output.stderr)
+    );
+    assert_eq!(fs::read(&assistant).unwrap(), script);
+    assert_eq!(
+        fs::metadata(&assistant).unwrap().permissions().mode() & 0o777,
+        0o755
+    );
 }
 
 #[test]
