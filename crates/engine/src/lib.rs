@@ -11,6 +11,11 @@ pub mod usage_broker;
 pub mod usage_refresh;
 pub mod words;
 
+/// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5): the
+/// window caps, lifetimes, cooldown default and exhausted/near-limit percentages the
+/// engine reads from generated constants instead of hard-coded copies.
+pub use pacer_limits_protocol::freshness::*;
+
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
 use serde_json::{Value, json};
@@ -71,9 +76,6 @@ pub fn pace_pct(start: f64, end: f64, now: f64, profile: &Value, zone: Tz) -> f6
 pub fn active_hours_left(now: f64, end: f64, profile: &Value, zone: Tz) -> f64 {
     active_seconds(now, end, profile, zone) / 3600.0
 }
-/// `EXHAUSTED_PCT` (`src/engine/verdict.ts`): the used percentage a window, a
-/// verdict and the dispatch candidate check treat as out of quota.
-pub const EXHAUSTED_PCT: f64 = 97.0;
 pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
     let now = number(&input["now"]);
     let usage = &input["usage"];
@@ -93,7 +95,11 @@ pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
         return output;
     }
     if !truth(&usage["paced"]) || usage["resetsAt"].is_null() {
-        output["verdict"] = json!(if used >= 90.0 { "NEAR_LIMIT" } else { "OK" });
+        output["verdict"] = json!(if used >= NEAR_LIMIT_PCT {
+            "NEAR_LIMIT"
+        } else {
+            "OK"
+        });
         return output;
     }
     let reset = number(&usage["resetsAt"]);
@@ -196,10 +202,10 @@ pub fn deadline(fact: &Value) -> Option<f64> {
         return optional_number(&fact["validUntil"])
             .or_else(|| optional_number(&fact["value"]["resetsAt"]));
     }
-    let age = if number(&fact["value"]["lengthS"]) <= 21600.0 {
-        7200.0
+    let age = if number(&fact["value"]["lengthS"]) <= WINDOW_CAP_SHORT_MAX_LENGTH_S as f64 {
+        WINDOW_CAP_SHORT_S as f64
     } else {
-        86400.0
+        WINDOW_CAP_LONG_S as f64
     };
     Some(
         [

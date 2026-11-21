@@ -9,6 +9,7 @@
   "exhaustedPct": 97,
   "nearLimitPct": 90,
   "limitWindowLengthS": 21600,
+  "cooldownDefaultS": 21600,
   "observationExpiryS": 60,
   "usageMemoS": 60,
   "evidencePruneAfterS": 604800
