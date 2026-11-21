@@ -271,6 +271,54 @@ pub fn relink_needed(consented: bool, keep: bool, bundled: bool, missing: bool) 
     consented && !keep && bundled && missing
 }
 
+/// How Consent / UseApp should move an existing service in a release-trust build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsentServicePlan {
+    /// Create/replace the terminal link and let managed install own the service.
+    Managed { replace_link: bool, reinstall: bool },
+    /// Record consent only; ADR 0011 takeover moves the service and relinks after commit.
+    Takeover { relink: bool },
+}
+
+/// OTA-trusted UseApp over a registration detect_takeover would offer must not
+/// relink first (that hides the candidate). Plain Consent (replace=false) keeps
+/// today's Existing page / Keep mine path. Fresh installs and non-OTA builds keep
+/// the managed path.
+pub fn consent_service_plan(
+    ota_trusted: bool,
+    takeover_offerable: bool,
+    replace: bool,
+) -> ConsentServicePlan {
+    if ota_trusted && takeover_offerable && replace {
+        ConsentServicePlan::Takeover { relink: true }
+    } else {
+        ConsentServicePlan::Managed {
+            replace_link: replace,
+            reinstall: replace,
+        }
+    }
+}
+
+/// An Identity refusal on managed install is not transient: stop masking a Running
+/// job as NotLoaded so Connect / takeover detection can run.
+pub fn reinstall_after_install_error(reinstall: bool, action: &str, identity: bool) -> bool {
+    if reinstall && identity && action == "install" {
+        false
+    } else {
+        reinstall
+    }
+}
+
+/// Consent-authorized takeover commits once active work counts are known and idle.
+pub fn consent_takeover_idle(tasks: Option<usize>, terminals: Option<usize>) -> bool {
+    matches!((tasks, terminals), (Some(0), Some(0)))
+}
+
+/// User-facing managed-service failure stays generic; the log must keep the cause.
+pub fn managed_service_failure_log(action: &str, error: &str) -> String {
+    format!("pacer lifecycle: managed service {action} refused: {error}")
+}
+
 pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
     url.as_str() == "tauri://localhost/index.html?state=starting" && bundled_shell(current)
 }
@@ -1592,6 +1640,77 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn ota_use_app_over_a_takeover_candidate_plans_takeover_with_relink() {
+        assert_eq!(
+            consent_service_plan(true, true, true),
+            ConsentServicePlan::Takeover { relink: true }
+        );
+    }
+
+    #[test]
+    fn ota_consent_without_replace_keeps_managed_so_existing_page_can_offer_keep_mine() {
+        assert_eq!(
+            consent_service_plan(true, true, false),
+            ConsentServicePlan::Managed {
+                replace_link: false,
+                reinstall: false
+            }
+        );
+    }
+
+    #[test]
+    fn fresh_or_non_ota_consent_keeps_managed_install() {
+        assert_eq!(
+            consent_service_plan(true, false, false),
+            ConsentServicePlan::Managed {
+                replace_link: false,
+                reinstall: false
+            }
+        );
+        assert_eq!(
+            consent_service_plan(true, false, true),
+            ConsentServicePlan::Managed {
+                replace_link: true,
+                reinstall: true
+            }
+        );
+        assert_eq!(
+            consent_service_plan(false, true, true),
+            ConsentServicePlan::Managed {
+                replace_link: true,
+                reinstall: true
+            }
+        );
+    }
+
+    #[test]
+    fn identity_on_install_clears_reinstall_so_a_running_job_can_connect() {
+        assert!(!reinstall_after_install_error(true, "install", true));
+        assert!(reinstall_after_install_error(true, "install", false));
+        assert!(reinstall_after_install_error(true, "start", true));
+        assert!(!reinstall_after_install_error(false, "install", true));
+    }
+
+    #[test]
+    fn consent_takeover_waits_until_work_counts_are_known_and_idle() {
+        assert!(consent_takeover_idle(Some(0), Some(0)));
+        assert!(!consent_takeover_idle(Some(1), Some(0)));
+        assert!(!consent_takeover_idle(Some(0), Some(2)));
+        assert!(!consent_takeover_idle(None, Some(0)));
+        assert!(!consent_takeover_idle(Some(0), None));
+    }
+
+    #[test]
+    fn managed_service_failure_log_keeps_the_underlying_cause() {
+        let log = managed_service_failure_log(
+            "install",
+            "Native update identity could not be verified",
+        );
+        assert!(log.contains("install"));
+        assert!(log.contains("identity could not be verified"));
     }
 
     #[test]

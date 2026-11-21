@@ -85,6 +85,10 @@ struct Shell {
     /// Set by Review service replacement on the restored outcome: the next connection shows the
     /// offer once, even for a build the user dismissed before.
     takeover_retry: AtomicBool,
+    /// Consent UseApp authorized a takeover; commit when work is idle (may wait across reconnects).
+    consent_service_move: AtomicBool,
+    /// Logged once while a consent/own-link service move waits for idle work.
+    service_move_wait_logged: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,
     pending_service_key: Mutex<Option<String>>,
@@ -121,6 +125,8 @@ impl Default for Shell {
             retry: AtomicBool::new(false),
             relink_dismissed: AtomicBool::new(false),
             takeover_retry: AtomicBool::new(false),
+            consent_service_move: AtomicBool::new(false),
+            service_move_wait_logged: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             old_service_ack: Mutex::new(None),
             pending_service_key: Mutex::new(None),

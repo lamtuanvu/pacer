@@ -507,7 +507,7 @@ pub(crate) async fn wait_exact_exit(expected: &ProcessIdentity) -> Result<(), Ot
 /// Re-reads `observe` on awake time until it reports nothing, up to `deadline_ms`.
 /// Returns what it last saw when the deadline passes or the boot changes; it never
 /// acts on what it observes.
-async fn settle_absent<T>(
+pub(crate) async fn settle_absent<T>(
     mut observe: impl FnMut() -> Result<Option<T>, OtaError>,
     now: impl Fn() -> Result<native::AwakeStamp, OtaError>,
     deadline_ms: u64,

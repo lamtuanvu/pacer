@@ -6,6 +6,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- **Desktop consent over an existing CLI service no longer loops forever in release-trust builds.** Consent / Use the app's service used to relink `~/.local/bin/pacer` and set `reinstall` before the service moved, so managed install refused the still-CLI registration, `detect_takeover` never ran (and could not see the app's own link), and the UI stuck on "pacer could not finish signing in". OTA-trusted Use the app's service over a registration that takeover would offer now records consent and ownership only (plain Consent still shows the Existing page), connects while work finishes, and commits ADR 0011 takeover with terminal relink after commit — without locking the user out of the app while waiting. A desktop-owned registration that still names the app's own terminal link is repaired without asking. An Identity refusal on managed install clears `reinstall` instead of retrying forever, and `desktop.log` keeps the underlying OTA error.
 - **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.
 
 ## [0.17.6] - 2026-11-20
