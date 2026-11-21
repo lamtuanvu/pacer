@@ -44,7 +44,9 @@ use super::{
 #[cfg(target_os = "macos")]
 pub(crate) use adoption_native::NativeAdoptionPlatform;
 #[cfg(feature = "ota-fixture")]
-pub(crate) use fixture::{fixture_attach, fixture_jobs, fixture_refresh_takeover};
+pub(crate) use fixture::{
+    fixture_attach, fixture_attach_own_link, fixture_jobs, fixture_refresh_takeover,
+};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -101,6 +103,30 @@ fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
             && path.canonicalize().map_err(|_| OtaError::Identity)? == path,
     )?;
     ensure(trust.verify_static(path, CodeRole::Cli) == Err(OtaError::Identity))?;
+    Ok(true)
+}
+
+/// Stuck own-link shape: registration names the terminal symlink that resolves to
+/// this lease's bundled CLI. verify_static cannot take the symlink path (permits_path
+/// refuses non-canonical paths), so observe/bootstrap accept it only when the link
+/// target is the verified bundled CLI.
+#[cfg(feature = "ota-fixture")]
+fn fixture_own_link_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
+    let Some(policy) = trust.fixture_policy() else {
+        return Ok(false);
+    };
+    if path != policy.takeover_cli() {
+        return Ok(false);
+    }
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
+    let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
+    if !metadata.file_type().is_symlink() {
+        return Ok(false);
+    }
+    let bundled = policy.current_app.join("Contents/Resources/pacer");
+    ensure(path.canonicalize().map_err(|_| OtaError::Identity)? == bundled)?;
+    trust.verify_static(&bundled, CodeRole::Cli)?;
     Ok(true)
 }
 
@@ -161,7 +187,9 @@ impl OwnedJob {
         match program {
             ProgramCheck::Role(role) => {
                 #[cfg(feature = "ota-fixture")]
-                if fixture_takeover_program(trust, Path::new(executable))? {
+                if fixture_takeover_program(trust, Path::new(executable))?
+                    || fixture_own_link_program(trust, Path::new(executable))?
+                {
                     return Ok(());
                 }
                 trust.verify_static(Path::new(executable), *role)

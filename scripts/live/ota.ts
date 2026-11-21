@@ -6,13 +6,13 @@ import { z } from "zod";
 import { checkout, liveRoot, loadSession, record, type Session } from "./core";
 import { parsePlistDictionary } from "../../src/service";
 import { withOtaLedgerLock } from "./ota-lock";
-import { TAKEOVER_SCENARIOS, exerciseSchema, runtimeSchema, resumableStartup } from "./ota-exercise-record";
+import { SERVICE_MOVE_SCENARIOS, CONSENT_SCENARIOS, OWN_LINK_SCENARIOS, exerciseSchema, runtimeSchema, resumableStartup } from "./ota-exercise-record";
 import { diagnosticSchema, validateDiagnosticFiles, type FixtureDiagnostics } from "./ota-diagnostics";
 import { ownProcessIdentity, sameProcess } from "../../src/update/desktop/process-identity";
 
 /** Scripts-only coordinates; none are production runtime/env options. */
 export interface OtaOptions { base?: string; sourceRoot?: string; realHome?: string; platform?: "darwin" | "linux" }
-export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
+export const OTA_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", "interrupted-install", "restore-failure", "adopt", "adopt-failure", "attached", "takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash", "consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart", "own-link-repair", "own-link-repair-failure", "wrong-service", "watcher-race", "active-work", "invalid-signature", "corrupt-archive", "wrong-architecture", "incompatible", "offline"] as const;
 export const initialLayoutSchema = z.enum(["bridge", "paired"]);
 export type InitialLayout = z.infer<typeof initialLayoutSchema>;
 export const baselineProcessTypeSchema = z.enum(["Background", "Standard"]);
@@ -59,9 +59,9 @@ export function initialFixtureVersion(state: Pick<OtaRecord, "initialLayout" | "
 }
 export function assertFixtureLayoutScenario(state: Pick<OtaRecord, "initialLayout">, scenario: string): void {
   const layout = initialLayoutSchema.parse(state.initialLayout ?? "bridge");
-  const takeover = (TAKEOVER_SCENARIOS as readonly string[]).includes(scenario);
-  if (takeover && layout !== "paired") throw Error("Takeover requires the candidate desktop and helper layout");
-  if (layout === "paired" && scenario !== "adopt" && scenario !== "adopt-failure" && !takeover) throw Error("Paired initial layout is only for adoption and takeover scenarios");
+  const serviceMove = (SERVICE_MOVE_SCENARIOS as readonly string[]).includes(scenario);
+  if (serviceMove && layout !== "paired") throw Error("Takeover requires the candidate desktop and helper layout");
+  if (layout === "paired" && scenario !== "adopt" && scenario !== "adopt-failure" && !serviceMove) throw Error("Paired initial layout is only for adoption and takeover scenarios");
 }
 
 export function otaFixturePolicy(state: OtaRecord) {
@@ -251,7 +251,8 @@ function registrationProgram(state: OtaRecord, label: string, text: string): str
   const program = canonical(args[0] as string);
   const external = state.external.length && label === state.serviceLabel && (program === join(state.root, "external/pacer") || program === join(state.pacerHome, ".local/bin/pacer"));
   // A takeover's recovery job runs its helper copy from the takeover journal directory.
-  const takeoverRecovery = label === state.recoveryLabel && !!state.exercise?.scenario.startsWith("takeover") && inside(join(state.pacerHome, "desktop-updates/native/takeover"), program);
+  const takeoverFamily = !!state.exercise?.scenario && (state.exercise.scenario.startsWith("takeover") || state.exercise.scenario.startsWith("consent-"));
+  const takeoverRecovery = label === state.recoveryLabel && takeoverFamily && inside(join(state.pacerHome, "desktop-updates/native/takeover"), program);
   if (!external && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
   owned(program, "file");
   for (const key of ["StandardOutPath", "StandardErrorPath"]) if (value[key] !== undefined) throw Error("Fixture probes must use inherited null output");
@@ -413,6 +414,8 @@ export async function exerciseOta(id: string, scenario: string, options: OtaOpti
     try {
       const { ATTACHED_SCENARIOS } = await import("./ota-exercise-record");
       if ((ATTACHED_SCENARIOS as readonly string[]).includes(scenario)) return await (await import("./ota-adoption")).runAttachedExercise(id, scenario, options);
+      if ((OWN_LINK_SCENARIOS as readonly string[]).includes(scenario)) return await (await import("./ota-own-link")).runOwnLinkExercise(id, scenario, options);
+      if ((CONSENT_SCENARIOS as readonly string[]).includes(scenario)) return await (await import("./ota-consent")).runConsentExercise(id, scenario, options);
       if (scenario.startsWith("takeover")) return await (await import("./ota-takeover")).runTakeoverExercise(id, scenario, options);
       return await (await import("./ota-exercise")).runManagedExercise(id, scenario, options);
     }

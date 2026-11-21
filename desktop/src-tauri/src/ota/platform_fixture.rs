@@ -264,9 +264,19 @@ pub(crate) async fn fixture_jobs(
                 let details = native::process_details(pid)
                     .map_err(|_| OtaError::Identity)?
                     .ok_or(OtaError::Identity)?;
+                let argv0 = Path::new(&job.definition.arguments[0]);
+                let bundled = policy.current_app.join("Contents/Resources/pacer");
+                // Own-link stuck shape: registration names the terminal symlink while
+                // the live process is the resolved bundled CLI.
+                let own_link = argv0 == policy.takeover_cli()
+                    && details.executable == bundled
+                    && std::fs::symlink_metadata(argv0)
+                        .map(|meta| meta.file_type().is_symlink())
+                        .unwrap_or(false)
+                    && std::fs::canonicalize(argv0).ok().as_ref() == Some(&bundled);
                 ensure(
                     details.uid == policy.uid
-                        && details.executable == Path::new(&job.definition.arguments[0]),
+                        && (details.executable == argv0 || own_link),
                 )?;
                 crate::ota::platform::verify_fixture_or_release_process(trust, &details.identity, &details.executable, role)?;
                 Ok::<_, OtaError>(details.identity)
@@ -299,7 +309,48 @@ pub(crate) async fn fixture_jobs(
             // cannot acknowledge fixture cleanup. The driver has already ended
             // every fixture desktop; stop only this exact verified service.
             ensure(desktops.is_empty() && jobs[1].2.is_none())?;
-            job.stop_exact(trust, service).await?;
+            let link = policy.takeover_cli();
+            let bundled = policy.current_app.join("Contents/Resources/pacer");
+            let own_link = std::fs::symlink_metadata(&link)
+                .map(|meta| meta.file_type().is_symlink())
+                .unwrap_or(false)
+                && std::fs::canonicalize(&link).ok().as_ref() == Some(&bundled);
+            if own_link {
+                // stop_exact requires argv[0] == process executable; boot out
+                // the label after verifying the live process is the bundled CLI.
+                let loaded = copy_user_job(&policy.service_label)?.ok_or(OtaError::Identity)?;
+                let pid = job
+                    .definition
+                    .match_loaded(&loaded)?
+                    .pid
+                    .ok_or(OtaError::Identity)?;
+                let details = native::process_details(pid)
+                    .map_err(|_| OtaError::Identity)?
+                    .ok_or(OtaError::Identity)?;
+                ensure(details.identity == *service && details.executable == bundled)?;
+                trust.verify_process(&details.identity, CodeRole::Cli)?;
+                let domain = format!("gui/{}", unsafe { libc::geteuid() });
+                let target = format!("{domain}/{}", policy.service_label);
+                let mut command = tokio::process::Command::new("/bin/launchctl");
+                command
+                    .arg("bootout")
+                    .arg(&target)
+                    .stdin(std::process::Stdio::null())
+                    .stdout(std::process::Stdio::null())
+                    .stderr(std::process::Stdio::null())
+                    .kill_on_drop(true);
+                let status = tokio::time::timeout(
+                    std::time::Duration::from_secs(10),
+                    command.status(),
+                )
+                .await
+                .map_err(|_| OtaError::Timeout)?
+                .map_err(|_| OtaError::Io)?;
+                ensure(status.success())?;
+                wait_exact_exit(service).await?;
+            } else {
+                job.stop_exact(trust, service).await?;
+            }
         } else {
         let endpoint = control::ServiceEndpoint {
             home: &policy.home,
@@ -497,6 +548,81 @@ pub(crate) async fn fixture_attach(
         job.stage_fixture_registration(trust, &bytes)?;
         crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
         job.change(trust, JobChange::Bootstrap).await?;
+    }
+    fixture_jobs(trust, false).await
+}
+
+/// Seed the stuck own-link shape: desktop owner, terminal symlink to the bundled
+/// CLI, and a registration whose argv[0] is that link (loaded and running).
+#[cfg(feature = "ota-fixture")]
+pub(crate) async fn fixture_attach_own_link(trust: &ReleaseTrust) -> Result<FixtureJobsReport, OtaError> {
+    use crate::ota::{control, platform_fs::PrivateDir};
+    use std::os::unix::fs::{symlink, MetadataExt};
+    let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    let own = native::process_details(std::process::id())
+        .map_err(|_| OtaError::Identity)?
+        .ok_or(OtaError::Identity)?;
+    trust.verify_process(&own.identity, CodeRole::Helper)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
+    let link = policy.takeover_cli();
+    let bundled = policy.current_app.join("Contents/Resources/pacer");
+    trust.verify_static(&policy.current_app, CodeRole::Desktop)?;
+    trust.verify_static(&bundled, CodeRole::Cli)?;
+    {
+        let locks = PrivateDir::create(&policy.root.join("locks"))?;
+        let _ownership = locks.acquire_locks(&policy.current_app, &policy.home)?;
+        let desktop = policy.current_app.join("Contents/MacOS/pacer");
+        ensure(
+            control::native_process_inventory()?
+                .iter()
+                .all(|details| details.executable != desktop && details.executable != bundled),
+        )?;
+        let path = policy
+            .root
+            .join("registrations")
+            .join(format!("{}.plist", policy.service_label));
+        let root = PrivateDir::open(&policy.root)?;
+        let record: serde_json::Value = serde_json::from_slice(&root.read("record.json", 262144)?)
+            .map_err(|_| OtaError::Invalid)?;
+        ensure(record.get("exercise").is_none_or(serde_json::Value::is_null))?;
+        fixture_baseline_priority(&record, "Background")?;
+        registration(&record, &policy.service_label, &path, None)?;
+        ensure(exact_absent(&path)? && copy_user_job(&policy.service_label)?.is_none())?;
+        let parent = link.parent().ok_or(OtaError::Invalid)?;
+        std::fs::create_dir_all(parent).map_err(|_| OtaError::Io)?;
+        ensure(exact_absent(&link)?)?;
+        symlink(&bundled, &link).map_err(|_| OtaError::Io)?;
+        let meta = std::fs::symlink_metadata(&link).map_err(|_| OtaError::Identity)?;
+        ensure(meta.file_type().is_symlink() && meta.uid() == policy.uid)?;
+        ensure(std::fs::canonicalize(&link).map_err(|_| OtaError::Identity)? == bundled)?;
+        let home = policy.home.to_string_lossy().into_owned();
+        let mut environment = BTreeMap::new();
+        environment.insert("HOME".into(), home.clone());
+        environment.insert("PACER_HOME".into(), home);
+        environment.insert("PACER_PORT".into(), policy.port.to_string());
+        environment.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
+        let job = OwnedJob {
+            definition: JobDefinition {
+                label: policy.service_label.clone(),
+                arguments: vec![link.to_string_lossy().into_owned(), "serve".into()],
+                environment,
+                keep_alive: true,
+                run_at_load: true,
+            },
+            plist_path: path,
+            role: CodeRole::Cli,
+        };
+        let bytes = fixture_baseline_registration(&job.definition, "Background")?;
+        job.stage_fixture_registration(trust, &bytes)?;
+        crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
+        job.change(trust, JobChange::Bootstrap).await?;
+        crate::owner::claim_desktop_ownership(
+            &policy.home,
+            &bundled,
+            std::time::SystemTime::now(),
+        )
+        .map_err(|_| OtaError::Io)?;
     }
     fixture_jobs(trust, false).await
 }

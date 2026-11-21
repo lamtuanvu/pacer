@@ -2776,6 +2776,12 @@ async fn bootstrap_own_link_job(
 ) -> Result<(), OtaError> {
     use super::platform::JobChange;
     // Forward repair always writes the bundled CLI path (regular file).
+    #[cfg(feature = "ota-fixture")]
+    if crate::ota::fixture_fault::consume_own_link(
+        crate::ota::fixture_fault::Point::OwnLinkBootstrap,
+    )? {
+        return Err(OtaError::Unavailable);
+    }
     job.change(trust, JobChange::Bootstrap).await
 }
 

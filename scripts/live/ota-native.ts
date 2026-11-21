@@ -1,7 +1,7 @@
 import { readFixtureBundleMetadata } from "./ota-bundle-metadata";
 /** Fixed native fixture diagnostics. No caller-provided executable or manager argument. */
 import { createHash } from "node:crypto";
-import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, symlinkSync, writeFileSync } from "node:fs";
+import { constants, copyFileSync, existsSync, lstatSync, mkdirSync, readFileSync, readlinkSync, symlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { DarwinAuthority, type NativeProcess } from "../../src/update/desktop/native-os";
@@ -140,6 +140,24 @@ export async function attachFixtureTakeover(state: OtaRecord): Promise<FixtureJo
   validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture.candidateVersion);
   const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach-takeover"])));
   if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel) throw Error("Takeover attach returned foreign jobs");
+  return report;
+}
+
+/** Seed owner=desktop + app-owned terminal link + registration naming that link. */
+export async function attachFixtureOwnLink(state: OtaRecord): Promise<FixtureJobs> {
+  if (!state.nativeFixture?.signingCertSha1) throw Error("Own-link repair requires a certificate-pinned fixture lease");
+  knownFixtureBytes(state, state.nativeFixture.candidateVersion);
+  await run(state, ["/usr/bin/codesign", "--verify", "--deep", "--strict", state.currentApp]);
+  const link = fixtureTakeoverCli(state), bin = join(state.pacerHome, ".local/bin");
+  mkdirSync(bin, { recursive: true, mode: 0o700 });
+  if (lstatExists(link)) throw Error("Own-link command path already exists");
+  const helper = join(state.currentApp, "Contents/Resources/pacer-update-helper");
+  validateFixtureIdentity(state, JSON.parse(await run(state, [helper, "--pacer-identity"])), "helper", state.nativeFixture.candidateVersion);
+  const report = jobsSchema.parse(JSON.parse(await run(state, [helper, "--ota-fixture-attach-own-link"])));
+  if (report.jobs.length !== 2 || report.jobs[0].label !== state.serviceLabel) throw Error("Own-link attach returned foreign jobs");
+  const bundled = join(state.currentApp, "Contents/Resources/pacer");
+  if (!lstatSync(link).isSymbolicLink() || readlinkSync(link) !== bundled) throw Error("Own-link attach did not create the app-owned symlink");
+  if (!report.jobs[0].loaded || !report.jobs[0].process) throw Error("Own-link service was not loaded");
   return report;
 }
 
