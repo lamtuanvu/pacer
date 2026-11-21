@@ -1,6 +1,6 @@
 // Phase 2 Task 4+: orchestrator turns driven by wake-ups (start/settle, tick
 // orchestrate phase, retry/limit/deadline, orchestrator steps and choose_workflow).
-import { describe, expect, test } from "bun:test";
+import { describe, expect, spyOn, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -27,6 +27,7 @@ import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { issueRunGrant, verifyRunGrant } from "../src/workflow/run-grant";
 import { isExecutorSession, isOrchestratorSession } from "../src/install/role";
 import type { WorkflowDef } from "../src/workflow/schema";
+import * as blocked from "../src/executors/blocked";
 
 const NOW = 1_700_000_000;
 /** Wake-ups must age past the coalesce window before a turn starts. */
@@ -596,6 +597,36 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(launched).toBe(1);
     expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
     expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
+  });
+
+  test("corrupt blocked.json throw in planner pacing does not crash advanceRuns", async () => {
+    // Fail-open: runner re-checks at launch; a broken local guard must not escape the tick.
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    // Corrupt on disk (and force the reader path to throw) so the guard cannot soft-fail on null.
+    writeFileSync(join(ctx.pacerHome, "blocked.json"), "{not-json");
+    const spy = spyOn(blocked, "readBlocked").mockImplementation(() => {
+      throw new Error("corrupt blocked.json");
+    });
+    try {
+      const run = insertRun(ctx, {
+        workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+        budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+        spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+      });
+      addWakeup(workflowDatabase(ctx), {
+        runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+      });
+      let launched = 0;
+      const spawn: SpawnRunner = () => { launched++; return 1; };
+      await expect(advanceRuns(ctx, spawn)).resolves.toBeTruthy();
+      expect(launched).toBe(1);
+      expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
+      expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
+    } finally {
+      spy.mockRestore();
+    }
   });
 
   test("exhausted strategy planner does not hold a run whose planner is a different available runner", async () => {
