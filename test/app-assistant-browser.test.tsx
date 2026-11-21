@@ -565,6 +565,7 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     await dialog.waitFor();
     expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
     await expect(dialog.getAttribute("aria-label")).resolves.toBe("Answer through the agent CLI?");
+    expect(await dialog.textContent()).toContain("it may use only pacer's read tools");
     // Cancel leaves settings unchanged and returns focus to Save.
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await page.waitForFunction(() => !document.querySelector("dialog[open]"));
@@ -600,11 +601,25 @@ browserTest("sheet_setup_confirms_executor_and_escape_closes_dialog_only", async
     await page.getByRole("button", { name: "Open assistant" }).waitFor();
     await page.keyboard.press("Meta+j");
     await focused(page, "[data-assistant-setup]");
+    // Both wordings appear on ready executor rows; title carries the full Settings sentence.
+    await page.getByText("via agent CLI · checked · with pacer's live tools").waitFor();
+    await page.getByText("via agent CLI · checked · from pacer's summary").waitFor();
+    expect(await page.locator("span[title=\"Answers through the agent CLI with pacer's live tools.\"]").count()).toBe(1);
+    expect(await page.locator("span[title=\"Answers through the agent CLI, from pacer's summary.\"]").count()).toBe(1);
+    // Digest-only ready row: trust dialog says summary-only.
+    await page.getByRole("button", { name: "Use Claude digest" }).click();
+    const digestDialog = page.getByRole("dialog");
+    await digestDialog.waitFor();
+    expect(await digestDialog.textContent()).toContain("answers from pacer's summary only");
+    expect(await digestDialog.textContent()).not.toContain("it may use only pacer's read tools");
+    await digestDialog.getByRole("button", { name: "Cancel" }).click();
+    await page.waitForFunction(() => !document.querySelector("dialog[open]"));
     const use = page.getByRole("button", { name: "Use Local model" }).nth(1);
     await use.click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();
     expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
+    expect(await dialog.textContent()).toContain("it may use only pacer's read tools");
     // Escape dismisses only the confirm; the sheet stays open and nothing is saved.
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector("dialog[open]"));

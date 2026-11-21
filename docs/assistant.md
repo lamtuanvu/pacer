@@ -27,9 +27,10 @@ Results keep numbers and short pacer-owned names only. Goals, context, constrain
 terminal screens and session transcripts are never sent, secrets and your home path are removed, and each result is cut at
 32 KiB. What it reads, and your question, go to the account's model.
 
-Settings › Assistant and each candidate row expose whether that backend currently gets **live pacer tools** (`liveTools`).
-When it does, the settings card lists the same reads as above. When it does not (digest-only), the agent answers from the
-host-built summary for the turn and says when it needs data the summary does not show.
+Settings › Assistant and each candidate row expose whether that backend has **proved live pacer tools** for this CLI
+version (`liveTools`). When it has, the settings card lists the same reads as above. When it has not (digest-only), the
+agent answers from the host-built summary for the turn and says when it needs data the summary does not show. A later
+unhealthy MCP turn can still fall back to digest-only even after a proving self-test.
 
 ## Four backends
 
@@ -45,17 +46,16 @@ are passed in the ACP `mcpServers` field with a per-turn grant bound only by env
 checks that pacer MCP reported healthy tools; if not, that turn falls back to digest-only and says so. Settings shows
 live tools once the ask-mode check for this CLI version proved a pacer tool call.
 
-### 3. Claude Code over the control protocol (`assistant-executor`)
+### 3. Claude Code (`assistant-executor`)
 
-A Claude Code account answers through a host-pinned `claude` stream-json turn. When control-protocol ask mode is active,
-built-in tools stay off, only pacer MCP tools (`mcp__pacer__*`) are allowed, and every `can_use_tool` decision is made by
-pacer. The grant reaches Claude only through process env (never argv). If the pacer MCP server fails to connect, the turn
-retries digest-only. Until a self-test for that CLI version proves a pacer tool call, Settings treats the row as
-digest-only (summary wording). The allowlisted `telemetry@builtin` plugin is Claude Code's normal telemetry to Anthropic,
-which already receives the prompt.
+A Claude Code account answers through a host-pinned `claude -p` stream-json turn with tools disabled
+(`--tools ''`, empty `--mcp-config`). That path is **digest-only**: the agent answers from the host-built summary and
+never receives live pacer MCP tools. The ask-mode check for Claude does not require a pacer tool call, so a passing
+check still leaves `liveTools: false` and Settings keeps the summary-only wording. The allowlisted `telemetry@builtin`
+plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt.
 
-Live Claude checks that need the signed-in subscription use a live sandbox with
-`bun run live up --real-keychain` (see [live validation](testing/live-validation.md)).
+Live Claude checks that need the signed-in subscription (for example a future control-protocol path) use a live sandbox
+with `bun run live up --real-keychain` (see [live validation](testing/live-validation.md)).
 
 ### 4. Codex over app-server (`assistant-executor`)
 
@@ -69,10 +69,10 @@ ask-mode check proved a pacer tool call for the installed Codex version.
 An executor account can be saved for the assistant only after it passes the **ask-mode check**, which runs again when the
 adapter CLI's version changes. The check runs a first turn and a resumed turn. Depending on the adapter it requires that
 forbidden actions were attempted and denied (opencode), that Codex recorded denied shell/file approvals while a pacer tool
-worked, or that Claude's init evidence matches the digest-only or live-tools path for that CLI. Nothing may be written
+worked, or that Claude's digest-only init evidence matches the pinned `claude -p` path. Nothing may be written
 outside the run directory, and a planted AGENTS.md canary must not enter the answer. An inconclusive run (the agent
 attempted nothing) fails. A passing check that required a pacer tool call sets `liveTools` on that candidate; a
-digest-only pass does not.
+digest-only Claude pass does not.
 
 ## Residual risk
 

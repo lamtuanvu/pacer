@@ -33,6 +33,7 @@ const api = { async call(op: string, params: any) {
     return { accounts: [
       { account: "localmodel", backend: "pacer", available: true, liveTools: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel" }] },
       { account: "oc", backend: "executor", available: true, liveTools: true, models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc" }] },
+      { account: "claude-digest", backend: "executor", available: true, liveTools: false, models: [{ id: "sonnet", name: "Sonnet" }], runners: [{ id: "claude#claude-digest" }] },
       { account: "oc-bad", backend: "executor", available: false, liveTools: false, reason: "oc-bad has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc-bad" }] },
     ] };
   }
@@ -57,6 +58,7 @@ const api = { async call(op: string, params: any) {
     { name: "localmodel", label: "Local model", usage: "unmetered", connection: { base_url_host: "localhost:1234" } },
     { name: "cloud", label: "Cloud", usage: "metered", connection: { base_url_host: "api.example.test" } },
     { name: "oc", label: "Local model", usage: "unmetered", connection: { base_url_host: "localhost:1234" } },
+    { name: "claude-digest", label: "Claude digest", usage: "unmetered", connection: { base_url_host: "localhost:1234" } },
     { name: "oc-bad", label: "Unchecked", usage: "unmetered", connection: { base_url_host: "localhost:1234" } },
   ];
   return {};

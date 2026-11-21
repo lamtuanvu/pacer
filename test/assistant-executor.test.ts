@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { BUNDLED } from "../plugins/bundled";
 import { parseClaudeRun, parseRun } from "../plugins/assistant-executor/index";
-import { admit, ask, assistantGrantFor, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
+import { admit, ask, assistantGrantFor, assistantStatus, cancel, candidates, deleteConversations, pruneConversationDirs, saveSettings, selfTest } from "../src/assistant/service";
 import { judge } from "../src/assistant/selftest";
 import {
   askConfig, askSystem, ASK_MCP_ENV_KEYS, CLAUDE_ALLOWED_PACER_TOOLS, CLAUDE_ASK_DISALLOWED, CLAUDE_ASK_SETTINGS,
@@ -249,10 +249,12 @@ describe("the fail-closed ask-mode check", () => {
     const { ctx, deps } = setup();
     expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "oc has not passed the ask-mode check yet." });
     expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: false, liveTools: false });
+    expect((await assistantStatus(ctx, deps)).liveTools).toBe(false);
     expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
     expect((await admit(ctx, deps)).ok).toBe(true);
     expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: true, liveTools: true });
     expect(candidates(ctx, deps).find(r => r.backend === "executor")).not.toHaveProperty("reason");
+    expect((await assistantStatus(ctx, deps)).liveTools).toBe(true);
   }, 60_000);
 
   test("fails when a tool other than pacer's ran", async () => {
@@ -260,6 +262,8 @@ describe("the fail-closed ask-mode check", () => {
     mode("leak");
     expect(await selfTest(ctx, "oc", deps)).toMatchObject({ passed: false, reason: "a tool other than pacer's ran: execute" });
     expect((await admit(ctx, deps)).ok).toBe(false);
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ available: false, liveTools: false });
+    expect((await assistantStatus(ctx, deps)).liveTools).toBe(false);
   }, 60_000);
 
   test("an agent that attempts nothing is asked again, then fails as inconclusive", async () => {

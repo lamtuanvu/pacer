@@ -15,7 +15,7 @@ import { DensityContext } from "../../ds/Density";
 import { useDialogs } from "../../ds/useDialogs";
 import { useTaskContext, TaskContext } from "../../screens/task-shared";
 import { AgentMark } from "../../ds/AgentMark";
-import { askModeCheckCopy, isAskModeCheckReason } from "../../../../src/view-model/copy";
+import { askModeCheckCopy, executorSetupToolsCopy, isAskModeCheckReason } from "../../../../src/view-model/copy";
 import { usageView } from "../../../../src/view-model/usage";
 import { assistantPreferences, watchAssistantPreferences, assistantEntry } from "../assistant-entry";
 import { ComposerMenu } from "./ComposerMenu";
@@ -249,7 +249,7 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     try {
       const settings = await api.call<{ rev: number; backend?: string }>("assistant.settings.get", {});
       // Same trust confirmation as Settings when switching onto an agent CLI.
-      if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm))) return;
+      if (row.backend === "executor" && settings.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, row.liveTools === true))) return;
       await api.call("assistant.settings.set", { account: row.account, backend: row.backend ?? "pacer", runner: null, expect_rev: settings.rev });
       await refresh();
     } catch (error) { setError(error instanceof Error ? error.message : "Could not save the assistant account."); }
@@ -275,11 +275,12 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
     {!!accounts?.length && <div className="pc-assistant-setup__accounts">{accounts.map(account => {
       const executor = account.backend === "executor", ready = !executor || account.available !== false;
       const plain = askModeCheckCopy(account.reason);
-      const toolsNote = account.liveTools ? "live tools" : "from summary";
-      const note = executor ? (ready ? `via agent CLI · checked · ${toolsNote}` : `via agent CLI · ${plain}`) : account.note;
+      const tools = executorSetupToolsCopy(account.liveTools);
+      const note = executor ? (ready ? tools.note : `via agent CLI · ${plain}`) : account.note;
+      const noteTitle = executor && ready ? tools.title : note;
       return <div className="pc-assistant-setup__account" key={rowKey(account)}>
         <AgentMark agent={executor ? "opencode" : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via agent CLI" : ""}</strong><span title={note}>{note}</span></div>
+        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? " · via agent CLI" : ""}</strong><span title={noteTitle}>{note}</span></div>
         {ready
           ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
           : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}
