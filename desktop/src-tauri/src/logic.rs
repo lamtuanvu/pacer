@@ -1,6 +1,7 @@
 use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -312,6 +313,13 @@ pub fn reinstall_after_install_error(reinstall: bool, action: &str, identity: bo
 /// Consent-authorized takeover commits once active work counts are known and idle.
 pub fn consent_takeover_idle(tasks: Option<usize>, terminals: Option<usize>) -> bool {
     matches!((tasks, terminals), (Some(0), Some(0)))
+}
+
+/// First mutating automatic service move (own-link repair / consent takeover) for
+/// this app launch. Later calls return false so a failed attempt cannot bounce the
+/// service on every reconnect.
+pub fn claim_once_per_launch(attempted: &AtomicBool) -> bool {
+    !attempted.swap(true, Ordering::SeqCst)
 }
 
 /// User-facing managed-service failure stays generic; the log must keep the cause.
@@ -1701,6 +1709,14 @@ mod tests {
         assert!(!consent_takeover_idle(Some(0), Some(2)));
         assert!(!consent_takeover_idle(None, Some(0)));
         assert!(!consent_takeover_idle(Some(0), None));
+    }
+
+    #[test]
+    fn automatic_service_move_is_claimed_once_per_launch() {
+        let attempted = AtomicBool::new(false);
+        assert!(claim_once_per_launch(&attempted));
+        assert!(!claim_once_per_launch(&attempted));
+        assert!(!claim_once_per_launch(&attempted));
     }
 
     #[test]

@@ -749,107 +749,53 @@ mod tests {
     #[test]
     fn own_link_repair_sequence_stops_before_replace_and_restores_after_forward_failure() {
         use std::cell::RefCell;
-        let calls = RefCell::new(Vec::new());
-        assert_eq!(
-            run_own_link_repair_sequence(
-                || {
+        let runtime = tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .unwrap();
+        let run = |stop: Result<(), String>,
+                   replace: Result<(), String>,
+                   bootstrap: Result<(), String>| {
+            let calls = RefCell::new(Vec::new());
+            let result = runtime.block_on(run_own_link_repair_sequence(
+                async {
                     calls.borrow_mut().push("stop");
-                    Ok::<(), &str>(())
+                    stop
                 },
-                || {
+                async {
                     calls.borrow_mut().push("replace");
-                    Ok(())
+                    replace
                 },
-                || {
+                async {
                     calls.borrow_mut().push("bootstrap");
-                    Ok(())
+                    bootstrap
                 },
-                || {
+                async {
                     calls.borrow_mut().push("restore");
                     Ok(())
                 },
-            ),
-            Ok(())
+            ));
+            (result, calls.into_inner())
+        };
+        assert_eq!(
+            run(Ok(()), Ok(()), Ok(())),
+            (Ok(()), vec!["stop", "replace", "bootstrap"])
         );
         assert_eq!(
-            calls.into_inner(),
-            ["stop", "replace", "bootstrap"]
-        );
-
-        let calls = RefCell::new(Vec::new());
-        assert_eq!(
-            run_own_link_repair_sequence(
-                || {
-                    calls.borrow_mut().push("stop");
-                    Ok::<(), &str>(())
-                },
-                || {
-                    calls.borrow_mut().push("replace");
-                    Err("replace-failed")
-                },
-                || {
-                    calls.borrow_mut().push("bootstrap");
-                    Ok(())
-                },
-                || {
-                    calls.borrow_mut().push("restore");
-                    Ok(())
-                },
-            ),
-            Err("replace-failed")
-        );
-        assert_eq!(calls.into_inner(), ["stop", "replace", "restore"]);
-
-        let calls = RefCell::new(Vec::new());
-        assert_eq!(
-            run_own_link_repair_sequence(
-                || {
-                    calls.borrow_mut().push("stop");
-                    Ok::<(), &str>(())
-                },
-                || {
-                    calls.borrow_mut().push("replace");
-                    Ok(())
-                },
-                || {
-                    calls.borrow_mut().push("bootstrap");
-                    Err("bootstrap-failed")
-                },
-                || {
-                    calls.borrow_mut().push("restore");
-                    Ok(())
-                },
-            ),
-            Err("bootstrap-failed")
+            run(Ok(()), Err("replace-failed".into()), Ok(())),
+            (Err("replace-failed".into()), vec!["stop", "replace", "restore"])
         );
         assert_eq!(
-            calls.into_inner(),
-            ["stop", "replace", "bootstrap", "restore"]
+            run(Ok(()), Ok(()), Err("bootstrap-failed".into())),
+            (
+                Err("bootstrap-failed".into()),
+                vec!["stop", "replace", "bootstrap", "restore"]
+            )
         );
-
-        let calls = RefCell::new(Vec::new());
         assert_eq!(
-            run_own_link_repair_sequence(
-                || {
-                    calls.borrow_mut().push("stop");
-                    Err("stop-failed")
-                },
-                || {
-                    calls.borrow_mut().push("replace");
-                    Ok(())
-                },
-                || {
-                    calls.borrow_mut().push("bootstrap");
-                    Ok(())
-                },
-                || {
-                    calls.borrow_mut().push("restore");
-                    Ok(())
-                },
-            ),
-            Err("stop-failed")
+            run(Err("stop-failed".into()), Ok(()), Ok(())),
+            (Err("stop-failed".into()), vec!["stop"])
         );
-        assert_eq!(calls.into_inner(), ["stop"]);
     }
     #[test]
     fn control_ack_binds_exact_command_and_effect() {
@@ -2360,21 +2306,23 @@ pub fn own_link_repair_eligible(
 
 /// Validate → pin → stop → replace → bootstrap. On any failure after stop, restore
 /// the original registration and bootstrap it, then return the forward error.
-/// Fakes exercise ordering and the restore branch without launchd.
-pub fn run_own_link_repair_sequence<E>(
-    stop: impl FnOnce() -> Result<(), E>,
-    replace: impl FnOnce() -> Result<(), E>,
-    bootstrap_new: impl FnOnce() -> Result<(), E>,
-    restore_and_bootstrap_original: impl FnOnce() -> Result<(), E>,
+/// Production and fakes share this one sequence.
+pub async fn run_own_link_repair_sequence<E>(
+    stop: impl std::future::Future<Output = Result<(), E>>,
+    replace: impl std::future::Future<Output = Result<(), E>>,
+    bootstrap_new: impl std::future::Future<Output = Result<(), E>>,
+    restore_and_bootstrap_original: impl std::future::Future<Output = Result<(), E>>,
 ) -> Result<(), E> {
-    stop()?;
-    match (|| {
-        replace()?;
-        bootstrap_new()
-    })() {
+    stop.await?;
+    match async {
+        replace.await?;
+        bootstrap_new.await
+    }
+    .await
+    {
         Ok(()) => Ok(()),
         Err(error) => {
-            let _ = restore_and_bootstrap_original();
+            let _ = restore_and_bootstrap_original.await;
             Err(error)
         }
     }
@@ -2644,28 +2592,27 @@ pub async fn repair_own_link_registration(
         plist_path: path.clone(),
         role: CodeRole::Cli,
     };
-    // Every check above runs before mutation. Stop the pinned job (or unload a
-    // pid-less listing), then replace and bootstrap; restore on any later failure.
-    if let Some(process) = pinned.as_ref() {
-        stop_own_link_job(trust, &original_job, process, &bundled).await?;
-    } else if loaded.is_some() {
-        stop_own_link_label(&original_job.definition.label).await?;
-    }
-    match replace_registration(&path, &bytes, &next) {
-        Ok(()) => {}
-        Err(error) => {
-            let _ = bootstrap_own_link_job(trust, &original_job).await;
-            return Err(error);
-        }
-    }
-    match bootstrap_own_link_job(trust, &managed_job).await {
-        Ok(()) => Ok(()),
-        Err(error) => {
+    // Every check above runs before mutation. One sequencing function owns
+    // stop → replace → bootstrap and the restore branch.
+    run_own_link_repair_sequence(
+        async {
+            if let Some(process) = pinned.as_ref() {
+                stop_own_link_job(trust, &original_job, process, &bundled).await
+            } else if loaded.is_some() {
+                stop_own_link_label(&original_job.definition.label).await
+            } else {
+                Ok(())
+            }
+        },
+        async { replace_registration(&path, &bytes, &next) },
+        async { bootstrap_own_link_job(trust, &managed_job).await },
+        async {
             let _ = replace_registration(&path, &next, &bytes);
             let _ = bootstrap_own_link_job(trust, &original_job).await;
-            Err(error)
-        }
-    }
+            Ok(())
+        },
+    )
+    .await
 }
 
 /// Bootout a listed own-link job that has no pid, then settle until the label unloads.

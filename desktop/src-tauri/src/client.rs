@@ -302,21 +302,40 @@ async fn repair_own_link_if_needed(
         app.state::<Shell>().consent_service_move.store(true, Ordering::SeqCst);
         return Ok(());
     }
+    // One mutating attempt per launch: a failed repair must not bounce the service
+    // on every reconnect. The service still works through the own link.
+    if !logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted) {
+        app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+        return Ok(());
+    }
     crate::recovery(app, "takeoverProgress");
     desktop_log!("pacer lifecycle: repairing desktop-owned registration that still names the app link");
-    pacer_desktop::ota::control::repair_own_link_registration(
+    match pacer_desktop::ota::control::repair_own_link_registration(
         &home, &cli.pacer_home, service_port(), &trust,
         owner.as_ref().map(|record| record.owner.as_str()), link_is_ours, &terminal_link,
     )
     .await
-    .map_err(|error| {
-        desktop_log!("{}", logic::managed_service_failure_log("repair-own-link", &error.to_string()));
-        format!("Unable to repair the managed service registration: {error}")
-    })?;
-    app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
-    app.state::<Shell>().service_move_wait_logged.store(false, Ordering::SeqCst);
-    crate::recovery(app, "starting");
-    Err("own-link-repair-done".into())
+    {
+        Ok(()) => {
+            app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+            app.state::<Shell>().service_move_wait_logged.store(false, Ordering::SeqCst);
+            crate::recovery(app, "starting");
+            Err("own-link-repair-done".into())
+        }
+        Err(error) => {
+            desktop_log!(
+                "{}",
+                logic::managed_service_failure_log("repair-own-link", &error.to_string())
+            );
+            desktop_log!(
+                "pacer lifecycle: own-link repair failed once this launch; continuing with the linked service"
+            );
+            app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+            app.state::<Shell>().service_move_wait_logged.store(false, Ordering::SeqCst);
+            *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+            Ok(())
+        }
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -360,6 +379,13 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
         if app.state::<Shell>().consent_service_move.load(Ordering::SeqCst)
             && app.state::<Shell>().takeover.lock().unwrap().is_some()
         {
+            if !logic::claim_once_per_launch(&app.state::<Shell>().consent_takeover_attempted) {
+                desktop_log!(
+                    "pacer lifecycle: consent takeover already attempted this launch; offering review"
+                );
+                app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                return Err("takeover".into());
+            }
             crate::recovery(app, "takeoverProgress");
             match execute_takeover(app, true).await {
                 Ok(state) if state == "committed" => {
@@ -380,11 +406,14 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
                 Ok(state) => {
                     desktop_log!("pacer lifecycle: consent takeover ended in {state}");
                     app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                    *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                    return Err("takeover".into());
                 }
                 Err(error) => {
                     desktop_log!("pacer lifecycle: consent takeover failed: {error}");
                     app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
-                    return Err(error);
+                    *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                    return Err("takeover".into());
                 }
             }
         }
@@ -1110,34 +1139,45 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             if first_run.consent_takeover {
                 app.state::<Shell>().consent_service_move.store(true, Ordering::SeqCst);
                 if logic::consent_takeover_idle(task_count, terminal_count) {
-                    crate::recovery(app, "takeoverProgress");
-                    match execute_takeover(app, true).await {
-                        Ok(state) if state == "committed" => {
-                            first_run.consent_takeover = false;
-                            app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
-                            app.state::<Shell>().service_move_wait_logged.store(false, Ordering::SeqCst);
-                            *app.state::<Shell>().takeover.lock().unwrap() = None;
-                            *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
-                            if let Some(bundled) = bundled_binary() {
-                                if let Err(error) = crate::owner::claim_desktop_ownership(
-                                    &cli.pacer_home, &bundled, std::time::SystemTime::now(),
-                                ) {
-                                    desktop_log!("pacer lifecycle: owner record write failed after consent takeover: {error}");
+                    if !logic::claim_once_per_launch(&app.state::<Shell>().consent_takeover_attempted) {
+                        // Already tried this launch; fall through to the Review offer.
+                        desktop_log!(
+                            "pacer lifecycle: consent takeover already attempted this launch; offering review"
+                        );
+                        first_run.consent_takeover = false;
+                        app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                    } else {
+                        crate::recovery(app, "takeoverProgress");
+                        match execute_takeover(app, true).await {
+                            Ok(state) if state == "committed" => {
+                                first_run.consent_takeover = false;
+                                app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                                app.state::<Shell>().service_move_wait_logged.store(false, Ordering::SeqCst);
+                                *app.state::<Shell>().takeover.lock().unwrap() = None;
+                                *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                                if let Some(bundled) = bundled_binary() {
+                                    if let Err(error) = crate::owner::claim_desktop_ownership(
+                                        &cli.pacer_home, &bundled, std::time::SystemTime::now(),
+                                    ) {
+                                        desktop_log!("pacer lifecycle: owner record write failed after consent takeover: {error}");
+                                    }
                                 }
+                                crate::recovery(app, "starting");
+                                return Err("consent-takeover-done".into());
                             }
-                            crate::recovery(app, "starting");
-                            return Err("consent-takeover-done".into());
-                        }
-                        Ok(state) => {
-                            desktop_log!("pacer lifecycle: consent takeover ended in {state}");
-                            first_run.consent_takeover = false;
-                            app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
-                        }
-                        Err(error) => {
-                            desktop_log!("pacer lifecycle: consent takeover failed: {error}");
-                            first_run.consent_takeover = false;
-                            app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
-                            return Err(error);
+                            Ok(state) => {
+                                desktop_log!("pacer lifecycle: consent takeover ended in {state}");
+                                first_run.consent_takeover = false;
+                                app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                                *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                            }
+                            Err(error) => {
+                                desktop_log!("pacer lifecycle: consent takeover failed: {error}");
+                                first_run.consent_takeover = false;
+                                app.state::<Shell>().consent_service_move.store(false, Ordering::SeqCst);
+                                *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+                                // Fall through to today's Review / restored offer path.
+                            }
                         }
                     }
                 } else if !app.state::<Shell>().service_move_wait_logged.swap(true, Ordering::SeqCst) {

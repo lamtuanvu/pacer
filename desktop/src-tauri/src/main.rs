@@ -89,6 +89,10 @@ struct Shell {
     consent_service_move: AtomicBool,
     /// Logged once while a consent/own-link service move waits for idle work.
     service_move_wait_logged: AtomicBool,
+    /// Automatic own-link repair already attempted this launch (success or failure).
+    own_link_repair_attempted: AtomicBool,
+    /// Automatic consent takeover already attempted this launch (success or failure).
+    consent_takeover_attempted: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,
     pending_service_key: Mutex<Option<String>>,
@@ -127,6 +131,8 @@ impl Default for Shell {
             takeover_retry: AtomicBool::new(false),
             consent_service_move: AtomicBool::new(false),
             service_move_wait_logged: AtomicBool::new(false),
+            own_link_repair_attempted: AtomicBool::new(false),
+            consent_takeover_attempted: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             old_service_ack: Mutex::new(None),
             pending_service_key: Mutex::new(None),
