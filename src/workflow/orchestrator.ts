@@ -99,25 +99,100 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
   }
 }
 
-/** Request stop for a turn's orchestrate task; returns whether the task is terminal. */
-function requestTurnTaskStop(ctx: Ctx, taskId: string, reason: string): boolean {
+/** Log/activity every Nth continuous stop failure (plus the first). */
+const STOP_RETRY_LOG_EVERY = 20;
+/** Give up stop retries this long after the turn deadline. */
+const STOP_FAIL_GRACE_S = 10 * 60;
+
+/** Strip absolute filesystem paths from stop-error text for logs/activity. */
+function sanitizeStopError(text: string): string {
+  return text.replace(/\/(?:Users|Volumes|home|tmp|private\/var|var\/folders)\/\S+/g, "<path>");
+}
+
+/** Original stop reason before "; stop pending …" / "; stop failed" annotations. */
+function stopBaseReason(reason: string | undefined, fallback: string): string {
+  if (!reason) return fallback;
+  const pending = reason.indexOf("; stop pending");
+  if (pending >= 0) return reason.slice(0, pending);
+  const failed = reason.indexOf("; stop failed");
+  if (failed >= 0) return reason.slice(0, failed);
+  return reason;
+}
+
+function stopAttemptCount(reason: string | undefined): number {
+  if (!reason) return 0;
+  const numbered = reason.match(/; stop pending \((\d+)\):/);
+  if (numbered) return Number(numbered[1]);
+  if (reason.includes("; stop pending")) return 1;
+  return 0;
+}
+
+function runIsTerminal(status: string | undefined): boolean {
+  return status === "done" || status === "failed" || status === "stopped";
+}
+
+/** Finish a live turn the way stopLiveTurnsForRun does when the task is already gone. */
+function finishTurnForEndedRun(ctx: Ctx, turn: TurnRow, reason: string): void {
+  revokeRunGrant(ctx, turn.id);
+  releaseWakeups(ctx, turn.id);
+  updateTurn(ctx, turn.id, { status: "stopped", endedAt: ctx.now, reason });
+}
+
+type StopAttemptResult =
+  | { ok: true; terminal: boolean }
+  | { ok: false; gaveUp: boolean; attempts: number; text: string };
+
+/**
+ * Request stop for a turn's orchestrate task. Honours deps.stopTask.
+ * On throw: records attempt count + last error on the turn reason, logs/appends
+ * activity only on the first failure and every 20th, and signals give-up after
+ * the turn deadline + 10 minutes of continuous stop failure.
+ */
+function requestTurnTaskStop(
+  ctx: Ctx,
+  turn: TurnRow,
+  taskId: string,
+  reason: string,
+  deps: OrchestratorDeps = {},
+): StopAttemptResult {
+  const stop = deps.stopTask ?? ((c: Ctx, id: string) => { stopTaskCore(c, id); });
   try {
-    stopTaskCore(ctx, taskId);
+    stop(ctx, taskId);
   } catch (err) {
-    const text = err instanceof Error ? err.message : String(err);
-    console.error(`pacer: orchestrate task ${taskId} stop failed: ${text}`);
-    try {
-      appendActivity(ctx, {
-        kind: "task_settled",
-        level: "warn",
-        text: `orchestrate stop failed (${reason}): ${text}`,
-        taskId,
-      });
-    } catch { /* activity must not block the stop retry path */ }
-    return false;
+    const text = sanitizeStopError(err instanceof Error ? err.message : String(err));
+    // Caller supplies the stable base (e.g. "run stopped" / "deadline"); attempt
+    // count is read from any prior "; stop pending" annotation on the turn.
+    const attempts = stopAttemptCount(turn.reason) + 1;
+    updateTurn(ctx, turn.id, { reason: `${reason}; stop pending (${attempts}): ${text}` });
+    const shouldLog = attempts === 1 || attempts % STOP_RETRY_LOG_EVERY === 0;
+    if (shouldLog) {
+      console.error(`pacer: orchestrate task ${taskId} stop failed: ${text}`);
+      try {
+        // task_settled + level warn: no dedicated warn kind; level is shown distinctly.
+        appendActivity(ctx, {
+          kind: "task_settled",
+          level: "warn",
+          text: `orchestrate stop failed (${reason}): ${text}`,
+          taskId,
+        });
+      } catch { /* activity must not block the stop retry path */ }
+    }
+    const gaveUp = ctx.now > turn.deadline + STOP_FAIL_GRACE_S;
+    if (gaveUp) {
+      console.error(`pacer: orchestrate task ${taskId} stop gave up after ${attempts} failures: ${text}`);
+      try {
+        appendActivity(ctx, {
+          kind: "task_settled",
+          level: "warn",
+          text: `orchestrate stop gave up after ${attempts} failures: ${text}`,
+          taskId,
+        });
+      } catch { /* activity must not block the stop retry path */ }
+    }
+    return { ok: false, gaveUp, attempts, text };
   }
   const task = readTask(ctx, taskId);
-  return !task || TERMINAL_STATES.includes(task.state);
+  return { ok: true, terminal: !task || TERMINAL_STATES.includes(task.state) };
 }
 
 /** When a run ends or is stopped: stop its live turn(s), stop the orchestrator
@@ -130,19 +205,23 @@ export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended
     "SELECT id, task_id FROM workflow_turns WHERE run_id = ? AND status IN ('starting', 'running')",
   ).all(root);
   for (const row of live) {
+    const turn = getTurn(ctx, row.id);
+    if (!turn) continue;
     if (row.task_id) {
-      if (!requestTurnTaskStop(ctx, row.task_id, reason)) {
+      const result = requestTurnTaskStop(ctx, turn, row.task_id, reason);
+      if (!result.ok) {
+        if (result.gaveUp) finishTurnForEndedRun(ctx, getTurn(ctx, row.id) ?? turn, reason);
+        continue;
+      }
+      if (!result.terminal) {
         updateTurn(ctx, row.id, { reason: `${reason}; stop pending` });
         continue;
       }
     }
-    revokeRunGrant(ctx, row.id);
-    releaseWakeups(ctx, row.id);
-    updateTurn(ctx, row.id, { status: "stopped", endedAt: ctx.now, reason });
+    finishTurnForEndedRun(ctx, getTurn(ctx, row.id) ?? turn, reason);
   }
   revokeRunGrantsForRun(ctx, root);
 }
-
 const HEADLESS_DEADLINE_S = 20 * 60;
 const INTERACTIVE_DEADLINE_S = 2 * 3600;
 /** Prompt budget in UTF-8 bytes (not UTF-16 code units). */
@@ -801,9 +880,20 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   if (turn.status !== "starting" && turn.status !== "running") return turn;
 
   revokeRunGrant(ctx, turnId);
+  const owning = getRun(ctx, turn.runId);
+  const endedRun = runIsTerminal(owning?.status);
+
   if (outcome.outcome === "done") {
     const claimed = claimedWakeups(ctx, turnId);
     completeWakeups(ctx, turnId);
+    // An already-ended run must not be patched or get attention from settle.
+    if (endedRun) {
+      return updateTurn(ctx, turnId, {
+        status: "stopped",
+        endedAt: ctx.now,
+        reason: `run ${owning!.status}`,
+      });
+    }
     const unresolvedBlocked = noteUnresolvedAfterDone(ctx, turn.runId, claimed);
     const current = getRun(ctx, turn.runId);
     const spent = current ? parseSpent(current.spent) : null;
@@ -851,6 +941,15 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   }
 
   releaseWakeups(ctx, turnId);
+  // Defensive: never count failures / patch / raise attention on an already-ended run.
+  if (endedRun) {
+    return updateTurn(ctx, turnId, {
+      status: "stopped",
+      endedAt: ctx.now,
+      reason: `run ${owning!.status}`,
+    });
+  }
+
   const countFailure = outcome.countFailure !== false;
   const failures = countFailure ? turn.failures + 1 : turn.failures;
   const updated = updateTurn(ctx, turnId, {
@@ -903,7 +1002,6 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   }
   return updated;
 }
-
 /** At start-up: revoke orphan grants and fail live turns with no live process. */
 export async function recoverOrphanTurns(ctx: Ctx, deps: OrchestratorDeps = {}): Promise<number> {
   revokeOrphanRunGrants(ctx);
@@ -931,33 +1029,41 @@ export async function recoverOrphanTurns(ctx: Ctx, deps: OrchestratorDeps = {}):
 
 /** Stop an overdue turn through the real task.stop path and count it as a failure. */
 async function failOverdueTurn(ctx: Ctx, turn: TurnRow, deps: OrchestratorDeps): Promise<void> {
+  const owning = getRun(ctx, turn.runId);
+  const endedRun = runIsTerminal(owning?.status);
+  // Ended runs keep the engine's original "run <status>" reason; live overdue uses deadline.
+  const baseReason = endedRun ? `run ${owning!.status}` : "deadline";
+
   if (turn.taskId) {
-    const stop = deps.stopTask ?? ((c: Ctx, id: string) => { stopTaskCore(c, id); });
-    try {
-      stop(ctx, turn.taskId);
-    } catch (err) {
-      const text = err instanceof Error ? err.message : String(err);
-      console.error(`pacer: overdue turn ${turn.id} stop failed: ${text}`);
-      try {
-        appendActivity(ctx, {
-          kind: "task_settled",
-          level: "warn",
-          text: `deadline stop failed: ${text}`,
-          taskId: turn.taskId,
-        });
-      } catch { /* activity must not block the retry path */ }
-      updateTurn(ctx, turn.id, { reason: "deadline; stop pending" });
+    const latest = getTurn(ctx, turn.id) ?? turn;
+    const result = requestTurnTaskStop(ctx, latest, turn.taskId, baseReason, deps);
+    if (!result.ok) {
+      if (result.gaveUp) {
+        if (endedRun) {
+          finishTurnForEndedRun(ctx, getTurn(ctx, turn.id) ?? turn, baseReason);
+        } else {
+          await settleTurn(ctx, turn.id, {
+            outcome: "failed",
+            reason: `${baseReason}; stop failed`,
+          });
+        }
+      }
       return;
     }
-    const task = readTask(ctx, turn.taskId);
-    if (task && !TERMINAL_STATES.includes(task.state)) {
-      updateTurn(ctx, turn.id, { reason: "deadline; stop pending" });
+    if (!result.terminal) {
+      const after = getTurn(ctx, turn.id) ?? turn;
+      if (!after.reason?.includes("stop pending")) {
+        updateTurn(ctx, turn.id, { reason: `${baseReason}; stop pending` });
+      }
       return;
     }
   }
+  if (endedRun) {
+    finishTurnForEndedRun(ctx, getTurn(ctx, turn.id) ?? turn, baseReason);
+    return;
+  }
   await settleTurn(ctx, turn.id, { outcome: "failed", reason: "deadline" });
 }
-
 /** Tick phase: recreate lost wake-ups, fail overdue turns, start due turns, settle terminal attempts. */
 export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Promise<number> {
   let handled = 0;
@@ -1002,14 +1108,29 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       handled++;
       continue;
     }
-    // Run already ended but the turn stayed live (owned stopPending): retry stop.
+    // Run already ended but the turn stayed live (owned stopPending): retry stop,
+    // then finish like stopLiveTurnsForRun — never settleTurn's failure path.
     const owningRun = getRun(ctx, row.run_id);
-    if (owningRun && ["done", "failed", "stopped"].includes(owningRun.status)
-      && !TERMINAL_STATES.includes(task.state)) {
-      requestTurnTaskStop(ctx, row.task_id, `run ${owningRun.status}`);
-      task = readTask(ctx, row.task_id) ?? task;
-      if (!TERMINAL_STATES.includes(task.state)) continue;
+    if (owningRun && runIsTerminal(owningRun.status)) {
+      const turn = getTurn(ctx, row.id);
+      if (!turn) continue;
+      // Engine ends runs with `run ${status}`; keep that as the final turn reason.
+      const stopReason = `run ${owningRun.status}`;
+      if (!TERMINAL_STATES.includes(task.state)) {
+        const result = requestTurnTaskStop(ctx, turn, row.task_id, stopReason, deps);
+        task = readTask(ctx, row.task_id) ?? task;
+        if (!result.ok) {
+          if (result.gaveUp) {
+            finishTurnForEndedRun(ctx, getTurn(ctx, row.id) ?? turn, stopReason);
+            handled++;
+          }
+          continue;
+        }
+        if (!TERMINAL_STATES.includes(task.state)) continue;
+      }
+      finishTurnForEndedRun(ctx, getTurn(ctx, row.id) ?? turn, stopReason);
       handled++;
+      continue;
     }
     if (task.state === "done") {
       await settleTurn(ctx, row.id, { outcome: "done" });
