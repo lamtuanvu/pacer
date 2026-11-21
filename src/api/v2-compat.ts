@@ -50,12 +50,26 @@ function budget(s: SnapshotV3): BudgetData | null {
  providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:v2Verdict(a?.verdict??'UNKNOWN'),usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
+/** Workflow attention ids and the orchestrator_failed kind are v3-only (run.* ops). */
+const WORKFLOW_ATTENTION_PREFIXES = [
+  "budget_warn:", "budget_spent:", "budget_msg_warn:", "budget_msg_spent:",
+  "orchestrator_failed:", "unresolved_wake:",
+] as const;
+
+export function isWorkflowAttentionId(id: unknown): boolean {
+  return typeof id === "string" && WORKFLOW_ATTENTION_PREFIXES.some(prefix => id.startsWith(prefix));
+}
+
+export function isWorkflowAttentionItem(item: { id?: unknown; kind?: unknown }): boolean {
+  return isWorkflowAttentionId(item.id) || item.kind === "orchestrator_failed";
+}
+
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const withVerdicts={...compatible,accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{
-  if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
+  if(a.id==="setup:connect"||isDiscoveryItemId(a.id)||isWorkflowAttentionItem(a))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
   const compatibleAction = (action: typeof a.actions[number]) => action.op === "dispatch.retry" || action.op === "dispatch.answer"
@@ -69,16 +83,19 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
  // ceiling is the sum of the local executors' own limits.
  const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
- return {...withVerdicts,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...withVerdicts,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)&&!isWorkflowAttentionItem(a)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 /**
  * LAN discovery is v3-only: its event, its config area, its attention items and their notifications never reach v2 clients.
+ * Workflow attention (budget / orchestrator_failed) is likewise v3-only — its actions call run.* ops.
  * v2 counts events leave the open discovery items out (see eventsSince).
  */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
- const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
- return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
+ const d=e.data as {area?:unknown;id?:unknown;key?:unknown;kind?:unknown}|null;
+ return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'
+  ||e.type==='attention'&&(isDiscoveryItemId(d?.id)||isWorkflowAttentionId(d?.id)||d?.kind==='orchestrator_failed')
+  ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
 export { isDiscoveryItemId };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {

@@ -123,13 +123,36 @@ pub fn is_discovery_item_id(value: &Value) -> bool {
         .is_some_and(|s| s.starts_with("discovery:") || s.starts_with("discovery-network:"))
 }
 
+/// Workflow attention ids (and the orchestrator_failed kind) stay on protocol 3.
+pub fn is_workflow_attention_id(value: &Value) -> bool {
+    value.as_str().is_some_and(|s| {
+        s.starts_with("budget_warn:")
+            || s.starts_with("budget_spent:")
+            || s.starts_with("budget_msg_warn:")
+            || s.starts_with("budget_msg_spent:")
+            || s.starts_with("orchestrator_failed:")
+            || s.starts_with("unresolved_wake:")
+    })
+}
+
+pub fn is_workflow_attention_item(item: &Value) -> bool {
+    is_workflow_attention_id(&item["id"])
+        || item.get("kind").and_then(Value::as_str) == Some("orchestrator_failed")
+}
+
 pub fn v3_only_event(event: &Value) -> bool {
     let data = &event["data"];
     match event["type"].as_str() {
         Some("discovery.found") => true,
         Some("config") => data["area"] == "discovery",
-        Some("attention") => is_discovery_item_id(&data["id"]),
-        Some("notify") => is_discovery_item_id(&data["key"]),
+        Some("attention") => {
+            is_discovery_item_id(&data["id"])
+                || is_workflow_attention_id(&data["id"])
+                || data.get("kind").and_then(Value::as_str) == Some("orchestrator_failed")
+        }
+        Some("notify") => {
+            is_discovery_item_id(&data["key"]) || is_workflow_attention_id(&data["key"])
+        }
         _ => false,
     }
 }
@@ -301,4 +324,63 @@ pub fn call_params(name: &str, value: &Value) -> Result<Value, pacer_foundation:
         value.clone()
     };
     params(name, &value).map_err(|message| CoreError::new(Code::InvalidInput, message))
+}
+
+#[cfg(test)]
+mod workflow_attention_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn workflow_attention_ids_and_kind_are_v3_only() {
+        for id in [
+            "budget_warn:r1",
+            "budget_spent:r1",
+            "budget_msg_warn:r1",
+            "budget_msg_spent:r1",
+            "orchestrator_failed:r1",
+            "unresolved_wake:r1",
+        ] {
+            assert!(is_workflow_attention_id(&json!(id)));
+            assert!(v3_only_event(&json!({"type":"attention","data":{"id":id}})));
+            assert!(v3_only_event(&json!({"type":"notify","data":{"key":id}})));
+        }
+        assert!(is_workflow_attention_item(&json!({
+            "id":"custom:x","kind":"orchestrator_failed"
+        })));
+        assert!(v3_only_event(&json!({
+            "type":"attention",
+            "data":{"id":"custom:x","kind":"orchestrator_failed"}
+        })));
+        assert!(!is_workflow_attention_item(&json!({
+            "id":"failed:t","kind":"failed"
+        })));
+        assert!(!v3_only_event(&json!({
+            "type":"attention","data":{"id":"failed:t","kind":"failed"}
+        })));
+    }
+
+    #[test]
+    fn snapshot_strips_workflow_attention_and_keeps_others() {
+        let source = json!({
+            "attention":[
+                {"id":"budget_warn:r1","kind":"question","severity":"problem","title":"w","detail":"d","raisedAt":1,"actions":[]},
+                {"id":"orchestrator_failed:r1","kind":"orchestrator_failed","severity":"blocked","title":"f","detail":"d","raisedAt":1,"actions":[{"label":"Retry","op":"run.retry_orchestrator","params":{"id":"r1"}}]},
+                {"id":"failed:t","kind":"failed","severity":"problem","title":"keep","detail":"d","raisedAt":1,"actions":[{"label":"Retry","op":"task.retry","params":{"id":"t"}}]}
+            ],
+            "setup":{"items":[]},
+            "counts":{},
+            "executors":[],
+            "accounts":[],
+            "strategies":[],
+            "seq":0,
+            "service":{},
+            "machine":{"unlimited":false,"max":1,"used":0}
+        });
+        let result = snapshot(&source, None);
+        assert_eq!(result["attention"].as_array().unwrap().len(), 1);
+        assert_eq!(result["attention"][0]["id"], "failed:t");
+        assert_eq!(result["alerts"].as_array().unwrap().len(), 1);
+        assert_eq!(result["alerts"][0]["key"], "failed:t");
+    }
 }

@@ -105,3 +105,160 @@ test('desktop capture stays on v3 and does not change v2 client registration',as
  const registration=await callV2Op(fakeCtx(),'client.register',{kind:'desktop',version:'test',capture:true});
  expect(registration).not.toHaveProperty('capture_worker');
 });
+
+test('v2 snapshot and events strip workflow attention while leaving other items', async () => {
+  const {
+    toV2Snapshot,
+    v3OnlyEvent,
+    isWorkflowAttentionItem,
+  } = await import('../src/api/v2-compat');
+  const keep = {
+    id: 'failed:t-keep',
+    kind: 'failed',
+    severity: 'problem',
+    repo: null,
+    title: 'Task failed',
+    detail: 'x',
+    raisedAt: 1,
+    since: 1,
+    actions: [{ label: 'Retry', op: 'task.retry', params: { id: 't-keep' } }],
+    notify: 'all',
+  };
+  const workflowItems = [
+    {
+      id: 'budget_warn:r1',
+      kind: 'question',
+      severity: 'problem',
+      repo: null,
+      title: 'warn',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [{ label: 'Add 20 planning turns', op: 'run.set_budget', params: { id: 'r1' } }],
+      notify: 'all',
+    },
+    {
+      id: 'budget_spent:r1',
+      kind: 'question',
+      severity: 'decide',
+      repo: null,
+      title: 'spent',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [{ label: 'Stop run', op: 'run.stop', params: { id: 'r1' } }],
+      notify: 'important',
+    },
+    {
+      id: 'budget_msg_warn:r1',
+      kind: 'question',
+      severity: 'problem',
+      repo: null,
+      title: 'msg warn',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [],
+      notify: 'all',
+    },
+    {
+      id: 'budget_msg_spent:r1',
+      kind: 'question',
+      severity: 'decide',
+      repo: null,
+      title: 'msg spent',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [],
+      notify: 'important',
+    },
+    {
+      id: 'orchestrator_failed:r1',
+      kind: 'orchestrator_failed',
+      severity: 'blocked',
+      repo: null,
+      title: 'failed',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [{ label: 'Retry now', op: 'run.retry_orchestrator', params: { id: 'r1' } }],
+      notify: 'important',
+    },
+    {
+      id: 'unresolved_wake:r1',
+      kind: 'orchestrator_failed',
+      severity: 'blocked',
+      repo: null,
+      title: 'wake',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [],
+      notify: 'important',
+    },
+    // Kind alone must also filter, even with a non-prefix id.
+    {
+      id: 'custom:orch',
+      kind: 'orchestrator_failed',
+      severity: 'blocked',
+      repo: null,
+      title: 'custom',
+      detail: 'd',
+      raisedAt: 1,
+      since: 1,
+      actions: [],
+      notify: 'important',
+    },
+  ];
+  for (const item of workflowItems) expect(isWorkflowAttentionItem(item)).toBe(true);
+  expect(isWorkflowAttentionItem(keep)).toBe(false);
+
+  const wire = {
+    seq: 3_000_000_000_000,
+    at: 42,
+    mode: 'normal',
+    tasks: [],
+    strategies: [],
+    planner: { runner: 'p', mode: 'normal', stale: false },
+    accounts: [],
+    executors: [],
+    machine: { used: 0, max: 1, hardCap: null, unlimited: false },
+    setup: { items: [] },
+    attention: [...workflowItems, keep],
+    counts: {
+      attention: workflowItems.length + 1,
+      problems: 1,
+      review: 0,
+      running: 0,
+      queued: 0,
+      ready: 0,
+      executors: 0,
+      setupOpen: 0,
+      byRepo: {},
+      hostsWithProblems: 0,
+    },
+    today: { since: 0, done: 0, accepted: 0, rejected: 0, failed: 0, byRepo: {} },
+    hosts: [],
+    repos: [],
+    service: { version: 'test', protocol: '3.0.0', pid: 1, notifier: null },
+    pause: null,
+    policy: { mode: 'open', plugins: 0 },
+  };
+  const v2 = toV2Snapshot(wire as never);
+  expect(v2.attention.map(a => a.id)).toEqual(['failed:t-keep']);
+  expect(v2.alerts.map(a => a.key)).toEqual(['failed:t-keep']);
+  expect(v2.counts.attention).toBe(1);
+  // v3 input unchanged
+  expect(wire.attention).toHaveLength(workflowItems.length + 1);
+
+  for (const item of workflowItems) {
+    expect(v3OnlyEvent({ type: 'attention', data: { id: item.id, kind: item.kind } })).toBe(true);
+  }
+  // Notify keys follow the attention id; prefix ids are stripped like discovery.
+  for (const item of workflowItems.filter(i => i.id !== 'custom:orch')) {
+    expect(v3OnlyEvent({ type: 'notify', data: { key: item.id } })).toBe(true);
+  }
+  expect(v3OnlyEvent({ type: 'attention', data: { id: keep.id, kind: keep.kind } })).toBe(false);
+  expect(v3OnlyEvent({ type: 'notify', data: { key: keep.id } })).toBe(false);
+});
