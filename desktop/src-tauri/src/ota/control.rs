@@ -720,6 +720,13 @@ mod tests {
     }
 
     #[test]
+    fn own_link_repair_outcome_marks_mutation_only_after_bootout() {
+        assert!(!OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Identity).mutation_reached());
+        assert!(OwnLinkRepairOutcome::Repaired.mutation_reached());
+        assert!(OwnLinkRepairOutcome::FailedAfterMutation(OtaError::Io).mutation_reached());
+    }
+
+    #[test]
     fn own_link_repair_matches_only_the_stuck_desktop_own_link_shape() {
         let link = Path::new("/tmp/home/.local/bin/pacer");
         let foreign = Path::new("/tmp/home/.local/bin/other");
@@ -747,15 +754,16 @@ mod tests {
     }
 
     #[test]
-    fn own_link_repair_sequence_stops_before_replace_and_restores_after_forward_failure() {
+    fn own_link_repair_sequence_restores_after_bootout_even_when_stop_settle_fails() {
         use std::cell::RefCell;
         let runtime = tokio::runtime::Builder::new_current_thread()
             .enable_all()
             .build()
             .unwrap();
-        let run = |stop: Result<(), String>,
+        let run = |stop: Result<OwnLinkStopOutcome, OwnLinkStopFailure<String>>,
                    replace: Result<(), String>,
-                   bootstrap: Result<(), String>| {
+                   bootstrap: Result<(), String>,
+                   restore: Result<(), String>| {
             let calls = RefCell::new(Vec::new());
             let result = runtime.block_on(run_own_link_repair_sequence(
                 async {
@@ -772,29 +780,89 @@ mod tests {
                 },
                 async {
                     calls.borrow_mut().push("restore");
-                    Ok(())
+                    restore
                 },
             ));
             (result, calls.into_inner())
         };
         assert_eq!(
-            run(Ok(()), Ok(()), Ok(())),
-            (Ok(()), vec!["stop", "replace", "bootstrap"])
-        );
-        assert_eq!(
-            run(Ok(()), Err("replace-failed".into()), Ok(())),
-            (Err("replace-failed".into()), vec!["stop", "replace", "restore"])
-        );
-        assert_eq!(
-            run(Ok(()), Ok(()), Err("bootstrap-failed".into())),
+            run(Ok(OwnLinkStopOutcome::Stopped), Ok(()), Ok(()), Ok(())),
             (
-                Err("bootstrap-failed".into()),
-                vec!["stop", "replace", "bootstrap", "restore"]
+                OwnLinkRepairOutcome::Repaired,
+                vec!["stop", "replace", "bootstrap"]
             )
         );
         assert_eq!(
-            run(Err("stop-failed".into()), Ok(()), Ok(())),
-            (Err("stop-failed".into()), vec!["stop"])
+            run(
+                Ok(OwnLinkStopOutcome::Skipped),
+                Err("replace-failed".into()),
+                Ok(()),
+                Ok(())
+            ),
+            (
+                OwnLinkRepairOutcome::FailedAfterMutation("replace-failed".into()),
+                vec!["stop", "replace", "restore"]
+            )
+        );
+        assert_eq!(
+            run(
+                Ok(OwnLinkStopOutcome::Stopped),
+                Ok(()),
+                Err("bootstrap-failed".into()),
+                Ok(())
+            ),
+            (
+                OwnLinkRepairOutcome::FailedAfterMutation("bootstrap-failed".into()),
+                vec!["stop", "replace", "bootstrap", "restore"]
+            )
+        );
+        // Bootout succeeded; settle failed → must restore.
+        assert_eq!(
+            run(
+                Err(OwnLinkStopFailure {
+                    bootout_issued: true,
+                    error: "settle-failed".into(),
+                }),
+                Ok(()),
+                Ok(()),
+                Ok(())
+            ),
+            (
+                OwnLinkRepairOutcome::FailedAfterMutation("settle-failed".into()),
+                vec!["stop", "restore"]
+            )
+        );
+        // Refusal before bootout → no restore, not a mutating attempt.
+        assert_eq!(
+            run(
+                Err(OwnLinkStopFailure {
+                    bootout_issued: false,
+                    error: "identity".into(),
+                }),
+                Ok(()),
+                Ok(()),
+                Ok(())
+            ),
+            (
+                OwnLinkRepairOutcome::RefusedBeforeMutation("identity".into()),
+                vec!["stop"]
+            )
+        );
+        // Restore failure after bootout is not discarded.
+        assert_eq!(
+            run(
+                Err(OwnLinkStopFailure {
+                    bootout_issued: true,
+                    error: "settle-failed".into(),
+                }),
+                Ok(()),
+                Ok(()),
+                Err("restore-failed".into())
+            ),
+            (
+                OwnLinkRepairOutcome::FailedAfterMutation("restore-failed".into()),
+                vec!["stop", "restore"]
+            )
         );
     }
     #[test]
@@ -2304,73 +2372,204 @@ pub fn own_link_repair_eligible(
     owner == Some("desktop") && link_is_ours && registered_program == terminal_link
 }
 
-/// Validate → pin → stop → replace → bootstrap. On any failure after stop, restore
-/// the original registration and bootstrap it, then return the forward error.
-/// Production and fakes share this one sequence.
+/// Disk-only eligibility for the stuck own-link shape (loaded job optional).
+/// Used when Identity-on-install finds nothing loaded, and before scheduling repair.
+#[cfg(target_os = "macos")]
+pub fn own_link_repair_disk_eligible(
+    user_home: &Path,
+    home: &Path,
+    port: u16,
+    trust: &ReleaseTrust,
+    owner: Option<&str>,
+    link_is_ours: bool,
+    terminal_link: &Path,
+) -> bool {
+    let Ok(user_home) = user_home.canonicalize() else {
+        return false;
+    };
+    let Ok(home) = home.canonicalize() else {
+        return false;
+    };
+    let label = if let Some(policy) = trust.fixture_policy() {
+        if policy.validate_live().is_err()
+            || policy.home != home
+            || policy.home != user_home
+            || policy.port != port
+        {
+            return false;
+        }
+        policy.service_label.as_str()
+    } else {
+        "com.pacer.serve"
+    };
+    let fixture_registration_dir = trust
+        .fixture_policy()
+        .map(|policy| policy.root.join("registrations"));
+    let path = service_registration_path(&user_home, label, fixture_registration_dir.as_deref());
+    let Ok(bytes) = super::platform_fs::read_owned_file(&path, 131072) else {
+        return false;
+    };
+    let Ok(argv) = parse_registration(&bytes, &user_home, &home, port, label) else {
+        return false;
+    };
+    own_link_repair_eligible(owner, link_is_ours, Path::new(&argv[0]), terminal_link)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn own_link_repair_disk_eligible(
+    _user_home: &Path,
+    _home: &Path,
+    _port: u16,
+    _trust: &ReleaseTrust,
+    _owner: Option<&str>,
+    _link_is_ours: bool,
+    _terminal_link: &Path,
+) -> bool {
+    false
+}
+
+/// Outcome of the own-link stop step before replace/bootstrap.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum OwnLinkStopOutcome {
+    /// Nothing was loaded; no bootout issued.
+    Skipped,
+    /// Bootout succeeded and the label settled absent.
+    Stopped,
+}
+
+/// Stop failed; `bootout_issued` means restore is mandatory.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct OwnLinkStopFailure<E> {
+    pub bootout_issued: bool,
+    pub error: E,
+}
+
+/// Result of the shared own-link repair sequence (production and fakes).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum OwnLinkRepairOutcome<E> {
+    Repaired,
+    /// Validation / Busy / Identity before launchctl bootout. Do not consume once-per-launch.
+    RefusedBeforeMutation(E),
+    /// Failed after bootout (or after a successful stop with forward/restore error).
+    FailedAfterMutation(E),
+}
+
+impl OwnLinkRepairOutcome<OtaError> {
+    pub fn mutation_reached(&self) -> bool {
+        matches!(
+            self,
+            Self::Repaired | Self::FailedAfterMutation(_)
+        )
+    }
+
+    pub fn into_result(self) -> Result<(), OtaError> {
+        match self {
+            Self::Repaired => Ok(()),
+            Self::RefusedBeforeMutation(error) | Self::FailedAfterMutation(error) => Err(error),
+        }
+    }
+}
+
+/// Validate → pin → stop → replace → bootstrap.
+/// Once launchctl bootout has succeeded, always restore on any later failure
+/// (including settle failures inside stop). Restore errors are returned, not discarded.
 pub async fn run_own_link_repair_sequence<E>(
-    stop: impl std::future::Future<Output = Result<(), E>>,
+    stop: impl std::future::Future<Output = Result<OwnLinkStopOutcome, OwnLinkStopFailure<E>>>,
     replace: impl std::future::Future<Output = Result<(), E>>,
     bootstrap_new: impl std::future::Future<Output = Result<(), E>>,
     restore_and_bootstrap_original: impl std::future::Future<Output = Result<(), E>>,
-) -> Result<(), E> {
-    stop.await?;
+) -> OwnLinkRepairOutcome<E> {
+    match stop.await {
+        Ok(_) => {}
+        Err(OwnLinkStopFailure {
+            bootout_issued: false,
+            error,
+        }) => {
+            return OwnLinkRepairOutcome::RefusedBeforeMutation(error);
+        }
+        Err(OwnLinkStopFailure {
+            bootout_issued: true,
+            error,
+        }) => {
+            return match restore_and_bootstrap_original.await {
+                Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation(error),
+                Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation(restore_error),
+            };
+        }
+    }
     match async {
         replace.await?;
         bootstrap_new.await
     }
     .await
     {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            let _ = restore_and_bootstrap_original.await;
-            Err(error)
-        }
+        Ok(()) => OwnLinkRepairOutcome::Repaired,
+        Err(error) => match restore_and_bootstrap_original.await {
+            Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation(error),
+            Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation(restore_error),
+        },
     }
 }
 
 /// Own-link-only stop: match the on-disk (symlink) registration, pin the loaded
 /// pid, bootout the label, wait for that incarnation to exit and the label to
 /// unload. Does not call `stop_exact`, `match_loaded` changes, or `managed_action`.
+/// Once bootout succeeds, settle failures return `bootout_issued: true` so restore runs.
 #[cfg(target_os = "macos")]
 async fn stop_own_link_job(
     trust: &ReleaseTrust,
     original: &super::platform::OwnedJob,
     pinned: &ProcessIdentity,
     bundled: &Path,
-) -> Result<(), OtaError> {
+) -> Result<OwnLinkStopOutcome, OwnLinkStopFailure<OtaError>> {
     use super::platform::{
         copy_user_job, settle_absent, wait_exact_exit, PINNED_BOOTOUT_SETTLE_MS,
     };
-    let loaded = copy_user_job(&original.definition.label)?;
+    let refuse = |error: OtaError| OwnLinkStopFailure {
+        bootout_issued: false,
+        error,
+    };
+    let after_bootout = |error: OtaError| OwnLinkStopFailure {
+        bootout_issued: true,
+        error,
+    };
+    let loaded = copy_user_job(&original.definition.label).map_err(refuse)?;
     let matched = loaded
         .as_ref()
         .map(|value| original.definition.match_loaded(value))
-        .transpose()?
-        .ok_or(OtaError::Identity)?;
-    let pid = matched.pid.ok_or(OtaError::Identity)?;
+        .transpose()
+        .map_err(refuse)?
+        .ok_or_else(|| refuse(OtaError::Identity))?;
+    let pid = matched.pid.ok_or_else(|| refuse(OtaError::Identity))?;
     let details = native::process_details(pid)
-        .map_err(|_| OtaError::Identity)?
-        .ok_or(OtaError::Identity)?;
+        .map_err(|_| refuse(OtaError::Identity))?
+        .ok_or_else(|| refuse(OtaError::Identity))?;
     if details.identity != *pinned {
-        return Err(OtaError::Identity);
+        return Err(refuse(OtaError::Identity));
     }
-    trust.verify_process(&details.identity, CodeRole::Cli)?;
+    trust
+        .verify_process(&details.identity, CodeRole::Cli)
+        .map_err(refuse)?;
     let executable = details
         .executable
         .canonicalize()
-        .map_err(|_| OtaError::Identity)?;
+        .map_err(|_| refuse(OtaError::Identity))?;
     if executable != bundled {
-        return Err(OtaError::Identity);
+        return Err(refuse(OtaError::Identity));
     }
     let program = Path::new(
         original
             .definition
             .arguments
             .first()
-            .ok_or(OtaError::Identity)?,
+            .ok_or_else(|| refuse(OtaError::Identity))?,
     );
-    if program.canonicalize().map_err(|_| OtaError::Identity)? != bundled {
-        return Err(OtaError::Identity);
+    if program
+        .canonicalize()
+        .map_err(|_| refuse(OtaError::Identity))?
+        != bundled
+    {
+        return Err(refuse(OtaError::Identity));
     }
     let domain = format!("gui/{}", unsafe { libc::geteuid() });
     let target = format!("{domain}/{}", original.definition.label);
@@ -2384,22 +2583,65 @@ async fn stop_own_link_job(
         .kill_on_drop(true);
     let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status())
         .await
-        .map_err(|_| OtaError::Timeout)?
-        .map_err(|_| OtaError::Io)?;
+        .map_err(|_| refuse(OtaError::Timeout))?
+        .map_err(|_| refuse(OtaError::Io))?;
     if !status.success() {
-        return Err(OtaError::Io);
+        return Err(refuse(OtaError::Io));
     }
-    wait_exact_exit(pinned).await?;
+    wait_exact_exit(pinned)
+        .await
+        .map_err(after_bootout)?;
     let remaining = settle_absent(
         || copy_user_job(&original.definition.label),
         || native::awake_now().map_err(|_| OtaError::Identity),
         PINNED_BOOTOUT_SETTLE_MS,
         std::time::Duration::from_millis(50),
     )
-    .await?;
+    .await
+    .map_err(after_bootout)?;
     if remaining.is_some() {
+        return Err(after_bootout(OtaError::Identity));
+    }
+    Ok(OwnLinkStopOutcome::Stopped)
+}
+
+/// Restore the original own-link registration: rewrite bytes if needed, re-verify
+/// they match the original and that the terminal link still resolves to the bundled
+/// CLI, then bootstrap and match the loaded job.
+#[cfg(target_os = "macos")]
+async fn restore_own_link_registration(
+    path: &Path,
+    current_expected: &[u8],
+    original_bytes: &[u8],
+    terminal_link: &Path,
+    bundled: &Path,
+    original: &super::platform::OwnedJob,
+) -> Result<(), OtaError> {
+    use super::{
+        platform::copy_user_job,
+        platform_fs::{read_owned_file, replace_registration},
+    };
+    let on_disk = match read_owned_file(path, 131072) {
+        Ok(bytes) => bytes,
+        Err(_) => current_expected.to_vec(),
+    };
+    if on_disk != original_bytes {
+        replace_registration(path, &on_disk, original_bytes)?;
+    }
+    let verified = read_owned_file(path, 131072)?;
+    if verified != original_bytes {
         return Err(OtaError::Identity);
     }
+    if terminal_link
+        .canonicalize()
+        .map_err(|_| OtaError::Identity)?
+        != bundled
+    {
+        return Err(OtaError::Identity);
+    }
+    bootstrap_own_link_plist(path, &original.definition.label).await?;
+    let loaded = copy_user_job(&original.definition.label)?.ok_or(OtaError::Identity)?;
+    original.definition.match_loaded(&loaded)?;
     Ok(())
 }
 
@@ -2409,15 +2651,7 @@ async fn bootstrap_own_link_job(
     job: &super::platform::OwnedJob,
 ) -> Result<(), OtaError> {
     use super::platform::JobChange;
-    // Bundled registration: full Role(Cli) checks apply.
-    if Path::new(job.definition.arguments.first().ok_or(OtaError::Identity)?)
-        .symlink_metadata()
-        .map(|meta| meta.file_type().is_symlink())
-        .unwrap_or(false)
-    {
-        // Original own-link restore still names the terminal symlink; launchctl only.
-        return bootstrap_own_link_plist(&job.plist_path, &job.definition.label).await;
-    }
+    // Forward repair always writes the bundled CLI path (regular file).
     job.change(trust, JobChange::Bootstrap).await
 }
 
@@ -2459,6 +2693,7 @@ async fn bootstrap_own_link_plist(path: &Path, label: &str) -> Result<(), OtaErr
 /// Rewrite a desktop-owned registration that still names the app's own terminal
 /// link so it points at the bundled CLI, then reload the job. Matches only
 /// `own_link_repair_eligible`; does not widen managed_action or detect_takeover.
+/// A loaded job without a pid is refused (Identity) without bootout.
 #[cfg(target_os = "macos")]
 pub async fn repair_own_link_registration(
     user_home: &Path,
@@ -2468,52 +2703,76 @@ pub async fn repair_own_link_registration(
     owner: Option<&str>,
     link_is_ours: bool,
     terminal_link: &Path,
-) -> Result<(), OtaError> {
+) -> OwnLinkRepairOutcome<OtaError> {
     use super::{
         platform::{copy_user_job, JobDefinition, OwnedJob},
         platform_fs::{read_owned_file, replace_registration, PrivateDir},
     };
     use std::{collections::BTreeMap, os::unix::fs::MetadataExt};
-    let user_home = user_home.canonicalize().map_err(|_| OtaError::Identity)?;
-    let own = native::process_details(std::process::id())
-        .map_err(|_| OtaError::Identity)?
-        .ok_or(OtaError::Identity)?;
-    trust.verify_process(&own.identity, CodeRole::Desktop)?;
-    let executable = own
-        .executable
-        .canonicalize()
-        .map_err(|_| OtaError::Identity)?;
-    let app = executable
+    let refuse = |error: OtaError| OwnLinkRepairOutcome::RefusedBeforeMutation(error);
+    let user_home = match user_home.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return refuse(OtaError::Identity),
+    };
+    let own = match native::process_details(std::process::id()) {
+        Ok(Some(details)) => details,
+        _ => return refuse(OtaError::Identity),
+    };
+    if trust
+        .verify_process(&own.identity, CodeRole::Desktop)
+        .is_err()
+    {
+        return refuse(OtaError::Identity);
+    }
+    let executable = match own.executable.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return refuse(OtaError::Identity),
+    };
+    let app = match executable
         .parent()
         .and_then(Path::parent)
         .and_then(Path::parent)
-        .ok_or(OtaError::Identity)?;
+    {
+        Some(path) => path,
+        None => return refuse(OtaError::Identity),
+    };
     if !app.to_string_lossy().ends_with(".app") || executable != app.join("Contents/MacOS/pacer") {
-        return Err(OtaError::Identity);
+        return refuse(OtaError::Identity);
     }
     let bundled = app.join("Contents/Resources/pacer");
-    trust.verify_static(app, CodeRole::Desktop)?;
-    trust.verify_static(&bundled, CodeRole::Cli)?;
-    trust.verify_static(
-        &app.join("Contents/Resources/pacer-update-helper"),
-        CodeRole::Helper,
-    )?;
-    let home = home.canonicalize().map_err(|_| OtaError::Identity)?;
-    let home_meta = std::fs::symlink_metadata(&home).map_err(|_| OtaError::Identity)?;
+    if trust.verify_static(app, CodeRole::Desktop).is_err()
+        || trust.verify_static(&bundled, CodeRole::Cli).is_err()
+        || trust
+            .verify_static(
+                &app.join("Contents/Resources/pacer-update-helper"),
+                CodeRole::Helper,
+            )
+            .is_err()
+    {
+        return refuse(OtaError::Identity);
+    }
+    let home = match home.canonicalize() {
+        Ok(path) => path,
+        Err(_) => return refuse(OtaError::Identity),
+    };
+    let home_meta = match std::fs::symlink_metadata(&home) {
+        Ok(meta) => meta,
+        Err(_) => return refuse(OtaError::Identity),
+    };
     if !home_meta.is_dir()
         || home_meta.uid() != unsafe { libc::geteuid() }
         || home_meta.mode() & 0o077 != 0
     {
-        return Err(OtaError::Identity);
+        return refuse(OtaError::Identity);
     }
     let (label, registration_dir, locks) = if let Some(policy) = trust.fixture_policy() {
-        policy.validate_live().map_err(|_| OtaError::Identity)?;
-        if policy.home != home
+        if policy.validate_live().is_err()
+            || policy.home != home
             || policy.home != user_home
             || policy.port != port
             || policy.current_app != app
         {
-            return Err(OtaError::Identity);
+            return refuse(OtaError::Identity);
         }
         (
             policy.service_label.clone(),
@@ -2529,44 +2788,81 @@ pub async fn repair_own_link_registration(
             })),
         )
     };
-    let lock_dir = PrivateDir::create(&locks)?;
-    let _locks = lock_dir.acquire_locks(app, &home)?;
-    ordinary_maintenance_clear(&home)?;
+    let lock_dir = match PrivateDir::create(&locks) {
+        Ok(dir) => dir,
+        Err(error) => return refuse(error),
+    };
+    let _locks = match lock_dir.acquire_locks(app, &home) {
+        Ok(guard) => guard,
+        Err(error) => return refuse(error),
+    };
+    if let Err(error) = ordinary_maintenance_clear(&home) {
+        return refuse(error);
+    }
     let path = registration_dir.join(format!("{label}.plist"));
     let bytes = match std::fs::symlink_metadata(&path) {
-        Ok(_) => read_owned_file(&path, 131072)?,
-        Err(_) => return Err(OtaError::Identity),
+        Ok(_) => match read_owned_file(&path, 131072) {
+            Ok(bytes) => bytes,
+            Err(error) => return refuse(error),
+        },
+        Err(_) => return refuse(OtaError::Identity),
     };
-    let argv = parse_registration(&bytes, &user_home, &home, port, &label)?;
+    let argv = match parse_registration(&bytes, &user_home, &home, port, &label) {
+        Ok(argv) => argv,
+        Err(error) => return refuse(error),
+    };
     let registered = Path::new(&argv[0]);
     if !own_link_repair_eligible(owner, link_is_ours, registered, terminal_link) {
-        return Err(OtaError::Identity);
+        return refuse(OtaError::Identity);
     }
-    if registered.canonicalize().map_err(|_| OtaError::Identity)? != bundled {
-        return Err(OtaError::Identity);
+    if registered
+        .canonicalize()
+        .map_err(|_| OtaError::Identity)
+        .ok()
+        .as_ref()
+        != Some(&bundled)
+    {
+        return refuse(OtaError::Identity);
     }
-    let original_definition = JobDefinition::from_plist(&bytes)?;
-    let loaded = copy_user_job(&label)?;
-    let matched = loaded
+    let original_definition = match JobDefinition::from_plist(&bytes) {
+        Ok(definition) => definition,
+        Err(error) => return refuse(error),
+    };
+    let loaded = match copy_user_job(&label) {
+        Ok(loaded) => loaded,
+        Err(error) => return refuse(error),
+    };
+    let matched = match loaded
         .as_ref()
         .map(|value| original_definition.match_loaded(value))
-        .transpose()?;
+        .transpose()
+    {
+        Ok(matched) => matched,
+        Err(error) => return refuse(error),
+    };
+    // Loaded with no pid: refuse without bootout (same contract as stop_exact).
     let pinned = match matched.as_ref().and_then(|job| job.pid) {
         Some(pid) => {
-            let details = native::process_details(pid)
-                .map_err(|_| OtaError::Identity)?
-                .ok_or(OtaError::Identity)?;
-            trust.verify_process(&details.identity, CodeRole::Cli)?;
-            let executable = details
-                .executable
-                .canonicalize()
-                .map_err(|_| OtaError::Identity)?;
+            let details = match native::process_details(pid) {
+                Ok(Some(details)) => details,
+                _ => return refuse(OtaError::Identity),
+            };
+            if trust
+                .verify_process(&details.identity, CodeRole::Cli)
+                .is_err()
+            {
+                return refuse(OtaError::Identity);
+            }
+            let executable = match details.executable.canonicalize() {
+                Ok(path) => path,
+                Err(_) => return refuse(OtaError::Identity),
+            };
             if executable != bundled {
-                return Err(OtaError::Identity);
+                return refuse(OtaError::Identity);
             }
             Some(details.identity)
         }
-        None if loaded.is_some() => None,
+        None if loaded.is_some() => return refuse(OtaError::Identity),
         None => None,
     };
     let mut environment = BTreeMap::new();
@@ -2581,7 +2877,10 @@ pub async fn repair_own_link_registration(
         keep_alive: true,
         run_at_load: true,
     };
-    let next = managed.to_plist()?;
+    let next = match managed.to_plist() {
+        Ok(bytes) => bytes,
+        Err(error) => return refuse(error),
+    };
     let original_job = OwnedJob {
         definition: original_definition,
         plist_path: path.clone(),
@@ -2592,61 +2891,32 @@ pub async fn repair_own_link_registration(
         plist_path: path.clone(),
         role: CodeRole::Cli,
     };
-    // Every check above runs before mutation. One sequencing function owns
-    // stop → replace → bootstrap and the restore branch.
+    let terminal_link = terminal_link.to_path_buf();
+    let bundled_path = bundled.clone();
     run_own_link_repair_sequence(
         async {
-            if let Some(process) = pinned.as_ref() {
-                stop_own_link_job(trust, &original_job, process, &bundled).await
-            } else if loaded.is_some() {
-                stop_own_link_label(&original_job.definition.label).await
-            } else {
-                Ok(())
+            match pinned.as_ref() {
+                Some(process) => {
+                    stop_own_link_job(trust, &original_job, process, &bundled_path).await
+                }
+                None => Ok(OwnLinkStopOutcome::Skipped),
             }
         },
         async { replace_registration(&path, &bytes, &next) },
         async { bootstrap_own_link_job(trust, &managed_job).await },
         async {
-            let _ = replace_registration(&path, &next, &bytes);
-            let _ = bootstrap_own_link_job(trust, &original_job).await;
-            Ok(())
+            restore_own_link_registration(
+                &path,
+                &next,
+                &bytes,
+                &terminal_link,
+                &bundled_path,
+                &original_job,
+            )
+            .await
         },
     )
     .await
-}
-
-/// Bootout a listed own-link job that has no pid, then settle until the label unloads.
-#[cfg(target_os = "macos")]
-async fn stop_own_link_label(label: &str) -> Result<(), OtaError> {
-    use super::platform::{copy_user_job, settle_absent, PINNED_BOOTOUT_SETTLE_MS};
-    let domain = format!("gui/{}", unsafe { libc::geteuid() });
-    let target = format!("{domain}/{label}");
-    let mut command = tokio::process::Command::new("/bin/launchctl");
-    command
-        .arg("bootout")
-        .arg(&target)
-        .stdin(std::process::Stdio::null())
-        .stdout(std::process::Stdio::null())
-        .stderr(std::process::Stdio::null())
-        .kill_on_drop(true);
-    let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status())
-        .await
-        .map_err(|_| OtaError::Timeout)?
-        .map_err(|_| OtaError::Io)?;
-    if !status.success() {
-        return Err(OtaError::Io);
-    }
-    let remaining = settle_absent(
-        || copy_user_job(label),
-        || native::awake_now().map_err(|_| OtaError::Identity),
-        PINNED_BOOTOUT_SETTLE_MS,
-        std::time::Duration::from_millis(50),
-    )
-    .await?;
-    if remaining.is_some() {
-        return Err(OtaError::Identity);
-    }
-    Ok(())
 }
 
 #[derive(Deserialize)]

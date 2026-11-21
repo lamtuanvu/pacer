@@ -85,13 +85,17 @@ struct Shell {
     /// Set by Review service replacement on the restored outcome: the next connection shows the
     /// offer once, even for a build the user dismissed before.
     takeover_retry: AtomicBool,
-    /// Consent UseApp authorized a takeover; commit when work is idle (may wait across reconnects).
-    consent_service_move: AtomicBool,
+    /// Pending own-link repair once work is idle (separate from UseApp takeover).
+    pending_own_link_repair: AtomicBool,
+    /// Pending UseApp-authorized consent takeover once work is idle.
+    pending_consent_takeover: AtomicBool,
     /// Logged once while a consent/own-link service move waits for idle work.
     service_move_wait_logged: AtomicBool,
-    /// Automatic own-link repair already attempted this launch (success or failure).
+    /// Logged once when work counts are unknown (op failed/timeout).
+    service_move_unknown_counts_logged: AtomicBool,
+    /// Automatic own-link repair already reached bootout this launch.
     own_link_repair_attempted: AtomicBool,
-    /// Automatic consent takeover already attempted this launch (success or failure).
+    /// Automatic consent takeover already reached the helper this launch.
     consent_takeover_attempted: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,
@@ -129,8 +133,10 @@ impl Default for Shell {
             retry: AtomicBool::new(false),
             relink_dismissed: AtomicBool::new(false),
             takeover_retry: AtomicBool::new(false),
-            consent_service_move: AtomicBool::new(false),
+            pending_own_link_repair: AtomicBool::new(false),
+            pending_consent_takeover: AtomicBool::new(false),
             service_move_wait_logged: AtomicBool::new(false),
+            service_move_unknown_counts_logged: AtomicBool::new(false),
             own_link_repair_attempted: AtomicBool::new(false),
             consent_takeover_attempted: AtomicBool::new(false),
             shell_action: Mutex::new(None),
@@ -244,6 +250,11 @@ fn takeover_open(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     if app.state::<Shell>().takeover.lock().unwrap().is_none() {
         return Err("No service takeover was detected".into());
     }
+    // Settings review cancels any pending automatic UseApp / own-link move.
+    let shell = app.state::<Shell>();
+    shell.pending_own_link_repair.store(false, Ordering::SeqCst);
+    shell.pending_consent_takeover.store(false, Ordering::SeqCst);
+    shell.service_move_wait_logged.store(false, Ordering::SeqCst);
     recovery(&app, "takeover");
     app.state::<Shell>().expired.notify_one();
     Ok(())
