@@ -66,6 +66,15 @@ function writePlanner(ctx: Ctx, agent = "claude-code"): void {
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), `planner: ${agent}\nproviders:\n  ${agent}: {}\n`);
 }
 
+/** Strategy planner claude-code plus a distinct codex runner (planner switch target). */
+function writePlannerWithCodex(ctx: Ctx): void {
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(
+    join(ctx.pacerHome, "strategy.yaml"),
+    "planner: claude-code\nproviders:\n  claude-code: {}\n  codex: {}\n",
+  );
+}
+
 const chain: WorkflowDef = {
   id: "t/orch-chain",
   version: 1,
@@ -587,6 +596,65 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(launched).toBe(1);
     expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
     expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
+  });
+
+  test("exhausted strategy planner does not hold a run whose planner is a different available runner", async () => {
+    // Switch escape hatch: strategy planner claude-code exhausted, run planner (or pending) is codex.
+    const { loadStrategy } = await import("../src/config/strategy");
+    const { accountEvidenceScope, mergeEvidence } = await import("../src/core/evidence");
+    const { emptyEvidence, evidenceFact } = await import("../src/engine/evidence");
+    const { executorExclusion } = await import("../src/executors/availability");
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const { callOp } = await import("../src/api/ops");
+    const ctx = fakeCtx({ now: NOW });
+    writePlannerWithCodex(ctx);
+    const s = loadStrategy(ctx);
+    const account = s.accounts[s.planner.account]!;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const facts = emptyEvidence();
+    facts.budget.push(evidenceFact(scope, "session-log", NOW - 60, null, "quota_observed", {
+      name: "5h", usedPct: 100, resetsAt: NOW + 7200, lengthS: 18000, paced: false,
+    }));
+    await mergeEvidence(ctx, scope, facts);
+    expect(executorExclusion(ctx, s, "claude-code")).toBe("exhausted");
+    expect(executorExclusion(ctx, s, "codex")).toBeUndefined();
+
+    const budget = serializeBudget({ orchestratorTurns: 10, messageTurns: 5 });
+    const spent = serializeSpent({ orchestratorTurns: 0, messageTurns: 0 });
+    const cases: { label: string; prepare: () => Promise<string> }[] = [
+      {
+        label: "run.planner=codex",
+        prepare: async () => insertRun(ctx, {
+          workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+          planner: "codex", budget, spent,
+        }).id,
+      },
+      {
+        label: "pendingPlanner=codex via set_planner",
+        prepare: async () => {
+          const run = insertRun(ctx, {
+            workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+            budget, spent,
+          });
+          await callOp(ctx, "run.set_planner", { id: run.id, planner: "codex", expect_rev: run.rev });
+          return run.id;
+        },
+      },
+    ];
+    for (const { label, prepare } of cases) {
+      const runId = await prepare();
+      expect(getRun(ctx, runId)!.pendingPlanner ?? getRun(ctx, runId)!.planner, label).toBe("codex");
+      addWakeup(workflowDatabase(ctx), {
+        runId, cause: "step_failed", ref: `${label}#1`, createdAt: NOW - COALESCE_WINDOW_S,
+      });
+      let launched = 0;
+      const spawn: SpawnRunner = () => { launched++; return 1; };
+      await advanceRuns(ctx, spawn);
+      expect(launched, label).toBe(1);
+      expect(parseSpent(getRun(ctx, runId)!.spent).orchestratorTurns, label).toBe(1);
+      expect(getRun(ctx, runId)!.orchestratorState, label).toBe("turn");
+      expect(getRun(ctx, runId)!.reason ?? null, label).toBeNull();
+    }
   });
 
   test("runner budget-refusal report settles as planner-at-limit, not a counted failure", async () => {
