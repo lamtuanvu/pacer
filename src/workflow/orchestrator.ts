@@ -41,8 +41,22 @@ import { executorGuard, isRequestedExecutorBudgetRefusal } from "../executors/av
 
 export { getBudgetAttention, getOrchestratorAttention };
 
+export type PlannerHold = "limit" | "blocked";
+
+export type PlannerPacing = { eligible: boolean; until?: number; hold?: PlannerHold };
+
+/** Run reason strings for planner eligibility holds (retry-clear matches both prefixes). */
+export function plannerHoldReason(hold: PlannerHold | undefined, until: number): string {
+  if (hold === "blocked") return "planner blocked by you (re-checking hourly)";
+  return `planner at limit until ${new Date(until * 1000).toISOString()}`;
+}
+
+export function isPlannerHoldReason(reason: string | null | undefined): boolean {
+  return !!reason && (reason.startsWith("planner at limit") || reason.startsWith("planner blocked by you"));
+}
+
 /** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
-export function defaultPlannerPacing(ctx: Ctx, planner: string): { eligible: boolean; until?: number } {
+export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
   try {
     const ids = new Set<string>([planner]);
     let strategy: ReturnType<typeof loadStrategy> | undefined;
@@ -58,13 +72,19 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): { eligible: boo
     } catch { /* strategy optional in tests */ }
     for (const id of ids) {
       const obs = limitObservation(ctx, id);
-      if (obs) return { eligible: false, until: obs.until };
+      if (obs) return { eligible: false, until: obs.until, hold: "limit" };
     }
     // Quota / block ineligibility the runner would refuse (not only reactive marks).
     // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
     if (strategy) {
       const guard = executorGuard(ctx, strategy, planner);
-      if (guard) return { eligible: false, ...(guard.until !== undefined ? { until: guard.until } : {}) };
+      if (guard) {
+        return {
+          eligible: false,
+          hold: guard.reason === "Blocked by you" ? "blocked" : "limit",
+          ...(guard.until !== undefined ? { until: guard.until } : {}),
+        };
+      }
     }
     return { eligible: true };
   } catch {
@@ -591,19 +611,20 @@ export async function startTurn(ctx: Ctx, runId: string, opts: OrchestratorDeps 
   if (!coalesceAllowsStart(ctx.now, pending)) return null;
 
   const planner = resolvePlanner(ctx, run);
-  const pacing = opts.plannerEligible
+  const pacing: PlannerPacing = opts.plannerEligible
     ? {
       eligible: opts.plannerEligible(ctx, planner),
       until: opts.plannerResetAt?.(ctx, planner)
         ?? defaultPlannerPacing(ctx, planner).until
         ?? ctx.now + 3600,
+      hold: "limit",
     }
     : (opts.skipDefaultPacing ? { eligible: true as const } : defaultPlannerPacing(ctx, planner));
   if (!pacing.eligible) {
     const until = pacing.until ?? ctx.now + 3600;
     patchRunBestEffort(ctx, runId, {
       orchestratorState: "retrying",
-      reason: `planner at limit until ${new Date(until * 1000).toISOString()}`,
+      reason: plannerHoldReason(pacing.hold, until),
       nextWakeAt: until,
     });
     return null;
@@ -808,14 +829,13 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   });
 
   if (!countFailure) {
-    // Planner-at-limit: no failure count, no budget spend, wake at the broker's reset.
+    // Planner hold: no failure count, no budget spend, wake at the broker's reset.
     refundOrchestratorTurn(ctx, turn.runId);
-    const until = outcome.resetAt
-      ?? defaultPlannerPacing(ctx, turn.planner).until
-      ?? ctx.now + 3600;
+    const pacing = defaultPlannerPacing(ctx, turn.planner);
+    const until = outcome.resetAt ?? pacing.until ?? ctx.now + 3600;
     patchRunBestEffort(ctx, turn.runId, {
       orchestratorState: "retrying",
-      reason: `planner at limit until ${new Date(until * 1000).toISOString()}`,
+      reason: plannerHoldReason(pacing.hold ?? "limit", until),
       nextWakeAt: until,
     });
     return updated;
@@ -966,8 +986,8 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       ? { eligible: deps.plannerEligible(ctx, planner) }
       : (deps.skipDefaultPacing ? { eligible: true } : defaultPlannerPacing(ctx, planner));
     if (!pacing.eligible) continue;
-    // Eligible again: clear the limit hold so startTurn can proceed.
-    if (run.reason?.startsWith("planner at limit")) {
+    // Eligible again: clear the limit / user-block hold so startTurn can proceed.
+    if (isPlannerHoldReason(run.reason)) {
       patchRunBestEffort(ctx, run.id, { orchestratorState: "idle", nextWakeAt: null, reason: null });
     }
   }

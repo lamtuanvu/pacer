@@ -1,11 +1,12 @@
 import { parseRunnerId, resolveRunner } from "../config/runner-id";
 import type { Strategy } from "../config/strategy";
-import type { Ctx } from "../types";
-import type { EligibilityDecision } from "../evidence/types";
+import type { Ctx, UsageWindow } from "../types";
+import type { EligibilityDecision, Evidence } from "../evidence/types";
 import { limitObservation, readMarks } from "../usage/reactive";
 import { accountEvidenceScope, readEvidence } from "../core/evidence";
 import { emptyEvidence, evidenceFact, reconcileEvidence } from "../engine/evidence";
 import { evaluateEligibility } from "../engine/eligibility";
+import { EXHAUSTED_PCT } from "../engine/verdict";
 import { readBlocked } from "./blocked";
 import { LIMIT_WINDOW_LENGTH_S } from "../usage/freshness";
 
@@ -16,6 +17,19 @@ export interface ExecutorGuard {
   reason: ExecutorGuardReason;
   until?: number;
   decision?: EligibilityDecision;
+}
+
+/** Cap how far ahead a quota reset can schedule a wake (evidence may be shorter-lived). */
+const GUARD_RESET_CAP_S = 7 * 24 * 3600;
+
+/** Prefer the latest exhausted-window resetsAt (capped) over evidence freshness (validUntil). */
+function exhaustedUntil(ctx: Ctx, evidenceBudget: Evidence<UsageWindow>[], decision: EligibilityDecision): number | undefined {
+  const resets = evidenceBudget
+    .filter(f => f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT
+      && f.value.resetsAt !== null && f.value.resetsAt > ctx.now)
+    .map(f => Math.min(f.value.resetsAt!, ctx.now + GUARD_RESET_CAP_S));
+  if (resets.length > 0) return Math.max(...resets);
+  return decision.validUntil ?? undefined;
 }
 
 /** Re-read local guardrails without provider I/O or a second eligibility policy. */
@@ -54,9 +68,10 @@ export function executorGuard(ctx: Ctx, s: Strategy | undefined, id: string): Ex
     scope: { ...scope, runner: runner.id, model: runner.model ?? "default", host: runner.host ?? "local" },
     usage: account.usage, allowPaid: account.allowPaid, evidence, restrictions: [] });
   if (!decision.reasons.some(reason => reason.code === "budget_exhausted")) return undefined;
+  const until = exhaustedUntil(ctx, evidence.facts.budget, decision);
   return {
     reason: "exhausted",
-    ...(decision.validUntil != null ? { until: decision.validUntil } : {}),
+    ...(until !== undefined ? { until } : {}),
     decision,
   };
 }
