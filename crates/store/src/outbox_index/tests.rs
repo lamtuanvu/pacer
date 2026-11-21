@@ -179,7 +179,7 @@ fn workflow_attention_aggregates_track_open_and_problems() {
             (attention_line(5, "budget_spent:r1", "decide", true)
                 + &attention_line(6, "budget_warn:r1", "problem", true)
                 + &line(7, "counts", "counts"))
-            .as_bytes(),
+                .as_bytes(),
         )
         .unwrap();
     let replay = read_outbox_replay(&ctx, 0.0).unwrap();

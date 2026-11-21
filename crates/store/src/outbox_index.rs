@@ -139,10 +139,8 @@ impl Index {
                             if d["removed"] == true {
                                 self.workflow_open.remove(id);
                             } else {
-                                let severity = d["value"]["severity"]
-                                    .as_str()
-                                    .unwrap_or("")
-                                    .to_owned();
+                                let severity =
+                                    d["value"]["severity"].as_str().unwrap_or("").to_owned();
                                 self.workflow_open.insert(id.to_owned(), severity);
                             }
                         }
