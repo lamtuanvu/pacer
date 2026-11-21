@@ -396,18 +396,17 @@ pub fn build(ctx: &Ctx) -> View {
                             } else {
                                 view.figure
                             };
-                            let freshness = if text(&usage["usageState"]["freshness"])
-                                == "historical"
-                            {
-                                let reading = if view.freshness.is_empty() {
-                                    "Reading of unknown age · refresh".into()
+                            let freshness =
+                                if text(&usage["usageState"]["freshness"]) == "historical" {
+                                    let reading = if view.freshness.is_empty() {
+                                        "Reading of unknown age · refresh".into()
+                                    } else {
+                                        view.freshness
+                                    };
+                                    format!(" · Historical usage · {reading}")
                                 } else {
-                                    view.freshness
+                                    String::new()
                                 };
-                                format!(" · Historical usage · {reading}")
-                            } else {
-                                String::new()
-                            };
                             (used, freshness)
                         } else {
                             let used = if usage["usedPct"].is_null() {

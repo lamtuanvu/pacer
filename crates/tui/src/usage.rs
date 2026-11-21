@@ -151,9 +151,7 @@ pub fn usage_view(state: Option<&V>, now: f64) -> UsageView {
         None => String::new(),
     };
     let reset = match state {
-        Some(s) if !s["figure"].is_null() => {
-            reset_words(s["figure"]["resetsAt"].as_f64(), now)
-        }
+        Some(s) if !s["figure"].is_null() => reset_words(s["figure"]["resetsAt"].as_f64(), now),
         _ => String::new(),
     };
     let freshness = state.map(|s| freshness_words(s, now)).unwrap_or_default();
@@ -230,8 +228,10 @@ mod tests {
             "No usage figure"
         );
         assert_eq!(
-            figure_words(Some(&state(json!({"figure": null, "verdict": "UNMETERED"}))))
-                .0,
+            figure_words(Some(&state(
+                json!({"figure": null, "verdict": "UNMETERED"})
+            )))
+            .0,
             "Unmetered"
         );
         let (figure, meter) = figure_words(Some(&state(json!({}))));
@@ -247,7 +247,10 @@ mod tests {
         let fresh_at = now - 180.0;
         let hist_at = now - 26.0 * 3600.0;
         assert_eq!(
-            freshness_words(&state(json!({"freshness":"fresh","observedAt": fresh_at})), now),
+            freshness_words(
+                &state(json!({"freshness":"fresh","observedAt": fresh_at})),
+                now
+            ),
             "Updated 3m ago"
         );
         assert_eq!(
@@ -258,7 +261,10 @@ mod tests {
             "Reading 26h old · refresh"
         );
         assert_eq!(
-            freshness_words(&state(json!({"freshness":"historical","observedAt": null})), now),
+            freshness_words(
+                &state(json!({"freshness":"historical","observedAt": null})),
+                now
+            ),
             "Reading of unknown age · refresh"
         );
     }
