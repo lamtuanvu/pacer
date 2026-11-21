@@ -36,7 +36,8 @@ fn observe(status: &Value, scope: &Value, method: &str, now: f64) -> Result<Vec<
         .flatten()
         .filter(|w| w.get("resetsAt") != Some(&Value::Null))
         .map(|w| number(w.get("resetsAt")).unwrap_or(f64::NAN));
-    let expires = js_min(std::iter::once(observed + 60.0).chain(resets));
+    let expires =
+        js_min(std::iter::once(observed + pacer_engine::OBSERVATION_EXPIRY_S as f64).chain(resets));
     let base = |state: &str| {
         json!({"source": STATUS_SOURCE, "scope": scope, "method": method,
             "observedAt": num(observed), "expiresAt": num(expires), "state": state})

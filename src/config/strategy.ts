@@ -8,6 +8,7 @@ import type { Ctx, UsageKind } from "../types";
 import { isObj } from "../util";
 import { UPDATE_CHANNEL_ERROR, UPDATE_CHANNELS } from "../update/channel";
 import { LOCAL_LOAD_LIMIT_ERROR, LOCAL_MAX_TASKS_ERROR, LOCAL_MEMORY_PRESSURE_LIMIT_ERROR, MEMORY_PRESSURE_LIMITS, localLoadLimitProblem, localMaxTasksProblem } from "./execution";
+import { COOLDOWN_DEFAULT_S } from "../usage/freshness";
 import { parseRunnerId, runnerDefaults, resolveRunner } from "./runner-id";
 import { parseHosts, type HostCfg } from "./hosts";
 import { validateRemoteRunner, allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
@@ -155,7 +156,7 @@ export function validateStrategy(raw: unknown, path: string, name = "default"): 
         if (usage === "metered" && weeklyTokens === null) {
           p.push(`providers.${id}: metered usage needs budget.weekly_tokens (e.g. 20M)`);
         }
-        const cooldownS = c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown);
+        const cooldownS = c.cooldown === undefined ? COOLDOWN_DEFAULT_S : parseDuration(c.cooldown);
         if (cooldownS === null) p.push(`providers.${id}: cooldown must look like 30m, 6h or 2d`);
       }
     }

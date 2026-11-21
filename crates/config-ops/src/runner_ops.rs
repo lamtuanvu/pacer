@@ -414,7 +414,10 @@ pub async fn runner_list(
                         .into_iter()
                         .flatten()
                         .filter(|w| {
-                            w["stale"] != true && w["usedPct"].as_f64().is_some_and(|u| u >= 97.0)
+                            w["stale"] != true
+                                && w["usedPct"]
+                                    .as_f64()
+                                    .is_some_and(|u| u >= pacer_engine::EXHAUSTED_PCT)
                         })
                         .map(|w| &w["resetsAt"])
                         .filter(|v| v.is_number())
