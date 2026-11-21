@@ -25,6 +25,8 @@ interface FrameCase extends Pick<RenderOptions, "update" | "connection" | "ops" 
 
 // These inputs and full rendered strings are the TypeScript reference for a future port.
 export function corpus() {
+  // Raw snapshot has no usageState: dual-path legacy wording (ADR 0030) until every fixture carries a record.
+  const raw = structuredClone(snapshot) as unknown as ClientSnapshot;
   // Every planner/account/executor row carries usageState so frame goldens exercise usageView.
   const s = withUsageState(structuredClone(snapshot) as unknown as ClientSnapshot);
   const detail = { ...structuredClone(taskGet), messages: { value: [{ id: "m1", taskId: "t-0412", rootId: "t-0412", from: "task:t-0412", to: "human", kind: "question", body: "Can you check the result?", replyTo: null, requestId: null, status: "delivered", createdAt: 1800000000, deliveredAt: 1800000000, readAt: null, turnId: null }] } } as unknown as ThreadDetail;
@@ -206,6 +208,13 @@ export function corpus() {
       ? { ...historical.accounts![0]!.usageState, freshness: "historical" as const, observedAt: s.at - 100000 }
       : undefined });
   add("settings-accounts-historical", { screen: "settings", section: "accounts", focus: "detail" }, { snapshot: historical });
+  // Legacy dual-path: planner strip, accounts (incl. historical), executors without usageState.
+  add("legacy-dashboard", { screen: "home" }, { snapshot: raw });
+  add("legacy-settings-accounts", { screen: "settings", section: "accounts", focus: "detail" }, { snapshot: raw });
+  add("legacy-settings-executors", { screen: "settings", section: "executors", focus: "detail" }, { snapshot: raw });
+  const legacyHistorical = structuredClone(raw);
+  Object.assign(legacyHistorical.accounts![0]!, { stale: false, capturedAt: raw.at - 100000, eligibility: { budget: "unknown" } });
+  add("legacy-settings-accounts-historical", { screen: "settings", section: "accounts", focus: "detail" }, { snapshot: legacyHistorical });
   for (const unlimited of [false, true]) {
     const machine = { ...s.machine!, unlimited, hardCap: unlimited ? null : 4, memoryPressure: null, loadPerCore: 2.675, open: false, detail: "memory pressure is high" };
     const config = structuredClone(data.settings);

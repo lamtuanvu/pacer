@@ -409,21 +409,18 @@ pub fn build(ctx: &Ctx) -> View {
                                 };
                             (used, freshness)
                         } else {
+                            // Legacy rows keep main's window words (weekly → week); window_words is usage_view only.
                             let used = if usage["usedPct"].is_null() {
                                 "Usage unknown".into()
                             } else {
-                                let mut window = crate::usage::window_words(text(&usage["window"]));
-                                if window.is_empty() {
-                                    window = if text(&usage["window"]).is_empty() {
-                                        "quota".into()
-                                    } else {
-                                        text(&usage["window"]).into()
-                                    };
-                                }
                                 format!(
                                     "{}% of {}{}",
                                     round(num(&usage["usedPct"])),
-                                    window,
+                                    match text(&usage["window"]) {
+                                        "weekly" => "week",
+                                        "" => "quota",
+                                        s => s,
+                                    },
                                     if truth(&usage["resetsAt"]) {
                                         format!(" · resets {}", ctx.time(&usage["resetsAt"]))
                                     } else {

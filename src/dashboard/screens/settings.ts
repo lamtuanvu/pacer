@@ -2,7 +2,7 @@
 import type { AccountSummary, ExecutorRow, HostSummary } from "../../api/read-model/types";
 import { capacityNote, executorEligibility } from "../../view-model/capacity";
 import { executorLabel, type Status } from "../../view-model/words";
-import { captionReset, usageView, windowWords } from "../../view-model/usage";
+import { captionReset, usageView } from "../../view-model/usage";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
@@ -163,8 +163,9 @@ const accounts: Build = (ctx, width) => {
         ? (view.freshness || "Reading of unknown age · refresh")
         : null;
     } else {
+      // Legacy rows keep main's window words (weekly → week); usageView owns windowWords only when usageState is present.
       used = usage?.usedPct != null
-        ? `${Math.round(usage.usedPct)}% of ${windowWords(usage.window) || usage.window || "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}`
+        ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}`
         : "Usage unknown";
       freshness = usage ? legacyAccountFreshness(usage, ctx.s.at) : null;
     }
