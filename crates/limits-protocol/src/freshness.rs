@@ -13,6 +13,7 @@ pub const AVAILABILITY_FALLBACK_S: i64 = 86400;
 pub const EXHAUSTED_PCT: f64 = 97.0;
 pub const NEAR_LIMIT_PCT: f64 = 90.0;
 pub const LIMIT_WINDOW_LENGTH_S: i64 = 21600;
+pub const COOLDOWN_DEFAULT_S: i64 = 21600;
 pub const OBSERVATION_EXPIRY_S: i64 = 60;
 pub const USAGE_MEMO_S: i64 = 60;
 pub const EVIDENCE_PRUNE_AFTER_S: i64 = 604800;
