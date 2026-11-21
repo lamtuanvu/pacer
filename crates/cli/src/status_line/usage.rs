@@ -38,17 +38,24 @@ mod tests {
     #[test]
     fn figure_words_unknown_without_record() {
         assert_eq!(figure_words(None), ("Usage unknown".into(), None));
-        assert_eq!(figure_words(Some(&Value::Null)), ("Usage unknown".into(), None));
+        assert_eq!(
+            figure_words(Some(&Value::Null)),
+            ("Usage unknown".into(), None)
+        );
     }
 
     #[test]
     fn figure_words_limit_and_metered() {
         assert_eq!(
-            figure_words(Some(&json!({"limit":{"kind":"quota"},"figure":{"usedPct":99.4}}))),
+            figure_words(Some(
+                &json!({"limit":{"kind":"quota"},"figure":{"usedPct":99.4}})
+            )),
             ("Out of quota".into(), Some(99.0))
         );
         assert_eq!(
-            figure_words(Some(&json!({"limit":null,"figure":{"usedPct":63.6},"verdict":"BEHIND"}))),
+            figure_words(Some(
+                &json!({"limit":null,"figure":{"usedPct":63.6},"verdict":"BEHIND"})
+            )),
             ("64%".into(), Some(64.0))
         );
     }
@@ -56,11 +63,15 @@ mod tests {
     #[test]
     fn figure_words_missing_figure() {
         assert_eq!(
-            figure_words(Some(&json!({"limit":null,"figure":null,"verdict":"UNMETERED"}))),
+            figure_words(Some(
+                &json!({"limit":null,"figure":null,"verdict":"UNMETERED"})
+            )),
             ("Unmetered".into(), None)
         );
         assert_eq!(
-            figure_words(Some(&json!({"limit":null,"figure":null,"verdict":"BEHIND"}))),
+            figure_words(Some(
+                &json!({"limit":null,"figure":null,"verdict":"BEHIND"})
+            )),
             ("No usage figure".into(), None)
         );
     }
