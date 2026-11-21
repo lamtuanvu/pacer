@@ -1416,6 +1416,98 @@ describe("round-2 B1: real startTurn → _run hop", () => {
   });
 });
 
+describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is terminal", () => {
+  test("owned stopPending keeps the turn running; a later tick settles after the task stops", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-stop-pending", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    expect(turn?.status).toBe("running");
+    expect(turn?.taskId).toBeTruthy();
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+      t.attemptStartedAt = READY;
+    });
+
+    const { stopLiveTurnsForRun, orchestrateRuns } = await import("../src/workflow/orchestrator");
+    const { stopRun } = await import("../src/workflow/engine");
+    await stopRun(ctx, r.id, getRun(ctx, r.id)!.rev, deps);
+
+    // Run is terminal, but the owned orchestrate attempt only has stopPending.
+    expect(getRun(ctx, r.id)!.status).toBe("stopped");
+    expect(readTask(ctx, turn!.taskId!)!.state).toBe("running");
+    expect(readTask(ctx, turn!.taskId!)!.stopPending?.reason).toBe("user");
+    expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+
+    // Swallowing a stop failure must not leave a silent orphan either.
+    stopLiveTurnsForRun(ctx, r.id, "retry after failed stop");
+    expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "stopped";
+      delete t.stopPending;
+      t.result = {
+        status: "stopped", executor: "claude-code", model: null, files: "",
+        report: "Executor exited after stop was requested", backend: "direct",
+      };
+    });
+    await orchestrateRuns({ ...ctx, now: READY + 1 }, { spawn, plannerEligible: () => true });
+    expect(getTurn(ctx, turn!.id)!.status).toBe("failed");
+    expect(getTurn(ctx, turn!.id)!.reason).toBe("stopped");
+  });
+
+  test("a thrown stop is recorded and the turn stays running for retry", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-stop-throw", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    expect(turn?.taskId).toBeTruthy();
+    const dir = join(ctx.pacerHome, "runs", turn!.taskId!, "1");
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+    // Remote transfer in progress makes task.stop throw conflict (real product path).
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.run = {
+        dir, attempt: 1, executor: "claude-code", startedAt: READY,
+        mode: "new", workdir: "/remote/worktree", logFile: join(dir, "log"),
+        host: "box", remoteDir: "/remote/run", remoteWorktree: "/remote/worktree",
+      };
+      t.remoteTransferIntent = {
+        attempt: 1, dir, startedAt: READY, providerId: "pacer-exec-direct",
+        branch: "pacer/x", oldHead: "a".repeat(40),
+      };
+    });
+
+    const { readActivity } = await import("../src/activity/log");
+    const { stopLiveTurnsForRun } = await import("../src/workflow/orchestrator");
+    stopLiveTurnsForRun(ctx, r.id, "run stopped");
+    expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+    expect(readTask(ctx, turn!.taskId!)!.state).toBe("running");
+    expect(readTask(ctx, turn!.taskId!)!.stopPending).toBeUndefined();
+    const activity = readActivity(ctx, { taskId: turn!.taskId!, limit: 20 }).entries;
+    expect(activity.some(e => /stop/i.test(e.text) && /transfer|failed|conflict/i.test(e.text))).toBe(true);
+  });
+});
+
 describe("round-2 I1+I7: stopLiveTurnsForRun scope and process stop", () => {
   test("child terminal does not stop the root turn; root terminal stops the orchestrator task", async () => {
     const ctx = fakeCtx({ now: NOW });
