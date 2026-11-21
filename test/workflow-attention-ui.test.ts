@@ -95,17 +95,6 @@ describe("workflow attention plain wording", () => {
 
   test("titles, details and action labels avoid orchestrator/wake/turn and raw run ids", () => {
     const { ctx, run } = titledRun();
-    updateRun(ctx, run.id, run.rev, {
-      orchestratorState: "blocked",
-      reason: "planner failed 4×",
-    });
-    for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
-    updateRun(ctx, run.id, getRev(ctx, run.id), {
-      spent: serializeSpent({
-        ...parseSpent(getRun(ctx, run.id)!.spent),
-        messageTurns: 4,
-      }),
-    });
     // Cover spent + warn + failed surfaces by forcing each kind in turn.
     const samples: Array<{ patch: Parameters<typeof updateRun>[3]; id: string }> = [
       {
@@ -197,6 +186,19 @@ describe("workflow attention plain wording", () => {
     expect(failed.title).toBe(
       `Workflow "${long.slice(0, 60)}…" stopped`,
     );
+    expect(failed.title).not.toContain("Second line");
+  });
+
+  test("a lone CR also starts a new title line", () => {
+    const { ctx, run } = titledRun({
+      title: "First line\rSecond line ignored",
+    });
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    expect(failed.title).toBe('Workflow "First line" stopped');
     expect(failed.title).not.toContain("Second line");
   });
 });

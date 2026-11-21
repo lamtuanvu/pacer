@@ -31,7 +31,7 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
 function workflowSubject(run: RunRow): string {
   const raw = typeof run.title === "string" ? run.title.trim() : "";
   if (!raw) return "A workflow run";
-  const firstLine = raw.split(/\r?\n/, 1)[0] ?? raw;
+  const firstLine = raw.split(/\r\n|\r|\n/, 1)[0] ?? raw;
   const clipped = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
   return `Workflow "${clipped}"`;
 }
