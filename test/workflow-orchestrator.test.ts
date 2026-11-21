@@ -552,6 +552,7 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(decision.state).toBe("ineligible");
     expect(decision.reasons.some(r => r.code === "budget_exhausted")).toBe(true);
     expect(decision.validUntil).toBeGreaterThan(NOW);
+    const until = decision.validUntil as number;
 
     const run = insertRun(ctx, {
       workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
@@ -572,10 +573,10 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(turns).toBe(0);
     expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
     expect(getRun(ctx, run.id)!.reason).toMatch(/^planner at limit until /);
-    expect(getRun(ctx, run.id)!.nextWakeAt).toBe(decision.validUntil);
+    expect(getRun(ctx, run.id)!.nextWakeAt).toBe(until);
 
     // Eligible again via fresh lower usage after the eligibility reset (same evidence channel).
-    const afterReset = decision.validUntil! + 1;
+    const afterReset = until + 1;
     const recovered = emptyEvidence();
     recovered.budget.push(evidenceFact(scope, "session-log", afterReset - 10, null, "quota_observed", {
       name: "5h", usedPct: 10, resetsAt: afterReset + 10_000, lengthS: 18000, paced: false,
