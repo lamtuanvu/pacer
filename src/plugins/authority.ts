@@ -82,7 +82,7 @@ export interface CallResources {
     /** Host-only run files receiving the bounded child output; never selected by plugin RPC params. */
     capture?: { stdout: string; stderr: string };
     /** Host-only fixed interactive exchange; never selected by plugin RPC params. */
-    mode?: "codex-live" | "codex-ask" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex" | "acp";
+    mode?: "codex-live" | "codex-ask" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex" | "acp" | "claude-control";
     /** Host-only bounded input, never provided through the plugin RPC. */
     input?: Uint8Array;
     inputSha256?: string;
