@@ -26,13 +26,19 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
 /**
  * Subject for attention titles: `Workflow "<title>"` when titled, otherwise
  * `A workflow run`. Never quotes the untitled fallback. Clips to the first
- * line, at most 60 characters, with an ellipsis when clipped.
+ * line, at most 60 code points, with an ellipsis when clipped.
  */
+function clipTitleLine(line: string, maxCodePoints = 60): string {
+  // Count Unicode code points so a surrogate pair (emoji) is never split.
+  const points = Array.from(line);
+  return points.length > maxCodePoints ? `${points.slice(0, maxCodePoints).join("")}…` : line;
+}
+
 function workflowSubject(run: RunRow): string {
   const raw = typeof run.title === "string" ? run.title.trim() : "";
   if (!raw) return "A workflow run";
   const firstLine = raw.split(/\r\n|\r|\n/, 1)[0] ?? raw;
-  const clipped = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  const clipped = clipTitleLine(firstLine);
   return `Workflow "${clipped}"`;
 }
 

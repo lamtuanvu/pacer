@@ -201,6 +201,41 @@ describe("workflow attention plain wording", () => {
     expect(failed.title).toBe('Workflow "First line" stopped');
     expect(failed.title).not.toContain("Second line");
   });
+
+  test("title clip counts code points so an emoji on the 60-boundary is kept whole", () => {
+    // 59 ASCII + one emoji (U+1F525, a surrogate pair in UTF-16) → 60 code points.
+    // UTF-16 length is 61; a unit slice(0,60) would leave a lone high surrogate.
+    const title = `${"a".repeat(59)}\u{1F525}extra`;
+    expect([...title].length).toBeGreaterThan(60);
+    expect(title.length).toBeGreaterThan(60); // UTF-16 units
+    const { ctx, run } = titledRun({ title });
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    const expected = `Workflow "${"a".repeat(59)}\u{1F525}…" stopped`;
+    expect(failed.title).toBe(expected);
+    expect(failed.title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(failed.title).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  test("title clip keeps a ZWJ emoji sequence as whole code points (no mid-sequence UTF-16 cut)", () => {
+    // Family emoji is several code points joined by ZWJ; clip by code point at 60.
+    const zwj = "\u{1F468}\u200D\u{1F469}\u200D\u{1F467}"; // man+ZWJ+woman+ZWJ+girl
+    const title = `${"b".repeat(58)}${zwj}tail`;
+    const points = Array.from(title);
+    expect(points.length).toBeGreaterThan(60);
+    const { ctx, run } = titledRun({ title });
+    updateRun(ctx, run.id, run.rev, {
+      spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 0 }),
+    });
+    const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
+    const clipped = points.slice(0, 60).join("");
+    expect(spent.title).toBe(`Workflow "${clipped}…" used its planning budget`);
+    expect(spent.title).not.toMatch(/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    expect(spent.title).not.toMatch(/(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
 });
 
 describe("workflow attention 80% warn severity mapping", () => {
