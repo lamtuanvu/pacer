@@ -464,6 +464,7 @@ async function startTakeoverRun(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, pr
     const base = await executorBase(ctx, run.workdir);
     note += terminalEnvNote(base);
     const account = await providerEnv(ctx,cfg);
+    // Takeover is person-driven interactive; never opt in a run grant here (I3).
     const env = executorEnv(base.env, account, task.id, profileKeys(base));
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     recordDefaultFolder(ctx, agent, account, base);
@@ -595,8 +596,8 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
   if('exec' in placement)return placement;
   const {workdir,mode,rdir,attempt}=placement;let {note}=placement;
   const brief = conversation ? task.brief.goal : mode === "new"
-    ? buildPrompt({ ...task.brief, repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id, !!ctx.env.PACER_WORK_GRANT)
-    : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
+    ? buildPrompt({ ...task.brief, repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` : `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }, task.id, !!ctx.env.PACER_WORK_GRANT, { kind: task.kind })
+    : buildPrompt(task.brief, task.id, !!ctx.env.PACER_WORK_GRANT, { kind: task.kind });
   let prompt = brief;
   let turn: ReturnType<typeof claimTurnMessages> = null;
   let launch: ReturnType<typeof launchFor>;
@@ -608,7 +609,9 @@ async function runAttemptAdmitted(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord, 
     base = await executorBase(ctx, workdir);
     note += terminalEnvNote(base);
     const account = await providerEnv(ctx, cfg);
-    env = executorEnv(base.env, account, task.id, profileKeys(base));
+    env = executorEnv(base.env, account, task.id, profileKeys(base),
+      task.kind === "orchestrate" && typeof ctx.env.PACER_RUN_GRANT === "string"
+      ? { runGrant: ctx.env.PACER_RUN_GRANT } : undefined);
     const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
     if (cfg.via !== "opencode") recordDefaultFolder(ctx, agent, account, base);
     if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;

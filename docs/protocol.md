@@ -6554,6 +6554,88 @@ Params JSON Schema:
 }
 ```
 
+### `run.choose`
+
+Choose a child workflow for a choose_workflow step under a live run grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "workflow",
+    "reason"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.decide`
+
+Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "choice": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "choice",
+    "reason"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `run.get`
 
 One run with its step instances.
@@ -6599,6 +6681,149 @@ Params JSON Schema:
       ]
     }
   },
+  "additionalProperties": false
+}
+```
+
+### `run.retry_orchestrator`
+
+Clear a blocked orchestrator after repeated failures so the next tick can start a turn. Person only. Does not clear a budget block — use run.set_budget.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_auto`
+
+Turn auto mode on or off for a run, or mark auto steps must for this run. Person only; there is no way to loosen a must.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "auto": {
+      "type": "boolean"
+    },
+    "strict_steps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_budget`
+
+Raise or change the run's orchestrator and message turn budgets. Person only.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "orchestrator_turns": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "message_turns": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_planner`
+
+Queue a planner switch for the next orchestrator turn. Person only. Validated against PLANNERS.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "planner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "planner",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```
@@ -7957,6 +8182,64 @@ Params JSON Schema:
       ]
     }
   }
+}
+```
+
+### `step.retry`
+
+Retry a failed step under a live run grant: start a new attempt of the same step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id",
+    "step"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `step.skip`
+
+Skip a failed step under a live run grant: mark it done as skipped and advance the run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id",
+    "step"
+  ],
+  "additionalProperties": false
 }
 ```
 

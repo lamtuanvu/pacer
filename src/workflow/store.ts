@@ -42,6 +42,67 @@ export function workflowDatabase(ctx: Ctx): Database {
   // (round 4 review).
   db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
   db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
+  // Phase 2: durable orchestrator wake-ups and turns (one live turn per run).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_wakeups(
+      run_id TEXT NOT NULL,
+      cause TEXT NOT NULL,
+      ref TEXT NOT NULL,
+      created_at REAL NOT NULL,
+      turn_id TEXT NULL,
+      done_at REAL NULL,
+      by_person INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY(run_id, cause, ref)
+    );
+    CREATE TABLE IF NOT EXISTS workflow_turns(
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      planner TEXT NOT NULL,
+      session_id TEXT NULL,
+      task_id TEXT NULL,
+      status TEXT NOT NULL,
+      reason TEXT NULL,
+      started_at REAL NOT NULL,
+      deadline REAL NOT NULL,
+      ended_at REAL NULL,
+      failures INTEGER NOT NULL DEFAULT 0,
+      seq INTEGER NOT NULL DEFAULT 0
+    );
+  `);
+  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_turns_live ON workflow_turns(run_id) WHERE status IN ('starting', 'running')");
+  const turnColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_turns)").all().map(c => c.name);
+  if (!turnColumns.includes("seq")) {
+    db.exec("ALTER TABLE workflow_turns ADD COLUMN seq INTEGER NOT NULL DEFAULT 0");
+  }
+  // Orchestrator state columns on the run (auto mode, planner, session, budget).
+  const runColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
+  if (!runColumns.includes("auto")) db.exec("ALTER TABLE workflow_runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0");
+  if (!runColumns.includes("planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN planner TEXT");
+  if (!runColumns.includes("orchestrator_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_task_id TEXT");
+  if (!runColumns.includes("session_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN session_id TEXT");
+  if (!runColumns.includes("budget")) db.exec("ALTER TABLE workflow_runs ADD COLUMN budget TEXT");
+  if (!runColumns.includes("spent")) db.exec("ALTER TABLE workflow_runs ADD COLUMN spent TEXT");
+  if (!runColumns.includes("next_wake_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN next_wake_at REAL");
+  if (!runColumns.includes("orchestrator_state")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_state TEXT");
+  if (!runColumns.includes("parent_run_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT");
+  if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
+  if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
+  if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
+  // Decision log: every orchestrator (and refused) choice with its reason (G7).
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_decisions(
+      id TEXT PRIMARY KEY,
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL,
+      actor TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      choice TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      at REAL NOT NULL
+    );
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
   ready.add(db);
   return db;
 }
@@ -62,6 +123,34 @@ export interface RunRow {
   createdAt: number;
   updatedAt: number;
   loops: Record<string, number>;
+  /** Phase 2 orchestrator: auto mode (0/1), planner agent, owned task and session. */
+  auto?: boolean;
+  planner?: string;
+  orchestratorTaskId?: string;
+  sessionId?: string;
+  budget?: string;
+  spent?: string;
+  nextWakeAt?: number;
+  /** idle | turn | retrying | blocked */
+  orchestratorState?: string;
+  parentRunId?: string;
+  parentStep?: string;
+  /** Step ids the person marked must for this run (never loosens a must). */
+  strictSteps?: string[];
+  /** Planner switch queued for the next turn (D2). */
+  pendingPlanner?: string;
+}
+
+export interface DecisionRow {
+  id: string;
+  runId: string;
+  stepId: string;
+  attempt: number;
+  actor: string;
+  kind: string;
+  choice: string;
+  reason: string;
+  at: number;
 }
 
 export interface StepRow {
@@ -84,7 +173,21 @@ export interface StepRow {
   trigger?: string;
 }
 
-export type NewRun = { workflow: string; version: number; repo: string; brief: string; title?: string };
+export type NewRun = {
+  workflow: string;
+  version: number;
+  repo: string;
+  brief: string;
+  title?: string;
+  parentRunId?: string;
+  parentStep?: string;
+  /** Share the root's orchestrator task/session/planner. */
+  planner?: string;
+  orchestratorTaskId?: string;
+  sessionId?: string;
+  budget?: string;
+  spent?: string;
+};
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
 
@@ -104,6 +207,18 @@ interface RunDbRow {
   id: string; workflow: string; version: number; repo: string; brief: string; title: string;
   status: string; reason: string | null; loops: string | null; rev: number;
   created_at: number; updated_at: number;
+  auto?: number | null;
+  planner?: string | null;
+  orchestrator_task_id?: string | null;
+  session_id?: string | null;
+  budget?: string | null;
+  spent?: string | null;
+  next_wake_at?: number | null;
+  orchestrator_state?: string | null;
+  parent_run_id?: string | null;
+  parent_step?: string | null;
+  strict_steps?: string | null;
+  pending_planner?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -111,7 +226,7 @@ interface StepDbRow {
 }
 
 function runFromRow(row: RunDbRow): RunRow {
-  return {
+  const out: RunRow = {
     id: row.id,
     workflow: row.workflow,
     version: row.version,
@@ -124,6 +239,36 @@ function runFromRow(row: RunDbRow): RunRow {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     loops: row.loops ? (JSON.parse(row.loops) as Record<string, number>) : {},
+  };
+  if (row.auto != null) out.auto = row.auto === 1;
+  if (row.planner) out.planner = row.planner;
+  if (row.orchestrator_task_id) out.orchestratorTaskId = row.orchestrator_task_id;
+  if (row.session_id) out.sessionId = row.session_id;
+  if (row.budget) out.budget = row.budget;
+  if (row.spent) out.spent = row.spent;
+  if (row.next_wake_at != null) out.nextWakeAt = row.next_wake_at;
+  if (row.orchestrator_state) out.orchestratorState = row.orchestrator_state;
+  if (row.parent_run_id) out.parentRunId = row.parent_run_id;
+  if (row.parent_step) out.parentStep = row.parent_step;
+  if (row.strict_steps) {
+    try { out.strictSteps = JSON.parse(row.strict_steps) as string[]; } catch { /* ignore bad JSON */ }
+  }
+  if (row.pending_planner) out.pendingPlanner = row.pending_planner;
+  return out;
+}
+
+/** Run value published on the entity stream / returned by run.get (orchestrator block). */
+export function runEntityValue(run: RunRow): RunRow & {
+  orchestrator: { state: string; planner?: string; reason?: string; next_wake_at?: number };
+} {
+  return {
+    ...run,
+    orchestrator: {
+      state: run.orchestratorState ?? "idle",
+      ...(run.planner || run.pendingPlanner ? { planner: run.pendingPlanner ?? run.planner } : {}),
+      ...(run.reason ? { reason: run.reason } : {}),
+      ...(run.nextWakeAt !== undefined ? { next_wake_at: run.nextWakeAt } : {}),
+    },
   };
 }
 
@@ -201,9 +346,33 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
     updatedAt: ctx.now,
     loops: {},
   };
-  db.query("INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null, JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt);
+  if (r.parentRunId) row.parentRunId = r.parentRunId;
+  if (r.parentStep) row.parentStep = r.parentStep;
+  if (r.planner) row.planner = r.planner;
+  if (r.orchestratorTaskId) row.orchestratorTaskId = r.orchestratorTaskId;
+  if (r.sessionId) row.sessionId = r.sessionId;
+  if (r.budget) row.budget = r.budget;
+  if (r.spent) row.spent = r.spent;
+  db.query(
+    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(
+    row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
+    JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
+    row.parentRunId ?? null, row.parentStep ?? null,
+    row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
+    row.budget ?? null, row.spent ?? null,
+  );
   return row;
+}
+
+/** Root run id: walk parent_run_id until none. */
+export function rootRunId(ctx: Ctx, runId: string): string {
+  let id = runId;
+  for (;;) {
+    const run = getRun(ctx, id);
+    if (!run?.parentRunId) return id;
+    id = run.parentRunId;
+  }
 }
 
 export function getRun(ctx: Ctx, id: string): RunRow | null {
@@ -226,7 +395,12 @@ export function liveRuns(ctx: Ctx): RunRow[] {
   return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
 }
 
-export type RunPatch = Partial<Pick<RunRow, "status" | "reason" | "title" | "loops">>;
+export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps">> & {
+  reason?: string | null;
+  nextWakeAt?: number | null;
+  orchestratorState?: string | null;
+  pendingPlanner?: string | null;
+};
 
 /** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict.
  *  The rev check and the write share one transaction guarded by `WHERE id = ? AND rev = ?`,
@@ -241,15 +415,54 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     const updated: RunRow = {
       ...current,
       status: patch.status ?? current.status,
-      reason: patch.reason === undefined ? current.reason : patch.reason,
+      reason: patch.reason === undefined ? current.reason : (patch.reason ?? undefined),
       title: patch.title ?? current.title,
       loops: patch.loops ?? current.loops,
+      auto: patch.auto === undefined ? current.auto : patch.auto,
+      planner: patch.planner === undefined ? current.planner : patch.planner,
+      orchestratorTaskId: patch.orchestratorTaskId === undefined ? current.orchestratorTaskId : patch.orchestratorTaskId,
+      sessionId: patch.sessionId === undefined ? current.sessionId : patch.sessionId,
+      budget: patch.budget === undefined ? current.budget : patch.budget,
+      spent: patch.spent === undefined ? current.spent : patch.spent,
+      strictSteps: patch.strictSteps === undefined ? current.strictSteps : patch.strictSteps,
+      pendingPlanner: patch.pendingPlanner === undefined ? current.pendingPlanner : (patch.pendingPlanner ?? undefined),
+      nextWakeAt: patch.nextWakeAt === undefined ? current.nextWakeAt : (patch.nextWakeAt ?? undefined),
+      orchestratorState: patch.orchestratorState === undefined ? current.orchestratorState : (patch.orchestratorState ?? undefined),
       rev: current.rev + 1,
       updatedAt: ctx.now,
     };
     if (updated.reason === undefined) delete updated.reason;
-    const result = db.query("UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ? WHERE id = ? AND rev = ?")
-      .run(updated.status, updated.reason ?? null, updated.title, JSON.stringify(updated.loops), updated.rev, updated.updatedAt, id, expectRev);
+    if (updated.planner === undefined) delete updated.planner;
+    if (updated.orchestratorTaskId === undefined) delete updated.orchestratorTaskId;
+    if (updated.sessionId === undefined) delete updated.sessionId;
+    if (updated.budget === undefined) delete updated.budget;
+    if (updated.spent === undefined) delete updated.spent;
+    if (updated.strictSteps === undefined) delete updated.strictSteps;
+    if (updated.pendingPlanner === undefined) delete updated.pendingPlanner;
+    if (updated.nextWakeAt === undefined) delete updated.nextWakeAt;
+    if (updated.orchestratorState === undefined) delete updated.orchestratorState;
+    const result = db.query(
+      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ? WHERE id = ? AND rev = ?",
+    ).run(
+      updated.status,
+      updated.reason ?? null,
+      updated.title,
+      JSON.stringify(updated.loops),
+      updated.rev,
+      updated.updatedAt,
+      updated.auto ? 1 : 0,
+      updated.planner ?? null,
+      updated.orchestratorTaskId ?? null,
+      updated.sessionId ?? null,
+      updated.budget ?? null,
+      updated.spent ?? null,
+      updated.nextWakeAt ?? null,
+      updated.orchestratorState ?? null,
+      updated.strictSteps ? JSON.stringify(updated.strictSteps) : null,
+      updated.pendingPlanner ?? null,
+      id,
+      expectRev,
+    );
     if (result.changes === 0) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
     return updated;
   })();
@@ -301,17 +514,38 @@ export function insertJoinStep(ctx: Ctx, runId: string, stepId: string, attempt:
   return row ? stepFromRow(row) : null;
 }
 
-export type StepPatch = Partial<Pick<StepRow, "status" | "result" | "error" | "endedAt" | "advancedAt">>;
+export type StepPatch = Partial<Pick<StepRow, "status" | "error" | "endedAt" | "advancedAt">> & {
+  /** `undefined` keeps the current value; `null` clears it (SQL NULL). */
+  result?: unknown | null;
+};
+
+/** Resolves a result patch: undefined keeps, null clears, otherwise JSON. */
+function resultSqlValue(current: string | null, patch: unknown | null | undefined): string | null {
+  if (patch === undefined) return current;
+  if (patch === null) return null;
+  return JSON.stringify(patch);
+}
 
 export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
   const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
   if (!row) throw new CoreError("not_found", `unknown step ${key.stepId}#${key.attempt} of ${key.runId}`);
-  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt, advanced_at: patch.advancedAt === undefined ? row.advanced_at : patch.advancedAt });
+  const nextResult = resultSqlValue(row.result, patch.result);
+  const nextStatus = patch.status ?? row.status;
+  const nextError = patch.error === undefined ? row.error : patch.error;
+  const nextEnded = patch.endedAt === undefined ? row.ended_at : patch.endedAt;
+  const nextAdvanced = patch.advancedAt === undefined ? row.advanced_at : patch.advancedAt;
   db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ?, advanced_at = ? WHERE ${where.sql}`)
-    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, merged.advancedAt ?? null, ...where.bindings);
-  return merged;
+    .run(nextStatus, nextResult, nextError ?? null, nextEnded ?? null, nextAdvanced ?? null, ...where.bindings);
+  return stepFromRow({
+    ...row,
+    status: nextStatus,
+    result: nextResult,
+    error: nextError,
+    ended_at: nextEnded,
+    advanced_at: nextAdvanced,
+  });
 }
 
 /** Atomically claims the settlement of a running step row: the write lands only when
@@ -323,10 +557,15 @@ export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): S
   const where = stepWhere(key);
   const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
   if (!row || row.status !== "running") return null;
-  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt });
+  const nextResult = resultSqlValue(row.result, patch.result);
+  const nextStatus = patch.status ?? row.status;
+  const nextError = patch.error === undefined ? row.error : patch.error;
+  const nextEnded = patch.endedAt === undefined ? row.ended_at : patch.endedAt;
   const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
-    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
-  return result.changes === 1 ? merged : null;
+    .run(nextStatus, nextResult, nextError ?? null, nextEnded ?? null, ...where.bindings);
+  return result.changes === 1
+    ? stepFromRow({ ...row, status: nextStatus, result: nextResult, error: nextError, ended_at: nextEnded })
+    : null;
 }
 
 export interface EdgeFire {
@@ -483,4 +722,64 @@ export function getCursor(ctx: Ctx): number {
 
 export function setCursor(ctx: Ctx, seq: number): void {
   workflowDatabase(ctx).query("INSERT OR REPLACE INTO workflow_cursor(id, seq) VALUES (1, ?)").run(seq);
+}
+
+const DECISION_BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+function newDecisionId(): string {
+  const bytes = randomBytes(10);
+  let id = "dec_";
+  for (const byte of bytes) id += DECISION_BASE32[byte % 32];
+  return id;
+}
+
+interface DecisionDbRow {
+  id: string; run_id: string; step_id: string; attempt: number;
+  actor: string; kind: string; choice: string; reason: string; at: number;
+}
+
+function decisionFromRow(row: DecisionDbRow): DecisionRow {
+  return {
+    id: row.id,
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    actor: row.actor,
+    kind: row.kind,
+    choice: row.choice,
+    reason: row.reason,
+    at: row.at,
+  };
+}
+
+/** Record a decision (or refused attempt) on a run. */
+export function recordDecision(ctx: Ctx, d: {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  actor: string;
+  kind: string;
+  choice: string;
+  reason: string;
+}): DecisionRow {
+  const row: DecisionRow = {
+    id: newDecisionId(),
+    runId: d.runId,
+    stepId: d.stepId,
+    attempt: d.attempt,
+    actor: d.actor,
+    kind: d.kind,
+    choice: d.choice,
+    reason: d.reason,
+    at: ctx.now,
+  };
+  workflowDatabase(ctx).query(
+    "INSERT INTO workflow_decisions(id, run_id, step_id, attempt, actor, kind, choice, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+  ).run(row.id, row.runId, row.stepId, row.attempt, row.actor, row.kind, row.choice, row.reason, row.at);
+  return row;
+}
+
+export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
+  return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
+    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
+  ).all(runId).map(decisionFromRow);
 }

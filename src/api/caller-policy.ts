@@ -1,6 +1,7 @@
-import { isExecutorSession } from '../install/role';
+import { isExecutorSession, isOrchestratorSession } from '../install/role';
 import { requireWorkScope } from '../dispatch/work';
 import { TASK_REVIEW_REFUSAL, TASK_REVIEW_VARIANTS_REFUSAL } from '../core/work';
+import { RUN_GRANT_OPS } from '../workflow/run-grant';
 import { ApiError } from './client-types';
 import type { Ctx } from '../types';
 
@@ -38,6 +39,14 @@ export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): bo
 
 /** Preserve caller role when a planner-owned daemon performs the operation. */
 export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<string, unknown>): void {
+  // Orchestrator / run-grant sessions: only RUN_GRANT_OPS (API-5b). Checked before the
+  // executor gate so a mis-set role cannot widen the surface.
+  if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
+    if (!(RUN_GRANT_OPS as readonly string[]).includes(name)) {
+      throw new ApiError('not_allowed', 'PACER_ROLE=orchestrator: only run-grant operations are allowed on this turn.');
+    }
+    return;
+  }
   if (!isExecutorSession(ctx)) return;
   if (isUpgradeOperation(name)) throw new ApiError('not_allowed', UPGRADE_REFUSAL);
   if (name.startsWith('session.agent.')) throw new ApiError('not_allowed', 'Executor sessions cannot manage interactive agents.');

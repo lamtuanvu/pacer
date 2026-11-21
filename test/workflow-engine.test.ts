@@ -165,7 +165,7 @@ test("the rendered prompt carries the brief and the result instruction", async (
   expect(inputs[0].brief.repo).toBe(repo);
 });
 
-test("settled without a result fails the step and the run", async () => {
+test("settled without a result fails the step and wakes the orchestrator", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, demo, "source");
   const { deps } = fakeDeps();
@@ -174,11 +174,14 @@ test("settled without a result fails the step and the run", async () => {
   settle(ctx, s1.taskId!);
   await onTaskSettled(ctx, s1.taskId!, undefined, deps);
   const run = getRun(ctx, r.id)!;
-  expect(run.status).toBe("failed");
-  expect(run.reason).toBe("step draft no step result");
+  // Phase 2: the run stays live; a wake-up asks the orchestrator to decide.
+  expect(run.status).toBe("waiting");
+  expect(run.reason).toBeUndefined();
   const row = stepByTask(ctx, s1.taskId!)!;
   expect(row.status).toBe("failed");
   expect(row.error).toBe("no step result");
+  const { openWakeups } = await import("../src/workflow/wakeups");
+  expect(openWakeups(ctx, r.id)).toEqual([expect.objectContaining({ cause: "step_invalid", ref: `${r.id}/draft#1` })]);
   expect(() => recordStepResult(ctx, s1.taskId!, { ok: true })).toThrow(/conflict/);
 });
 
@@ -1256,4 +1259,66 @@ test("a replayed human edge re-asserts the run's waiting status", async () => {
   // and the human step still answers normally afterwards
   await answerHumanStep(ctx, r.id, "approve", "approve", getRun(ctx, r.id)!.rev, deps);
   expect(getRun(ctx, r.id)!.status).toBe("done");
+});
+
+// G5: several open failed fan-out branches must not make skip/retry return null.
+// One branch at a time (earliest first); documented in Known limits.
+test("skip/retry with two failed fan-out branches act on the earliest then the next", async () => {
+  const { skipFailedStep, retryFailedStep } = await import("../src/workflow/engine");
+  const { updateRun } = await import("../src/workflow/store");
+  const ctx = fakeCtx({ now: 1_700_000_000 });
+  addDefinition(ctx, fanoutDef("all"), "source");
+  const { deps } = fakeDeps();
+  const r = await start(ctx, "t/fanout", deps);
+  // Leave the run live with two open failed branches (a join would terminalize the
+  // run; skip/retry still need a deterministic pick among open failures).
+  updateStep(ctx, { runId: r.id, stepId: "check", attempt: 1, branch: "a" }, {
+    status: "failed", error: "boom-a", endedAt: ctx.now,
+  });
+  updateStep(ctx, { runId: r.id, stepId: "check", attempt: 1, branch: "b" }, {
+    status: "failed", error: "boom-b", endedAt: ctx.now + 1,
+  });
+  updateStep(ctx, { runId: r.id, stepId: "check", attempt: 1, branch: "c" }, {
+    status: "stopped", endedAt: ctx.now,
+  });
+  updateRun(ctx, r.id, getRun(ctx, r.id)!.rev, { status: "waiting" });
+
+  await skipFailedStep(ctx, { runId: r.id, stepId: "check" }, undefined, deps);
+  expect(branchRow(ctx, r.id, "a").status).toBe("done");
+  expect(branchRow(ctx, r.id, "a").result).toEqual({ skipped: true });
+  expect(branchRow(ctx, r.id, "b").status).toBe("failed");
+
+  // advanceFrom/join may terminalize; keep the run live so the next open failure
+  // can be skipped (G5 is about picking among open failures, not join rules).
+  const afterSkipA = getRun(ctx, r.id)!;
+  if (afterSkipA.status !== "waiting" && afterSkipA.status !== "running") {
+    updateRun(ctx, r.id, afterSkipA.rev, { status: "waiting" });
+  }
+  await skipFailedStep(ctx, { runId: r.id, stepId: "check" }, undefined, deps);
+  expect(branchRow(ctx, r.id, "b").status).toBe("done");
+  expect(branchRow(ctx, r.id, "b").result).toEqual({ skipped: true });
+
+  // Retry with two open failures must not conflict: it picks the earliest branch.
+  // (Fan-out retry restarts the whole step attempt, so a second per-branch retry
+  // is not meaningful here — Known limits: one branch at a time for skip.)
+  const r2 = await start(ctx, "t/fanout", deps);
+  updateStep(ctx, { runId: r2.id, stepId: "check", attempt: 1, branch: "a" }, {
+    status: "failed", error: "boom-a", endedAt: ctx.now,
+  });
+  updateStep(ctx, { runId: r2.id, stepId: "check", attempt: 1, branch: "b" }, {
+    status: "failed", error: "boom-b", endedAt: ctx.now + 1,
+  });
+  updateStep(ctx, { runId: r2.id, stepId: "check", attempt: 1, branch: "c" }, {
+    status: "stopped", endedAt: ctx.now,
+  });
+  updateRun(ctx, r2.id, getRun(ctx, r2.id)!.rev, { status: "waiting" });
+
+  await retryFailedStep(ctx, { runId: r2.id, stepId: "check" }, undefined, deps);
+  const retried = stepsOfRun(ctx, r2.id).find(s =>
+    s.stepId === "check" && s.branch === "a" && s.attempt === 1,
+  )!;
+  expect(retried.advancedAt).toBeDefined();
+  expect(stepsOfRun(ctx, r2.id).some(s =>
+    s.stepId === "check" && s.attempt === 2 && (s.status === "running" || s.status === "waiting"),
+  )).toBe(true);
 });

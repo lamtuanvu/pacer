@@ -225,6 +225,18 @@ fn run_entity_events_are_v3_only() {
 }
 
 #[test]
+fn decision_entity_events_are_v3_only() {
+    let event = json!({
+        "seq": number(V3_CURSOR_BASE + 2.0),
+        "at": 1791633600,
+        "type": "decision",
+        "data": {"id":"dec_abcdefghij","runId":"run_abcdefghij","choice":"codex"}
+    });
+    assert_eq!(to_v2_event(&event), None);
+    assert!(pacer_read_model::v2_compat::event(&event, None).is_null());
+}
+
+#[test]
 fn v2_replay_drops_run_entity_events() {
     let (_dir, ctx) = ctx();
     let mut store = TaskStore::open(&ctx.pacer_home).unwrap();

@@ -112,7 +112,7 @@ test("reports every structural error at once", () => {
     "edges[0].to: unknown step 'nowhere'",
     "edges[2]: back edge needs max_loops",
     "steps: no end step is reachable from 'start'",
-    "steps.start.type: step types allowed are agent, human, fanout, end",
+    "steps.start.type: step types allowed are agent, human, fanout, choose_workflow, end",
   ]));
 });
 
@@ -129,7 +129,8 @@ test("rejects a when clause that does not parse", () => {
 
 test("unknown top-level and step fields are errors", () => {
   const errs = parseWorkflow(FIXTURE_UNKNOWN).errors;
-  expect(errs.map(e => e.path)).toEqual(expect.arrayContaining(["policy", "steps.a.colour"]));
+  // policy is a known top-level key; unknown keys inside it (here: replan) are errors.
+  expect(errs.map(e => e.path)).toEqual(expect.arrayContaining(["policy.replan", "steps.a.colour"]));
   expect(errs.find(e => e.path === "steps.a.colour")!.message).toContain("unknown field 'colour'");
 });
 
@@ -196,4 +197,120 @@ test("a self-loop still needs max_loops", () => {
     { from: "b", to: "done" },
   ]);
   expect(validateWorkflow(missing)).toEqual([{ path: "edges[0]", message: "back edge needs max_loops" }]);
+});
+
+// Phase 2 Task 2: orchestrator role, human decisions, choose_workflow, policy.budget.
+
+test("interactive without the orchestrator role is an error", () => {
+  const src = `
+id: t/role
+version: 1
+steps:
+  ask:
+    type: agent
+    kind: research
+    interactive: true
+    prompt: hi
+  done: { type: end }
+edges: [[ask, done]]
+`;
+  const errs = parseWorkflow(src).errors;
+  expect(errs.some(e => e.path.includes("interactive") || e.message.includes("interactive"))).toBe(true);
+});
+
+test("an orchestrator step may omit kind and set interactive", () => {
+  const src = `
+id: t/orch
+version: 1
+steps:
+  plan:
+    type: agent
+    role: orchestrator
+    interactive: true
+    prompt: Plan it
+  done: { type: end }
+edges: [[plan, done]]
+`;
+  const { def, errors } = parseWorkflow(src);
+  expect(errors).toEqual([]);
+  expect(def!.steps.plan).toMatchObject({ type: "agent", role: "orchestrator", interactive: true, prompt: "Plan it" });
+  expect(validateWorkflow(def!)).toEqual([]);
+});
+
+test("choose_workflow must have exactly one outgoing edge", () => {
+  const one = parseWorkflow(`
+id: t/choose
+version: 1
+steps:
+  pick: { type: choose_workflow, from: [a/one, a/two] }
+  done: { type: end }
+edges: [[pick, done]]
+`).def!;
+  expect(validateWorkflow(one)).toEqual([]);
+
+  const none = parseWorkflow(`
+id: t/choose0
+version: 1
+steps:
+  pick: { type: choose_workflow }
+  done: { type: end }
+edges: [[done, done]]
+`).def!;
+  expect(validateWorkflow(none).map(e => e.path)).toEqual(expect.arrayContaining(["steps.pick"]));
+
+  const many = parseWorkflow(`
+id: t/choose2
+version: 1
+steps:
+  pick: { type: choose_workflow }
+  a: { type: end }
+  b: { type: end }
+edges: [[pick, a], [pick, b]]
+`).def!;
+  expect(validateWorkflow(many).some(e => e.path === "steps.pick" && e.message.includes("exactly one"))).toBe(true);
+});
+
+test("human decision defaults to must", () => {
+  const { def, errors } = parseWorkflow(`
+id: t/human
+version: 1
+steps:
+  ask:
+    type: human
+    question: { text: "Go?", kind: yes_no }
+  done: { type: end }
+edges: [[ask, done]]
+`);
+  expect(errors).toEqual([]);
+  expect(def!.steps.ask).toMatchObject({ type: "human", decision: "must" });
+});
+
+test("unknown policy keys are errors; budget keys are accepted", () => {
+  const bad = parseWorkflow(`
+id: t/pol
+version: 1
+policy: { budget: { orchestrator_turns: 10 }, colour: red }
+steps:
+  done: { type: end }
+edges: []
+`);
+  expect(bad.errors.map(e => e.path)).toEqual(expect.arrayContaining(["policy.colour"]));
+
+  const ok = parseWorkflow(`
+id: t/pol2
+version: 1
+policy: { budget: { orchestrator_turns: 60, message_turns: 20 } }
+steps:
+  done: { type: end }
+edges: []
+`);
+  expect(ok.errors).toEqual([]);
+  expect(ok.def!.policy).toEqual({ budget: { orchestrator_turns: 60, message_turns: 20 } });
+});
+
+test("Phase 1 fixtures still parse unchanged", () => {
+  const { def, errors } = parseWorkflow(FIXTURE_OK);
+  expect(errors).toEqual([]);
+  expect(validateWorkflow(def!)).toEqual([]);
+  expect(def!.steps.check).toMatchObject({ type: "human", decision: "must" });
 });

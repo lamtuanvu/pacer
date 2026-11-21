@@ -10,6 +10,7 @@ import { refreshObservations } from "../dispatch/refresh";
 import { setOutboxCrossPost } from "../link/store";
 import { holdOwnerKey } from "../plugins/host-bridge";
 import { advanceRuns } from "../workflow/tick";
+import { recoverOrphanTurns } from "../workflow/orchestrator";
 
 /**
  * The periodic work loop, owned by pacer serve (spec §5). All background loops
@@ -155,6 +156,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   }
   report({ type: "heartbeat" });
   armHeartbeat();
+  // Start-up: revoke orphan prg_ grants and settle live turns with no process.
+  void recoverOrphanTurns(fresh()).catch(() => { /* recovery is best-effort */ });
   runLoops();
 };
 

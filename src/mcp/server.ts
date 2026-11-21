@@ -21,6 +21,7 @@ import { makeCtx } from "../ctx";
 import { type SpawnRunner, EXECUTOR_DELEGATE_ERROR, delegateSchema, parseDelegateBrief, summarizeTask, spawnRunner, difficultyWarning } from "../tasks/api";
 import { appendLabel } from "../tasks/labels";
 import type { Ctx } from "../types";
+import { RUN_GRANT_OPS } from "../workflow/run-grant";
 
 import * as strategies from "../strategy/service";
 
@@ -81,6 +82,42 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
   const server = new McpServer({ name: "pacer", version: pkg.version });
   // Each MCP server (one per connected planner) is its own client instance for the task_send driving lease.
   const instance = { label: "mcp/stdio", id: `${process.pid}-${randomUUID().slice(0, 8)}` };
+  // Orchestrator without a grant: fail closed — no planner tool surface (M1).
+  if (getCtx().env.PACER_ROLE === "orchestrator" && !getCtx().env.PACER_RUN_GRANT) {
+    server.registerTool("run_grant_required", {
+      description: "PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT; no other tools are available.",
+      inputSchema: {},
+    }, async () => ({ ...json({ error: "PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT" }), isError: true }));
+    return server;
+  }
+  // Orchestrator run grant: only RUN_GRANT_OPS, forwarded over HTTP with the prg_ bearer.
+  if (getCtx().env.PACER_RUN_GRANT) {
+    const scoped = async (op: string, params: Record<string, unknown>) => {
+      if (!(RUN_GRANT_OPS as readonly string[]).includes(op)) {
+        return { ...json({ error: "Operation is not allowed by this run grant" }), isError: true };
+      }
+      try {
+        const client = await connectClient(getCtx(), { protocol: 3, allowFallback: false });
+        try { return json(await client.call<Record<string, unknown>>(op, params)); }
+        finally { client.close(); }
+      } catch (error) { return { ...json({ error: error instanceof Error ? error.message : "Scoped request failed" }), isError: true }; }
+    };
+    server.registerTool("task_review", { description: "Review a step task in this run (accept or reject only; never send_back/retry).", inputSchema: { task_id: z.string(), verdict: z.enum(["accept", "reject"]), expect_rev: z.number().int().positive(), note: z.string().optional() } },
+      async ({ task_id, verdict, expect_rev, note }) => scoped("task.review", { id: task_id, verdict, expect_rev, note }));
+    server.registerTool("task_stop", { description: "Stop a step task in this run.", inputSchema: { task_id: z.string(), expect_rev: z.number().int().positive().optional() } },
+      async ({ task_id, expect_rev }) => scoped("task.stop", { id: task_id, expect_rev }));
+    server.registerTool("step_result", { description: "Record this orchestrator step's structured result.", inputSchema: { result: z.record(z.string(), z.unknown()) } },
+      async ({ result }) => scoped("step.result", { result }));
+    server.registerTool("run_decide", { description: "Answer an auto human step under this run grant.", inputSchema: { id: z.string(), step: z.string(), choice: z.string(), reason: z.string() } },
+      async (p) => scoped("run.decide", p));
+    server.registerTool("run_choose", { description: "Choose a child workflow for a choose_workflow step.", inputSchema: { id: z.string(), step: z.string(), workflow: z.string(), reason: z.string() } },
+      async (p) => scoped("run.choose", p));
+    server.registerTool("step_skip", { description: "Skip a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },
+      async (p) => scoped("step.skip", p));
+    server.registerTool("step_retry", { description: "Retry a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },
+      async (p) => scoped("step.retry", p));
+    return server;
+  }
   if (getCtx().env.PACER_WORK_GRANT) {
     const scoped = async (op: string, params: Record<string, unknown>) => {
       try {
