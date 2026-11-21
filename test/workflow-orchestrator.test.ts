@@ -574,14 +574,15 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(getRun(ctx, run.id)!.reason).toMatch(/^planner at limit until /);
     expect(getRun(ctx, run.id)!.nextWakeAt).toBe(decision.validUntil);
 
-    // Eligible again via fresh lower usage (same evidence channel).
+    // Eligible again via fresh lower usage after the eligibility reset (same evidence channel).
+    const afterReset = decision.validUntil! + 1;
     const recovered = emptyEvidence();
-    recovered.budget.push(evidenceFact(scope, "session-log", NOW - 10, null, "quota_observed", {
-      name: "5h", usedPct: 10, resetsAt: NOW + 10_000, lengthS: 18000, paced: false,
+    recovered.budget.push(evidenceFact(scope, "session-log", afterReset - 10, null, "quota_observed", {
+      name: "5h", usedPct: 10, resetsAt: afterReset + 10_000, lengthS: 18000, paced: false,
     }));
-    await mergeEvidence(ctx, scope, recovered);
-    expect(executorExclusion(ctx, s, "claude-code")).toBeUndefined();
-    await advanceRuns({ ...ctx, now: NOW + 1 }, spawn);
+    await mergeEvidence({ ...ctx, now: afterReset }, scope, recovered);
+    expect(executorExclusion({ ...ctx, now: afterReset }, s, "claude-code")).toBeUndefined();
+    await advanceRuns({ ...ctx, now: afterReset }, spawn);
     expect(launched).toBe(1);
     expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
     expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");

@@ -24,7 +24,7 @@ import { restrictEligibility } from "../engine/eligibility";
 import { accountEvidenceScope, recordExecutionEvidence } from "../core/evidence";
 import { prepareLaunch, launchEvidenceCurrent } from "./eligibility";
 import { CoreError } from "../core/errors";
-import { executorExclusion } from "../executors/availability";
+import { executorExclusion, REQUESTED_EXECUTOR_BUDGET_REFUSAL } from "../executors/availability";
 
 import { PROJECT_STRATEGIES_LOCK, projectRevision, readProjectStrategies } from "../config/project-strategies";
 import { projectSnapshot, requireProjectExecutor } from "../core/project-policy";
@@ -456,7 +456,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
             });
             return;
           }
-          const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && /Blocked by you|exhausted/.test(e.reason));
+          const refusal = req && !tried.has(req) && excluded.find(e => e.id === req && REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(e.reason));
           if (refusal) throw new Error(`requested executor "${req}" is unavailable (${refusal.reason})`);
           // An explicit interactive runner can never be certified, so refuse at once rather than wait or swap it.
           const refused = work && decision ? strictInteractiveRefusal(decision, req) : undefined;
@@ -686,7 +686,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
-          const refusal = refreshedRanking.excluded.find(e => e.id === pick && /Blocked by you|exhausted/.test(e.reason));
+          const refusal = refreshedRanking.excluded.find(e => e.id === pick && REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(e.reason));
           if (pick === task.requestedExecutor && refusal) throw new Error(`requested executor "${pick}" is unavailable (${refusal.reason})`);
           excluded.push(...refreshedRanking.excluded);
           tried.add(pick); continue;

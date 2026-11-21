@@ -36,20 +36,28 @@ import {
 import { getBudgetAttention, getOrchestratorAttention } from "./attention";
 import type { AgentStep, ChooseWorkflowStep, WorkflowDef } from "./schema";
 import { limitObservation } from "../usage/reactive";
+import { executorGuard, isRequestedExecutorBudgetRefusal } from "../executors/availability";
 
 export { getBudgetAttention, getOrchestratorAttention };
 
-/** Sync pacing from the usage broker's exhausted marks (report-limit / reactive). */
+/** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
 export function defaultPlannerPacing(ctx: Ctx, planner: string): { eligible: boolean; until?: number } {
   const ids = new Set<string>([planner]);
+  let strategy: ReturnType<typeof loadStrategy> | undefined;
   try {
-    const strategy = loadStrategy(ctx);
+    strategy = loadStrategy(ctx);
     ids.add(strategy.planner.agent);
     ids.add(strategy.planner.account);
   } catch { /* strategy optional in tests */ }
   for (const id of ids) {
     const obs = limitObservation(ctx, id);
     if (obs) return { eligible: false, until: obs.until };
+  }
+  // Quota / block ineligibility the runner would refuse (not only reactive marks).
+  if (strategy) {
+    const guard = executorGuard(ctx, strategy, planner)
+      ?? (strategy.planner.agent !== planner ? executorGuard(ctx, strategy, strategy.planner.agent) : undefined);
+    if (guard) return { eligible: false, ...(guard.until !== undefined ? { until: guard.until } : {}) };
   }
   return { eligible: true };
 }
@@ -918,16 +926,19 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       task.state === "failed" || task.state === "stopped" || task.state === "limit"
       || task.state === "partial" || task.state === "needs_input"
     ) {
-      const countFailure = task.state !== "limit";
+      const budgetRefusal = task.state === "failed"
+        && isRequestedExecutorBudgetRefusal(task.result?.report);
+      // Limit outcomes and post-launch budget refusals share the planner-at-limit path.
+      const countFailure = task.state !== "limit" && !budgetRefusal;
       const turn = getTurn(ctx, row.id);
-      const resetAt = task.state === "limit" && turn
+      const resetAt = (task.state === "limit" || budgetRefusal) && turn
         ? (limitObservation(ctx, turn.planner)?.until
           ?? defaultPlannerPacing(ctx, turn.planner).until
           ?? ctx.now + 3600)
         : undefined;
       await settleTurn(ctx, row.id, {
         outcome: "failed",
-        reason: task.state,
+        reason: budgetRefusal ? "planner at limit" : task.state,
         countFailure,
         ...(resetAt !== undefined ? { resetAt } : {}),
       });
