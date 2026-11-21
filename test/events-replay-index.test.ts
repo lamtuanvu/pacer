@@ -145,6 +145,23 @@ test("a replay's discovery counts stay fixed after later replays", () => {
   expect([...first]).toEqual([[2, 1]]);
 });
 
+test("a replay from a cursor still sees items opened before it", () => {
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [
+    { seq: 1, at: 1, envelope: attention("failed:t-1") },
+    { seq: 2, at: 1, envelope: attention("discovery:peer-a") },
+    { seq: 3, at: 1, envelope: counts(2) },
+    { seq: 4, at: 1, envelope: counts(2) },
+  ]);
+  // Cursor after the first counts line: aggregates copy only seq>since, but the
+  // open count at seq 4 still includes discovery:peer-a raised before the cursor.
+  const mid = replayOutbox(ctx, 3);
+  expect([...mid.discoveryOpen]).toEqual([[4, 1]]);
+  expect(mid.entries.map(e => e.seq)).toEqual([4]);
+  const v2 = eventsSince(ctx, 3, 2).events.filter(e => e.type === "counts").map(e => (e.data as { attention: number }).attention);
+  expect(v2).toEqual([1]);
+});
+
 test("reset behaviour unchanged for a too-old cursor", () => {
   const ctx = fakeCtx();
   appendOutbox(ctx, Array.from({ length: OUTBOX_KEEP }, (_, i) => alert(i + 1)));

@@ -115,10 +115,16 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
       if (entry && entry.seq > since) entries.push(entry);
       start = stop;
     }
-    const discoveryOpen = new Map(index.openAt);
-    const workflowOpen = new Map(index.workflowOpenAt);
-    const workflowProblemsOpen = new Map(index.workflowProblemsAt);
-    if (unterminatedCounts) {
+    // Match Rust: only aggregates for counts seqs still in the replay window.
+    const filterAt = <T>(map: Map<number, T>) => {
+      const out = new Map<number, T>();
+      for (const [seq, value] of map) if (seq > since) out.set(seq, value);
+      return out;
+    };
+    const discoveryOpen = filterAt(index.openAt);
+    const workflowOpen = filterAt(index.workflowOpenAt);
+    const workflowProblemsOpen = filterAt(index.workflowProblemsAt);
+    if (unterminatedCounts && unterminatedCounts[0] > since) {
       discoveryOpen.set(unterminatedCounts[0], unterminatedCounts[1]);
       workflowOpen.set(unterminatedCounts[0], unterminatedCounts[2]);
       workflowProblemsOpen.set(unterminatedCounts[0], unterminatedCounts[3]);
