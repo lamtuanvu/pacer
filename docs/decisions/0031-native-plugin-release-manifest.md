@@ -25,8 +25,10 @@ Each release asset may include an optional `nativePlugins` array:
 - `companions` remains `pacer-core` only.
 - New updaters download, SHA256-verify (against both the field and `SHA256SUMS`), sign on the same
   path as `pacer-core`, and install atomically beside it during `update.apply`.
-- Self-repair restores a missing or stale assistant when the release lists one; its reported
-  version must match the installed front door.
+- Self-repair restores a missing or stale assistant when the release lists one; before writing
+  core or assistant it cross-checks each file's digest against `SHA256SUMS` the same way
+  `update.apply` does, and refuses on a mismatch or missing entry. Its reported version must
+  match the installed front door.
 - The host refuses a sibling whose `--version` does not match pacer, showing the same neutral
   Settings state as a missing sibling.
 

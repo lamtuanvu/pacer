@@ -98,6 +98,69 @@ fn hex_sha256(value: &serde_json::Value) -> Result<&str, RepairError> {
         .ok_or_else(|| RepairError::Invalid("invalid checksum".into()))
 }
 
+/// Same grammar as `parseSha256Sums` in `src/update/manifest.ts`: `"<hex>  <file>"` or `"<hex> *<file>"`.
+fn parse_sha256_sums(text: &str) -> Result<HashMap<String, String>, RepairError> {
+    let mut out = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((hash, rest)) = line.split_once(' ') else {
+            continue;
+        };
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        // After the required single space: text mode is another space, binary mode is '*'.
+        let file = if let Some(name) = rest.strip_prefix(' ') {
+            name
+        } else if let Some(name) = rest.strip_prefix('*') {
+            name
+        } else {
+            continue;
+        };
+        if file.is_empty() {
+            continue;
+        }
+        let hash = hash.to_ascii_lowercase();
+        if let Some(previous) = out.get(file)
+            && previous != &hash
+        {
+            return Err(RepairError::Invalid(format!(
+                "SHA256SUMS has conflicting hashes for {file}"
+            )));
+        }
+        out.insert(file.to_owned(), hash);
+    }
+    Ok(out)
+}
+
+fn require_sums_agree(
+    sums: &HashMap<String, String>,
+    file: &str,
+    hash: &str,
+) -> Result<(), RepairError> {
+    match sums.get(file) {
+        Some(listed) if listed == hash => Ok(()),
+        _ => Err(RepairError::Invalid(format!(
+            "SHA256SUMS and manifest.json disagree about {file}"
+        ))),
+    }
+}
+
+fn load_sha256_sums(
+    base: &str,
+    version: &str,
+    deadline: Instant,
+) -> Result<HashMap<String, String>, RepairError> {
+    let bytes = download::fetch(
+        download::release_url(base, version, "SHA256SUMS")?,
+        256 * 1024,
+        deadline,
+    )?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| RepairError::Invalid("SHA256SUMS is not UTF-8".into()))?;
+    parse_sha256_sums(text)
+}
+
 fn install_release_binary(
     dir: &Path,
     prefix: &str,
@@ -194,6 +257,14 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
         ));
     }
     let asset = matching[0];
+    // Loaded lazily before the first binary install; mirrors update.apply's dual-digest check.
+    let mut sums: Option<HashMap<String, String>> = None;
+    let mut sums_for = |file: &str, hash: &str| -> Result<(), RepairError> {
+        if sums.is_none() {
+            sums = Some(load_sha256_sums(base, version, deadline)?);
+        }
+        require_sums_agree(sums.as_ref().expect("sums loaded"), file, hash)
+    };
     if !core_ok {
         let companions = asset["companions"]
             .as_array()
@@ -214,6 +285,7 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
             .ok_or_else(|| RepairError::Invalid("invalid core size (maximum 200 MB)".into()))?;
         let hash = hex_sha256(&companion["sha256"])
             .map_err(|_| RepairError::Invalid("invalid core checksum".into()))?;
+        sums_for(&expected_file, hash)?;
         install_release_binary(
             dir,
             "pacer-core",
@@ -242,6 +314,7 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
                     })?;
                 let hash = hex_sha256(&plugin["sha256"])
                     .map_err(|_| RepairError::Invalid("invalid assistant checksum".into()))?;
+                sums_for(&expected_file, hash)?;
                 install_release_binary(
                     dir,
                     "pacer-assistant-pacer",

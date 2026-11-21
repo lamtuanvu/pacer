@@ -119,10 +119,10 @@ struct Feed {
 }
 impl Feed {
     fn new(version: &str, core: &[u8], hash: &str) -> Self {
-        Self::altered(version, core, hash, None, |_| {})
+        Self::altered(version, core, hash, None, |_| {}, None)
     }
     fn with_assistant(version: &str, core: &[u8], hash: &str, assistant: &[u8], assistant_hash: &str) -> Self {
-        Self::altered(version, core, hash, Some((assistant, assistant_hash)), |_| {})
+        Self::altered(version, core, hash, Some((assistant, assistant_hash)), |_| {}, None)
     }
     fn altered(
         version: &str,
@@ -130,6 +130,7 @@ impl Feed {
         hash: &str,
         assistant: Option<(&[u8], &str)>,
         alter: impl FnOnce(&mut serde_json::Value),
+        sums_override: Option<String>,
     ) -> Self {
         let os = if cfg!(target_os = "macos") {
             "darwin"
@@ -158,8 +159,16 @@ impl Feed {
         }
         alter(&mut manifest);
         let manifest = manifest.to_string();
+        let sums_body = sums_override.unwrap_or_else(|| {
+            let mut body = format!("{hash}  {file}\n");
+            if let Some((_, assistant_hash)) = assistant {
+                body.push_str(&format!("{assistant_hash}  {assistant_file}\n"));
+            }
+            body
+        });
         let mut routes = HashMap::from([
             (format!("/{version}/manifest.json"), manifest.into_bytes()),
+            (format!("/{version}/SHA256SUMS"), sums_body.into_bytes()),
             (format!("/{version}/{file}"), core.to_vec()),
         ]);
         if let Some((bytes, _)) = assistant {
@@ -240,7 +249,7 @@ fn invalid_manifest_identity_and_sizes_never_download_the_core() {
             "file" => v["assets"][0]["companions"][0]["file"] = "../pacer".into(),
             "oversize" => v["assets"][0]["companions"][0]["size"] = (201 * 1024 * 1024).into(),
             _ => v["assets"][0]["companions"][0]["size"] = 0.into(),
-        });
+        }, None);
         let output = install.run(&["self-repair"], &feed.base, false);
         assert!(!output.status.success(), "{case}");
         assert!(!install.core().exists());
@@ -327,7 +336,8 @@ fn automatic_repair_downloads_own_version_and_executes_core() {
     );
     let again = install.run(&["route"], &feed.base, false);
     assert!(again.status.success());
-    assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
+    // First repair: manifest + SHA256SUMS + core.
+    assert_eq!(feed.requests.load(Ordering::Relaxed), 3);
     let cache = install.dir.path().join("state/run/core-version.json");
     assert_eq!(
         fs::metadata(cache).unwrap().permissions().mode() & 0o777,
@@ -338,7 +348,7 @@ fn automatic_repair_downloads_own_version_and_executes_core() {
     let replaced = install.run(&["route"], &feed.base, false);
     assert!(replaced.status.success());
     assert_eq!(fs::read(install.core()).unwrap(), script);
-    assert_eq!(feed.requests.load(Ordering::Relaxed), 4);
+    assert_eq!(feed.requests.load(Ordering::Relaxed), 6);
 }
 
 #[test]
@@ -357,9 +367,9 @@ fn explicit_repair_replaces_wrong_version_and_is_idempotent() {
         );
     }
     assert_eq!(fs::read(install.core()).unwrap(), script);
-    // Second call re-reads the manifest when the optional assistant sibling is absent
-    // (ADR 0031: self-repair may still need to install it when the release lists one).
-    assert_eq!(feed.requests.load(Ordering::Relaxed), 3);
+    // First call: manifest + SHA256SUMS + core. Second call re-reads the manifest when the
+    // optional assistant sibling is absent (ADR 0031: may still need to install it).
+    assert_eq!(feed.requests.load(Ordering::Relaxed), 4);
 }
 
 #[test]
@@ -407,11 +417,90 @@ fn checksum_and_smoke_failures_preserve_the_previous_core() {
         } else {
             hash(&script)
         };
-        let feed = Feed::new(&install.version, &script, &checksum);
+        // Keep SHA256SUMS aligned with the (possibly poisoned) manifest so we exercise the
+        // post-download checksum / version-smoke path rather than the sums cross-check.
+        let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
+        let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
+        let file = format!("pacer-core-{os}-{arch}");
+        let feed = Feed::altered(
+            &install.version,
+            &script,
+            &checksum,
+            None,
+            |_| {},
+            Some(format!("{checksum}  {file}\n")),
+        );
         let output = install.run(&["self-repair"], &feed.base, false);
         assert!(!output.status.success());
         assert_eq!(fs::read(install.core()).unwrap(), old);
         assert!(!install.dir.path().join("pacer-core.new").exists());
+    }
+}
+
+#[test]
+fn sha256sums_disagree_or_missing_refuses_before_install() {
+    let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
+    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
+    let core_file = format!("pacer-core-{os}-{arch}");
+    let assistant_file = format!("pacer-assistant-pacer-{os}-{arch}");
+
+    // Poisoned manifest sha256 while SHA256SUMS still lists the real digest.
+    {
+        let install = Install::new();
+        let old = b"#!/bin/sh\necho 'pacer 0.0.1'\n";
+        fs::write(install.core(), old).unwrap();
+        fs::set_permissions(install.core(), fs::Permissions::from_mode(0o755)).unwrap();
+        let script = install.script();
+        let real = hash(&script);
+        let feed = Feed::altered(
+            &install.version,
+            &script,
+            &real,
+            None,
+            |v| v["assets"][0]["companions"][0]["sha256"] = "0".repeat(64).into(),
+            None,
+        );
+        let output = install.run(&["self-repair"], &feed.base, false);
+        assert!(!output.status.success());
+        let err = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            err.contains("SHA256SUMS and manifest.json disagree"),
+            "{err}"
+        );
+        assert_eq!(fs::read(install.core()).unwrap(), old);
+        // manifest + SHA256SUMS only; binary never fetched.
+        assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
+    }
+
+    // Assistant listed in manifest but absent from SHA256SUMS.
+    {
+        let install = Install::new();
+        let script = install.script();
+        let real = hash(&script);
+        fs::write(install.core(), &script).unwrap();
+        fs::set_permissions(install.core(), fs::Permissions::from_mode(0o755)).unwrap();
+        let assistant = install.dir.path().join("pacer-assistant-pacer");
+        assert!(!assistant.exists());
+        let feed = Feed::altered(
+            &install.version,
+            &script,
+            &real,
+            Some((script.as_slice(), real.as_str())),
+            |_| {},
+            Some(format!("{real}  {core_file}\n")),
+        );
+        let output = install.run(&["self-repair", "--base", &feed.base], &feed.base, false);
+        assert!(!output.status.success());
+        let err = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            err.contains("SHA256SUMS and manifest.json disagree")
+                && err.contains(&assistant_file),
+            "{err}"
+        );
+        assert!(!assistant.exists());
+        assert_eq!(fs::read(install.core()).unwrap(), script);
+        // manifest + SHA256SUMS; assistant binary never fetched.
+        assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
     }
 }
 
