@@ -373,9 +373,7 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
         if !logic::consent_takeover_idle(task_count, terminal_count) {
             continue;
         }
-        if let Err(error) = repair_own_link_if_needed(app, cli, task_count, terminal_count).await {
-            return Err(error);
-        }
+        repair_own_link_if_needed(app, cli, task_count, terminal_count).await?;
         if app.state::<Shell>().consent_service_move.load(Ordering::SeqCst)
             && app.state::<Shell>().takeover.lock().unwrap().is_some()
         {
@@ -1095,9 +1093,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         let (task_count, terminal_count) = count_session_work(&session).await;
         // ADR 0021: owner repairs the stuck consent-relinked-own-link shape without asking.
-        if let Err(error) = repair_own_link_if_needed(app, cli, task_count, terminal_count).await {
-            return Err(error);
-        }
+        repair_own_link_if_needed(app, cli, task_count, terminal_count).await?;
         let candidate = (|| {
             let trust = pacer_desktop::ota::trust::ReleaseTrust::configured()?;
             let config = app.path().app_config_dir().ok()?;
