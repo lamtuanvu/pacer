@@ -3,6 +3,7 @@ mod fields;
 mod format;
 mod runtime;
 mod selectors;
+mod usage;
 mod words;
 use agents::agent_info;
 pub use fields::fields;
@@ -78,7 +79,23 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
         .unwrap_or(0.0);
     // Exhaustion with a known reset wins over staleness; a stale reading
     // without it shows the TUI's "stale reading" marker instead of a figure.
+    // usageView figure wins when present; ·pace only for a measured percent.
     let reset = f["resetsAt"].as_f64();
+    let compact_figure = if let Some(figure) = f["usageFigure"].as_str() {
+        let meter = f["usageMeter"].as_f64();
+        let pace = f["pacePct"].as_f64();
+        if meter.is_some() && figure.ends_with('%') {
+            if let Some(p) = pace {
+                format!("{figure}·{}", js_round(p))
+            } else {
+                figure.into()
+            }
+        } else {
+            figure.into()
+        }
+    } else {
+        meter_text(f["usedPct"].as_f64(), f["pacePct"].as_f64(), "compact")
+    };
     let main = if verdict == "out" && reset.is_some() {
         format!(
             "out · back {}",
@@ -90,8 +107,7 @@ pub fn render(input: Option<&Value>, width: usize, color: bool) -> String {
         format!("out · {}", back_in(None, now))
     } else {
         format!(
-            "{}{}",
-            meter_text(f["usedPct"].as_f64(), f["pacePct"].as_f64(), "compact"),
+            "{compact_figure}{}",
             if verdict.is_empty() {
                 String::new()
             } else {

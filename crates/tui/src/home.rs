@@ -248,7 +248,14 @@ pub fn build(ctx: &Ctx) -> View {
             &if can { vec![("b", block)] } else { vec![] },
         ));
         let (status, detail, age) = eligibility(e, ctx.now);
-        let p = if e["stale"] == true && !e["usedPct"].is_null() {
+        // Match TS executorPace: usageState wins; historical is the one phrase for an old reading.
+        let p = if !e["usageState"].is_null() {
+            if text(&e["usageState"]["freshness"]) == "historical" {
+                line("? Historical usage")
+            } else {
+                pace(text(&e["usageState"]["verdict"]))
+            }
+        } else if e["stale"] == true && !e["usedPct"].is_null() {
             line("? Historical usage")
         } else {
             let verdict = if s["planner"]["runner"] == e["id"] {
