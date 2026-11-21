@@ -109,16 +109,6 @@ function sanitizeStopError(text: string): string {
   return text.replace(/\/(?:Users|Volumes|home|tmp|private\/var|var\/folders)\/\S+/g, "<path>");
 }
 
-/** Original stop reason before "; stop pending …" / "; stop failed" annotations. */
-function stopBaseReason(reason: string | undefined, fallback: string): string {
-  if (!reason) return fallback;
-  const pending = reason.indexOf("; stop pending");
-  if (pending >= 0) return reason.slice(0, pending);
-  const failed = reason.indexOf("; stop failed");
-  if (failed >= 0) return reason.slice(0, failed);
-  return reason;
-}
-
 function stopAttemptCount(reason: string | undefined): number {
   if (!reason) return 0;
   const numbered = reason.match(/; stop pending \((\d+)\):/);
