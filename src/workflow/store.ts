@@ -1,0 +1,486 @@
+// Run and step persistence, in the existing task store (ARCH-16): the workflow tables
+// are created once per connection by a guard, the same pattern dispatchDatabase uses.
+// Definitions are immutable per version; run updates go through expect_rev.
+import type { Database, SQLQueryBindings } from "bun:sqlite";
+import { randomBytes } from "node:crypto";
+import { taskDatabase } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
+import type { Ctx } from "../types";
+import { CoreError } from "../core/errors";
+import type { WorkflowDef } from "./schema";
+
+// The connection is cached by taskDatabase; schema setup must therefore also run once
+// per connection, not per call (see dispatch/store.ts for the same guard).
+const ready = new WeakSet<Database>();
+export function workflowDatabase(ctx: Ctx): Database {
+  const db = taskDatabase(ctx);
+  if (ready.has(db)) return db;
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_defs(id TEXT, version INTEGER, source TEXT, def TEXT, added_at REAL, PRIMARY KEY(id, version));
+    CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
+    CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
+    CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
+  `);
+  // Added after the first schema; existing databases gain the columns in place
+  // (pattern: src/messaging/store.ts). advanced_at records when a done step's
+  // outgoing edges were processed ("nothing left to do" for the re-advance query),
+  // so advancement survives a crash in between; a database that predates the
+  // column has its finished rows backfilled as already advanced, so an upgrade
+  // does not replay every historical step's edges once.
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
+    db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
+    db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
+  }
+  // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
+  // The unique index makes firing an edge exclusive: a second attempt to insert a
+  // successor for an already-fired edge fails instead of duplicating the work
+  // (NULLs are allowed — entry steps and join rows have no trigger).
+  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
+  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
+  // The tick runs every second and reads steps by live status (orphans, re-advance,
+  // recovery); partial indexes keep those scans cheap as the step history grows
+  // (round 4 review).
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
+  ready.add(db);
+  return db;
+}
+
+export type RunStatus = "running" | "waiting" | "done" | "failed" | "stopped";
+export type StepStatus = "running" | "waiting" | "done" | "failed" | "stopped";
+
+export interface RunRow {
+  id: string;
+  workflow: string;
+  version: number;
+  repo: string;
+  brief: string;
+  title: string;
+  status: RunStatus;
+  reason?: string;
+  rev: number;
+  createdAt: number;
+  updatedAt: number;
+  loops: Record<string, number>;
+}
+
+export interface StepRow {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  taskId?: string;
+  status: StepStatus;
+  result?: unknown;
+  error?: string;
+  startedAt: number;
+  endedAt?: number;
+  /** When the step's outgoing edges were processed; unset means advancement may
+   *  still be owed (a crash between marking the step done and advancing). */
+  advancedAt?: number;
+  /** What caused this row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>' of the
+   *  predecessor instance and the edge that started it. Unique, so an edge fires
+   *  at most one successor; unset for entry steps and join rows. */
+  trigger?: string;
+}
+
+export type NewRun = { workflow: string; version: number; repo: string; brief: string; title?: string };
+
+export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
+
+export type NewStep = StepKey & { taskId?: string; status: StepStatus };
+
+// Run ids: `run_` plus 10 lowercase base32 characters.
+const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+export function newRunId(): string {
+  const bytes = randomBytes(10);
+  let id = "run_";
+  for (const byte of bytes) id += BASE32[byte % 32];
+  return id;
+}
+
+interface DefRow { id: string; version: number; source: string; def: string; added_at: number }
+interface RunDbRow {
+  id: string; workflow: string; version: number; repo: string; brief: string; title: string;
+  status: string; reason: string | null; loops: string | null; rev: number;
+  created_at: number; updated_at: number;
+}
+interface StepDbRow {
+  run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
+  status: string; result: string | null; error: string | null; started_at: number; ended_at: number | null; advanced_at: number | null; trigger: string | null;
+}
+
+function runFromRow(row: RunDbRow): RunRow {
+  return {
+    id: row.id,
+    workflow: row.workflow,
+    version: row.version,
+    repo: row.repo,
+    brief: row.brief,
+    title: row.title,
+    status: row.status as RunStatus,
+    reason: row.reason ?? undefined,
+    rev: row.rev,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    loops: row.loops ? (JSON.parse(row.loops) as Record<string, number>) : {},
+  };
+}
+
+function stepFromRow(row: StepDbRow): StepRow {
+  return {
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    branch: row.branch ? row.branch : undefined,
+    taskId: row.task_id ?? undefined,
+    status: row.status as StepStatus,
+    result: row.result === null ? undefined : JSON.parse(row.result),
+    error: row.error ?? undefined,
+    startedAt: row.started_at,
+    endedAt: row.ended_at ?? undefined,
+    advancedAt: row.advanced_at ?? undefined,
+    trigger: row.trigger ?? undefined,
+  };
+}
+
+function stepWhere(key: StepKey): { sql: string; bindings: SQLQueryBindings[] } {
+  const branch = key.branch ?? "";
+  return { sql: "run_id = ? AND step_id = ? AND attempt = ? AND branch = ?", bindings: [key.runId, key.stepId, key.attempt, branch] };
+}
+
+/** Stores a definition version. The same id@version with the same source is a no-op;
+ * with a different source it is a conflict. */
+export function addDefinition(ctx: Ctx, def: WorkflowDef, source: string): { id: string; version: number; created: boolean } {
+  const db = workflowDatabase(ctx);
+  const existing = db.query<DefRow, [string, number]>("SELECT * FROM workflow_defs WHERE id = ? AND version = ?").get(def.id, def.version);
+  if (existing) {
+    if (existing.source !== source) throw new CoreError("conflict", `conflict: definition ${def.id}@${def.version} already exists with a different source`);
+    return { id: def.id, version: def.version, created: false };
+  }
+  db.query("INSERT INTO workflow_defs(id, version, source, def, added_at) VALUES (?, ?, ?, ?, ?)")
+    .run(def.id, def.version, source, JSON.stringify(def), ctx.now);
+  return { id: def.id, version: def.version, created: true };
+}
+
+/** Looks up `id@N`, or the latest version of `id`. */
+export function getDefinition(ctx: Ctx, ref: string): WorkflowDef | null {
+  const db = workflowDatabase(ctx);
+  const at = ref.lastIndexOf("@");
+  let row: DefRow | null = null;
+  if (at > 0) {
+    const version = Number(ref.slice(at + 1));
+    if (Number.isInteger(version)) row = db.query<DefRow, [string, number]>("SELECT * FROM workflow_defs WHERE id = ? AND version = ?").get(ref.slice(0, at), version) ?? null;
+    if (row) return JSON.parse(row.def) as WorkflowDef;
+  }
+  row = db.query<DefRow, [string]>("SELECT * FROM workflow_defs WHERE id = ? ORDER BY version DESC LIMIT 1").get(ref) ?? null;
+  return row ? (JSON.parse(row.def) as WorkflowDef) : null;
+}
+
+export function listDefinitions(ctx: Ctx): { id: string; version: number; title?: string; addedAt: number }[] {
+  const db = workflowDatabase(ctx);
+  return db.query<DefRow, []>("SELECT * FROM workflow_defs ORDER BY id, version").all().map(row => {
+    const def = JSON.parse(row.def) as WorkflowDef;
+    const entry = { id: row.id, version: row.version, addedAt: row.added_at };
+    return def.title === undefined ? entry : { ...entry, title: def.title };
+  });
+}
+
+export function insertRun(ctx: Ctx, r: NewRun): RunRow {
+  const db = workflowDatabase(ctx);
+  const row: RunRow = {
+    id: newRunId(),
+    workflow: r.workflow,
+    version: r.version,
+    repo: r.repo,
+    brief: r.brief,
+    title: r.title ?? r.workflow,
+    status: "running",
+    rev: 1,
+    createdAt: ctx.now,
+    updatedAt: ctx.now,
+    loops: {},
+  };
+  db.query("INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null, JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt);
+  return row;
+}
+
+export function getRun(ctx: Ctx, id: string): RunRow | null {
+  const row = workflowDatabase(ctx).query<RunDbRow, [string]>("SELECT * FROM workflow_runs WHERE id = ?").get(id);
+  return row ? runFromRow(row) : null;
+}
+
+export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
+  const db = workflowDatabase(ctx);
+  const rows = status === undefined
+    ? db.query<RunDbRow, []>("SELECT * FROM workflow_runs ORDER BY created_at, id").all()
+    : db.query<RunDbRow, [string]>("SELECT * FROM workflow_runs WHERE status = ? ORDER BY created_at, id").all(status);
+  return rows.map(runFromRow);
+}
+
+/** Live runs only (running or waiting), oldest first: the tick's rescan, recovery
+ *  and re-advance walks run every second, so the status filter lives in the SQL
+ *  instead of walking every run ever recorded (round 4 review). */
+export function liveRuns(ctx: Ctx): RunRow[] {
+  return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
+}
+
+export type RunPatch = Partial<Pick<RunRow, "status" | "reason" | "title" | "loops">>;
+
+/** Applies a patch when `expectRev` is the run's current rev; a stale rev is a conflict.
+ *  The rev check and the write share one transaction guarded by `WHERE id = ? AND rev = ?`,
+ *  so a concurrent writer can never slip between the check and the write
+ *  (pattern: src/dispatch/work.ts registerWork). */
+export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPatch): RunRow {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => {
+    const current = getRun(ctx, id);
+    if (!current) throw new CoreError("not_found", `unknown run ${id}`);
+    if (current.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
+    const updated: RunRow = {
+      ...current,
+      status: patch.status ?? current.status,
+      reason: patch.reason === undefined ? current.reason : patch.reason,
+      title: patch.title ?? current.title,
+      loops: patch.loops ?? current.loops,
+      rev: current.rev + 1,
+      updatedAt: ctx.now,
+    };
+    if (updated.reason === undefined) delete updated.reason;
+    const result = db.query("UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ? WHERE id = ? AND rev = ?")
+      .run(updated.status, updated.reason ?? null, updated.title, JSON.stringify(updated.loops), updated.rev, updated.updatedAt, id, expectRev);
+    if (result.changes === 0) throw new CoreError("conflict", `conflict: run ${id} changed since rev ${expectRev}`);
+    return updated;
+  })();
+}
+
+export function insertStep(ctx: Ctx, s: NewStep): StepRow {
+  const db = workflowDatabase(ctx);
+  const row: StepRow = {
+    runId: s.runId,
+    stepId: s.stepId,
+    attempt: s.attempt,
+    branch: s.branch,
+    taskId: s.taskId,
+    status: s.status,
+    startedAt: ctx.now,
+  };
+  if (row.branch === undefined) delete row.branch;
+  if (row.taskId === undefined) delete row.taskId;
+  db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+    .run(row.runId, row.stepId, row.attempt, row.branch ?? "", row.taskId ?? null, row.status, null, null, row.startedAt, null);
+  return row;
+}
+
+/** Inserts every branch row of one fan-out attempt in ONE transaction (the fireEdge
+ *  pattern): all branches of the attempt become visible together, before any branch
+ *  is delegated, so a branch whose task settles inside its own delegation call can
+ *  never evaluate the join — or stop a join:'any' branch — while a later branch row
+ *  of the attempt does not exist yet (round 4 review). */
+export function insertFanoutBranches(ctx: Ctx, runId: string, stepId: string, attempt: number, branches: string[]): StepRow[] {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => branches.map(branch => {
+    db.query("INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, NULL, 'running', NULL, NULL, ?, NULL)")
+      .run(runId, stepId, attempt, branch, ctx.now);
+    return { runId, stepId, attempt, branch, status: "running" as const, startedAt: ctx.now };
+  }))();
+}
+
+/** Atomically records a fan-out attempt's join row (INSERT OR IGNORE): of two
+ *  concurrent joins of the same attempt exactly one caller inserts the row and owns
+ *  the advancement; the loser gets null and returns quietly instead of failing a
+ *  healthy run on the attempt's PRIMARY KEY (round 4 review). */
+export function insertJoinStep(ctx: Ctx, runId: string, stepId: string, attempt: number, status: "done" | "failed", result: unknown): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const inserted = db.query(
+    "INSERT OR IGNORE INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, '', NULL, ?, ?, NULL, ?, ?)",
+  ).run(runId, stepId, attempt, status, JSON.stringify(result), ctx.now, ctx.now);
+  if (inserted.changes === 0) return null;
+  const row = db.query<StepDbRow, SQLQueryBindings[]>("SELECT * FROM workflow_steps WHERE run_id = ? AND step_id = ? AND attempt = ? AND branch = ''").get(runId, stepId, attempt);
+  return row ? stepFromRow(row) : null;
+}
+
+export type StepPatch = Partial<Pick<StepRow, "status" | "result" | "error" | "endedAt" | "advancedAt">>;
+
+export function updateStep(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row) throw new CoreError("not_found", `unknown step ${key.stepId}#${key.attempt} of ${key.runId}`);
+  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt, advanced_at: patch.advancedAt === undefined ? row.advanced_at : patch.advancedAt });
+  db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ?, advanced_at = ? WHERE ${where.sql}`)
+    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, merged.advancedAt ?? null, ...where.bindings);
+  return merged;
+}
+
+/** Atomically claims the settlement of a running step row: the write lands only when
+ *  the row is still `running`, so of two concurrent settlers (the request thread's
+ *  attachAndSettle and the tick thread's onTaskSettled) exactly one wins and advances
+ *  the run. Returns the settled row, or null when another caller already claimed it. */
+export function claimStepSettlement(ctx: Ctx, key: StepKey, patch: StepPatch): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row || row.status !== "running") return null;
+  const merged = stepFromRow({ ...row, status: patch.status ?? row.status, result: patch.result === undefined ? row.result : JSON.stringify(patch.result), error: patch.error === undefined ? row.error : patch.error, ended_at: patch.endedAt === undefined ? row.ended_at : patch.endedAt });
+  const result = db.query(`UPDATE workflow_steps SET status = ?, result = ?, error = ?, ended_at = ? WHERE ${where.sql} AND status = 'running'`)
+    .run(merged.status, merged.result === undefined ? null : JSON.stringify(merged.result), merged.error ?? null, merged.endedAt ?? null, ...where.bindings);
+  return result.changes === 1 ? merged : null;
+}
+
+export interface EdgeFire {
+  runId: string;
+  /** The settled predecessor instance the edge fires from. */
+  from: { stepId: string; attempt: number; branch?: string };
+  /** The edge's position in the definition; part of the trigger. */
+  edgeIndex: number;
+  /** The successor step id. */
+  stepId: string;
+  /** The successor's initial status: waiting for a human step, running otherwise. */
+  status: "running" | "waiting";
+  /** Branch names for a fan-out target: one successor row per branch. */
+  branches?: string[];
+  /** Back-edge loop bookkeeping: the counter key and the edge's maxLoops. */
+  back?: { key: string; maxLoops: number };
+}
+
+export type EdgeFireResult =
+  | { kind: "handled" }
+  | { kind: "terminal" }
+  | { kind: "loop-limit"; loops: Record<string, number> }
+  | { kind: "fired"; rows: StepRow[]; loops?: Record<string, number> };
+
+const edgeTrigger = (fire: EdgeFire): string =>
+  `${fire.runId}/${fire.from.stepId}#${fire.from.attempt}/${fire.from.branch ?? ""}@${fire.edgeIndex}`;
+
+/** Fires one outgoing edge of a settled step exclusively and idempotently, in ONE
+ *  immediate transaction: if a row with this edge's trigger already exists, the
+ *  edge was already handled by an earlier or concurrent advancement and is skipped
+ *  (no loop increment, no successor). Otherwise the back-edge loop counter is read
+ *  and written directly inside the transaction — with no expect-rev check against a
+ *  possibly stale rev, so a loop patch can never fail a healthy run over a rev
+ *  conflict from the request thread; the immediate transaction (and the rev bump)
+ *  is what serializes it against updateRun — and the successor row(s) are inserted
+ *  with the trigger recorded. Delegation happens after the transaction, exactly
+ *  like the insert-row-then-delegate start path, so a crash before it is an
+ *  ordinary orphan the reconciliation recovers. */
+export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
+  const db = workflowDatabase(ctx);
+  const trigger = edgeTrigger(fire);
+  for (let tryn = 0; ; tryn++) {
+    try {
+      return db.transaction((): EdgeFireResult => {
+        // Re-checked inside the transaction: a stop can land between the caller's
+        // terminal check and this fire (the tick and run.answer run on different
+        // connections), so a run that is no longer live inserts nothing and reports
+        // terminal instead of leaving a running successor row behind
+        // (round 4 review).
+        const runRow = db.query<{ status: string }, [string]>("SELECT status FROM workflow_runs WHERE id = ?").get(fire.runId);
+        if (!runRow || (runRow.status !== "running" && runRow.status !== "waiting")) return { kind: "terminal" };
+        if (db.query(`SELECT 1 FROM workflow_steps WHERE "trigger" = ?`).get(trigger)) return { kind: "handled" };
+        let loops: Record<string, number> | undefined;
+        if (fire.back) {
+          const row = db.query<{ loops: string | null }, [string]>("SELECT loops FROM workflow_runs WHERE id = ?").get(fire.runId);
+          if (!row) throw new CoreError("not_found", `unknown run ${fire.runId}`);
+          const current: Record<string, number> = row.loops ? JSON.parse(row.loops) : {};
+          const next = { ...current, [fire.back.key]: (current[fire.back.key] ?? 0) + 1 };
+          db.query("UPDATE workflow_runs SET loops = ?, rev = rev + 1, updated_at = ? WHERE id = ?")
+            .run(JSON.stringify(next), ctx.now, fire.runId);
+          loops = next;
+          if (next[fire.back.key]! > fire.back.maxLoops) return { kind: "loop-limit", loops: next };
+        }
+        const attempt = (db.query<{ n: number | null }, [string, string]>("SELECT MAX(attempt) AS n FROM workflow_steps WHERE run_id = ? AND step_id = ?")
+          .get(fire.runId, fire.stepId)?.n ?? 0) + 1;
+        const rows: StepRow[] = [];
+        const branches = fire.branches ?? [undefined];
+        branches.forEach((branch, i) => {
+          // The first successor row carries the edge trigger; a fan-out's further
+          // branch rows carry it suffixed with their branch so every row stays unique.
+          const rowTrigger = i === 0 ? trigger : `${trigger}/${branch}`;
+          db.query(`INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at, "trigger") VALUES (?, ?, ?, ?, NULL, ?, NULL, NULL, ?, NULL, ?)`)
+            .run(fire.runId, fire.stepId, attempt, branch ?? "", fire.status, ctx.now, rowTrigger);
+          rows.push({ runId: fire.runId, stepId: fire.stepId, attempt, branch, status: fire.status, startedAt: ctx.now, trigger: rowTrigger });
+        });
+        return { kind: "fired", rows, ...(loops ? { loops } : {}) };
+      }).immediate();
+    } catch (err) {
+      // A concurrent advancement of the same predecessor inserted the same successor
+      // first (trigger or step key UNIQUE): retry the decision from fresh state —
+      // the attempt must be recomputed — and treat an existing trigger as handled.
+      if (`${err instanceof Error ? err.message : err}`.includes("UNIQUE constraint failed") && tryn < 2) continue;
+      if (db.query(`SELECT 1 FROM workflow_steps WHERE "trigger" = ?`).get(trigger)) return { kind: "handled" };
+      throw err;
+    }
+  }
+}
+
+/** Atomically answers a waiting human step row: the compare-and-set write lands
+ *  only while the row is still `waiting` (like claimStepSettlement), so of two
+ *  concurrent answers exactly one wins and the loser gets a conflict. Returns null
+ *  when the row is not waiting (already answered, stopped, …). */
+export function claimStepAnswer(ctx: Ctx, key: StepKey, result: unknown): StepRow | null {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row || row.status !== "waiting") return null;
+  const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+    .run(JSON.stringify(result), ctx.now, ...where.bindings);
+  return done.changes === 1 ? stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now }) : null;
+}
+
+/** Done step rows whose outgoing edges may never have been processed (advanced_at
+ *  unset), in live runs, completed before `before`: the stalled advancements each
+ *  tick re-advances. Fan-out branch rows are excluded here and by the caller: their
+ *  branch-less join row owns the advancement. */
+export function unadvancedDoneSteps(ctx: Ctx, before: number): StepRow[] {
+  return workflowDatabase(ctx).query<StepDbRow, [number]>(
+    `SELECT s.* FROM workflow_steps s JOIN workflow_runs r ON r.id = s.run_id
+     WHERE s.status = 'done' AND s.advanced_at IS NULL AND s.branch = ''
+       AND r.status IN ('running', 'waiting') AND COALESCE(s.ended_at, s.started_at) < ?
+     ORDER BY s.started_at`).all(before).map(stepFromRow);
+}
+
+export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {
+  return workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE run_id = ? ORDER BY started_at, step_id, attempt, branch").all(runId).map(stepFromRow);
+}
+
+export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
+  const row = workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
+  return row ? stepFromRow(row) : null;
+}
+
+/** Running step rows without a task id, oldest first: the orphans (a crash between
+ *  writing the row and attaching the delegated task) that every tick reconciles. */
+export function orphanSteps(ctx: Ctx): StepRow[] {
+  return workflowDatabase(ctx).query<StepDbRow, []>("SELECT * FROM workflow_steps WHERE status = 'running' AND task_id IS NULL ORDER BY started_at").all().map(stepFromRow);
+}
+
+/** Attaches the delegated task id to a step row that was inserted before
+ *  delegation (engine.ts startAgentStep/startFanout). */
+export function attachStepTask(ctx: Ctx, key: StepKey, taskId: string): StepRow {
+  const db = workflowDatabase(ctx);
+  const where = stepWhere(key);
+  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+  if (!row) throw new CoreError("not_found", `unknown step ${key.stepId}#${key.attempt} of ${key.runId}`);
+  db.query(`UPDATE workflow_steps SET task_id = ? WHERE ${where.sql}`).run(taskId, ...where.bindings);
+  return stepFromRow({ ...row, task_id: taskId });
+}
+
+/** Finds an unarchived task by its delegation request id, newest first. Used to
+ *  re-attach a step row that was written before its delegation completed. */
+export function taskByRequestId(ctx: Ctx, requestId: string): TaskRecord | null {
+  const row = taskDatabase(ctx).query<{ record: string }, [string]>(
+    "SELECT record FROM tasks WHERE archived = 0 AND json_extract(record, '$.requestId') = ? ORDER BY created_at DESC LIMIT 1",
+  ).get(requestId);
+  return row ? (JSON.parse(row.record) as TaskRecord) : null;
+}
+
+export function getCursor(ctx: Ctx): number {
+  const row = workflowDatabase(ctx).query<{ seq: number | null }, []>("SELECT seq FROM workflow_cursor WHERE id = 1").get();
+  return row?.seq ?? 0;
+}
+
+export function setCursor(ctx: Ctx, seq: number): void {
+  workflowDatabase(ctx).query("INSERT OR REPLACE INTO workflow_cursor(id, seq) VALUES (1, ?)").run(seq);
+}

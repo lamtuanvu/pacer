@@ -210,3 +210,37 @@ fn task_question_after_idle_keeps_latest_id_full_title_and_utf16_clipping() {
         assert!(doc.json().contains(&format!("{}\\ud83d", "x".repeat(999))));
     }
 }
+
+#[test]
+fn run_entity_events_are_v3_only() {
+    let event = json!({
+        "seq": number(V3_CURSOR_BASE + 1.0),
+        "at": 1791633600,
+        "type": "run",
+        "data": {"kind":"run","id":"run_abcdefghij","value":{"id":"run_abcdefghij","status":"running"}}
+    });
+    assert_eq!(to_v2_event(&event), None);
+    assert!(pacer_read_model::v2_compat::event(&event, None).is_null());
+    assert!(!v3_only(&event));
+}
+
+#[test]
+fn v2_replay_drops_run_entity_events() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":1,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"run","id":"run_abcdefghij","value":{"id":"run_abcdefghij","status":"running"}}}}),
+            json!({"seq":2,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"review:t-1","value":{"id":"review:t-1"}}}}),
+        ],
+    )
+    .unwrap();
+    let batch = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let types: Vec<String> = array(&batch["events"])
+        .iter()
+        .map(|e| text(&e["type"]).to_string())
+        .collect();
+    assert!(!types.contains(&"run".to_string()));
+    assert!(types.contains(&"attention".to_string()));
+}
