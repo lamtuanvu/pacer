@@ -1,9 +1,10 @@
 import { expect, test } from "bun:test";
-import { executorExclusion, isRequestedExecutorBudgetRefusal } from "../src/executors/availability";
+import { executorExclusion, executorGuard, isRequestedExecutorBudgetRefusal } from "../src/executors/availability";
 import { blockExecutor } from "../src/executors/blocked";
 import { validateStrategy } from "../src/config/strategy";
 import { accountEvidenceScope, mergeEvidence, retireEvidence } from "../src/core/evidence";
 import { emptyEvidence, evidenceFact } from "../src/engine/evidence";
+import { evaluateEligibility } from "../src/engine/eligibility";
 import { markExhausted, readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
 
@@ -28,6 +29,32 @@ test("isRequestedExecutorBudgetRefusal anchors on the runner error prefix", () =
   )).toBe(false);
   expect(isRequestedExecutorBudgetRefusal(null)).toBe(false);
   expect(isRequestedExecutorBudgetRefusal("")).toBe(false);
+});
+
+test("exhausted guard until prefers budget resetsAt over decision.validUntil", async () => {
+  const ctx = fakeCtx();
+  const s = strategy();
+  const scope = accountEvidenceScope(s.accounts.codex, s.hosts);
+  const runner = s.runners.codex!;
+  const resetsAt = ctx.now + 6 * 3600;
+  const facts = emptyEvidence();
+  facts.budget.push(evidenceFact(scope, "session-log", ctx.now - 60, null, "quota_observed", {
+    name: "5h", usedPct: 100, resetsAt, lengthS: 18000, paced: false,
+  }));
+  await mergeEvidence(ctx, scope, facts);
+  const decision = evaluateEligibility({
+    now: ctx.now,
+    scope: { ...scope, runner: runner.id, model: runner.model ?? "default", host: runner.host ?? "local" },
+    usage: s.accounts.codex.usage, allowPaid: s.accounts.codex.allowPaid,
+    evidence: (await import("../src/core/evidence")).readEvidence(ctx, scope).evidence,
+    restrictions: [],
+  });
+  expect(decision.validUntil).toBeGreaterThan(ctx.now);
+  expect(decision.validUntil!).toBeLessThan(resetsAt);
+  const guard = executorGuard(ctx, s, "codex");
+  expect(guard?.reason).toBe("exhausted");
+  expect(guard?.until).toBe(resetsAt);
+  expect(guard?.until).not.toBe(decision.validUntil);
 });
 
 test("late guard preserves recovery despite a retained execution limit sidecar", async () => {

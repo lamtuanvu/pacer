@@ -599,6 +599,79 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
   });
 
+  test("planner hold prefers budget resetsAt over evidence validUntil", async () => {
+    const { loadStrategy } = await import("../src/config/strategy");
+    const { accountEvidenceScope, mergeEvidence, readEvidence } = await import("../src/core/evidence");
+    const { emptyEvidence, evidenceFact } = await import("../src/engine/evidence");
+    const { evaluateEligibility } = await import("../src/engine/eligibility");
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    const s = loadStrategy(ctx);
+    const account = s.accounts[s.planner.account]!;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const runner = s.runners["claude-code"]!;
+    // Short freshness window vs later quota reset: validUntil < resetsAt.
+    const resetsAt = NOW + 6 * 3600;
+    const facts = emptyEvidence();
+    facts.budget.push(evidenceFact(scope, "session-log", NOW - 60, null, "quota_observed", {
+      name: "5h", usedPct: 100, resetsAt, lengthS: 18000, paced: false,
+    }));
+    await mergeEvidence(ctx, scope, facts);
+    const decision = evaluateEligibility({
+      now: ctx.now,
+      scope: { ...scope, runner: runner.id, model: runner.model ?? "default", host: runner.host ?? "local" },
+      usage: account.usage, allowPaid: account.allowPaid,
+      evidence: readEvidence(ctx, scope).evidence, restrictions: [],
+    });
+    expect(decision.validUntil).toBeGreaterThan(NOW);
+    expect(decision.validUntil!).toBeLessThan(resetsAt);
+
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    await advanceRuns(ctx, () => 1);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
+    expect(getRun(ctx, run.id)!.reason).toMatch(/^planner at limit until /);
+    expect(getRun(ctx, run.id)!.nextWakeAt).toBe(resetsAt);
+    expect(getRun(ctx, run.id)!.nextWakeAt).not.toBe(decision.validUntil);
+  });
+
+  test("user-blocked planner uses blocked wording and clears when unblocked", async () => {
+    const { blockExecutor, unblockExecutor } = await import("../src/executors/blocked");
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    blockExecutor(ctx, "claude-code");
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    let launched = 0;
+    const spawn: SpawnRunner = () => { launched++; return 1; };
+    await advanceRuns(ctx, spawn);
+    expect(launched).toBe(0);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
+    expect(getRun(ctx, run.id)!.reason).toBe("planner blocked by you (re-checking hourly)");
+    expect(getRun(ctx, run.id)!.reason).not.toMatch(/planner at limit/);
+
+    unblockExecutor(ctx, "claude-code");
+    await advanceRuns({ ...ctx, now: NOW + 3601 }, spawn);
+    expect(launched).toBe(1);
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
+    expect(getRun(ctx, run.id)!.reason ?? null).toBeNull();
+  });
+
   test("corrupt blocked.json throw in planner pacing does not crash advanceRuns", async () => {
     // Fail-open: runner re-checks at launch; a broken local guard must not escape the tick.
     const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
