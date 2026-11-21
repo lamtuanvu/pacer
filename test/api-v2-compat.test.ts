@@ -294,9 +294,10 @@ test('v2 counts events leave out open workflow attention like the v2 snapshot', 
     attention('failed:t-1', 'problem'),
     counts(4, 2),
   ]);
-  const v3 = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  type Counts = { attention: number; problems: number; review: number };
+  const v3 = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => e.data as Counts);
   expect(v3).toEqual([{ attention: 4, problems: 2, review: 0 }]);
-  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as Counts);
   // Discovery (1) + workflow (2) leave attention; only the problem-severity workflow item leaves problems.
   expect(v2).toEqual([{ attention: 1, problems: 1, review: 0 }]);
 
@@ -305,12 +306,12 @@ test('v2 counts events leave out open workflow attention like the v2 snapshot', 
     attention('budget_warn:r1', 'problem', true),
     counts(2, 1),
   ]);
-  const v2After = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  const v2After = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as Counts);
   // Only discovery remains subtracted from attention; problems unchanged by discovery.
   expect(v2After).toEqual([
     { attention: 1, problems: 1, review: 0 },
     { attention: 1, problems: 1, review: 0 },
   ]);
-  const v3After = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => (e.data as { attention: number }).attention);
+  const v3After = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => (e.data as Counts).attention);
   expect(v3After).toEqual([4, 2]);
 });
