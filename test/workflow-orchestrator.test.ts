@@ -303,7 +303,7 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(blocked.reason).toMatch(/planner failed 4/);
     const attn = getOrchestratorAttention(ctx, r.id);
     expect(attn?.kind).toBe("orchestrator_failed");
-    expect(attn?.actions.map(a => a.label)).toEqual(["Retry now", "Switch planner", "Stop the run"]);
+    expect(attn?.actions.map(a => a.label)).toEqual(["Retry now", "Switch to Codex", "Stop run"]);
     expect(attn?.actions[0]).toMatchObject({
       op: "run.retry_orchestrator",
       params: { id: r.id, expect_rev: expect.any(Number) },

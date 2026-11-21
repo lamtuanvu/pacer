@@ -1,0 +1,198 @@
+// UI/accessibility fixes for workflow attention copy and actions (PR #1172 review).
+import { describe, expect, test } from "bun:test";
+import { fakeCtx, tmpDir } from "./helpers";
+import {
+  getRun, insertRun, updateRun, type RunRow,
+} from "../src/workflow/store";
+import {
+  countMessageTurn, countOrchestratorTurn, serializeBudget, serializeSpent,
+} from "../src/workflow/budget";
+import { deriveWorkflowAttention } from "../src/workflow/attention";
+import { attentionStatus } from "../src/view-model/words";
+
+const NOW = 1_700_000_000;
+
+function titledRun(overrides: Partial<Parameters<typeof insertRun>[1]> = {}): { ctx: ReturnType<typeof fakeCtx>; run: RunRow } {
+  const ctx = fakeCtx({ now: NOW });
+  const run = insertRun(ctx, {
+    workflow: "t/ui-attn",
+    version: 1,
+    repo: tmpDir(),
+    brief: "brief",
+    title: "Ship the feature",
+    budget: serializeBudget({ orchestratorTurns: 5, messageTurns: 5 }),
+    spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    ...overrides,
+  });
+  return { ctx, run };
+}
+
+describe("workflow attention plain wording", () => {
+  test("failed / unresolved / spent titles and details use the run title and no internals", () => {
+    const { ctx, run } = titledRun();
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed 4×",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    expect(failed.title).toBe('Workflow "Ship the feature" stopped');
+    expect(failed.detail).toBe(
+      "The planner failed several times in a row. Retry it, switch planner, or stop the run.",
+    );
+    expect(failed.title + failed.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+    expect(failed.title).not.toContain(run.id);
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      orchestratorState: "blocked",
+      reason: "unresolved wake after 2 done turns",
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0, blockedBy: "unresolved" }),
+    });
+    const unresolved = deriveWorkflowAttention(ctx).find(i => i.id === `unresolved_wake:${run.id}`)!;
+    expect(unresolved.title).toBe('Workflow "Ship the feature" is waiting for a restart');
+    expect(unresolved.detail).toBe(
+      "Nothing it did resolved what it was waiting for. Retry it, switch planner, or stop the run.",
+    );
+    expect(unresolved.title + unresolved.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      orchestratorState: "idle",
+      reason: null,
+      spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 0 }),
+    });
+    const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
+    expect(spent.title).toBe('Workflow "Ship the feature" used its planning budget');
+    expect(spent.detail).toBe("Add more planning, or stop the run.");
+    expect(spent.title + spent.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 5 }),
+    });
+    const msgSpent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${run.id}`)!;
+    expect(msgSpent.title).toBe('Workflow "Ship the feature" used its message budget');
+    expect(msgSpent.detail).toBe("Add more messages, or stop the run.");
+    expect(msgSpent.title + msgSpent.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+  });
+
+  test("80% warnings use plain planning/message budget wording and the run title", () => {
+    const { ctx, run } = titledRun();
+    for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
+    const warn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_warn:${run.id}`)!;
+    expect(warn.title).toBe('Workflow "Ship the feature" has used most of its planning budget');
+    expect(warn.title + warn.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+    expect(warn.title).not.toContain(run.id);
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    for (let i = 0; i < 4; i++) countMessageTurn(ctx, run.id);
+    const msgWarn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_warn:${run.id}`)!;
+    expect(msgWarn.title).toBe('Workflow "Ship the feature" has used most of its message budget');
+    expect(msgWarn.title + msgWarn.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+  });
+
+  test("untitled runs fall back to 'a workflow run' instead of the raw id", () => {
+    const ctx = fakeCtx({ now: NOW });
+    const run = insertRun(ctx, {
+      workflow: "t/no-title",
+      version: 1,
+      repo: tmpDir(),
+      brief: "b",
+      title: "",
+      budget: serializeBudget({ orchestratorTurns: 5, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 0 }),
+    });
+    // Empty title may be replaced by workflow id at insert; force blank for the fallback path.
+    updateRun(ctx, run.id, run.rev, {
+      title: "",
+      orchestratorState: "blocked",
+      reason: "planner failed",
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    expect(failed.title).toBe('Workflow "a workflow run" stopped');
+    expect(failed.title).not.toContain(run.id);
+  });
+});
+
+describe("workflow attention 80% warn severity mapping", () => {
+  test("warn items are not Out of quota / bad; failed stays bad-or-blocked", () => {
+    const { ctx, run } = titledRun();
+    for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
+    const warn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_warn:${run.id}`)!;
+    const warnStatus = attentionStatus(warn);
+    expect(warnStatus.tone).not.toBe("bad");
+    expect(warnStatus.label).not.toBe("Out of quota");
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    for (let i = 0; i < 4; i++) countMessageTurn(ctx, run.id);
+    const msgWarn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_warn:${run.id}`)!;
+    const msgStatus = attentionStatus(msgWarn);
+    expect(msgStatus.tone).not.toBe("bad");
+    expect(msgStatus.label).not.toBe("Out of quota");
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      orchestratorState: "blocked",
+      reason: "planner failed 4×",
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    const failedStatus = attentionStatus(failed);
+    expect(failed.severity === "blocked" || failedStatus.tone === "bad").toBe(true);
+  });
+});
+
+describe("workflow attention action consistency", () => {
+  test("every Stop run action uses the same label and confirm", () => {
+    const { ctx, run } = titledRun();
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed 4×",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    const stop = failed.actions.find(a => a.op === "run.stop")!;
+    expect(stop.label).toBe("Stop run");
+    expect(stop.confirm).toBe("Stop this run?");
+    expect(stop.style).toBe("danger");
+  });
+
+  test("Switch planner names the target and is omitted when none differs", () => {
+    const { ctx, run } = titledRun();
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed 4×",
+      planner: "claude-code",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    const switchAction = failed.actions.find(a => a.op === "run.set_planner")!;
+    expect(switchAction.label).toMatch(/^Switch to /);
+    expect(switchAction.label).not.toBe("Switch planner");
+    expect(switchAction.params).toEqual(expect.objectContaining({
+      id: run.id,
+      expect_rev: expect.any(Number),
+      planner: expect.any(String),
+    }));
+    expect(switchAction.params.planner).not.toBe("claude-code");
+    expect(switchAction.label).toContain("Codex");
+  });
+
+  test("Raise budget labels say how much is added", () => {
+    const { ctx, run } = titledRun();
+    for (let i = 0; i < 5; i++) countOrchestratorTurn(ctx, run.id);
+    const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
+    expect(spent.actions.find(a => a.op === "run.set_budget")!.label).toBe("Add 20 planning turns");
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      orchestratorState: "idle",
+      reason: null,
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 5 }),
+    });
+    const msgSpent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${run.id}`)!;
+    expect(msgSpent.actions.find(a => a.op === "run.set_budget")!.label).toBe("Add 20 messages");
+  });
+});
+
+function getRev(ctx: ReturnType<typeof fakeCtx>, id: string): number {
+  return getRun(ctx, id)!.rev;
+}

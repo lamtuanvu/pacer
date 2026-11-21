@@ -3,8 +3,9 @@
 // concrete run.set_budget / run.set_planner params. since/raisedAt are stable via
 // spent.attention_at (no orchestrator-attention.json / budget-attention.json).
 import type { Ctx } from "../types";
-import type { AttentionItem } from "../attention/types";
+import type { Action, AttentionItem } from "../attention/types";
 import { PLANNERS } from "../config/strategy";
+import { agentInfo } from "../view-model/agents";
 import { liveRuns, type RunRow } from "./store";
 import { DEFAULT_BUDGET, isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 
@@ -20,6 +21,12 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
   }
   // Fall back to the run's last update when blocked/spent was first recorded.
   return run.updatedAt || ctx.now;
+}
+
+/** Visible run name for attention copy; never the raw run id. */
+function workflowTitle(run: RunRow): string {
+  const title = typeof run.title === "string" ? run.title.trim() : "";
+  return title || "a workflow run";
 }
 
 function raiseBudgetParams(run: RunRow, which: "orchestrator" | "message"): Record<string, unknown> {
@@ -39,9 +46,53 @@ function raiseBudgetParams(run: RunRow, which: "orchestrator" | "message"): Reco
 }
 
 /** A planner different from the current one so Switch planner is not a no-op. */
-function switchPlannerTarget(current: string | undefined): string {
+function switchPlannerTarget(current: string | undefined): string | null {
   const cur = current ?? "claude-code";
-  return (PLANNERS as readonly string[]).find(p => p !== cur) ?? "codex";
+  return (PLANNERS as readonly string[]).find(p => p !== cur) ?? null;
+}
+
+function stopRunAction(run: RunRow): Action {
+  return {
+    label: "Stop run",
+    op: "run.stop",
+    params: { id: run.id, expect_rev: run.rev },
+    style: "danger",
+    confirm: "Stop this run?",
+  };
+}
+
+function raisePlanningAction(run: RunRow): Action {
+  return {
+    label: "Add 20 planning turns",
+    op: "run.set_budget",
+    params: raiseBudgetParams(run, "orchestrator"),
+    style: "primary",
+  };
+}
+
+function raiseMessageAction(run: RunRow): Action {
+  return {
+    label: "Add 20 messages",
+    op: "run.set_budget",
+    params: raiseBudgetParams(run, "message"),
+    style: "primary",
+  };
+}
+
+function blockedFailureActions(run: RunRow): Action[] {
+  const actions: Action[] = [
+    { label: "Retry now", op: "run.retry_orchestrator", params: { id: run.id, expect_rev: run.rev } },
+  ];
+  const target = switchPlannerTarget(run.planner);
+  if (target) {
+    actions.push({
+      label: `Switch to ${agentInfo(target).name}`,
+      op: "run.set_planner",
+      params: { id: run.id, expect_rev: run.rev, planner: target },
+    });
+  }
+  actions.push(stopRunAction(run));
+  return actions;
 }
 
 /** Attention items for live runs: blocked orchestrator and budget thresholds. */
@@ -52,6 +103,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);
     const spent = parseSpent(run.spent);
+    const title = workflowTitle(run);
     if (run.orchestratorState === "blocked") {
       const budgetSpent = isBudgetBlocked(run);
       const unresolved = parseSpent(run.spent).blockedBy === "unresolved"
@@ -64,26 +116,21 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: budgetSpent ? "decide" : "blocked",
         repo: null,
         title: budgetSpent
-          ? `Turn budget spent for ${run.id}`
+          ? `Workflow "${title}" used its planning budget`
           : unresolved
-          ? `Unresolved wake for ${run.title}`
-          : `Orchestrator failed for ${run.title}`,
+          ? `Workflow "${title}" is waiting for a restart`
+          : `Workflow "${title}" stopped`,
         detail: budgetSpent
-          ? "Raise the budget or stop the run"
-          : (run.reason ?? `planner failed`),
+          ? "Add more planning, or stop the run."
+          : unresolved
+          ? "Nothing it did resolved what it was waiting for. Retry it, switch planner, or stop the run."
+          : "The planner failed several times in a row. Retry it, switch planner, or stop the run.",
         raisedAt: at,
         since: at,
         notify: "important",
         actions: budgetSpent
-          ? [
-            { label: "Raise budget", op: "run.set_budget", params: raiseBudgetParams(run, "orchestrator"), style: "primary" },
-            { label: "Stop run", op: "run.stop", params: { id: run.id, expect_rev: run.rev }, style: "danger", confirm: "Stop this run?" },
-          ]
-          : [
-            { label: "Retry now", op: "run.retry_orchestrator", params: { id: run.id, expect_rev: run.rev } },
-            { label: "Switch planner", op: "run.set_planner", params: { id: run.id, expect_rev: run.rev, planner: switchPlannerTarget(run.planner) } },
-            { label: "Stop the run", op: "run.stop", params: { id: run.id, expect_rev: run.rev }, style: "danger" },
-          ],
+          ? [raisePlanningAction(run), stopRunAction(run)]
+          : blockedFailureActions(run),
       });
       continue;
     }
@@ -94,31 +141,27 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "decide",
         repo: null,
-        title: `Turn budget spent for ${run.id}`,
-        detail: "Raise the budget or stop the run",
+        title: `Workflow "${title}" used its planning budget`,
+        detail: "Add more planning, or stop the run.",
         raisedAt: at,
         since: at,
         notify: "important",
-        actions: [
-          { label: "Raise budget", op: "run.set_budget", params: raiseBudgetParams(run, "orchestrator"), style: "primary" },
-          { label: "Stop run", op: "run.stop", params: { id: run.id, expect_rev: run.rev }, style: "danger", confirm: "Stop this run?" },
-        ],
+        actions: [raisePlanningAction(run), stopRunAction(run)],
       });
     } else if (budget.orchestratorTurns > 0 && spent.orchestratorTurns / budget.orchestratorTurns >= 0.8) {
       const at = attentionClock(ctx, run, "budget_warn");
       items.push({
         id: `budget_warn:${run.id}`,
-        kind: "limit",
+        // Same kind as the 100% question so view-model attentionStatus is warn, not Out of quota.
+        kind: "question",
         severity: "problem",
         repo: null,
-        title: `Run ${run.id} at 80% orchestrator turn budget`,
-        detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns} orchestrator turns.`,
+        title: `Workflow "${title}" has used most of its planning budget`,
+        detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns}.`,
         raisedAt: at,
         since: at,
         notify: "all",
-        actions: [
-          { label: "Raise budget", op: "run.set_budget", params: raiseBudgetParams(run, "orchestrator"), style: "primary" },
-        ],
+        actions: [raisePlanningAction(run)],
       });
     }
     if (spent.messageTurns >= budget.messageTurns && budget.messageTurns > 0) {
@@ -128,31 +171,26 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "decide",
         repo: null,
-        title: `Message turn budget spent for ${run.id}`,
-        detail: "Raise the budget or stop the run",
+        title: `Workflow "${title}" used its message budget`,
+        detail: "Add more messages, or stop the run.",
         raisedAt: at,
         since: at,
         notify: "important",
-        actions: [
-          { label: "Raise budget", op: "run.set_budget", params: raiseBudgetParams(run, "message"), style: "primary" },
-          { label: "Stop run", op: "run.stop", params: { id: run.id, expect_rev: run.rev }, style: "danger", confirm: "Stop this run?" },
-        ],
+        actions: [raiseMessageAction(run), stopRunAction(run)],
       });
     } else if (budget.messageTurns > 0 && spent.messageTurns / budget.messageTurns >= 0.8) {
       const at = attentionClock(ctx, run, "budget_msg_warn");
       items.push({
         id: `budget_msg_warn:${run.id}`,
-        kind: "limit",
+        kind: "question",
         severity: "problem",
         repo: null,
-        title: `Run ${run.id} at 80% message turn budget`,
-        detail: `Used ${spent.messageTurns} of ${budget.messageTurns} message turns.`,
+        title: `Workflow "${title}" has used most of its message budget`,
+        detail: `Used ${spent.messageTurns} of ${budget.messageTurns}.`,
         raisedAt: at,
         since: at,
         notify: "all",
-        actions: [
-          { label: "Raise budget", op: "run.set_budget", params: raiseBudgetParams(run, "message"), style: "primary" },
-        ],
+        actions: [raiseMessageAction(run)],
       });
     }
   }

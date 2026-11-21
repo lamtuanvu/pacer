@@ -100,7 +100,7 @@ describe("per-run orchestrator and message budgets", () => {
     // Spend 4 of 5 (80%).
     for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
     const at80 = getBudgetAttention(ctx, run.id);
-    expect(at80?.title).toMatch(/80%/i);
+    expect(at80?.title).toMatch(/has used most of its planning budget/i);
 
     // 5th turn still allowed; then spent.
     expect(budgetAllowsTurn(ctx, getRun(ctx, run.id)!)).toBe(true);
@@ -111,7 +111,7 @@ describe("per-run orchestrator and message budgets", () => {
     expect(blocked.reason).toMatch(/turn budget spent/i);
     const ask = getBudgetAttention(ctx, run.id);
     expect(ask?.severity).toBe("decide");
-    expect(ask?.detail).toMatch(/raise the budget or stop/i);
+    expect(ask?.detail).toMatch(/add more planning, or stop the run/i);
 
     // Wake-up present but startTurn returns null.
     addWakeup(workflowDatabase(ctx), {
@@ -309,8 +309,8 @@ describe("per-run orchestrator and message budgets", () => {
     expect(parseSpent(getRun(ctx, sender.id)!.spent).messageTurns).toBe(1);
     expect(budgetAllowsMessage(ctx, sender.id)).toBe(false);
     const msgAttn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${sender.id}`);
-    expect(msgAttn?.title).toMatch(/Message turn budget spent/i);
-    expect(msgAttn?.detail).not.toMatch(/orchestrator turn budget/i);
+    expect(msgAttn?.title).toMatch(/used its message budget/i);
+    expect(msgAttn?.detail).not.toMatch(/planning budget/i);
 
     // Second message while spent: queued, not counted again.
     updateTask(ctx, toTask.id, t => {
@@ -357,9 +357,9 @@ describe("per-run orchestrator and message budgets", () => {
     });
     for (let i = 0; i < 4; i++) countMessageTurn(ctx, run.id);
     const warn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_warn:${run.id}`);
-    expect(warn?.title).toMatch(/message turn budget/i);
-    expect(warn?.detail).toMatch(/4 of 5 message turns/i);
-    expect(warn?.detail).not.toMatch(/orchestrator/i);
+    expect(warn?.title).toMatch(/has used most of its message budget/i);
+    expect(warn?.detail).toMatch(/4 of 5/i);
+    expect(`${warn?.title ?? ""}${warn?.detail ?? ""}`).not.toMatch(/orchestrator|\bturn\b/i);
   });
 
   // I3: each emitted attention action must succeed via callOp; Raise budget needs
@@ -376,7 +376,7 @@ describe("per-run orchestrator and message budgets", () => {
     run = getRun(ctx, run.id)!;
     const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`);
     expect(spent).toBeTruthy();
-    const raise = spent!.actions.find(a => a.label === "Raise budget");
+    const raise = spent!.actions.find(a => a.op === "run.set_budget");
     expect(raise?.op).toBe("run.set_budget");
     expect(raise?.params).toEqual(expect.objectContaining({
       id: run.id,
@@ -410,8 +410,9 @@ describe("per-run orchestrator and message budgets", () => {
     run = getRun(ctx, run.id)!;
     const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`);
     expect(failed).toBeTruthy();
-    const switchPlanner = failed!.actions.find(a => a.label === "Switch planner");
+    const switchPlanner = failed!.actions.find(a => a.op === "run.set_planner");
     expect(switchPlanner?.op).toBe("run.set_planner");
+    expect(switchPlanner?.label).toMatch(/^Switch to /);
     const target = (switchPlanner!.params as { planner: string }).planner;
     expect(target).not.toBe(run.planner ?? "claude-code");
     for (const action of failed!.actions.filter(a => a.op !== "run.stop")) {
