@@ -106,7 +106,7 @@ pub fn figure_words(state: Option<&V>) -> (String, Option<f64>) {
     if truth_limit(state) {
         let meter = state["figure"]["usedPct"]
             .as_f64()
-            .map(|p| round_pct(p))
+            .map(round_pct)
             .unwrap_or(100.);
         return ("Out of quota".into(), Some(meter));
     }
