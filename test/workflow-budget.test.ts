@@ -269,9 +269,11 @@ describe("per-run orchestrator and message budgets", () => {
 
     for (let i = 0; i < 5; i++) countOrchestratorTurn(ctx, run.id);
     run = getRun(ctx, run.id)!;
-    expect((await fail(callOp(ctx, "run.retry_orchestrator", {
+    const refused = await fail(callOp(ctx, "run.retry_orchestrator", {
       id: run.id, expect_rev: run.rev,
-    })))?.code).toBe("not_allowed");
+    }));
+    expect(refused?.code).toBe("not_allowed");
+    expect(refused?.message).toBe("The planning budget is spent. Add more planning or stop the run.");
   });
 
   test("message turn budget queues when spent and counts on real startTurnIfIdle", async () => {

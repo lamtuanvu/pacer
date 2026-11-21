@@ -254,7 +254,7 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("conflict", `conflict: run ${p.id} rev is ${run.rev}, expected ${p.expect_rev}`);
       }
       if (isBudgetBlocked(run)) {
-        throw new CoreError("not_allowed", "Raise the budget with run.set_budget, or stop the run");
+        throw new CoreError("not_allowed", "The planning budget is spent. Add more planning or stop the run.");
       }
       // Reset consecutive failure count so the next turn does not inherit failures=N and re-block.
       workflowDatabase(ctx).query(
