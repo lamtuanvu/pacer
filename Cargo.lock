@@ -1641,6 +1641,7 @@ dependencies = [
  "chrono",
  "chrono-tz",
  "pacer-foundation",
+ "pacer-limits-protocol",
  "serde",
  "serde_json",
  "tempfile",

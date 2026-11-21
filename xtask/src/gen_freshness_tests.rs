@@ -71,7 +71,7 @@ fn check_mode_detects_drift() {
     }
     let dir = tempfile::tempdir().unwrap();
     let input = temp_input(dir.path(), r#"{"nearLimitPct":90}"#);
-    let out = dir.path().join("freshness_gen.rs");
+    let out = dir.path().join("freshness.rs");
     let code = generate(&input).unwrap();
 
     fs::write(&out, &code).unwrap();

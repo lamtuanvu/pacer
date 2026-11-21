@@ -1,6 +1,6 @@
 //! Freshness-constants target (ADR 0030 decision 5): `src/usage/freshness.constants.json`
-//! becomes `crates/engine/src/freshness_gen.rs`, so Rust reads the same thresholds as
-//! `src/usage/freshness.ts` instead of hard-coding copies.
+//! becomes `crates/limits-protocol/src/freshness.rs` in the generated crate, so Rust
+//! reads the same thresholds as `src/usage/freshness.ts` instead of hard-coding copies.
 use std::{
     fs,
     path::{Path, PathBuf},
@@ -13,7 +13,7 @@ pub fn target() -> (PathBuf, PathBuf) {
         .unwrap_or(Path::new("."));
     (
         root.join("src/usage/freshness.constants.json"),
-        root.join("crates/engine/src/freshness_gen.rs"),
+        root.join("crates/limits-protocol/src/freshness.rs"),
     )
 }
 

@@ -4,7 +4,6 @@
 //! `routing.route` params still forward for classifier and remote eligibility.
 pub mod balance;
 pub mod exhausted;
-pub mod freshness_gen;
 pub mod mode_hold;
 pub mod pause;
 pub mod status;
@@ -12,13 +11,8 @@ pub mod usage_broker;
 pub mod usage_refresh;
 pub mod words;
 
-/// `EXHAUSTED_PCT` (`src/engine/verdict.ts`): the used percentage a window, a
-/// verdict and the dispatch candidate check treat as out of quota.
-pub use freshness_gen::EXHAUSTED_PCT;
-pub use freshness_gen::{
-    AUTH_LIFETIME_S, LIMIT_WINDOW_LENGTH_S, NEAR_LIMIT_PCT, OBSERVATION_EXPIRY_S,
-    WINDOW_CAP_LONG_S, WINDOW_CAP_SHORT_MAX_LENGTH_S, WINDOW_CAP_SHORT_S,
-};
+/// Usage freshness thresholds shared with the TypeScript engine (ADR 0030 decision 5).
+pub use pacer_limits_protocol::freshness::*;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
