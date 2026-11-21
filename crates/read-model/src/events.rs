@@ -257,7 +257,10 @@ p}
     ),"reset":old||reset}
     );
     if protocol == 2 {
+        // Match JSON.stringify of the TS Maps on the internal batch (always {}).
         result["discoveryOpen"] = json!({});
+        result["workflowOpen"] = json!({});
+        result["workflowProblemsOpen"] = json!({});
     }
     Ok(result)
 }
