@@ -1,11 +1,14 @@
 // UI/accessibility fixes for workflow attention copy and actions (PR #1172 review).
 import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
+import { callOp } from "../src/api/ops";
 import {
   getRun, insertRun, updateRun, type RunRow,
 } from "../src/workflow/store";
 import {
-  countMessageTurn, countOrchestratorTurn, serializeBudget, serializeSpent,
+  countMessageTurn, countOrchestratorTurn, parseBudget, serializeBudget, serializeSpent,
 } from "../src/workflow/budget";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { attentionStatus } from "../src/view-model/words";
@@ -190,6 +193,50 @@ describe("workflow attention action consistency", () => {
     });
     const msgSpent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${run.id}`)!;
     expect(msgSpent.actions.find(a => a.op === "run.set_budget")!.label).toBe("Add 20 messages");
+  });
+
+  test("Add 20 raises the current budget by exactly 20, not up to the default", async () => {
+    const cases: Array<{ budget: number; expected: number }> = [
+      { budget: 5, expected: 25 },
+      { budget: 60, expected: 80 },
+    ];
+    for (const { budget, expected } of cases) {
+      const ctx = fakeCtx({ now: NOW });
+      mkdirSync(ctx.pacerHome, { recursive: true });
+      writeFileSync(join(ctx.pacerHome, "strategy.yaml"), "planner: claude-code\nproviders:\n  claude-code: {}\n");
+      let run = insertRun(ctx, {
+        workflow: "t/raise-exact",
+        version: 1,
+        repo: tmpDir(),
+        brief: "b",
+        title: "Raise exact",
+        budget: serializeBudget({ orchestratorTurns: budget, messageTurns: budget }),
+        spent: serializeSpent({ orchestratorTurns: budget, messageTurns: 0 }),
+      });
+      const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
+      const raise = spent.actions.find(a => a.op === "run.set_budget")!;
+      expect(raise.params).toEqual({
+        id: run.id,
+        expect_rev: run.rev,
+        orchestrator_turns: expected,
+      });
+      run = await callOp(ctx, raise.op, raise.params) as RunRow;
+      expect(parseBudget(run.budget).orchestratorTurns).toBe(budget + 20);
+
+      updateRun(ctx, run.id, run.rev, {
+        spent: serializeSpent({ orchestratorTurns: 0, messageTurns: budget }),
+      });
+      run = getRun(ctx, run.id)!;
+      const msgSpent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${run.id}`)!;
+      const raiseMsg = msgSpent.actions.find(a => a.op === "run.set_budget")!;
+      expect(raiseMsg.params).toEqual({
+        id: run.id,
+        expect_rev: run.rev,
+        message_turns: expected,
+      });
+      run = await callOp(ctx, raiseMsg.op, raiseMsg.params) as RunRow;
+      expect(parseBudget(run.budget).messageTurns).toBe(budget + 20);
+    }
   });
 });
 

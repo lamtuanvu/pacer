@@ -7,7 +7,7 @@ import type { Action, AttentionItem } from "../attention/types";
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
 import { liveRuns, type RunRow } from "./store";
-import { DEFAULT_BUDGET, isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
 
 function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
   const spent = parseSpent(run.spent);
@@ -35,13 +35,13 @@ function raiseBudgetParams(run: RunRow, which: "orchestrator" | "message"): Reco
     return {
       id: run.id,
       expect_rev: run.rev,
-      message_turns: Math.max(budget.messageTurns + 20, DEFAULT_BUDGET.messageTurns),
+      message_turns: budget.messageTurns + 20,
     };
   }
   return {
     id: run.id,
     expect_rev: run.rev,
-    orchestrator_turns: Math.max(budget.orchestratorTurns + 20, DEFAULT_BUDGET.orchestratorTurns),
+    orchestrator_turns: budget.orchestratorTurns + 20,
   };
 }
 
