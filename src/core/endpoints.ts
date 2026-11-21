@@ -70,6 +70,8 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
   if (!/^[a-z0-9][a-z0-9-]*$/.test(name)) throw Error("invalid endpoint name");
   if (!editing && s.accounts[name]) throw Error(`account ${name} already exists; use pacer account edit ${name}`);
   if (editing) account(ctx,name);
+  const { accountEvidenceScope } = await import("../evidence/scope");
+  const previousIdentity = editing ? accountEvidenceScope(s.accounts[name]!, s.hosts).identity : null;
   if (!["quota","metered","unmetered"].includes(input.usage)) throw Error("usage must be quota, metered or unmetered");
   const keySource=source(input);
   if ((keySource==='file' || keySource==='keychain') && !input.key && (!editing || s.accounts[name].connection?.key!==keySource)) throw Error("endpoint key must not be empty");
@@ -109,6 +111,12 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
     writeEndpointState(ctx,name,{state:'not_tested'});
     if (input.test!==false) await runTest(ctx,name,deps);
     const updated=loadStrategy(ctx);
+    if (previousIdentity) {
+      const { pruneOrphanUsageStores } = await import("../usage/store");
+      const nextIdentity = accountEvidenceScope(updated.accounts[name]!, updated.hosts).identity;
+      // The prune keeps a store another strategy file still uses; only true orphans go.
+      if (previousIdentity !== nextIdentity) pruneOrphanUsageStores(ctx);
+    }
     const row=await endpointRow(ctx,updated.accounts[name]);
     return {...(migrated ? {migrated} : {}),account:{...updated.accounts[name],...row},runner:updated.runners[`opencode#${name}`],...readEndpointState(ctx,name),...(row.state==='key_missing'?{state:'key_missing' as const}:{})};
   } catch(e) {

@@ -18,6 +18,7 @@ import { lineFields, renderLine } from "../../src/render/line";
 import type { ClientSnapshot } from "../../src/view-model/snapshot";
 import type { Status } from "../../src/engine/status";
 import fixture from "../../test/fixtures/ui/snapshot.json";
+import { usageStateFor } from "../../test/usage-fixtures";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const outDir = join(repoRoot, "crates", "cli", "tests", "golden");
@@ -106,6 +107,42 @@ const statusStale = {
   providers: [{ ...statusInput.providers[0], stale: true }],
 } as unknown as Status;
 
+const at = base.at;
+
+/** usageState: active limit — out · back still wins over the figure words. */
+const usageLimit = snapshot();
+planner(usageLimit).verdict = "out";
+planner(usageLimit).usageState = {
+  ...usageStateFor({ usedPct: 100, window: "limit", resetsAt: planner(usageLimit).resetsAt, verdict: "out" }, at),
+  limit: { until: planner(usageLimit).resetsAt!, observedAt: at, manual: false },
+  verdict: "EXHAUSTED",
+};
+
+/** usageState: unmetered — never Unmetered·pace. */
+const usageUnmetered = snapshot();
+planner(usageUnmetered).usedPct = 77;
+planner(usageUnmetered).pacePct = 77;
+planner(usageUnmetered).usageState = {
+  ...usageStateFor({ usedPct: null, window: null, verdict: "UNMETERED", source: "unmetered" }, at),
+  verdict: "UNMETERED", source: "unmetered", figure: null, windows: [], freshness: "unknown", observedAt: null,
+};
+
+/** usageState: no figure. */
+const usageNoFigure = snapshot();
+planner(usageNoFigure).usedPct = 40;
+planner(usageNoFigure).usageState = usageStateFor({ usedPct: null, window: null, verdict: "OK", source: "reactive" }, at);
+
+/** usageState figure differs from the legacy usedPct row field. */
+const usageFigureDiffers = snapshot();
+planner(usageFigureDiffers).usedPct = 10;
+planner(usageFigureDiffers).pacePct = 20;
+planner(usageFigureDiffers).usageState = usageStateFor({ usedPct: 68, window: "weekly", resetsAt: planner(usageFigureDiffers).resetsAt, verdict: "behind" }, at);
+
+/** usageState historical — stale reading marker, not a live figure. */
+const usageHistorical = snapshot();
+planner(usageHistorical).stale = false;
+planner(usageHistorical).usageState = usageStateFor({ usedPct: 55, window: "weekly", stale: true, resetsAt: planner(usageHistorical).resetsAt, verdict: "behind" }, at);
+
 interface Input { label: string; value: ClientSnapshot | Status | null }
 const inputs: Input[] = [
   { label: "fixture", value: base },
@@ -122,6 +159,11 @@ const inputs: Input[] = [
   { label: "null-input", value: null },
   { label: "status-shaped", value: statusInput },
   { label: "status-shaped-stale", value: statusStale },
+  { label: "usageState-limit", value: usageLimit },
+  { label: "usageState-unmetered", value: usageUnmetered },
+  { label: "usageState-no-figure", value: usageNoFigure },
+  { label: "usageState-figure-differs", value: usageFigureDiffers },
+  { label: "usageState-historical", value: usageHistorical },
 ];
 // Keep every original case and add backend policy facts to both input shapes.
 for (const policy of [
