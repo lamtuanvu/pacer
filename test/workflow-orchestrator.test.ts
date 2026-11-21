@@ -16,7 +16,7 @@ import { chooseWorkflow, onTaskSettled, recordStepResult, startRun, startStep, t
 import { listTasksWhere } from "../src/tasks/store";
 import { advanceRuns } from "../src/workflow/tick";
 import {
-  addWakeup, getTurn, liveTurn, openWakeups, insertTurn,
+  addWakeup, getTurn, liveTurn, openWakeups, insertTurn, updateTurn,
 } from "../src/workflow/wakeups";
 import {
   buildHandoverPrompt, buildTurnPrompt, getOrchestratorAttention, recoverOrphanTurns, settleTurn, startTurn,
@@ -1417,7 +1417,7 @@ describe("round-2 B1: real startTurn → _run hop", () => {
 });
 
 describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is terminal", () => {
-  test("owned stopPending keeps the turn running; a later tick settles after the task stops", async () => {
+  test("owned stopPending keeps the turn running; a later tick stops without counting failure", async () => {
     const ctx = fakeCtx({ now: NOW });
     writePlanner(ctx);
     addDefinition(ctx, chain, "source");
@@ -1444,10 +1444,14 @@ describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is ter
     await stopRun(ctx, r.id, getRun(ctx, r.id)!.rev, deps);
 
     // Run is terminal, but the owned orchestrate attempt only has stopPending.
-    expect(getRun(ctx, r.id)!.status).toBe("stopped");
+    const stoppedRun = getRun(ctx, r.id)!;
+    expect(stoppedRun.status).toBe("stopped");
     expect(readTask(ctx, turn!.taskId!)!.state).toBe("running");
     expect(readTask(ctx, turn!.taskId!)!.stopPending?.reason).toBe("user");
     expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+    const runReason = stoppedRun.reason;
+    const runOrch = stoppedRun.orchestratorState;
+    const runWake = stoppedRun.nextWakeAt;
 
     // Swallowing a stop failure must not leave a silent orphan either.
     stopLiveTurnsForRun(ctx, r.id, "retry after failed stop");
@@ -1462,8 +1466,104 @@ describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is ter
       };
     });
     await orchestrateRuns({ ...ctx, now: READY + 1 }, { spawn, plannerEligible: () => true });
-    expect(getTurn(ctx, turn!.id)!.status).toBe("failed");
-    expect(getTurn(ctx, turn!.id)!.reason).toBe("stopped");
+    expect(getTurn(ctx, turn!.id)!.status).toBe("stopped");
+    expect(getTurn(ctx, turn!.id)!.reason).toBe("run stopped");
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(0);
+    const after = getRun(ctx, r.id)!;
+    expect(after.reason).toBe(runReason);
+    expect(after.orchestratorState).toBe(runOrch);
+    expect(after.nextWakeAt).toBe(runWake);
+    expect(getOrchestratorAttention(ctx, r.id)).toBeNull();
+  });
+
+  test("ended-by-done run with pending stop finishes the turn stopped without settle failure", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-done-pending", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    expect(turn?.taskId).toBeTruthy();
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+      t.attemptStartedAt = READY;
+    });
+    const grant = issueRunGrant(ctx, { runId: r.id, turnId: turn!.id, deadline: READY + 600 });
+
+    // End the run as done while the owned attempt only has stopPending (same orphan path).
+    updateRun(ctx, r.id, getRun(ctx, r.id)!.rev, { status: "done" });
+    const { stopLiveTurnsForRun, orchestrateRuns } = await import("../src/workflow/orchestrator");
+    stopLiveTurnsForRun(ctx, r.id, "run done");
+    expect(getRun(ctx, r.id)!.status).toBe("done");
+    expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+    expect(readTask(ctx, turn!.taskId!)!.stopPending?.reason).toBeDefined();
+    const before = getRun(ctx, r.id)!;
+
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "stopped";
+      delete t.stopPending;
+      t.result = {
+        status: "stopped", executor: "claude-code", model: null, files: "",
+        report: "Executor exited after stop was requested", backend: "direct",
+      };
+    });
+    await orchestrateRuns({ ...ctx, now: READY + 1 }, { spawn, plannerEligible: () => true });
+    expect(getTurn(ctx, turn!.id)!.status).toBe("stopped");
+    expect(getTurn(ctx, turn!.id)!.reason).toMatch(/^run done/);
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(0);
+    expect(getRun(ctx, r.id)!.reason).toBe(before.reason);
+    expect(getRun(ctx, r.id)!.orchestratorState).toBe(before.orchestratorState);
+    expect(getRun(ctx, r.id)!.nextWakeAt).toBe(before.nextWakeAt);
+    expect(getOrchestratorAttention(ctx, r.id)).toBeNull();
+    expect(verifyRunGrant(ctx, grant)).toBeNull();
+  });
+
+  test("MAX_FAILURES boundary on an already-ended run raises no attention", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-max-fail-ended", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+      t.attemptStartedAt = READY;
+    });
+    await (await import("../src/workflow/engine")).stopRun(ctx, r.id, getRun(ctx, r.id)!.rev, deps);
+    expect(getRun(ctx, r.id)!.status).toBe("stopped");
+    // Three prior failures: a buggy settle would trip MAX_FAILURES and raise attention.
+    updateTurn(ctx, turn!.id, { failures: 3 });
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(3);
+
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "stopped";
+      delete t.stopPending;
+      t.result = {
+        status: "stopped", executor: "claude-code", model: null, files: "",
+        report: "Executor exited after stop was requested", backend: "direct",
+      };
+    });
+    const { orchestrateRuns } = await import("../src/workflow/orchestrator");
+    await orchestrateRuns({ ...ctx, now: READY + 1 }, { spawn, plannerEligible: () => true });
+    expect(getTurn(ctx, turn!.id)!.status).toBe("stopped");
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(3);
+    expect(getOrchestratorAttention(ctx, r.id)).toBeNull();
   });
 
   test("a thrown stop is recorded and the turn stays running for retry", async () => {
@@ -1497,14 +1597,122 @@ describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is ter
       };
     });
 
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
     const { readActivity } = await import("../src/activity/log");
     const { stopLiveTurnsForRun } = await import("../src/workflow/orchestrator");
-    stopLiveTurnsForRun(ctx, r.id, "run stopped");
+    try {
+      stopLiveTurnsForRun(ctx, r.id, "run stopped");
+      expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+      expect(readTask(ctx, turn!.taskId!)!.state).toBe("running");
+      expect(readTask(ctx, turn!.taskId!)!.stopPending).toBeUndefined();
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/^run stopped; stop pending/);
+      const activity = readActivity(ctx, { taskId: turn!.taskId!, limit: 20 }).entries;
+      expect(activity.some(e => e.level === "warn" && /stop/i.test(e.text) && /transfer|failed|conflict/i.test(e.text))).toBe(true);
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("repeated stop failures log sparsely and give up after the hard bound", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-stop-bound", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    expect(turn?.taskId).toBeTruthy();
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+    });
+    const grant = issueRunGrant(ctx, { runId: r.id, turnId: turn!.id, deadline: turn!.deadline });
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const { readActivity } = await import("../src/activity/log");
+    const { orchestrateRuns } = await import("../src/workflow/orchestrator");
+    const stopTask = () => {
+      throw new Error("remote transfer is in progress; retry stop after it settles (/Users/fixture/run)");
+    };
+    try {
+      // Overdue so failOverdueTurn retries stop; inject stopTask (honours deps).
+      for (let i = 1; i <= 21; i++) {
+        await orchestrateRuns(
+          { ...ctx, now: turn!.deadline + i },
+          { spawn, plannerEligible: () => true, stopTask },
+        );
+        expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+      }
+      const activity = readActivity(ctx, { taskId: turn!.taskId!, limit: 50 }).entries
+        .filter(e => /stop failed|deadline stop failed/i.test(e.text));
+      // First failure + every 20th (attempt 20), not every tick.
+      expect(activity.length).toBeLessThanOrEqual(3);
+      expect(errSpy.mock.calls.length).toBeLessThanOrEqual(3);
+      expect(activity.some(e => e.text.includes("<path>") && !e.text.includes("/Users/fixture"))).toBe(true);
+
+      await orchestrateRuns(
+        { ...ctx, now: turn!.deadline + 10 * 60 + 1 },
+        { spawn, plannerEligible: () => true, stopTask },
+      );
+      expect(getTurn(ctx, turn!.id)!.status).toBe("failed");
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/stop failed/);
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/run|deadline/);
+      expect(verifyRunGrant(ctx, grant)).toBeNull();
+      const finalActivity = readActivity(ctx, { taskId: turn!.taskId!, limit: 50 }).entries;
+      expect(finalActivity.some(e => e.level === "warn" && /give up|gave up|stop failed/i.test(e.text))).toBe(true);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("stop-failure give-up on an ended run finishes the turn stopped", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-stop-bound-ended", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+    });
+    await (await import("../src/workflow/engine")).stopRun(ctx, r.id, getRun(ctx, r.id)!.rev, deps);
+    expect(getRun(ctx, r.id)!.status).toBe("stopped");
     expect(getTurn(ctx, turn!.id)!.status).toBe("running");
-    expect(readTask(ctx, turn!.taskId!)!.state).toBe("running");
-    expect(readTask(ctx, turn!.taskId!)!.stopPending).toBeUndefined();
-    const activity = readActivity(ctx, { taskId: turn!.taskId!, limit: 20 }).entries;
-    expect(activity.some(e => /stop/i.test(e.text) && /transfer|failed|conflict/i.test(e.text))).toBe(true);
+    const before = getRun(ctx, r.id)!;
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const { orchestrateRuns } = await import("../src/workflow/orchestrator");
+    try {
+      await orchestrateRuns(
+        { ...ctx, now: turn!.deadline + 10 * 60 + 1 },
+        {
+          spawn, plannerEligible: () => true,
+          stopTask: () => { throw new Error("still transferring"); },
+        },
+      );
+      expect(getTurn(ctx, turn!.id)!.status).toBe("stopped");
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/^run stopped/);
+      expect(getTurn(ctx, turn!.id)!.failures).toBe(0);
+      expect(getRun(ctx, r.id)!.reason).toBe(before.reason);
+      expect(getRun(ctx, r.id)!.orchestratorState).toBe(before.orchestratorState);
+      expect(getOrchestratorAttention(ctx, r.id)).toBeNull();
+      expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
   });
 });
 
