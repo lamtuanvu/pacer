@@ -134,7 +134,7 @@ test('v2 snapshot and events strip workflow attention while leaving other items'
       detail: 'd',
       raisedAt: 1,
       since: 1,
-      actions: [{ label: 'Add 20 planning turns', op: 'run.set_budget', params: { id: 'r1' } }],
+      actions: [{ label: 'Add 20 planning steps', op: 'run.set_budget', params: { id: 'r1' } }],
       notify: 'all',
     },
     {

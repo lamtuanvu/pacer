@@ -63,7 +63,7 @@ function stopRunAction(run: RunRow): Action {
 
 function raisePlanningAction(run: RunRow): Action {
   return {
-    label: "Add 20 planning turns",
+    label: "Add 20 planning steps",
     op: "run.set_budget",
     params: raiseBudgetParams(run, "orchestrator"),
     style: "primary",
@@ -157,7 +157,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: "problem",
         repo: null,
         title: `Workflow "${title}" has used most of its planning budget`,
-        detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns}.`,
+        detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns} planning steps.`,
         raisedAt: at,
         since: at,
         notify: "all",
@@ -186,7 +186,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: "problem",
         repo: null,
         title: `Workflow "${title}" has used most of its message budget`,
-        detail: `Used ${spent.messageTurns} of ${budget.messageTurns}.`,
+        detail: `Used ${spent.messageTurns} of ${budget.messageTurns} messages.`,
         raisedAt: at,
         since: at,
         notify: "all",

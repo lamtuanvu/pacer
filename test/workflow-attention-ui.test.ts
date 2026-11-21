@@ -8,7 +8,7 @@ import {
   getRun, insertRun, updateRun, type RunRow,
 } from "../src/workflow/store";
 import {
-  countMessageTurn, countOrchestratorTurn, parseBudget, serializeBudget, serializeSpent,
+  countMessageTurn, countOrchestratorTurn, parseBudget, parseSpent, serializeBudget, serializeSpent,
 } from "../src/workflow/budget";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
 import { attentionStatus } from "../src/view-model/words";
@@ -81,7 +81,7 @@ describe("workflow attention plain wording", () => {
     for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
     const warn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_warn:${run.id}`)!;
     expect(warn.title).toBe('Workflow "Ship the feature" has used most of its planning budget');
-    expect(warn.title + warn.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+    expect(warn.detail).toBe("Used 4 of 5 planning steps.");
     expect(warn.title).not.toContain(run.id);
 
     updateRun(ctx, run.id, getRev(ctx, run.id), {
@@ -90,7 +90,65 @@ describe("workflow attention plain wording", () => {
     for (let i = 0; i < 4; i++) countMessageTurn(ctx, run.id);
     const msgWarn = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_warn:${run.id}`)!;
     expect(msgWarn.title).toBe('Workflow "Ship the feature" has used most of its message budget');
-    expect(msgWarn.title + msgWarn.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
+    expect(msgWarn.detail).toBe("Used 4 of 5 messages.");
+  });
+
+  test("titles, details and action labels avoid orchestrator/wake/turn and raw run ids", () => {
+    const { ctx, run } = titledRun();
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed 4×",
+    });
+    for (let i = 0; i < 4; i++) countOrchestratorTurn(ctx, run.id);
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      spent: serializeSpent({
+        ...parseSpent(getRun(ctx, run.id)!.spent),
+        messageTurns: 4,
+      }),
+    });
+    // Cover spent + warn + failed surfaces by forcing each kind in turn.
+    const samples: Array<{ patch: Parameters<typeof updateRun>[3]; id: string }> = [
+      {
+        patch: { orchestratorState: "blocked", reason: "planner failed", spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }) },
+        id: `orchestrator_failed:${run.id}`,
+      },
+      {
+        patch: {
+          orchestratorState: "blocked",
+          reason: "unresolved",
+          spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0, blockedBy: "unresolved" }),
+        },
+        id: `unresolved_wake:${run.id}`,
+      },
+      {
+        patch: { orchestratorState: "idle", reason: null, spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 0 }) },
+        id: `budget_spent:${run.id}`,
+      },
+      {
+        patch: { spent: serializeSpent({ orchestratorTurns: 4, messageTurns: 0 }) },
+        id: `budget_warn:${run.id}`,
+      },
+      {
+        patch: { spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 5 }) },
+        id: `budget_msg_spent:${run.id}`,
+      },
+      {
+        patch: { spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 4 }) },
+        id: `budget_msg_warn:${run.id}`,
+      },
+    ];
+    for (const { patch, id } of samples) {
+      updateRun(ctx, run.id, getRev(ctx, run.id), patch);
+      const item = deriveWorkflowAttention(ctx).find(i => i.id === id)!;
+      const surfaces = [
+        item.title,
+        item.detail,
+        ...item.actions.flatMap(a => [a.label, a.confirm ?? ""]),
+      ].join("\n");
+      expect(surfaces).not.toMatch(/orchestrator|wake|turn/i);
+      expect(surfaces).not.toMatch(/run_[a-z0-9]+/i);
+      expect(surfaces).not.toContain(run.id);
+    }
   });
 
   test("untitled runs fall back to 'a workflow run' instead of the raw id", () => {
@@ -184,7 +242,7 @@ describe("workflow attention action consistency", () => {
     const { ctx, run } = titledRun();
     for (let i = 0; i < 5; i++) countOrchestratorTurn(ctx, run.id);
     const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
-    expect(spent.actions.find(a => a.op === "run.set_budget")!.label).toBe("Add 20 planning turns");
+    expect(spent.actions.find(a => a.op === "run.set_budget")!.label).toBe("Add 20 planning steps");
 
     updateRun(ctx, run.id, getRev(ctx, run.id), {
       orchestratorState: "idle",
