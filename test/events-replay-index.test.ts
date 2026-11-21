@@ -162,6 +162,20 @@ test("a replay from a cursor still sees items opened before it", () => {
   expect(v2).toEqual([1]);
 });
 
+test("replayOutbox pins open workflow aggregates at counts seq 7", () => {
+  const ctx = fakeCtx();
+  const workflow = (id: string, severity: string): OutboxEvent =>
+    ({ type: "entity", data: { kind: "attention", id, value: { id, severity } } });
+  appendOutbox(ctx, [
+    { seq: 6, at: 1, envelope: workflow("budget_warn:r1", "problem") },
+    { seq: 7, at: 1, envelope: counts(1) },
+  ]);
+  const replay = replayOutbox(ctx, 0);
+  expect(replay.workflowOpen.get(7)).toBe(1);
+  expect(replay.workflowProblemsOpen.get(7)).toBe(1);
+  expect(replay.discoveryOpen.get(7)).toBe(0);
+});
+
 test("reset behaviour unchanged for a too-old cursor", () => {
   const ctx = fakeCtx();
   appendOutbox(ctx, Array.from({ length: OUTBOX_KEEP }, (_, i) => alert(i + 1)));

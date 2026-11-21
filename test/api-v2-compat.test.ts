@@ -263,6 +263,48 @@ test('v2 snapshot and events strip workflow attention while leaving other items'
   expect(v3OnlyEvent({ type: 'notify', data: { key: keep.id } })).toBe(false);
 });
 
+test('v2 HTTP/stdio event transport never exposes internal aggregate maps', async () => {
+  const { fakeCtx } = await import('./helpers');
+  const { eventsSince } = await import('../src/api/events');
+  const { appendOutbox } = await import('../src/link/store');
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [
+    {
+      seq: 1,
+      at: ctx.now,
+      envelope: {
+        type: 'entity',
+        data: {
+          kind: 'attention',
+          id: 'budget_warn:r1',
+          value: { id: 'budget_warn:r1', severity: 'problem' },
+        },
+      },
+    },
+    {
+      seq: 2,
+      at: ctx.now,
+      envelope: {
+        type: 'entity',
+        data: { kind: 'counts', id: 'counts', value: { attention: 1, problems: 1, review: 0 } },
+      },
+    },
+  ]);
+  const batch = eventsSince(ctx, 0, 2);
+  // HTTP SSE sends event.data; stdio sends the event object. Neither path serializes
+  // the internal discoveryOpen/workflowOpen/workflowProblemsOpen batch fields.
+  for (const event of batch.events) {
+    const sseData = JSON.stringify(event.data);
+    const stdioParams = JSON.stringify(event);
+    for (const key of ['discoveryOpen', 'workflowOpen', 'workflowProblemsOpen'] as const) {
+      expect(sseData).not.toContain(key);
+      expect(stdioParams).not.toContain(`"${key}"`);
+    }
+  }
+  const clientFacing = { events: batch.events, last: batch.last, reset: batch.reset };
+  expect(Object.keys(clientFacing).sort()).toEqual(['events', 'last', 'reset']);
+});
+
 test('v2 counts events leave out open workflow attention like the v2 snapshot', async () => {
   const { fakeCtx } = await import('./helpers');
   const { eventsSince } = await import('../src/api/events');

@@ -226,3 +226,27 @@ fn workflow_aggregates_use_publisher_removal_before_counts_order() {
     assert_eq!(replay.workflow_at_counts.get(&5), Some(&0));
     assert_eq!(replay.workflow_problems_at_counts.get(&5), Some(&0));
 }
+
+/// One open problem-severity workflow item, then counts at seq 7 — matches the
+/// TypeScript replayOutbox pin (workflowOpen/workflowProblemsOpen both 1 at 7).
+#[test]
+fn workflow_aggregates_pin_open_problem_at_counts_seq_seven() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        Default::default(),
+        1.0,
+    );
+    let path = dir.path().join("link/outbox.jsonl");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        attention_line(6, "budget_warn:r1", "problem", false) + &line(7, "counts", "counts"),
+    )
+    .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&7), Some(&1));
+    assert_eq!(replay.workflow_problems_at_counts.get(&7), Some(&1));
+    assert_eq!(replay.discovery_at_counts.get(&7), Some(&0));
+}

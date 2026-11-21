@@ -346,3 +346,32 @@ fn v2_counts_with_publisher_removal_before_counts_order() {
     assert_eq!(counts[1]["data"]["attention"], number(1.0));
     assert_eq!(counts[1]["data"]["problems"], number(1.0));
 }
+
+/// Protocol-2 probe/parity JSON keeps the internal aggregate maps as empty
+/// objects (JSON.stringify of a Map), in the same key order as TypeScript.
+#[test]
+fn v2_events_json_includes_empty_workflow_aggregate_maps() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    let batch = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let keys: Vec<&str> = batch
+        .as_object()
+        .unwrap()
+        .keys()
+        .map(String::as_str)
+        .collect();
+    assert_eq!(
+        keys,
+        [
+            "events",
+            "last",
+            "reset",
+            "discoveryOpen",
+            "workflowOpen",
+            "workflowProblemsOpen"
+        ]
+    );
+    assert_eq!(batch["discoveryOpen"], json!({}));
+    assert_eq!(batch["workflowOpen"], json!({}));
+    assert_eq!(batch["workflowProblemsOpen"], json!({}));
+}

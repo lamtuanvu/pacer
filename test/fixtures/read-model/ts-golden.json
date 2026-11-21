@@ -1236,7 +1236,9 @@
       ],
       "last": 18,
       "reset": false,
-      "discoveryOpen": {}
+      "discoveryOpen": {},
+      "workflowOpen": {},
+      "workflowProblemsOpen": {}
     },
     {
       "events": [
@@ -1480,7 +1482,9 @@
       ],
       "last": 18,
       "reset": false,
-      "discoveryOpen": {}
+      "discoveryOpen": {},
+      "workflowOpen": {},
+      "workflowProblemsOpen": {}
     },
     {
       "events": [],
