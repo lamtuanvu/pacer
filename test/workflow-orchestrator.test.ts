@@ -1696,6 +1696,8 @@ describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is ter
     const errSpy = spyOn(console, "error").mockImplementation(() => {});
     const { orchestrateRuns } = await import("../src/workflow/orchestrator");
     try {
+      // Past grace: stopRun already left "; stop pending", and an ended-run tick
+      // retries stop on both the overdue and live paths, so attempts reach >= 3.
       await orchestrateRuns(
         { ...ctx, now: turn!.deadline + 10 * 60 + 1 },
         {
@@ -1710,6 +1712,59 @@ describe("stopLiveTurnsForRun leaves turn live until the orchestrate task is ter
       expect(getRun(ctx, r.id)!.orchestratorState).toBe(before.orchestratorState);
       expect(getOrchestratorAttention(ctx, r.id)).toBeNull();
       expect(errSpy).toHaveBeenCalled();
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+
+  test("first stop throw long after deadline does not give up; third does", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-stop-min-attempts", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn({ ...ctx, now: READY }, r.id, { spawn, plannerEligible: () => true });
+    expect(turn?.taskId).toBeTruthy();
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "running";
+      t.executor = "claude-code";
+      t.executorProvider = "pacer-exec-direct";
+      t.runnerPid = process.pid;
+    });
+    const grant = issueRunGrant(ctx, { runId: r.id, turnId: turn!.id, deadline: turn!.deadline });
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    const { orchestrateRuns } = await import("../src/workflow/orchestrator");
+    const stopTask = () => {
+      throw new Error("remote transfer is in progress");
+    };
+    const pastGrace = turn!.deadline + 10 * 60 + 1;
+    try {
+      await orchestrateRuns(
+        { ...ctx, now: pastGrace },
+        { spawn, plannerEligible: () => true, stopTask },
+      );
+      expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/stop pending \(1\)/);
+
+      await orchestrateRuns(
+        { ...ctx, now: pastGrace },
+        { spawn, plannerEligible: () => true, stopTask },
+      );
+      expect(getTurn(ctx, turn!.id)!.status).toBe("running");
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/stop pending \(2\)/);
+
+      await orchestrateRuns(
+        { ...ctx, now: pastGrace },
+        { spawn, plannerEligible: () => true, stopTask },
+      );
+      expect(getTurn(ctx, turn!.id)!.status).toBe("failed");
+      expect(getTurn(ctx, turn!.id)!.reason).toMatch(/stop failed/);
+      expect(verifyRunGrant(ctx, grant)).toBeNull();
     } finally {
       errSpy.mockRestore();
     }

@@ -103,10 +103,26 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
 const STOP_RETRY_LOG_EVERY = 20;
 /** Give up stop retries this long after the turn deadline. */
 const STOP_FAIL_GRACE_S = 10 * 60;
+/** Require this many failed stop attempts before giving up (with the time bound). */
+const STOP_FAIL_MIN_ATTEMPTS = 3;
+/** Cap sanitized stop-error text length for logs/activity. */
+const STOP_ERROR_MAX_CHARS = 300;
 
-/** Strip absolute filesystem paths from stop-error text for logs/activity. */
-function sanitizeStopError(text: string): string {
-  return text.replace(/\/(?:Users|Volumes|home|tmp|private\/var|var\/folders)\/\S+/g, "<path>");
+/**
+ * Strip absolute filesystem paths from stop-error text for logs/activity.
+ * Matches POSIX paths and Windows drive paths; continues through spaces and
+ * escaped spaces until a quote, newline, or colon-space boundary; caps length.
+ */
+export function sanitizeStopError(text: string): string {
+  // Absolute path: `/...` or `C:\...` / `C:/...`, not a `/` inside a relative
+  // segment (lookbehind). Body allows spaces and `\ `; stops before quotes,
+  // newline, wrapping punctuation, or `: ` (colon then space).
+  const absolutePath =
+    /(?<![A-Za-z0-9._-])(?:[A-Za-z]:(?:\\|\/)|\/)(?:\\ |[^\n"'`:()[\]{},;]|:(?!\s))+/g;
+  const scrubbed = text.replace(absolutePath, "<path>");
+  return scrubbed.length > STOP_ERROR_MAX_CHARS
+    ? scrubbed.slice(0, STOP_ERROR_MAX_CHARS)
+    : scrubbed;
 }
 
 function stopAttemptCount(reason: string | undefined): number {
@@ -135,8 +151,8 @@ type StopAttemptResult =
 /**
  * Request stop for a turn's orchestrate task. Honours deps.stopTask.
  * On throw: records attempt count + last error on the turn reason, logs/appends
- * activity only on the first failure and every 20th, and signals give-up after
- * the turn deadline + 10 minutes of continuous stop failure.
+ * activity only on the first failure and every 20th, and signals give-up only
+ * after both the turn deadline + 10 minutes and at least 3 failed attempts.
  */
 function requestTurnTaskStop(
   ctx: Ctx,
@@ -167,7 +183,8 @@ function requestTurnTaskStop(
         });
       } catch { /* activity must not block the stop retry path */ }
     }
-    const gaveUp = ctx.now > turn.deadline + STOP_FAIL_GRACE_S;
+    const gaveUp =
+      ctx.now > turn.deadline + STOP_FAIL_GRACE_S && attempts >= STOP_FAIL_MIN_ATTEMPTS;
     if (gaveUp) {
       console.error(`pacer: orchestrate task ${taskId} stop gave up after ${attempts} failures: ${text}`);
       try {
@@ -212,6 +229,7 @@ export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended
   }
   revokeRunGrantsForRun(ctx, root);
 }
+
 const HEADLESS_DEADLINE_S = 20 * 60;
 const INTERACTIVE_DEADLINE_S = 2 * 3600;
 /** Prompt budget in UTF-8 bytes (not UTF-16 code units). */
@@ -992,6 +1010,7 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   }
   return updated;
 }
+
 /** At start-up: revoke orphan grants and fail live turns with no live process. */
 export async function recoverOrphanTurns(ctx: Ctx, deps: OrchestratorDeps = {}): Promise<number> {
   revokeOrphanRunGrants(ctx);
@@ -1054,6 +1073,7 @@ async function failOverdueTurn(ctx: Ctx, turn: TurnRow, deps: OrchestratorDeps):
   }
   await settleTurn(ctx, turn.id, { outcome: "failed", reason: "deadline" });
 }
+
 /** Tick phase: recreate lost wake-ups, fail overdue turns, start due turns, settle terminal attempts. */
 export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Promise<number> {
   let handled = 0;
