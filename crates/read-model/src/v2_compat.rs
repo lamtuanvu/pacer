@@ -378,9 +378,9 @@ mod workflow_attention_tests {
             "machine":{"unlimited":false,"max":1,"used":0}
         });
         let result = snapshot(&source, None);
-        assert_eq!(result["attention"].as_array().unwrap().len(), 1);
+        assert_eq!(result["attention"].as_array().map(Vec::len), Some(1));
         assert_eq!(result["attention"][0]["id"], "failed:t");
-        assert_eq!(result["alerts"].as_array().unwrap().len(), 1);
+        assert_eq!(result["alerts"].as_array().map(Vec::len), Some(1));
         assert_eq!(result["alerts"][0]["key"], "failed:t");
     }
 }
