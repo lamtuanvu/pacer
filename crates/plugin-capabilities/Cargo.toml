@@ -12,7 +12,7 @@ pacer-store = { path = "../store" }
 pacer-foundation = { path = "../foundation" }
 serde.workspace = true
 serde_json = { workspace = true, features = ["float_roundtrip"] }
-base64 = "0.22"
+base64 = "0.23"
 uuid = { version = "1", features = ["v4"] }
 url = "2"
 libc = "0.2"
