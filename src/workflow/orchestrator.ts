@@ -6,7 +6,9 @@ import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import { launchTaskRunner, spawnRunner } from "../tasks/api";
 import { createTask, readTask, updateTask } from "../tasks/store";
+import { TERMINAL_STATES } from "../tasks/types";
 import { stop as stopTaskCore } from "../core/tasks";
+import { appendActivity } from "../activity/log";
 import { resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
@@ -97,8 +99,31 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
   }
 }
 
+/** Request stop for a turn's orchestrate task; returns whether the task is terminal. */
+function requestTurnTaskStop(ctx: Ctx, taskId: string, reason: string): boolean {
+  try {
+    stopTaskCore(ctx, taskId);
+  } catch (err) {
+    const text = err instanceof Error ? err.message : String(err);
+    console.error(`pacer: orchestrate task ${taskId} stop failed: ${text}`);
+    try {
+      appendActivity(ctx, {
+        kind: "task_settled",
+        level: "warn",
+        text: `orchestrate stop failed (${reason}): ${text}`,
+        taskId,
+      });
+    } catch { /* activity must not block the stop retry path */ }
+    return false;
+  }
+  const task = readTask(ctx, taskId);
+  return !task || TERMINAL_STATES.includes(task.state);
+}
+
 /** When a run ends or is stopped: stop its live turn(s), stop the orchestrator
- *  task process (I7), and revoke every prg_ for the root. */
+ *  task process (I7), and revoke every prg_ for the root.
+ *  Owned attempts may only set stopPending; keep the turn running until the task
+ *  is really terminal so a later tick can retry stop and the deadline can still reap. */
 export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended"): void {
   const root = rootRunId(ctx, runId);
   const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, [string]>(
@@ -106,7 +131,10 @@ export function stopLiveTurnsForRun(ctx: Ctx, runId: string, reason = "run ended
   ).all(root);
   for (const row of live) {
     if (row.task_id) {
-      try { stopTaskCore(ctx, row.task_id); } catch { /* stop best-effort */ }
+      if (!requestTurnTaskStop(ctx, row.task_id, reason)) {
+        updateTurn(ctx, row.id, { reason: `${reason}; stop pending` });
+        continue;
+      }
     }
     revokeRunGrant(ctx, row.id);
     releaseWakeups(ctx, row.id);
@@ -905,7 +933,27 @@ export async function recoverOrphanTurns(ctx: Ctx, deps: OrchestratorDeps = {}):
 async function failOverdueTurn(ctx: Ctx, turn: TurnRow, deps: OrchestratorDeps): Promise<void> {
   if (turn.taskId) {
     const stop = deps.stopTask ?? ((c: Ctx, id: string) => { stopTaskCore(c, id); });
-    try { stop(ctx, turn.taskId); } catch { /* stop best-effort */ }
+    try {
+      stop(ctx, turn.taskId);
+    } catch (err) {
+      const text = err instanceof Error ? err.message : String(err);
+      console.error(`pacer: overdue turn ${turn.id} stop failed: ${text}`);
+      try {
+        appendActivity(ctx, {
+          kind: "task_settled",
+          level: "warn",
+          text: `deadline stop failed: ${text}`,
+          taskId: turn.taskId,
+        });
+      } catch { /* activity must not block the retry path */ }
+      updateTurn(ctx, turn.id, { reason: "deadline; stop pending" });
+      return;
+    }
+    const task = readTask(ctx, turn.taskId);
+    if (task && !TERMINAL_STATES.includes(task.state)) {
+      updateTurn(ctx, turn.id, { reason: "deadline; stop pending" });
+      return;
+    }
   }
   await settleTurn(ctx, turn.id, { outcome: "failed", reason: "deadline" });
 }
@@ -939,8 +987,8 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
 
   // Settle turns whose orchestrator task attempt is terminal (including partial /
   // needs_input), and fail turns stuck in starting with no task id.
-  const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, []>(
-    "SELECT id, task_id FROM workflow_turns WHERE status IN ('starting', 'running')",
+  const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null; run_id: string }, []>(
+    "SELECT id, task_id, run_id FROM workflow_turns WHERE status IN ('starting', 'running')",
   ).all();
   for (const row of live) {
     if (!row.task_id) {
@@ -948,11 +996,20 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
       handled++;
       continue;
     }
-    const task = readTask(ctx, row.task_id);
+    let task = readTask(ctx, row.task_id);
     if (!task) {
       await settleTurn(ctx, row.id, { outcome: "failed", reason: "missing task" });
       handled++;
       continue;
+    }
+    // Run already ended but the turn stayed live (owned stopPending): retry stop.
+    const owningRun = getRun(ctx, row.run_id);
+    if (owningRun && ["done", "failed", "stopped"].includes(owningRun.status)
+      && !TERMINAL_STATES.includes(task.state)) {
+      requestTurnTaskStop(ctx, row.task_id, `run ${owningRun.status}`);
+      task = readTask(ctx, row.task_id) ?? task;
+      if (!TERMINAL_STATES.includes(task.state)) continue;
+      handled++;
     }
     if (task.state === "done") {
       await settleTurn(ctx, row.id, { outcome: "done" });

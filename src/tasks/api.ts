@@ -717,7 +717,10 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
   const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
   const needsSupervision = [...active, ...gaps].filter(t => {
     if (t.run?.host) return false;                    // remote
-    if (t.runnerPid && alive(t.runnerPid)) return false; // healthy local
+    // A healthy local runner still needs supervision when stop is pending: owned
+    // attempts block inside executor.run and only settle after executor.stop
+    // (via this pass) kills the wrapper. Skipping them left hang stubs forever.
+    if (t.runnerPid && alive(t.runnerPid) && !t.stopPending) return false;
     if (t.state === 'queued' && !t.worktreeIntent && !t.runClaim && !t.baseFetchIntent?.sha && !t.remotePrepareIntent) return false;
     return true;
   });
