@@ -45,14 +45,16 @@ export type PlannerHold = "limit" | "blocked";
 
 export type PlannerPacing = { eligible: boolean; until?: number; hold?: PlannerHold };
 
+const PLANNER_HOLD_PREFIXES = ["planner at limit", "planner blocked by you"] as const;
+
 /** Run reason strings for planner eligibility holds (retry-clear matches both prefixes). */
 export function plannerHoldReason(hold: PlannerHold | undefined, until: number): string {
-  if (hold === "blocked") return "planner blocked by you (re-checking hourly)";
-  return `planner at limit until ${new Date(until * 1000).toISOString()}`;
+  if (hold === "blocked") return `${PLANNER_HOLD_PREFIXES[1]} (re-checking hourly)`;
+  return `${PLANNER_HOLD_PREFIXES[0]} until ${new Date(until * 1000).toISOString()}`;
 }
 
 export function isPlannerHoldReason(reason: string | null | undefined): boolean {
-  return !!reason && (reason.startsWith("planner at limit") || reason.startsWith("planner blocked by you"));
+  return !!reason && PLANNER_HOLD_PREFIXES.some(prefix => reason.startsWith(prefix));
 }
 
 /** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
@@ -62,6 +64,9 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
     let strategy: ReturnType<typeof loadStrategy> | undefined;
     try {
       strategy = loadStrategy(ctx);
+    } catch { /* strategy optional in tests */ }
+
+    if (strategy) {
       // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
       const runRunner = resolveRunner(strategy, planner);
       const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
@@ -69,22 +74,21 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): PlannerPacing {
         ids.add(strategy.planner.agent);
         ids.add(strategy.planner.account);
       }
-    } catch { /* strategy optional in tests */ }
+    }
+
     for (const id of ids) {
       const obs = limitObservation(ctx, id);
       if (obs) return { eligible: false, until: obs.until, hold: "limit" };
     }
-    // Quota / block ineligibility the runner would refuse (not only reactive marks).
+
     // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
-    if (strategy) {
-      const guard = executorGuard(ctx, strategy, planner);
-      if (guard) {
-        return {
-          eligible: false,
-          hold: guard.reason === "Blocked by you" ? "blocked" : "limit",
-          ...(guard.until !== undefined ? { until: guard.until } : {}),
-        };
-      }
+    const guard = strategy ? executorGuard(ctx, strategy, planner) : undefined;
+    if (guard) {
+      return {
+        eligible: false,
+        hold: guard.reason === "exhausted" ? "limit" : "blocked",
+        ...(guard.until !== undefined ? { until: guard.until } : {}),
+      };
     }
     return { eligible: true };
   } catch {

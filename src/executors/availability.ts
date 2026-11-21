@@ -24,12 +24,15 @@ const GUARD_RESET_CAP_S = 7 * 24 * 3600;
 
 /** Prefer the latest exhausted-window resetsAt (capped) over evidence freshness (validUntil). */
 function exhaustedUntil(ctx: Ctx, evidenceBudget: Evidence<UsageWindow>[], decision: EligibilityDecision): number | undefined {
-  const resets = evidenceBudget
-    .filter(f => f.value.usedPct !== null && f.value.usedPct >= EXHAUSTED_PCT
-      && f.value.resetsAt !== null && f.value.resetsAt > ctx.now)
-    .map(f => Math.min(f.value.resetsAt!, ctx.now + GUARD_RESET_CAP_S));
-  if (resets.length > 0) return Math.max(...resets);
-  return decision.validUntil ?? undefined;
+  const cap = ctx.now + GUARD_RESET_CAP_S;
+  let latest: number | undefined;
+  for (const fact of evidenceBudget) {
+    const { usedPct, resetsAt } = fact.value;
+    if (usedPct === null || usedPct < EXHAUSTED_PCT || resetsAt === null || resetsAt <= ctx.now) continue;
+    const capped = Math.min(resetsAt, cap);
+    latest = latest === undefined ? capped : Math.max(latest, capped);
+  }
+  return latest ?? decision.validUntil ?? undefined;
 }
 
 /** Re-read local guardrails without provider I/O or a second eligibility policy. */
@@ -84,14 +87,12 @@ export function executorExclusion(ctx: Ctx, s: Strategy | undefined, id: string)
 /** Late-guard / ranking reasons that refuse a requested executor immediately. */
 export const REQUESTED_EXECUTOR_BUDGET_REFUSAL = /Blocked by you|exhausted/;
 
-/**
- * True when a task report is the runner's requested-executor refusal for
- * budget exhaustion or a user block (same reasons as the late guard).
- */
+/** finish() prefixes CoreError messages with "pacer runner error:" — anchor there to avoid misclassifying quoted agent text. */
+const REQUESTED_EXECUTOR_UNAVAILABLE = /^pacer runner error: requested executor "[^"]+" is unavailable \((.+)\)/;
+
+/** True when a task report is the runner's requested-executor refusal for budget exhaustion or a user block. */
 export function isRequestedExecutorBudgetRefusal(report: string | null | undefined): boolean {
   if (!report) return false;
-  // finish() prefixes CoreError messages with "pacer runner error:" — require that
-  // anchor so agent output quoting the phrase mid-report cannot be misclassified.
-  const match = /^pacer runner error: requested executor "[^"]+" is unavailable \((.+)\)/.exec(report);
+  const match = REQUESTED_EXECUTOR_UNAVAILABLE.exec(report);
   return !!match && REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(match[1]!);
 }
