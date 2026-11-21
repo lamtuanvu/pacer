@@ -46,6 +46,7 @@ import { callerWake } from "./caller-wake";
 import { DEFAULT_PORT } from "./constants";
 import { writeJsonAtomic, sweepAtomicWriteTmps } from "../fsutil";
 import { sweepUsageState } from "../plugins/usage-state";
+import { pruneOrphanUsageStores } from "../usage/store";
 import { backgroundWorkerEntryURL, supervisionWorkerEntryURL } from "./worker-location";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
@@ -76,6 +77,10 @@ export function startServer(
   resetCaptureBroker(initialCtx.pacerHome);
   void sweepUsageState(initialCtx.pacerHome);
   sweepAtomicWriteTmps(initialCtx.pacerHome);
+  // Drop usage-store files whose evidence identity no strategy under the home still has.
+  try {
+    pruneOrphanUsageStores(initialCtx);
+  } catch { /* A missing strategy on a brand-new home is fine; the first edit seeds accounts. */ }
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),

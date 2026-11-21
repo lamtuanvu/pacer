@@ -384,27 +384,50 @@ pub fn build(ctx: &Ctx) -> View {
                                 2,
                             ),
                         ));
-                        let used = if usage["usedPct"].is_null() {
-                            "Usage unknown".into()
-                        } else {
-                            format!(
-                                "{}% of {}{}",
-                                round(num(&usage["usedPct"])),
-                                match text(&usage["window"]) {
-                                    "weekly" => "week",
-                                    "" => "quota",
-                                    s => s,
-                                },
-                                if truth(&usage["resetsAt"]) {
-                                    format!(" · resets {}", ctx.time(&usage["resetsAt"]))
+                        // usageState wins through usage_view; a legacy row keeps prior wording.
+                        let (used, freshness) = if !usage["usageState"].is_null() {
+                            let view =
+                                crate::usage::usage_view(Some(&usage["usageState"]), ctx.now);
+                            let used = if view.meter.is_some() {
+                                match crate::usage::caption_reset(&view.reset) {
+                                    Some(reset) => format!("{} · {reset}", view.summary),
+                                    None => view.summary,
+                                }
+                            } else {
+                                view.figure
+                            };
+                            let freshness =
+                                if text(&usage["usageState"]["freshness"]) == "historical" {
+                                    format!(" · Historical usage · {}", view.freshness)
                                 } else {
                                     String::new()
-                                }
-                            )
+                                };
+                            (used, freshness)
+                        } else {
+                            // Legacy rows keep main's window words (weekly → week); window_words is usage_view only.
+                            let used = if usage["usedPct"].is_null() {
+                                "Usage unknown".into()
+                            } else {
+                                format!(
+                                    "{}% of {}{}",
+                                    round(num(&usage["usedPct"])),
+                                    match text(&usage["window"]) {
+                                        "weekly" => "week",
+                                        "" => "quota",
+                                        s => s,
+                                    },
+                                    if truth(&usage["resetsAt"]) {
+                                        format!(" · resets {}", ctx.time(&usage["resetsAt"]))
+                                    } else {
+                                        String::new()
+                                    }
+                                )
+                            };
+                            let freshness = account_freshness(usage, num(&ctx.s["at"]))
+                                .map(|s| format!(" · Historical usage · {s}"))
+                                .unwrap_or_default();
+                            (used, freshness)
                         };
-                        let freshness = account_freshness(usage, num(&ctx.s["at"]))
-                            .map(|s| format!(" · Historical usage · {s}"))
-                            .unwrap_or_default();
                         let users = arr(fallback(&a["executors"], &a["runners"]));
                         let users = if users.is_empty() {
                             "Not used".into()
