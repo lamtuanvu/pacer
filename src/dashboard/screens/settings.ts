@@ -1,8 +1,8 @@
 /** Settings: sections on the left, the selected section on the right. Every read and write is an API op (ARCH-1). */
-import type { ExecutorRow, HostSummary } from "../../api/read-model/types";
+import type { AccountSummary, ExecutorRow, HostSummary } from "../../api/read-model/types";
 import { capacityNote, executorEligibility } from "../../view-model/capacity";
-import { accountUsageFreshness } from "../legacy-usage";
 import { executorLabel, type Status } from "../../view-model/words";
+import { captionReset, usageView, windowWords } from "../../view-model/usage";
 import { cols, flex, glyph, heading, span, statusSpans, wrap, type Line, cellWidth, lineWidth } from "../frame";
 import type { Act, Item } from "../state";
 import { blank, defined, empty, executorName, GAP, MARK, opAct, time, updateState } from "./common";
@@ -10,6 +10,20 @@ import { desktopAdoptionConfirmation, desktopUpdateIndicator, desktopUpdateView,
 import type { UpdateStatus } from "../../update/desktop/types";
 import { errorRows } from "./review";
 import type { Resource, Row, ScreenCtx, ScreenView, SettingsData } from "./types";
+
+/** Legacy account freshness when the row has no usageState (kept for byte-identical fixtures without a record). */
+function legacyAccountFreshness(account: AccountSummary, now: number) {
+  const historical = (account.usedPct != null || account.spendUsdWeek != null)
+    && (account.stale !== false || account.eligibility?.budget === "unknown"
+      || account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now
+      || (account.resetsAt != null && account.resetsAt <= now)
+      || (account.capturedAt != null && now - account.capturedAt > 86400));
+  if (!historical) return null;
+  const ageS = account.capturedAt == null || !Number.isFinite(account.capturedAt) || account.capturedAt > now || !account.eligibility ? null
+    : Math.max(0, now - account.capturedAt);
+  return ageS === null ? "Stale reading · check account usage"
+    : `Reading ${ageS < 60 ? `${Math.floor(ageS)}s` : ageS < 3600 ? `${Math.floor(ageS / 60)}m` : `${Math.floor(ageS / 3600)}h`} old`;
+}
 
 export const SECTIONS: { id: string; label: string; needs: (keyof SettingsData)[] }[] = [
   { id: "planner", label: "Planner & pacing", needs: ["config"] },
@@ -136,8 +150,24 @@ const accounts: Build = (ctx, width) => {
       { content: [a.kind, a.source].filter(Boolean).join(" · "), width: w[1]!, style: { fg: "secondary" } },
       { content: statusSpans(ctx.theme, SIGNIN[String(signed)]!), width: w[2]! },
     ], GAP, ctx.theme) });
-    const used = usage?.usedPct != null ? `${Math.round(usage.usedPct)}% of ${usage.window === "weekly" ? "week" : usage.window ?? "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}` : "Usage unknown";
-    const freshness = usage ? accountUsageFreshness(usage, ctx.s.at) : null;
+    // usageState wins through usageView; a legacy row without a record keeps the prior wording.
+    let used: string;
+    let freshness: string | null;
+    if (usage?.usageState) {
+      const view = usageView(usage.usageState, ctx.s.at);
+      const reset = captionReset(view.reset);
+      used = view.meter !== null
+        ? `${view.summary}${reset ? ` · ${reset}` : ""}`
+        : view.figure;
+      freshness = usage.usageState.freshness === "historical"
+        ? (view.freshness || "Reading of unknown age · refresh")
+        : null;
+    } else {
+      used = usage?.usedPct != null
+        ? `${Math.round(usage.usedPct)}% of ${windowWords(usage.window) || usage.window || "quota"}${usage.resetsAt ? ` · resets ${time(ctx, usage.resetsAt)}` : ""}`
+        : "Usage unknown";
+      freshness = usage ? legacyAccountFreshness(usage, ctx.s.at) : null;
+    }
     const users = a.executors ?? a.runners ?? [];
     rows.push(...prose(id, `${used}${freshness ? ` · Historical usage · ${freshness}` : ""} ${glyph(ctx.theme, "·")} ${users.length ? `Used by ${users.map(u => executorLabel(u)).join(", ")}` : "Not used"}${a.locked ? ` ${glyph(ctx.theme, "·")} ${a.locked}` : ""}`, width));
   }
