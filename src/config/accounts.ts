@@ -4,6 +4,7 @@ import { modelDeclarationSchema } from "../dispatch/types";
 import type { z } from "zod";
 import { formatRunnerId, parseRunnerId, runnerDefaults } from "./runner-id";
 import type { HostCfg } from "./hosts";
+import { COOLDOWN_DEFAULT_S } from "../usage/freshness";
 import type { UsageKind } from "../types";
 import { isObj } from "../util";
 
@@ -109,7 +110,7 @@ function accountCfg(name: string, c: Record<string, unknown>): AccountCfg {
     provider: typeof c.provider === "string" ? c.provider : null,
     weeklyUsd: isObj(c.budget) && typeof c.budget.weekly_usd === "number" ? c.budget.weekly_usd : null,
     weeklyTokens: isObj(c.budget) ? parseSize(c.budget.weekly_tokens) : null,
-    cooldownS: c.cooldown === undefined ? 6 * 3600 : parseDuration(c.cooldown) ?? 6 * 3600,
+    cooldownS: c.cooldown === undefined ? COOLDOWN_DEFAULT_S : parseDuration(c.cooldown) ?? COOLDOWN_DEFAULT_S,
     allowPaid: c.allow_paid === true,
   };
 }
