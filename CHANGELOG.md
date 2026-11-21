@@ -13,6 +13,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
 
 ## [0.17.7] - 2026-11-20
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP and Codex app-server after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
 
 ### Fixed
 

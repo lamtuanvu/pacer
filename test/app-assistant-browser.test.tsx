@@ -530,14 +530,14 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     const account = page.getByLabel("Account that answers");
     await account.click();
     await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).waitFor();
-    expect(await page.getByRole("option", { name: /oc · via opencode/ }).count()).toBe(1);
+    expect(await page.getByRole("option", { name: /oc · via agent CLI/ }).count()).toBe(1);
     // Pacer backend: the reads card lists the host tools summary.
     await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).click();
     await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").waitFor();
     expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(0);
     // Unchecked executor: plain copy, not the raw reason; Run check is offered; digest-only reads card.
     await account.click();
-    await page.getByRole("option", { name: /oc · via opencode/ }).click();
+    await page.getByRole("option", { name: /oc · via agent CLI/ }).click();
     await page.getByText("Not checked yet.").waitFor();
     // Raw reason stays in the closed technical details disclosure, not in the alert body.
     expect(await page.getByText("oc has not passed the ask-mode check yet.", { exact: true }).isVisible()).toBe(false);
@@ -554,12 +554,12 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(0);
     // Digest-only executor (passed check, no live tools): summary wording returns.
     await account.click();
-    await page.getByRole("option", { name: /claude-digest · via opencode/ }).click();
+    await page.getByRole("option", { name: /claude-digest · via agent CLI/ }).click();
     await page.getByText("The agent answers from pacer's summary only.").waitFor();
     expect(await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").count()).toBe(0);
     // Saving an executor after a pacer setting asks for a distinct confirmation.
     await account.click();
-    await page.getByRole("option", { name: /oc · via opencode/ }).click();
+    await page.getByRole("option", { name: /oc · via agent CLI/ }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();

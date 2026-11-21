@@ -57,7 +57,7 @@ export function AssistantSettingsSection() {
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
         <ChoicePicker value={choiceOf(account, backend)} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({
           value: choiceOf(a.account, a.backend), agent: a.runners[0]?.id ?? a.account,
-          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via opencode" : "pacer's agent"}`,
+          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via agent CLI" : "pacer's agent"}`,
           description: a.backend === "executor" ? executorDescription(a) : "Answers directly with this account's key. Fastest.",
         }))]} onValueChange={value => { const next = parseChoice(value); setAccount(next.account); setBackend(next.backend); setRunner(""); }} />
       </Field>
@@ -81,7 +81,7 @@ export function AssistantSettingsSection() {
           <ul>{candidates.data.reads.map(line => <li key={line}>{line}</li>)}</ul>
           {backend === "executor" && <p>The agent CLI reaches these only through pacer's tools.</p>}
         </>
-        : <p>The agent answers from pacer's summary only. It has no live tools until the ask-mode check proves them, or when tools are unhealthy for a turn.</p>}
+        : <p>The agent answers from pacer's summary only.</p>}
       <p>It cannot see task goals, output, diffs, files, keys or terminal screens. Secrets and your home folder path are removed before anything is sent. What it reads, and your questions, go to the account’s model{account ? ` (${account})` : ""}.</p>
       <p>It can only suggest actions. Nothing runs until you press the button on its card.</p>
     </div>
