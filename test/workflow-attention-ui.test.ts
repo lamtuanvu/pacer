@@ -151,7 +151,7 @@ describe("workflow attention plain wording", () => {
     }
   });
 
-  test("untitled runs fall back to 'a workflow run' instead of the raw id", () => {
+  test("untitled runs use 'A workflow run' as the subject", () => {
     const ctx = fakeCtx({ now: NOW });
     const run = insertRun(ctx, {
       workflow: "t/no-title",
@@ -170,8 +170,34 @@ describe("workflow attention plain wording", () => {
       spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
     });
     const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
-    expect(failed.title).toBe('Workflow "a workflow run" stopped');
+    expect(failed.title).toBe("A workflow run stopped");
     expect(failed.title).not.toContain(run.id);
+    expect(failed.title).not.toMatch(/Workflow "/);
+
+    updateRun(ctx, run.id, getRev(ctx, run.id), {
+      spent: serializeSpent({ orchestratorTurns: 5, messageTurns: 0 }),
+      orchestratorState: "idle",
+      reason: null,
+    });
+    const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
+    expect(spent.title).toBe("A workflow run used its planning budget");
+  });
+
+  test("long and multi-line titles are clipped to the first line at 60 characters", () => {
+    const long = "X".repeat(61);
+    expect(long.length).toBe(61);
+    const { ctx, run } = titledRun({
+      title: `${long}\nSecond line ignored`,
+    });
+    updateRun(ctx, run.id, run.rev, {
+      orchestratorState: "blocked",
+      reason: "planner failed",
+    });
+    const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
+    expect(failed.title).toBe(
+      `Workflow "${long.slice(0, 60)}…" stopped`,
+    );
+    expect(failed.title).not.toContain("Second line");
   });
 });
 

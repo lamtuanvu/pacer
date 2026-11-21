@@ -23,10 +23,17 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
   return run.updatedAt || ctx.now;
 }
 
-/** Visible run name for attention copy; never the raw run id. */
-function workflowTitle(run: RunRow): string {
-  const title = typeof run.title === "string" ? run.title.trim() : "";
-  return title || "a workflow run";
+/**
+ * Subject for attention titles: `Workflow "<title>"` when titled, otherwise
+ * `A workflow run`. Never quotes the untitled fallback. Clips to the first
+ * line, at most 60 characters, with an ellipsis when clipped.
+ */
+function workflowSubject(run: RunRow): string {
+  const raw = typeof run.title === "string" ? run.title.trim() : "";
+  if (!raw) return "A workflow run";
+  const firstLine = raw.split(/\r?\n/, 1)[0] ?? raw;
+  const clipped = firstLine.length > 60 ? `${firstLine.slice(0, 60)}…` : firstLine;
+  return `Workflow "${clipped}"`;
 }
 
 function raiseBudgetParams(run: RunRow, which: "orchestrator" | "message"): Record<string, unknown> {
@@ -103,7 +110,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
     if (run.parentRunId) continue;
     const budget = parseBudget(run.budget);
     const spent = parseSpent(run.spent);
-    const title = workflowTitle(run);
+    const subject = workflowSubject(run);
     if (run.orchestratorState === "blocked") {
       const budgetSpent = isBudgetBlocked(run);
       const unresolved = parseSpent(run.spent).blockedBy === "unresolved"
@@ -116,10 +123,10 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: budgetSpent ? "decide" : "blocked",
         repo: null,
         title: budgetSpent
-          ? `Workflow "${title}" used its planning budget`
+          ? `${subject} used its planning budget`
           : unresolved
-          ? `Workflow "${title}" is waiting for a restart`
-          : `Workflow "${title}" stopped`,
+          ? `${subject} is waiting for a restart`
+          : `${subject} stopped`,
         detail: budgetSpent
           ? "Add more planning, or stop the run."
           : unresolved
@@ -141,7 +148,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "decide",
         repo: null,
-        title: `Workflow "${title}" used its planning budget`,
+        title: `${subject} used its planning budget`,
         detail: "Add more planning, or stop the run.",
         raisedAt: at,
         since: at,
@@ -156,7 +163,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "problem",
         repo: null,
-        title: `Workflow "${title}" has used most of its planning budget`,
+        title: `${subject} has used most of its planning budget`,
         detail: `Used ${spent.orchestratorTurns} of ${budget.orchestratorTurns} planning steps.`,
         raisedAt: at,
         since: at,
@@ -171,7 +178,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "decide",
         repo: null,
-        title: `Workflow "${title}" used its message budget`,
+        title: `${subject} used its message budget`,
         detail: "Add more messages, or stop the run.",
         raisedAt: at,
         since: at,
@@ -185,7 +192,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         kind: "question",
         severity: "problem",
         repo: null,
-        title: `Workflow "${title}" has used most of its message budget`,
+        title: `${subject} has used most of its message budget`,
         detail: `Used ${spent.messageTurns} of ${budget.messageTurns} messages.`,
         raisedAt: at,
         since: at,
