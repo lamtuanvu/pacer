@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { executorExclusion } from "../src/executors/availability";
+import { executorExclusion, isRequestedExecutorBudgetRefusal } from "../src/executors/availability";
 import { blockExecutor } from "../src/executors/blocked";
 import { validateStrategy } from "../src/config/strategy";
 import { accountEvidenceScope, mergeEvidence, retireEvidence } from "../src/core/evidence";
@@ -8,6 +8,27 @@ import { markExhausted, readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
 
 const strategy = (paid = false) => validateStrategy({planner:"claude-code",providers:{"claude-code":{},codex:{allow_paid:paid}}},"test");
+
+test("isRequestedExecutorBudgetRefusal anchors on the runner error prefix", () => {
+  expect(isRequestedExecutorBudgetRefusal(
+    'pacer runner error: requested executor "claude-code" is unavailable (exhausted)',
+  )).toBe(true);
+  expect(isRequestedExecutorBudgetRefusal(
+    'pacer runner error: requested executor "claude-code" is unavailable (Blocked by you)',
+  )).toBe(true);
+  expect(isRequestedExecutorBudgetRefusal(
+    'pacer runner error: requested executor "claude-code" is unavailable (not installed)',
+  )).toBe(false);
+  // Agent output that merely quotes the phrase mid-report must not match.
+  expect(isRequestedExecutorBudgetRefusal(
+    'agent said: requested executor "claude-code" is unavailable (exhausted) — ignore',
+  )).toBe(false);
+  expect(isRequestedExecutorBudgetRefusal(
+    'note: pacer runner error: requested executor "x" is unavailable (exhausted) was quoted',
+  )).toBe(false);
+  expect(isRequestedExecutorBudgetRefusal(null)).toBe(false);
+  expect(isRequestedExecutorBudgetRefusal("")).toBe(false);
+});
 
 test("late guard preserves recovery despite a retained execution limit sidecar", async () => {
   const ctx=fakeCtx(),s=strategy(),scope=accountEvidenceScope(s.accounts.codex,s.hosts);
