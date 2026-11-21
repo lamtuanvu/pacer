@@ -43,29 +43,34 @@ export { getBudgetAttention, getOrchestratorAttention };
 
 /** Sync pacing from exhausted marks and the same local eligibility guard the runner uses. */
 export function defaultPlannerPacing(ctx: Ctx, planner: string): { eligible: boolean; until?: number } {
-  const ids = new Set<string>([planner]);
-  let strategy: ReturnType<typeof loadStrategy> | undefined;
   try {
-    strategy = loadStrategy(ctx);
-    // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
-    const runRunner = resolveRunner(strategy, planner);
-    const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
-    if (runRunner && strategyRunner && runRunner.id === strategyRunner.id) {
-      ids.add(strategy.planner.agent);
-      ids.add(strategy.planner.account);
+    const ids = new Set<string>([planner]);
+    let strategy: ReturnType<typeof loadStrategy> | undefined;
+    try {
+      strategy = loadStrategy(ctx);
+      // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
+      const runRunner = resolveRunner(strategy, planner);
+      const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
+      if (runRunner && strategyRunner && runRunner.id === strategyRunner.id) {
+        ids.add(strategy.planner.agent);
+        ids.add(strategy.planner.account);
+      }
+    } catch { /* strategy optional in tests */ }
+    for (const id of ids) {
+      const obs = limitObservation(ctx, id);
+      if (obs) return { eligible: false, until: obs.until };
     }
-  } catch { /* strategy optional in tests */ }
-  for (const id of ids) {
-    const obs = limitObservation(ctx, id);
-    if (obs) return { eligible: false, until: obs.until };
+    // Quota / block ineligibility the runner would refuse (not only reactive marks).
+    // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
+    if (strategy) {
+      const guard = executorGuard(ctx, strategy, planner);
+      if (guard) return { eligible: false, ...(guard.until !== undefined ? { until: guard.until } : {}) };
+    }
+    return { eligible: true };
+  } catch {
+    // Fail open: the runner re-checks eligibility at launch.
+    return { eligible: true };
   }
-  // Quota / block ineligibility the runner would refuse (not only reactive marks).
-  // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
-  if (strategy) {
-    const guard = executorGuard(ctx, strategy, planner);
-    if (guard) return { eligible: false, ...(guard.until !== undefined ? { until: guard.until } : {}) };
-  }
-  return { eligible: true };
 }
 
 /** When a run ends or is stopped: stop its live turn(s), stop the orchestrator
