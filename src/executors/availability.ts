@@ -75,6 +75,8 @@ export const REQUESTED_EXECUTOR_BUDGET_REFUSAL = /Blocked by you|exhausted/;
  */
 export function isRequestedExecutorBudgetRefusal(report: string | null | undefined): boolean {
   if (!report) return false;
-  const match = /requested executor "[^"]+" is unavailable \((.+)\)/.exec(report);
+  // finish() prefixes CoreError messages with "pacer runner error:" — require that
+  // anchor so agent output quoting the phrase mid-report cannot be misclassified.
+  const match = /^pacer runner error: requested executor "[^"]+" is unavailable \((.+)\)/.exec(report);
   return !!match && REQUESTED_EXECUTOR_BUDGET_REFUSAL.test(match[1]!);
 }
