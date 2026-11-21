@@ -678,7 +678,9 @@ pub fn accounts_in_home(ctx: &Ctx, st: &Value, s: &Value) -> Vec<Value> {
         };
         if scope["identity"] == identity
             && observation["at"] == marks[name]
-            && at.is_some_and(|at| at <= ctx.now && at > retired && at + 7200.0 > ctx.now)
+            && at.is_some_and(|at| {
+                at <= ctx.now && at > retired && at + pacer_engine::AUTH_LIFETIME_S as f64 > ctx.now
+            })
             && ["runner", "model", "host"]
                 .iter()
                 .all(|key| !truth(&scope[key]))
