@@ -2,7 +2,7 @@
 import { sortItems } from "../attention/rules";
 import { legacySetup, legacyCheck } from "../setup/v2";
 import type { LinkSnapshot, BudgetData } from '../link/envelope';
-import { isDiscoveryItemId } from '../link/outbox-index';
+import { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem } from '../link/outbox-index';
 import type { SnapshotV2, SnapshotV3 } from './read-model/types';
 import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
 import { CoreError } from '../core/errors';
@@ -50,20 +50,6 @@ function budget(s: SnapshotV3): BudgetData | null {
  providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:v2Verdict(a?.verdict??'UNKNOWN'),usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
-/** Workflow attention ids and the orchestrator_failed kind are v3-only (run.* ops). */
-const WORKFLOW_ATTENTION_PREFIXES = [
-  "budget_warn:", "budget_spent:", "budget_msg_warn:", "budget_msg_spent:",
-  "orchestrator_failed:", "unresolved_wake:",
-] as const;
-
-export function isWorkflowAttentionId(id: unknown): boolean {
-  return typeof id === "string" && WORKFLOW_ATTENTION_PREFIXES.some(prefix => id.startsWith(prefix));
-}
-
-export function isWorkflowAttentionItem(item: { id?: unknown; kind?: unknown }): boolean {
-  return isWorkflowAttentionId(item.id) || item.kind === "orchestrator_failed";
-}
-
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
@@ -97,7 +83,7 @@ export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
   ||e.type==='attention'&&(isDiscoveryItemId(d?.id)||isWorkflowAttentionId(d?.id)||d?.kind==='orchestrator_failed')
   ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
-export { isDiscoveryItemId };
+export { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;

@@ -262,3 +262,55 @@ test('v2 snapshot and events strip workflow attention while leaving other items'
   expect(v3OnlyEvent({ type: 'attention', data: { id: keep.id, kind: keep.kind } })).toBe(false);
   expect(v3OnlyEvent({ type: 'notify', data: { key: keep.id } })).toBe(false);
 });
+
+test('v2 counts events leave out open workflow attention like the v2 snapshot', async () => {
+  const { fakeCtx } = await import('./helpers');
+  const { eventsSince } = await import('../src/api/events');
+  const { publish } = await import('../src/link/publish');
+  const ctx = fakeCtx();
+  const attention = (id: string, severity: string, removed = false) => ({
+    type: 'entity' as const,
+    data: removed
+      ? { kind: 'attention' as const, id, removed: true as const }
+      : {
+        kind: 'attention' as const,
+        id,
+        value: { id, kind: id.startsWith('orchestrator_failed:') ? 'orchestrator_failed' : 'question', severity },
+      },
+  });
+  const counts = (attentionN: number, problemsN: number) => ({
+    type: 'entity' as const,
+    data: {
+      kind: 'counts' as const,
+      id: 'counts',
+      value: { attention: attentionN, problems: problemsN, review: 0 },
+    },
+  });
+  // One decide workflow item, one problem workflow item, one discovery, one ordinary.
+  await publish(ctx, [
+    attention('budget_spent:r1', 'decide'),
+    attention('budget_warn:r1', 'problem'),
+    attention('discovery:peer-z', 'decide'),
+    attention('failed:t-1', 'problem'),
+    counts(4, 2),
+  ]);
+  const v3 = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  expect(v3).toEqual([{ attention: 4, problems: 2, review: 0 }]);
+  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  // Discovery (1) + workflow (2) leave attention; only the problem-severity workflow item leaves problems.
+  expect(v2).toEqual([{ attention: 1, problems: 1, review: 0 }]);
+
+  await publish(ctx, [
+    attention('budget_spent:r1', 'decide', true),
+    attention('budget_warn:r1', 'problem', true),
+    counts(2, 1),
+  ]);
+  const v2After = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as { attention: number; problems: number });
+  // Only discovery remains subtracted from attention; problems unchanged by discovery.
+  expect(v2After).toEqual([
+    { attention: 1, problems: 1, review: 0 },
+    { attention: 1, problems: 1, review: 0 },
+  ]);
+  const v3After = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => (e.data as { attention: number }).attention);
+  expect(v3After).toEqual([4, 2]);
+});

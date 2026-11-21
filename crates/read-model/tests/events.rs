@@ -256,3 +256,56 @@ fn v2_replay_drops_run_entity_events() {
     assert!(!types.contains(&"run".to_string()));
     assert!(types.contains(&"attention".to_string()));
 }
+
+#[test]
+fn v2_counts_subtract_open_workflow_attention() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":1,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_spent:r1","value":{"id":"budget_spent:r1","severity":"decide"}}}}),
+            json!({"seq":2,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_warn:r1","value":{"id":"budget_warn:r1","severity":"problem"}}}}),
+            json!({"seq":3,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"discovery:peer","value":{"id":"discovery:peer","severity":"decide"}}}}),
+            json!({"seq":4,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"failed:t-1","value":{"id":"failed:t-1","severity":"problem"}}}}),
+            json!({"seq":5,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"counts","id":"counts","value":{"attention":4,"problems":2,"review":0}}}}),
+        ],
+    )
+    .unwrap();
+    let v3 = events_since(&ctx, 0.0, 3, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let v3_counts: Vec<&Value> = array(&v3["events"])
+        .iter()
+        .filter(|e| e["type"] == "counts")
+        .collect();
+    assert_eq!(v3_counts.len(), 1);
+    assert_eq!(v3_counts[0]["data"]["attention"], 4);
+    assert_eq!(v3_counts[0]["data"]["problems"], 2);
+
+    let v2 = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let v2_counts: Vec<&Value> = array(&v2["events"])
+        .iter()
+        .filter(|e| e["type"] == "counts")
+        .collect();
+    assert_eq!(v2_counts.len(), 1);
+    // Discovery (1) + workflow (2) leave attention; one problem-severity workflow leaves problems.
+    assert_eq!(v2_counts[0]["data"]["attention"], number(1.0));
+    assert_eq!(v2_counts[0]["data"]["problems"], number(1.0));
+
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":6,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_spent:r1","removed":true}}}),
+            json!({"seq":7,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_warn:r1","removed":true}}}),
+            json!({"seq":8,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"counts","id":"counts","value":{"attention":2,"problems":1,"review":0}}}}),
+        ],
+    )
+    .unwrap();
+    let v2_after = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let after: Vec<&Value> = array(&v2_after["events"])
+        .iter()
+        .filter(|e| e["type"] == "counts")
+        .collect();
+    assert_eq!(after.len(), 2);
+    assert_eq!(after[1]["data"]["attention"], number(1.0));
+    assert_eq!(after[1]["data"]["problems"], 1);
+}

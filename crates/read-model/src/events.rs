@@ -44,8 +44,14 @@ pub fn v3_only(e: &Value) -> bool {
     match text(&e["type"]) {
         "discovery.found" => true,
         "config" => d["area"] == "discovery",
-        "attention" => discovery_id(&d["id"]),
-        "notify" => discovery_id(&d["key"]),
+        "attention" => {
+            discovery_id(&d["id"])
+                || crate::v2_compat::is_workflow_attention_id(&d["id"])
+                || d.get("kind").and_then(Value::as_str) == Some("orchestrator_failed")
+        }
+        "notify" => {
+            discovery_id(&d["key"]) || crate::v2_compat::is_workflow_attention_id(&d["key"])
+        }
         "control" => true,
         _ => false,
     }
@@ -96,6 +102,8 @@ pub fn events_since(
     };
     let replay = read_outbox_replay(ctx, raw_since)?;
     let at = replay.discovery_at_counts;
+    let workflow_at = replay.workflow_at_counts;
+    let workflow_problems_at = replay.workflow_problems_at_counts;
     let oldest = replay.oldest;
     let reset = raw_since > 0.0 && oldest.is_some_and(|n| n > raw_since + 1.0);
     let after = replay.entries;
@@ -178,10 +186,19 @@ pub fn events_since(
                 // including families excluded by standalone toV2Event.
                 let mut v = e.clone();
                 if e["type"] == "counts" {
-                    let n = at.get(&(num(&e["seq"]) as i64)).copied().unwrap_or(0);
-                    if n > 0 && e["data"]["attention"].is_number() {
+                    let seq = num(&e["seq"]) as i64;
+                    let discovery = at.get(&seq).copied().unwrap_or(0);
+                    let workflow = workflow_at.get(&seq).copied().unwrap_or(0);
+                    let workflow_problems = workflow_problems_at.get(&seq).copied().unwrap_or(0);
+                    let open = discovery + workflow;
+                    if open > 0 && e["data"]["attention"].is_number() {
                         v["data"]["attention"] =
-                            number((num(&e["data"]["attention"]) - n as f64).max(0.0));
+                            number((num(&e["data"]["attention"]) - open as f64).max(0.0));
+                    }
+                    if workflow_problems > 0 && e["data"]["problems"].is_number() {
+                        v["data"]["problems"] = number(
+                            (num(&e["data"]["problems"]) - workflow_problems as f64).max(0.0),
+                        );
                     }
                 }
                 converted.push(v);
