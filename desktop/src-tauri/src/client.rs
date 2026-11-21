@@ -352,6 +352,55 @@ fn own_link_repair_eligible_now(cli: &Cli) -> bool {
     )
 }
 
+/// Cheap Busy precheck (locks + update-journal phases) so a stuck journal does not
+/// end the session. Returns true only when repair would refuse Busy right now.
+#[cfg(target_os = "macos")]
+fn own_link_repair_busy_now(cli: &Cli) -> bool {
+    let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() else {
+        return false;
+    };
+    let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
+        return false;
+    };
+    pacer_desktop::ota::control::own_link_repair_is_busy(&home, &cli.pacer_home, service_port(), &trust)
+}
+
+#[cfg(not(target_os = "macos"))]
+fn own_link_repair_busy_now(_cli: &Cli) -> bool {
+    false
+}
+
+/// When repair is due but Busy: stay connected, count the deferral, and either
+/// keep pending for the watcher or claim the once-per-launch gate after the cap.
+/// Returns `Some(ready_code)` only when the mutating move should run outside the session.
+fn own_link_repair_ready_or_busy_defer(app: &AppHandle, cli: &Cli) -> Option<&'static str> {
+    if own_link_repair_busy_now(cli) {
+        let shell = app.state::<Shell>();
+        let deferrals = shell.own_link_busy_deferrals.fetch_add(1, Ordering::SeqCst) + 1;
+        if logic::own_link_busy_deferrals_exhausted(deferrals) {
+            let _ = logic::claim_once_per_launch(&shell.own_link_repair_attempted);
+            shell.pending_own_link_repair.store(false, Ordering::SeqCst);
+            if !shell.own_link_busy_cap_logged.swap(true, Ordering::SeqCst) {
+                desktop_log!(
+                    "pacer lifecycle: own-link repair stayed busy too long this launch; connecting normally"
+                );
+            }
+            return None;
+        }
+        shell.pending_own_link_repair.store(true, Ordering::SeqCst);
+        if deferrals == 1 {
+            desktop_log!(
+                "pacer lifecycle: own-link repair busy; staying connected and retrying while connected"
+            );
+        }
+        return None;
+    }
+    app.state::<Shell>()
+        .pending_own_link_repair
+        .store(true, Ordering::SeqCst);
+    logic::service_move_ready_code(logic::ServiceMoveDecision::ReadyOwnLinkRepair)
+}
+
 fn log_service_move_wait(app: &AppHandle, kind: &str, task_count: Option<usize>, terminal_count: Option<usize>) {
     if logic::consent_takeover_counts_unknown(task_count, terminal_count) {
         if !app
@@ -433,10 +482,15 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
             candidate_present: shell.takeover.lock().unwrap().is_some(),
         });
         match decision {
-            logic::ServiceMoveDecision::ReadyOwnLinkRepair
-            | logic::ServiceMoveDecision::ReadyConsentTakeover => {
+            logic::ServiceMoveDecision::ReadyOwnLinkRepair => {
+                if let Some(code) = own_link_repair_ready_or_busy_defer(app, cli) {
+                    return Err(code.into());
+                }
+                // Busy: stay connected; watcher loops again after the next interval.
+            }
+            logic::ServiceMoveDecision::ReadyConsentTakeover => {
                 return Err(logic::service_move_ready_code(decision)
-                    .unwrap_or("stopped")
+                    .unwrap_or("consent-takeover-ready")
                     .into());
             }
             logic::ServiceMoveDecision::OfferReview => {
@@ -506,27 +560,22 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
         &terminal_link,
     )
     .await;
-    match &outcome {
-        pacer_desktop::ota::control::OwnLinkRepairOutcome::Repaired
-        | pacer_desktop::ota::control::OwnLinkRepairOutcome::FailedAfterMutation { .. } => {
-            let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
-        }
-        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Busy) => {
-            // Transient: retry only after normal lifecycle backoff, not the 1 s reconnect.
-        }
-        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(_) => {
-            let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
-        }
+    let busy_refusal = matches!(
+        &outcome,
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Busy)
+    );
+    if logic::own_link_repair_claims_launch_attempt(busy_refusal) {
+        let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
     }
-    app.state::<Shell>()
-        .pending_own_link_repair
-        .store(false, Ordering::SeqCst);
     app.state::<Shell>()
         .service_move_wait_logged
         .store(false, Ordering::SeqCst);
     *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
     match outcome {
         pacer_desktop::ota::control::OwnLinkRepairOutcome::Repaired => {
+            app.state::<Shell>()
+                .pending_own_link_repair
+                .store(false, Ordering::SeqCst);
             desktop_log!("pacer lifecycle: own-link repair committed");
             crate::recovery(app, "starting");
         }
@@ -535,14 +584,17 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
                 "{}",
                 logic::managed_service_failure_log("repair-own-link", &OtaError::Busy.to_string())
             );
-            desktop_log!(
-                "pacer lifecycle: own-link repair busy; will retry after lifecycle backoff"
-            );
+            // No sleep: re-arm pending so the next connect prechecks Busy and stays
+            // connected while the watcher retries (cap ends automatic repair).
+            app.state::<Shell>()
+                .pending_own_link_repair
+                .store(true, Ordering::SeqCst);
             crate::recovery(app, "starting");
-            // Match connection_retry_delay's 30 s floor so Busy does not 1 s-loop.
-            tokio::time::sleep(Duration::from_secs(30)).await;
         }
         pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(error) => {
+            app.state::<Shell>()
+                .pending_own_link_repair
+                .store(false, Ordering::SeqCst);
             desktop_log!(
                 "{}",
                 logic::managed_service_failure_log("repair-own-link", &error.to_string())
@@ -556,6 +608,9 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
             forward,
             restore: None,
         } => {
+            app.state::<Shell>()
+                .pending_own_link_repair
+                .store(false, Ordering::SeqCst);
             desktop_log!(
                 "{}",
                 logic::managed_service_failure_log("repair-own-link", &forward.to_string())
@@ -569,6 +624,9 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
             forward,
             restore: Some(restore),
         } => {
+            app.state::<Shell>()
+                .pending_own_link_repair
+                .store(false, Ordering::SeqCst);
             desktop_log!(
                 "{}",
                 logic::managed_service_failure_log("repair-own-link", &forward.to_string())
@@ -1429,10 +1487,10 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
             });
             match decision {
                 logic::ServiceMoveDecision::ReadyOwnLinkRepair => {
-                    app.state::<Shell>()
-                        .pending_own_link_repair
-                        .store(true, Ordering::SeqCst);
-                    return Err("own-link-repair-ready".into());
+                    if let Some(code) = own_link_repair_ready_or_busy_defer(app, cli) {
+                        return Err(code.into());
+                    }
+                    // Busy: stay connected; watcher re-checks while the session lives.
                 }
                 logic::ServiceMoveDecision::ReadyConsentTakeover => {
                     first_run.consent_takeover = true;
@@ -1493,15 +1551,16 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                     .load(Ordering::SeqCst)
             {
                 if idle {
+                    if let Some(code) = own_link_repair_ready_or_busy_defer(app, cli) {
+                        return Err(code.into());
+                    }
+                    // Busy: stay connected; watcher re-checks while the session lives.
+                } else {
                     app.state::<Shell>()
                         .pending_own_link_repair
                         .store(true, Ordering::SeqCst);
-                    return Err("own-link-repair-ready".into());
+                    log_service_move_wait(app, "own-link repair", task_count, terminal_count);
                 }
-                app.state::<Shell>()
-                    .pending_own_link_repair
-                    .store(true, Ordering::SeqCst);
-                log_service_move_wait(app, "own-link repair", task_count, terminal_count);
             } else if !app
                 .state::<Shell>()
                 .pending_own_link_repair
@@ -2664,6 +2723,7 @@ pub async fn run(app: AppHandle) {
                                 "pacer lifecycle: automatic install refused with identity; clearing reinstall and falling through"
                             );
                             // Stuck own-link shape with nothing loaded: repair outside select!.
+                            // Busy precheck first — do not tear down into a tight Install loop.
                             if matches!(action_job, logic::JobState::NotLoaded | logic::JobState::Stopped | logic::JobState::Unknown)
                                 && cli.as_ref().is_some_and(own_link_repair_eligible_now)
                                 && !app
@@ -2672,10 +2732,13 @@ pub async fn run(app: AppHandle) {
                                     .load(Ordering::SeqCst)
                             {
                                 if let Some(cli) = cli.as_ref() {
-                                    desktop_log!(
-                                        "pacer lifecycle: identity install with unloaded own-link registration; repairing"
-                                    );
-                                    perform_own_link_repair(&app, cli).await;
+                                    if own_link_repair_ready_or_busy_defer(&app, cli).is_some() {
+                                        desktop_log!(
+                                            "pacer lifecycle: identity install with unloaded own-link registration; repairing"
+                                        );
+                                        perform_own_link_repair(&app, cli).await;
+                                    }
+                                    // Busy: outer loop already waits on shell.wake; watcher not needed.
                                 }
                             }
                             break;

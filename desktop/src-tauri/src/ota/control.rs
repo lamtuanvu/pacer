@@ -2393,6 +2393,75 @@ pub fn own_link_repair_eligible(
     owner == Some("desktop") && link_is_ours && registered_program == terminal_link
 }
 
+/// Cheap Busy precheck before ending a connected session for own-link repair:
+/// try the OTA locks and scan update-journal phases. Does not mutate anything.
+/// Returns true only for `OtaError::Busy`; other failures let the full repair run.
+#[cfg(target_os = "macos")]
+pub fn own_link_repair_is_busy(
+    user_home: &Path,
+    home: &Path,
+    port: u16,
+    trust: &ReleaseTrust,
+) -> bool {
+    use super::platform_fs::PrivateDir;
+    let Ok(user_home) = user_home.canonicalize() else {
+        return false;
+    };
+    let Ok(home) = home.canonicalize() else {
+        return false;
+    };
+    let Ok(Some(own)) = native::process_details(std::process::id()) else {
+        return false;
+    };
+    if trust
+        .verify_process(&own.identity, CodeRole::Desktop)
+        .is_err()
+    {
+        return false;
+    }
+    let Ok(executable) = own.executable.canonicalize() else {
+        return false;
+    };
+    let Some(app) = executable
+        .parent()
+        .and_then(Path::parent)
+        .and_then(Path::parent)
+    else {
+        return false;
+    };
+    if !app.to_string_lossy().ends_with(".app") || executable != app.join("Contents/MacOS/pacer") {
+        return false;
+    }
+    let locks = if let Some(policy) = trust.fixture_policy() {
+        if policy.validate_live().is_err()
+            || policy.home != home
+            || policy.home != user_home
+            || policy.port != port
+            || policy.current_app != app
+        {
+            return false;
+        }
+        policy.root.join("locks")
+    } else {
+        PathBuf::from(format!("/private/tmp/pacer-ota-{}", unsafe {
+            libc::geteuid()
+        }))
+    };
+    let Ok(lock_dir) = PrivateDir::create(&locks) else {
+        return false;
+    };
+    match lock_dir.acquire_locks(app, &home) {
+        Ok(_guard) => {}
+        Err(OtaError::Busy) => return true,
+        Err(_) => return false,
+    }
+    match ordinary_maintenance_clear(&home) {
+        Ok(()) => false,
+        Err(OtaError::Busy) => true,
+        Err(_) => false,
+    }
+}
+
 /// Disk-only eligibility for the stuck own-link shape (loaded job optional).
 /// Used when Identity-on-install finds nothing loaded, and before scheduling repair.
 #[cfg(target_os = "macos")]
@@ -2470,7 +2539,8 @@ pub struct OwnLinkStopFailure<E> {
 pub enum OwnLinkRepairOutcome<E> {
     Repaired,
     /// Validation / Busy / Identity before launchctl bootout.
-    /// Non-Busy refusals end automatic repair for the launch; Busy may retry after backoff.
+    /// Non-Busy refusals end automatic repair for the launch; Busy stays connected
+    /// and retries while the session lives (capped per launch).
     RefusedBeforeMutation(E),
     /// Failed after bootout (or after a successful stop with a forward error).
     /// `restore` is set when restoring the original registration also failed.
@@ -2626,6 +2696,14 @@ async fn stop_own_link_job(
         Ok(Ok(status)) => status,
     };
     if !status.success() {
+        // Definite bootout failure with the original job still loaded: nothing changed.
+        if copy_user_job(&original.definition.label)
+            .ok()
+            .flatten()
+            .is_some_and(|loaded| original.definition.match_loaded(&loaded).is_ok())
+        {
+            return Err(refuse(OtaError::Io));
+        }
         return Err(after_bootout(OtaError::Io));
     }
     wait_exact_exit(pinned)
@@ -2678,6 +2756,12 @@ async fn restore_own_link_registration(
         != bundled
     {
         return Err(OtaError::Identity);
+    }
+    // Bootout failed with the original job still loaded: treat as already restored.
+    if let Some(loaded) = copy_user_job(&original.definition.label)? {
+        if original.definition.match_loaded(&loaded).is_ok() {
+            return Ok(());
+        }
     }
     bootstrap_own_link_plist(path, &original.definition.label).await?;
     let loaded = copy_user_job(&original.definition.label)?.ok_or(OtaError::Identity)?;

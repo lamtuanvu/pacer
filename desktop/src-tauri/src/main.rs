@@ -28,7 +28,7 @@ mod update_journal;
 use reqwest::Url;
 use serde_json::Value;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
 };
 use tauri::{
@@ -93,8 +93,13 @@ struct Shell {
     service_move_wait_logged: AtomicBool,
     /// Logged once when work counts are unknown (op failed/timeout).
     service_move_unknown_counts_logged: AtomicBool,
-    /// Automatic own-link repair already finished this launch (any outcome except Busy).
+    /// Automatic own-link repair already finished this launch (any outcome except
+    /// a Busy refusal still under the deferral cap).
     own_link_repair_attempted: AtomicBool,
+    /// Busy deferrals while staying connected for own-link repair this launch.
+    own_link_busy_deferrals: AtomicU32,
+    /// Logged once when Busy deferrals hit the per-launch cap.
+    own_link_busy_cap_logged: AtomicBool,
     /// Automatic consent takeover already entered the helper path this launch.
     /// Reset only for BeforeHelper failures.
     consent_takeover_attempted: AtomicBool,
@@ -139,6 +144,8 @@ impl Default for Shell {
             service_move_wait_logged: AtomicBool::new(false),
             service_move_unknown_counts_logged: AtomicBool::new(false),
             own_link_repair_attempted: AtomicBool::new(false),
+            own_link_busy_deferrals: AtomicU32::new(0),
+            own_link_busy_cap_logged: AtomicBool::new(false),
             consent_takeover_attempted: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             old_service_ack: Mutex::new(None),

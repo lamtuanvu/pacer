@@ -311,8 +311,8 @@ pub fn reinstall_after_install_error(reinstall: bool, action: &str, identity: bo
 }
 
 /// Consent-authorized takeover commits once active work counts are known and idle.
-/// Unknown counts (`None`) are never idle; for a pending UseApp takeover they fall
-/// through to the review offer after the first pass (see [`service_move_decision`]).
+/// Unknown counts (`None`) are never idle; for a pending UseApp takeover they open
+/// the review offer on the first evaluation (see [`service_move_decision`]).
 pub fn consent_takeover_idle(tasks: Option<usize>, terminals: Option<usize>) -> bool {
     matches!((tasks, terminals), (Some(0), Some(0)))
 }
@@ -322,10 +322,24 @@ pub fn consent_takeover_counts_unknown(tasks: Option<usize>, terminals: Option<u
     tasks.is_none() || terminals.is_none()
 }
 
+/// Watcher rechecks deferred own-link repair about every 20 s; thirty Busy
+/// deferrals is roughly ten minutes of staying connected without ending the session.
+pub const OWN_LINK_BUSY_DEFER_CAP: u32 = 30;
+
+/// True when Busy deferrals for this launch have hit the cap.
+pub fn own_link_busy_deferrals_exhausted(deferrals: u32) -> bool {
+    deferrals >= OWN_LINK_BUSY_DEFER_CAP
+}
+
+/// Busy refusals do not consume the once-per-launch attempt; every other outcome does.
+pub fn own_link_repair_claims_launch_attempt(busy_refusal: bool) -> bool {
+    !busy_refusal
+}
+
 /// First automatic service-move attempt for this app launch.
-/// Own-link: claim on any outcome except a transient Busy (Busy may retry after
-/// lifecycle backoff). Consent takeover: claim when the helper path is entered;
-/// reset only for failures before the helper was spawned.
+/// Own-link: claim on any outcome except a transient Busy (Busy may retry while
+/// connected, up to [`OWN_LINK_BUSY_DEFER_CAP`]). Consent takeover: claim when the
+/// helper path is entered; reset only for failures before the helper was spawned.
 pub fn claim_once_per_launch(attempted: &AtomicBool) -> bool {
     !attempted.swap(true, Ordering::SeqCst)
 }
@@ -388,7 +402,7 @@ pub fn service_move_decision(input: ServiceMoveInput) -> ServiceMoveDecision {
         };
     }
     if input.consent_authorized && input.candidate_present && !input.consent_attempted {
-        // After the first pass with unknown counts, stop waiting and let the user
+        // Unknown counts on the first evaluation: stop waiting and let the user
         // decide on the existing takeover offer (do not wait forever silently).
         if input.counts_unknown {
             return ServiceMoveDecision::OfferReview;
@@ -1909,6 +1923,16 @@ mod tests {
         assert!(claim_once_per_launch(&attempted));
         input.repair_attempted = true;
         assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+    }
+
+    #[test]
+    fn own_link_repair_busy_refusal_does_not_claim_the_launch_attempt() {
+        assert!(!own_link_repair_claims_launch_attempt(true));
+        assert!(own_link_repair_claims_launch_attempt(false));
+        assert!(!own_link_busy_deferrals_exhausted(0));
+        assert!(!own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP - 1));
+        assert!(own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP));
+        assert!(own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP + 5));
     }
 
     #[test]
