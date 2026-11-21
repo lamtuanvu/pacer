@@ -6,13 +6,17 @@ Ask about your tasks, dispatch, executors and budgets from anywhere in the app w
 
 ## Set up
 
-The assistant is off until you choose an account in **Settings › Assistant**. It runs on one OpenAI-compatible endpoint
-account (a hosted model or a local one) and never moves to another account. If you choose the planner's account it follows
-the planner's pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.
+The assistant is off until you choose an account in **Settings › Assistant**. It runs on one endpoint account whose
+connection pacer holds (`connection.api`: `openai-compatible`, `anthropic` or `gemini`) and never moves to another
+account. If you choose the planner's account it follows the planner's pacing: it answers in relaxed and normal mode and
+pauses in strict and emergency mode.
 
-Local endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an `Authorization`
-header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server omits that field
-on chat-completion responses (Rig's OpenAI client requires it).
+Anthropic and Gemini accounts need pacer's native `assistant-pacer` binary. When that binary is absent they are reported
+unavailable and are never answered through the legacy TypeScript openai-compatible plugin.
+
+Local openai-compatible endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an
+`Authorization` header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server
+omits that field on chat-completion responses (Rig's OpenAI client requires it).
 
 ## What it can read, and what it cannot
 

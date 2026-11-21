@@ -536,7 +536,7 @@ describe("assistant-pacer native host routing", () => {
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
     // strategy() uses connection.key: "none" → host must set keyless.
-    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=true");
+    expect(turn.answer).toBe("api=openai-compatible;baseUrl=http://x/v1;keyless=true");
     expect(turn.usage).toEqual(pacerStubUsage);
   });
 
@@ -566,7 +566,63 @@ describe("assistant-pacer native host routing", () => {
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=false");
+    expect(turn.answer).toBe("api=openai-compatible;baseUrl=http://x/v1;keyless=false");
+  });
+
+  test("anthropic accounts are unavailable for backend:pacer when the native binary is absent", async () => {
+    const { ctx, deps } = setup({ fake: false });
+    expect(replyProvider(ctx, "pacer")).toBeNull();
+    const anthropicStrategy = () => ({
+      ...strategy(),
+      accounts: {
+        ep: {
+          kind: "endpoint", model: null,
+          connection: { api: "anthropic", base_url: "https://api.anthropic.com", key: "env:ANTHROPIC_KEY", models: [{ id: "claude-sonnet-4-0", context: 200000, output: 8000, tools: true }] },
+        },
+      },
+    }) as unknown as Strategy;
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const admission = await admit(ctx, { ...deps, strategy: anthropicStrategy });
+    expect(admission.ok).toBe(false);
+    expect(admission.reason).toContain("native binary");
+    expect(admission.reason).toContain("anthropic");
+    const rows = candidates(ctx, { ...deps, strategy: anthropicStrategy });
+    expect(rows.find(r => r.account === "ep" && r.backend === "pacer")).toMatchObject({ available: false });
+    // Admission refuses before a turn starts, so the legacy respond path never runs.
+    await expect(ask(ctx, { text: "hi", scope, requestId: req() }, {
+      ...deps,
+      strategy: anthropicStrategy,
+      respond: async () => ({ message: "must not run", usage }),
+    })).rejects.toThrow(/native binary/);
+  });
+
+  test("backend:pacer turns pass endpoint.api and omit default anthropic baseUrl", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const anthropicStrategy = () => ({
+      ...strategy(),
+      accounts: {
+        ep: {
+          kind: "endpoint", model: null,
+          connection: { api: "anthropic", base_url: "https://api.anthropic.com", key: "env:ANTHROPIC_KEY", models: [{ id: "claude-sonnet-4-0" }] },
+        },
+      },
+    }) as unknown as Strategy;
+    const deps: AssistantDeps = {
+      strategy: anthropicStrategy, status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toBe("api=anthropic;baseUrl=;keyless=false");
   });
 
   test("assistant-pacer contributes reply for the pacer backend", () => {

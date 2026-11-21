@@ -36,13 +36,13 @@ const usage = { input: 7, output: 2, coverage: "measured" as const };
 async function answer(p: {
   turnId: string;
   message: string;
-  endpoint?: { baseUrl?: string; keyless?: boolean };
+  endpoint?: { api?: string; baseUrl?: string; keyless?: boolean };
 }): Promise<{ message: string; usage: typeof usage }> {
   const scenario = p.message.trim();
   if (scenario === "ping") return { message: "assistant-pacer stub", usage };
   if (scenario === "endpoint") {
     return {
-      message: `baseUrl=${p.endpoint?.baseUrl ?? ""};keyless=${p.endpoint?.keyless === true}`,
+      message: `api=${p.endpoint?.api ?? ""};baseUrl=${p.endpoint?.baseUrl ?? ""};keyless=${p.endpoint?.keyless === true}`,
       usage,
     };
   }
@@ -88,7 +88,7 @@ async function handle(line: string): Promise<void> {
       result: await answer(frame.params as {
         turnId: string;
         message: string;
-        endpoint?: { baseUrl?: string; keyless?: boolean };
+        endpoint?: { api?: string; baseUrl?: string; keyless?: boolean };
       }),
     });
   } catch (error) {

@@ -3,6 +3,8 @@
 //! Built on `pacer-plugin` and `rig-core` (=0.22.0). Registers only the tools passed in each
 //! call; each forwards to `capability.assistant.tool`. No MCP, no instruction files, no session.
 
+mod budget;
+mod budget_model;
 mod delta;
 mod http;
 mod reply;

@@ -72,10 +72,15 @@ pub mod error {
 ///    },
 ///    "endpoint": {
 ///      "type": "object",
-///      "required": [
-///        "baseUrl"
-///      ],
 ///      "properties": {
+///        "api": {
+///          "type": "string",
+///          "enum": [
+///            "openai-compatible",
+///            "anthropic",
+///            "gemini"
+///          ]
+///        },
 ///        "baseUrl": {
 ///          "type": "string",
 ///          "maxLength": 2048,
@@ -591,10 +596,15 @@ impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
 /// ```json
 ///{
 ///  "type": "object",
-///  "required": [
-///    "baseUrl"
-///  ],
 ///  "properties": {
+///    "api": {
+///      "type": "string",
+///      "enum": [
+///        "openai-compatible",
+///        "anthropic",
+///        "gemini"
+///      ]
+///    },
 ///    "baseUrl": {
 ///      "type": "string",
 ///      "maxLength": 2048,
@@ -611,10 +621,91 @@ impl<'de> ::serde::Deserialize<'de> for AssistantReplyParamsDigest {
 #[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
 #[serde(deny_unknown_fields)]
 pub struct AssistantReplyParamsEndpoint {
-    #[serde(rename = "baseUrl")]
-    pub base_url: AssistantReplyParamsEndpointBaseUrl,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub api: ::std::option::Option<AssistantReplyParamsEndpointApi>,
+    #[serde(
+        rename = "baseUrl",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub base_url: ::std::option::Option<AssistantReplyParamsEndpointBaseUrl>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub keyless: ::std::option::Option<bool>,
+}
+impl ::std::default::Default for AssistantReplyParamsEndpoint {
+    fn default() -> Self {
+        Self {
+            api: Default::default(),
+            base_url: Default::default(),
+            keyless: Default::default(),
+        }
+    }
+}
+///`AssistantReplyParamsEndpointApi`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "openai-compatible",
+///    "anthropic",
+///    "gemini"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum AssistantReplyParamsEndpointApi {
+    #[serde(rename = "openai-compatible")]
+    OpenaiCompatible,
+    #[serde(rename = "anthropic")]
+    Anthropic,
+    #[serde(rename = "gemini")]
+    Gemini,
+}
+impl ::std::convert::From<&Self> for AssistantReplyParamsEndpointApi {
+    fn from(value: &AssistantReplyParamsEndpointApi) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for AssistantReplyParamsEndpointApi {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::OpenaiCompatible => f.write_str("openai-compatible"),
+            Self::Anthropic => f.write_str("anthropic"),
+            Self::Gemini => f.write_str("gemini"),
+        }
+    }
+}
+impl ::std::str::FromStr for AssistantReplyParamsEndpointApi {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "openai-compatible" => Ok(Self::OpenaiCompatible),
+            "anthropic" => Ok(Self::Anthropic),
+            "gemini" => Ok(Self::Gemini),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for AssistantReplyParamsEndpointApi {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
 }
 ///`AssistantReplyParamsEndpointBaseUrl`
 ///
