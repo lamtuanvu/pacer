@@ -41,6 +41,11 @@ function renderModel(model: ReturnType<typeof panelModel>): HTMLElement {
   switch (model.kind) {
     case 'loading':
       return el('p', 'muted', 'Loading')
+    case 'load-error': {
+      const callout = el('div', 'callout warn')
+      callout.append(el('div', 'callout-title', 'Could not load'), el('p', 'callout-body', 'Retrying…'))
+      return callout
+    }
     case 'not-connected': {
       const callout = el('div', 'callout warn')
       callout.append(el('div', 'callout-title', 'Not connected'), el('p', 'callout-body', 'Start pacer serve to see what needs you here.'))
@@ -83,8 +88,19 @@ function renderModel(model: ReturnType<typeof panelModel>): HTMLElement {
   }
 }
 
-// The worker's snapshot, then a live re-render per pacer.changed push.
-void orca.plugin.request('pacer.snapshot').then((answer) => dispatch({ type: 'snapshot', snapshot: answer }))
+// The worker's snapshot, then a live re-render per pacer.changed push. A rejected request
+// (the worker is restarting, or crashed) must never leave the panel blank forever: show
+// load-error and keep retrying on a short interval until one succeeds.
+function loadSnapshot(): void {
+  orca.plugin
+    .request('pacer.snapshot')
+    .then((answer) => dispatch({ type: 'snapshot', snapshot: answer }))
+    .catch(() => {
+      dispatch({ type: 'load-error' })
+      setTimeout(loadSnapshot, 3_000)
+    })
+}
+loadSnapshot()
 orca.plugin.on('pacer.changed', (payload) => dispatch({ type: 'snapshot', snapshot: payload.snapshot }))
 
 // Relative times go stale without a new event; re-render the clock text on a short interval.

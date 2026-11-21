@@ -109,22 +109,39 @@ export default function activate(orca: OrcaWorkerApi): void {
     return snapshot
   }
 
+  // A burst of events (a long-buffered reconnect, or a first connect with history to replay)
+  // must collapse into one refresh, not one per event - without this, a few hundred backlogged
+  // events fire a few hundred concurrent HTTP requests and crash the worker (observed live:
+  // `setTypeOfService EINVAL` under exactly this load).
+  let latestSeq: number | null = null
+  let refreshPending = false
   const onEvent = (seq: number): void => {
     if (stopped) return
+    latestSeq = seq
+    if (refreshPending) return
+    refreshPending = true
     void (async () => {
       try {
-        await orca.storage.set(SEQ_KEY, seq)
+        // Let the burst settle: handle the newest seq seen in this tick, not each one.
+        await Promise.resolve()
+        const toStore = latestSeq
+        refreshPending = false
+        if (toStore === null || stopped) return
+        await orca.storage.set(SEQ_KEY, toStore)
         const snapshot = await refresh()
         orca.panels.post('pacer.changed', { snapshot })
       } catch (error) {
+        refreshPending = false
         // One failed refresh must never kill the live loop.
         orca.log(`pacer event refresh failed: ${String(error)}`)
       }
     })()
   }
 
-  /** (Re)connect the event stream, resuming from the seq the worker last stored. */
-  const connect = (): void => {
+  /** (Re)connect the event stream, resuming from the seq the worker last stored, or from the
+   *  just-fetched snapshot's own seq on a first connect - never from 0, which would replay the
+   *  server's entire event history as an immediate burst. */
+  const connect = (initialSeq: number): void => {
     if (stopped) return
     const endpoint = readPacerEndpoint(process.env)
     if (endpoint === null) {
@@ -136,20 +153,28 @@ export default function activate(orca: OrcaWorkerApi): void {
     void (async () => {
       const stored = await orca.storage.get(SEQ_KEY)
       if (stopped) return
-      const since = typeof stored === 'number' ? stored : 0
+      const since = typeof stored === 'number' ? stored : initialSeq
       abortStream = subscribeEvents(endpoint, since, onEvent, () => {
         if (stopped) return
         reconnect = setTimeout(() => {
           reconnect = null
-          connect()
+          connect(since)
         }, RECONNECT_MS)
       })
     })()
   }
 
   // The badge shows the current pace before any event arrives; the live loop keeps it fresh.
+  // Seed the first connect from the current seq (one extra startup fetch) so a long-idle
+  // server's full backlog is never replayed as a burst.
   void refresh()
-  connect()
+  void (async () => {
+    const endpoint = readPacerEndpoint(process.env)
+    if (endpoint === null) return
+    const snapshot = await getSnapshot(endpoint)
+    if (stopped) return
+    connect('error' in snapshot ? 0 : snapshot.seq)
+  })()
   activeLoop = { stop }
 }
 

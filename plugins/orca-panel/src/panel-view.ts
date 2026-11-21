@@ -26,27 +26,35 @@ export type ConfirmView = { title: string; body: string; danger: boolean }
 /** What the frame renders, one shape per visual state. */
 export type PanelModel =
   | { kind: 'loading' }
+  | { kind: 'load-error' }
   | { kind: 'not-connected' }
   | { kind: 'ready'; heading: string; empty: string; rows: RowView[]; confirm: ConfirmView | null }
 
-/** Everything the panel remembers between renders: the snapshot and a pending confirm. */
-export type PanelState = { snapshot: PanelSnapshot | null; pending: AttentionAction | null }
+/** Everything the panel remembers between renders: the snapshot, a pending confirm, and
+ *  whether the initial (or a retried) load request itself failed outright - distinct from
+ *  `connected: false`, which is a normal, successfully-answered "pacer isn't running" reply. */
+export type PanelState = { snapshot: PanelSnapshot | null; pending: AttentionAction | null; loadError: boolean }
 
-export const initialPanelState = (): PanelState => ({ snapshot: null, pending: null })
+export const initialPanelState = (): PanelState => ({ snapshot: null, pending: null, loadError: false })
 
 export type PanelEvent =
   | { type: 'snapshot'; snapshot: PanelSnapshot }
+  | { type: 'load-error' }
   | { type: 'press'; action: AttentionAction }
   | { type: 'confirm' }
   | { type: 'cancel' }
 
-/** The state transitions: a snapshot replaces data and clears any pending confirm; press
- *  starts a confirm or fires straight away; confirm fires the pending action; cancel clears.
- *  Returns the next state plus the op to fire (null when nothing should run). */
+/** The state transitions: a snapshot replaces data, clears any pending confirm and any load
+ *  error; a load error only matters while there is no data yet (a later successful push
+ *  already clears it via 'snapshot'); press starts a confirm or fires straight away; confirm
+ *  fires the pending action; cancel clears. Returns the next state plus the op to fire (null
+ *  when nothing should run). */
 export function reducePanel(state: PanelState, event: PanelEvent): { state: PanelState; run: RunRequest | null } {
   switch (event.type) {
     case 'snapshot':
-      return { state: { snapshot: event.snapshot, pending: null }, run: null }
+      return { state: { snapshot: event.snapshot, pending: null, loadError: false }, run: null }
+    case 'load-error':
+      return { state: { ...state, loadError: true }, run: null }
     case 'press':
       if (event.action.confirm) return { state: { ...state, pending: event.action }, run: null }
       return { state, run: { op: event.action.op, params: event.action.params } }
@@ -101,7 +109,7 @@ export function rowFor(item: AttentionItem, now: number): RowView {
 
 /** The whole panel view-model from the current state and clock. */
 export function panelModel(state: PanelState, now: number): PanelModel {
-  if (state.snapshot === null) return { kind: 'loading' }
+  if (state.snapshot === null) return state.loadError ? { kind: 'load-error' } : { kind: 'loading' }
   const snapshot = state.snapshot
   if (!snapshot.connected) return { kind: 'not-connected' }
   const pending = state.pending

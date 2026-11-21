@@ -93,8 +93,19 @@ test('panelModel shows loading before the first snapshot', () => {
   assert.equal(panelModel(initialPanelState(), NOW).kind, 'loading')
 })
 
+test('panelModel shows load-error when the initial request itself failed', () => {
+  const { state } = reducePanel(initialPanelState(), { type: 'load-error' })
+  assert.equal(panelModel(state, NOW).kind, 'load-error')
+})
+
+test('a later snapshot clears a load-error', () => {
+  const errored = reducePanel(initialPanelState(), { type: 'load-error' }).state
+  const { state } = reducePanel(errored, { type: 'snapshot', snapshot: snapshot({ connected: false }) })
+  assert.equal(panelModel(state, NOW).kind, 'not-connected')
+})
+
 test('panelModel shows the not-connected state when connected is false', () => {
-  const model = panelModel({ snapshot: snapshot({ connected: false }), pending: null }, NOW)
+  const model = panelModel({ snapshot: snapshot({ connected: false }), pending: null, loadError: false }, NOW)
   assert.equal(model.kind, 'not-connected')
 })
 
@@ -107,6 +118,7 @@ test('panelModel builds the ready view with heading, empty message, rows and no 
         attention: [item({ id: 'a1' }), item({ id: 'a2', since: NOW - 30 })],
       }),
       pending: null,
+      loadError: false,
     },
     NOW,
   )
@@ -147,21 +159,21 @@ test('pressing an action with no confirm fires pacer.act immediately', () => {
 
 test('pressing an action with a confirm starts the gate without firing', () => {
   const { state, run } = reducePanel(initialPanelState(), { type: 'press', action: confirmAction })
-  assert.deepEqual(state, { snapshot: null, pending: confirmAction })
+  assert.deepEqual(state, { snapshot: null, pending: confirmAction, loadError: false })
   assert.equal(run, null)
 })
 
 test('confirm fires the pending action and clears the gate', () => {
   const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
   const { state, run } = reducePanel(started, { type: 'confirm' })
-  assert.deepEqual(state, { snapshot: null, pending: null })
+  assert.deepEqual(state, { snapshot: null, pending: null, loadError: false })
   assert.deepEqual(run, { op: confirmAction.op, params: confirmAction.params })
 })
 
 test('cancel clears the gate without firing', () => {
   const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
   const { state, run } = reducePanel(started, { type: 'cancel' })
-  assert.deepEqual(state, { snapshot: null, pending: null })
+  assert.deepEqual(state, { snapshot: null, pending: null, loadError: false })
   assert.equal(run, null)
 })
 
@@ -174,6 +186,6 @@ test('confirm with nothing pending is a no-op', () => {
 test('a snapshot event replaces the snapshot and clears any pending confirm', () => {
   const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
   const { state, run } = reducePanel(started, { type: 'snapshot', snapshot: snapshot({ connected: false }) })
-  assert.deepEqual(state, { snapshot: snapshot({ connected: false }), pending: null })
+  assert.deepEqual(state, { snapshot: snapshot({ connected: false }), pending: null, loadError: false })
   assert.equal(run, null)
 })
