@@ -3,6 +3,7 @@ import { agentInfo, runnerAgent } from "../view-model/agents";
 import { backIn } from "../view-model/format";
 import { counts, plannerMeter } from "../view-model/selectors";
 import type { ClientSnapshot } from "../view-model/snapshot";
+import { usageView } from "../view-model/usage";
 import { compactPolicyWords, policyWords, type PolicySummary, compactVerdictWords, modeWords, offlineWords, toneFor } from "../view-model/words";
 
 export interface LineOptions { width?: number; color?: boolean; policy?: PolicySummary }
@@ -11,6 +12,9 @@ export interface LineFields {
   verdict: string | null; resetsAt: number | null; running: number | null; attention: number | null; mode: string | null;
   /** Present only while the planner's reading is historical. */
   stale?: boolean;
+  /** usageView figure/meter when the planner row carries usageState (ADR 0030). */
+  usageFigure?: string;
+  usageMeter?: number | null;
 }
 
 /** Status remains accepted for the installed agent status-bar capture path. */
@@ -33,15 +37,18 @@ export function lineFields(input: ClientSnapshot | Status | null, policy?: Polic
   const legacy = input.budget?.providers.find(p => p.id === input.budget!.planner);
   const agent = p?.agent ?? (input.budget ? legacy?.agent ?? runnerAgent(input.budget.planner) : null);
   if (!agent) return offline;
-  // The stale planner meter also keeps the legacy fallback from showing a
-  // live-looking figure.
-  const stale = !!p?.stale;
+  // usageState wins through usageView; a historical record keeps the stale-reading marker.
+  const view = p?.usageState ? usageView(p.usageState, input.at) : null;
+  const stale = p?.usageState ? p.usageState.freshness === "historical" : !!p?.stale;
+  const usedPct = stale ? null : (view ? view.meter : p?.usedPct ?? legacy?.usedPct ?? null);
+  const pacePct = stale || (view && view.meter === null) ? null : p?.pacePct ?? legacy?.pacePct ?? null;
   return { policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent,
-    usedPct: stale ? null : p?.usedPct ?? legacy?.usedPct ?? null,
-    pacePct: stale ? null : p?.pacePct ?? legacy?.pacePct ?? null,
+    usedPct, pacePct,
     verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
     resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, running: count(c?.running), attention: count(c?.attention),
-    mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal", ...(stale ? { stale: true } : {}) };
+    mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal",
+    ...(stale ? { stale: true } : {}),
+    ...(view ? { usageFigure: view.figure, usageMeter: view.meter } : {}) };
 }
 
 const pad = (n: number) => String(n).padStart(2, "0");
@@ -67,10 +74,14 @@ export function renderLine(input: ClientSnapshot | Status | null, options: LineO
   const now = input && "at" in input ? input.at : (input as Status).generatedAt;
   // Exhaustion with a known reset wins over staleness; a stale reading without
   // it shows the TUI's "stale reading" marker instead of any figure.
+  // usageView figure wins when present; ·pace only for a measured percent (never "Unmetered·77").
+  const compactFigure = f.usageFigure != null
+    ? `${f.usageFigure}${f.usageMeter != null && f.usageFigure.endsWith("%") && f.pacePct !== null ? `·${Math.round(f.pacePct)}` : ""}`
+    : f.usedPct === null ? "usage unknown" : `${Math.round(f.usedPct)}%${f.pacePct === null ? "" : `·${Math.round(f.pacePct)}`}`;
   const main = verdict === "out" && f.resetsAt !== null ? `${verdict} · back ${fmtReset(f.resetsAt, now).slice(2)}`
     : f.stale ? "stale reading"
     : verdict === "out" ? `${verdict} · ${backIn(null, now)}`
-    : `${f.usedPct === null ? "usage unknown" : `${Math.round(f.usedPct)}%${f.pacePct === null ? "" : `·${Math.round(f.pacePct)}`}`}${verdict ? ` ${verdict}` : ""}`;
+    : `${compactFigure}${verdict ? ` ${verdict}` : ""}`;
   const used = f.usedPct === null ? "?" : String(Math.round(f.usedPct));
   const running = f.running === null ? "" : paint(`▸${f.running}`, "93c5fd");
   const attention = f.attention ? paint(`⚑${f.attention}`, "fcd34d") : "";

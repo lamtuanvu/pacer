@@ -16,6 +16,14 @@ fn count(n: &Value) -> Value {
         Value::Null
     }
 }
+/// Match TypeScript JSON: whole meters serialize as integers, not `100.0`.
+fn json_meter(n: f64) -> Value {
+    if n.is_finite() && (n - n.round()).abs() < f64::EPSILON {
+        Value::Number(serde_json::Number::from(n.round() as i64))
+    } else {
+        json!(n)
+    }
+}
 /// The TUI's `truth`: service stale flags are booleans, but anything truthy
 /// marks the reading historical.
 fn truth(value: &Value) -> bool {
@@ -73,11 +81,34 @@ pub fn fields(input: Option<&Value>) -> Value {
     let Some(agent) = agent.filter(|a| !a.is_empty()) else {
         return offline;
     };
-    let stale = truth(p.get("stale").unwrap_or(&Value::Null));
+    let record = p.get("usageState").filter(|v| !v.is_null());
+    let (usage_figure, usage_meter) = record.map_or((None, None), |s| {
+        let (figure, meter) = super::usage::figure_words(Some(s));
+        (Some(figure), meter)
+    });
+    let stale = if let Some(state) = record {
+        state["freshness"].as_str() == Some("historical")
+    } else {
+        truth(p.get("stale").unwrap_or(&Value::Null))
+    };
+    let used_pct = if stale {
+        Value::Null
+    } else if let Some(meter) = usage_meter {
+        json_meter(meter)
+    } else if record.is_some() {
+        Value::Null
+    } else {
+        coalesce(&[&p["usedPct"], &legacy["usedPct"]])
+    };
+    let pace_pct = if stale || (record.is_some() && usage_meter.is_none()) {
+        Value::Null
+    } else {
+        coalesce(&[&p["pacePct"], &legacy["pacePct"]])
+    };
     let mut fields = with_policy(
         json!({"online":true,"planner":agent_info(agent).0,"agent":agent,
-    "usedPct":if stale { Value::Null } else { coalesce(&[&p["usedPct"],&legacy["usedPct"]]) },
-    "pacePct":if stale { Value::Null } else { coalesce(&[&p["pacePct"],&legacy["pacePct"]]) },
+    "usedPct":used_pct,
+    "pacePct":pace_pct,
     "verdict":coalesce(&[&p["verdict"],&legacy["verdict"],&json!("unknown")]),
     "resetsAt":coalesce(&[&p["resetsAt"],&legacy["resetsAt"]]),
     "running":count(&c["running"]),"attention":count(&c["attention"]),
@@ -85,6 +116,13 @@ pub fn fields(input: Option<&Value>) -> Value {
     );
     if stale {
         fields["stale"] = json!(true);
+    }
+    if let Some(figure) = usage_figure {
+        fields["usageFigure"] = json!(figure);
+        fields["usageMeter"] = match usage_meter {
+            Some(m) => json_meter(m),
+            None => Value::Null,
+        };
     }
     fields
 }
