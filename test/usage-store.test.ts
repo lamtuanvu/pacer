@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path";
 import { readAccountUsage, clearUsageMemo } from "../src/usage";
 import { accountEvidenceScope } from "../src/core/evidence";
-import { deleteUsageStore, writeUsageEntry } from "../src/usage/store";
+import { configuredUsageIdentities, deleteUsageStore, pruneOrphanUsageStores, writeUsageEntry } from "../src/usage/store";
 import type { AccountCfg } from "../src/config/accounts";
 import type { Ctx, UsageReading } from "../src/types";
 
@@ -121,4 +121,25 @@ test("a repeated failure does not rewrite the stored last good reading, and supe
   writeUsageEntry({ ...ctx, now: ctx.now + 8 * 86400 }, id, "k", reading(30));
   const pruned = await Bun.file(storePath(ctx, id)).json() as { entries: Record<string, unknown> };
   expect(Object.keys(pruned.entries)).toEqual(["k"]);
+});
+
+test("orphan usage-store files whose identity no configured account has are deleted", () => {
+  const ctx = fakeCtx({ now: 1_800_000_000 });
+  const live = account();
+  const liveId = identity(live);
+  const orphanId = identity({ ...live, home: join(ctx.home, ".claude-orphan") });
+  const reading: UsageReading = { windows: [{ name: "weekly", usedPct: 10, resetsAt: null, lengthS: 604800, paced: true }], capturedAt: ctx.now, stale: false };
+  writeUsageEntry(ctx, liveId, "k", reading);
+  writeUsageEntry(ctx, orphanId, "k", reading);
+  expect(existsSync(storePath(ctx, orphanId))).toBe(true);
+  const keep = configuredUsageIdentities({ [live.name]: live }, {});
+  expect(keep.has(liveId)).toBe(true);
+  expect(keep.has(orphanId)).toBe(false);
+  expect(pruneOrphanUsageStores(ctx, keep)).toEqual([orphanId]);
+  expect(existsSync(storePath(ctx, liveId))).toBe(true);
+  expect(existsSync(storePath(ctx, orphanId))).toBe(false);
+  // A second prune is a no-op; read-only contexts never delete.
+  expect(pruneOrphanUsageStores(ctx, keep)).toEqual([]);
+  expect(pruneOrphanUsageStores({ ...ctx, readOnly: true }, new Set())).toEqual([]);
+  expect(existsSync(storePath(ctx, liveId))).toBe(true);
 });

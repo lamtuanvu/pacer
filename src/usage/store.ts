@@ -1,7 +1,10 @@
-import { unlinkSync } from "node:fs";
+import { readdirSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { withLockSync } from "../core/lock";
+import type { AccountCfg } from "../config/accounts";
+import type { HostCfg } from "../config/hosts";
+import { accountEvidenceScope } from "../evidence/scope";
 import type { Ctx, UsageReading } from "../types";
 import { EVIDENCE_PRUNE_AFTER_S, markFreshness } from "./freshness";
 
@@ -48,4 +51,40 @@ export function writeUsageEntry(ctx: Ctx, identity: string, key: string, reading
 export function deleteUsageStore(ctx: Ctx, identity: string): void {
   if (ctx.readOnly) return;
   try { unlinkSync(usagePath(ctx, identity)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+}
+
+/** Evidence identities of every configured account (including host-scoped homes). */
+export function configuredUsageIdentities(
+  accounts: Record<string, AccountCfg>,
+  hosts: Record<string, HostCfg> = {},
+): Set<string> {
+  return new Set(Object.values(accounts).map(account => accountEvidenceScope(account, hosts).identity));
+}
+
+/**
+ * Delete `state/usage/<identity>.json` files no configured account still owns.
+ * Call on service start and after edits that change evidence identity (home, usage
+ * source, hosts). Returns the identities that were removed.
+ */
+export function pruneOrphanUsageStores(ctx: Ctx, keep: ReadonlySet<string>): string[] {
+  if (ctx.readOnly) return [];
+  const dir = join(ctx.pacerHome, "state", "usage");
+  let names: string[];
+  try { names = readdirSync(dir); } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return [];
+    throw error;
+  }
+  const removed: string[] = [];
+  for (const name of names) {
+    if (!name.endsWith(".json")) continue;
+    const identity = name.slice(0, -".json".length);
+    if (keep.has(identity)) continue;
+    try {
+      unlinkSync(join(dir, name));
+      removed.push(identity);
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
+    }
+  }
+  return removed;
 }

@@ -2,7 +2,7 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
-import type { UsageState } from "../src/types";
+import type { UsageState, Verdict } from "../src/types";
 import { usageStateFor, withUsageState } from "./usage-fixtures";
 import type { Route } from "../app/src/router";
 import { createKeyRegistry } from "../app/src/keys/registry";
@@ -91,6 +91,23 @@ test("usage details do not call a measured window unavailable just because obser
   expect(html).not.toContain("Usage unavailable");
 });
 
+test("a limit window keeps Out of quota in the words column and leaves the number column empty", () => {
+  const now = snapshot.at;
+  const limited = usageStateFor({ usedPct: 100, window: "limit", resetsAt: now + 3600, verdict: "out" }, now);
+  const state: UsageState = {
+    ...limited,
+    limit: { until: now + 3600, observedAt: now, manual: false },
+    verdict: "EXHAUSTED",
+    windows: [{ name: "limit", usedPct: 100, resetsAt: now + 3600, lengthS: 21600, paced: false, stale: false, verdict: "EXHAUSTED" }],
+  };
+  const html = renderToString(<UsageDetails accounts={[{ name: "personal", kind: "claude", usageState: state }]} now={now} />);
+  // The limit row's number column stays empty; "Out of quota" appears once in that row's words.
+  const row = html.match(/<div class="pc-usage-window">[\s\S]*?<\/div>/)?.[0] ?? "";
+  expect(row).toMatch(/<span class="pc-num"><\/span>/);
+  expect(row.match(/Out of quota/g)?.length).toBe(1);
+  expect(row).not.toMatch(/<span class="pc-num">Out of quota<\/span>/);
+});
+
 test("Escape closes usage details before a route shortcut receives it", () => {
   let closed = false, prevented = false, stopped = false;
   dismissUsageOnEscape({ key: "Escape", preventDefault: () => { prevented = true; }, stopPropagation: () => { stopped = true; } }, () => { closed = true; });
@@ -144,8 +161,14 @@ test('hidden control action uses its visible text as its accessible name in a po
 });
 
 test("near-limit and out-of-quota chips are spoken in the usage button's name, not shown by colour alone", () => {
-  const near = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, verdict: "NEAR_LIMIT" as never } });
-  const html = renderToString(<StatusBar route={route("review")} snapshot={near} registry={registry} />);
-  expect(html).toMatch(/aria-label="Usage details: [^"]*63%, near limit/);
-  expect(html).toContain('role="img" aria-label="Near limit" class="pc-statusbar__stale">!</span>');
+  const withVerdict = (verdict: Verdict) => {
+    const s = withUsageState(snapshot);
+    return { ...s, planner: { ...s.planner!, usageState: { ...s.planner!.usageState!, verdict } } };
+  };
+  const nearHtml = renderToString(<StatusBar route={route("review")} snapshot={withVerdict("NEAR_LIMIT")} registry={registry} />);
+  expect(nearHtml).toMatch(/aria-label="Usage details: [^"]*63%, near limit/);
+  expect(nearHtml).toContain('role="img" aria-label="Near limit" class="pc-statusbar__stale">!</span>');
+  const outHtml = renderToString(<StatusBar route={route("review")} snapshot={withVerdict("EXHAUSTED")} registry={registry} />);
+  expect(outHtml).toMatch(/aria-label="Usage details: [^"]*63%, out of quota/);
+  expect(outHtml).toContain('role="img" aria-label="Out of quota" class="pc-statusbar__stale">!</span>');
 });

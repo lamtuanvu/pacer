@@ -23,6 +23,8 @@ import { pluginRegistry } from "../plugins";
 import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
+import { accountEvidenceScope } from "../evidence/scope";
+import { configuredUsageIdentities, deleteUsageStore, pruneOrphanUsageStores } from "../usage/store";
 
 export interface HostFacts {
   os: string | null;
@@ -235,9 +237,17 @@ export async function mapRepo(ctx: Ctx, alias: string, key: string, path: string
 
 export async function addAccount(ctx: Ctx, alias: string, account: string, home: string) {
   configured(ctx, alias);
-  const cfg = loadStrategy(ctx).accounts[account];
+  const before = loadStrategy(ctx);
+  const cfg = before.accounts[account];
   if (!cfg || !["codex", "claude"].includes(cfg.kind)) throw new CoreError("invalid_input", "host account must be a configured codex or claude account");
+  const previousIdentity = accountEvidenceScope(cfg, before.hosts).identity;
   await applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
+  const after = loadStrategy(ctx);
+  const nextIdentity = accountEvidenceScope(after.accounts[account]!, after.hosts).identity;
+  if (previousIdentity !== nextIdentity) {
+    try { deleteUsageStore(ctx, previousIdentity); } catch { /* best effort */ }
+    pruneOrphanUsageStores(ctx, configuredUsageIdentities(after.accounts, after.hosts));
+  }
   // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
   const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
