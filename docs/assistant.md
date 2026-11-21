@@ -46,16 +46,17 @@ are passed in the ACP `mcpServers` field with a per-turn grant bound only by env
 checks that pacer MCP reported healthy tools; if not, that turn falls back to digest-only and says so. Settings shows
 live tools once the ask-mode check for this CLI version proved a pacer tool call.
 
-### 3. Claude Code (`assistant-executor`)
+### 3. Claude Code over the control protocol (`assistant-executor`)
 
-A Claude Code account answers through a host-pinned `claude -p` stream-json turn with tools disabled
-(`--tools ''`, empty `--mcp-config`). That path is **digest-only**: the agent answers from the host-built summary and
-never receives live pacer MCP tools. The ask-mode check for Claude does not require a pacer tool call, so a passing
-check still leaves `liveTools: false` and Settings keeps the summary-only wording. The allowlisted `telemetry@builtin`
-plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt.
+A Claude Code account answers through a host-pinned `claude` stream-json control-protocol turn. Built-in tools stay off;
+only pacer MCP tools (`mcp__pacer__*`) are allowed; and every `can_use_tool` decision is made by the host. The grant
+reaches Claude only through process env (never argv). After initialize, the host checks MCP status for a connected
+`pacer` server with the expected tools; if that health check fails, the turn falls back to digest-only for that turn and
+says so. Settings shows live tools once the ask-mode check for this CLI version proved a pacer tool call. The allowlisted
+`telemetry@builtin` plugin is Claude Code's normal telemetry to Anthropic, which already receives the prompt.
 
-Live Claude checks that need the signed-in subscription (for example a future control-protocol path) use a live sandbox
-with `bun run live up --real-keychain` (see [live validation](testing/live-validation.md)).
+Live Claude checks that need the signed-in subscription use a live sandbox with
+`bun run live up --real-keychain` (see [live validation](testing/live-validation.md)).
 
 ### 4. Codex over app-server (`assistant-executor`)
 
@@ -69,10 +70,10 @@ ask-mode check proved a pacer tool call for the installed Codex version.
 An executor account can be saved for the assistant only after it passes the **ask-mode check**, which runs again when the
 adapter CLI's version changes. The check runs a first turn and a resumed turn. Depending on the adapter it requires that
 forbidden actions were attempted and denied (opencode), that Codex recorded denied shell/file approvals while a pacer tool
-worked, or that Claude's digest-only init evidence matches the pinned `claude -p` path. Nothing may be written
-outside the run directory, and a planted AGENTS.md canary must not enter the answer. An inconclusive run (the agent
-attempted nothing) fails. A passing check that required a pacer tool call sets `liveTools` on that candidate; a
-digest-only Claude pass does not.
+worked, or that Claude's control-protocol init shows connected pacer MCP with a completed (or error) `mcp__pacer__*` call
+and forbidden tools absent or refused. Nothing may be written outside the run directory, and a planted AGENTS.md canary
+must not enter the answer. An inconclusive run (the agent attempted nothing) fails. A passing check that proved a pacer
+tool call sets `liveTools` on that candidate.
 
 ## Residual risk
 

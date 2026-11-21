@@ -1,10 +1,12 @@
 import { describe, expect, test } from "bun:test";
 import { callOp } from "../src/api/ops";
 import { assertCallerCanInvoke } from "../src/api/caller-policy";
-import { admit, ask, assistantStatus, cancel, type AssistantDeps, subscribeTurn } from "../src/assistant/service";
+import { admit, ask, assistantStatus, cancel, candidates, type AssistantDeps, subscribeTurn } from "../src/assistant/service";
 import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
+import { mkdirSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 
 const strategy = (o: { planner?: string; reservePct?: number } = {}) => ({
@@ -44,6 +46,24 @@ describe("admission", () => {
   test("status.liveTools follows the chosen pacer candidate", async () => {
     const { ctx, deps } = setup();
     expect((await assistantStatus(ctx, deps)).liveTools).toBe(true);
+  });
+  test("status.liveTools is true for a Claude account once self-test proved a pacer tool call", async () => {
+    const ctx = fakeCtx();
+    const claudeHome = join(ctx.home, "claude-work");
+    mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
+    writeSettings(ctx, { runner: null, account: "work", backend: "executor", expect_rev: readSettings(ctx).rev });
+    const strategy = () => ({
+      planner: { agent: "claude-code", account: "work" },
+      accounts: { work: { kind: "claude", source: "pacer", home: claudeHome, model: "sonnet", name: "work" } },
+      runners: {}, dispatch: { reservePct: 0 },
+    }) as unknown as Strategy;
+    const statusFn = async () => ({ mode: "normal", planner: "claude-code", accounts: [] }) as unknown as Status;
+    const proved = { strategy, status: statusFn, selfTest: () => ({ ok: true, liveTools: true }) };
+    expect(candidates(ctx, proved).find(r => r.account === "work" && r.backend === "executor"))
+      .toMatchObject({ available: true, liveTools: true });
+    expect((await assistantStatus(ctx, proved)).liveTools).toBe(true);
+    const digestOnly = { strategy, status: statusFn, selfTest: () => ({ ok: true, liveTools: false }) };
+    expect((await assistantStatus(ctx, digestOnly)).liveTools).toBe(false);
   });
   test("refuses an exhausted account, the reserve, the daily cap, and planner strict mode, each with a plain reason", async () => {
     const { ctx, deps } = setup();

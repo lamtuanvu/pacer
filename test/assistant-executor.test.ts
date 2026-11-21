@@ -732,10 +732,11 @@ describe("claude-code ask mode", () => {
     const { ctx, deps } = claudeSetup();
     expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "work has not passed the ask-mode check yet." });
     expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: false, liveTools: false });
-    expect((await selfTest(ctx, "work", deps)).passed).toBe(true);
+    expect(await selfTest(ctx, "work", deps)).toMatchObject({ passed: true, liveTools: true });
     expect((await admit(ctx, deps)).ok).toBe(true);
-    // Claude digest-only ask mode: check can pass without proving live pacer tools.
-    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true, liveTools: false });
+    // Control-protocol ask mode: a passing check that proved a pacer tool call sets liveTools.
+    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true, liveTools: true });
+    expect((await assistantStatus(ctx, deps)).liveTools).toBe(true);
   }, 60_000);
 
   test("a Claude account without a config directory is unavailable and never falls back", () => {
