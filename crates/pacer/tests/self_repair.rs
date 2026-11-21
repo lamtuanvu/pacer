@@ -398,6 +398,8 @@ fn explicit_repair_restores_missing_assistant_when_manifest_lists_it() {
         fs::metadata(&assistant).unwrap().permissions().mode() & 0o777,
         0o755
     );
+    // Matching SHA256SUMS entry: manifest + SHA256SUMS + assistant binary.
+    assert_eq!(feed.requests.load(Ordering::Relaxed), 3);
 }
 
 #[test]
@@ -444,7 +446,7 @@ fn sha256sums_disagree_or_missing_refuses_before_install() {
     let core_file = format!("pacer-core-{os}-{arch}");
     let assistant_file = format!("pacer-assistant-pacer-{os}-{arch}");
 
-    // Poisoned manifest sha256 while SHA256SUMS still lists the real digest.
+    // Poisoned core manifest sha256 while SHA256SUMS still lists the real digest.
     {
         let install = Install::new();
         let old = b"#!/bin/sh\necho 'pacer 0.0.1'\n";
@@ -469,6 +471,36 @@ fn sha256sums_disagree_or_missing_refuses_before_install() {
         );
         assert_eq!(fs::read(install.core()).unwrap(), old);
         // manifest + SHA256SUMS only; binary never fetched.
+        assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
+    }
+
+    // Poisoned assistant manifest sha256 while SHA256SUMS still lists the real digest.
+    {
+        let install = Install::new();
+        let script = install.script();
+        let real = hash(&script);
+        fs::write(install.core(), &script).unwrap();
+        fs::set_permissions(install.core(), fs::Permissions::from_mode(0o755)).unwrap();
+        let assistant = install.dir.path().join("pacer-assistant-pacer");
+        assert!(!assistant.exists());
+        let feed = Feed::altered(
+            &install.version,
+            &script,
+            &real,
+            Some((script.as_slice(), real.as_str())),
+            |v| v["assets"][0]["nativePlugins"][0]["sha256"] = "0".repeat(64).into(),
+            None,
+        );
+        let output = install.run(&["self-repair", "--base", &feed.base], &feed.base, false);
+        assert!(!output.status.success());
+        let err = String::from_utf8_lossy(&output.stderr);
+        assert!(
+            err.contains("SHA256SUMS and manifest.json disagree")
+                && err.contains(&assistant_file),
+            "{err}"
+        );
+        assert!(!assistant.exists());
+        assert_eq!(fs::read(install.core()).unwrap(), script);
         assert_eq!(feed.requests.load(Ordering::Relaxed), 2);
     }
 
