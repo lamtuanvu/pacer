@@ -20,7 +20,12 @@ test("snapshots cache indexed selections, expire old records, and refresh on loc
     const first = await liveSnapshot(ctx, { status });
     expect(first.snapshot.tasks.map(t => t.id)).toContain(recent.id);
     expect(first.snapshot.tasks.map(t => t.id)).not.toContain(old.id);
-    const count = () => query.mock.calls.filter(([, filter]) => filter?.states || filter?.updatedSince !== undefined).length;
+    // Count selection queries only (updatedSince / queued+running). Exclude
+    // buildReadModel's orchestrate-capacity `states: ["running"]` probe, which
+    // runs on every snapshot and is not part of the selection cache under test.
+    const selection = (filter: { states?: string[]; updatedSince?: number; awaitingAnswer?: boolean } | undefined) =>
+      !!filter && (filter.updatedSince !== undefined || !!filter.awaitingAnswer || (filter.states?.includes("queued") ?? false));
+    const count = () => query.mock.calls.filter(([, filter]) => selection(filter as never)).length;
     const calls = count();
     expect(calls).toBe(2);
     await liveSnapshot(ctx, { status });

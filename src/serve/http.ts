@@ -3,6 +3,8 @@ import { pluginNativeRoute } from "./plugin-native";
 import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant, authorizeAssistantGrant } from "../dispatch/work";
+import { RUN_GRANT_OPS, verifyRunGrant } from "../workflow/run-grant";
+import { recoverOrphanTurns } from "../workflow/orchestrator";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
@@ -78,6 +80,8 @@ export function startServer(
   sweepAtomicWriteTmps(initialCtx.pacerHome);
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
+  // Start-up: revoke orphan prg_ grants and settle live turns with no process (API-5b).
+  void recoverOrphanTurns(initialCtx).catch(() => { /* recovery is best-effort */ });
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
   // Serving diagnostics must not wait on account configuration writes. New local
@@ -169,6 +173,7 @@ export function startServer(
       let workGrant: string | undefined;
       let enforcementToken: string | undefined;
       let assistantGrant: string | undefined;
+      let runGrant: string | undefined;
       if (opts.internal) {
         if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
           return new Response("unauthorized\n", { status: 401 });
@@ -184,6 +189,9 @@ export function startServer(
           if (scoped.startsWith("pag_")) {
             if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
             assistantGrant = scoped;
+          } else if (scoped.startsWith("prg_")) {
+            // The run grant is not an executor: ops only, fail closed on verify (API-5b).
+            runGrant = scoped;
           } else if(scoped.startsWith("pet_"))enforcementToken=scoped;else workGrant=scoped;
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
@@ -698,15 +706,17 @@ export function startServer(
         if (pathname === "/app/auth") return appRoute(req, getCtx());
         bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
         const candidate = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-        if (!bearer && /^(?:pwg|pet|pag)_[0-9a-f]{64}$/.test(candidate)) {
+        if (!bearer && /^(?:pwg|pet|pag|prg)_[0-9a-f]{64}$/.test(candidate)) {
           if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
           // The assistant grant is accepted for `assistant.tool` alone; any other route or op is refused here.
           if (candidate.startsWith("pag_")) {
             if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
             assistantGrant = candidate;
+          } else if (candidate.startsWith("prg_")) {
+            runGrant = candidate;
           } else if(candidate.startsWith("pet_"))enforcementToken=candidate;else workGrant=candidate;
         }
-        if (!bearer && !workGrant && !enforcementToken && !assistantGrant) {
+        if (!bearer && !workGrant && !enforcementToken && !assistantGrant && !runGrant) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -723,7 +733,9 @@ export function startServer(
       const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}})
         : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}})
         // The assistant-turn identity: not the operator, not an executor session, and no PACER_ROLE.
-        : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}}) : getCtx;
+        : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}})
+        // The run-grant identity (API-5b): orchestrator turn, not the operator, not an executor.
+        : runGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_RUN_GRANT:runGrant,PACER_ROLE:"orchestrator"}}) : getCtx;
       if (workGrant) {
         try { authorizeWorkGrant(requestCtx(), workGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
@@ -731,6 +743,13 @@ export function startServer(
       if (assistantGrant) {
         try { authorizeAssistantGrant(requestCtx(), assistantGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
+      }
+      if (runGrant) {
+        if (!verifyRunGrant(requestCtx(), runGrant)) return new Response("forbidden\n", { status: 403 });
+        const opName = pathname.startsWith("/v3/ops/") ? pathname.slice("/v3/ops/".length) : "";
+        if (!opName || !(RUN_GRANT_OPS as readonly string[]).includes(opName)) {
+          return new Response("forbidden\n", { status: 403 });
+        }
       }
       if(enforcementToken){
         if(pathname!=="/v3/ops/dispatch.enforcement.denied")return new Response("forbidden\n",{status:403});
@@ -757,7 +776,7 @@ export function startServer(
         // terminals and settings keep bearer behavior.
         const session = req.headers.get("x-pacer-session") ?? "";
         const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant&&!assistantGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant&&!assistantGrant&&!runGrant, ...(humanSession ? {participant: "human"} : runGrant ? {participant: "orchestrator"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }

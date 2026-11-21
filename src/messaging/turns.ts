@@ -23,6 +23,8 @@ import { parentOf, participantKind, rootOf, taskOf } from "./participants";
 import { effectivePolicy } from "./policy";
 import * as store from "./store";
 import type { Message } from "./types";
+import { rootRunId, stepByTask } from "../workflow/store";
+import { budgetAllowsMessage, countMessageTurn } from "../workflow/budget";
 
 export type Delivery = "turn_started" | "queued" | "pull" | "held" | "closed" | "cap" | "live_unavailable" | "no_session" | "live";
 const REPORT_BYTES = 64 * 1024;
@@ -87,6 +89,8 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
     const t = readTask(ctx, id);
     const blocked = turnBlocked(ctx, t);
     if (blocked || !t) return blocked ?? "closed";
+    // Cross-run messages from a spent sender wait for a natural turn (D2.11 / D3).
+    if (onlySpentCrossRunPending(ctx, id)) return "queued";
     const prior = sessionAgent(t)!;
     // Policy admitted another executor: it cannot resume the prior session, so it replays the thread.
     const executor = o.executor ?? prior;
@@ -117,7 +121,45 @@ export function startTurnIfIdle(ctx: Ctx, id: string, spawn: SpawnRunner = defau
   });
   // Same environment scrub as the managed restart in src/core/work.ts:171, and the sender's planner session is not the runner's.
   if (start) launchTaskRunner({ ...ctx, env: { ...withoutPlannerSession(ctx.env), PACER_WORK_GRANT: undefined, PACER_ROLE: undefined } }, id, spawn);
+  // Count cross-run message turns when the turn actually starts — including drain/replay (D2.11).
+  if (result === "turn_started") countCrossRunMessageBudget(ctx, id);
   return result;
+}
+
+/**
+ * Charge the sender's workflow run when this task's message turn is cross-run.
+ * Spent senders ride along on a turn started for another reason without counting.
+ */
+function countCrossRunMessageBudget(ctx: Ctx, taskId: string): void {
+  const toStep = stepByTask(ctx, taskId);
+  if (!toStep) return;
+  const pending = store.pendingFor(ctx, `task:${taskId}`);
+  for (const m of pending) {
+    const fromTask = taskOf(m.from);
+    if (!fromTask) continue;
+    const fromStep = stepByTask(ctx, fromTask);
+    if (!fromStep) continue;
+    if (rootRunId(ctx, fromStep.runId) === rootRunId(ctx, toStep.runId)) continue;
+    if (!budgetAllowsMessage(ctx, fromStep.runId)) continue;
+    countMessageTurn(ctx, fromStep.runId);
+    return;
+  }
+}
+
+/** True when every pending inbound message is a cross-run send from a spent budget. */
+function onlySpentCrossRunPending(ctx: Ctx, taskId: string): boolean {
+  const toStep = stepByTask(ctx, taskId);
+  if (!toStep) return false;
+  const pending = store.pendingFor(ctx, `task:${taskId}`);
+  if (pending.length === 0) return false;
+  return pending.every(m => {
+    const fromTask = taskOf(m.from);
+    if (!fromTask) return false;
+    const fromStep = stepByTask(ctx, fromTask);
+    if (!fromStep) return false;
+    if (rootRunId(ctx, fromStep.runId) === rootRunId(ctx, toStep.runId)) return false;
+    return !budgetAllowsMessage(ctx, fromStep.runId);
+  });
 }
 
 /** Why project policy holds a task's next message turn. */

@@ -1,6 +1,6 @@
 import { CoreError } from "../core/errors";
 import { authorizeWorkGrant, getWork, type WorkNode } from "../dispatch/work";
-import { isExecutorSession } from "../install/role";
+import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import type { ParticipantKind, Relation } from "./types";
@@ -29,6 +29,8 @@ export function plannerParticipant(env: Ctx["env"]): string | null {
 
 /** The explicit local human path: an interactive terminal that is neither an executor nor a planner session. */
 export function localHuman(ctx: Ctx, isTTY = !!process.stdin.isTTY): "human" | undefined {
+  // Orchestrator turns must never be attributed as the local human (M5).
+  if (isOrchestratorSession(ctx) || ctx.env.PACER_RUN_GRANT) return undefined;
   return isTTY && !isExecutorSession(ctx) && !plannerParticipant(ctx.env) ? "human" : undefined;
 }
 
@@ -46,6 +48,11 @@ export function callerParticipant(ctx: Ctx, deps: { appAuthenticated?: boolean; 
     const id = ctx.env.PACER_TASK_ID;
     if (!id) throw new CoreError("not_allowed", "Executor identity is unknown", undefined, { reason: "msg_forbidden", layer: "identity" });
     return { id: `task:${id}`, grant: null };
+  }
+  // Run-grant / orchestrator turn: always "orchestrator" (S M5) — never honour
+  // deps.participant "human" from a TTY path under a grant session.
+  if (ctx.env.PACER_RUN_GRANT || ctx.env.PACER_ROLE === "orchestrator") {
+    return { id: "orchestrator", grant: null };
   }
   if (deps.appAuthenticated) return { id: "human", grant: null };
   // A planner session keeps its own identity; an explicit participant applies only outside one.

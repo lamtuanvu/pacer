@@ -69,6 +69,8 @@ import { markExhausted } from "../usage/reactive";
 import { usageRefreshCapability } from "../usage";
 import { listTasksWhere, readTask, updateTask, withTaskLock, withTaskLockAsync } from "./store";
 import { resolvePlacement, TERMINAL_STATES, type AttemptUsage, type RoutingNote, type TaskRecord, type TaskResult, type Verification } from "./types";
+import { liveTurnForTask } from "../workflow/wakeups";
+import { issueRunGrant } from "../workflow/run-grant";
 
 export const MAX_ATTEMPTS = 3;
 /** Only a structured executor identity is evidence of the model actually used. */
@@ -324,7 +326,11 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // other work reads the login environment first.
         const servicePath = work?.options.delegationEnforcement === "strict";
         if (!servicePath) await terminalEnv(ctx.env, {cwd: ctx.home}).catch(() => undefined);
-        const st = await deps.computeStatus({ ...ctx, now }, s, {includePlannerSignIn: task.interactionMode === "conversation", servicePath});
+        const orchTurn = task.kind === "orchestrate";
+        const st = await deps.computeStatus({ ...ctx, now }, s, {
+          includePlannerSignIn: task.interactionMode === "conversation" || orchTurn,
+          servicePath,
+        });
         startStatus = st;
         const blocked = readBlocked({ ...ctx, now });
         const broken = readBroken({ ...ctx, now });
@@ -341,8 +347,9 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         // `undefined` (not an explicit selection) here, same as a delegated task with no project policy,
         // keeps rankExecutors' own pacing-policy ordering in effect; conversationFallback below only
         // appends the requested executor afterward, when a routing rule left it out of the pool entirely.
+        // Orchestrator turns run as the planner (kind orchestrate); include it in the pool (round-2 B1).
         const ranking = rankExecutors(kind, s, byId, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || orchTurn});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(ranking, kind, s, byId, task.requestedExecutor);
         routableCandidates = ranking.ranked.map(e => e.id);
         if (work) {
@@ -675,7 +682,7 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         const prepared = await prepareLaunch(launchCtx, currentStrategy, pick, deps.computeStatus, startStatus);
         const refreshedById = Object.fromEntries(prepared.status.providers.map(p => [p.id, p]));
         const refreshedRanking = rankExecutors(kind, currentStrategy, refreshedById, selection && {executors: selection.executors, order: "configured"},
-          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation"});
+          {includePlanner: !!work?.options.allowDelegation || task.interactionMode === "conversation" || task.kind === "orchestrate"});
         if (task.interactionMode === "conversation" && !selection) conversationFallback(refreshedRanking, kind, currentStrategy, refreshedById, task.requestedExecutor);
         const candidate = refreshedRanking.ranked.find(e => e.id === pick);
         if (!candidate || prepared.decision.state === "ineligible") {
@@ -766,6 +773,29 @@ async function runTaskOnce(ctx: Ctx, id: string, deps: RunnerDeps, ownership:{cl
         }
       }
       if(work?.options.allowDelegation&&!(resuming&&handedOver)){const token=issueWorkGrant({...ctx,now:Date.now()/1000},id,task.attempts.length+1);executionCtx={...executionCtx,env:{...executionCtx.env,PACER_WORK_GRANT:token}};}
+      // Orchestrator turns: issue the prg_ into the AGENT execution env only (not the
+      // `_run` child). Mirrors work-grant issuance above (round-2 B1).
+      if (task.kind === "orchestrate") {
+        const turn = liveTurnForTask(ctx, id);
+        if (turn) {
+          // Use the runner ctx clock: turn.deadline is on that clock (tests freeze now).
+          const token = issueRunGrant(ctx, {
+            runId: turn.runId, turnId: turn.id,
+            deadline: Math.max(turn.deadline, ctx.now + 1),
+          });
+          executionCtx = {
+            ...executionCtx,
+            env: {
+              ...executionCtx.env,
+              PACER_RUN_GRANT: token,
+              PACER_ROLE: "orchestrator",
+              PACER_RUN_ID: turn.runId,
+              PACER_TURN_ID: turn.id,
+              PACER_TASK_ID: id,
+            },
+          };
+        }
+      }
 
       let out: AttemptOutcome;
       try {

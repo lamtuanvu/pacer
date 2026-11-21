@@ -57,8 +57,9 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         "assistant",
         "machine",
         "message",
-        // Workflow runs are v3-only: their entity events never reach v2 clients.
+        // Workflow runs and decisions are v3-only: their entity events never reach v2 clients.
         "run",
+        "decision",
         "discovery.found",
         "control",
     ]
@@ -167,6 +168,7 @@ pub fn events_since(
             if e["type"] == "planner"
                 || e["type"] == "desktop.update"
                 || e["type"] == "run"
+                || e["type"] == "decision"
                 || v3_only(&e)
             {
                 continue;

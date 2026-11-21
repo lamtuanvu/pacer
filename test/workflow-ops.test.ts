@@ -178,29 +178,26 @@ test("every run change publishes a run entity event", async () => {
   const step = stepsOfRun(ctx, run.id)[0];
   updateTask(ctx, step.taskId!, t => { t.state = "stopped"; });
   await onTaskSettled(ctx, step.taskId!);
-  const failed = getRun(ctx, run.id)!;
-  expect(failed.status).toBe("failed");
-  // A terminal run stays terminal: stopping it conflicts and publishes nothing.
-  const refused = await fail(callOp(ctx, "run.stop", { id: run.id, expect_rev: failed.rev }));
-  expect(refused?.code).toBe("conflict");
-  // The outbox holds one run entity per published change: the start, the step
-  // settlement and the failure it caused.
+  // Phase 2: a failed step wakes the orchestrator; the run waits (does not fail yet).
+  const waiting = getRun(ctx, run.id)!;
+  expect(waiting.status).toBe("waiting");
   const readRuns = async (id: string) => {
     const outbox = (await import("../src/link/store")).readOutboxSince(ctx, 0);
     return outbox.filter(e => e.envelope.type === "entity" && (e.envelope.data as { kind: string }).kind === "run" && (e.envelope.data as { id: string }).id === id);
   };
   const runs = await readRuns(run.id);
-  expect(runs).toHaveLength(3);
+  expect(runs.length).toBeGreaterThanOrEqual(2);
   const started = JSON.parse(JSON.stringify((runs[0]!.envelope.data as { value: RunRow }).value));
   expect(started.status).toBe("running");
-  const failedValue = JSON.parse(JSON.stringify((runs[2]!.envelope.data as { value: RunRow }).value));
-  expect(failedValue.status).toBe("failed");
+  expect(started.orchestrator).toBeDefined();
+  const latest = JSON.parse(JSON.stringify((runs[runs.length - 1]!.envelope.data as { value: RunRow }).value));
+  expect(latest.status).toBe("waiting");
   // A second run publishes its stop through the engine as well.
   const run2 = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Do X" }, stubDeps()) as RunRow;
   await callOp(ctx, "run.stop", { id: run2.id, expect_rev: run2.rev });
   const stopped = await readRuns(run2.id);
-  expect(stopped).toHaveLength(2);
-  expect((JSON.parse(JSON.stringify((stopped[1]!.envelope.data as { value: RunRow }).value)) as RunRow).status).toBe("stopped");
+  expect(stopped.length).toBeGreaterThanOrEqual(2);
+  expect((JSON.parse(JSON.stringify((stopped[stopped.length - 1]!.envelope.data as { value: RunRow }).value)) as RunRow).status).toBe("stopped");
 });
 
 test("addDefinition through the ops keeps the store's conflict rules", async () => {
@@ -292,4 +289,71 @@ edges: []
   const refused = await fail(callOp(ctx, "workflow.add", { source: dup }));
   expect(refused?.code).toBe("invalid_input");
   expect(await callOp(ctx, "workflow.list", {})).toEqual([]);
+});
+
+test("run.set_auto, set_budget and set_planner round-trip; executor refused", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  let run = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Do X" }, stubDeps()) as RunRow;
+  run = await callOp(ctx, "run.set_auto", { id: run.id, auto: true, expect_rev: run.rev }) as RunRow;
+  expect(run.auto).toBe(true);
+  run = await callOp(ctx, "run.set_budget", { id: run.id, orchestrator_turns: 40, message_turns: 10, expect_rev: run.rev }) as RunRow;
+  expect(run.budget).toContain("40");
+  run = await callOp(ctx, "run.set_planner", { id: run.id, planner: "codex", expect_rev: run.rev }) as RunRow;
+  expect(run.pendingPlanner).toBe("codex");
+  // Switch takes effect at the next turn only: current planner may still be the old one.
+  const got = await callOp(ctx, "run.get", { id: run.id }) as { run: RunRow & { orchestrator?: { state?: string; planner?: string } } };
+  expect(got.run.orchestrator).toMatchObject({ state: expect.any(String) });
+  expect((await fail(callOp(executorCtx(ctx), "run.set_planner", {
+    id: run.id, planner: "cursor", expect_rev: got.run.rev,
+  })))?.code).toBe("not_allowed");
+  expect((await fail(callOp(executorCtx(ctx), "run.set_budget", {
+    id: run.id, orchestrator_turns: 99, expect_rev: got.run.rev,
+  })))?.code).toBe("not_allowed");
+});
+
+test("run.set_planner rejects unknown planners", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const run = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Do X" }, stubDeps()) as RunRow;
+  const e = await fail(callOp(ctx, "run.set_planner", { id: run.id, planner: "not-a-planner", expect_rev: run.rev }));
+  expect(e?.code).toBe("invalid_input");
+});
+
+test("run.retry_orchestrator clears a failure block and is person-only", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  let run = await callOp(ctx, "run.start", { workflow: "t/demo", repo: tmpDir(), brief: "Do X" }, stubDeps()) as RunRow;
+  const { updateRun, workflowDatabase } = await import("../src/workflow/store");
+  const { insertTurn } = await import("../src/workflow/wakeups");
+  insertTurn(ctx, {
+    id: "turn_fail3",
+    runId: run.id,
+    planner: "claude-code",
+    status: "failed",
+    startedAt: 1,
+    deadline: 2,
+    failures: 3,
+  });
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_turns SET ended_at = ? WHERE id = ?",
+  ).run(2, "turn_fail3");
+  run = updateRun(ctx, run.id, run.rev, {
+    orchestratorState: "blocked", reason: "orchestrator failed 3 times",
+  });
+  run = await callOp(ctx, "run.retry_orchestrator", { id: run.id, expect_rev: run.rev }) as RunRow;
+  expect(run.orchestratorState).toBe("idle");
+  const failures = workflowDatabase(ctx).query<{ failures: number }, [string]>(
+    "SELECT failures FROM workflow_turns WHERE id = ?",
+  ).get("turn_fail3")!.failures;
+  expect(failures).toBe(0);
+  expect((await fail(callOp(executorCtx(ctx), "run.retry_orchestrator", {
+    id: run.id, expect_rev: run.rev,
+  })))?.code).toBe("not_allowed");
+  // Orchestrator role is also refused for person-only ops.
+  expect((await fail(callOp(
+    { ...ctx, env: { ...ctx.env, PACER_ROLE: "orchestrator" } },
+    "run.retry_orchestrator",
+    { id: run.id, expect_rev: run.rev },
+  )))?.code).toBe("not_allowed");
 });

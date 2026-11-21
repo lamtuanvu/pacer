@@ -9,8 +9,14 @@ import { isTaskId } from "../tasks/store";
 import type { Ctx } from "../types";
 import { isObj } from "../util";
 
+/** Third role: the run's orchestrator turn (Phase 2). Not an executor. */
+export function isOrchestratorSession(ctx: Ctx): boolean {
+  return ctx.env.PACER_ROLE === "orchestrator";
+}
+
 /** Orca new-child worktrees are named pacer-<taskId>-<providerId as Orca stores it> (laneWorktreeName); pacer's own task worktrees live under <pacerHome>/worktrees/<repo>/<taskId>. */
 export function isExecutorSession(ctx: Ctx, input?: unknown): boolean {
+  if (isOrchestratorSession(ctx)) return false;
   if (ctx.env.PACER_ROLE === "executor") return true;
   const paths = [process.cwd(), ...(isObj(input) && typeof input.cwd === "string" ? [input.cwd] : [])];
   const own = join(ctx.pacerHome, "worktrees") + "/";

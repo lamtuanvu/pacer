@@ -115,7 +115,7 @@ function validate(ctx: Ctx, input: CreateTerminalInput) {
 function launchEnv(ctx: Ctx, argv: string[], extra: Record<string, string> | undefined, shell: boolean): Record<string, string | undefined> {
   const env: Record<string,string|undefined> = { ...process.env, ...ctx.env, ...extra, HOME: ctx.home, PACER_HOME: ctx.pacerHome };
   if (shell) env.SHELL = argv[0];
-  for (const name of [...CORE_SECRET_ENV,"PACER_AUTH_TOKEN","PACER_WORK_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
+  for (const name of [...CORE_SECRET_ENV,"PACER_AUTH_TOKEN","PACER_WORK_GRANT","PACER_RUN_GRANT","PACER_REPORT_TOKEN","PACER_COMPLETION_NONCE","PACER_ADMISSION_LEASE","PACER_ADMISSION_TASK","PACER_ADMISSION_SESSION","PACER_ADMISSION_DIR","PACER_RUN_DIR","PACER_TRANSCRIPT_REPORT","PACER_ROLE","PACER_TASK_ID","PACER_HOST_SOCKET"]) delete env[name];
   return env;
 }
 

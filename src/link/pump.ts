@@ -42,7 +42,11 @@ import { type AlertData, type OutboxEvent, LIMITS, type TaskData, clip } from ".
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx, ids?: Set<string>):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[],beforeAppend?:Parameters<typeof publish>[2]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>(ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity)),publish};
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>{
+  const rows=ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity);
+  // Engine-owned orchestrate tasks stay out of link events (A-M4); machine.used still counts them elsewhere.
+  return rows.filter(t=>t.kind!=="orchestrate");
+},publish};
 export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
   return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";

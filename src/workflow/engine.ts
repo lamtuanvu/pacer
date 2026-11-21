@@ -19,7 +19,7 @@ import type { SpawnRunner } from "../tasks/api";
 import { delegate as delegateTask, stop as stopTaskCore } from "../core/tasks";
 import { stopWork } from "../core/work";
 import { getWork } from "../dispatch/work";
-import { readTask } from "../tasks/store";
+import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskState } from "../tasks/types";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
@@ -27,10 +27,26 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, stepByTask, stepsOfRun, taskByRequestId,
-  updateRun, updateStep, type RunPatch, type RunRow, type StepKey, type StepRow,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, stepByTask, stepsOfRun, taskByRequestId,
+  updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
-import { isPlainObject, type AgentStep, type FanoutStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
+import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
+import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
+import { canAutoDecide } from "./auto";
+import { stopLiveTurnsForRun } from "./orchestrator";
+import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
+import { loadStrategy } from "../config/strategy";
+
+/** Wake the root orchestrator for an auto-effective waiting human step. */
+function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
+  if (!canAutoDecide(getRun(ctx, rootRunId(ctx, run.id)) ?? run, stepId, stepDef)) return;
+  enqueueWakeup(ctx, {
+    runId: run.id,
+    cause: "question",
+    ref: stepWakeRef(run.id, stepId, attempt),
+    createdAt: ctx.now,
+  });
+}
 
 /** Task states whose settlement a step instance follows. `partial` and `needs_input`
  *  stay out: Phase 1 has no orchestrator to hand them to (plan, settlement rules). */
@@ -101,7 +117,7 @@ function stepResults(ctx: Ctx, runId: string): Record<string, { result?: unknown
 async function publishRunChange(ctx: Ctx, run: RunRow | null): Promise<void> {
   if (!run) return;
   try {
-    await publish(ctx, [{ type: "entity", data: { kind: "run", id: run.id, value: run } }]);
+    await publish(ctx, [{ type: "entity", data: { kind: "run", id: run.id, value: runEntityValue(run) } }]);
   } catch { /* publishing must never throw into the engine */ }
 }
 
@@ -117,10 +133,18 @@ function liveRun(ctx: Ctx, runId: string): RunRow {
 /** Applies a run patch against the current rev and publishes the change. Terminal
  *  runs stay terminal: patching one is a conflict (an end edge never overwrites a
  *  stopped run). */
-async function patchRun(ctx: Ctx, runId: string, patch: RunPatch): Promise<RunRow> {
+async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOptions): Promise<RunRow> {
   const run = liveRun(ctx, runId);
   const updated = updateRun(ctx, runId, run.rev, patch);
   await publishRunChange(ctx, updated);
+  // Only a root run terminal stops the shared orchestrator turn (round-2 I1).
+  // A choose_workflow child ending must leave the root's live turn alone.
+  if (patch.status && RUN_TERMINAL.includes(patch.status) && !updated.parentRunId) {
+    stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
+  }
+  if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
+    await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);
+  }
   return updated;
 }
 
@@ -131,7 +155,7 @@ export async function failRun(ctx: Ctx, runId: string, reason: string, loops?: R
   const current = getRun(ctx, runId);
   if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(current.status)) return;
-  await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) });
+  await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) }, { deps, spawn: undefined });
   for (const row of stepsOfRun(ctx, runId)) {
     if (row.status !== "running") continue;
     if (row.taskId) {
@@ -194,17 +218,196 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
       if (active.taskId || stepDef.type === "human") return active; // An instance is already in flight.
       // A row written before a crash during delegation: reuse its attempt and
       // request id instead of delegating a duplicate.
+      if (stepDef.type !== "agent") throw new CoreError("conflict", `step '${stepId}' is stuck without a task`);
       return startAgentStep(ctx, getRun(ctx, run.id)!, def, stepId, stepDef, branch, active.attempt, e);
     }
   }
   const attempt = nextAttempt(ctx, run.id, stepId);
   if (stepDef.type === "human") {
-    const row = insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
+    const db = workflowDatabase(ctx);
+    const row = db.transaction(() => {
+      const inserted = insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
+      wakeAutoHumanStep(ctx, run, stepId, attempt, stepDef);
+      return inserted;
+    })();
     if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
     return row;
   }
   if (stepDef.type === "fanout") return startFanout(ctx, run, stepId, stepDef, attempt, e);
+  if (stepDef.type === "choose_workflow") {
+    return startChooseWorkflowStep(ctx, run, stepId, stepDef, attempt);
+  }
+  if (stepDef.type === "agent" && stepDef.role === "orchestrator") {
+    return startOrchestratorRoleStep(ctx, run, def, stepId, stepDef, attempt);
+  }
   return startAgentStep(ctx, run, def, stepId, stepDef, branch, attempt, e);
+}
+
+/** Ensures the run has an orchestrator task (kind orchestrate) without a step row. */
+function ensureOrchestratorTask(ctx: Ctx, run: RunRow): string {
+  if (run.orchestratorTaskId && readTask(ctx, run.orchestratorTaskId)) return run.orchestratorTaskId;
+  let planner = run.planner;
+  if (!planner) {
+    try { planner = loadStrategy(ctx).planner.agent; } catch { planner = "claude-code"; }
+  }
+  const task = createTask(ctx, {
+    brief: { goal: `orchestrate ${run.id}`, repo: run.repo },
+    kind: "orchestrate",
+    requestedExecutor: planner ?? null,
+    timeoutS: 20 * 60,
+    title: `orchestrate ${run.id}`.slice(0, 60),
+    requestId: `orch:${rootRunId(ctx, run.id)}`,
+  });
+  try { updateRun(ctx, run.id, run.rev, { orchestratorTaskId: task.id, planner: planner ?? undefined }); }
+  catch { /* concurrent */ }
+  return task.id;
+}
+
+/** A role:orchestrator step: no new task; links the shared orchestrator task and wakes a turn. */
+async function startOrchestratorRoleStep(
+  ctx: Ctx,
+  run: RunRow,
+  def: WorkflowDef,
+  stepId: string,
+  stepDef: AgentStep,
+  attempt: number,
+): Promise<StepRow> {
+  const orchTaskId = ensureOrchestratorTask(ctx, getRun(ctx, run.id)!);
+  // UNIQUE(task_id): clear any prior attempt's link so this attempt can own it.
+  workflowDatabase(ctx).query("UPDATE workflow_steps SET task_id = NULL WHERE task_id = ?").run(orchTaskId);
+  const prompt = renderPrompt(stepDef.prompt, {
+    brief: run.brief,
+    steps: stepResults(ctx, run.id),
+    run: { id: run.id, stepId },
+  });
+  // Stash the rendered prompt for the next turn — do not queue or launch here;
+  // only startTurn may queue the orchestrator task (D2.10).
+  updateTask(ctx, orchTaskId, t => {
+    t.brief = { goal: prompt, repo: run.repo };
+  });
+  const key: StepKey = { runId: run.id, stepId, attempt };
+  const existing = stepsOfRun(ctx, run.id).find(s =>
+    s.stepId === stepId && s.attempt === attempt && s.branch === undefined);
+  let row: StepRow;
+  if (existing) {
+    row = existing.taskId === orchTaskId ? existing : attachStepTask(ctx, key, orchTaskId);
+  } else {
+    row = insertStep(ctx, { ...key, status: "running", taskId: orchTaskId });
+  }
+  enqueueWakeup(ctx, {
+    runId: run.id,
+    cause: "orchestrator_step",
+    ref: stepWakeRef(run.id, stepId, attempt),
+    createdAt: ctx.now,
+  });
+  if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "running") {
+    try { await patchRun(ctx, run.id, { status: "waiting" }); }
+    catch { /* */ }
+  }
+  return row;
+}
+
+/** choose_workflow: wait for the orchestrator to call run.choose; wake a turn. */
+async function startChooseWorkflowStep(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  _stepDef: ChooseWorkflowStep,
+  attempt: number,
+): Promise<StepRow> {
+  ensureOrchestratorTask(ctx, getRun(ctx, run.id)!);
+  const existing = stepsOfRun(ctx, run.id).find(s =>
+    s.stepId === stepId && s.attempt === attempt && s.branch === undefined);
+  const row = existing
+    ? updateStep(ctx, { runId: run.id, stepId, attempt }, { status: "waiting" })
+    : insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
+  enqueueWakeup(ctx, {
+    runId: run.id,
+    cause: "orchestrator_step",
+    ref: stepWakeRef(run.id, stepId, attempt),
+    createdAt: ctx.now,
+  });
+  if (!isTerminal(getRun(ctx, run.id))) {
+    try { await patchRun(ctx, run.id, { status: "waiting" }); }
+    catch { /* */ }
+  }
+  return row;
+}
+
+/** Grant op: start a child run for a choose_workflow step. */
+export async function chooseWorkflow(
+  ctx: Ctx,
+  input: { runId: string; stepId: string; workflow: string; reason: string },
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+): Promise<RunRow> {
+  const run = getRun(ctx, input.runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
+  if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
+  const def = loadDefinition(ctx, run);
+  const stepDef = def?.steps[input.stepId];
+  if (!stepDef || stepDef.type !== "choose_workflow") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is not a choose_workflow step`);
+  }
+  if (stepDef.from && stepDef.from.length > 0 && !stepDef.from.includes(input.workflow)) {
+    throw new CoreError("not_allowed", `workflow '${input.workflow}' is outside the allowed from list`);
+  }
+  const childDef = getDefinition(ctx, input.workflow);
+  if (!childDef) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
+  // Compare-and-set claim before startRun so two concurrent chooses cannot both
+  // create children (A-m1). A prior childRunId or choosing marker refuses.
+  const row = workflowDatabase(ctx).transaction(() => {
+    const waiting = stepsOfRun(ctx, run.id).filter(s => s.stepId === input.stepId && s.status === "waiting");
+    const latest = waiting[waiting.length - 1];
+    if (!latest) throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a choice`);
+    const priorChild = chooseStepChildRunId(latest.result);
+    if (priorChild) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} already chose child ${priorChild}`);
+    }
+    if (latest.result != null && typeof latest.result === "object"
+      && (latest.result as { choosing?: unknown }).choosing === true) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} is already choosing a child`);
+    }
+    updateStep(ctx, keyOf(latest), {
+      result: { workflow: input.workflow, reason: input.reason, choosing: true, choosingAt: ctx.now },
+    });
+    return latest;
+  })();
+  const rootId = rootRunId(ctx, run.id);
+  const root = getRun(ctx, rootId)!;
+  let child: RunRow;
+  try {
+    child = await startRun(ctx, {
+      workflow: input.workflow,
+      repo: run.repo,
+      brief: run.brief,
+      title: `${run.title} · ${input.workflow}`,
+    }, spawn, deps, {
+      parentRunId: run.id,
+      parentStep: input.stepId,
+      planner: root.planner,
+      orchestratorTaskId: root.orchestratorTaskId,
+      sessionId: root.sessionId,
+    });
+  } catch (err) {
+    // Release only while still waiting+choosing — never wipe a settleParentChooseStep
+    // result after failRun already finished the parent step (S-M1).
+    try {
+      const fresh = stepsOfRun(ctx, row.runId).find(s =>
+        s.stepId === row.stepId && s.attempt === row.attempt
+        && (row.branch !== undefined ? s.branch === row.branch : !s.branch),
+      );
+      const choosing = fresh?.result != null && typeof fresh.result === "object"
+        && (fresh.result as { choosing?: unknown }).choosing === true;
+      if (fresh?.status === "waiting" && choosing) {
+        updateStep(ctx, keyOf(row), { result: null });
+      }
+    } catch { /* */ }
+    throw err;
+  }
+  // Stash the choice reason; the child's end fills the final result and advances.
+  updateStep(ctx, keyOf(row), { result: { workflow: input.workflow, reason: input.reason, childRunId: child.id } });
+  return child;
 }
 
 /** Delegates the task for an already-inserted agent step row and attaches it (with
@@ -356,6 +559,9 @@ export async function reconcileOrphanStep(
     // instead of inserting a second row for the same key.
     await delegateFanoutBranch(ctx, run, row, stepDef, { deps, spawn });
   } else if (stepDef.type === "agent") {
+    // Orchestrator-role steps share one task; UNIQUE(task_id) leaves older rows
+    // orphaned. Never startAgentStep them — that would delegate a real executor (I1).
+    if (stepDef.role === "orchestrator") return "skipped";
     await startAgentStep(ctx, run, def, row.stepId, stepDef, row.branch, row.attempt, { deps, spawn });
   } else {
     return "skipped";
@@ -370,12 +576,31 @@ export async function startRun(
   input: { workflow: string; repo: string; brief: string; title?: string },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
+  child?: { parentRunId: string; parentStep: string; planner?: string; orchestratorTaskId?: string; sessionId?: string },
 ): Promise<RunRow> {
   const def = getDefinition(ctx, input.workflow);
   if (!def) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
   if (typeof input.brief !== "string" || !input.brief.trim()) throw new CoreError("invalid_input", "brief is required");
   if (typeof input.repo !== "string" || !input.repo) throw new CoreError("invalid_input", "repo is required");
-  const run = insertRun(ctx, { workflow: def.id, version: def.version, repo: input.repo, brief: input.brief, title: input.title });
+  const budget = child ? undefined : budgetForDefinition(def);
+  const run = insertRun(ctx, {
+    workflow: def.id,
+    version: def.version,
+    repo: input.repo,
+    brief: input.brief,
+    title: input.title,
+    ...(budget ? {
+      budget: serializeBudget(budget),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    } : {}),
+    ...(child ? {
+      parentRunId: child.parentRunId,
+      parentStep: child.parentStep,
+      planner: child.planner,
+      orchestratorTaskId: child.orchestratorTaskId,
+      sessionId: child.sessionId,
+    } : {}),
+  });
   await publishRunChange(ctx, run); // clients see the run even when its start then fails
   try {
     if (def.steps[def.entry]?.type === "end") await patchRun(ctx, run.id, { status: "done" });
@@ -384,7 +609,52 @@ export async function startRun(
     await failRun(ctx, run.id, `start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, deps);
     throw e;
   }
-  return getRun(ctx, run.id) ?? run;
+  const finished = getRun(ctx, run.id) ?? run;
+  if (RUN_TERMINAL.includes(finished.status) && finished.parentRunId && finished.parentStep) {
+    await settleParentChooseStep(ctx, finished, deps, spawn);
+  }
+  return finished;
+}
+
+/** When a child run of choose_workflow ends, finish the parent step with the child's result. */
+async function settleParentChooseStep(
+  ctx: Ctx,
+  child: RunRow,
+  deps: EngineDeps,
+  spawn?: SpawnRunner,
+): Promise<void> {
+  if (!child.parentRunId || !child.parentStep) return;
+  const parent = getRun(ctx, child.parentRunId);
+  if (!parent || RUN_TERMINAL.includes(parent.status)) return;
+  const def = loadDefinition(ctx, parent);
+  if (!def) return;
+  const waiting = stepsOfRun(ctx, parent.id).filter(s => s.stepId === child.parentStep && s.status === "waiting");
+  const row = waiting[waiting.length - 1];
+  if (!row) return;
+  const result = {
+    workflow: child.workflow,
+    reason: (row.result as { reason?: string } | undefined)?.reason ?? "",
+    child: { id: child.id, status: child.status, reason: child.reason },
+  };
+  if (child.status !== "done") {
+    // Mark the choose step failed and wake the root orchestrator.
+    const failed = updateStep(ctx, keyOf(row), {
+      status: "failed",
+      error: child.reason ?? child.status,
+      endedAt: ctx.now,
+      result,
+    });
+    enqueueWakeup(ctx, {
+      runId: parent.id,
+      cause: "step_failed",
+      ref: stepWakeRef(failed.runId, failed.stepId, failed.attempt, failed.branch),
+      createdAt: ctx.now,
+    });
+    return;
+  }
+  const claimed = claimStepAnswer(ctx, keyOf(row), result);
+  if (!claimed) return;
+  await advanceFrom(ctx, parent.id, def, claimed, result, { deps, spawn });
 }
 
 function resultErrors(result: unknown, schema: JsonSchemaLite | undefined): string[] {
@@ -450,7 +720,20 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     return;
   }
   if (row.status === "failed") {
-    await failRun(ctx, run.id, `step ${step.stepId} ${error}`, undefined, deps);
+    // Decision point: wake the orchestrator instead of ending the run (Phase 2).
+    // Mechanical failures (no edge, loop limit, start failure) still use failRun.
+    // Child runs share the root orchestrator: wake-ups are always keyed by root.
+    const cause = error === "no step result" ? "step_invalid" as const : "step_failed" as const;
+    enqueueWakeup(ctx, {
+      runId: run.id,
+      cause,
+      ref: stepWakeRef(step.runId, step.stepId, step.attempt, step.branch),
+      createdAt: ctx.now,
+    });
+    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "running") {
+      try { await patchRun(ctx, run.id, { status: "waiting" }); }
+      catch { /* concurrent terminal/waiting is fine */ }
+    }
     return;
   }
   await advanceFrom(ctx, run.id, def, row, row.result, { deps, spawn });
@@ -607,6 +890,8 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     if (isTerminal(fresh)) return;
     try {
       if (target.type === "human") {
+        const humanRow = outcome.rows[0];
+        if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
         if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "waiting" });
         continue;
       }
@@ -621,7 +906,13 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
       }
       for (const row of outcome.rows) {
         if (target.type === "fanout") await delegateFanoutBranch(ctx, fresh, row, target, e);
-        else await delegateAgentRow(ctx, fresh, row, target as AgentStep, e); // nexts never hold end targets
+        else if (target.type === "agent" && target.role === "orchestrator") {
+          // fireEdge already inserted the running row; finish it as an orchestrator turn.
+          await startOrchestratorRoleStep(ctx, fresh, def, row.stepId, target, row.attempt);
+        } else if (target.type === "agent") await delegateAgentRow(ctx, fresh, row, target, e);
+        else if (target.type === "choose_workflow") {
+          await startChooseWorkflowStep(ctx, fresh, row.stepId, target, row.attempt);
+        } else throw new CoreError("not_allowed", `step type '${target.type}' is not started as a task here`);
       }
     } catch (err) {
       // A start failure ends the run (no eligible executor, validation, …): it
@@ -689,9 +980,113 @@ export async function readvanceStep(ctx: Ctx, row: StepRow, spawn?: SpawnRunner,
   return true;
 }
 
+/** Latest failed instance of a step on a run, if any.
+ *  Returns null only when every failure is superseded by a later attempt of the
+ *  same step+branch (N5). With several open failed branches, returns the earliest
+ *  deterministically (startedAt, then branch name) — one branch at a time (G5). */
+function latestFailedStep(ctx: Ctx, runId: string, stepId: string): StepRow | null {
+  const steps = stepsOfRun(ctx, runId).filter(s => s.stepId === stepId);
+  const failed = steps.filter(s => s.status === "failed");
+  const candidates = failed.filter(f =>
+    !steps.some(s =>
+      (f.branch === undefined ? s.branch === undefined : s.branch === f.branch)
+      && s.attempt > f.attempt,
+    ),
+  );
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) =>
+    a.startedAt !== b.startedAt
+      ? a.startedAt - b.startedAt
+      : (a.branch ?? "").localeCompare(b.branch ?? ""),
+  );
+  return candidates[0]!;
+}
+
+function clearStepFailureWakeups(ctx: Ctx, row: StepRow): void {
+  const ref = stepWakeRef(row.runId, row.stepId, row.attempt, row.branch);
+  completeWakeupRef(ctx, row.runId, "step_failed", ref);
+  completeWakeupRef(ctx, row.runId, "step_invalid", ref);
+}
+
+/** Grant op: skip a failed step (treat as done with `{ skipped: true }`) and advance. */
+export async function skipFailedStep(
+  ctx: Ctx,
+  input: { runId: string; stepId: string },
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+): Promise<RunRow> {
+  const run = getRun(ctx, input.runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
+  if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
+  const row = latestFailedStep(ctx, input.runId, input.stepId);
+  if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
+  const def = loadDefinition(ctx, run);
+  if (!def) throw new CoreError("not_found", `missing definition for run ${input.runId}`);
+  const result = { skipped: true };
+  const done = updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
+  clearStepFailureWakeups(ctx, row);
+  try {
+    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
+      await patchRun(ctx, run.id, { status: "running" });
+    }
+  } catch (err) {
+    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+  }
+  await advanceFrom(ctx, run.id, def, done, result, { deps, spawn });
+  return getRun(ctx, run.id)!;
+}
+
+/** Grant op: retry a failed step by starting a new attempt. */
+export async function retryFailedStep(
+  ctx: Ctx,
+  input: { runId: string; stepId: string },
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+): Promise<RunRow> {
+  const run = getRun(ctx, input.runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
+  if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
+  const row = latestFailedStep(ctx, input.runId, input.stepId);
+  if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not failed`);
+  // Cap retries per step — count prior retried failures (advancedAt), not loop
+  // attempt numbers (S N5).
+  const MAX_STEP_RETRIES = 3;
+  const priorRetries = stepsOfRun(ctx, input.runId).filter(s =>
+    s.stepId === input.stepId
+    && (row.branch === undefined ? s.branch === undefined : s.branch === row.branch)
+    && s.status === "failed"
+    && s.advancedAt !== undefined,
+  ).length;
+  if (priorRetries >= MAX_STEP_RETRIES) {
+    throw new CoreError("not_allowed", `step ${input.stepId} has reached the retry limit (${MAX_STEP_RETRIES})`);
+  }
+  const def = loadDefinition(ctx, run);
+  if (!def?.steps[input.stepId]) throw new CoreError("not_found", `unknown step ${input.stepId}`);
+  // Mark the failed attempt advanced so the tick does not keep recreating its wake-up.
+  try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
+  clearStepFailureWakeups(ctx, row);
+  try {
+    if (!isTerminal(getRun(ctx, run.id)) && getRun(ctx, run.id)?.status === "waiting") {
+      await patchRun(ctx, run.id, { status: "running" });
+    }
+  } catch (err) {
+    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+  }
+  await startStep(ctx, getRun(ctx, run.id)!, def, input.stepId, row.branch, { deps, spawn });
+  return getRun(ctx, run.id)!;
+}
+
 /** Answers a waiting human step: the answer becomes the step's result
  *  (`{ answer }`) and the run advances from it. */
-export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, answer: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<RunRow> {
+export async function answerHumanStep(
+  ctx: Ctx,
+  runId: string,
+  stepId: string,
+  answer: string,
+  expectRev: number,
+  deps: EngineDeps = defaultEngineDeps,
+  spawn?: SpawnRunner,
+): Promise<RunRow> {
   if (typeof answer !== "string" || answer.length < 1) throw new CoreError("invalid_input", "answer must be a non-empty string");
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
@@ -702,6 +1097,16 @@ export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, a
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   const def = loadDefinition(ctx, run);
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
+  // Defence: a run-grant caller may only answer auto-effective steps (run.decide path).
+  // must / strict / auto-off steps stay person-only via run.answer.
+  if (ctx.env.PACER_RUN_GRANT) {
+    const stepDef = def.steps[stepId];
+    // Auto flag lives on the root (choose_workflow children inherit it) — I2.
+    const root = getRun(ctx, rootRunId(ctx, runId)) ?? run;
+    if (!stepDef || stepDef.type !== "human" || !canAutoDecide(root, stepId, stepDef)) {
+      throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+    }
+  }
   // One yield before the claim: a concurrent answer (or a stopping run) can then
   // reach the same row, and it is claimStepAnswer below — not the luck of
   // synchronous execution — that makes the answer exclusive (round 4 review).
@@ -719,7 +1124,7 @@ export async function answerHumanStep(ctx: Ctx, runId: string, stepId: string, a
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
   }
-  await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn: undefined });
+  await advanceFrom(ctx, runId, def, claimed, { answer }, { deps, spawn });
   return getRun(ctx, runId)!;
 }
 

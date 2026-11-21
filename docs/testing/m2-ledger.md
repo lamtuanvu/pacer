@@ -759,7 +759,7 @@ model includes all 19 keys.
 
 ## Workflow frame operations (TS-forwarded, 2026-11-19)
 
-The nine Phase 1 workflow-frame operations are TS-forwarded: run and step state
+The seventeen Phase 1–2 workflow-frame operations are TS-forwarded: run and step state
 lives in the workflow tables of the task store (`src/workflow/store.ts`),
 engine advancement runs in the TypeScript background worker, and run changes
 publish `run` entities through the TypeScript outbox (ADR 0029, ARCH-16). The
@@ -774,7 +774,15 @@ mirrored in `pacer-read-model::v2_compat::surface`).
 | `run.list` | TS-forwarded | Reads `workflow_runs`, optionally filtered by status. |
 | `run.answer` | TS-forwarded | `answerHumanStep` settles a waiting human step at `expect_rev` and advances the run's edges. |
 | `run.stop` | TS-forwarded | `stopRun` stops running step tasks through the `task.stop` op path and marks the run stopped at `expect_rev`. |
-| `step.result` | TS-forwarded | `recordStepResult` validates against the step's declared schema and writes the `workflow_steps` result; the caller must be the delegated task's executor (`requireAskingExecutor`). |
+| `step.result` | TS-forwarded | `recordStepResult` validates against the step's declared schema and writes the `workflow_steps` result; the caller must be the delegated task's executor (`requireAskingExecutor`) or a live run-grant orchestrator whose turn owns the step (`requireStepResultCaller`). |
+| `step.skip` | TS-forwarded | Grant op: mark a failed step done as `{ skipped: true }` and advance (`skipFailedStep`). |
+| `step.retry` | TS-forwarded | Grant op: start a new attempt of a failed step (`retryFailedStep`). |
+| `run.set_auto` | TS-forwarded | Person-only auto mode and strict_steps overrides (`src/workflow/auto.ts`). |
+| `run.set_budget` | TS-forwarded | Person-only per-run orchestrator/message budgets (`src/workflow/budget.ts`). |
+| `run.set_planner` | TS-forwarded | Queues a planner switch for the next turn; recorded as a decision. Clears a non-budget orchestrator block. |
+| `run.retry_orchestrator` | TS-forwarded | Person-only: clear a blocked orchestrator after repeated failures so the next tick can start a turn. |
+| `run.decide` | TS-forwarded | Grant op: answer an `auto` human step when auto mode is on; never a `must` step. |
+| `run.choose` | TS-forwarded | Grant op: start a child run for a `choose_workflow` step. |
 
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
@@ -789,7 +797,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`250` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`258` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow
