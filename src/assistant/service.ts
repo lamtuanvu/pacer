@@ -14,7 +14,8 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
+
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -23,6 +24,8 @@ import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
+
+
 
 export const ASSISTANT_PLUGIN = "pacer-assistant";
 
@@ -383,9 +386,12 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
       // Executor turns: the host builds the restricted CLI commands (opencode ACP plan + config;
       // grant only as a secret env binding). The plugin gets command shapes and references, never secrets.
-      if (settings.backend === "executor" && grant)
-        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
+      if (settings.backend === "executor" && grant) {
+        const claudeTools = askAdapterFor(ctx, endpoint.account) === "claude-code";
+        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}),
+          system: askSystem(system, digest, { tools: claudeTools }),
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
+      }
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
@@ -398,27 +404,36 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
             ...(endpoint.account.connection?.key === "none" ? { keyless: true as const } : {}),
           },
         } : {}),
-        ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
+        ...(ask ? { executor: {
+          configRef: ASK_CONFIG_REF,
+          ...(ask.adapter === "claude-code" ? { grantRef: ASK_GRANT_REF } : {}),
+          command: ask.command,
+          ...(ask.fallback ? { fallback: ask.fallback } : {}),
+          ...(ask.digestFallback ? { digestFallback: ask.digestFallback } : {}),
+        } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
       const askConfigText = ask?.config ?? "";
       const askGrant = ask?.grant ?? "";
       const spawnMode = ask?.adapter === "opencode" ? "acp" as const
         : ask?.adapter === "codex" ? "codex-ask" as const
+        : ask?.adapter === "claude-code" ? "claude-control" as const
         : undefined;
-      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({
-        argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
-        ...(spawnMode ? { mode: spawnMode } : {}),
-        ...((askConfigText || askGrant) ? {
-          secretEnv: {
-            ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
-            ...(askGrant ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
-          },
-        } : {}),
-      })) : [];
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
+        const secretEnv: Record<string, string> = {
+          ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
+          ...(askGrant || claudeNeedsGrant(c) ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
+        };
+        return {
+          argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
+          ...(spawnMode ? { mode: spawnMode } : {}),
+          ...(Object.keys(secretEnv).length ? { secretEnv } : {}),
+        };
+      }) : [];
+      const grantBinding = askGrant || (grant && ask?.adapter === "claude-code" ? grant : "");
       const bindings = [
         ...(askConfigText ? [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText }] : []),
-        ...(askGrant ? [{ ref: ASK_GRANT_REF, resolve: async () => askGrant }] : []),
+        ...(grantBinding ? [{ ref: ASK_GRANT_REF, resolve: async () => grantBinding }] : []),
       ];
       emit(turn.turnId, { status: "Thinking…" });
       const raw = await Promise.race([
