@@ -757,6 +757,26 @@ model includes all 19 keys.
 | SSH probe/clone/identity/clean effects | `host.check`, non-dry-run `host.clean` and admitted `host.repo.setup` run in Core through the whole-operation host effects bridge (HTTP) or the forwarded request (stdio); Rust answers refusals and `host.clean` dry runs. |
 | Dispatch parts (`/_internal/dispatch-parts`, stdio `_internal.dispatch.parts`) | `dispatch.preview` and `dispatch.explain` read executor guards (`dispatch.executor-guards`) and strict enforcement exclusions (`dispatch.enforcement-exclusions`) from Core, which keeps the classifier configuration, `checkedVersions`, `--version` probes and certificate fingerprints; native `dispatch.enforcement` reads the per-runner diagnostics (`dispatch.enforcement-diagnostics`) and native `dispatch.enforcement.denied` reads the executor's exclusion reason (`dispatch.enforcement-exclusions`). The route takes the internal bearer over HTTP and the sync key over stdio, where a work-grant Core refuses it; Core refuses unknown kinds and params, a `draft` without `cached: true` and requests over 256 KiB, and Rust caps replies at 1 MiB with a 30 s deadline. |
 
+## Workflow frame operations (TS-forwarded, 2026-11-19)
+
+The nine Phase 1 workflow-frame operations are TS-forwarded: run and step state
+lives in the workflow tables of the task store (`src/workflow/store.ts`),
+engine advancement runs in the TypeScript background worker, and run changes
+publish `run` entities through the TypeScript outbox (ADR 0029, ARCH-16). The
+protocol change is additive and v3-only (`V3_ONLY_OPS` in `src/api/v2-compat.ts`,
+mirrored in `pacer-read-model::v2_compat::surface`).
+
+| `workflow.validate` | TS-forwarded | `src/api/ops-workflow.ts` parses and structurally validates the file text over `src/workflow/parse.ts` and `src/workflow/validate.ts`; no stored state. |
+| `workflow.add` | TS-forwarded | `addDefinition` writes an immutable `workflow_defs` version in the task store; same id@version with different source is TS's `conflict`. |
+| `workflow.list` | TS-forwarded | Reads `workflow_defs` rows through `listDefinitions`. |
+| `run.start` | TS-forwarded | `startRun` in `src/workflow/engine.ts` creates the `workflow_runs` row and delegates the entry step as an ordinary task; executor sessions are refused (`assertCallerCanInvoke`). |
+| `run.get` | TS-forwarded | Reads the `workflow_runs` row and its `workflow_steps` instances. |
+| `run.list` | TS-forwarded | Reads `workflow_runs`, optionally filtered by status. |
+| `run.answer` | TS-forwarded | `answerHumanStep` settles a waiting human step at `expect_rev` and advances the run's edges. |
+| `run.stop` | TS-forwarded | `stopRun` stops running step tasks through the `task.stop` op path and marks the run stopped at `expect_rev`. |
+| `step.result` | TS-forwarded | `recordStepResult` validates against the step's declared schema and writes the `workflow_steps` result; the caller must be the delegated task's executor (`requireAskingExecutor`). |
+
+
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
 `test/fixtures/config-settings/settings.json` corpus from the TypeScript reference.
 Use `UPDATE_CONFIG_SETTINGS=1 bun run test test/config-settings-parity.test.ts` only
@@ -769,7 +789,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`234` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`250` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow

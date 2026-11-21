@@ -35,6 +35,7 @@ pub const POLICY_EVENT_TYPES: &[&str] = &[
     "message",
     "liveness",
     "machine",
+    "run",
     "assistant",
     "discovery.found",
     "control",

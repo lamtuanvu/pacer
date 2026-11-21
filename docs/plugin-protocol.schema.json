@@ -92,6 +92,7 @@
             "message",
             "liveness",
             "machine",
+            "run",
             "assistant",
             "discovery.found",
             "control"
@@ -9444,6 +9445,7 @@
               "message",
               "liveness",
               "machine",
+              "run",
               "assistant",
               "discovery.found",
               "control"
