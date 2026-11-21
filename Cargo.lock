@@ -1505,6 +1505,7 @@ dependencies = [
  "indexmap",
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-limits-protocol",
  "ryu-js",
  "saphyr-parser",
  "serde",

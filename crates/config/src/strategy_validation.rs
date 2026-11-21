@@ -179,7 +179,7 @@ fn account(name: &str, c: &Value, kind: &str, raw_kind: bool) -> Value {
         "home":field(c,"home").as_str(),"orcaAccount":field(c,"orca_account").as_str(),"usage":usage,
         "usageSource":usage_source,"quotaSource":quota,"provider":field(c,"provider").as_str(),
         "weeklyUsd":js_semantics::number(field(field(c,"budget"),"weekly_usd")).map(numeric),"weeklyTokens":size(field(field(c,"budget"),"weekly_tokens")).map(numeric),
-        "cooldownS":numeric(c.get("cooldown").and_then(duration).unwrap_or(21600.)),"allowPaid":field(c,"allow_paid") == true})
+        "cooldownS":numeric(c.get("cooldown").and_then(duration).unwrap_or(pacer_limits_protocol::freshness::COOLDOWN_DEFAULT_S as f64)),"allowPaid":field(c,"allow_paid") == true})
 }
 fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut Vec<String>) {
     let at = format!("accounts.{name}");
