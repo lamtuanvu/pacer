@@ -10,7 +10,7 @@ import {
 import {
   countMessageTurn, countOrchestratorTurn, parseBudget, parseSpent, serializeBudget, serializeSpent,
 } from "../src/workflow/budget";
-import { deriveWorkflowAttention } from "../src/workflow/attention";
+import { deriveWorkflowAttention, switchPlannerTarget } from "../src/workflow/attention";
 import { attentionStatus } from "../src/view-model/words";
 
 const NOW = 1_700_000_000;
@@ -244,7 +244,7 @@ describe("workflow attention action consistency", () => {
     expect(stop.style).toBe("danger");
   });
 
-  test("Switch planner names the target and is omitted when none differs", () => {
+  test("Switch planner names a different target; omit when the injected list has no alternative", () => {
     const { ctx, run } = titledRun();
     updateRun(ctx, run.id, run.rev, {
       orchestratorState: "blocked",
@@ -262,6 +262,9 @@ describe("workflow attention action consistency", () => {
     }));
     expect(switchAction.params.planner).not.toBe("claude-code");
     expect(switchAction.label).toContain("Codex");
+
+    expect(switchPlannerTarget("claude-code", ["claude-code"])).toBeNull();
+    expect(switchPlannerTarget("codex", ["claude-code", "codex"])).toBe("claude-code");
   });
 
   test("Raise budget labels say how much is added", () => {

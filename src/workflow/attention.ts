@@ -53,9 +53,12 @@ function raiseBudgetParams(run: RunRow, which: "orchestrator" | "message"): Reco
 }
 
 /** A planner different from the current one so Switch planner is not a no-op. */
-function switchPlannerTarget(current: string | undefined): string | null {
+export function switchPlannerTarget(
+  current: string | undefined,
+  planners: readonly string[] = PLANNERS,
+): string | null {
   const cur = current ?? "claude-code";
-  return (PLANNERS as readonly string[]).find(p => p !== cur) ?? null;
+  return planners.find(p => p !== cur) ?? null;
 }
 
 function stopRunAction(run: RunRow): Action {
