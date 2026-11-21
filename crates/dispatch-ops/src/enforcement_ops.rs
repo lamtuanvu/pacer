@@ -342,6 +342,7 @@ fn decide_probe(inputs: &ProbeInputs, consent: &Object, attempts: &Value, now: f
 /// Returns `None` when the schedule would probe (or the only gate it cannot
 /// evaluate, live headroom, is all that remains). `key`, `certificate_state`
 /// and `unsupported_reason` are for the repository the schedule would probe.
+#[allow(clippy::too_many_arguments)]
 fn schedule_reason(
     s: &StrategyRefs,
     runner_id: &str,
@@ -415,6 +416,7 @@ fn field_reason_only(hold: Option<Hold>) -> ScheduleFields {
 /// `unsupported` describe the requested repository; `cert_for_scheduled` and
 /// `unsupported_for_scheduled` the scheduled repository when it differs;
 /// `scheduled` is the scheduled repository's path/label (or `None`).
+#[allow(clippy::too_many_arguments)]
 fn schedule_for(
     s: &StrategyRefs,
     runner_id: &str,
@@ -536,6 +538,7 @@ fn enforcement_forwarded(ctx: &Ctx, repo: &str) -> bool {
 
 /// A per-runner diagnostics row from the bridge: success carries the pieces
 /// TypeScript computed, failure an error message.
+#[allow(clippy::large_enum_variant)]
 enum DiagRow {
     Ok(DiagOk),
     Err(String),

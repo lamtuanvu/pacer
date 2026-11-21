@@ -212,8 +212,11 @@ jobs:
         run: |
           cli="dist/release/$VERSION/pacer-$PLATFORM"
           core="dist/release/$VERSION/pacer-core-$PLATFORM"
-          chmod +x "$cli" "$core"
-          desktop/scripts/stage-cli.sh "$cli"
+          # Artifacts drop the executable bit; stage-cli.sh silently skips a non-executable
+          # assistant plugin, and Tauri then refuses the missing externalBin. Pass it explicitly.
+          assistant="dist/release/$VERSION/pacer-assistant-pacer-$PLATFORM"
+          chmod +x "$cli" "$core" "$assistant"
+          desktop/scripts/stage-cli.sh "$cli" "$core" "$assistant"
       - name: Fetch locked Rust dependencies
         working-directory: desktop/src-tauri
         run: cargo fetch --locked --target "$TARGET"
@@ -369,8 +372,9 @@ jobs:
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
+          # SHA256SUMS: release:npm verifies the assistant-pacer sibling against the published checksum.
           gh release download "$TAG" --dir "dist/release/$VERSION" \
-            --pattern 'pacer-*' --pattern manifest.json
+            --pattern 'pacer-*' --pattern manifest.json --pattern SHA256SUMS
       - run: bun run release:npm --release-dir "dist/release/$VERSION" --out dist/npm
       - name: Publish npm packages in dependency order
         run: |

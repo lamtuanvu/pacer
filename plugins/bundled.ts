@@ -1,5 +1,3 @@
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { manifest as plannerManifest } from "./pacer-planners/index";
 import { manifestSchema } from "../src/plugins/protocol";
 import { manifest as endpointManifest } from "./pacer-endpoints/manifest";
@@ -11,10 +9,9 @@ import { manifest as remoteCallerManifest } from "./pacer-remote-caller/index";
 import { manifest as directExecutorManifest } from "./pacer-exec-direct/manifest";
 import { manifest as orcaExecutorManifest } from "./pacer-exec-orca/manifest";
 
-/** Single source of truth with the native crate (`crates/assistant-pacer/manifest.json`). */
-const assistantPacerManifest = JSON.parse(
-  readFileSync(join(import.meta.dir, "../crates/assistant-pacer/manifest.json"), "utf8"),
-) as unknown;
+/** Single source of truth with the native crate. Imported (not read from disk) so the compiled
+ * binary embeds it; a runtime read finds no `crates/` inside the bundle and every compiled pacer exits. */
+import assistantPacerManifest from "../crates/assistant-pacer/manifest.json";
 
 /** Reference plugins compiled into the pacer binary; installed shadows never replace these IDs. */
 export const BUNDLED: BundledPlugin[] = [{manifest:manifestSchema.parse(plannerManifest),main:()=>import("./pacer-planners/index")}, { manifest: manifestSchema.parse(endpointManifest), main: () => import("./pacer-endpoints/index") }, { manifest: notifierManifest, main: () => import("./pacer-notify/index") }, { manifest: classifierManifest, main: () => import("./pacer-classify/index") }, {

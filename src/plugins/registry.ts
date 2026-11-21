@@ -1704,12 +1704,18 @@ export class PluginRegistry {
       if (!ENABLED.has(e.state) && e.state !== "failing") this.setState(ctx, e, "idle");
     };
     for (const b of this.deps.bundled) {
+      const fresh = !this.entries.has(b.manifest.id);
       const e = this.entry(b.manifest.id, b.manifest, true, null);
       if (this.canonicalClassifier(e)) this.updateGeneration(ctx, e, this.classifierGeneration(this.classifierConfig(ctx)));
       let refusal: string | null = hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
       // Native bundled plugins are unavailable until their sibling of pacer-core is present (ADR 0028).
-      if (!refusal && b.executable && !resolveBundledNativeExecutable(b.executable, ctx.env))
+      if (!refusal && b.executable && !resolveBundledNativeExecutable(b.executable, ctx.env)) {
         refusal = `native executable ${b.executable} is not installed next to pacer-core`;
+        // A missing sibling at first registration is the plugin's starting state, not a change:
+        // starting it refused publishes no plugin event, so startup snapshots keep their sequence.
+        // A sibling that disappears later still changes state and publishes.
+        if (fresh) { e.state = "refused"; e.error = refusal; }
+      }
       apply(e, refusal, null);
     }
     const root = join(ctx.pacerHome, "plugins");

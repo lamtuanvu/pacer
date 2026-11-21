@@ -4,6 +4,12 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.
+
+## [0.17.6] - 2026-11-20
+
 ### Added
 
 - **One usage record everywhere (ADR 0030).** `computeStatus` emits one usage record per account and per runner — scope, source, figure, windows, active limit, blocked runners, observation time, freshness, verdict, eligibility, spend and error — and every service output reads it: the snapshot's executor, account and planner rows carry an additive `usageState` field and quote their figure, window, reset, verdict and staleness from it, `account.list` rows carry `usageState` plus `diagnostics.readings` (the raw provider readings) from the same computation, and `limits.check`, the hook text, `pacer status`, `pacer account list` and MCP `budget_status` agree with them. An active limit mark or fact makes the record quote 100% over "limit" until it ends; the account verdict is also EXHAUSTED when every runner is quota-blocked for its configured model, with the blocked runners listed (auth failures block without changing a verdict). Mode now follows the planner's own runner record instead of the account summary, so it can become stricter when the planner runner is limited. `pacer status --json` includes the records on `accounts[].usageState` and `providers[].usageState`.
