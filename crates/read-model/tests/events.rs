@@ -309,3 +309,41 @@ fn v2_counts_subtract_open_workflow_attention() {
     assert_eq!(after[1]["data"]["attention"], number(1.0));
     assert_eq!(after[1]["data"]["problems"], 1);
 }
+
+/// Publisher order after the entityDiff fix: removals, then counts last.
+/// Ordinary A + workflow W, then W removed — v2 must keep attention=1 (not double-subtract).
+#[test]
+fn v2_counts_with_publisher_removal_before_counts_order() {
+    let (_dir, ctx) = ctx();
+    let mut store = TaskStore::open(&ctx.pacer_home).unwrap();
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":1,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"failed:t-1","value":{"id":"failed:t-1","severity":"problem"}}}}),
+            json!({"seq":2,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_spent:r1","value":{"id":"budget_spent:r1","severity":"decide"}}}}),
+            json!({"seq":3,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"counts","id":"counts","value":{"attention":2,"problems":1,"review":0}}}}),
+        ],
+    )
+    .unwrap();
+    // Real publisher order: removal then counts (counts last). The pre-fix order
+    // (counts then removal) is no longer produced by entityDiff.
+    append_outbox(
+        &ctx,
+        &[
+            json!({"seq":4,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"attention","id":"budget_spent:r1","removed":true}}}),
+            json!({"seq":5,"at":ctx.now,"envelope":{"type":"entity","data":{"kind":"counts","id":"counts","value":{"attention":1,"problems":1,"review":0}}}}),
+        ],
+    )
+    .unwrap();
+    let v2 = events_since(&ctx, 0.0, 2, &mut store, chrono_tz::UTC, &|_| false).unwrap();
+    let counts: Vec<&Value> = array(&v2["events"])
+        .iter()
+        .filter(|e| e["type"] == "counts")
+        .collect();
+    assert_eq!(counts.len(), 2);
+    assert_eq!(counts[0]["data"]["attention"], number(1.0));
+    assert_eq!(counts[0]["data"]["problems"], number(1.0));
+    assert_eq!(counts[1]["data"]["attention"], number(1.0));
+    assert_eq!(counts[1]["data"]["problems"], number(1.0));
+}
+

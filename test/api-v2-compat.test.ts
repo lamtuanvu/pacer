@@ -315,3 +315,113 @@ test('v2 counts events leave out open workflow attention like the v2 snapshot', 
   const v3After = eventsSince(ctx, 0, 3).events.filter(e => e.type === 'counts').map(e => (e.data as Counts).attention);
   expect(v3After).toEqual([4, 2]);
 });
+
+test('v2 counts stay correct when entityDiff removes workflow attention in the same pass as counts', async () => {
+  const { fakeCtx } = await import('./helpers');
+  const { eventsSince } = await import('../src/api/events');
+  const { publish } = await import('../src/link/publish');
+  const { entityDiff } = await import('../src/link/pump');
+  const ctx = fakeCtx();
+  const attentionRow = (id: string, severity: string) => ({
+    kind: 'attention' as const,
+    id,
+    value: {
+      id,
+      kind: id.startsWith('orchestrator_failed:') ? 'orchestrator_failed' : 'question',
+      severity,
+    },
+  });
+  const countsRow = (attentionN: number, problemsN: number) => ({
+    kind: 'counts' as const,
+    id: 'counts',
+    value: { attention: attentionN, problems: problemsN, review: 0 },
+  });
+  // Ordinary problem A + workflow decide W, then W is gone (e.g. Add 20 planning steps).
+  const first = entityDiff({}, [
+    attentionRow('failed:t-1', 'problem'),
+    attentionRow('budget_spent:r1', 'decide'),
+    countsRow(2, 1),
+  ]);
+  await publish(ctx, first.envelopes);
+
+  const second = entityDiff(first.next, [
+    attentionRow('failed:t-1', 'problem'),
+    countsRow(1, 1),
+  ]);
+  // Publisher order: removals before counts (counts stays last). The old upserts-then-removals
+  // order left W open when counts was indexed and double-subtracted it for v2.
+  const secondKinds = second.envelopes.map(e =>
+    e.type === 'entity'
+      ? `${e.data.kind}:${e.data.id}${('removed' in e.data && e.data.removed) ? ':removed' : ''}`
+      : e.type,
+  );
+  expect(secondKinds.indexOf('attention:budget_spent:r1:removed'))
+    .toBeLessThan(secondKinds.indexOf('counts:counts'));
+  expect(secondKinds.at(-1)).toBe('counts:counts');
+  await publish(ctx, second.envelopes);
+
+  type Counts = { attention: number; problems: number; review: number };
+  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as Counts);
+  expect(v2).toEqual([
+    { attention: 1, problems: 1, review: 0 },
+    { attention: 1, problems: 1, review: 0 },
+  ]);
+});
+
+test('v2 counts stay correct when entityDiff opens one item and removes another before counts', async () => {
+  const { fakeCtx } = await import('./helpers');
+  const { eventsSince } = await import('../src/api/events');
+  const { publish } = await import('../src/link/publish');
+  const { entityDiff } = await import('../src/link/pump');
+  const ctx = fakeCtx();
+  const attentionRow = (id: string, severity: string) => ({
+    kind: 'attention' as const,
+    id,
+    value: {
+      id,
+      kind: id.startsWith('orchestrator_failed:') ? 'orchestrator_failed' : 'question',
+      severity,
+    },
+  });
+  const countsRow = (attentionN: number, problemsN: number) => ({
+    kind: 'counts' as const,
+    id: 'counts',
+    value: { attention: attentionN, problems: problemsN, review: 0 },
+  });
+  const first = entityDiff({}, [
+    attentionRow('budget_spent:r1', 'decide'),
+    attentionRow('failed:t-1', 'problem'),
+    countsRow(2, 1),
+  ]);
+  await publish(ctx, first.envelopes);
+
+  // Same pass: open budget_warn, remove budget_spent, leave ordinary problem; counts last.
+  const second = entityDiff(first.next, [
+    attentionRow('budget_warn:r1', 'problem'),
+    attentionRow('failed:t-1', 'problem'),
+    countsRow(2, 2),
+  ]);
+  const removedAt = second.envelopes.findIndex(e =>
+    e.type === 'entity' && e.data.kind === 'attention' && e.data.id === 'budget_spent:r1' && e.data.removed,
+  );
+  const openedAt = second.envelopes.findIndex(e =>
+    e.type === 'entity' && e.data.kind === 'attention' && e.data.id === 'budget_warn:r1' && !e.data.removed,
+  );
+  const countsAt = second.envelopes.findIndex(e =>
+    e.type === 'entity' && e.data.kind === 'counts',
+  );
+  expect(removedAt).toBeGreaterThanOrEqual(0);
+  expect(openedAt).toBeGreaterThanOrEqual(0);
+  expect(removedAt).toBeLessThan(countsAt);
+  expect(openedAt).toBeLessThan(countsAt);
+  await publish(ctx, second.envelopes);
+
+  type Counts = { attention: number; problems: number; review: number };
+  const v2 = eventsSince(ctx, 0, 2).events.filter(e => e.type === 'counts').map(e => e.data as Counts);
+  // First: subtract one decide workflow → attention 1, problems 1.
+  // Second: subtract one problem workflow → attention 1, problems 1.
+  expect(v2).toEqual([
+    { attention: 1, problems: 1, review: 0 },
+    { attention: 1, problems: 1, review: 0 },
+  ]);
+});
