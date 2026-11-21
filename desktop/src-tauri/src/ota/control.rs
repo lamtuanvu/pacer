@@ -723,7 +723,16 @@ mod tests {
     fn own_link_repair_outcome_marks_mutation_only_after_bootout() {
         assert!(!OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Identity).mutation_reached());
         assert!(OwnLinkRepairOutcome::Repaired.mutation_reached());
-        assert!(OwnLinkRepairOutcome::FailedAfterMutation(OtaError::Io).mutation_reached());
+        assert!(OwnLinkRepairOutcome::FailedAfterMutation {
+            forward: OtaError::Io,
+            restore: None,
+        }
+        .mutation_reached());
+        assert!(OwnLinkRepairOutcome::FailedAfterMutation {
+            forward: OtaError::Timeout,
+            restore: Some(OtaError::Io),
+        }
+        .mutation_reached());
     }
 
     #[test]
@@ -800,7 +809,10 @@ mod tests {
                 Ok(())
             ),
             (
-                OwnLinkRepairOutcome::FailedAfterMutation("replace-failed".into()),
+                OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: "replace-failed".into(),
+                    restore: None,
+                },
                 vec!["stop", "replace", "restore"]
             )
         );
@@ -812,7 +824,10 @@ mod tests {
                 Ok(())
             ),
             (
-                OwnLinkRepairOutcome::FailedAfterMutation("bootstrap-failed".into()),
+                OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: "bootstrap-failed".into(),
+                    restore: None,
+                },
                 vec!["stop", "replace", "bootstrap", "restore"]
             )
         );
@@ -828,7 +843,10 @@ mod tests {
                 Ok(())
             ),
             (
-                OwnLinkRepairOutcome::FailedAfterMutation("settle-failed".into()),
+                OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: "settle-failed".into(),
+                    restore: None,
+                },
                 vec!["stop", "restore"]
             )
         );
@@ -848,7 +866,7 @@ mod tests {
                 vec!["stop"]
             )
         );
-        // Restore failure after bootout is not discarded.
+        // Restore failure after bootout keeps both forward and restore errors.
         assert_eq!(
             run(
                 Err(OwnLinkStopFailure {
@@ -860,7 +878,10 @@ mod tests {
                 Err("restore-failed".into())
             ),
             (
-                OwnLinkRepairOutcome::FailedAfterMutation("restore-failed".into()),
+                OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: "settle-failed".into(),
+                    restore: Some("restore-failed".into()),
+                },
                 vec!["stop", "restore"]
             )
         );
@@ -2448,31 +2469,35 @@ pub struct OwnLinkStopFailure<E> {
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum OwnLinkRepairOutcome<E> {
     Repaired,
-    /// Validation / Busy / Identity before launchctl bootout. Do not consume once-per-launch.
+    /// Validation / Busy / Identity before launchctl bootout.
+    /// Non-Busy refusals end automatic repair for the launch; Busy may retry after backoff.
     RefusedBeforeMutation(E),
-    /// Failed after bootout (or after a successful stop with forward/restore error).
-    FailedAfterMutation(E),
+    /// Failed after bootout (or after a successful stop with a forward error).
+    /// `restore` is set when restoring the original registration also failed.
+    FailedAfterMutation {
+        forward: E,
+        restore: Option<E>,
+    },
 }
 
 impl OwnLinkRepairOutcome<OtaError> {
     pub fn mutation_reached(&self) -> bool {
-        matches!(
-            self,
-            Self::Repaired | Self::FailedAfterMutation(_)
-        )
+        matches!(self, Self::Repaired | Self::FailedAfterMutation { .. })
     }
 
     pub fn into_result(self) -> Result<(), OtaError> {
         match self {
             Self::Repaired => Ok(()),
-            Self::RefusedBeforeMutation(error) | Self::FailedAfterMutation(error) => Err(error),
+            Self::RefusedBeforeMutation(error) => Err(error),
+            // Callers that need the restore cause read FailedAfterMutation.restore.
+            Self::FailedAfterMutation { forward, .. } => Err(forward),
         }
     }
 }
 
 /// Validate → pin → stop → replace → bootstrap.
 /// Once launchctl bootout has succeeded, always restore on any later failure
-/// (including settle failures inside stop). Restore errors are returned, not discarded.
+/// (including settle failures inside stop). Forward and restore errors are both kept.
 pub async fn run_own_link_repair_sequence<E>(
     stop: impl std::future::Future<Output = Result<OwnLinkStopOutcome, OwnLinkStopFailure<E>>>,
     replace: impl std::future::Future<Output = Result<(), E>>,
@@ -2492,8 +2517,14 @@ pub async fn run_own_link_repair_sequence<E>(
             error,
         }) => {
             return match restore_and_bootstrap_original.await {
-                Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation(error),
-                Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation(restore_error),
+                Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: error,
+                    restore: None,
+                },
+                Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation {
+                    forward: error,
+                    restore: Some(restore_error),
+                },
             };
         }
     }
@@ -2505,8 +2536,14 @@ pub async fn run_own_link_repair_sequence<E>(
     {
         Ok(()) => OwnLinkRepairOutcome::Repaired,
         Err(error) => match restore_and_bootstrap_original.await {
-            Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation(error),
-            Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation(restore_error),
+            Ok(()) => OwnLinkRepairOutcome::FailedAfterMutation {
+                forward: error,
+                restore: None,
+            },
+            Err(restore_error) => OwnLinkRepairOutcome::FailedAfterMutation {
+                forward: error,
+                restore: Some(restore_error),
+            },
         },
     }
 }
@@ -2581,12 +2618,15 @@ async fn stop_own_link_job(
         .stdout(std::process::Stdio::null())
         .stderr(std::process::Stdio::null())
         .kill_on_drop(true);
-    let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status())
-        .await
-        .map_err(|_| refuse(OtaError::Timeout))?
-        .map_err(|_| refuse(OtaError::Io))?;
+    // Timeout or unknown status: bootout may have taken effect — restore is mandatory.
+    let status = match tokio::time::timeout(std::time::Duration::from_secs(10), command.status()).await
+    {
+        Err(_) => return Err(after_bootout(OtaError::Timeout)),
+        Ok(Err(_)) => return Err(after_bootout(OtaError::Io)),
+        Ok(Ok(status)) => status,
+    };
     if !status.success() {
-        return Err(refuse(OtaError::Io));
+        return Err(after_bootout(OtaError::Io));
     }
     wait_exact_exit(pinned)
         .await

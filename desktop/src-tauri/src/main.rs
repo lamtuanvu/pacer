@@ -93,9 +93,10 @@ struct Shell {
     service_move_wait_logged: AtomicBool,
     /// Logged once when work counts are unknown (op failed/timeout).
     service_move_unknown_counts_logged: AtomicBool,
-    /// Automatic own-link repair already reached bootout this launch.
+    /// Automatic own-link repair already finished this launch (any outcome except Busy).
     own_link_repair_attempted: AtomicBool,
-    /// Automatic consent takeover already reached the helper this launch.
+    /// Automatic consent takeover already entered the helper path this launch.
+    /// Reset only for BeforeHelper failures.
     consent_takeover_attempted: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,

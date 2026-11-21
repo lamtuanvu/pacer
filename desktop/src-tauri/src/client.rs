@@ -169,50 +169,112 @@ async fn recover_takeover(_tx: String) -> TakeoverRecoveryRun {
     TakeoverRecoveryRun::Failed("Service takeover is only available on macOS".into())
 }
 
+/// Distinguishes failures before the takeover helper is spawned from failures after.
+/// Only BeforeHelper may reset the once-per-launch consent-takeover gate.
+#[derive(Clone, Debug, PartialEq, Eq)]
+enum TakeoverExecError {
+    BeforeHelper(String),
+    AfterHelper(String),
+}
+
+impl TakeoverExecError {
+    fn message(&self) -> &str {
+        match self {
+            Self::BeforeHelper(message) | Self::AfterHelper(message) => message,
+        }
+    }
+}
+
+impl std::fmt::Display for TakeoverExecError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
 #[cfg(target_os = "macos")]
-async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, String> {
+async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, TakeoverExecError> {
     use base64::Engine;
     use sha2::Digest;
-    let view = app.state::<Shell>().takeover.lock().unwrap().clone().ok_or("No service takeover was detected")?;
-    let bundled = bundled_binary().ok_or("The bundled pacer command is missing")?;
-    let user_home = required_home(std::env::var_os("HOME").as_deref())?;
-    let trust = pacer_desktop::ota::trust::ReleaseTrust::configured().ok_or("Release trust unavailable")?;
+    let before = TakeoverExecError::BeforeHelper;
+    let view = app
+        .state::<Shell>()
+        .takeover
+        .lock()
+        .unwrap()
+        .clone()
+        .ok_or_else(|| before("No service takeover was detected".into()))?;
+    let bundled = bundled_binary().ok_or_else(|| before("The bundled pacer command is missing".into()))?;
+    let user_home = required_home(std::env::var_os("HOME").as_deref()).map_err(before)?;
+    let trust = pacer_desktop::ota::trust::ReleaseTrust::configured()
+        .ok_or_else(|| before("Release trust unavailable".into()))?;
     let registration = pacer_desktop::ota::control::observe_service_registration(
         &user_home, &view.candidate.home, view.candidate.port, &trust,
-    ).map_err(|e| e.to_string())?.registration;
-    if format!("{:x}", sha2::Sha256::digest(&registration)) != view.candidate.registration_sha256 { return Err("The service registration changed since inspection".into()) }
-    let desktop = pacer_desktop::ota::native::process_details(std::process::id()).map_err(|e| e.to_string())?.ok_or("Desktop process identity is unavailable")?.identity;
-    let authorized_at = pacer_desktop::ota::native::awake_now().map_err(|e| e.to_string())?;
-    if desktop.boot_id != authorized_at.boot_id || view.candidate.process.boot_id != authorized_at.boot_id { return Err("Service process changed since inspection".into()) }
-    let id = format!("desktop-{}-{}", std::process::id(), std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map_err(|e| e.to_string())?.as_nanos());
+    )
+    .map_err(|e| before(e.to_string()))?
+    .registration;
+    if format!("{:x}", sha2::Sha256::digest(&registration)) != view.candidate.registration_sha256 {
+        return Err(before("The service registration changed since inspection".into()));
+    }
+    let desktop = pacer_desktop::ota::native::process_details(std::process::id())
+        .map_err(|e| before(e.to_string()))?
+        .ok_or_else(|| before("Desktop process identity is unavailable".into()))?
+        .identity;
+    let authorized_at = pacer_desktop::ota::native::awake_now().map_err(|e| before(e.to_string()))?;
+    if desktop.boot_id != authorized_at.boot_id || view.candidate.process.boot_id != authorized_at.boot_id {
+        return Err(before("Service process changed since inspection".into()));
+    }
+    let id = format!(
+        "desktop-{}-{}",
+        std::process::id(),
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| before(e.to_string()))?
+            .as_nanos()
+    );
     let manifest = pacer_desktop::ota::takeover::journal::TakeoverManifest {
         schema: 1, transaction_kind: "takeover".into(), transaction_id: id,
         candidate: view.candidate.clone(), desktop, bundled_cli: bundled.clone(),
-        original_registration_b64: base64::engine::general_purpose::STANDARD.encode(registration), relink_terminal: relink, authorized_at,
+        original_registration_b64: base64::engine::general_purpose::STANDARD.encode(registration),
+        relink_terminal: relink, authorized_at,
     };
     let handle = app.clone();
-    let result = tokio::task::spawn_blocking(move || -> Result<String, String> {
+    let result = tokio::task::spawn_blocking(move || -> Result<String, TakeoverExecError> {
         use std::os::fd::AsRawFd;
         use std::os::unix::net::UnixStream;
-        let helper = bundled.parent().ok_or("Bundled helper directory missing")?.join("pacer-update-helper");
-        let (mut parent, child) = UnixStream::pair().map_err(|e| e.to_string())?;
-        parent.set_read_timeout(Some(std::time::Duration::from_secs(180))).map_err(|e| e.to_string())?;
+        let before = TakeoverExecError::BeforeHelper;
+        let after = TakeoverExecError::AfterHelper;
+        let helper = bundled
+            .parent()
+            .ok_or_else(|| before("Bundled helper directory missing".into()))?
+            .join("pacer-update-helper");
+        let (mut parent, child) = UnixStream::pair().map_err(|e| before(e.to_string()))?;
+        parent
+            .set_read_timeout(Some(std::time::Duration::from_secs(180)))
+            .map_err(|e| before(e.to_string()))?;
         let child_fd = child.as_raw_fd();
         let mut command = std::process::Command::new(helper);
         command.arg("--ota-takeover");
         helper_descriptors(&mut command, Some(child_fd));
-        let mut process = command.spawn().map_err(|e| e.to_string())?;
+        let mut process = command.spawn().map_err(|e| before(e.to_string()))?;
         drop(child);
-        pacer_desktop::ota::control::write_frame(&mut parent, &manifest).map_err(|e| e.to_string())?;
+        // Helper is running: further failures are AfterHelper.
+        pacer_desktop::ota::control::write_frame(&mut parent, &manifest)
+            .map_err(|e| after(e.to_string()))?;
         let mut final_state = None;
         while let Ok(progress) = pacer_desktop::ota::control::read_frame::<Value>(&mut parent) {
             let state = progress["state"].as_str().unwrap_or("").to_owned();
             crate::set_takeover_progress(&handle, progress);
-            if matches!(state.as_str(), "committed" | "restored" | "recovery-failed") { final_state = Some(state); }
+            if matches!(state.as_str(), "committed" | "restored" | "recovery-failed") {
+                final_state = Some(state);
+            }
         }
-        let status = process.wait().map_err(|e| e.to_string())?;
-        final_state.ok_or_else(|| format!("Takeover helper stopped without a final state ({status})"))
-    }).await.map_err(|e| e.to_string())??;
+        let status = process.wait().map_err(|e| after(e.to_string()))?;
+        final_state.ok_or_else(|| {
+            after(format!("Takeover helper stopped without a final state ({status})"))
+        })
+    })
+    .await
+    .map_err(|e| TakeoverExecError::AfterHelper(e.to_string()))??;
     if result == "committed" {
         // The user explicitly moved the service to the app, so "Keep mine" no longer
         // describes this installation; the desktop stops running the replaced build
@@ -228,7 +290,14 @@ async fn execute_takeover(app: &AppHandle, relink: bool) -> Result<String, Strin
         }
     }
     if result == "committed" && relink {
-        if let Err(error) = link::relink_after_takeover(&user_home, &bundled_binary().ok_or("Bundled command missing")?, &view.candidate.identity, std::time::SystemTime::now()) {
+        let bundled = bundled_binary()
+            .ok_or_else(|| TakeoverExecError::AfterHelper("Bundled command missing".into()))?;
+        if let Err(error) = link::relink_after_takeover(
+            &user_home,
+            &bundled,
+            &view.candidate.identity,
+            std::time::SystemTime::now(),
+        ) {
             crate::set_takeover_progress(app, serde_json::json!({"state":"committed","error":"relink"}));
             desktop_log!("pacer lifecycle: takeover terminal relink failed: {error}");
             #[cfg(not(feature = "ota-fixture"))]
@@ -291,7 +360,7 @@ fn log_service_move_wait(app: &AppHandle, kind: &str, task_count: Option<usize>,
             .swap(true, Ordering::SeqCst)
         {
             desktop_log!(
-                "pacer lifecycle: {kind} waiting; active work counts are unknown (will re-check)"
+                "pacer lifecycle: {kind}; active work counts are unknown"
             );
         }
         return;
@@ -333,16 +402,8 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
             continue;
         }
         let (task_count, terminal_count) = count_session_work(session).await;
+        let counts_unknown = logic::consent_takeover_counts_unknown(task_count, terminal_count);
         let idle = logic::consent_takeover_idle(task_count, terminal_count);
-        if !idle {
-            let kind = if pending_repair {
-                "own-link repair"
-            } else {
-                "consent takeover"
-            };
-            log_service_move_wait(app, kind, task_count, terminal_count);
-            continue;
-        }
         let config = app.path().app_config_dir().ok();
         let dismissed = config.as_ref().and_then(|config| {
             shell
@@ -366,6 +427,7 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
             dismissed,
             reviewing,
             idle,
+            counts_unknown,
             repair_eligible: pending_repair && own_link_repair_eligible_now(cli),
             consent_authorized: pending_consent,
             candidate_present: shell.takeover.lock().unwrap().is_some(),
@@ -378,6 +440,9 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
                     .into());
             }
             logic::ServiceMoveDecision::OfferReview => {
+                if counts_unknown && pending_consent {
+                    log_service_move_wait(app, "consent takeover", task_count, terminal_count);
+                }
                 clear_pending_service_moves(app);
                 crate::recovery(app, "takeover");
                 return Err("takeover".into());
@@ -385,33 +450,51 @@ async fn watch_deferred_service_moves(app: &AppHandle, cli: &Cli, session: &Sess
             logic::ServiceMoveDecision::None => {
                 clear_pending_service_moves(app);
             }
-            logic::ServiceMoveDecision::Defer => {}
+            logic::ServiceMoveDecision::Defer => {
+                let kind = if pending_repair {
+                    "own-link repair"
+                } else {
+                    "consent takeover"
+                };
+                log_service_move_wait(app, kind, task_count, terminal_count);
+            }
         }
     }
 }
 
 /// Perform own-link repair outside any session select! (ADR 0021 owner repair).
+/// Progress is shown only while a mutating attempt runs — never for a pre-mutation refusal.
 #[cfg(target_os = "macos")]
 async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
-    let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() else {
-        clear_pending_service_moves(app);
+    use pacer_desktop::ota::OtaError;
+    let end_repair = |app: &AppHandle| {
+        app.state::<Shell>()
+            .pending_own_link_repair
+            .store(false, Ordering::SeqCst);
+        app.state::<Shell>()
+            .service_move_wait_logged
+            .store(false, Ordering::SeqCst);
+        *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
         crate::recovery(app, "starting");
+    };
+    let Some(trust) = pacer_desktop::ota::trust::ReleaseTrust::configured() else {
+        let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+        end_repair(app);
         return;
     };
     let Ok(home) = required_home(std::env::var_os("HOME").as_deref()) else {
-        clear_pending_service_moves(app);
-        crate::recovery(app, "starting");
+        let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+        end_repair(app);
         return;
     };
     let Some(bundled) = bundled_binary() else {
-        clear_pending_service_moves(app);
-        crate::recovery(app, "starting");
+        let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+        end_repair(app);
         return;
     };
     let owner = crate::owner::read_owner(&cli.pacer_home);
     let link_is_ours = link::state(&home, &bundled) == link::LinkState::Ours;
     let terminal_link = link::link_path(&home);
-    crate::recovery(app, "takeoverProgress");
     desktop_log!("pacer lifecycle: repairing desktop-owned registration that still names the app link");
     let outcome = pacer_desktop::ota::control::repair_own_link_registration(
         &home,
@@ -423,8 +506,17 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
         &terminal_link,
     )
     .await;
-    if outcome.mutation_reached() {
-        let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+    match &outcome {
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::Repaired
+        | pacer_desktop::ota::control::OwnLinkRepairOutcome::FailedAfterMutation { .. } => {
+            let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+        }
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Busy) => {
+            // Transient: retry only after normal lifecycle backoff, not the 1 s reconnect.
+        }
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(_) => {
+            let _ = logic::claim_once_per_launch(&app.state::<Shell>().own_link_repair_attempted);
+        }
     }
     app.state::<Shell>()
         .pending_own_link_repair
@@ -438,23 +530,55 @@ async fn perform_own_link_repair(app: &AppHandle, cli: &Cli) {
             desktop_log!("pacer lifecycle: own-link repair committed");
             crate::recovery(app, "starting");
         }
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(OtaError::Busy) => {
+            desktop_log!(
+                "{}",
+                logic::managed_service_failure_log("repair-own-link", &OtaError::Busy.to_string())
+            );
+            desktop_log!(
+                "pacer lifecycle: own-link repair busy; will retry after lifecycle backoff"
+            );
+            crate::recovery(app, "starting");
+            // Match connection_retry_delay's 30 s floor so Busy does not 1 s-loop.
+            tokio::time::sleep(Duration::from_secs(30)).await;
+        }
         pacer_desktop::ota::control::OwnLinkRepairOutcome::RefusedBeforeMutation(error) => {
             desktop_log!(
                 "{}",
                 logic::managed_service_failure_log("repair-own-link", &error.to_string())
             );
             desktop_log!(
-                "pacer lifecycle: own-link repair refused before mutation; continuing without consuming the once-per-launch gate"
+                "pacer lifecycle: own-link repair refused ({error}); not retrying this launch; connecting normally"
             );
             crate::recovery(app, "starting");
         }
-        pacer_desktop::ota::control::OwnLinkRepairOutcome::FailedAfterMutation(error) => {
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::FailedAfterMutation {
+            forward,
+            restore: None,
+        } => {
             desktop_log!(
                 "{}",
-                logic::managed_service_failure_log("repair-own-link", &error.to_string())
+                logic::managed_service_failure_log("repair-own-link", &forward.to_string())
             );
             desktop_log!(
-                "pacer lifecycle: own-link repair failed after mutation this launch; not retrying; continuing"
+                "pacer lifecycle: own-link repair failed after mutation ({forward}); original registration restored; not retrying this launch"
+            );
+            crate::recovery(app, "starting");
+        }
+        pacer_desktop::ota::control::OwnLinkRepairOutcome::FailedAfterMutation {
+            forward,
+            restore: Some(restore),
+        } => {
+            desktop_log!(
+                "{}",
+                logic::managed_service_failure_log("repair-own-link", &forward.to_string())
+            );
+            desktop_log!(
+                "{}",
+                logic::managed_service_failure_log("repair-own-link-restore", &restore.to_string())
+            );
+            desktop_log!(
+                "pacer lifecycle: own-link repair failed after mutation ({forward}); restore also failed ({restore})"
             );
             crate::recovery(app, "starting");
         }
@@ -475,7 +599,7 @@ async fn perform_consent_takeover(app: &AppHandle, cli: &Cli, first_run: &mut Fi
         .pending_consent_takeover
         .store(false, Ordering::SeqCst);
     crate::recovery(app, "takeoverProgress");
-    // Claim once the helper path is entered; pre-helper Err does not claim.
+    // Claim for this launch; BeforeHelper failures reset so a later idle pass can retry.
     let claimed = logic::claim_once_per_launch(&app.state::<Shell>().consent_takeover_attempted);
     if !claimed {
         desktop_log!(
@@ -518,14 +642,28 @@ async fn perform_consent_takeover(app: &AppHandle, cli: &Cli, first_run: &mut Fi
                 }
             }
         }
-        Err(error) => {
-            // Pre-helper refusal: allow another attempt this launch.
+        Err(TakeoverExecError::BeforeHelper(error)) => {
             app.state::<Shell>()
                 .consent_takeover_attempted
                 .store(false, Ordering::SeqCst);
-            desktop_log!("pacer lifecycle: consent takeover failed before mutation: {error}");
+            desktop_log!("pacer lifecycle: consent takeover failed before helper: {error}");
             *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
             crate::recovery(app, "takeover");
+        }
+        Err(TakeoverExecError::AfterHelper(error)) => {
+            // Helper already ran (or may have); keep the once-per-launch gate and
+            // show the engine's restored / in-progress / recovery-failed page.
+            desktop_log!("pacer lifecycle: consent takeover failed after helper: {error}");
+            *app.state::<Shell>().takeover_progress.lock().unwrap() = None;
+            let gate = takeover_gate(app);
+            match logic::takeover_failure_next(gate.as_ref().map(|hold| hold.page)) {
+                logic::TakeoverFailureNext::Show(page) => {
+                    show_takeover_outcome(app, page, gate.and_then(|hold| hold.error));
+                }
+                logic::TakeoverFailureNext::Reoffer => {
+                    crate::recovery(app, "takeover");
+                }
+            }
         }
     }
 }
@@ -1213,6 +1351,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
     {
         // Work counts only matter for OTA deferred moves; skip in non-OTA builds.
         let (task_count, terminal_count) = count_session_work(&session).await;
+        let counts_unknown = logic::consent_takeover_counts_unknown(task_count, terminal_count);
         let idle = logic::consent_takeover_idle(task_count, terminal_count);
         let repair_eligible = own_link_repair_eligible_now(cli);
         let candidate = (|| {
@@ -1231,7 +1370,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         .is_ok_and(|observed| pacer_desktop::ota::takeover::detect::still_current(&view.candidate, &observed))
                 {
                     let keep = consent.as_ref().is_some_and(|record| record.keep);
-                    return Some((view, config, keep, consent));
+                    return Some((view, config, keep));
                 }
             }
             match pacer_desktop::ota::takeover::detect::detect_takeover(&config, &home, &cli.pacer_home, service_port(), &bundled, &trust) {
@@ -1244,24 +1383,17 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                         "dataHome":candidate.home,
                     });
                     let keep = consent.as_ref().is_some_and(|consent| consent.keep);
-                    (crate::TakeoverView { candidate, inspection }, config, keep, consent)
+                    (crate::TakeoverView { candidate, inspection }, config, keep)
                 }),
                 Err(error) => { desktop_log!("pacer lifecycle: takeover inspection unavailable: {error}"); None }
             }
         })();
-        if let Some((mut view, config, keep, consent)) = candidate {
+        if let Some((mut view, config, keep)) = candidate {
             logic::refresh_takeover_work(&mut view.inspection, session.service_version(), task_count, terminal_count);
             let dismissed = logic::takeover_dismissed(&config, &view.candidate.identity);
-            let owner = crate::owner::read_owner(&cli.pacer_home);
-            // Persisted UseApp intent (keep:false + owner desktop) is honoured after restart.
+            // Automatic takeover only within the launch where the user clicked UseApp.
             let consent_authorized = first_run.consent_takeover
-                || app.state::<Shell>().pending_consent_takeover.load(Ordering::SeqCst)
-                || logic::persisted_use_app_intent(
-                    consent.as_ref().map(|record| record.keep),
-                    owner.as_ref().map(|record| record.owner.as_str()),
-                    true,
-                    dismissed,
-                );
+                || app.state::<Shell>().pending_consent_takeover.load(Ordering::SeqCst);
             *app.state::<Shell>().takeover.lock().unwrap() = Some(view);
             let retry = app.state::<Shell>().takeover_retry.swap(false, Ordering::SeqCst);
             let reviewing = retry
@@ -1290,6 +1422,7 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                 dismissed,
                 reviewing,
                 idle,
+                counts_unknown,
                 repair_eligible,
                 consent_authorized,
                 candidate_present: true,
@@ -1325,6 +1458,9 @@ async fn connected(app: &AppHandle, cli: &Cli, first_run: &mut FirstRun) -> Resu
                     // Stay connected; watcher re-checks and ends the session when idle.
                 }
                 logic::ServiceMoveDecision::OfferReview => {
+                    if counts_unknown && consent_authorized {
+                        log_service_move_wait(app, "consent takeover", task_count, terminal_count);
+                    }
                     first_run.consent_takeover = false;
                     clear_pending_service_moves(app);
                     crate::recovery(app, "takeover");
@@ -2154,7 +2290,10 @@ impl FirstRun {
                     #[cfg(target_os = "macos")]
                     let result = execute_takeover(app, relink).await;
                     #[cfg(not(target_os = "macos"))]
-                    let result: Result<String, String> = Err("Service takeover is only available on macOS".into());
+                    let result: Result<String, TakeoverExecError> =
+                        Err(TakeoverExecError::BeforeHelper(
+                            "Service takeover is only available on macOS".into(),
+                        ));
                     match result {
                         Ok(state) if state == "committed" => {
                             *app.state::<Shell>().takeover.lock().unwrap() = None;
@@ -2171,7 +2310,9 @@ impl FirstRun {
                             crate::recovery(app, "starting");
                         }
                         result => {
-                            if let Err(error) = &result { desktop_log!("pacer lifecycle: service takeover failed: {error}"); }
+                            if let Err(error) = &result {
+                                desktop_log!("pacer lifecycle: service takeover failed: {error}");
+                            }
                             let gate = takeover_gate(app);
                             match logic::takeover_failure_next(gate.as_ref().map(|hold| hold.page)) {
                                 logic::TakeoverFailureNext::Show(page) => {

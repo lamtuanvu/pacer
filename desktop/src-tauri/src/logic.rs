@@ -311,8 +311,8 @@ pub fn reinstall_after_install_error(reinstall: bool, action: &str, identity: bo
 }
 
 /// Consent-authorized takeover commits once active work counts are known and idle.
-/// Unknown counts (`None`) are treated as busy so the session stays usable and the
-/// lifecycle re-checks; they must not be treated as idle.
+/// Unknown counts (`None`) are never idle; for a pending UseApp takeover they fall
+/// through to the review offer after the first pass (see [`service_move_decision`]).
 pub fn consent_takeover_idle(tasks: Option<usize>, terminals: Option<usize>) -> bool {
     matches!((tasks, terminals), (Some(0), Some(0)))
 }
@@ -322,9 +322,10 @@ pub fn consent_takeover_counts_unknown(tasks: Option<usize>, terminals: Option<u
     tasks.is_none() || terminals.is_none()
 }
 
-/// First mutating automatic service move for this app launch. Call only after the
-/// sequence reaches its first mutation (own-link bootout / takeover helper start).
-/// Pre-mutation refusals (Busy, Identity validation) must not claim the gate.
+/// First automatic service-move attempt for this app launch.
+/// Own-link: claim on any outcome except a transient Busy (Busy may retry after
+/// lifecycle backoff). Consent takeover: claim when the helper path is entered;
+/// reset only for failures before the helper was spawned.
 pub fn claim_once_per_launch(attempted: &AtomicBool) -> bool {
     !attempted.swap(true, Ordering::SeqCst)
 }
@@ -352,6 +353,8 @@ pub enum ServiceMoveDecision {
 }
 
 /// Inputs for [`service_move_decision`]. Flags for repair and UseApp takeover are separate.
+/// `consent_authorized` is true only after Use the app's service in this launch
+/// (`first_run.consent_takeover` / pending flag) — never inferred from disk alone.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct ServiceMoveInput {
     pub pending_own_link_repair: bool,
@@ -361,6 +364,8 @@ pub struct ServiceMoveInput {
     pub dismissed: bool,
     pub reviewing: bool,
     pub idle: bool,
+    /// Work-count probes failed or timed out (`None`).
+    pub counts_unknown: bool,
     pub repair_eligible: bool,
     pub consent_authorized: bool,
     pub candidate_present: bool,
@@ -383,33 +388,18 @@ pub fn service_move_decision(input: ServiceMoveInput) -> ServiceMoveDecision {
         };
     }
     if input.consent_authorized && input.candidate_present && !input.consent_attempted {
+        // After the first pass with unknown counts, stop waiting and let the user
+        // decide on the existing takeover offer (do not wait forever silently).
+        if input.counts_unknown {
+            return ServiceMoveDecision::OfferReview;
+        }
         return if input.idle {
             ServiceMoveDecision::ReadyConsentTakeover
         } else {
             ServiceMoveDecision::Defer
         };
     }
-    if input.pending_own_link_repair || input.pending_consent_takeover {
-        // Pending flags without eligibility/authorization: clear by returning None.
-        return ServiceMoveDecision::None;
-    }
     ServiceMoveDecision::None
-}
-
-/// Persistable UseApp intent: consent `keep: false` + owner `desktop` + an offerable
-/// candidate. After an app restart this is still honoured once idle (ADR 0021: complete
-/// without asking again) unless the user dismissed this candidate. Unknown work counts
-/// stay on Defer and re-check; they never commit.
-pub fn persisted_use_app_intent(
-    consent_keep: Option<bool>,
-    owner: Option<&str>,
-    offerable: bool,
-    dismissed: bool,
-) -> bool {
-    matches!(consent_keep, Some(false))
-        && owner == Some("desktop")
-        && offerable
-        && !dismissed
 }
 
 /// Session end codes that schedule a mutating move in `run()` (outside select!).
@@ -1831,6 +1821,7 @@ mod tests {
             dismissed: false,
             reviewing: false,
             idle,
+            counts_unknown: false,
             repair_eligible: false,
             consent_authorized: false,
             candidate_present: false,
@@ -1852,6 +1843,29 @@ mod tests {
         );
         input.idle = false;
         assert_eq!(service_move_decision(input), ServiceMoveDecision::Defer);
+    }
+
+    #[test]
+    fn desktop_owner_keep_false_without_use_app_this_launch_does_not_auto_takeover() {
+        // owner=desktop + keep:false alone must not authorize automatic takeover
+        // after a restart; only a UseApp click in this launch sets consent_authorized.
+        let mut input = move_input(true);
+        input.candidate_present = true;
+        input.consent_authorized = false;
+        input.pending_consent_takeover = false;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+    }
+
+    #[test]
+    fn unknown_work_counts_during_use_app_takeover_show_the_offer() {
+        let mut input = move_input(false);
+        input.consent_authorized = true;
+        input.candidate_present = true;
+        input.counts_unknown = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::OfferReview
+        );
     }
 
     #[test]
@@ -1883,9 +1897,8 @@ mod tests {
     }
 
     #[test]
-    fn once_per_launch_gate_is_not_implied_by_pre_mutation_refusal() {
-        // Claiming happens only after bootout; a refused decision stays Ready so the
-        // caller can retry until a mutating attempt consumes the gate.
+    fn refused_own_link_repair_is_not_ready_again_this_launch() {
+        // Any non-Busy refusal ends automatic repair for the launch (claim the gate).
         let attempted = AtomicBool::new(false);
         let mut input = move_input(true);
         input.repair_eligible = true;
@@ -1893,44 +1906,9 @@ mod tests {
             service_move_decision(input),
             ServiceMoveDecision::ReadyOwnLinkRepair
         );
-        assert!(!attempted.load(Ordering::SeqCst));
         assert!(claim_once_per_launch(&attempted));
         input.repair_attempted = true;
         assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
-    }
-
-    #[test]
-    fn persisted_use_app_intent_survives_restart_unless_dismissed() {
-        assert!(persisted_use_app_intent(
-            Some(false),
-            Some("desktop"),
-            true,
-            false
-        ));
-        assert!(!persisted_use_app_intent(
-            Some(false),
-            Some("desktop"),
-            true,
-            true
-        ));
-        assert!(!persisted_use_app_intent(
-            Some(true),
-            Some("desktop"),
-            true,
-            false
-        ));
-        assert!(!persisted_use_app_intent(
-            Some(false),
-            Some("cli"),
-            true,
-            false
-        ));
-        assert!(!persisted_use_app_intent(
-            Some(false),
-            Some("desktop"),
-            false,
-            false
-        ));
     }
 
     #[test]
