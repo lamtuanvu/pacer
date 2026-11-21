@@ -9763,6 +9763,11 @@ Params:
           "minLength": 1,
           "maxLength": 128
         },
+        "grantRef": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
         "command": {
           "type": "object",
           "properties": {
@@ -9811,6 +9816,53 @@ Params:
           "additionalProperties": false
         },
         "fallback": {
+          "type": "object",
+          "properties": {
+            "argv": {
+              "minItems": 1,
+              "maxItems": 32,
+              "type": "array",
+              "items": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "cwd": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 4096
+            },
+            "env": {
+              "type": "object",
+              "propertyNames": {
+                "type": "string",
+                "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
+              },
+              "additionalProperties": {
+                "type": "string",
+                "maxLength": 4096
+              }
+            },
+            "stdin": {
+              "type": "string",
+              "maxLength": 262144
+            },
+            "timeoutMs": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 120000
+            }
+          },
+          "required": [
+            "argv",
+            "cwd",
+            "env",
+            "stdin",
+            "timeoutMs"
+          ],
+          "additionalProperties": false
+        },
+        "digestFallback": {
           "type": "object",
           "properties": {
             "argv": {

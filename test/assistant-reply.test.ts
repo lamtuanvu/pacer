@@ -660,7 +660,6 @@ describe("real pacer-assistant-pacer binary against the host", () => {
     let binary = locateBinary();
     if (!binary) {
       const target = process.env.CARGO_TARGET_DIR ?? join(process.env.TMPDIR ?? "/tmp", "pacer-target-d5fd");
-      process.env.CARGO_TARGET_DIR = target;
       const build = Bun.spawn(["cargo", "build", "-p", "pacer-assistant-pacer", "--bin", ASSISTANT_PACER_EXECUTABLE], {
         cwd: join(import.meta.dir, ".."),
         env: { ...process.env, CARGO_TARGET_DIR: target },
