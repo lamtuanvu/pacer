@@ -39,6 +39,11 @@ describe("admission", () => {
     const ctx = fakeCtx();
     expect((await admit(ctx, { strategy: () => strategy(), status: status() })).ok).toBe(false);
     expect((await assistantStatus(ctx, { strategy: () => strategy(), status: status() })).available).toBe(false);
+    expect((await assistantStatus(ctx, { strategy: () => strategy(), status: status() })).liveTools).toBe(false);
+  });
+  test("status.liveTools follows the chosen pacer candidate", async () => {
+    const { ctx, deps } = setup();
+    expect((await assistantStatus(ctx, deps)).liveTools).toBe(true);
   });
   test("refuses an exhausted account, the reserve, the daily cap, and planner strict mode, each with a plain reason", async () => {
     const { ctx, deps } = setup();

@@ -31,9 +31,9 @@ const api = { async call(op: string, params: any) {
   if (op === "assistant.candidates") {
     if (!withExecutors) return { accounts: [{ account: "localmodel", models: [{ id: "qwen", name: "Qwen" }] }, { account: "cloud", models: [{ id: "cloud-model", name: "Cloud model" }] }] };
     return { accounts: [
-      { account: "localmodel", backend: "pacer", available: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel" }] },
-      { account: "oc", backend: "executor", available: true, models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc" }] },
-      { account: "oc-bad", backend: "executor", available: false, reason: "oc-bad has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc-bad" }] },
+      { account: "localmodel", backend: "pacer", available: true, liveTools: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel" }] },
+      { account: "oc", backend: "executor", available: true, liveTools: true, models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc" }] },
+      { account: "oc-bad", backend: "executor", available: false, liveTools: false, reason: "oc-bad has not passed the ask-mode check yet.", models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc-bad" }] },
     ] };
   }
   if (op === "assistant.selftest") {

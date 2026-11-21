@@ -255,7 +255,7 @@ fn candidates(strategy: &Value) -> Vec<Value> {
             let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
             // Phase 1 offers endpoint accounts on the `pacer` backend only; `reason` appears with a
             // row that is not available (spec §5).
-            json!({"account":name,"backend":"pacer","available":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
+            json!({"account":name,"backend":"pacer","available":true,"liveTools":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
         })
         .collect()
 }
@@ -344,6 +344,8 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
     let mut out = Map::new();
     out.insert("available".into(), json!(false));
     out.insert("configured".into(), json!(account.is_some()));
+    // Refusal paths never claim live tools; an admissible status is forwarded to the core.
+    out.insert("liveTools".into(), json!(false));
     put(
         &mut out,
         "account",

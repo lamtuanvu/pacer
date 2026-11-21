@@ -248,10 +248,10 @@ describe("the fail-closed ask-mode check", () => {
   test("admission and candidates require a passing check for today's opencode", async () => {
     const { ctx, deps } = setup();
     expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "oc has not passed the ask-mode check yet." });
-    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: false });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: false, liveTools: false });
     expect((await selfTest(ctx, "oc", deps)).passed).toBe(true);
     expect((await admit(ctx, deps)).ok).toBe(true);
-    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: true });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor")).toMatchObject({ account: "oc", available: true, liveTools: true });
     expect(candidates(ctx, deps).find(r => r.backend === "executor")).not.toHaveProperty("reason");
   }, 60_000);
 
@@ -727,10 +727,11 @@ describe("claude-code ask mode", () => {
   test("admission and candidates require a passing check for today's claude", async () => {
     const { ctx, deps } = claudeSetup();
     expect(await admit(ctx, deps)).toMatchObject({ ok: false, reason: "work has not passed the ask-mode check yet." });
-    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: false });
+    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: false, liveTools: false });
     expect((await selfTest(ctx, "work", deps)).passed).toBe(true);
     expect((await admit(ctx, deps)).ok).toBe(true);
-    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true });
+    // Claude digest-only ask mode: check can pass without proving live pacer tools.
+    expect(candidates(ctx, deps).find(r => r.backend === "executor" && r.account === "work")).toMatchObject({ available: true, liveTools: false });
   }, 60_000);
 
   test("a Claude account without a config directory is unavailable and never falls back", () => {
@@ -1069,9 +1070,10 @@ describe("codex ask mode", () => {
 
   test("candidates require a passing Codex ask-mode check", async () => {
     const { ctx, deps } = codexSetup();
-    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: false });
+    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: false, liveTools: false });
     expect((await selfTest(ctx, "cx", deps)).passed).toBe(true);
-    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: true });
+    expect(candidates(ctx, deps).find(r => r.account === "cx" && r.backend === "executor")).toMatchObject({ available: true, liveTools: true });
   }, 60_000);
 });
+
 
