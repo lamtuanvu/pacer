@@ -103,5 +103,16 @@ function loadSnapshot(): void {
 loadSnapshot()
 orca.plugin.on('pacer.changed', (payload) => dispatch({ type: 'snapshot', snapshot: payload.snapshot }))
 
-// Relative times go stale without a new event; re-render the clock text on a short interval.
-setInterval(render, 5_000)
+// Relative times go stale without a new event. Rebuilding the whole tree every 5s would drop
+// focus/hover off whatever a keyboard or mouse user is on, so this only rewrites each existing
+// card's `.card-time` text node in place - nothing else in the DOM is touched.
+function tickTime(): void {
+  if (root === null) return
+  const model = panelModel(state, Date.now() / 1000)
+  if (model.kind !== 'ready') return
+  for (const row of model.rows) {
+    const time = root.querySelector(`.card[data-id="${CSS.escape(row.id)}"] .card-time`)
+    if (time !== null && time.textContent !== row.time) time.textContent = row.time
+  }
+}
+setInterval(tickTime, 5_000)

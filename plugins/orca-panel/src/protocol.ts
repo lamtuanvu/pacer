@@ -1,4 +1,4 @@
-// The panel <-> worker contract, declared once: src/panel.tsx and src/worker.ts both read it.
+// The panel <-> worker contract, declared once: src/panel.ts and src/worker.ts both read it.
 import type { AttentionItem } from './pacer-client'
 
 /** What the worker answers `pacer.snapshot` with and pushes as `pacer.changed`:

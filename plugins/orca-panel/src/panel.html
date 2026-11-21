@@ -22,6 +22,13 @@
     --bad-fg: #991b1b;
     --bad-bg: #fee2e2;
     --bad-fill: #dc2626;
+    /* Solid-filled button backgrounds, kept constant across themes: --track and the dark
+       --bad-fill are tuned for small accents/dots on their own surface, not for white button
+       text on top of them (measured ~3.1:1 and ~3.8:1 - below WCAG AA's 4.5:1 for this text
+       size). These reuse pacer's own --good-fill/light --bad-fill values, which do pass
+       (~5.0:1 and ~4.8:1 with white) in either theme, since contrast is bg-vs-fg only. */
+    --btn-solid-fill: #15803d;
+    --btn-danger-fill: #dc2626;
     --font-sans: ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
     --font-mono: ui-monospace, 'SF Mono', Menlo, Consolas, monospace;
     --type-headline-size: 16px;
@@ -169,13 +176,13 @@
     outline-offset: 1px;
   }
   .btn.solid {
-    background: var(--track);
-    border-color: var(--track);
+    background: var(--btn-solid-fill);
+    border-color: var(--btn-solid-fill);
     color: #ffffff;
   }
   .btn.danger {
-    background: var(--bad-fill);
-    border-color: var(--bad-fill);
+    background: var(--btn-danger-fill);
+    border-color: var(--btn-danger-fill);
     color: #ffffff;
   }
 </style>

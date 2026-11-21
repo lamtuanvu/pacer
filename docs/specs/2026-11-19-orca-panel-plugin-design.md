@@ -48,8 +48,9 @@ tray for the common cases.
   UI into *pacer's own first-party app shell* ([ADR 0010](../decisions/0010-plugin-ui-contributions.md)),
   specifically so untrusted plugin code never ships HTML/JS/CSS into the app's trust boundary. The
   Orca panel is a genuine pacer client, the same tier as the web app — it talks to pacer's real
-  operations and renders with its own (Orca's) components, the way the web app renders with its
-  own (`app/src/ds/`) components. Reusing the plugin-UI sandbox here would buy nothing and would
+  operations and renders as an Orca-hosted `"ui":"html"` page using pacer's own design tokens
+  (`app/src/ds/tokens.css`), the way the web app renders with its own (`app/src/ds/`) components.
+  Reusing the plugin-UI sandbox here would buy nothing and would
   import restrictions built for a different problem (no primary buttons, no text input, a mandatory
   "contributed by this plugin" banner, 64 KB/500-node document caps).
 - Not an embedded, pixel-identical copy of the pacer web app inside an Orca editor view. Verified
@@ -107,8 +108,11 @@ Would count as failure even if it technically runs:
 2. **Native Orca panel calling pacer's real operations directly.** Worker calls `snapshot.get`,
    subscribes to `/v3/events`, and forwards attention-item actions (`task.review`,
    `dispatch.retry`, `attention.dismiss`/`snooze`, etc.) through `plugin.request`; panel renders
-   with Orca's own components. **Chosen.** Business logic stays entirely in the service (the
-   worker never decides what's reviewable, only displays what the service already decided); this
+   as an Orca `"ui":"html"` page with pacer's own design tokens rather than Orca's generic
+   component styling, since `orca plugin check`'s render-check kit only supports `"ui":"components"`
+   panels and a branded look needed full CSS control anyway. **Chosen.** Business logic stays
+   entirely in the service (the worker never decides what's reviewable, only displays what the
+   service already decided); this
    is architecturally the same thing the web app and tray already do, just a third thin client.
 3. **Generic renderer of pacer's `plugin.ui.render`/`action`.** Initially attractive (reuse,
    "automatically picks up new surfaces"), but rejected after checking ADR 0010: that protocol's
@@ -146,8 +150,10 @@ Would count as failure even if it technically runs:
   This lands before or alongside the first panel code — it's what makes the code legal under this
   repo's own rules, not an afterthought.
 - **Location:** a new tracked folder analogous to `plugins/pacer-exec-orca`, e.g. `plugins/orca-panel/`,
-  holding `orca-plugin.json`, `src/protocol.ts`, `src/worker.ts`, `src/panel.tsx`, and their tests.
-  No machine-specific paths in anything tracked.
+  holding `orca-plugin.json`, `src/protocol.ts`, `src/worker.ts`, `src/panel.html`/`src/panel.ts`
+  (the `"ui":"html"` frame and its thin DOM glue), `src/panel-view.ts` (the pure, DOM-free,
+  `orca`-free view-model that carries the actual tested logic), and their tests. No
+  machine-specific paths in anything tracked.
 - **Scoping:** the worker calls `workspace.readContext` (capability `workspace:read`) for the
   focused workspace, resolves its path via `workspace.list`/`project.list`, and matches it against
   pacer's own `repos[].path` (from `snapshot.get`) to find that repo's `key`. Attention items,
@@ -178,8 +184,11 @@ Would count as failure even if it technically runs:
   at a local folder, this repo, or a catalog entry — a product/packaging call, not an
   architectural one; the command's job (invoke `orca plugin install`/`update` for this plugin only)
   is decided regardless of source.
-- Test shape: the `worker-panel` template already scaffolds `panel.test.tsx`, `worker.test.ts`, and
-  `panel.check.ts`; extend those for the real request handlers and attention-rendering states using
-  `orca/testing`'s mount/host mocks, per `references/testing.md`.
+- Test shape: `worker.test.ts` covers the worker's request handlers and live-loop behavior against
+  a real loopback pacer fixture, using `orca/testing`'s mount/host mocks per `references/testing.md`.
+  The html panel itself has no `orca plugin check` equivalent (that kit only mounts
+  `"ui":"components"` panels), so `panel-view.ts` carries every rendering decision as plain,
+  DOM-free functions covered by `panel-view.test.ts`'s plain `node:test` cases, leaving `panel.ts`
+  (the actual DOM writes) as the one untested surface — exercised only by manual/live-Orca checks.
 - The exact ADR/amendment wording and principle numbering — draft it, but the maintainer decides
   the final text since only they adopt amendments.

@@ -339,6 +339,101 @@ test("subscribeEvents' onDrop triggers a reconnect using the last stored seq, re
   }
 })
 
+test('a first connect with empty storage seeds `since` from the snapshot\'s own seq, never from 0', async () => {
+  const pacer = await startPacer({ snapshot: () => snapshotWith({ seq: 42 }) })
+  try {
+    const host = hostWithFocusedWorkspace(null)
+    const worker = await mountWorker(main, { host })
+    await waitFor(() => pacer.eventConnections.length >= 1, 'the first event stream')
+    // The seeding snapshot fetch happens before the stream subscribes, and its seq - not 0 -
+    // is what the first connection asks the server to resume from.
+    assert.equal(pacer.snapshotRequests >= 1, true)
+    assert.equal(pacer.eventConnections[0]?.since, '42')
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    await pacer.dispose()
+  }
+})
+
+test('a failed seeding snapshot retries instead of falling back to since=0', async () => {
+  // Activation fires two independent getSnapshot calls (refresh()'s one-shot status-bar
+  // update, and seedAndConnect's own seed), so the first two responses are malformed
+  // (pacer not fully up yet - getSnapshot returns { error } for both) and only the third
+  // onward is a real snapshot: whichever call seedAndConnect's is, it fails at least once
+  // and must retry rather than ever subscribing with 0.
+  let snapshotCalls = 0
+  const pacer = await startPacer({
+    snapshot: () => {
+      snapshotCalls++
+      return snapshotCalls <= 2 ? { seq: 999 } : snapshotWith({ seq: 9 })
+    },
+  })
+  try {
+    const host = hostWithFocusedWorkspace(null)
+    const worker = await mountWorker(main, { host })
+    await waitFor(() => pacer.eventConnections.length >= 1, 'the first event stream', 2000)
+    // Never subscribed with a failed attempt's seq or 0 - only the retried seed's real seq.
+    assert.equal(pacer.eventConnections[0]?.since, '9')
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    await pacer.dispose()
+  }
+})
+
+test('a burst of events delivered in one chunk collapses into exactly one refresh, using the newest seq', async () => {
+  let events: EventConnection | undefined
+  const pacer = await startPacer({
+    snapshot: () => snapshotWith({ attention: [attentionItem('a1', 'k1')] }),
+    onEvents: (connection) => {
+      events = connection
+    },
+  })
+  try {
+    const host = hostWithFocusedWorkspace(null)
+    const worker = await mountWorker(main, { host })
+    await waitFor(() => events !== undefined, 'the activation event stream')
+    const snapshotsBeforeBurst = pacer.snapshotRequests
+    // Three events delivered together, as the real crash's instant backlog replay did.
+    events?.send('id: 10\nevent: attention\ndata: {}\n\nid: 11\nevent: attention\ndata: {}\n\nid: 12\nevent: attention\ndata: {}\n\n')
+    await waitFor(() => host.data().storage.seq === 12, 'the newest seq to be stored')
+    // Exactly one refresh for the whole burst, not one per event.
+    assert.equal(pacer.snapshotRequests - snapshotsBeforeBurst, 1)
+    assert.equal(worker.posts.filter((post) => post.event === 'pacer.changed').length, 1)
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    await pacer.dispose()
+  }
+})
+
+test('a synthetic reset event (seq below the stored cursor) never regresses the stored seq', async () => {
+  let events: EventConnection | undefined
+  const pacer = await startPacer({
+    snapshot: () => snapshotWith(),
+    onEvents: (connection) => {
+      events = connection
+    },
+  })
+  try {
+    const host = hostWithFocusedWorkspace(null)
+    const worker = await mountWorker(main, { host })
+    await waitFor(() => events !== undefined, 'the activation event stream')
+    events?.send('id: 10\nevent: attention\ndata: {}\n\n')
+    await waitFor(() => host.data().storage.seq === 10, 'the real event to be stored')
+    const snapshotsBeforeReset = pacer.snapshotRequests
+    // A retention reset carries a seq below the client's real position.
+    events?.send('id: 2\nevent: reset\ndata: {}\n\n')
+    await waitFor(() => pacer.snapshotRequests > snapshotsBeforeReset, 'the reset to still trigger a refresh')
+    assert.equal(host.data().storage.seq, 10)
+    assert.deepEqual(worker.refusals, [])
+    await worker.deactivate()
+  } finally {
+    await pacer.dispose()
+  }
+})
+
 test('activation and every snapshot change update the status bar item with the planner pace and tone', async () => {
   let events: EventConnection | undefined
   const pacer = await startPacer({

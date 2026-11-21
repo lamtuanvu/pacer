@@ -115,9 +115,13 @@ export default function activate(orca: OrcaWorkerApi): void {
   // `setTypeOfService EINVAL` under exactly this load).
   let latestSeq: number | null = null
   let refreshPending = false
-  const onEvent = (seq: number): void => {
+  const onEvent = (seq: number, type: string): void => {
     if (stopped) return
-    latestSeq = seq
+    // A retention `reset` carries a seq *below* the client's real position (the server's way of
+    // saying "your cursor is too old, resync") - storing it would regress the resume point and
+    // force the very next reconnect to replay the whole retained range again. The refresh below
+    // still runs (it re-fetches the full current snapshot, so the UI is correct either way).
+    if (type !== 'reset') latestSeq = seq
     if (refreshPending) return
     refreshPending = true
     void (async () => {
@@ -164,17 +168,40 @@ export default function activate(orca: OrcaWorkerApi): void {
     })()
   }
 
-  // The badge shows the current pace before any event arrives; the live loop keeps it fresh.
-  // Seed the first connect from the current seq (one extra startup fetch) so a long-idle
-  // server's full backlog is never replayed as a burst.
-  void refresh()
-  void (async () => {
-    const endpoint = readPacerEndpoint(process.env)
-    if (endpoint === null) return
-    const snapshot = await getSnapshot(endpoint)
+  /** Seed the very first connect from the current snapshot's own seq, so a long-idle server's
+   *  full backlog is never replayed as a burst. A failed seed (pacer not up yet - a common first
+   *  run order, Orca starting before `pacer serve`) retries on the same backoff as a dropped
+   *  stream instead of falling back to 0: connecting with 0 would itself replay the entire
+   *  history once pacer does come up, the very burst this fix exists to avoid. `storage.get` in
+   *  `connect()` already makes this seed a one-time bootstrap: once any seq is stored, every
+   *  later connect (including this process's own reconnects) resumes from storage, not here. */
+  const seedAndConnect = (): void => {
     if (stopped) return
-    connect('error' in snapshot ? 0 : snapshot.seq)
-  })()
+    const endpoint = readPacerEndpoint(process.env)
+    if (endpoint === null) {
+      reconnect = setTimeout(() => {
+        reconnect = null
+        seedAndConnect()
+      }, RECONNECT_MS)
+      return
+    }
+    void (async () => {
+      const snapshot = await getSnapshot(endpoint)
+      if (stopped) return
+      if ('error' in snapshot) {
+        reconnect = setTimeout(() => {
+          reconnect = null
+          seedAndConnect()
+        }, RECONNECT_MS)
+        return
+      }
+      connect(snapshot.seq)
+    })()
+  }
+
+  // The badge shows the current pace before any event arrives; the live loop keeps it fresh.
+  void refresh()
+  seedAndConnect()
   activeLoop = { stop }
 }
 

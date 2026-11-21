@@ -29,7 +29,9 @@ model) stand.
 
 - **D1. An Orca panel plugin is built again,** scoped to one `status` bar item and one sidebar `panelTab`. The
   worker is an ordinary pacer v3 HTTP/SSE client — the same bearer-token auth every other client (CLI, TUI, web
-  app and tray) already uses — and the panel renders with Orca's own native components. It acts through the pacer
+  app and tray) already uses — and the panel renders as a pacer-owned `"ui":"html"` page (pacer's own design
+  tokens, not Orca's generic component styling or theme variables), because `orca plugin check`'s mount() kit
+  only supports `"ui":"components"` panels and this panel needed its own branded look. It acts through the pacer
   API and reloads itself: the two things the retired plugin could not do.
 - **D2. `pacer plugin install`/`update`/`status`/`uninstall` are revived** (verbs retired in amendment 0.5.0).
   This narrows D3 of the 2026-10-20 ADR to: pacer may invoke the `orca` CLI to manage this plugin's own
