@@ -24,7 +24,7 @@ import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
 import { accountEvidenceScope } from "../evidence/scope";
-import { deleteUsageStore, pruneOrphanUsageStores } from "../usage/store";
+import { pruneOrphanUsageStores } from "../usage/store";
 
 export interface HostFacts {
   os: string | null;
@@ -245,10 +245,8 @@ export async function addAccount(ctx: Ctx, alias: string, account: string, home:
   await applyEdit(ctx, doc => doc.setIn(["hosts", alias, "accounts", account, "home"], home));
   const after = loadStrategy(ctx);
   const nextIdentity = accountEvidenceScope(after.accounts[account]!, after.hosts).identity;
-  if (previousIdentity !== nextIdentity) {
-    try { deleteUsageStore(ctx, previousIdentity); } catch { /* best effort */ }
-    pruneOrphanUsageStores(ctx);
-  }
+  // The prune keeps a store another strategy file still uses; only true orphans go.
+  if (previousIdentity !== nextIdentity) pruneOrphanUsageStores(ctx);
   // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
   const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
   return { command: `${cfg.kind === "codex" ? "CODEX_HOME" : "CLAUDE_CONFIG_DIR"}=${folder} ${cfg.kind === "codex" ? "codex login" : "claude\n# Then run /login to sign in."}` };
