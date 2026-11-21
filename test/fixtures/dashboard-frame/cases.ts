@@ -10,6 +10,7 @@ import type { RenderOptions } from "../../../src/dashboard/render";
 import type { UpdateStatus } from "../../../src/update/desktop/types";
 import type { UiState } from "../../../src/dashboard/state";
 import type { ThreadDetail } from "../../../src/dashboard/screens/thread";
+import { withUsageState } from "../../usage-fixtures";
 
 interface FrameCase extends Pick<RenderOptions, "update" | "connection" | "ops" | "message"> {
   name: string;
@@ -24,7 +25,8 @@ interface FrameCase extends Pick<RenderOptions, "update" | "connection" | "ops" 
 
 // These inputs and full rendered strings are the TypeScript reference for a future port.
 export function corpus() {
-  const s = structuredClone(snapshot) as unknown as ClientSnapshot;
+  // Every planner/account/executor row carries usageState so frame goldens exercise usageView.
+  const s = withUsageState(structuredClone(snapshot) as unknown as ClientSnapshot);
   const detail = { ...structuredClone(taskGet), messages: { value: [{ id: "m1", taskId: "t-0412", rootId: "t-0412", from: "task:t-0412", to: "human", kind: "question", body: "Can you check the result?", replyTo: null, requestId: null, status: "delivered", createdAt: 1800000000, deliveredAt: 1800000000, readAt: null, turnId: null }] } } as unknown as ThreadDetail;
   const data = { details: new Map([["t-0412", { value: detail }]]), settings: structuredClone(settings) as unknown as SettingsData };
   const cases: [string, Partial<UiState>][] = [
@@ -199,7 +201,10 @@ export function corpus() {
     add(`settings-eligibility-${eligibility}`, { screen: "settings", section: "executors", focus: "detail", selected: { settings: `executor:${evidence.executors![1]!.id}` } }, { snapshot: evidence });
   }
   const historical = structuredClone(s);
-  Object.assign(historical.accounts![0]!, { stale: false, capturedAt: s.at - 100000, eligibility: { budget: "unknown" } });
+  Object.assign(historical.accounts![0]!, { stale: false, capturedAt: s.at - 100000, eligibility: { budget: "unknown" },
+    usageState: historical.accounts![0]!.usageState
+      ? { ...historical.accounts![0]!.usageState, freshness: "historical" as const, observedAt: s.at - 100000 }
+      : undefined });
   add("settings-accounts-historical", { screen: "settings", section: "accounts", focus: "detail" }, { snapshot: historical });
   for (const unlimited of [false, true]) {
     const machine = { ...s.machine!, unlimited, hardCap: unlimited ? null : 4, memoryPressure: null, loadPerCore: 2.675, open: false, detail: "memory pressure is high" };

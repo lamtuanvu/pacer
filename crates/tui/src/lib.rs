@@ -8,6 +8,7 @@ mod sessions;
 mod settings;
 mod titles;
 mod updates;
+mod usage;
 mod work;
 
 /// The dashboard's status vocabulary, exposed so its tables can be pinned

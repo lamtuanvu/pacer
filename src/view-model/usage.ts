@@ -51,11 +51,11 @@ export function freshnessWords(state: Pick<UsageState, "freshness" | "observedAt
 }
 
 /** The one reset format: same day "resets 14:00", within 7 days "resets Fri 14:00", else "resets 11 Dec"; a reset already past is "reset due". */
-export function resetWords(resetsAt: number | null, now: number): string {
+export function resetWords(resetsAt: number | null, now: number, timeZone?: string): string {
   if (resetsAt === null) return "reset unknown";
   // A reset already past is due, not a stale-looking future time.
   if (resetsAt <= now) return "reset due";
-  const { days, time, weekday, date } = clockParts(resetsAt, now);
+  const { days, time, weekday, date } = clockParts(resetsAt, now, timeZone);
   // clockParts counts backwards (now − at); a reset sits in the future, so the distance is −days.
   if (days === 0) return `resets ${time}`;
   return -days < 7 ? `resets ${weekday} ${time}` : `resets ${date}`;
@@ -77,11 +77,12 @@ const verdictTone = (verdict: Verdict | "unknown"): StatusTone => {
   return entry ? entry.tone : "neutral";
 };
 
-/** One usage view over the service's usageState record; every surface renders exactly this. */
-export function usageView(state: UsageState | null | undefined, now: number): UsageView {
+/** One usage view over the service's usageState record; every surface renders exactly this.
+ * `timeZone` is optional: the terminal dashboard passes UTC for frame goldens; app surfaces leave it unset (local). */
+export function usageView(state: UsageState | null | undefined, now: number, timeZone?: string): UsageView {
   const { figure, meter } = figureWords(state);
   const window = state?.limit ? windowWords(state.figure?.window ?? "limit") : windowWords(state?.figure?.window ?? null);
-  const reset = state?.figure ? resetWords(state.figure.resetsAt, now) : "";
+  const reset = state?.figure ? resetWords(state.figure.resetsAt, now, timeZone) : "";
   const freshness = state ? freshnessWords(state, now) : "";
   const source = usageSourceWords(state?.source ?? "unknown");
   const tone: StatusTone = state ? verdictTone(state.verdict) : "neutral";
@@ -94,13 +95,13 @@ export function usageView(state: UsageState | null | undefined, now: number): Us
 }
 
 /** One window of a record's `windows` list, quoted with the same words and verdict tone as the record itself. */
-export function usageWindowView(window: UsageWindowState, now: number, limited = false): { label: string; figure: string; meter: number | null; reset: string; tone: StatusTone; stale: boolean; verdictLabel: string } {
+export function usageWindowView(window: UsageWindowState, now: number, limited = false, timeZone?: string): { label: string; figure: string; meter: number | null; reset: string; tone: StatusTone; stale: boolean; verdictLabel: string } {
   return {
     label: windowWords(window.name),
     // The limit window of a limited record is "Out of quota", like the record itself; never a bare 100%.
     figure: limited && window.name === "limit" ? "Out of quota" : window.usedPct === null ? "Usage unknown" : `${Math.round(window.usedPct)}%`,
     meter: window.usedPct === null ? null : Math.round(window.usedPct),
-    reset: resetWords(window.resetsAt, now),
+    reset: resetWords(window.resetsAt, now, timeZone),
     tone: verdictTone(window.verdict),
     stale: window.stale === true,
     verdictLabel: verdictWords(window.verdict),

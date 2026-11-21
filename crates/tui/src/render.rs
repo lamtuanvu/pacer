@@ -441,32 +441,79 @@ pub(crate) fn rows(input: &V, case: &V) -> Vec<Line> {
             agent(text(&p["agent"])),
             if wide { " planner" } else { "" }
         );
-        let used = p["usedPct"].as_f64();
-        let pace = p["pacePct"].as_f64();
-        let caption = used.map_or("usage unknown".into(), |u| {
-            format!(
-                "{}% used{}",
-                round(u),
-                pace.map_or(String::new(), |p| format!(" · pace {}%", round(p)))
+        // When usageState is present, every label comes from usage_view (ADR 0030).
+        let record = p.get("usageState").filter(|v| !v.is_null());
+        let view = crate::usage::usage_view(record, ctx.now);
+        let (used, pace, caption, status_line, extra_parts) = if let Some(state) = record {
+            let pace = if view.meter.is_none() {
+                None
+            } else {
+                p["pacePct"].as_f64()
+            };
+            let caption = [
+                Some(if view.meter.is_some() {
+                    view.summary_used.clone()
+                } else {
+                    view.figure.clone()
+                }),
+                pace.map(|p| format!("pace {}%", round(p))),
+            ]
+            .into_iter()
+            .flatten()
+            .collect::<Vec<_>>()
+            .join(" · ");
+            let mut extra = vec![];
+            if !p["activeHoursLeft"].is_null() {
+                extra.push(format!("{} active-h", round(num(&p["activeHoursLeft"]))));
+            }
+            if let Some(reset) = crate::usage::caption_reset(&view.reset) {
+                extra.push(reset.to_string());
+            }
+            if text(&state["freshness"]) == "historical" {
+                extra.push("Historical usage".into());
+            }
+            (
+                view.meter,
+                pace,
+                caption,
+                crate::model::pace(text(&state["verdict"])),
+                extra,
             )
-        });
+        } else {
+            let used = p["usedPct"].as_f64();
+            let pace = p["pacePct"].as_f64();
+            let caption = used.map_or("usage unknown".into(), |u| {
+                format!(
+                    "{}% used{}",
+                    round(u),
+                    pace.map_or(String::new(), |p| format!(" · pace {}%", round(p)))
+                )
+            });
+            let mut extra = vec![];
+            if !p["activeHoursLeft"].is_null() {
+                extra.push(format!("{} active-h", round(num(&p["activeHoursLeft"]))));
+            }
+            if !p["resetsAt"].is_null() {
+                extra.push(format!("resets {}", ctx.time(&p["resetsAt"])));
+            }
+            if truth(&p["stale"]) {
+                extra.push("stale reading".into());
+            }
+            (
+                used,
+                pace,
+                caption,
+                crate::model::pace(text(&p["verdict"])),
+                extra,
+            )
+        };
         let mut l = line(name);
         l.push("  ".into());
         l.extend(meter(used, pace, if wide { 20 } else { 12 }));
         l.extend(["  ".into(), caption, "  ".into()]);
-        l.extend(crate::model::pace(text(&p["verdict"])));
-        let mut extra = vec![];
-        if !p["activeHoursLeft"].is_null() {
-            extra.push(format!("{} active-h", round(num(&p["activeHoursLeft"]))));
-        }
-        if !p["resetsAt"].is_null() {
-            extra.push(format!("resets {}", ctx.time(&p["resetsAt"])));
-        }
-        if truth(&p["stale"]) {
-            extra.push("stale reading".into());
-        }
-        if !extra.is_empty() {
-            l.push(format!("  {}", extra.join(" · ")));
+        l.extend(status_line);
+        if !extra_parts.is_empty() {
+            l.push(format!("  {}", extra_parts.join(" · ")));
         }
         l
     };

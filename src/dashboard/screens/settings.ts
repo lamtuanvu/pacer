@@ -154,7 +154,7 @@ const accounts: Build = (ctx, width) => {
     let used: string;
     let freshness: string | null;
     if (usage?.usageState) {
-      const view = usageView(usage.usageState, ctx.s.at);
+      const view = usageView(usage.usageState, ctx.s.at, ctx.timeZone);
       const reset = captionReset(view.reset);
       used = view.meter !== null
         ? `${view.summary}${reset ? ` · ${reset}` : ""}`

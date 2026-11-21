@@ -102,7 +102,7 @@ function plannerStrip(input: FrameInput, width: number): Line {
   if (!p) return [span("Planner · waiting for service data", { fg: "muted" })];
   // As the app's top bar: the planner meter and verdict on every screen. Home adds the advice (UI-15).
   // When usageState is present, every label comes from usageView (ADR 0030 decision 7).
-  const view = usageView(p.usageState, input.now);
+  const view = usageView(p.usageState, input.now, input.timeZone);
   const status = p.usageState
     ? { ...paceStatus(p.usageState.verdict), label: view.verdictLabel, tone: view.tone }
     : paceStatus(p.verdict);
