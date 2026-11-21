@@ -7,6 +7,7 @@ import type { SpawnRunner } from "../tasks/api";
 import { launchTaskRunner, spawnRunner } from "../tasks/api";
 import { createTask, readTask, updateTask } from "../tasks/store";
 import { stop as stopTaskCore } from "../core/tasks";
+import { resolveRunner } from "../config/runner-id";
 import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
@@ -46,17 +47,22 @@ export function defaultPlannerPacing(ctx: Ctx, planner: string): { eligible: boo
   let strategy: ReturnType<typeof loadStrategy> | undefined;
   try {
     strategy = loadStrategy(ctx);
-    ids.add(strategy.planner.agent);
-    ids.add(strategy.planner.account);
+    // Only alias strategy planner marks onto the run planner when they resolve to the same runner.
+    const runRunner = resolveRunner(strategy, planner);
+    const strategyRunner = resolveRunner(strategy, strategy.planner.agent);
+    if (runRunner && strategyRunner && runRunner.id === strategyRunner.id) {
+      ids.add(strategy.planner.agent);
+      ids.add(strategy.planner.account);
+    }
   } catch { /* strategy optional in tests */ }
   for (const id of ids) {
     const obs = limitObservation(ctx, id);
     if (obs) return { eligible: false, until: obs.until };
   }
   // Quota / block ineligibility the runner would refuse (not only reactive marks).
+  // Guard only the resolved run planner — a strategy-planner exhaustion must not block a switch.
   if (strategy) {
-    const guard = executorGuard(ctx, strategy, planner)
-      ?? (strategy.planner.agent !== planner ? executorGuard(ctx, strategy, strategy.planner.agent) : undefined);
+    const guard = executorGuard(ctx, strategy, planner);
     if (guard) return { eligible: false, ...(guard.until !== undefined ? { until: guard.until } : {}) };
   }
   return { eligible: true };
