@@ -617,10 +617,21 @@ pub(crate) async fn fixture_attach_own_link(trust: &ReleaseTrust) -> Result<Fixt
         job.stage_fixture_registration(trust, &bytes)?;
         crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
         job.change(trust, JobChange::Bootstrap).await?;
-        crate::owner::claim_desktop_ownership(
-            &policy.home,
-            &bundled,
-            std::time::SystemTime::now(),
+        // Seed owner.json with the ADR 0021 desktop shape. owner.rs lives in the
+        // bin crate; the fixture only needs the same on-disk record.
+        let at = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|_| OtaError::Io)?
+            .as_secs();
+        let owner = serde_json::json!({
+            "schema": 1,
+            "owner": "desktop",
+            "executable": bundled,
+            "at": at,
+        });
+        std::fs::write(
+            policy.home.join("owner.json"),
+            serde_json::to_vec(&owner).map_err(|_| OtaError::Invalid)?,
         )
         .map_err(|_| OtaError::Io)?;
     }
