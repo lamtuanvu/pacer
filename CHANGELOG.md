@@ -14,6 +14,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [0.17.7] - 2026-11-20
 - **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP and Codex app-server after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP, Codex app-server, and Claude Code control-protocol after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
 
 ### Fixed
 
