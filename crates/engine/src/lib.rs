@@ -11,7 +11,9 @@ pub mod usage_broker;
 pub mod usage_refresh;
 pub mod words;
 
-/// Usage freshness thresholds shared with the TypeScript engine (ADR 0030 decision 5).
+/// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5): the
+/// window caps, lifetimes, cooldown default and exhausted/near-limit percentages the
+/// engine reads from generated constants instead of hard-coded copies.
 pub use pacer_limits_protocol::freshness::*;
 
 use chrono::{Datelike, TimeZone, Timelike};
