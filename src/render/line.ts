@@ -44,7 +44,7 @@ export function lineFields(input: ClientSnapshot | Status | null, policy?: Polic
   const pacePct = stale || (view && view.meter === null) ? null : p?.pacePct ?? legacy?.pacePct ?? null;
   return { policy: policy ?? input.policy, online: true, planner: agentInfo(agent).name, agent,
     usedPct, pacePct,
-    verdict: p?.verdict ?? legacy?.verdict ?? "unknown",
+    verdict: p?.usageState?.verdict ?? p?.verdict ?? legacy?.verdict ?? "unknown",
     resetsAt: p?.resetsAt ?? legacy?.resetsAt ?? null, running: count(c?.running), attention: count(c?.attention),
     mode: p?.mode ?? input.mode?.mode ?? input.budget?.mode ?? "normal",
     ...(stale ? { stale: true } : {}),

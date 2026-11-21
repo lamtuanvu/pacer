@@ -6,7 +6,7 @@ import { existsSync, mkdirSync, rmSync, statSync, writeFileSync } from "node:fs"
 import { join } from "node:path";
 import { readAccountUsage, clearUsageMemo } from "../src/usage";
 import { accountEvidenceScope } from "../src/core/evidence";
-import { configuredUsageIdentities, deleteUsageStore, pruneOrphanUsageStores, writeUsageEntry } from "../src/usage/store";
+import { configuredUsageIdentities, deleteUsageStore, pruneOrphanUsageStores, usageIdentitiesInHome, writeUsageEntry } from "../src/usage/store";
 import type { AccountCfg } from "../src/config/accounts";
 import type { Ctx, UsageReading } from "../src/types";
 
@@ -142,4 +142,40 @@ test("orphan usage-store files whose identity no configured account has are dele
   expect(pruneOrphanUsageStores(ctx, keep)).toEqual([]);
   expect(pruneOrphanUsageStores({ ...ctx, readOnly: true }, new Set())).toEqual([]);
   expect(existsSync(storePath(ctx, liveId))).toBe(true);
+});
+
+test("prune keeps identities from any strategy file under the home, not only the active one", () => {
+  const ctx = fakeCtx({ now: 1_800_000_000 });
+  mkdirSync(join(ctx.pacerHome, "strategies"), { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
+    "accounts:",
+    "  personal: {kind: claude}",
+    "planner: claude-code#personal",
+    "routing:",
+    "  - default: [claude-code]",
+    "",
+  ].join("\n"));
+  const inactiveHome = join(ctx.home, ".claude-inactive");
+  writeFileSync(join(ctx.pacerHome, "strategies", "alt.yaml"), [
+    "accounts:",
+    "  personal: {kind: claude}",
+    `  other: {kind: claude, home: ${JSON.stringify(inactiveHome)}}`,
+    "planner: claude-code#personal",
+    "routing:",
+    "  - default: [claude-code]",
+    "",
+  ].join("\n"));
+  const activeId = identity({ ...account(), name: "personal" });
+  const inactiveId = identity({ ...account(), name: "other", source: "pacer", home: inactiveHome });
+  const orphanId = identity({ ...account(), home: join(ctx.home, ".claude-orphan") });
+  const reading: UsageReading = { windows: [{ name: "weekly", usedPct: 10, resetsAt: null, lengthS: 604800, paced: true }], capturedAt: ctx.now, stale: false };
+  for (const id of [activeId, inactiveId, orphanId]) writeUsageEntry(ctx, id, "k", reading);
+  const keep = usageIdentitiesInHome(ctx);
+  expect(keep.has(activeId)).toBe(true);
+  expect(keep.has(inactiveId)).toBe(true);
+  expect(keep.has(orphanId)).toBe(false);
+  expect(pruneOrphanUsageStores(ctx)).toEqual([orphanId]);
+  expect(existsSync(storePath(ctx, activeId))).toBe(true);
+  expect(existsSync(storePath(ctx, inactiveId))).toBe(true);
+  expect(existsSync(storePath(ctx, orphanId))).toBe(false);
 });

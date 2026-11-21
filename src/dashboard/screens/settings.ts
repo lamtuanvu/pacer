@@ -159,9 +159,7 @@ const accounts: Build = (ctx, width) => {
       used = view.meter !== null
         ? `${view.summary}${reset ? ` · ${reset}` : ""}`
         : view.figure;
-      freshness = usage.usageState.freshness === "historical"
-        ? (view.freshness || "Reading of unknown age · refresh")
-        : null;
+      freshness = usage.usageState.freshness === "historical" ? view.freshness : null;
     } else {
       // Legacy rows keep main's window words (weekly → week); usageView owns windowWords only when usageState is present.
       used = usage?.usedPct != null

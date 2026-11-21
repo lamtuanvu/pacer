@@ -1,9 +1,10 @@
-import { readdirSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { readJson, writeJsonAtomic } from "../fsutil";
 import { withLockSync } from "../core/lock";
 import type { AccountCfg } from "../config/accounts";
 import type { HostCfg } from "../config/hosts";
+import { validateStrategy } from "../config/strategy";
 import { accountEvidenceScope } from "../evidence/scope";
 import type { Ctx, UsageReading } from "../types";
 import { EVIDENCE_PRUNE_AFTER_S, markFreshness } from "./freshness";
@@ -50,7 +51,9 @@ export function writeUsageEntry(ctx: Ctx, identity: string, key: string, reading
 /** Account removal starts the identity over; nothing may outlive the lifetime boundary. */
 export function deleteUsageStore(ctx: Ctx, identity: string): void {
   if (ctx.readOnly) return;
-  try { unlinkSync(usagePath(ctx, identity)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  withLockSync(ctx, `usage-store:${identity}`, () => {
+    try { unlinkSync(usagePath(ctx, identity)); } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
+  });
 }
 
 /** Evidence identities of every configured account (including host-scoped homes). */
@@ -61,12 +64,31 @@ export function configuredUsageIdentities(
   return new Set(Object.values(accounts).map(account => accountEvidenceScope(account, hosts).identity));
 }
 
+/** Identities owned by any strategy file under the pacer home (active or inactive). */
+export function usageIdentitiesInHome(ctx: Ctx): Set<string> {
+  const keep = new Set<string>();
+  const paths = [join(ctx.pacerHome, "strategy.yaml")];
+  const dir = join(ctx.pacerHome, "strategies");
+  if (existsSync(dir)) {
+    for (const name of readdirSync(dir)) {
+      if (name.endsWith(".yaml")) paths.push(join(dir, name));
+    }
+  }
+  for (const path of paths) {
+    try {
+      const strategy = validateStrategy(Bun.YAML.parse(readFileSync(path, "utf8")), path);
+      for (const id of configuredUsageIdentities(strategy.accounts, strategy.hosts)) keep.add(id);
+    } catch { /* Missing or invalid strategies do not block prune of true orphans. */ }
+  }
+  return keep;
+}
+
 /**
  * Delete `state/usage/<identity>.json` files no configured account still owns.
  * Call on service start and after edits that change evidence identity (home, usage
  * source, hosts). Returns the identities that were removed.
  */
-export function pruneOrphanUsageStores(ctx: Ctx, keep: ReadonlySet<string>): string[] {
+export function pruneOrphanUsageStores(ctx: Ctx, keep: ReadonlySet<string> = usageIdentitiesInHome(ctx)): string[] {
   if (ctx.readOnly) return [];
   const dir = join(ctx.pacerHome, "state", "usage");
   let names: string[];
@@ -80,7 +102,9 @@ export function pruneOrphanUsageStores(ctx: Ctx, keep: ReadonlySet<string>): str
     const identity = name.slice(0, -".json".length);
     if (keep.has(identity)) continue;
     try {
-      unlinkSync(join(dir, name));
+      withLockSync(ctx, `usage-store:${identity}`, () => {
+        unlinkSync(join(dir, name));
+      });
       removed.push(identity);
     } catch (error) {
       if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;

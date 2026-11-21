@@ -398,12 +398,7 @@ pub fn build(ctx: &Ctx) -> View {
                             };
                             let freshness =
                                 if text(&usage["usageState"]["freshness"]) == "historical" {
-                                    let reading = if view.freshness.is_empty() {
-                                        "Reading of unknown age · refresh".into()
-                                    } else {
-                                        view.freshness
-                                    };
-                                    format!(" · Historical usage · {reading}")
+                                    format!(" · Historical usage · {}", view.freshness)
                                 } else {
                                     String::new()
                                 };

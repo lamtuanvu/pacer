@@ -112,11 +112,11 @@ async function save(ctx: Ctx, input: EndpointInput, editing: boolean, deps: Endp
     if (input.test!==false) await runTest(ctx,name,deps);
     const updated=loadStrategy(ctx);
     if (previousIdentity) {
-      const { deleteUsageStore, configuredUsageIdentities, pruneOrphanUsageStores } = await import("../usage/store");
+      const { deleteUsageStore, pruneOrphanUsageStores } = await import("../usage/store");
       const nextIdentity = accountEvidenceScope(updated.accounts[name]!, updated.hosts).identity;
       if (previousIdentity !== nextIdentity) {
         try { deleteUsageStore(ctx, previousIdentity); } catch { /* best effort */ }
-        pruneOrphanUsageStores(ctx, configuredUsageIdentities(updated.accounts, updated.hosts));
+        pruneOrphanUsageStores(ctx);
       }
     }
     const row=await endpointRow(ctx,updated.accounts[name]);

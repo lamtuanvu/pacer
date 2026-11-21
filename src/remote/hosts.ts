@@ -24,7 +24,7 @@ import { issueConfiguredHostIdentity } from "../plugins/host-identity-issuer";
 import { issueConfiguredHostClone, type ConfiguredHostCloneSnapshot } from "../plugins/host-clone-issuer";
 import { issueConfiguredHostClean } from "../plugins/host-clean-issuer";
 import { accountEvidenceScope } from "../evidence/scope";
-import { configuredUsageIdentities, deleteUsageStore, pruneOrphanUsageStores } from "../usage/store";
+import { deleteUsageStore, pruneOrphanUsageStores } from "../usage/store";
 
 export interface HostFacts {
   os: string | null;
@@ -106,6 +106,7 @@ export async function set(ctx: Ctx, alias: string, o: { max_tasks?: number; paus
     if (o.paused !== undefined) doc.setIn(["hosts", alias, "paused"], o.paused);
   });
   if(o.paused===true&&!before.paused)appendActivity(ctx,{kind:"host_state",level:"info",host:alias,text:`${alias} paused · new work goes elsewhere`});
+  pruneOrphanUsageStores(ctx);
   return summary(ctx, configured(ctx, alias));
 }
 export async function detail(ctx: Ctx, alias: string): Promise<HostDetail> {
@@ -246,7 +247,7 @@ export async function addAccount(ctx: Ctx, alias: string, account: string, home:
   const nextIdentity = accountEvidenceScope(after.accounts[account]!, after.hosts).identity;
   if (previousIdentity !== nextIdentity) {
     try { deleteUsageStore(ctx, previousIdentity); } catch { /* best effort */ }
-    pruneOrphanUsageStores(ctx, configuredUsageIdentities(after.accounts, after.hosts));
+    pruneOrphanUsageStores(ctx);
   }
   // Tilde expansion is safe only outside quotes; quote the rest as one shell word.
   const folder = home.startsWith("~/") ? `~/${shq(home.slice(2))}` : shq(home);
@@ -385,6 +386,7 @@ export async function add(ctx: Ctx, {alias, ssh}: {alias: string; ssh: string}) 
   if (alias === "local" || !/^[a-z0-9][a-z0-9-]*$/.test(alias)) throw new CoreError("invalid_input", "invalid or reserved host alias", "Use lowercase letters, digits and hyphens; local is reserved.");
   if (Object.hasOwn(s.hosts, alias)) throw new CoreError("conflict", `host ${alias} already exists`, "Choose a different alias or remove the existing host.");
   await applyEdit(ctx, doc => doc.setIn(["hosts", alias], {ssh}));
+  pruneOrphanUsageStores(ctx);
   return {alias};
 }
 export async function remove(ctx: Ctx, alias: string) {
@@ -395,5 +397,6 @@ export async function remove(ctx: Ctx, alias: string) {
   const reference = Object.values(s.runners).find(r => r.host === alias);
   if (reference) throw new CoreError("conflict", `${alias} is used by ${reference.id}`, "Remove its runners first.");
   await applyEdit(ctx, doc => doc.deleteIn(["hosts", alias]));
+  pruneOrphanUsageStores(ctx);
   return {removed: true as const};
 }
