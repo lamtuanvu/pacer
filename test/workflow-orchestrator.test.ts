@@ -520,6 +520,152 @@ describe("Task 5: failed, limited and overdue turns", () => {
     expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(0);
   });
 
+  test("quota-exhausted planner evidence (no markExhausted) holds the run without a turn", async () => {
+    // Real product evidence path: usage/eligibility store, not limitObservation marks
+    // and not an injected plannerEligible stub (CT-11 live gap).
+    const { loadStrategy } = await import("../src/config/strategy");
+    const { accountEvidenceScope, mergeEvidence, readEvidence } = await import("../src/core/evidence");
+    const { emptyEvidence, evidenceFact } = await import("../src/engine/evidence");
+    const { evaluateEligibility } = await import("../src/engine/eligibility");
+    const { executorExclusion } = await import("../src/executors/availability");
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    const s = loadStrategy(ctx);
+    const account = s.accounts[s.planner.account]!;
+    const scope = accountEvidenceScope(account, s.hosts);
+    const runner = s.runners["claude-code"]!;
+    const resetsAt = NOW + 7200;
+    const facts = emptyEvidence();
+    facts.budget.push(evidenceFact(scope, "session-log", NOW - 60, null, "quota_observed", {
+      name: "5h", usedPct: 100, resetsAt, lengthS: 18000, paced: false,
+    }));
+    await mergeEvidence(ctx, scope, facts);
+    // Same local guard the runner uses for budget refusals.
+    expect(executorExclusion(ctx, s, "claude-code")).toBe("exhausted");
+    const decision = evaluateEligibility({
+      now: ctx.now,
+      scope: { ...scope, runner: runner.id, model: runner.model ?? "default", host: runner.host ?? "local" },
+      usage: account.usage, allowPaid: account.allowPaid,
+      evidence: readEvidence(ctx, scope).evidence, restrictions: [],
+    });
+    expect(decision.state).toBe("ineligible");
+    expect(decision.reasons.some(r => r.code === "budget_exhausted")).toBe(true);
+    expect(decision.validUntil).toBeGreaterThan(NOW);
+
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    let launched = 0;
+    const spawn: SpawnRunner = () => { launched++; return 1; };
+    await advanceRuns(ctx, spawn);
+    expect(launched).toBe(0);
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(0);
+    const turns = workflowDatabase(ctx).query<{ n: number }, [string]>(
+      "SELECT count(*) AS n FROM workflow_turns WHERE run_id = ?",
+    ).get(run.id)!.n;
+    expect(turns).toBe(0);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
+    expect(getRun(ctx, run.id)!.reason).toMatch(/^planner at limit until /);
+    expect(getRun(ctx, run.id)!.nextWakeAt).toBe(decision.validUntil);
+
+    // Eligible again via fresh lower usage (same evidence channel).
+    const recovered = emptyEvidence();
+    recovered.budget.push(evidenceFact(scope, "session-log", NOW - 10, null, "quota_observed", {
+      name: "5h", usedPct: 10, resetsAt: NOW + 10_000, lengthS: 18000, paced: false,
+    }));
+    await mergeEvidence(ctx, scope, recovered);
+    expect(executorExclusion(ctx, s, "claude-code")).toBeUndefined();
+    await advanceRuns({ ...ctx, now: NOW + 1 }, spawn);
+    expect(launched).toBe(1);
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("turn");
+  });
+
+  test("runner budget-refusal report settles as planner-at-limit, not a counted failure", async () => {
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    // Eligible at pre-launch check time (skipDefaultPacing); refusal arrives after launch.
+    const turn = await startTurn(ctx, run.id, { spawn: () => 1, skipDefaultPacing: true });
+    expect(turn).not.toBeNull();
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
+    const report = 'pacer runner error: requested executor "claude-code" is unavailable (Budget exhausted; paid overflow is off (allow_paid: false))';
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "failed";
+      t.result = { status: "failed", executor: null, model: null, files: "", report, backend: "direct" };
+    });
+    await advanceRuns({ ...ctx, now: NOW + 1 }, () => 1, undefined, { skipDefaultPacing: true });
+    expect(getTurn(ctx, turn!.id)!.status).toBe("failed");
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(0);
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(0);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
+    expect(getRun(ctx, run.id)!.reason).toMatch(/^planner at limit until /);
+    expect(getRun(ctx, run.id)!.reason).not.toMatch(/planner failed/);
+  });
+
+  test("ordinary runner refusal still counts toward D1 backoff", async () => {
+    const { parseSpent, serializeBudget, serializeSpent } = await import("../src/workflow/budget");
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    const run = insertRun(ctx, {
+      workflow: "t/orch-chain", version: 1, repo: tmpDir(), brief: "b",
+      budget: serializeBudget({ orchestratorTurns: 10, messageTurns: 5 }),
+      spent: serializeSpent({ orchestratorTurns: 0, messageTurns: 0 }),
+    });
+    addWakeup(workflowDatabase(ctx), {
+      runId: run.id, cause: "step_failed", ref: "one#1", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    const turn = await startTurn(ctx, run.id, { spawn: () => 1, skipDefaultPacing: true });
+    expect(turn).not.toBeNull();
+    const report = 'pacer runner error: requested executor "claude-code" is unavailable (not installed)';
+    updateTask(ctx, turn!.taskId!, t => {
+      t.state = "failed";
+      t.result = { status: "failed", executor: null, model: null, files: "", report, backend: "direct" };
+    });
+    await advanceRuns({ ...ctx, now: NOW + 1 }, () => 1, undefined, { skipDefaultPacing: true });
+    expect(getTurn(ctx, turn!.id)!.failures).toBe(1);
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("retrying");
+    expect(getRun(ctx, run.id)!.reason).toMatch(/planner failed 1/);
+    expect(getRun(ctx, run.id)!.nextWakeAt).toBe(NOW + 1 + 60);
+    // Counted failures keep the budget spend (unlike planner-at-limit refunds).
+    expect(parseSpent(getRun(ctx, run.id)!.spent).orchestratorTurns).toBe(1);
+
+    for (let i = 0; i < 3; i++) {
+      const at = NOW + 1000 + i * 10_000;
+      addWakeup(workflowDatabase(ctx), {
+        runId: run.id, cause: "step_failed", ref: `one#${i + 2}`, createdAt: at - COALESCE_WINDOW_S,
+      });
+      const t = await startTurn({ ...ctx, now: at }, run.id, { spawn: () => 1, skipDefaultPacing: true });
+      expect(t, `ordinary fail ${i + 2}`).not.toBeNull();
+      updateTask(ctx, t!.taskId!, task => {
+        task.state = "failed";
+        task.result = {
+          status: "failed", executor: null, model: null, files: "",
+          report: 'pacer runner error: requested executor "claude-code" is unavailable (not installed)',
+          backend: "direct",
+        };
+      });
+      await advanceRuns({ ...ctx, now: at + 1 }, () => 1, undefined, { skipDefaultPacing: true });
+      expect(getTurn(ctx, t!.id)!.failures).toBe(i + 2);
+    }
+    expect(getRun(ctx, run.id)!.orchestratorState).toBe("blocked");
+    expect(getRun(ctx, run.id)!.reason).toMatch(/planner failed 4/);
+  });
+
   test("an overdue turn is stopped and its grant no longer verifies", async () => {
     const ctx = fakeCtx({ now: NOW });
     writePlanner(ctx);
