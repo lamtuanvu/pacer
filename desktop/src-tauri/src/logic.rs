@@ -322,8 +322,9 @@ pub fn consent_takeover_counts_unknown(tasks: Option<usize>, terminals: Option<u
     tasks.is_none() || terminals.is_none()
 }
 
-/// Watcher rechecks deferred own-link repair about every 20 s; thirty Busy
-/// deferrals is roughly ten minutes of staying connected without ending the session.
+/// Busy deferrals allowed per launch. Each watcher recheck (about every 20 s) and each
+/// lifecycle retry counts as one, so the cap can be reached well before ten minutes when
+/// no service is loaded.
 pub const OWN_LINK_BUSY_DEFER_CAP: u32 = 30;
 
 /// True when Busy deferrals for this launch have hit the cap.
