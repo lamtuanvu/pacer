@@ -38,10 +38,39 @@ export function usageStateFor(
 export function withUsageState<S>(snapshot: S, now?: number): S {
   const s = snapshot as { at?: number; planner?: Record<string, unknown> | null; executors?: Record<string, unknown>[]; accounts?: Record<string, unknown>[] };
   const at = now ?? s.at ?? 1800000000;
+  const plannerVerdict = (s.planner as { verdict?: string } | null | undefined)?.verdict;
+  const accountVerdict = (name: unknown): string | undefined => {
+    const account = s.accounts?.find(a => a.name === name) as { verdict?: string } | undefined;
+    return account?.verdict;
+  };
+  /** Mirror legacy accountUsageHistorical so default account fixtures keep "Historical usage". */
+  const accountLegacyHistorical = (account: Record<string, unknown>): boolean => {
+    const usedPct = account.usedPct as number | null | undefined;
+    const spend = account.spendUsdWeek as number | null | undefined;
+    if (usedPct == null && spend == null) return false;
+    const stale = account.stale as boolean | null | undefined;
+    const capturedAt = account.capturedAt as number | null | undefined;
+    const resetsAt = account.resetsAt as number | null | undefined;
+    const budget = (account.eligibility as { budget?: string } | null | undefined)?.budget;
+    return stale !== false || budget === "unknown"
+      || capturedAt == null || !Number.isFinite(capturedAt) || capturedAt > at
+      || (resetsAt != null && resetsAt <= at)
+      || (capturedAt != null && at - capturedAt > 86400);
+  };
   return {
     ...s,
     planner: s.planner ? { ...s.planner, usageState: usageStateFor(s.planner as never, at) } : s.planner,
-    executors: s.executors?.map(row => ({ ...row, usageState: usageStateFor(row as never, at) })),
-    accounts: s.accounts?.map(row => ({ ...row, usageState: usageStateFor(row as never, at) })),
+    // Executor rows often omit verdict; inherit the account's, else the planner's, so goldens keep real pace labels.
+    executors: s.executors?.map(row => {
+      const verdict = (row as { verdict?: string }).verdict ?? accountVerdict(row.account) ?? plannerVerdict;
+      return { ...row, usageState: usageStateFor({ ...(row as object), verdict } as never, at) };
+    }),
+    accounts: s.accounts?.map(row => ({
+      ...row,
+      usageState: usageStateFor({
+        ...(row as object),
+        stale: accountLegacyHistorical(row) || row.stale === true,
+      } as never, at),
+    })),
   } as S;
 }
