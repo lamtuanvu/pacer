@@ -346,4 +346,3 @@ fn v2_counts_with_publisher_removal_before_counts_order() {
     assert_eq!(counts[1]["data"]["attention"], number(1.0));
     assert_eq!(counts[1]["data"]["problems"], number(1.0));
 }
-
