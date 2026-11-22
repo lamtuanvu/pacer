@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.17.7",
-  "notes": "### Fixed\n\n- **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.",
-  "pub_date": "2026-11-20T16:24:38.000Z",
+  "version": "0.17.8",
+  "notes": "### Fixed\n\n- **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.",
+  "pub_date": "2026-11-22T06:14:41.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.7/desktop-pacer-0.17.7-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2VTZHdYcVo4VmJSTG1DMXFpcFdzTWtpc1Nnd3M4WWl4SGd6RW4vNE9lQWg2dDJDMUxIN1dkdFpjMmNGc0RQR01GQjkzOXpITTZrV3BCYTNmSFF1bWdnPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MTkyODI4CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjctZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTcuNwp2NTZ5SERtekZWV010OElvM0hiWml5a3MwT09INHk1TlJ4Qk5yVitZaE8wSDlKczY2YnFHcE1yN3JiYTNKSVpqNHNsL2JLZ1IyS08xU2E3R2FXdytEZz09Cg==",
-      "sha256": "44ec15bb9544119b92085d6089ef5755d838b0e453306df860ae6cb548c85874",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.8/desktop-pacer-0.17.8-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1RqRk5WcFRJY0E1OUowYUVhbis3Y1RsSGFvL3hJRGZ5MCtZM3l5aVhxTGNjbk9UWFI2SS9Icjc2M0RweDQ5R0EvMkh0b2ZKNkljeDc1MENDcnNqQ0FzPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzI4ODkyCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjgtZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTcuOAp0VXJoK1Z1Sk93WEVUaWMzRE4wRjJyNUVsY0ppV0pIaUgrT1d2M3VTaUlobGdLSStPN1lUVS9DRUpwa1d3M2NVRnBXcENHSTdXdFhZMFBBZEFpQWdEdz09Cg==",
+      "sha256": "7029a5e375b777badf7340ae7bba978d962ce19bfaaf9f627c21935a04e2d377",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.7/desktop-pacer-0.17.7-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1hnQm0zN0xLYWdBQUZtTTh1MjRTckUrbWpZZFFaTUxTbWxrVE45RW9DemR6cUIwQmEvTDVjcjlSUmN2MU5LMVdnc25LdjNvRDEvRUFwVnZOczdES2dJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MTk0MDkzCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjctZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNy43Cm5BcmJPT0wrS0RxTG1TUTlqWnJSbnl0S3J5VDRGUkUwQ2gvNXBERlVNZjJxaHJUeWFmMjJaazNzam5JUVhjc3lURDVLV0JaT2Y2alVZUlE5L2MzZ0RRPT0K",
-      "sha256": "bf521c25bf6a0838eaafea1e30fb39a9b296f7b4cd5df47d6ad1d46d2c12e251",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.8/desktop-pacer-0.17.8-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1NrOVZhVU9oLzFld21SanpjVTJuaG1zeEpjV2k5NHM1a2liOW1kUm00SXluWGtmNjRlYW9lMXFzQWtJYUkzQkdLY1EwYkZEWkM1Q2lQTWpJSlNDdnd3PQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1MzI5MzQzCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjgtZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNy44CkcxUHozaWNFR3hYR3psSlNCczZOUUFvcFVDVUY3OHRkUDNNODJIMzYwUVlwWStITnBhdjlFdWlXZmRBbTltMGJkU1ppWlg2eFJMc2RMMVhjS21VY0R3PT0K",
+      "sha256": "d92647035e7a23b2df86cae69ee151c64132103bd408c6c4eb6efe9fb247a095",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
