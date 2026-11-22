@@ -74,6 +74,7 @@ function renderModel(model: ReturnType<typeof panelModel>): HTMLElement {
         for (const row of model.rows) {
           const card = el('div', 'card')
           card.dataset.id = row.id
+          if (row.repoLabel !== undefined) card.append(el('span', 'card-repo', row.repoLabel))
           card.append(el('div', 'card-title', row.title))
           const meta = el('div', 'card-meta')
           meta.append(el('span', undefined, row.detail), el('span', undefined, '·'), el('span', 'card-time', row.time))

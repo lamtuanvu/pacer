@@ -4,7 +4,7 @@
 /// <reference types="@types/bun" />
 import type { OrcaWorkerApi } from 'orca/worker'
 import { callOp, getSnapshot, readPacerEndpoint, subscribeEvents, type PacerSnapshot } from './pacer-client'
-import type { PanelSnapshot } from './protocol'
+import type { AttentionRow, PanelSnapshot } from './protocol'
 
 const SEQ_KEY = 'seq'
 const STATUS_ITEM = 'pacer-pace'
@@ -33,12 +33,22 @@ async function focusedWorkspacePath(orca: OrcaWorkerApi): Promise<string | null>
   }
 }
 
-/** Scope `attention` to the focused workspace's repo when pacer knows that path. */
+/** Scope `attention` to the focused workspace's repo when pacer knows that path. Every row
+ *  carries its own repo's label (the item's own `repo.label`, straight from the wire - not a
+ *  bare key to resolve, confirmed against a real `/v3/snapshot` response) so a global,
+ *  multi-repo list can say which repo each item is from instead of leaving that to whatever the
+ *  item's title happens to mention. `item.repo?.key` (an object), not `item.repo` itself (which
+ *  is never a bare string), is what matches `repos[].key`. */
 async function scopeToFocusedWorkspace(orca: OrcaWorkerApi, snapshot: PacerSnapshot): Promise<Pick<PanelSnapshot, 'scope' | 'repoLabel' | 'attention'>> {
+  const withRepoLabel = (item: PacerSnapshot['attention'][number]): AttentionRow => ({ ...item, repoLabel: item.repo?.label })
   const path = await focusedWorkspacePath(orca)
   const repo = path === null ? undefined : snapshot.repos.find((candidate) => candidate.path === path)
-  if (!repo) return { scope: 'global', attention: snapshot.attention }
-  return { scope: 'repo', repoLabel: repo.label, attention: snapshot.attention.filter((item) => item.repo === repo.key) }
+  if (!repo) return { scope: 'global', attention: snapshot.attention.map(withRepoLabel) }
+  return {
+    scope: 'repo',
+    repoLabel: repo.label,
+    attention: snapshot.attention.filter((item) => item.repo?.key === repo.key).map(withRepoLabel),
+  }
 }
 
 /** The snapshot the panel should see right now: not-connected, or the scoped live one. */

@@ -13,8 +13,8 @@ import {
   rowFor,
   scopeHeading,
 } from './panel-view'
-import type { AttentionAction, AttentionItem } from './pacer-client'
-import type { PanelSnapshot } from './protocol'
+import type { AttentionAction } from './pacer-client'
+import type { AttentionRow, PanelSnapshot } from './protocol'
 
 const noConfirmAction: AttentionAction = {
   label: 'Dismiss',
@@ -32,7 +32,7 @@ const confirmAction: AttentionAction = {
 
 const NOW = 1_800_000_000
 
-const item = (over: Partial<AttentionItem> = {}): AttentionItem => ({
+const item = (over: Partial<AttentionRow> = {}): AttentionRow => ({
   id: 'a1',
   kind: 'review',
   severity: 'decide',
@@ -74,7 +74,7 @@ test('emptyMessage is scope-appropriate', () => {
 })
 
 test('rowFor builds title, detail, relative time and per-action buttons with danger flags', () => {
-  const row = rowFor(item({ since: NOW - 240, actions: [noConfirmAction, confirmAction] }), NOW)
+  const row = rowFor(item({ since: NOW - 240, actions: [noConfirmAction, confirmAction] }), NOW, false)
   assert.equal(row.id, 'a1')
   assert.equal(row.title, 'Review the patch')
   assert.equal(row.detail, 'task t1 settled')
@@ -87,6 +87,27 @@ test('rowFor builds title, detail, relative time and per-action buttons with dan
     ],
   )
   assert.deepEqual(row.actions[1]?.action, confirmAction)
+})
+
+test('rowFor carries repoLabel only when showRepo is true', () => {
+  const withRepo = item({ repoLabel: 'jawfish' })
+  assert.equal(rowFor(withRepo, NOW, true).repoLabel, 'jawfish')
+  assert.equal(rowFor(withRepo, NOW, false).repoLabel, undefined)
+  assert.equal(rowFor(item({}), NOW, true).repoLabel, undefined)
+})
+
+test("panelModel shows each row's repoLabel in the global view, but not the repo-scoped view", () => {
+  const items = [item({ id: 'a1', repoLabel: 'jawfish' }), item({ id: 'a2', repoLabel: 'other-repo' })]
+  const global = panelModel({ snapshot: snapshot({ scope: 'global', attention: items }), pending: null, loadError: false }, NOW)
+  assert.equal(global.kind, 'ready')
+  if (global.kind === 'ready') assert.deepEqual(global.rows.map((row) => row.repoLabel), ['jawfish', 'other-repo'])
+
+  const scoped = panelModel(
+    { snapshot: snapshot({ scope: 'repo', repoLabel: 'jawfish', attention: items }), pending: null, loadError: false },
+    NOW,
+  )
+  assert.equal(scoped.kind, 'ready')
+  if (scoped.kind === 'ready') assert.deepEqual(scoped.rows.map((row) => row.repoLabel), [undefined, undefined])
 })
 
 test('panelModel shows loading before the first snapshot', () => {

@@ -37,11 +37,16 @@ type FixtureOptions = {
   onEvents?: (connection: EventConnection) => void
 }
 
-const attentionItem = (id: string, repo?: string): AttentionItem => ({
+// `repo` matches the real wire shape confirmed against a live /v3/snapshot response: the full
+// `{ key, path, label }` object every repos[] entry has, not a bare key string (an earlier,
+// untested assumption this fixture used to match). `repoKey` is a convenience for the common
+// case of a repo that's also in the test's own `repos:` list, synthesizing a label/path from
+// the key; pass the full object directly when a test needs its own distinct label.
+const attentionItem = (id: string, repo?: string | { key: string; path: string; label: string }): AttentionItem => ({
   id,
   kind: 'review',
   severity: 'decide',
-  ...(repo ? { repo } : {}),
+  ...(repo ? { repo: typeof repo === 'string' ? { key: repo, path: `/${repo}`, label: repo } : repo } : {}),
   title: `Item ${id}`,
   detail: `${id} needs you`,
   raisedAt: 100,
@@ -237,7 +242,11 @@ test("pacer.snapshot falls back to scope:'global' when the workspace path matche
     snapshot: () =>
       snapshotWith({
         repos: [{ key: 'k1', label: 'jawfish', path: '/repo' }],
-        attention: [attentionItem('the-k1-one', 'k1'), attentionItem('the-k2-one', 'k2')],
+        attention: [
+          attentionItem('the-k1-one', { key: 'k1', path: '/repo', label: 'jawfish' }),
+          attentionItem('the-k2-one', { key: 'k2', path: '/other', label: 'other-repo' }),
+          { ...attentionItem('the-global-one'), kind: 'setup' },
+        ],
       }),
   })
   try {
@@ -246,7 +255,12 @@ test("pacer.snapshot falls back to scope:'global' when the workspace path matche
     const snapshot = await worker.request('pacer.snapshot')
     assert.equal(snapshot.scope, 'global')
     assert.equal(snapshot.repoLabel, undefined)
-    assert.deepEqual(snapshot.attention.map((a) => a.id), ['the-k1-one', 'the-k2-one'])
+    assert.deepEqual(snapshot.attention.map((a) => a.id), ['the-k1-one', 'the-k2-one', 'the-global-one'])
+    // Every row in the global view carries its own repo's label straight from the item itself
+    // (the real wire shape, confirmed against a live /v3/snapshot response - not a bare key to
+    // resolve against repos[]) - a list spanning many repos is otherwise unreadable (which row
+    // is from where?). An item with no repo at all (a global/setup-kind item) has no label.
+    assert.deepEqual(snapshot.attention.map((a) => a.repoLabel), ['jawfish', 'other-repo', undefined])
     await worker.deactivate()
 
     // No focused workspace at all is the same global view.
@@ -254,7 +268,7 @@ test("pacer.snapshot falls back to scope:'global' when the workspace path matche
     const idleWorker = await mountWorker(main, { host: idleHost })
     const idleSnapshot = await idleWorker.request('pacer.snapshot')
     assert.equal(idleSnapshot.scope, 'global')
-    assert.deepEqual(idleSnapshot.attention.map((a) => a.id), ['the-k1-one', 'the-k2-one'])
+    assert.deepEqual(idleSnapshot.attention.map((a) => a.id), ['the-k1-one', 'the-k2-one', 'the-global-one'])
     assert.deepEqual(idleWorker.refusals, [])
     await idleWorker.deactivate()
   } finally {

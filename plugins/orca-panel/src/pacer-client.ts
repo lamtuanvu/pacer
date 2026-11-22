@@ -22,14 +22,17 @@ export type AttentionAction = {
 /**
  * Field names from docs/protocol.md's "Attention and actions" section, kept to the ones this
  * plugin uses. `repo` is widened to optional here (the doc lists it without `?`): a global/
- * unscoped item still renders safely either way. `executor`/`host`/`account` are kept for
- * completeness even though v1's generic row rendering doesn't branch on them.
+ * unscoped item (e.g. `kind: "setup"`) has no `repo` at all, confirmed against a real
+ * `/v3/snapshot` response - NOT a bare repo key string (an earlier, untested assumption): it is
+ * the same `{ key, path, label }` shape as `PacerSnapshot.repos[]`'s own entries. `executor`/
+ * `host`/`account` are kept for completeness even though v1's generic row rendering doesn't
+ * branch on them.
  */
 export type AttentionItem = {
   id: string;
   kind: string;
   severity: "blocked" | "problem" | "decide";
-  repo?: string;
+  repo?: { key: string; path: string; label: string };
   taskId?: string;
   executor?: string;
   host?: string;

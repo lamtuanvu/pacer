@@ -1,8 +1,8 @@
 // Pure view-model for the html panel: data in, data out, no DOM and no `orca` import, so it
 // unit-tests under plain `bun test` / `orca plugin test` (node:test) exactly like
 // pacer-client.ts. The frame script (src/panel.ts) renders what these functions return.
-import type { AttentionAction, AttentionItem } from './pacer-client'
-import type { PanelSnapshot } from './protocol'
+import type { AttentionAction } from './pacer-client'
+import type { AttentionRow, PanelSnapshot } from './protocol'
 
 /** The op the panel should fire with `pacer.act`. */
 export type RunRequest = { op: string; params: Record<string, unknown> }
@@ -18,6 +18,10 @@ export type RowView = {
   /** Live-updated relative text ('4m ago'); the frame re-renders on a short interval. */
   time: string
   actions: ActionButton[]
+  /** Which repo this item is from - shown only in the global (all-repos) view, where a flat
+   *  list otherwise gives no indication of which repo each row belongs to. Undefined in the
+   *  repo-scoped view, where the heading already says the repo. */
+  repoLabel?: string
 }
 
 /** The in-panel Confirm/Cancel gate. */
@@ -92,8 +96,9 @@ export function emptyMessage(snapshot: PanelSnapshot): string {
   return snapshot.scope === 'repo' ? 'Nothing needs you' : 'Nothing needs you across any repo'
 }
 
-/** One attention item as a row view-model. */
-export function rowFor(item: AttentionItem, now: number): RowView {
+/** One attention item as a row view-model. `showRepo` is true only for the global (all-repos)
+ *  view - the repo-scoped view already says the repo once, in the heading. */
+export function rowFor(item: AttentionRow, now: number, showRepo: boolean): RowView {
   return {
     id: item.id,
     title: item.title,
@@ -104,6 +109,7 @@ export function rowFor(item: AttentionItem, now: number): RowView {
       danger: action.style === 'danger',
       action,
     })),
+    ...(showRepo && item.repoLabel !== undefined ? { repoLabel: item.repoLabel } : {}),
   }
 }
 
@@ -117,7 +123,7 @@ export function panelModel(state: PanelState, now: number): PanelModel {
     kind: 'ready',
     heading: scopeHeading(snapshot),
     empty: emptyMessage(snapshot),
-    rows: snapshot.attention.map((item) => rowFor(item, now)),
+    rows: snapshot.attention.map((item) => rowFor(item, now, snapshot.scope === 'global')),
     confirm: pending?.confirm ? { title: pending.confirm.title, body: pending.confirm.body, danger: pending.style === 'danger' } : null,
   }
 }
