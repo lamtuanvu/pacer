@@ -57,10 +57,11 @@ test("conflict sets a durable run marker; publish reads the marker not task stat
   const result = await tasks.review(ctx, task.id, { verdict: "accept" });
   expect(result.merge).toBe("conflict");
   const live = getRun(ctx, run.id)!;
+  expect(result.resolution_task).toMatch(/^t-/);
   expect(live.conflict).toEqual([{
     taskId: task.id,
     branch: `pacer/${task.id}`,
-    resolutionTaskId: result.resolution_task,
+    resolutionTaskId: result.resolution_task!,
   }]);
   expect(hasUnresolvedConflictTask(ctx, run.id)).toBe(true);
 

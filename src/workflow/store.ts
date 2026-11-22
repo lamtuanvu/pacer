@@ -1006,7 +1006,7 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
     ).get();
     if (!conflictCol) return false;
     // Support both legacy object markers and the R2-F3 list form.
-    const marker = db.query<{ conflict: string | null }, [string]>(
+    const marker = db.query<{ conflict: string | null }, [string, string]>(
       `SELECT conflict FROM workflow_runs
        WHERE conflict IS NOT NULL
          AND (

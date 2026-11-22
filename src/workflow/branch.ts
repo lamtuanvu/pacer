@@ -243,7 +243,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   // Swallow all lookup errors (fail-safe: fall through to ordinary accept). Documented.
   if (!run?.branch) {
     try {
-      const row = workflowDatabase(ctx).query<{ id: string }, [string]>(
+      const row = workflowDatabase(ctx).query<{ id: string }, [string, string]>(
         `SELECT id FROM workflow_runs
          WHERE conflict IS NOT NULL
            AND (

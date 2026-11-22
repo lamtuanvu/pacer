@@ -194,7 +194,8 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
       if (decision !== "must") {
         errors.push({ path: `steps.${id}.approves`, message: "approves: publish requires decision: must" });
       }
-      const kind = value.question?.kind;
+      const q = value.question as { kind?: string } | undefined;
+      const kind = q?.kind;
       if (kind !== "yes_no" && kind !== "approve_revise") {
         errors.push({
           path: `steps.${id}.question.kind`,
