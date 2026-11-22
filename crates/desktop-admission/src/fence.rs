@@ -105,7 +105,7 @@ fn read_fence_row(tx: &Transaction<'_>) -> Result<FenceSnapshot, AdmissionError>
     // corrupted row outside these bounds fails closed rather than being
     // accepted. (reserve/release additionally require `epoch < MAX_SAFE`
     // before advancing, matching TS.)
-    if epoch < 0 || epoch > MAX_SAFE {
+    if !(0..=MAX_SAFE).contains(&epoch) {
         return Err(conflict());
     }
     // The transaction and owner must be all-set or all-null together.
@@ -142,7 +142,7 @@ fn load_fence(tx: &Transaction<'_>) -> Result<FenceSnapshot, AdmissionError> {
 
 /// Read the fence fence inside a coordinator transaction.
 pub fn read_fence(home: &Path) -> Result<FenceSnapshot, AdmissionError> {
-    coordinator::with_coordinator(home, |tx| load_fence(tx))
+    coordinator::with_coordinator(home, load_fence)
 }
 
 /// Attempt to take the fence for `transaction` at exactly `epoch`.
@@ -151,7 +151,7 @@ pub fn reserve_fence(
     epoch: i64,
     transaction: &str,
 ) -> Result<FenceSnapshot, AdmissionError> {
-    let identity = crate::process_identity::own_process_identity().ok_or_else(|| conflict())?;
+    let identity = crate::process_identity::own_process_identity().ok_or_else(conflict)?;
     if transaction.is_empty() || !(0..=MAX_SAFE).contains(&epoch) || epoch == MAX_SAFE {
         return Err(conflict());
     }
@@ -176,7 +176,7 @@ pub fn reserve_fence(
                     epoch
                 ],
             )
-            .map_err(|e| AdmissionError::Sqlite(e))?;
+            .map_err(AdmissionError::Sqlite)?;
         if changes != 1 {
             return Err(conflict());
         }
@@ -190,7 +190,7 @@ pub fn release_fence(
     home: &Path,
     snapshot: &FenceSnapshot,
 ) -> Result<FenceSnapshot, AdmissionError> {
-    let identity = crate::process_identity::own_process_identity().ok_or_else(|| conflict())?;
+    let identity = crate::process_identity::own_process_identity().ok_or_else(conflict)?;
     let Some(owner) = snapshot.owner.as_ref() else {
         return Err(conflict());
     };
@@ -220,7 +220,7 @@ pub fn release_fence(
                     identity.birth
                 ],
             )
-            .map_err(|e| AdmissionError::Sqlite(e))?;
+            .map_err(AdmissionError::Sqlite)?;
         if changes != 1 {
             return Err(conflict());
         }

@@ -104,19 +104,19 @@ fn parse_stored_task(value: &Value) -> Option<(String, String, bool, Option<Stri
     // must return false when the queue reason is absent so a queued task with
     // no reason stays a blocker (matching TS `state === "queued" && !task.queue`).
     let mut has_queue = false;
-    if let Some(queue) = value.get("queue") {
-        if !queue.is_null() {
-            let reason = value.pointer("/queue/reason").and_then(Value::as_str)?;
-            if !QUEUE_REASONS.contains(&reason) {
-                return None;
-            }
-            let since = value.pointer("/queue/since").and_then(Value::as_f64)?;
-            let position = value.pointer("/queue/position").and_then(Value::as_i64)?;
-            if !since.is_finite() || position <= 0 {
-                return None;
-            }
-            has_queue = true;
+    if let Some(queue) = value.get("queue")
+        && !queue.is_null()
+    {
+        let reason = value.pointer("/queue/reason").and_then(Value::as_str)?;
+        if !QUEUE_REASONS.contains(&reason) {
+            return None;
         }
+        let since = value.pointer("/queue/since").and_then(Value::as_f64)?;
+        let position = value.pointer("/queue/position").and_then(Value::as_i64)?;
+        if !since.is_finite() || position <= 0 {
+            return None;
+        }
+        has_queue = true;
     }
     Some((id, state, has_queue, title))
 }
@@ -407,15 +407,14 @@ pub fn external_blockers(
             // Validate the worker row roughly; an invalid worker row is a
             // recovery blocker, matching the TS zod parse.
             if worker_ok(worker) {
-                if worker.get("terminal").and_then(Value::as_str).is_some() {
-                    if worker
+                if worker.get("terminal").and_then(Value::as_str).is_some()
+                    && worker
                         .get("incarnationId")
                         .and_then(Value::as_str)
                         .is_none()
-                    {
-                        blockers.push(recovery("session", &id, "Orca session"));
-                        continue;
-                    }
+                {
+                    blockers.push(recovery("session", id, "Orca session"));
+                    continue;
                 }
             } else {
                 blockers.push(recovery_entry(worker, id));
