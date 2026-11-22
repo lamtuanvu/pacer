@@ -648,7 +648,9 @@ export type SeedFinished = {
 
 /**
  * Seed finished steps from a prior child (replan) as done with their results,
- * mark intermediate ones advanced, and resume from the first unfinished successor.
+ * stamp advancedAt on every seeded row, and resume from the unfinished frontier
+ * (every unfinished ordinary target of a matched edge from any seeded row) via
+ * fireEdge — not a single linear walk from the entry.
  */
 async function seedFinishedAndResume(
   ctx: Ctx,
@@ -662,37 +664,104 @@ async function seedFinishedAndResume(
     await startStep(ctx, run, def, def.entry, undefined, e);
     return;
   }
+  const seededRows: StepRow[] = [];
   for (const id of finished) {
     const result = Object.prototype.hasOwnProperty.call(seed.results, id) ? seed.results[id] : {};
     const row = insertStep(ctx, { runId: run.id, stepId: id, attempt: 1, status: "done" });
-    updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
-  }
-  // Walk from entry along finished steps; advanceFrom the frontier into unfinished work.
-  let stepId = def.entry;
-  const seen = new Set<string>();
-  while (finished.has(stepId) && !seen.has(stepId)) {
-    seen.add(stepId);
-    const row = stepsOfRun(ctx, run.id).find(s => s.stepId === stepId && s.status === "done" && s.branch === undefined);
-    if (!row) break;
-    const result = row.result;
-    const matched = matchedEdges(def, getRun(ctx, run.id) ?? run, stepId, result);
-    const nextOrdinary = matched.find(m => def.steps[m.edge.to]?.type !== "end");
-    if (!nextOrdinary) {
-      await advanceFrom(ctx, run.id, def, row, result, e);
-      return;
-    }
-    const nextId = nextOrdinary.edge.to;
-    if (finished.has(nextId)) {
-      try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
-      stepId = nextId;
-      continue;
-    }
-    await advanceFrom(ctx, run.id, def, row, result, e);
-    return;
+    seededRows.push(updateStep(ctx, keyOf(row), {
+      status: "done", result, endedAt: ctx.now, advancedAt: ctx.now,
+    }));
   }
   if (!finished.has(def.entry)) {
     await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, e);
+    return;
   }
+
+  const back = backEdgeIndexes(def);
+  const startedTargets = new Set<string>();
+  let startedAny = false;
+  let endReachable = false;
+  const live = getRun(ctx, run.id) ?? run;
+
+  for (const row of seededRows) {
+    if (isTerminal(getRun(ctx, run.id))) return;
+    const matched = matchedEdges(def, live, row.stepId, row.result);
+    for (const { edge, index } of matched) {
+      const target = def.steps[edge.to];
+      if (!target) {
+        await failRun(ctx, run.id, `unknown step '${edge.to}' after seeded ${row.stepId}`, undefined, e.deps);
+        return;
+      }
+      if (target.type === "end") {
+        endReachable = true;
+        continue;
+      }
+      if (finished.has(edge.to) || startedTargets.has(edge.to)) continue;
+
+      const outcome = fireEdge(ctx, {
+        runId: run.id,
+        from: { stepId: row.stepId, attempt: row.attempt, branch: row.branch },
+        edgeIndex: index,
+        stepId: edge.to,
+        status: (target.type === "human" || target.type === "generate" || target.type === "choose_workflow")
+          ? "waiting" : "running",
+        ...(target.type === "fanout" ? { branches: target.branches } : {}),
+        ...(back.has(index) ? { back: { key: `${edge.from}->${edge.to}`, maxLoops: edge.maxLoops ?? 0 } } : {}),
+      });
+      if (outcome.kind === "terminal") return;
+      if (outcome.kind === "loop-limit") {
+        await failRun(ctx, run.id, `loop limit ${edge.from}->${edge.to}`, outcome.loops, e.deps);
+        return;
+      }
+      if (outcome.kind === "handled") {
+        startedTargets.add(edge.to);
+        startedAny = true;
+        continue;
+      }
+      startedTargets.add(edge.to);
+      startedAny = true;
+      if (outcome.loops) await publishRunChange(ctx, getRun(ctx, run.id));
+      const fresh = getRun(ctx, run.id)!;
+      if (isTerminal(fresh)) return;
+      try {
+        if (target.type === "human") {
+          const humanRow = outcome.rows[0];
+          if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
+          if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
+          continue;
+        }
+        if (fresh.status === "waiting") {
+          try { await patchRun(ctx, run.id, { status: "running" }); }
+          catch (err) {
+            if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+          }
+        }
+        for (const fired of outcome.rows) {
+          if (target.type === "fanout") await delegateFanoutBranch(ctx, fresh, fired, target, e);
+          else if (target.type === "agent" && target.role === "orchestrator") {
+            await startOrchestratorRoleStep(ctx, fresh, def, fired.stepId, target, fired.attempt);
+          } else if (target.type === "agent") await delegateAgentRow(ctx, fresh, fired, target, e);
+          else if (target.type === "choose_workflow") {
+            await startChooseWorkflowStep(ctx, fresh, fired.stepId, target, fired.attempt);
+          } else if (target.type === "generate") {
+            await startGenerateStep(ctx, fresh, fired.stepId, target, fired.attempt);
+          } else {
+            throw new CoreError("not_allowed", `step type '${(target as { type: string }).type}' is not started as a task here`);
+          }
+        }
+      } catch (err) {
+        await failRun(ctx, run.id, `start failed: ${edge.to}: ${err instanceof Error ? err.message : String(err)}`, undefined, e.deps);
+        return;
+      }
+    }
+  }
+
+  if (startedAny || isTerminal(getRun(ctx, run.id))) return;
+  if (endReachable) {
+    await patchRun(ctx, run.id, { status: "done" });
+    return;
+  }
+  await failRun(ctx, run.id, "replan seed has no unfinished frontier and no reachable end", undefined, e.deps);
 }
 
 /** Starts a run: creates the run record and starts its entry step. A failing start

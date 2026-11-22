@@ -95,3 +95,204 @@ describe("F1: reserveDispatch excludes workflow-root from concurrency", () => {
     expect(reserveDispatch(ctx, ids[2]!, c, preview)).toBe(false);
   });
 });
+
+describe("F2: frontier-based replan seeding", () => {
+  function writeStrategyDefault(ctx: ReturnType<typeof fakeCtx>) {
+    writeStrategy(ctx, 8);
+  }
+
+  test("diamond A->B,A->C seeds A+B and starts C2 (not mark done via B's end)", async () => {
+    const ctx = fakeCtx();
+    writeStrategyDefault(ctx);
+    const parentDef: WorkflowDef = {
+      id: "t/e-seed-parent",
+      version: 1,
+      steps: {
+        plan: { type: "generate", prompt: "P", limits: { step_types: ["agent"], max_steps: 8, kinds: ["feature", "tests"] } },
+        done: { type: "end" },
+      },
+      edges: [{ from: "plan", to: "done" }],
+      entry: "plan",
+    };
+    const diamond: WorkflowDef = {
+      id: "t/e-diamond",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        b: { type: "agent", kind: "tests", prompt: "B" },
+        c2: { type: "agent", kind: "tests", prompt: "C2" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "a", to: "b" },
+        { from: "a", to: "c2" },
+        { from: "b", to: "done" },
+        { from: "c2", to: "done" },
+      ],
+      entry: "a",
+    };
+    addDefinition(ctx, parentDef, "source");
+    addDefinition(ctx, diamond, "source");
+    const launches: string[] = [];
+    const spawn: SpawnRunner = (_c, id) => { launches.push(id); return 1; };
+    const parent = await startRun(ctx, { workflow: parentDef.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+
+    const child = await startRun(ctx, {
+      workflow: diamond.id, repo: parent.repo, brief: parent.brief,
+    }, spawn, defaultEngineDeps, {
+      parentRunId: parent.id,
+      parentStep: "plan",
+      seedFinished: {
+        finishedIds: ["a", "b"],
+        results: { a: { ok: true }, b: { ok: true } },
+      },
+    });
+
+    const rows = stepsOfRun(ctx, child.id);
+    const seededA = rows.find(s => s.stepId === "a")!;
+    const seededB = rows.find(s => s.stepId === "b")!;
+    expect(seededA.status).toBe("done");
+    expect(seededB.status).toBe("done");
+    expect(seededA.advancedAt).toBeDefined();
+    expect(seededB.advancedAt).toBeDefined();
+
+    const c2 = rows.find(s => s.stepId === "c2");
+    expect(c2?.taskId).toBeTruthy();
+    expect(launches).toContain(c2!.taskId!);
+    expect(getRun(ctx, child.id)!.status).not.toBe("done");
+  });
+
+  test("off-path seeded row stamps advancedAt so tick will not re-fire it", async () => {
+    const ctx = fakeCtx();
+    writeStrategyDefault(ctx);
+    const parentDef: WorkflowDef = {
+      id: "t/e-off-parent",
+      version: 1,
+      steps: {
+        plan: { type: "generate", prompt: "P", limits: { step_types: ["agent"], max_steps: 8, kinds: ["feature"] } },
+        done: { type: "end" },
+      },
+      edges: [{ from: "plan", to: "done" }],
+      entry: "plan",
+    };
+    // Linear a->b->done but seed a and also an off-path "x" that is in the new def as a dead finished id
+    // Keep x in the graph with edge from a so it is a real step; seed a+x, resume b.
+    const def: WorkflowDef = {
+      id: "t/e-offpath",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        x: { type: "agent", kind: "feature", prompt: "X" },
+        b: { type: "agent", kind: "feature", prompt: "B" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "a", to: "b" },
+        { from: "a", to: "x" },
+        { from: "x", to: "done" },
+        { from: "b", to: "done" },
+      ],
+      entry: "a",
+    };
+    addDefinition(ctx, parentDef, "source");
+    addDefinition(ctx, def, "source");
+    const spawn: SpawnRunner = () => 1;
+    const parent = await startRun(ctx, { workflow: parentDef.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+    const child = await startRun(ctx, {
+      workflow: def.id, repo: parent.repo, brief: parent.brief,
+    }, spawn, defaultEngineDeps, {
+      parentRunId: parent.id,
+      parentStep: "plan",
+      seedFinished: {
+        finishedIds: ["a", "x"],
+        results: { a: { ok: 1 }, x: { ok: 1 } },
+      },
+    });
+    const x = stepsOfRun(ctx, child.id).find(s => s.stepId === "x")!;
+    expect(x.status).toBe("done");
+    expect(x.advancedAt).toBeDefined();
+    const b = stepsOfRun(ctx, child.id).find(s => s.stepId === "b");
+    expect(b?.taskId || b?.status === "running").toBeTruthy();
+  });
+
+  test("fully finished seeded graph marks the run done", async () => {
+    const ctx = fakeCtx();
+    writeStrategyDefault(ctx);
+    const parentDef: WorkflowDef = {
+      id: "t/e-full-parent",
+      version: 1,
+      steps: {
+        plan: { type: "generate", prompt: "P", limits: { step_types: ["agent"], max_steps: 4, kinds: ["feature"] } },
+        done: { type: "end" },
+      },
+      edges: [{ from: "plan", to: "done" }],
+      entry: "plan",
+    };
+    const def: WorkflowDef = {
+      id: "t/e-full",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        done: { type: "end" },
+      },
+      edges: [{ from: "a", to: "done" }],
+      entry: "a",
+    };
+    addDefinition(ctx, parentDef, "source");
+    addDefinition(ctx, def, "source");
+    const spawn: SpawnRunner = () => 1;
+    const parent = await startRun(ctx, { workflow: parentDef.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+    const child = await startRun(ctx, {
+      workflow: def.id, repo: parent.repo, brief: parent.brief,
+    }, spawn, defaultEngineDeps, {
+      parentRunId: parent.id,
+      parentStep: "plan",
+      seedFinished: { finishedIds: ["a"], results: { a: { ok: true } } },
+    });
+    expect(getRun(ctx, child.id)!.status).toBe("done");
+    expect(stepsOfRun(ctx, child.id).find(s => s.stepId === "a")!.advancedAt).toBeDefined();
+  });
+
+  test("replan that changes an edge starts the new target from seeded predecessor", async () => {
+    const ctx = fakeCtx();
+    writeStrategyDefault(ctx);
+    const parentDef: WorkflowDef = {
+      id: "t/e-edge-parent",
+      version: 1,
+      steps: {
+        plan: { type: "generate", prompt: "P", limits: { step_types: ["agent"], max_steps: 8, kinds: ["feature", "tests"] } },
+        done: { type: "end" },
+      },
+      edges: [{ from: "plan", to: "done" }],
+      entry: "plan",
+    };
+    // Old edge a->b; new graph keeps a finished and routes a->c instead.
+    const def: WorkflowDef = {
+      id: "t/e-edge-change",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        c: { type: "agent", kind: "tests", prompt: "C" },
+        done: { type: "end" },
+      },
+      edges: [{ from: "a", to: "c" }, { from: "c", to: "done" }],
+      entry: "a",
+    };
+    addDefinition(ctx, parentDef, "source");
+    addDefinition(ctx, def, "source");
+    const launches: string[] = [];
+    const spawn: SpawnRunner = (_c, id) => { launches.push(id); return 1; };
+    const parent = await startRun(ctx, { workflow: parentDef.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+    const child = await startRun(ctx, {
+      workflow: def.id, repo: parent.repo, brief: parent.brief,
+    }, spawn, defaultEngineDeps, {
+      parentRunId: parent.id,
+      parentStep: "plan",
+      seedFinished: { finishedIds: ["a"], results: { a: { kept: true } } },
+    });
+    const c = stepsOfRun(ctx, child.id).find(s => s.stepId === "c");
+    expect(c?.taskId).toBeTruthy();
+    expect(launches).toContain(c!.taskId!);
+    expect(stepsOfRun(ctx, child.id).find(s => s.stepId === "a")!.advancedAt).toBeDefined();
+  });
+});
