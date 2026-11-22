@@ -5,6 +5,7 @@ import { CoreError } from "../core/errors";
 import { listTasksWhere, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import { insertQuestion, stepByTask, type QuestionRow } from "./store";
+import { enqueueWakeup } from "./wakeups";
 
 export const PROMPT_WAIT_QUIET_S = 30;
 
@@ -128,6 +129,12 @@ export function convertPromptWaitToQuestion(
     answerType: "text",
     blocks: "step",
     answerer: "orchestrator",
+  });
+  enqueueWakeup(ctx, {
+    runId: step.runId,
+    cause: "question",
+    ref: q.id,
+    createdAt: ctx.now,
   });
   clearPromptWait(ctx, taskId);
   return q;

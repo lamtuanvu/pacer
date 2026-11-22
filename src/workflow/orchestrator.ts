@@ -14,7 +14,7 @@ import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  getDefinition, getRun, listDecisions, liveRuns, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  getDefinition, getQuestion, getRun, listDecisions, liveRuns, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
@@ -674,13 +674,33 @@ export function buildTurnPrompt(
 
   const wakeBlocks = wakeups.map(w => {
     const parsed = parseWakeRef(w.ref);
-    return fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify({
+    const payload: Record<string, unknown> = {
       cause: w.cause,
       ref: w.ref,
       runId: parsed?.runId ?? w.runId,
       createdAt: w.createdAt,
       byPerson: w.byPerson,
-    }, null, 2));
+    };
+    // Answered (or open) question wakes carry the record as DATA so the turn can act.
+    if (w.cause === "question" && w.ref.startsWith("q_")) {
+      const q = getQuestion(ctx, w.ref);
+      if (q) {
+        payload.question = {
+          id: q.id,
+          text: q.text,
+          answerType: q.answerType,
+          ...(q.options ? { options: q.options } : {}),
+          ...(q.recommended ? { recommended: q.recommended } : {}),
+          blocks: q.blocks,
+          answerer: q.answerer,
+          status: q.status,
+          rev: q.rev,
+          ...(q.answer !== undefined ? { answer: q.answer } : {}),
+          ...(q.suggested ? { suggested: q.suggested } : {}),
+        };
+      }
+    }
+    return fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify(payload, null, 2));
   });
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
   const summary = fenceBlock(nonce, "run state", [

@@ -174,6 +174,68 @@ test("blocks: nothing leaves the task running and delivers a message", async () 
   expect(pending.some(m => m.body === "prefer A" && m.kind === "message")).toBe(true);
 });
 
+test("orchestrator ask → person answers → wake enqueued with answer visible in turn prompt", async () => {
+  const ctx = fakeCtx({ now: NOW });
+  const { runId, task } = setupExecutorStep(ctx);
+  // Orchestrator turn asks (grant); askerTaskId is the turn task, not the executor.
+  const { ctx: orch } = grantCtx(ctx, runId);
+  const asked = await askQuestion(orch, {
+    text: "Approve the plan?",
+    answerType: "yes_no",
+    blocks: "step",
+    stepId: "ask",
+    attempt: 1,
+  });
+  expect(asked.askerKind).toBe("orchestrator");
+  expect(asked.answerer).toBe("person");
+  expect(openWakeups(ctx, runId).every(w => w.ref !== asked.id)).toBe(true);
+
+  const person = { ...ctx, env: { ...ctx.env } };
+  const answered = await answerQuestion(person, {
+    id: asked.id,
+    answer: "yes",
+    expectRev: asked.rev,
+  });
+  expect(answered.status).toBe("answered");
+  expect(openWakeups(ctx, runId).some(w => w.cause === "question" && w.ref === asked.id)).toBe(true);
+  // The finished turn's task must not get a metered resume/message for this path.
+  expect(msgStore.pendingFor(ctx, `task:${task.id}`).every(m => m.body !== "yes")).toBe(true);
+
+  const { buildTurnPrompt } = await import("../src/workflow/orchestrator");
+  const run = (await import("../src/workflow/store")).getRun(ctx, runId)!;
+  const def = (await import("../src/workflow/store")).getDefinition(ctx, "t/qroute");
+  const wakes = openWakeups(ctx, runId).filter(w => w.ref === asked.id);
+  const prompt = buildTurnPrompt(ctx, run, wakes, def, (await import("../src/workflow/store")).stepsOfRun(ctx, runId));
+  expect(prompt).toContain("yes");
+  expect(prompt).toContain(asked.id);
+  expect(prompt).toMatch(/Approve the plan/);
+});
+
+test("prompt-convert question answer is delivered to the asker task as a message", async () => {
+  const ctx = fakeCtx({ now: NOW });
+  const { runId, task } = setupExecutorStep(ctx);
+  const { convertPromptWaitToQuestion } = await import("../src/workflow/prompt-detector");
+  updateTask(ctx, task.id, t => {
+    t.promptWait = { text: "Overwrite? [Y/n]", at: ctx.now - 40 };
+  });
+  const q = convertPromptWaitToQuestion(ctx, task.id);
+  expect(q.askerTaskId).toBe(task.id);
+  expect(q.blocks).toBe("step");
+  // Conversion must not leave the task without a delivery hook (no task.question required
+  // when the answer path falls back to a message).
+  expect(readTask(ctx, task.id)?.state).toBe("running");
+
+  const { ctx: orch } = grantCtx(ctx, runId);
+  await answerQuestion(orch, {
+    id: q.id,
+    answer: "n",
+    expectRev: q.rev,
+  }, { spawnRunner: () => 1 });
+  expect(getQuestion(ctx, q.id)?.status).toBe("answered");
+  const pending = msgStore.pendingFor(ctx, `task:${task.id}`);
+  expect(pending.some(m => m.body === "n" && m.kind === "message")).toBe(true);
+});
+
 test("answer by a non-answerer is not_allowed", async () => {
   const ctx = fakeCtx({ now: NOW });
   const { runId, task } = setupExecutorStep(ctx);

@@ -68,7 +68,15 @@ function requireRunGrant(ctx: Ctx) {
 
 /** Ask a structured question from an executor step or the orchestrator (run grant). */
 export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<QuestionRow> {
-  const input = questionInputSchema.parse(raw);
+  // Parse only QuestionInput fields — stepId/attempt/branch/runId are AskQuestionInput extras.
+  const input = questionInputSchema.parse({
+    text: raw.text,
+    answerType: raw.answerType,
+    blocks: raw.blocks,
+    ...(raw.options ? { options: raw.options } : {}),
+    ...(raw.recommended !== undefined ? { recommended: raw.recommended } : {}),
+    ...(raw.artifact !== undefined ? { artifact: raw.artifact } : {}),
+  });
   if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
     const grant = requireRunGrant(ctx);
     const runId = raw.runId ?? grant.runId;
@@ -330,6 +338,9 @@ export async function answerQuestion(
 
   // Yield so a concurrent answer can race the compare-and-set (same pattern as answerHumanStep).
   await Promise.resolve();
+  const deliveryBody = parsed.note !== undefined
+    ? `${parsed.answer}\n\n${parsed.note}`
+    : parsed.answer;
   const answered = answerQuestionRecord(ctx, current.id, {
     answer: parsed.answer,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
@@ -337,13 +348,36 @@ export async function answerQuestion(
     answeredBy,
   });
 
+  if (current.askerKind === "orchestrator") {
+    // Person answered an orchestrator ask: wake the orchestrator with the answer in the turn prompt.
+    enqueueWakeup(ctx, {
+      runId: current.runId,
+      cause: "question",
+      ref: current.id,
+      createdAt: ctx.now,
+    });
+    return answered;
+  }
+
   completeWakeupRef(ctx, current.runId, "question", current.id);
 
   if (current.askerTaskId && (current.blocks === "step" || current.blocks === "branch")) {
     const asker = readTask(ctx, current.askerTaskId);
     if (asker?.question && asker.question.answer === undefined) {
-      await answerTask(ctx, current.askerTaskId, parsed.answer, {}, {
+      await answerTask(ctx, current.askerTaskId, deliveryBody, {}, {
         ...(deps.spawnRunner ? { spawnRunner: deps.spawnRunner } : {}),
+      });
+    } else if (asker) {
+      // Prompt-convert (and any asker without task.question): deliver as a message.
+      insertMessage(ctx, {
+        taskId: current.askerTaskId,
+        rootId: rootOf(ctx, `task:${current.askerTaskId}`),
+        from: "human",
+        to: `task:${current.askerTaskId}`,
+        kind: "message",
+        body: deliveryBody,
+        replyTo: null,
+        requestId: `question.answer:${current.id}:${answered.rev}`,
       });
     }
   } else if (current.askerTaskId && current.blocks === "nothing") {
@@ -353,7 +387,7 @@ export async function answerQuestion(
       from: "human",
       to: `task:${current.askerTaskId}`,
       kind: "message",
-      body: parsed.answer,
+      body: deliveryBody,
       replyTo: null,
       requestId: `question.answer:${current.id}:${answered.rev}`,
     });
