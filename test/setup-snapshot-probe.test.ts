@@ -7,7 +7,7 @@ test("snapshot setup probes do not recursively request their own snapshot",async
  const ctx=fakeCtx();ensureToken(ctx);let snapshots=0;
  const request=spyOn(globalThis,"fetch").mockImplementation((async(input:unknown)=>{
   if(String(input).endsWith("/health"))return Response.json({ok:true},{headers:{"x-pacer":"1"}});
-  expect(String(input)).toEndWith("/v2/snapshot");snapshots++;
+  expect(String(input)).toEndWith("/v3/snapshot");snapshots++;
   if(snapshots===1)await readModelContext(ctx);
   return Response.json({snapshot:{}},{headers:{"x-pacer":"1"}});
  }) as typeof fetch);
@@ -17,7 +17,7 @@ test("snapshot setup probes do not recursively request their own snapshot",async
 test("a snapshot can compute setup without awaiting its own cached context",async()=>{
  const ctx=fakeCtx();ensureToken(ctx);
  const request=spyOn(globalThis,"fetch").mockImplementation((async(input:unknown)=>{
-  if(String(input).endsWith("/v2/snapshot"))await readModelContext(ctx);
+  if(String(input).endsWith("/v3/snapshot"))await readModelContext(ctx);
   return Response.json({ok:true},{headers:{"x-pacer":"1"}});
  }) as typeof fetch);
  try{
@@ -48,7 +48,7 @@ for(const major of [2,3]) test(`serve-side v${major} setup.check skips loopback 
  }finally{server?.stop();request.mockRestore();listener.mockRestore();}
 });
 
-for(const endpoint of ["/health","/v2/snapshot"]){
+for(const endpoint of ["/health","/v3/snapshot"]){
  test(`standalone setup reports a ${endpoint} timeout as failed`,async()=>{
   const ctx=fakeCtx();ensureToken(ctx);
   const request=spyOn(globalThis,"fetch").mockImplementation((async(input:unknown)=>{
