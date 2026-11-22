@@ -397,15 +397,14 @@ line and is silenced by removing the flag; an explicit `PACER_NATIVE_PLUGIN_HOST
 the strict deep-home layout (`PathTooLong`).
 
 **Default owner on a deep home.** A default-on serve whose `run/host.sock` would exceed 103
-bytes falls back to the TypeScript owner instead of failing, printing
-`pacer: serve: plugin host socket path exceeds 103 bytes; running the TypeScript plugin owner
-(set PACER_NATIVE_PLUGIN_HOST=0 to silence, or use a shorter PACER_HOME)`. This replaces
-the earlier option (a) that would have moved a deep home to the TypeScript owner by default:
-the per-user socket-directory fallback (#1203, ADR 0027 items 1 and 5) already keeps a
-default-on serve on a deep home, and `default_owner_fallback` only triggers when even that
-directory is unavailable, so the option-(a) fixture rows that expected the TS fallback line
-were dropped. An explicit `=1` keeps the strict `PathTooLong` refusal so the operator still
-controls the layout.
+bytes binds the owner socket in the private per-user directory (`<user dir>/pacer-<hash>/`,
+ADR 0027 items 1 and 5, #1203) and runs the native owner there, so deep homes start the
+native owner rather than failing or moving to TypeScript. An explicit
+`PACER_NATIVE_PLUGIN_HOST=1` keeps the strict `PathTooLong` refusal so the operator still
+controls the layout. The option (a) originally proposed for this slice — falling back to the
+TypeScript owner on a deep home — was rejected (maintainer decision Q2); no
+`default_owner_fallback` is needed because #1203 keeps the native owner's socket within
+`socket(SOCKET_PATH_MAX)` via the per-user directory.
 
 **Residual refusals with the owner on.** These `plugin_unavailable` refusals remain under
 the native owner; each names the deleting slice:
