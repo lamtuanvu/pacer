@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Fixed
+
+- **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
+
 ## [0.17.7] - 2026-11-20
 
 ### Fixed
@@ -21,6 +25,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- Claude Code ask mode for the assistant executor now offers pacer's MCP read tools (`mcp__pacer__*` via `pacer mcp --assistant`), with the turn grant bound only through a host secret reference into process env, deterministic session UUIDs, and a digest-only fallback when the pacer MCP server fails to connect. The ask-mode check requires a successful pacer tool call and refused shell/read/webfetch.
 - **Unmetered accounts report verdict UNMETERED instead of OK** on protocol 3 surfaces (the snapshot's account and executor rows, `routing.status`, `status --json` and the CLI text). Protocol 2 clients keep `OK` (v2 is frozen), and routing treats the account as available exactly as before.
 - **`account.list` `usageReading` is deprecated.** Rows now carry `usageState` (the record above) and `diagnostics.readings`; `usageReading` stays for the rest of protocol 3.x and is removed in protocol 4.0. It no longer carries an invented `limit` window for reactive and unmetered accounts (those readings report no windows and `capturedAt: null`). The `observed N ago` age in the planner hook prints days once an observation is two days old.
 - **`account.list` `signedIn` follows the snapshot's per-runner derivation (ADR 0030).** Local non-planner runners are probed individually: an account whose runners report no sign-out is `signedIn: true` — including accounts that carry no login indicator of their own — and `false` when any checked runner is signed out. Accounts without a checked local runner keep the account-scope probe; endpoint accounts report null.

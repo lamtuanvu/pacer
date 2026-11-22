@@ -43,7 +43,9 @@ export async function planOwnedLaunch(ctx: Ctx, input: { cfg: ProviderCfg; task:
     : await terminalEnv(ctx.env, { cwd: ctx.home, ...(existsSync(workdir) ? { workdir } : {}) });
   let note = terminalEnvNote(base);
   const account = await providerEnv(ctx, cfg);
-  const env = executorEnv(base.env, account, task.id, profileKeys(base));
+  const env = executorEnv(base.env, account, task.id, profileKeys(base),
+    task.kind === "orchestrate" && typeof ctx.env.PACER_RUN_GRANT === "string"
+      ? { runGrant: ctx.env.PACER_RUN_GRANT } : undefined);
   const agent = cfg.via === "opencode" ? "opencode" : parseRunnerId(cfg.id)?.agent ?? cfg.id;
   if (cfg.via !== "opencode") recordDefaultFolder(ctx, agent, account, base);
   if (choice.fallback) note += `launch mode: headless (${choice.fallback})\n\n`;

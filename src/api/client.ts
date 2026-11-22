@@ -18,6 +18,14 @@ export async function connectClient(ctx: Ctx, o: { timeoutMs?: number; opDeps?: 
   if(ctx.env.PACER_WORK_GRANT){
     return new HttpClient(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}`,ctx.env.PACER_WORK_GRANT,{protocol:3});
   }
+  // Run grant: HTTP only with the prg_ bearer. Never the operator token file or in-process fallback (API-5b).
+  if(ctx.env.PACER_RUN_GRANT){
+    return new HttpClient(`http://127.0.0.1:${ctx.env.PACER_PORT??DEFAULT_PORT}`,ctx.env.PACER_RUN_GRANT,{protocol:3});
+  }
+  // Orchestrator without a grant must not use the operator token (M1).
+  if(ctx.env.PACER_ROLE==="orchestrator") {
+    throw new ApiError("not_allowed", "PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT");
+  }
   if(ctx.env.PACER_ROLE==="executor") throw new ApiError("not_allowed","Executor client requires a scoped work grant");
   const fallback = () => {
     if (o.allowFallback === false) throw new ApiError("not_allowed", "The selected service is unavailable", "Start pacer serve on the selected PACER_PORT; local fallback is disabled.");

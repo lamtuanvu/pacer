@@ -4,7 +4,7 @@ import { dirname, join } from "node:path";
 import * as childProcess from "node:child_process";
 import { tmpDir } from "./helpers";
 import { atomicWrite, readEvidence, saveSession, type Session } from "../scripts/live/core";
-import { appDigest, cleanupOta, exactFixtureExternal, exerciseOta, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
+import { appDigest, cleanupOta, exactFixtureExternal, exerciseOta, isLeaseOwnLinkProgram, prepareOta, readOtaRecord, recordOtaRegistrationIntent, observeOtaRegistration } from "../scripts/live/ota";
 import { refusedOp } from "../scripts/live/proxy";
 import { refusal } from "../scripts/live/guard";
 import * as nativeOs from "../src/update/desktop/native-os";
@@ -202,6 +202,45 @@ test("registration intent and loaded ownership survive uncertain inspection and 
   await observeOtaRegistration(f.session.id, label, "retired", async expected => ({...expected, loaded:false, coverage:"complete", processes:[], exited:[child]}), f.options);
   await cleanupOta(f.session.id, f.options);
   expect(readOtaRecord(f.session.id, f.options).phase).toBe("cleaned");
+  expect(f.calls()).toBe(0);
+});
+
+test("lease own-link symlink is admitted for cleanup; other sandbox symlinks stay refused", async () => {
+  const f = fixture();
+  await prepareOta(f.session.id, f.from, f.to, f.options);
+  const state = readOtaRecord(f.session.id, f.options), label = state.serviceLabel;
+  const bundled = join(state.currentApp, "Contents/Resources/pacer");
+  mkdirSync(dirname(bundled), { recursive: true, mode: 0o700 });
+  writeFileSync(bundled, "fixture bundled cli", { mode: 0o700 });
+  const link = join(state.pacerHome, ".local/bin/pacer");
+  mkdirSync(dirname(link), { recursive: true, mode: 0o700 });
+  symlinkSync(bundled, link);
+  expect(isLeaseOwnLinkProgram(state, link)).toBe(true);
+  expect(isLeaseOwnLinkProgram(state, bundled)).toBe(false);
+  const foreign = join(state.pacerHome, ".local/bin/other");
+  symlinkSync(bundled, foreign);
+  expect(isLeaseOwnLinkProgram(state, foreign)).toBe(false);
+  const make = (program: string) => `<plist><dict><key>Label</key><string>${label}</string><key>ProgramArguments</key><array><string>${program}</string><string>serve</string></array><key>EnvironmentVariables</key><dict><key>HOME</key><string>${state.pacerHome}</string><key>PACER_HOME</key><string>${state.pacerHome}</string><key>PACER_PORT</key><string>${state.innerPort}</string></dict><key>KeepAlive</key><true/><key>RunAtLoad</key><true/></dict></plist>`;
+  // Own-link registration survives ledger read/cleanup path checks.
+  recordOtaRegistrationIntent(f.session.id, label, make(link), f.options);
+  expect(readOtaRecord(f.session.id, f.options).registrations[0].state).toBe("intent");
+  // A foreign symlink program still hits the generic sandbox symlink refusal.
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(foreign), f.options)).toThrow("symlinked sandbox paths");
+  // Wrong target at the own-link path is not the lease shape.
+  rmSync(link);
+  symlinkSync(join(state.candidateApp, "Contents/MacOS/pacer"), link);
+  expect(isLeaseOwnLinkProgram(state, link)).toBe(false);
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(link), f.options)).toThrow("symlinked sandbox paths");
+  // Symlinked .local/bin that points outside the lease must not be admitted even
+  // when the final link target is the lease's bundled CLI.
+  rmSync(link);
+  const outsideBin = join(f.session.root, "..", "outside-bin");
+  mkdirSync(outsideBin, { recursive: true, mode: 0o700 });
+  symlinkSync(bundled, join(outsideBin, "pacer"));
+  rmSync(dirname(link), { recursive: true });
+  symlinkSync(outsideBin, dirname(link));
+  expect(isLeaseOwnLinkProgram(state, link)).toBe(false);
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(link), f.options)).toThrow("symlinked sandbox paths");
   expect(f.calls()).toBe(0);
 });
 

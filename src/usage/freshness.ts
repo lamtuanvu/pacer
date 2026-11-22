@@ -12,6 +12,7 @@ export const AVAILABILITY_FALLBACK_S = constants.availabilityFallbackS;
 export const EXHAUSTED_PCT = constants.exhaustedPct;
 export const NEAR_LIMIT_PCT = constants.nearLimitPct;
 export const LIMIT_WINDOW_LENGTH_S = constants.limitWindowLengthS;
+export const COOLDOWN_DEFAULT_S = constants.cooldownDefaultS;
 export const OBSERVATION_EXPIRY_S = constants.observationExpiryS;
 export const USAGE_MEMO_S = constants.usageMemoS;
 export const EVIDENCE_PRUNE_AFTER_S = constants.evidencePruneAfterS;

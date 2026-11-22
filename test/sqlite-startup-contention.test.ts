@@ -2,12 +2,23 @@ import { expect, spyOn, test } from "bun:test";
 import { Database } from "bun:sqlite";
 import * as fs from "node:fs";
 import { join } from "node:path";
-import { createTask, readTask, reconcileTaskJson, tasksDir, updateTask } from "../src/tasks/store";
+import {
+  createTask, readTask, reconcileTaskJson, TASK_DB_BUSY_TIMEOUT_MS, taskDatabase, tasksDir, updateTask,
+} from "../src/tasks/store";
 import { dispatchDatabase } from "../src/dispatch/store";
 import { startServer } from "../src/serve/http";
 import { backfillTaskHistory, maintainTaskHistory, startTaskHistory } from "../src/tasks/history";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 import { backfillFirstSettled } from "../src/insights/summary";
+import { insertRun } from "../src/workflow/store";
+import { getTurn, insertTurn } from "../src/workflow/wakeups";
+import { issueRunGrant, verifyRunGrant } from "../src/workflow/run-grant";
+import { recoverOrphanTurns } from "../src/workflow/orchestrator";
+
+function busyTimeoutMs(ctx: ReturnType<typeof fakeCtx>): number {
+  const row = taskDatabase(ctx).query<{ timeout: number }, []>("PRAGMA busy_timeout").get();
+  return row?.timeout ?? -1;
+}
 
 const input = { brief: { goal: "contention fixture", repo: "/tmp/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 };
 
@@ -86,9 +97,31 @@ test("history backfill contention cannot delay listener startup or session excha
   const ctx = fakeCtx({ now: Date.now() / 1000 });
   createTask(ctx, input);
   dispatchDatabase(ctx);
+  // Orphan recovery (API-5b) must not join the startServer critical path: seed a
+  // live turn + prg_ grant that recoverOrphanTurns will revoke/fail once the lock is free.
+  const run = insertRun(ctx, { workflow: "t/startup-contention", version: 1, repo: tmpDir(), brief: "b" });
+  const orch = createTask(ctx, {
+    brief: { goal: "orch", repo: run.repo },
+    kind: "orchestrate",
+    requestedExecutor: null,
+    timeoutS: 600,
+  });
+  updateTask(ctx, orch.id, t => { t.state = "failed"; });
+  const turn = insertTurn(ctx, {
+    id: "turn_startup_orphan",
+    runId: run.id,
+    planner: "claude-code",
+    status: "running",
+    startedAt: ctx.now,
+    deadline: ctx.now + 1200,
+    taskId: orch.id,
+  });
+  const bearer = issueRunGrant(ctx, { runId: run.id, turnId: turn.id, deadline: ctx.now + 1200 });
+  expect(verifyRunGrant(ctx, bearer)).not.toBeNull();
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("BEGIN IMMEDIATE");
   let service: ReturnType<typeof startServer> | undefined;
+  let released = false;
   try {
     const started = performance.now();
     service = startServer(() => ctx, { port: 0, pumpMs: 0 });
@@ -99,11 +132,23 @@ test("history backfill contention cannot delay listener startup or session excha
     });
     expect(response.status).toBe(204);
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    // Under the writer lock, deferred recovery must not have settled yet.
+    expect(getTurn(ctx, turn.id)!.status).toBe("running");
+    writer.exec("ROLLBACK");
+    released = true;
+    writer.close();
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      if (getTurn(ctx, turn.id)?.status === "failed" && verifyRunGrant(ctx, bearer) === null) break;
+      await Bun.sleep(20);
+    }
+    expect(getTurn(ctx, turn.id)!.status).toBe("failed");
+    expect(verifyRunGrant(ctx, bearer)).toBeNull();
   } finally {
-    writer.exec("ROLLBACK"); writer.close();
+    if (!released) { writer.exec("ROLLBACK"); writer.close(); }
     await service?.stop();
   }
-}, 15000);
+}, 20000);
 
 test("history retries a temporary writer lock and completes after release", async () => {
   const ctx = fakeCtx();
@@ -180,6 +225,80 @@ test("a signalled maintenance worker can be replaced on the next scheduled run",
     for (const child of children) { child.kill(); await child.exited; }
   }
 }, 10000);
+
+test("recoverOrphanTurns restores busy_timeout after a probe BUSY and after success", async () => {
+  const ctx = fakeCtx();
+  taskDatabase(ctx);
+  expect(busyTimeoutMs(ctx)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+  const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    const started = performance.now();
+    await recoverOrphanTurns(ctx, {}, { maxAttempts: 2 });
+    expect(performance.now() - started).toBeLessThan(3000);
+    expect(busyTimeoutMs(ctx)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+  }
+  let sawNormalTimeout = false;
+  await recoverOrphanTurns(ctx, {}, {
+    afterWriterProbe: c => {
+      expect(busyTimeoutMs(c)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+      sawNormalTimeout = true;
+    },
+  });
+  expect(sawNormalTimeout).toBe(true);
+  expect(busyTimeoutMs(ctx)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+});
+
+test("bounded orphan recovery gives up without hanging under a held writer lock", async () => {
+  const ctx = fakeCtx();
+  taskDatabase(ctx);
+  const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
+  writer.exec("BEGIN IMMEDIATE");
+  try {
+    const started = performance.now();
+    const handled = await recoverOrphanTurns(ctx, {}, { maxAttempts: 3 });
+    expect(handled).toBe(0);
+    expect(performance.now() - started).toBeLessThan(5000);
+    expect(busyTimeoutMs(ctx)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+  } finally {
+    writer.exec("ROLLBACK");
+    writer.close();
+  }
+});
+
+test("settle/revoke after a free probe never runs under busy_timeout 0", async () => {
+  const ctx = fakeCtx({ now: Date.now() / 1000 });
+  const run = insertRun(ctx, { workflow: "t/startup-contention", version: 1, repo: tmpDir(), brief: "b" });
+  const orch = createTask(ctx, {
+    brief: { goal: "orch", repo: run.repo },
+    kind: "orchestrate",
+    requestedExecutor: null,
+    timeoutS: 600,
+  });
+  updateTask(ctx, orch.id, t => { t.state = "failed"; });
+  const turn = insertTurn(ctx, {
+    id: "turn_probe_timeout",
+    runId: run.id,
+    planner: "claude-code",
+    status: "running",
+    startedAt: ctx.now,
+    deadline: ctx.now + 1200,
+    taskId: orch.id,
+  });
+  issueRunGrant(ctx, { runId: run.id, turnId: turn.id, deadline: ctx.now + 1200 });
+  const timeoutsDuringWork: number[] = [];
+  await recoverOrphanTurns(ctx, {}, {
+    afterWriterProbe: c => {
+      timeoutsDuringWork.push(busyTimeoutMs(c));
+    },
+  });
+  expect(timeoutsDuringWork).toEqual([TASK_DB_BUSY_TIMEOUT_MS]);
+  expect(getTurn(ctx, turn.id)!.status).toBe("failed");
+  expect(busyTimeoutMs(ctx)).toBe(TASK_DB_BUSY_TIMEOUT_MS);
+});
 
 test("the maintenance worker exits when its service ownership pipe closes", async () => {
   const ctx = fakeCtx();

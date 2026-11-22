@@ -49,6 +49,7 @@ import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-u
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { msgOps } from "./ops-msg";
+import { workflowOps } from "./ops-workflow";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -274,7 +275,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...workflowOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps, ...desktopReconciliationOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -458,7 +459,9 @@ export const OPS: Record<string, OpDef> = {
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
     q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
-    const limit=p.limit??20, {q,...rest}=p, rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+1});
+    const limit=p.limit??20, {q,...rest}=p;
+    // Over-fetch so filtering engine-owned orchestrate tasks still fills the page (D2.12).
+    const rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+20}).filter(t=>t.kind!=="orchestrate");
     const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
     if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;

@@ -9,6 +9,8 @@ import { refreshAllUsage } from "../usage/refresh";
 import { refreshObservations } from "../dispatch/refresh";
 import { setOutboxCrossPost } from "../link/store";
 import { holdOwnerKey } from "../plugins/host-bridge";
+import { advanceRuns } from "../workflow/tick";
+import { recoverOrphanTurns } from "../workflow/orchestrator";
 
 /**
  * The periodic work loop, owned by pacer serve (spec §5). All background loops
@@ -46,8 +48,8 @@ interface WorkerInit {
   ownerKey?: string;
 }
 
-type LoopName = "pump" | "broker" | "sweep" | "certification" | "usage" | "observations";
-const MANAGED_LOOPS: LoopName[] = ["pump", "broker", "sweep", "certification", "usage", "observations"];
+type LoopName = "pump" | "broker" | "sweep" | "certification" | "usage" | "observations" | "workflow";
+const MANAGED_LOOPS: LoopName[] = ["pump", "broker", "sweep", "certification", "usage", "observations", "workflow"];
 
 let stopped = false;
 let init: { env: Record<string, string>; pacerHome: string } | null = null;
@@ -127,6 +129,8 @@ function runLoops(): void {
   // Observations follow the pump cadence, as before the worker (spec §5 draft): no
   // periodic pump means no observations loop either.
   if (pumpMs > 0) loop("observations", 60_000, 1000, c => refreshObservations(c));
+  // Workflow runs advance from task changes on their own short cadence.
+  loop("workflow", 1000, 500, c => advanceRuns(c, spawnRunner ?? undefined));
 }
 
 type WorkerMessage = WorkerInit | { type: "stop" };
@@ -152,6 +156,8 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   }
   report({ type: "heartbeat" });
   armHeartbeat();
+  // Start-up: revoke orphan prg_ grants and settle live turns with no process.
+  void recoverOrphanTurns(fresh()).catch(() => { /* recovery is best-effort */ });
   runLoops();
 };
 

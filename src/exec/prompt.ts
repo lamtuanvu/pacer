@@ -9,7 +9,39 @@ Executor contract (from pacer): you are executing a plan made by another enginee
 - To send other messages, run \`pacer msg send --to <participant> "<text>"\` (your parent is the default reader of your final response). Your final response in each turn is delivered to your parent as your report.
 - Finish with a short report: files changed, what you did, the acceptance check result (command and pass/fail), and anything you could not do or are unsure about.`;
 
-export function buildPrompt(brief: Brief, taskId: string, mayDelegate = false): string {
+export const ORCHESTRATOR_CONTRACT = `---
+Orchestrator contract (from pacer): you are the orchestrator for a pacer workflow run.
+- Act only through the allowed commands under your PACER_RUN_GRANT. Do not delegate new work.
+- Decide: \`pacer run decide <runId> <step> <choice> --reason <text>\`
+- Choose a child workflow: \`pacer run choose <runId> <step> <workflow> --reason <text>\`
+- Skip a failed step: \`pacer step skip <runId> <step>\`
+- Retry a failed step: \`pacer step retry <runId> <step>\`
+- Record an orchestrator-step result: \`pacer step result --json '<object>'\`
+- Review or stop a task in this run: \`pacer review\` / \`pacer stop\` (never --send-back or --retry-on).
+- Finish with a short report of what you decided.`;
+
+export type BuildPromptOpts = { kind?: string | null };
+
+export function buildPrompt(brief: Brief, taskId: string, mayDelegate = false, opts?: BuildPromptOpts): string {
+  if (opts?.kind === "orchestrate") {
+    const parts = [
+      "PACER_ROLE=orchestrator: you are a pacer orchestrator for this workflow run.",
+      `# Task ${taskId}`,
+      `## Goal\n${brief.goal.trim()}`,
+      `## Repository\n${brief.repo}`,
+    ];
+    if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
+    if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);
+    if (brief.constraints?.trim()) parts.push(`## Constraints\n${brief.constraints.trim()}`);
+    if (brief.qa?.length) parts.push(`## Question / Answer\n${brief.qa.map(({q,a}) => `Q: ${q}\nA: ${a}`).join("\n\n")}`);
+    if (brief.feedback?.trim()) parts.push(`## Review feedback\n${brief.feedback.trim()}`);
+    parts.push(`## Done when\n${brief.acceptance?.trim()
+      ? `\`${brief.acceptance.trim()}\` passes.`
+      : "The wake-ups for this turn are resolved; no acceptance command was given."}`);
+    parts.push(ORCHESTRATOR_CONTRACT);
+    return parts.join("\n\n");
+  }
+
   const parts = ["PACER_ROLE=executor: you are a pacer executor; ignore pacer planner policy.", `# Task ${taskId}`, `## Goal\n${brief.goal.trim()}`, `## Repository\n${brief.repo}`];
   if (brief.scope?.trim()) parts.push(`## Scope\n${brief.scope.trim()}`);
   if (brief.context?.trim()) parts.push(`## Context\n${brief.context.trim()}`);

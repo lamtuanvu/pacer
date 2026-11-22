@@ -56,8 +56,11 @@ async function runOrcaAttempt(deps: OrcaRouteDeps, caller: OrcaExecutorCaller, c
   let ex;
   try { ex = deps.loadExecution(ctx); }
   catch (e) { return fallback(deps, ctx, cfg, task, onSpawn, (e as Error).message); }
-  // A work grant is a secret: it cannot go in a visible Orca terminal command, so delegating work runs directly.
+  // Work and run grants are secrets: they cannot go in a visible Orca terminal command (SEC-5).
   if (ctx.env.PACER_WORK_GRANT) return fallback(deps, ctx, cfg, task, onSpawn, "the task allows delegation, and its work grant cannot be placed in a visible Orca terminal command");
+  if (ctx.env.PACER_RUN_GRANT || task.kind === "orchestrate") {
+    return fallback(deps, ctx, cfg, task, onSpawn, "an orchestrator run grant cannot be placed in a visible Orca terminal command");
+  }
   const session = new OrcaAttemptSession(ctx, cfg, task, deps, ex);
   const refused = (): AttemptOutcome => {
     const at = Date.now() / 1000, reason = session.refusal || "the Orca placement was refused";

@@ -1,6 +1,7 @@
 use reqwest::Url;
 use serde_json::Value;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::{AtomicBool, Ordering};
 
 #[derive(serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "camelCase", deny_unknown_fields)]
@@ -269,6 +270,166 @@ pub fn recovery_for(bundle_app: bool, bundled_cli: bool, external_cli: bool) -> 
 
 pub fn relink_needed(consented: bool, keep: bool, bundled: bool, missing: bool) -> bool {
     consented && !keep && bundled && missing
+}
+
+/// How Consent / UseApp should move an existing service in a release-trust build.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ConsentServicePlan {
+    /// Create/replace the terminal link and let managed install own the service.
+    Managed { replace_link: bool, reinstall: bool },
+    /// Record consent only; ADR 0011 takeover moves the service and relinks after commit.
+    Takeover,
+}
+
+/// OTA-trusted UseApp over a registration detect_takeover would offer must not
+/// relink first (that hides the candidate). Plain Consent (replace=false) keeps
+/// today's Existing page / Keep mine path. Fresh installs and non-OTA builds keep
+/// the managed path.
+pub fn consent_service_plan(
+    ota_trusted: bool,
+    takeover_offerable: bool,
+    replace: bool,
+) -> ConsentServicePlan {
+    if ota_trusted && takeover_offerable && replace {
+        ConsentServicePlan::Takeover
+    } else {
+        ConsentServicePlan::Managed {
+            replace_link: replace,
+            reinstall: replace,
+        }
+    }
+}
+
+/// An Identity refusal on managed install is not transient: stop masking a Running
+/// job as NotLoaded so Connect / takeover detection can run.
+pub fn reinstall_after_install_error(reinstall: bool, action: &str, identity: bool) -> bool {
+    if reinstall && identity && action == "install" {
+        false
+    } else {
+        reinstall
+    }
+}
+
+/// Consent-authorized takeover commits once active work counts are known and idle.
+/// Unknown counts (`None`) are never idle; for a pending UseApp takeover they open
+/// the review offer on the first evaluation (see [`service_move_decision`]).
+pub fn consent_takeover_idle(tasks: Option<usize>, terminals: Option<usize>) -> bool {
+    matches!((tasks, terminals), (Some(0), Some(0)))
+}
+
+/// True when either work-count probe failed or timed out.
+pub fn consent_takeover_counts_unknown(tasks: Option<usize>, terminals: Option<usize>) -> bool {
+    tasks.is_none() || terminals.is_none()
+}
+
+/// Busy deferrals allowed per launch. Each watcher recheck (about every 20 s) and each
+/// lifecycle retry counts as one, so the cap can be reached well before ten minutes when
+/// no service is loaded.
+pub const OWN_LINK_BUSY_DEFER_CAP: u32 = 30;
+
+/// True when Busy deferrals for this launch have hit the cap.
+pub fn own_link_busy_deferrals_exhausted(deferrals: u32) -> bool {
+    deferrals >= OWN_LINK_BUSY_DEFER_CAP
+}
+
+/// Busy refusals do not consume the once-per-launch attempt; every other outcome does.
+pub fn own_link_repair_claims_launch_attempt(busy_refusal: bool) -> bool {
+    !busy_refusal
+}
+
+/// First automatic service-move attempt for this app launch.
+/// Own-link: claim on any outcome except a transient Busy (Busy may retry while
+/// connected, up to [`OWN_LINK_BUSY_DEFER_CAP`]). Consent takeover: claim when the
+/// helper path is entered; reset only for failures before the helper was spawned.
+pub fn claim_once_per_launch(attempted: &AtomicBool) -> bool {
+    !attempted.swap(true, Ordering::SeqCst)
+}
+
+/// User-facing managed-service failure stays generic; the log must keep the cause.
+pub fn managed_service_failure_log(action: &str, error: &str) -> String {
+    format!("pacer lifecycle: managed service {action} refused: {error}")
+}
+
+/// Session / watcher decision for deferred automatic service moves.
+/// Mutating work must run in `run()` after the session ends — never inside
+/// `connected()` or a `select!` arm raced with listen/heartbeat/health.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum ServiceMoveDecision {
+    /// Nothing pending.
+    None,
+    /// Stay connected; re-check later (work busy or counts unknown).
+    Defer,
+    /// End the session so the lifecycle can repair outside any select!.
+    ReadyOwnLinkRepair,
+    /// End the session so the lifecycle can take over outside any select!.
+    ReadyConsentTakeover,
+    /// Cancel automatic moves and show the ADR 0011 review offer.
+    OfferReview,
+}
+
+/// Inputs for [`service_move_decision`]. Flags for repair and UseApp takeover are separate.
+/// `consent_authorized` is true only after Use the app's service in this launch
+/// (`first_run.consent_takeover` / pending flag) — never inferred from disk alone.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct ServiceMoveInput {
+    pub pending_own_link_repair: bool,
+    pub pending_consent_takeover: bool,
+    pub repair_attempted: bool,
+    pub consent_attempted: bool,
+    pub dismissed: bool,
+    pub reviewing: bool,
+    pub idle: bool,
+    /// Work-count probes failed or timed out (`None`).
+    pub counts_unknown: bool,
+    pub repair_eligible: bool,
+    pub consent_authorized: bool,
+    pub candidate_present: bool,
+}
+
+/// Pure lifecycle decision: when to schedule a move, defer, or honour dismissal.
+pub fn service_move_decision(input: ServiceMoveInput) -> ServiceMoveDecision {
+    // User decisions win: Keep mine / Not now / Review cancel the automatic path.
+    if input.dismissed {
+        return ServiceMoveDecision::None;
+    }
+    if input.reviewing && input.candidate_present {
+        return ServiceMoveDecision::OfferReview;
+    }
+    if input.repair_eligible && !input.repair_attempted {
+        return if input.idle {
+            ServiceMoveDecision::ReadyOwnLinkRepair
+        } else {
+            ServiceMoveDecision::Defer
+        };
+    }
+    if input.consent_authorized && input.candidate_present && !input.consent_attempted {
+        // Unknown counts on the first evaluation: stop waiting and let the user
+        // decide on the existing takeover offer (do not wait forever silently).
+        if input.counts_unknown {
+            return ServiceMoveDecision::OfferReview;
+        }
+        return if input.idle {
+            ServiceMoveDecision::ReadyConsentTakeover
+        } else {
+            ServiceMoveDecision::Defer
+        };
+    }
+    ServiceMoveDecision::None
+}
+
+/// Session end codes that schedule a mutating move in `run()` (outside select!).
+pub fn service_move_ready_code(decision: ServiceMoveDecision) -> Option<&'static str> {
+    match decision {
+        ServiceMoveDecision::ReadyOwnLinkRepair => Some("own-link-repair-ready"),
+        ServiceMoveDecision::ReadyConsentTakeover => Some("consent-takeover-ready"),
+        ServiceMoveDecision::OfferReview => Some("takeover"),
+        ServiceMoveDecision::None | ServiceMoveDecision::Defer => None,
+    }
+}
+
+/// Whether a lifecycle connection error means a deferred service move should run next.
+pub fn is_service_move_ready(error: &str) -> bool {
+    matches!(error, "own-link-repair-ready" | "consent-takeover-ready")
 }
 
 pub fn dismiss_relink(url: &Url, current: Option<&Url>) -> bool {
@@ -1592,6 +1753,205 @@ mod tests {
                 }
             }
         }
+    }
+
+    #[test]
+    fn ota_use_app_over_a_takeover_candidate_plans_takeover_with_relink() {
+        assert_eq!(
+            consent_service_plan(true, true, true),
+            ConsentServicePlan::Takeover
+        );
+    }
+
+    #[test]
+    fn ota_consent_without_replace_keeps_managed_so_existing_page_can_offer_keep_mine() {
+        assert_eq!(
+            consent_service_plan(true, true, false),
+            ConsentServicePlan::Managed {
+                replace_link: false,
+                reinstall: false
+            }
+        );
+    }
+
+    #[test]
+    fn fresh_or_non_ota_consent_keeps_managed_install() {
+        assert_eq!(
+            consent_service_plan(true, false, false),
+            ConsentServicePlan::Managed {
+                replace_link: false,
+                reinstall: false
+            }
+        );
+        assert_eq!(
+            consent_service_plan(true, false, true),
+            ConsentServicePlan::Managed {
+                replace_link: true,
+                reinstall: true
+            }
+        );
+        assert_eq!(
+            consent_service_plan(false, true, true),
+            ConsentServicePlan::Managed {
+                replace_link: true,
+                reinstall: true
+            }
+        );
+    }
+
+    #[test]
+    fn identity_on_install_clears_reinstall_so_a_running_job_can_connect() {
+        assert!(!reinstall_after_install_error(true, "install", true));
+        assert!(reinstall_after_install_error(true, "install", false));
+        assert!(reinstall_after_install_error(true, "start", true));
+        assert!(!reinstall_after_install_error(false, "install", true));
+    }
+
+    #[test]
+    fn consent_takeover_waits_until_work_counts_are_known_and_idle() {
+        assert!(consent_takeover_idle(Some(0), Some(0)));
+        assert!(!consent_takeover_idle(Some(1), Some(0)));
+        assert!(!consent_takeover_idle(Some(0), Some(2)));
+        assert!(!consent_takeover_idle(None, Some(0)));
+        assert!(!consent_takeover_idle(Some(0), None));
+        assert!(consent_takeover_counts_unknown(None, Some(0)));
+        assert!(consent_takeover_counts_unknown(Some(0), None));
+        assert!(!consent_takeover_counts_unknown(Some(0), Some(0)));
+    }
+
+    #[test]
+    fn automatic_service_move_is_claimed_once_per_launch() {
+        let attempted = AtomicBool::new(false);
+        assert!(claim_once_per_launch(&attempted));
+        assert!(!claim_once_per_launch(&attempted));
+        assert!(!claim_once_per_launch(&attempted));
+    }
+
+    fn move_input(idle: bool) -> ServiceMoveInput {
+        ServiceMoveInput {
+            pending_own_link_repair: false,
+            pending_consent_takeover: false,
+            repair_attempted: false,
+            consent_attempted: false,
+            dismissed: false,
+            reviewing: false,
+            idle,
+            counts_unknown: false,
+            repair_eligible: false,
+            consent_authorized: false,
+            candidate_present: false,
+        }
+    }
+
+    #[test]
+    fn use_app_intent_schedules_consent_takeover_outside_the_session_when_idle() {
+        let mut input = move_input(true);
+        input.consent_authorized = true;
+        input.candidate_present = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::ReadyConsentTakeover
+        );
+        assert_eq!(
+            service_move_ready_code(ServiceMoveDecision::ReadyConsentTakeover),
+            Some("consent-takeover-ready")
+        );
+        input.idle = false;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::Defer);
+    }
+
+    #[test]
+    fn desktop_owner_keep_false_without_use_app_this_launch_does_not_auto_takeover() {
+        // owner=desktop + keep:false alone must not authorize automatic takeover
+        // after a restart; only a UseApp click in this launch sets consent_authorized.
+        let mut input = move_input(true);
+        input.candidate_present = true;
+        input.consent_authorized = false;
+        input.pending_consent_takeover = false;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+    }
+
+    #[test]
+    fn unknown_work_counts_during_use_app_takeover_show_the_offer() {
+        let mut input = move_input(false);
+        input.consent_authorized = true;
+        input.candidate_present = true;
+        input.counts_unknown = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::OfferReview
+        );
+    }
+
+    #[test]
+    fn dismissal_and_keep_mine_cancel_pending_automatic_moves() {
+        let mut input = move_input(true);
+        input.consent_authorized = true;
+        input.candidate_present = true;
+        input.pending_consent_takeover = true;
+        input.dismissed = true;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+        input.dismissed = false;
+        input.reviewing = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::OfferReview
+        );
+    }
+
+    #[test]
+    fn own_link_repair_is_scheduled_when_eligible_and_idle() {
+        let mut input = move_input(true);
+        input.repair_eligible = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::ReadyOwnLinkRepair
+        );
+        input.repair_attempted = true;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+    }
+
+    #[test]
+    fn refused_own_link_repair_is_not_ready_again_this_launch() {
+        // Any non-Busy refusal ends automatic repair for the launch (claim the gate).
+        let attempted = AtomicBool::new(false);
+        let mut input = move_input(true);
+        input.repair_eligible = true;
+        assert_eq!(
+            service_move_decision(input),
+            ServiceMoveDecision::ReadyOwnLinkRepair
+        );
+        assert!(claim_once_per_launch(&attempted));
+        input.repair_attempted = true;
+        assert_eq!(service_move_decision(input), ServiceMoveDecision::None);
+    }
+
+    #[test]
+    fn own_link_repair_busy_refusal_does_not_claim_the_launch_attempt() {
+        assert!(!own_link_repair_claims_launch_attempt(true));
+        assert!(own_link_repair_claims_launch_attempt(false));
+        assert!(!own_link_busy_deferrals_exhausted(0));
+        assert!(!own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP - 1));
+        assert!(own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP));
+        assert!(own_link_busy_deferrals_exhausted(OWN_LINK_BUSY_DEFER_CAP + 5));
+    }
+
+    #[test]
+    fn service_move_ready_codes_are_recognized() {
+        assert!(is_service_move_ready("own-link-repair-ready"));
+        assert!(is_service_move_ready("consent-takeover-ready"));
+        assert!(!is_service_move_ready("takeover"));
+        assert!(!is_service_move_ready("diagnose"));
+    }
+
+    #[test]
+    fn managed_service_failure_log_keeps_the_underlying_cause() {
+        let log = managed_service_failure_log(
+            "install",
+            "Native update identity could not be verified",
+        );
+        assert!(log.contains("install"));
+        assert!(log.contains("identity could not be verified"));
     }
 
     #[test]

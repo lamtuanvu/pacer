@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { renderProtocolDoc } from "../scripts/protocol-doc";
 import { helloBody } from "../src/api/protocol";
 import { opNames } from "../src/api/ops";
+import { toV2Event, V3_CURSOR_BASE, v2Hello } from "../src/api/v2-compat";
 
 test("docs/protocol.md is generated from the registry and up to date: run `bun run protocol:doc`", () => {
   const doc = renderProtocolDoc();
@@ -36,4 +37,14 @@ test("desktop image transport and errors are documented only in v3", () => {
     expect(current).toContain(value);
   expect(previous).not.toContain("desktop.capture");
   expect(previous).not.toContain("X-Pacer-Capture");
+});
+
+test("run entity events are v3-only: v2 conversion drops them and only v3 hello lists run", () => {
+  const runEvent = { seq: V3_CURSOR_BASE + 1, at: 0, type: "run", data: { kind: "run", id: "run_abcdefghij", value: { id: "run_abcdefghij", status: "running" } } };
+  expect(toV2Event(runEvent as never)).toBeNull();
+  expect(helloBody().events).toContain("run");
+  expect(v2Hello().events).not.toContain("run");
+  const doc = renderProtocolDoc();
+  expect(doc).toContain("The `run` entity event");
+  expect(doc).toContain("not sent to v2 clients");
 });

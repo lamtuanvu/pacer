@@ -6,6 +6,20 @@ import type { OutboxEntry } from "./store";
 
 export const isDiscoveryItemId = (id: unknown) => typeof id === "string" && (id.startsWith("discovery:") || id.startsWith("discovery-network:"));
 
+/** Workflow attention ids and the orchestrator_failed kind are v3-only (run.* ops). */
+const WORKFLOW_ATTENTION_PREFIXES = [
+  "budget_warn:", "budget_spent:", "budget_msg_warn:", "budget_msg_spent:",
+  "orchestrator_failed:", "unresolved_wake:",
+] as const;
+
+export function isWorkflowAttentionId(id: unknown): boolean {
+  return typeof id === "string" && WORKFLOW_ATTENTION_PREFIXES.some(prefix => id.startsWith(prefix));
+}
+
+export function isWorkflowAttentionItem(item: { id?: unknown; kind?: unknown }): boolean {
+  return isWorkflowAttentionId(item.id) || item.kind === "orchestrator_failed";
+}
+
 export interface OutboxReplay {
   /** Entries with a seq above the requested one, in file order. */
   entries: OutboxEntry[];
@@ -17,6 +31,13 @@ export interface OutboxReplay {
    * by that item until the client fetches the next snapshot (N10). That is acceptable for a legacy client.
    */
   discoveryOpen: ReadonlyMap<number, number>;
+  /** Open workflow-attention items at each counts seq; v2 counts leave them out like discovery. */
+  workflowOpen: ReadonlyMap<number, number>;
+  /**
+   * Of those open workflow items, how many have severity other than "decide" (the snapshot
+   * `problems` rule). Discovery items are not tracked here — they never adjust v2 problems.
+   */
+  workflowProblemsOpen: ReadonlyMap<number, number>;
 }
 
 /**
@@ -36,6 +57,10 @@ interface OutboxIndex {
   oldest: number | undefined;
   open: Set<string>;
   openAt: Map<number, number>;
+  /** Open workflow attention id → severity (snapshot problems: severity !== "decide"). */
+  workflowOpen: Map<string, string>;
+  workflowOpenAt: Map<number, number>;
+  workflowProblemsAt: Map<number, number>;
 }
 
 const MAX_INDEXED_FILES = 16;
@@ -49,7 +74,7 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
   try { fd = openSync(path, "r"); } catch (error) {
     if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     indexes.delete(path);
-    return { entries: [], oldest: undefined, discoveryOpen: new Map() };
+    return { entries: [], oldest: undefined, discoveryOpen: new Map(), workflowOpen: new Map(), workflowProblemsOpen: new Map() };
   }
   try {
     const stat = fstatSync(fd);
@@ -63,7 +88,7 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
     const from = firstOffsetAfter(index, since);
     const bytes = readRange(fd, from, stat.size);
     const entries: OutboxEntry[] = [];
-    let oldest = index.oldest, unterminatedCounts: [number, number] | undefined;
+    let oldest = index.oldest, unterminatedCounts: [number, number, number, number] | undefined;
     // Decoding once is faster than per line. A newline byte never sits inside a UTF-8 sequence, so lines pair with
     // offsets; when every byte decoded to one character, string positions are byte offsets.
     const text = bytes.toString("utf8"), ascii = text.length === bytes.length;
@@ -78,21 +103,47 @@ export function replayOutbox(ctx: Ctx, since: number): OutboxReplay {
         // A complete record without its newline counts now but is indexed only once it ends.
         oldest ??= entry.seq;
         const env = entry.envelope;
-        if (env.type === "entity" && env.data.kind === "counts") unterminatedCounts = [entry.seq, index.open.size];
+        if (env.type === "entity" && env.data.kind === "counts") {
+          unterminatedCounts = [
+            entry.seq,
+            index.open.size,
+            index.workflowOpen.size,
+            workflowProblemCount(index.workflowOpen),
+          ];
+        }
       }
       if (entry && entry.seq > since) entries.push(entry);
       start = stop;
     }
-    const discoveryOpen = new Map(index.openAt);
-    if (unterminatedCounts) discoveryOpen.set(...unterminatedCounts);
-    return { entries, oldest: index.oldest ?? oldest, discoveryOpen };
+    // Match Rust: only aggregates for counts seqs still in the replay window.
+    const filterAt = <T>(map: Map<number, T>) => {
+      const out = new Map<number, T>();
+      for (const [seq, value] of map) if (seq > since) out.set(seq, value);
+      return out;
+    };
+    const discoveryOpen = filterAt(index.openAt);
+    const workflowOpen = filterAt(index.workflowOpenAt);
+    const workflowProblemsOpen = filterAt(index.workflowProblemsAt);
+    if (unterminatedCounts && unterminatedCounts[0] > since) {
+      discoveryOpen.set(unterminatedCounts[0], unterminatedCounts[1]);
+      workflowOpen.set(unterminatedCounts[0], unterminatedCounts[2]);
+      workflowProblemsOpen.set(unterminatedCounts[0], unterminatedCounts[3]);
+    }
+    return { entries, oldest: index.oldest ?? oldest, discoveryOpen, workflowOpen, workflowProblemsOpen };
   } finally { closeSync(fd); }
+}
+
+function workflowProblemCount(open: Map<string, string>): number {
+  let n = 0;
+  for (const severity of open.values()) if (severity !== "decide") n++;
+  return n;
 }
 
 function emptyIndex(stat: Stats): OutboxIndex {
   return {
     dev: stat.dev, ino: stat.ino, mtimeMs: stat.mtimeMs, end: 0, head: Buffer.alloc(0), last: Buffer.alloc(0),
     offsets: [], maxSeq: [], oldest: undefined, open: new Set(), openAt: new Map(),
+    workflowOpen: new Map(), workflowOpenAt: new Map(), workflowProblemsAt: new Map(),
   };
 }
 
@@ -124,10 +175,29 @@ function addLine(index: OutboxIndex, entry: OutboxEntry | null, offset: number, 
   index.oldest ??= entry.seq;
   const env = entry.envelope;
   if (env.type !== "entity") return;
-  if (env.data.kind === "attention" && isDiscoveryItemId(env.data.id)) {
-    if (env.data.removed) index.open.delete(env.data.id); else index.open.add(env.data.id);
+  if (env.data.kind === "attention") {
+    if (isDiscoveryItemId(env.data.id)) {
+      if (env.data.removed) index.open.delete(env.data.id); else index.open.add(env.data.id);
+    }
+    const value = !env.data.removed && env.data.value && typeof env.data.value === "object"
+      ? env.data.value as { kind?: unknown; severity?: unknown }
+      : null;
+    if (isWorkflowAttentionItem({ id: env.data.id, kind: value?.kind })
+      || (env.data.removed && index.workflowOpen.has(env.data.id))) {
+      if (env.data.removed) index.workflowOpen.delete(env.data.id);
+      else {
+        index.workflowOpen.set(
+          env.data.id,
+          typeof value?.severity === "string" ? value.severity : "",
+        );
+      }
+    }
   }
-  if (env.data.kind === "counts") index.openAt.set(entry.seq, index.open.size);
+  if (env.data.kind === "counts") {
+    index.openAt.set(entry.seq, index.open.size);
+    index.workflowOpenAt.set(entry.seq, index.workflowOpen.size);
+    index.workflowProblemsAt.set(entry.seq, workflowProblemCount(index.workflowOpen));
+  }
 }
 
 function parseLine(line: string): OutboxEntry | null {
