@@ -202,6 +202,10 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
             json!(converted)
         };
     }
+    // promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface.
+    if kind == "task" {
+        result["data"] = object_without(&result["data"], &["promptWait"]);
+    }
     result
 }
 

@@ -93,15 +93,21 @@ export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
   ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
 export { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem };
+/** promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface. */
+function stripPromptWaitFromEvent(e: ApiEventV2 | null): ApiEventV2 | null {
+ if (!e || e.type !== 'task' || !e.data || typeof e.data !== 'object' || Array.isArray(e.data)) return e;
+ const { promptWait: _pw, ...data } = e.data as Record<string, unknown>;
+ return { ...e, data };
+}
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
- if(V2_EVENT in e)return e[V2_EVENT]??null;
+ if(V2_EVENT in e)return stripPromptWaitFromEvent(e[V2_EVENT]??null);
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
  // Workflow runs, decisions and structured questions are v3-only.
  if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='question'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
- return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
+ return stripPromptWaitFromEvent({...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq});
 }
 // A disjoint safe-integer cursor namespace makes persisted 2.x cursors detectable,
 // including empty outboxes and upgrades with no retention gap.

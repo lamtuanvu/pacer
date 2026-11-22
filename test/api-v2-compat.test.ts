@@ -467,3 +467,55 @@ test('v2 counts stay correct when entityDiff opens one item and removes another 
     { attention: 1, problems: 1, review: 0 },
   ]);
 });
+
+test('v2 task events strip promptWait on the real eventsSince path', async () => {
+  const { fakeCtx } = await import('./helpers');
+  const { eventsSince } = await import('../src/api/events');
+  const { toV2Event } = await import('../src/api/v2-compat');
+  const { appendOutbox } = await import('../src/link/store');
+  const ctx = fakeCtx();
+  appendOutbox(ctx, [
+    {
+      seq: 1,
+      at: ctx.now,
+      envelope: {
+        type: 'task',
+        data: {
+          id: 't-wait',
+          state: 'running',
+          goal: 'g',
+          executor: null,
+          backend: null,
+          worktree: null,
+          updatedAt: ctx.now,
+          title: 'wait',
+          promptWait: { text: 'Proceed? (y/n)', at: ctx.now },
+          fullTitle: 'full wait',
+        },
+      },
+    },
+  ]);
+  const pure = toV2Event({
+    type: 'task',
+    seq: 3_000_000_000_001,
+    at: ctx.now,
+    data: {
+      id: 't-wait',
+      state: 'running',
+      promptWait: { text: 'Proceed? (y/n)', at: 1 },
+      fullTitle: 'full',
+    },
+  } as never) as { data: Record<string, unknown> } | null;
+  expect(pure).not.toBeNull();
+  expect(pure!.data.promptWait).toBeUndefined();
+  expect(pure!.data.fullTitle).toBe('full');
+
+  const batch = eventsSince(ctx, 0, 2);
+  const taskEvents = batch.events.filter(e => e.type === 'task');
+  expect(taskEvents.length).toBeGreaterThanOrEqual(1);
+  for (const e of taskEvents) {
+    const data = e.data as Record<string, unknown>;
+    expect(data.promptWait).toBeUndefined();
+    expect(JSON.stringify(e)).not.toContain('promptWait');
+  }
+});

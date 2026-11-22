@@ -408,6 +408,19 @@ export function cases() {
   for (const type of ['message', 'desktop.update', 'task'])
     for (const legacy of [null, { type: 'task', seq: 7, data: {} }])
       events.push({ input: { type, seq: 3000000000001, data: {} }, legacy });
+  // promptWait is v3-only on task events; v2 conversion strips it from data.
+  events.push({
+    input: {
+      type: 'task',
+      seq: 3000000000001,
+      data: {
+        id: 't-wait',
+        state: 'running',
+        fullTitle: 'preserved',
+        promptWait: { text: 'Proceed? (y/n)', at: 1 },
+      },
+    },
+  });
   const discovery = [
     'discovery.found',
     'config',

@@ -3475,6 +3475,30 @@
         "seq": 7,
         "data": {}
       }
+    },
+    {
+      "input": {
+        "type": "task",
+        "seq": 3000000000001,
+        "data": {
+          "id": "t-wait",
+          "state": "running",
+          "fullTitle": "preserved",
+          "promptWait": {
+            "text": "Proceed? (y/n)",
+            "at": 1
+          }
+        }
+      },
+      "output": {
+        "type": "task",
+        "seq": 1,
+        "data": {
+          "id": "t-wait",
+          "state": "running",
+          "fullTitle": "preserved"
+        }
+      }
     }
   ],
   "snapshots": [
