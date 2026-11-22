@@ -221,12 +221,16 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   const configured = !!settings.account;
   let admission: Admission = { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
   if (configured) { try { admission = await admit(ctx, deps); } catch (e) { admission = { ok: false, reason: e instanceof Error ? e.message : String(e) }; } }
-  const row = configured
-    ? candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)
-    : undefined;
+  // liveTools needs the chosen candidate; match admit and never fail the status read when strategy is missing.
+  let liveTools = false;
+  if (configured) {
+    try {
+      liveTools = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)?.liveTools ?? false;
+    } catch { /* admission already recorded the failure */ }
+  }
   return {
     available: configured && admission.ok, configured, account: settings.account ?? undefined, runner: settings.runner ?? undefined,
-    liveTools: row?.liveTools ?? false,
+    liveTools,
     ...(admission.ok ? {} : { reason: admission.reason, ...(admission.hint ? { hint: admission.hint } : {}) }),
     limits: settings.limits, retention: settings.retention, rev: settings.rev, today: usageToday(ctx),
   };
