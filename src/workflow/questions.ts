@@ -66,9 +66,21 @@ export function syncHumanStepAnswerers(ctx: Ctx, runId: string): void {
       if (q.chain.includes("orchestrator") && q.answerer === "person") continue; // escalated
       const next = canAutoDecide(root, q.stepId, stepDef) ? "orchestrator" : "person";
       if (next === q.answerer) continue;
+      const prev = q.answerer;
       workflowDatabase(ctx).query(
         "UPDATE workflow_questions SET answerer = ?, rev = rev + 1 WHERE id = ? AND status = 'open'",
       ).run(next, q.id);
+      // Orchestrator no longer owns the step: drop the step wake so the next turn
+      // is not spent re-discovering a person-owned human question (M-3).
+      if (prev === "orchestrator" && next === "person") {
+        completeWakeupRef(ctx, q.runId, "question", q.id);
+        completeWakeupRef(
+          ctx,
+          q.runId,
+          "question",
+          stepWakeRef(q.runId, q.stepId, q.attempt, q.branch),
+        );
+      }
     }
   }
 }
@@ -411,6 +423,10 @@ export async function answerQuestion(
       const grant = requireRunGrant(ctx);
       if (rootRunId(ctx, current.runId) !== grant.runId) {
         throw new CoreError("not_allowed", "Operation is outside this run grant");
+      }
+      // Escalated (or sync-flipped) human steps stay person-owned even when canAutoDecide (M-2).
+      if (current.answerer === "person") {
+        throw new CoreError("not_allowed", "Only the person can answer this question");
       }
       if (!canAutoDecide(root, current.stepId, stepDef)) {
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
