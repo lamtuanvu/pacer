@@ -3,23 +3,164 @@
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
 /// <reference types="@types/bun" />
 import type { OrcaWorkerApi } from 'orca/worker'
-import { callOp, getSnapshot, readPacerEndpoint, subscribeEvents, type PacerSnapshot } from './pacer-client'
-import type { AttentionRow, PanelSnapshot } from './protocol'
+import {
+  callOp,
+  getSnapshot,
+  readPacerEndpoint,
+  subscribeEvents,
+  type AttentionItem,
+  type PacerSnapshot,
+  type PacerTask,
+} from './pacer-client'
+import type { ActResult, AttentionRow, PanelSnapshot, PanelTask, RepoRef } from './protocol'
 
 const SEQ_KEY = 'seq'
 const STATUS_ITEM = 'pacer-pace'
 /** How long to wait before reconnecting a dropped event stream. */
 const RECONNECT_MS = 500
 
-/** What the panel sees when pacer has no token or is unreachable: never a crash or stale data. */
-const NOT_CONNECTED: PanelSnapshot = { connected: false, scope: 'global', attention: [] }
-
-/** The planner fields the status bar reads; the shared snapshot keeps `planner` as unknown. */
-type PlannerPace = { usedPct?: number | null; verdict?: string; advice?: string }
+/** What the panel sees when pacer has no token or is unreachable. */
+const NOT_CONNECTED: PanelSnapshot = {
+  connected: false,
+  at: 0,
+  focusedRepo: null,
+  planner: null,
+  pause: null,
+  repos: [],
+  attention: [],
+  running: [],
+  doneToday: [],
+  executors: [],
+}
 
 type StatusTone = 'neutral' | 'accent' | 'success' | 'warning' | 'danger'
 
-/** The focused workspace's path, or null when none is focused (or the host refuses to say). */
+type OpenDesktop = (url: string) => Promise<boolean>
+
+/** Injected in tests so nothing real launches; production uses open / xdg-open. */
+let openDesktopFn: OpenDesktop = defaultOpenDesktop
+
+export function setOpenDesktop(fn: OpenDesktop): void {
+  openDesktopFn = fn
+}
+
+export function resetOpenDesktop(): void {
+  openDesktopFn = defaultOpenDesktop
+}
+
+async function defaultOpenDesktop(url: string): Promise<boolean> {
+  const argv = process.platform === 'darwin' ? ['open', url] : process.platform === 'linux' ? ['xdg-open', url] : null
+  if (!argv) return false
+  try {
+    const result = await Bun.spawn(argv, { stdout: 'ignore', stderr: 'ignore' }).exited
+    return result === 0
+  } catch {
+    return false
+  }
+}
+
+/**
+ * Map ui.open params to a `pacer://` route the desktop deep-link handler accepts
+ * (desktop/src-tauri/src/logic.rs::route + app/src/data/actions.ts::uiHref).
+ */
+export function uiOpenRoute(params: Record<string, unknown>): string {
+  const view = typeof params.view === 'string' ? params.view : 'overview'
+  const id = typeof params.id === 'string' ? params.id : ''
+  const section = typeof params.section === 'string' ? params.section : ''
+  switch (view) {
+    case 'overview':
+    case 'home':
+      return 'overview'
+    case 'needs-you':
+      return 'needs-you'
+    case 'tasks':
+      return id ? `tasks/${id}` : 'tasks'
+    case 'task':
+      return id ? `tasks/${id}` : 'tasks'
+    case 'review':
+      return id ? `tasks/${id}` : 'needs-you'
+    case 'session':
+      return id ? `sessions/${id}` : 'sessions'
+    case 'settings':
+      return section ? `settings/${section}` : 'settings'
+    default:
+      return 'overview'
+  }
+}
+
+const SEVERITY = { blocked: 0, problem: 1, decide: 2 } as const
+
+/** Same ordering as src/view-model/selectors.ts attentionOrder. */
+export function attentionOrder(a: AttentionItem, b: AttentionItem): number {
+  return (SEVERITY[a.severity] ?? 3) - (SEVERITY[b.severity] ?? 3) || a.raisedAt - b.raisedAt
+}
+
+const active = (state: string) => state === 'running' || state === 'queued'
+
+/** Snooze-filter + order; port of selectors.needsYou({repo:null}) without the review-compat rewrite. */
+export function filterAttention(items: AttentionItem[], at: number): AttentionItem[] {
+  return items
+    .filter((a) => !(a.snoozedUntil && a.snoozedUntil > at))
+    .slice()
+    .sort(attentionOrder)
+}
+
+function inScope(repoKey: string | null, repo: RepoRef | null | undefined): boolean {
+  return repoKey === null || !repo || repo.key === repoKey
+}
+
+export function selectRunning(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
+  return tasks.filter(
+    (t) => (active(t.state) || !!t.activeAgentSessions) && !t.dismissed && inScope(repoKey, t.repo),
+  )
+}
+
+export function selectDoneToday(tasks: PacerTask[], since: number | undefined, repoKey: string | null): PacerTask[] {
+  if (since === undefined) return []
+  return tasks
+    .filter(
+      (t) =>
+        t.source !== 'onboarding' &&
+        !active(t.state) &&
+        !t.activeAgentSessions &&
+        t.updatedAt >= since &&
+        inScope(repoKey, t.repo),
+    )
+    .sort((a, b) => b.updatedAt - a.updatedAt)
+}
+
+function trimTask(task: PacerTask, orcaByPath: Map<string, string>): PanelTask {
+  const worktree = task.worktree ?? null
+  const orcaWorkspaceId = worktree ? orcaByPath.get(worktree) : undefined
+  return {
+    id: task.id,
+    rev: task.rev,
+    title: task.title,
+    repo: task.repo,
+    repoLabel: task.repo?.label,
+    executor: task.executor,
+    state: task.state,
+    phase: task.progress?.phase,
+    attemptStartedAt: task.attemptStartedAt,
+    updatedAt: task.updatedAt,
+    review: task.review ?? null,
+    liveness: task.liveness ?? null,
+    worktree,
+    ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
+  }
+}
+
+type WorkspaceRow = { id: string; path: string }
+
+async function listWorkspaces(orca: OrcaWorkerApi): Promise<WorkspaceRow[]> {
+  try {
+    const list = await orca.host.call('workspace.list')
+    return list.workspaces.map((w) => ({ id: w.id, path: w.path }))
+  } catch {
+    return []
+  }
+}
+
 async function focusedWorkspacePath(orca: OrcaWorkerApi): Promise<string | null> {
   try {
     const context = await orca.host.call('workspace.readContext')
@@ -28,53 +169,176 @@ async function focusedWorkspacePath(orca: OrcaWorkerApi): Promise<string | null>
     const list = await orca.host.call('workspace.list')
     return list.workspaces.find((workspace) => workspace.id === workspaceId)?.path ?? null
   } catch {
-    // No workspace scope is not an error: the panel just shows the global list.
     return null
   }
 }
 
-/** Scope `attention` to the focused workspace's repo when pacer knows that path. Every row
- *  carries its own repo's label (the item's own `repo.label`, straight from the wire - not a
- *  bare key to resolve, confirmed against a real `/v3/snapshot` response) so a global,
- *  multi-repo list can say which repo each item is from instead of leaving that to whatever the
- *  item's title happens to mention. `item.repo?.key` (an object), not `item.repo` itself (which
- *  is never a bare string), is what matches `repos[].key`. */
-async function scopeToFocusedWorkspace(orca: OrcaWorkerApi, snapshot: PacerSnapshot): Promise<Pick<PanelSnapshot, 'scope' | 'repoLabel' | 'attention'>> {
-  const withRepoLabel = (item: PacerSnapshot['attention'][number]): AttentionRow => ({ ...item, repoLabel: item.repo?.label })
-  const path = await focusedWorkspacePath(orca)
-  const repo = path === null ? undefined : snapshot.repos.find((candidate) => candidate.path === path)
-  if (!repo) return { scope: 'global', attention: snapshot.attention.map(withRepoLabel) }
+function buildPanelSnapshot(
+  snapshot: PacerSnapshot,
+  focusedPath: string | null,
+  workspaces: WorkspaceRow[],
+): PanelSnapshot {
+  const orcaByPath = new Map(workspaces.map((w) => [w.path, w.id]))
+  const focusedRepo =
+    focusedPath === null ? null : (snapshot.repos.find((r) => r.path === focusedPath) ?? null)
+  const attention = filterAttention(snapshot.attention, snapshot.at).map(
+    (item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }),
+  )
+  const runningAll = selectRunning(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
+  const doneAll = selectDoneToday(snapshot.tasks, snapshot.today?.since, null).map((t) =>
+    trimTask(t, orcaByPath),
+  )
+  const repos = snapshot.repos.map((repo) => {
+    const needsYou = attention.filter((a) => !a.repo || a.repo.key === repo.key).length
+    const running = runningAll.filter((t) => t.repo?.key === repo.key).length
+    const doneToday = doneAll.filter((t) => t.repo?.key === repo.key).length
+    const orcaWorkspaceId = orcaByPath.get(repo.path)
+    return {
+      ...repo,
+      needsYou,
+      running,
+      doneToday,
+      ...(orcaWorkspaceId ? { orcaWorkspaceId } : {}),
+    }
+  })
+  const planner = snapshot.planner
+    ? {
+        agent: snapshot.planner.agent,
+        usedPct: snapshot.planner.usedPct,
+        pacePct: snapshot.planner.pacePct,
+        verdict: snapshot.planner.verdict,
+        advice: snapshot.planner.advice,
+        mode: snapshot.planner.mode,
+        modeHeldUntil: snapshot.planner.modeHeldUntil,
+        resetsAt: snapshot.planner.resetsAt,
+        window: snapshot.planner.window,
+        stale: snapshot.planner.stale,
+      }
+    : null
+  const executors = snapshot.executors
+    .filter((row) => row.rank !== 'planner')
+    .slice()
+    .sort((a, b) => Number(a.rank) - Number(b.rank))
+    .map((row) => ({
+      id: row.id,
+      agent: row.agent,
+      account: row.account,
+      rank: row.rank,
+      state: row.state,
+      tone: row.tone,
+      sub: row.sub,
+      reason: row.reason,
+      next: row.next,
+      slots: row.slots,
+      enabled: row.enabled,
+      ...(row.untested ? { untested: true as const } : {}),
+    }))
   return {
-    scope: 'repo',
-    repoLabel: repo.label,
-    attention: snapshot.attention.filter((item) => item.repo?.key === repo.key).map(withRepoLabel),
+    connected: true,
+    at: snapshot.at,
+    focusedRepo,
+    planner,
+    pause: snapshot.pause,
+    repos,
+    attention,
+    running: runningAll,
+    doneToday: doneAll,
+    executors,
   }
 }
 
-/** The snapshot the panel should see right now: not-connected, or the scoped live one. */
 async function currentSnapshot(orca: OrcaWorkerApi): Promise<PanelSnapshot> {
   const endpoint = readPacerEndpoint(process.env)
   if (endpoint === null) return NOT_CONNECTED
   const snapshot = await getSnapshot(endpoint)
   if ('error' in snapshot) return NOT_CONNECTED
-  return { connected: true, ...(await scopeToFocusedWorkspace(orca, snapshot)), counts: snapshot.counts, planner: snapshot.planner }
+  const [focusedPath, workspaces] = await Promise.all([focusedWorkspacePath(orca), listWorkspaces(orca)])
+  return buildPanelSnapshot(snapshot, focusedPath, workspaces)
 }
 
-function paceStatus(snapshot: PanelSnapshot): { id: string; text: string; tone: StatusTone; tooltip: string } {
+function formatAbsLocal(at: number, now = Date.now() / 1000): string {
+  const d = new Date(at * 1000)
+  const time = d.toLocaleTimeString('en-GB', { hourCycle: 'h23', hour: '2-digit', minute: '2-digit' })
+  const sameDay =
+    new Date(now * 1000).toLocaleDateString('en-CA') === d.toLocaleDateString('en-CA')
+  if (sameDay) return time
+  const weekday = d.toLocaleDateString('en-GB', { weekday: 'short' })
+  return `${weekday} ${time}`
+}
+
+/** Status bar text/tone/tooltip per the StatusBar design board + fixed verdict mapping. */
+export function paceStatus(snapshot: PanelSnapshot): {
+  id: string
+  text: string
+  tone: StatusTone
+  tooltip: string
+} {
   if (!snapshot.connected) {
-    return { id: STATUS_ITEM, text: 'pacer off', tone: 'neutral', tooltip: 'Pacer is not connected — is pacer serve running?' }
+    return {
+      id: STATUS_ITEM,
+      text: 'pacer off',
+      tone: 'neutral',
+      tooltip: 'pacer is not running · open the pacer app to start it',
+    }
   }
-  const attention = snapshot.attention.length
-  const needYou = attention > 0 ? ` · ${attention} need${attention === 1 ? 's' : ''} you` : ''
-  const planner = snapshot.planner as PlannerPace | null | undefined
-  if (planner === null || planner === undefined || typeof planner.usedPct !== 'number') {
-    return { id: STATUS_ITEM, text: 'pacer', tone: 'neutral', tooltip: `Connected${needYou}` }
+  const focusedKey = snapshot.focusedRepo?.key ?? null
+  const needsYouHere = snapshot.attention.filter(
+    (a) => focusedKey === null || !a.repo || a.repo.key === focusedKey,
+  ).length
+  const needsYouGlobal = snapshot.attention.length
+  const needsCount = focusedKey !== null ? needsYouHere : needsYouGlobal
+  const planner = snapshot.planner
+  if (!planner || typeof planner.usedPct !== 'number') {
+    return {
+      id: STATUS_ITEM,
+      text: 'pacer',
+      tone: 'neutral',
+      tooltip: needsCount > 0 ? `${needsCount} need you` : 'Connected',
+    }
   }
   const verdict = planner.verdict ?? 'unknown'
-  const advice = typeof planner.advice === 'string' && planner.advice !== '' ? planner.advice : 'Pacer budget and pace'
+  // behind/on_pace good; ahead warn; out bad — src/view-model/words.ts paceStatus
   const tone: StatusTone =
-    verdict === 'on_pace' || verdict === 'ahead' ? 'success' : verdict === 'behind' ? 'warning' : verdict === 'out' ? 'danger' : 'neutral'
-  return { id: STATUS_ITEM, text: `pacer ${Math.round(planner.usedPct)}%`, tone, tooltip: `${advice}${needYou}` }
+    verdict === 'behind' || verdict === 'on_pace'
+      ? 'success'
+      : verdict === 'ahead'
+        ? 'warning'
+        : verdict === 'out'
+          ? 'danger'
+          : 'neutral'
+  if (verdict === 'out') {
+    const until = planner.resetsAt ? formatAbsLocal(planner.resetsAt) : ''
+    return {
+      id: STATUS_ITEM,
+      text: until ? `pacer out · ${until}` : 'pacer out',
+      tone,
+      tooltip: `${planner.agent} is out until ${until || 'reset'} · executors keep running`,
+    }
+  }
+  const pct = Math.round(planner.usedPct)
+  if (verdict === 'ahead') {
+    return {
+      id: STATUS_ITEM,
+      text: `pacer ${pct}% · ahead`,
+      tone,
+      tooltip: planner.advice || 'Ahead of pace',
+    }
+  }
+  const countSuffix = needsCount > 0 ? ` · ${needsCount}` : ''
+  const where =
+    focusedKey !== null && snapshot.focusedRepo
+      ? ` in ${snapshot.focusedRepo.label}`
+      : ''
+  const paceWord = verdict === 'behind' ? 'Plenty left' : 'On pace for the week'
+  return {
+    id: STATUS_ITEM,
+    text: `pacer ${pct}%${countSuffix}`,
+    tone,
+    tooltip:
+      needsCount > 0
+        ? `${paceWord} · ${needsCount} need you${where}`
+        : planner.advice || paceWord,
+  }
 }
 
 async function updateStatusBar(orca: OrcaWorkerApi, snapshot: PanelSnapshot): Promise<void> {
@@ -82,9 +346,20 @@ async function updateStatusBar(orca: OrcaWorkerApi, snapshot: PanelSnapshot): Pr
   try {
     await orca.host.call('statusBar.update', { id, text, tone, tooltip })
   } catch (error) {
-    // Best-effort surface: a host without a status bar must never break the refresh loop.
     orca.log(`status bar update failed: ${String(error)}`)
   }
+}
+
+async function handleAct(op: string, params: Record<string, unknown>): Promise<ActResult> {
+  if (op === 'ui.open') {
+    const route = uiOpenRoute(params)
+    const url = `pacer://${route}`
+    const ok = await openDesktopFn(url)
+    return ok ? { ok: true, result: { opened: true } } : { ok: false, error: 'Open the pacer app to see this.' }
+  }
+  const endpoint = readPacerEndpoint(process.env)
+  if (endpoint === null) return { ok: false, error: 'pacer is not connected' }
+  return callOp(endpoint, op, params)
 }
 
 /** The running activation's live loop, so `deactivate` stops exactly it. */
@@ -93,12 +368,15 @@ let activeLoop: { stop(): void } | null = null
 export default function activate(orca: OrcaWorkerApi): void {
   orca.panels.handle('pacer.snapshot', async () => currentSnapshot(orca))
 
-  // The return annotation keeps `ok: true`/`ok: false` literal through the ternary.
-  orca.panels.handle('pacer.act', async ({ op, params }): Promise<{ ok: true } | { ok: false; error: string }> => {
-    const endpoint = readPacerEndpoint(process.env)
-    if (endpoint === null) return { ok: false, error: 'pacer is not connected' }
-    const result = await callOp(endpoint, op, params)
-    return result.ok ? { ok: true } : { ok: false, error: result.error }
+  orca.panels.handle('pacer.act', async ({ op, params }): Promise<ActResult> => handleAct(op, params))
+
+  orca.panels.handle('orca.openWorkspace', async ({ workspaceId }) => {
+    try {
+      await orca.host.call('workspace.open', { workspaceId })
+      return { ok: true as const }
+    } catch (error) {
+      return { ok: false as const, error: error instanceof Error ? error.message : String(error) }
+    }
   })
 
   let stopped = false
@@ -112,31 +390,21 @@ export default function activate(orca: OrcaWorkerApi): void {
     reconnect = null
   }
 
-  /** One refresh: refetch the snapshot and keep the status bar current. */
   const refresh = async (): Promise<PanelSnapshot> => {
     const snapshot = await currentSnapshot(orca)
     await updateStatusBar(orca, snapshot)
     return snapshot
   }
 
-  // A burst of events (a long-buffered reconnect, or a first connect with history to replay)
-  // must collapse into one refresh, not one per event - without this, a few hundred backlogged
-  // events fire a few hundred concurrent HTTP requests and crash the worker (observed live:
-  // `setTypeOfService EINVAL` under exactly this load).
   let latestSeq: number | null = null
   let refreshPending = false
   const onEvent = (seq: number, type: string): void => {
     if (stopped) return
-    // A retention `reset` carries a seq *below* the client's real position (the server's way of
-    // saying "your cursor is too old, resync") - storing it would regress the resume point and
-    // force the very next reconnect to replay the whole retained range again. The refresh below
-    // still runs (it re-fetches the full current snapshot, so the UI is correct either way).
     if (type !== 'reset') latestSeq = seq
     if (refreshPending) return
     refreshPending = true
     void (async () => {
       try {
-        // Let the burst settle: handle the newest seq seen in this tick, not each one.
         await Promise.resolve()
         const toStore = latestSeq
         refreshPending = false
@@ -146,21 +414,15 @@ export default function activate(orca: OrcaWorkerApi): void {
         orca.panels.post('pacer.changed', { snapshot })
       } catch (error) {
         refreshPending = false
-        // One failed refresh must never kill the live loop.
         orca.log(`pacer event refresh failed: ${String(error)}`)
       }
     })()
   }
 
-  /** (Re)connect the event stream, resuming from the seq the worker last stored, or from the
-   *  just-fetched snapshot's own seq on a first connect - never from 0, which would replay the
-   *  server's entire event history as an immediate burst. */
   const connect = (initialSeq: number): void => {
     if (stopped) return
     const endpoint = readPacerEndpoint(process.env)
     if (endpoint === null) {
-      // No token: nothing to subscribe to. The badge says so; the loop rests until Orca
-      // restarts the worker (each snapshot request re-reads the endpoint meanwhile).
       void updateStatusBar(orca, NOT_CONNECTED)
       return
     }
@@ -178,13 +440,6 @@ export default function activate(orca: OrcaWorkerApi): void {
     })()
   }
 
-  /** Seed the very first connect from the current snapshot's own seq, so a long-idle server's
-   *  full backlog is never replayed as a burst. A failed seed (pacer not up yet - a common first
-   *  run order, Orca starting before `pacer serve`) retries on the same backoff as a dropped
-   *  stream instead of falling back to 0: connecting with 0 would itself replay the entire
-   *  history once pacer does come up, the very burst this fix exists to avoid. `storage.get` in
-   *  `connect()` already makes this seed a one-time bootstrap: once any seq is stored, every
-   *  later connect (including this process's own reconnects) resumes from storage, not here. */
   const seedAndConnect = (): void => {
     if (stopped) return
     const endpoint = readPacerEndpoint(process.env)
@@ -209,13 +464,11 @@ export default function activate(orca: OrcaWorkerApi): void {
     })()
   }
 
-  // The badge shows the current pace before any event arrives; the live loop keeps it fresh.
   void refresh()
   seedAndConnect()
   activeLoop = { stop }
 }
 
-/** Orca awaits this before the worker stops; the test kit's `deactivate` runs it too. */
 export function deactivate(): void {
   activeLoop?.stop()
   activeLoop = null

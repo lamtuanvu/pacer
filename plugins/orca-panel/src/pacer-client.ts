@@ -16,7 +16,8 @@ export type AttentionAction = {
   op: string;
   params: Record<string, unknown>;
   style?: "primary" | "danger";
-  confirm?: { title: string; body: string };
+  /** Wire confirm text from the service (`src/attention/types.ts`); shown as-is in the panel. */
+  confirm?: string;
 };
 
 /**
@@ -45,17 +46,74 @@ export type AttentionItem = {
   raisedAt: number;
   since: number;
   actions: AttentionAction[];
-  notify: boolean;
+  /** Wire notify policy (`src/attention/types.ts`), not a boolean. */
+  notify: "important" | "all";
   snoozedUntil?: number;
 };
 
-/** The subset of the real snapshot's fields this plugin uses; `planner`/`counts` stay unknown. */
+/** Planner meter fields the worker trims into the panel snapshot. */
+export type PacerPlanner = {
+  runner?: string;
+  agent: string;
+  usedPct: number | null;
+  pacePct: number | null;
+  verdict: string;
+  advice: string;
+  mode: string;
+  modeHeldUntil?: number;
+  resetsAt: number | null;
+  window: string | null;
+  stale: boolean;
+};
+
+export type PacerPause = { until: number | null; reason: string | null; by: string | null };
+
+export type PacerExecutor = {
+  id: string;
+  agent: string;
+  account: string;
+  rank: number | "planner";
+  state: string;
+  tone: string;
+  sub: string;
+  reason?: string;
+  next: boolean;
+  slots: { used: number; max: number };
+  enabled: boolean;
+  untested?: true;
+};
+
+/** Task fields the panel lists need; trimmed further when building PanelSnapshot. */
+export type PacerTask = {
+  id: string;
+  rev: number;
+  title: string;
+  state: string;
+  repo: { key: string; path: string; label: string } | null;
+  executor?: string | null;
+  progress?: { phase?: string } | null;
+  attemptStartedAt?: number;
+  updatedAt: number;
+  review?: { accepted: boolean } | null;
+  liveness?: { stalled: boolean; reason: string; since: number } | null;
+  worktree?: string | null;
+  source?: string;
+  dismissed?: boolean;
+  activeAgentSessions?: number;
+};
+
+/** The subset of the real snapshot's fields this plugin uses. */
 export type PacerSnapshot = {
   seq: number;
-  planner: unknown;
+  at: number;
+  planner: PacerPlanner | null;
   counts: unknown;
+  pause: PacerPause | null;
+  today: { since: number } | null;
   attention: AttentionItem[];
   repos: { key: string; label: string; path: string }[];
+  tasks: PacerTask[];
+  executors: PacerExecutor[];
 };
 
 /** Read `$PACER_HOME/token` (default `~/.pacer/token`) and build the loopback base URL from `$PACER_PORT` or the default port. Returns null when the token file is missing/unreadable; never throws. */
@@ -108,12 +166,19 @@ export async function getSnapshot(endpoint: PacerEndpoint): Promise<PacerSnapsho
   if (!snapshot || typeof seq !== "number" || !Array.isArray(snapshot.attention) || !Array.isArray(snapshot.repos)) {
     return { error: "invalid snapshot response" };
   }
+  const raw = snapshot as Partial<PacerSnapshot> & { at?: unknown; pause?: PacerPause | null; today?: { since: number } | null; tasks?: PacerTask[]; executors?: PacerExecutor[] };
+  const at = typeof raw.at === "number" ? raw.at : Math.floor(Date.now() / 1000);
   return {
     seq,
-    planner: snapshot.planner,
-    counts: snapshot.counts,
-    attention: snapshot.attention as AttentionItem[],
-    repos: snapshot.repos as { key: string; label: string; path: string }[],
+    at,
+    planner: (raw.planner as PacerPlanner | null | undefined) ?? null,
+    counts: raw.counts,
+    pause: raw.pause ?? null,
+    today: raw.today ?? null,
+    attention: raw.attention as AttentionItem[],
+    repos: raw.repos as { key: string; label: string; path: string }[],
+    tasks: Array.isArray(raw.tasks) ? raw.tasks : [],
+    executors: Array.isArray(raw.executors) ? raw.executors : [],
   };
 }
 
@@ -122,7 +187,7 @@ export async function callOp(
   endpoint: PacerEndpoint,
   op: string,
   params: Record<string, unknown>,
-): Promise<{ ok: true; result: unknown } | { ok: false; error: string }> {
+): Promise<{ ok: true; result: unknown } | { ok: false; error: string; conflict?: true }> {
   let response: Response;
   try {
     response = await fetch(`${endpoint.baseUrl}/v3/ops/${encodeURIComponent(op)}`, {
@@ -141,7 +206,13 @@ export async function callOp(
   } catch {
     return { ok: false, error: `HTTP ${response.status}` };
   }
-  if (!response.ok) return { ok: false, error: errorText(body, response.status) };
+  if (!response.ok) {
+    const code = (body as { error?: { code?: unknown } } | null)?.error?.code;
+    const conflict = response.status === 409 || code === "conflict";
+    return conflict
+      ? { ok: false, error: errorText(body, response.status), conflict: true }
+      : { ok: false, error: errorText(body, response.status) };
+  }
   const result = (body as { result?: unknown } | null)?.result;
   if (result === undefined) return { ok: false, error: "missing op result" };
   return { ok: true, result };

@@ -1,30 +1,83 @@
 // The panel <-> worker contract, declared once: src/panel.ts and src/worker.ts both read it.
-import type { AttentionItem } from './pacer-client'
+import type { AttentionItem, PacerExecutor, PacerPause, PacerPlanner } from './pacer-client'
 
-/** An attention item as the panel sees it: the item's own repo's human label attached, so a
- *  global (all-repos) list can say which repo each row belongs to instead of leaving the
- *  reader to guess from the title text alone. */
+/** An attention item as the panel sees it: the item's own repo's human label attached. */
 export type AttentionRow = AttentionItem & { repoLabel?: string }
 
-/** What the worker answers `pacer.snapshot` with and pushes as `pacer.changed`:
- *  `connected: false` means pacer has no token or is unreachable, `scope` says whether
- *  `attention` is filtered to the focused workspace's repo or is the global list. */
+export type RepoRef = { key: string; label: string; path: string }
+
+export type PanelRepo = RepoRef & {
+  needsYou: number
+  running: number
+  doneToday: number
+  orcaWorkspaceId?: string
+}
+
+export type PanelTask = {
+  id: string
+  rev: number
+  title: string
+  repo: RepoRef | null
+  repoLabel?: string
+  executor?: string | null
+  state: string
+  phase?: string
+  attemptStartedAt?: number
+  updatedAt: number
+  review?: { accepted: boolean } | null
+  liveness?: { stalled: boolean; reason: string; since: number } | null
+  worktree?: string | null
+  orcaWorkspaceId?: string
+}
+
+export type PanelPlanner = {
+  agent: string
+  usedPct: number | null
+  pacePct: number | null
+  verdict: string
+  advice: string
+  mode: string
+  modeHeldUntil?: number
+  resetsAt: number | null
+  window: string | null
+  stale: boolean
+}
+
+export type PanelExecutor = Pick<
+  PacerExecutor,
+  'id' | 'agent' | 'account' | 'rank' | 'state' | 'tone' | 'sub' | 'reason' | 'next' | 'slots' | 'enabled'
+> & { untested?: true }
+
+/** Trimmed snapshot the worker builds from /v3/snapshot. The panel filters by scope. */
 export type PanelSnapshot = {
   connected: boolean
-  scope: 'repo' | 'global'
-  repoLabel?: string
+  at: number
+  focusedRepo: RepoRef | null
+  planner: PanelPlanner | null
+  pause: PacerPause | null
+  repos: PanelRepo[]
   attention: AttentionRow[]
-  counts?: unknown
-  planner?: unknown
+  running: PanelTask[]
+  doneToday: PanelTask[]
+  executors: PanelExecutor[]
 }
+
+export type ActResult =
+  | { ok: true; result: unknown }
+  | { ok: false; error: string; conflict?: true }
 
 declare module 'orca' {
   interface PluginRequests {
-    /** The scoped snapshot right now; no input. */
+    /** The trimmed snapshot right now; no input. */
     'pacer.snapshot': { output: PanelSnapshot }
-    /** Runs one pacer operation (an attention action's `op`/`params`). */
+    /** Runs one pacer operation (or the client-side ui.open). */
     'pacer.act': {
       input: { op: string; params: Record<string, unknown> }
+      output: ActResult
+    }
+    /** Opens an Orca workspace by id (host `workspace.open`). */
+    'orca.openWorkspace': {
+      input: { workspaceId: string }
       output: { ok: true } | { ok: false; error: string }
     }
   }
@@ -33,3 +86,6 @@ declare module 'orca' {
     'pacer.changed': { snapshot: PanelSnapshot }
   }
 }
+
+/** Re-export planner shape so callers that only import protocol stay typed. */
+export type { PacerPlanner, PacerPause }

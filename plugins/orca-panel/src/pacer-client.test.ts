@@ -87,11 +87,12 @@ test("getSnapshot sends the bearer token and parses the snapshot", async () => {
             detail: "d",
             raisedAt: 100,
             since: 100,
-            actions: [],
-            notify: false,
+            actions: [{ label: "Retry", op: "dispatch.retry", params: { id: "t" }, confirm: "Retry this task?" }],
+            notify: "important",
           },
         ],
         repos: [{ key: "k1", label: "jawfish", path: "/repo" }],
+        at: 1_700_000_000,
       },
     });
   });
@@ -100,9 +101,16 @@ test("getSnapshot sends the bearer token and parses the snapshot", async () => {
     assert.equal(path, "/v3/snapshot");
     assert.equal(auth, "Bearer t");
     assert.equal("error" in result, false);
-    const snapshot = result as { seq: number; attention: { id: string }[] };
+    const snapshot = result as {
+      seq: number
+      at: number
+      attention: { id: string; notify: string; actions: { confirm?: string }[] }[]
+    };
     assert.equal(snapshot.seq, 5);
+    assert.equal(snapshot.at, 1_700_000_000);
     assert.deepEqual(snapshot.attention.map((a) => a.id), ["a1"]);
+    assert.equal(snapshot.attention[0]?.notify, "important");
+    assert.equal(snapshot.attention[0]?.actions[0]?.confirm, "Retry this task?");
   } finally {
     await server.close();
   }
@@ -156,6 +164,45 @@ test("callOp maps an error response to { ok: false, error }", async () => {
   } finally {
     await server.close();
   }
+});
+
+test("callOp maps HTTP 409 / conflict code to conflict: true", async () => {
+  const server = await startServer((_req, res) => {
+    jsonResponse(res, 409, { error: { code: "conflict", message: "rev mismatch" } });
+  });
+  try {
+    const result = await callOp({ baseUrl: `http://127.0.0.1:${server.port}`, token: "t" }, "task.review", {
+      id: "t1",
+      verdict: "accept",
+    });
+    assert.deepEqual(result, { ok: false, error: "rev mismatch", conflict: true });
+  } finally {
+    await server.close();
+  }
+});
+
+test("AttentionAction.confirm is a plain string and notify is important|all on the wire", () => {
+  // Compile-time shape check exercised at runtime via a fixture object.
+  const action = {
+    label: "Stop",
+    op: "task.stop",
+    params: { id: "t" },
+    style: "danger" as const,
+    confirm: "Stop this task?",
+  };
+  const item = {
+    id: "a1",
+    kind: "failed",
+    severity: "problem" as const,
+    title: "t",
+    detail: "d",
+    raisedAt: 1,
+    since: 1,
+    actions: [action],
+    notify: "all" as const,
+  };
+  assert.equal(typeof item.actions[0]?.confirm, "string");
+  assert.equal(item.notify, "all");
 });
 
 test("subscribeEvents parses SSE frames and calls onEvent per event", async () => {

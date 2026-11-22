@@ -1,16 +1,33 @@
 # Pacer
 
-A right-sidebar `"ui":"html"` panel (`src/panel.html` + `src/panel.ts`) and the plugin's own worker (`src/worker.ts`). The frame script calls `orca.plugin.request`/`orca.plugin.on`, the worker answers with `orca.panels.handle`, keeps the last-seen event seq in `orca.storage` and tells every open panel with `orca.panels.post`; `src/protocol.ts` types both sides. Orca transpiles every file when it loads, so there is no build step: save and the panel or worker reloads (a worker reload drops its in-memory state, so keep what must last in storage).
+A right-sidebar `"ui":"html"` panel (`src/panel.html` + `src/panel.ts`) and the plugin's own
+worker (`src/worker.ts`). The frame shows planner pace, needs-you attention (answer, accept /
+reject review), delegate from the focused worktree, running tasks (stop / watch / open worktree),
+who runs next, and done today. A status bar item shows pace and the needs-you count. The frame
+calls `orca.plugin.request` / `orca.plugin.on`; the worker answers with `orca.panels.handle`,
+keeps the last-seen event seq in `orca.storage`, and tells every open panel with
+`orca.panels.post`. `src/protocol.ts` types both sides. Orca transpiles every file when it loads,
+so there is no build step.
 
-All non-trivial panel logic lives in `src/panel-view.ts`: a pure, DOM-free, `orca`-free view-model module, because Orca's `orca plugin check`/`orca/testing` mount() kit only supports `"ui":"components"` panels (`orca plugin check .` prints `No components panels or custom editors to check.` for this one). `orca plugin test .` runs `src/pacer-client.test.ts`, `src/panel-view.test.ts` and `src/worker.test.ts` in Node with `orca/testing`; `npx tsc -p .` type-checks against the typings `orca plugin types .` writes to `.orca/types/`. The html panel's own render (frame injection, the `html.dark` class, keyboard/contrast) has no automated check and needs manual or live-Orca verification.
+All non-trivial panel logic lives in `src/panel-view.ts`: a pure, DOM-free, `orca`-free
+view-model. The worker is an ordinary pacer v3 HTTP/SSE client (`src/pacer-client.ts`); it never
+reimplements business rules — attention actions come from the service, plus the direct controls
+listed in the design spec's Action model. `ui.open` is handled client-side by opening a
+`pacer://` deep link. Opening an Orca worktree uses host `workspace.open` and needs the
+`workspace:write` capability (in addition to `storage:own` and `workspace:read`).
+
+`orca plugin test .` runs `src/pacer-client.test.ts`, `src/panel-view.test.ts` and
+`src/worker.test.ts` in Node with `orca/testing`. `bun x tsc -p .` type-checks against the
+typings `orca plugin types .` writes to `.orca/types/`.
 
 ## Develop
 
 ```sh
 orca plugin validate .
-orca plugin dev watch .    # loads this folder into Orca and prints its logs and reloads; Ctrl-C unloads it
+orca plugin test .
+bun x tsc -p . --noEmit
 ```
 
+Live install / `orca plugin dev load` is done by the maintainer, not by agents working this tree.
 Orca names the publisher after where the plugin is installed from: the GitHub or GitLab owner of
-its repository, or `local` for a folder. See
-https://github.com/stablyai/orca/blob/main/docs/reference/plugin-authoring.md.
+its repository, or `local` for a folder.

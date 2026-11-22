@@ -94,8 +94,9 @@ Would count as failure even if it technically runs:
   unilateral code change.
 - **Orca plugin sandbox.** UI frames (panel, editor) get no network and no bare npm imports; only
   a `trusted-worker` process does, and it needs the user's `--approve` on first load (grants:
-  `execution: trusted-worker`, capabilities `storage:own` and `workspace:read` (for the current
-  workspace's path, to scope the queue), contributing a `panels` surface and, separately, a status
+  `execution: trusted-worker`, capabilities `storage:own`, `workspace:read` (for the current
+  workspace's path, to scope the queue) and `workspace:write` (for host `workspace.open` when the
+  panel opens a task worktree in Orca), contributing a `panels` surface and, separately, a status
   bar item). Panel and worker communicate only through the typed `protocol.ts` request/event
   contract.
 - **Orca plugin size caps.** 2,000 files / 50 MiB total / 1 MiB per transpiled file — not a

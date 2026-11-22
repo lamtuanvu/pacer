@@ -1,212 +1,318 @@
-// Tests for the html panel's pure view-model. Runner-agnostic like pacer-client.test.ts:
-// node:test/node:assert, so both `bun test` and `orca plugin test` (Node's runner) run it.
 /// <reference types="@types/bun" />
 import assert from 'node:assert/strict'
 import { test } from 'node:test'
-
+import type { PanelSnapshot } from './protocol'
 import {
-  emptyMessage,
+  absoluteTime,
+  attentionCardTone,
+  attentionGlyph,
+  buildDelegateParams,
+  confirmTextFor,
+  doneGlyph,
+  effectiveScope,
+  globalNeedsYouCount,
   initialPanelState,
+  meterTone,
+  otherReposNeedsYou,
   panelModel,
+  plannerHeadline,
   reducePanel,
-  relativeTime,
-  rowFor,
-  scopeHeading,
+  scopedAttention,
+  type PanelEvent,
 } from './panel-view'
-import type { AttentionAction } from './pacer-client'
-import type { AttentionRow, PanelSnapshot } from './protocol'
 
-const noConfirmAction: AttentionAction = {
-  label: 'Dismiss',
-  op: 'attention.dismiss',
-  params: { id: 'a1' },
-}
+const repo = { key: 'k1', label: 'jawfish', path: '/repo' }
+const other = { key: 'k2', label: 'other', path: '/other' }
 
-const confirmAction: AttentionAction = {
-  label: 'Reject',
-  op: 'task.review',
-  params: { id: 't1', verdict: 'reject' },
-  style: 'danger',
-  confirm: { title: 'Reject this?', body: 'The executor will be told the work was rejected.' },
-}
-
-const NOW = 1_800_000_000
-
-const item = (over: Partial<AttentionRow> = {}): AttentionRow => ({
-  id: 'a1',
-  kind: 'review',
-  severity: 'decide',
-  title: 'Review the patch',
-  detail: 'task t1 settled',
-  raisedAt: NOW - 240,
-  since: NOW - 240,
-  actions: [noConfirmAction],
-  notify: false,
-  ...over,
-})
-
-const snapshot = (over: Partial<PanelSnapshot> = {}): PanelSnapshot => ({
-  connected: true,
-  scope: 'global',
-  attention: [],
-  ...over,
-})
-
-test("relativeTime formats short plain 'ago' text and clamps the future", () => {
-  assert.equal(relativeTime(NOW, NOW), 'now')
-  assert.equal(relativeTime(NOW + 30, NOW), 'now')
-  assert.equal(relativeTime(NOW - 59, NOW), 'now')
-  assert.equal(relativeTime(NOW - 240, NOW), '4m ago')
-  assert.equal(relativeTime(NOW - 3 * 3600, NOW), '3h ago')
-  assert.equal(relativeTime(NOW - 5 * 86_400, NOW), '5d ago')
-  assert.equal(relativeTime(NOW - 14 * 86_400, NOW), '2w ago')
-})
-
-test('scopeHeading shows the repo label for scope repo and All repos for global', () => {
-  assert.equal(scopeHeading(snapshot({ scope: 'repo', repoLabel: 'jawfish' })), 'jawfish')
-  assert.equal(scopeHeading(snapshot({ scope: 'repo' })), 'Repo')
-  assert.equal(scopeHeading(snapshot({ scope: 'global' })), 'All repos')
-})
-
-test('emptyMessage is scope-appropriate', () => {
-  assert.equal(emptyMessage(snapshot({ scope: 'repo' })), 'Nothing needs you')
-  assert.equal(emptyMessage(snapshot({ scope: 'global' })), 'Nothing needs you across any repo')
-})
-
-test('rowFor builds title, detail, relative time and per-action buttons with danger flags', () => {
-  const row = rowFor(item({ since: NOW - 240, actions: [noConfirmAction, confirmAction] }), NOW, false)
-  assert.equal(row.id, 'a1')
-  assert.equal(row.title, 'Review the patch')
-  assert.equal(row.detail, 'task t1 settled')
-  assert.equal(row.time, '4m ago')
-  assert.deepEqual(
-    row.actions.map((button) => ({ label: button.label, danger: button.danger })),
-    [
-      { label: 'Dismiss', danger: false },
-      { label: 'Reject', danger: true },
-    ],
-  )
-  assert.deepEqual(row.actions[1]?.action, confirmAction)
-})
-
-test('rowFor carries repoLabel only when showRepo is true', () => {
-  const withRepo = item({ repoLabel: 'jawfish' })
-  assert.equal(rowFor(withRepo, NOW, true).repoLabel, 'jawfish')
-  assert.equal(rowFor(withRepo, NOW, false).repoLabel, undefined)
-  assert.equal(rowFor(item({}), NOW, true).repoLabel, undefined)
-})
-
-test("panelModel shows each row's repoLabel in the global view, but not the repo-scoped view", () => {
-  const items = [item({ id: 'a1', repoLabel: 'jawfish' }), item({ id: 'a2', repoLabel: 'other-repo' })]
-  const global = panelModel({ snapshot: snapshot({ scope: 'global', attention: items }), pending: null, loadError: false }, NOW)
-  assert.equal(global.kind, 'ready')
-  if (global.kind === 'ready') assert.deepEqual(global.rows.map((row) => row.repoLabel), ['jawfish', 'other-repo'])
-
-  const scoped = panelModel(
-    { snapshot: snapshot({ scope: 'repo', repoLabel: 'jawfish', attention: items }), pending: null, loadError: false },
-    NOW,
-  )
-  assert.equal(scoped.kind, 'ready')
-  if (scoped.kind === 'ready') assert.deepEqual(scoped.rows.map((row) => row.repoLabel), [undefined, undefined])
-})
-
-test('panelModel shows loading before the first snapshot', () => {
-  assert.equal(panelModel(initialPanelState(), NOW).kind, 'loading')
-})
-
-test('panelModel shows load-error when the initial request itself failed', () => {
-  const { state } = reducePanel(initialPanelState(), { type: 'load-error' })
-  assert.equal(panelModel(state, NOW).kind, 'load-error')
-})
-
-test('a later snapshot clears a load-error', () => {
-  const errored = reducePanel(initialPanelState(), { type: 'load-error' }).state
-  const { state } = reducePanel(errored, { type: 'snapshot', snapshot: snapshot({ connected: false }) })
-  assert.equal(panelModel(state, NOW).kind, 'not-connected')
-})
-
-test('panelModel shows the not-connected state when connected is false', () => {
-  const model = panelModel({ snapshot: snapshot({ connected: false }), pending: null, loadError: false }, NOW)
-  assert.equal(model.kind, 'not-connected')
-})
-
-test('panelModel builds the ready view with heading, empty message, rows and no confirm', () => {
-  const model = panelModel(
-    {
-      snapshot: snapshot({
-        scope: 'repo',
-        repoLabel: 'jawfish',
-        attention: [item({ id: 'a1' }), item({ id: 'a2', since: NOW - 30 })],
-      }),
-      pending: null,
-      loadError: false,
+function snap(over: Partial<PanelSnapshot> = {}): PanelSnapshot {
+  return {
+    connected: true,
+    at: 1_700_000_100,
+    focusedRepo: repo,
+    planner: {
+      agent: 'Claude',
+      usedPct: 14,
+      pacePct: 12,
+      verdict: 'on_pace',
+      advice: 'Delegate multi-file edits.',
+      mode: 'normal',
+      resetsAt: 1_700_100_000,
+      window: 'week',
+      stale: false,
     },
-    NOW,
-  )
+    pause: null,
+    repos: [
+      { ...repo, needsYou: 1, running: 0, doneToday: 0 },
+      { ...other, needsYou: 1, running: 0, doneToday: 0 },
+    ],
+    attention: [
+      {
+        id: 'r1',
+        kind: 'review',
+        severity: 'decide',
+        repo,
+        taskId: 't-review',
+        executor: 'cursor',
+        title: 'Review me',
+        detail: '7 files',
+        raisedAt: 50,
+        since: 50,
+        actions: [{ label: 'Review changes', op: 'ui.open', params: { view: 'review', id: 't-review' } }],
+        notify: 'important',
+        repoLabel: 'jawfish',
+      },
+      {
+        id: 'f1',
+        kind: 'failed',
+        severity: 'problem',
+        repo: other,
+        title: 'Failed elsewhere',
+        detail: 'boom',
+        raisedAt: 40,
+        since: 40,
+        actions: [{ label: 'Retry', op: 'dispatch.retry', params: { id: 't' }, confirm: 'Retry this task?' }],
+        notify: 'important',
+        repoLabel: 'other',
+      },
+      {
+        id: 'g1',
+        kind: 'setup',
+        severity: 'decide',
+        repo: null,
+        title: 'Global setup',
+        detail: 'd',
+        raisedAt: 30,
+        since: 30,
+        actions: [],
+        notify: 'all',
+      },
+      {
+        id: 'q1',
+        kind: 'question',
+        severity: 'blocked',
+        repo,
+        taskId: 't-q',
+        executor: 'codex',
+        title: 'Which DB?',
+        detail: 'pick one',
+        raisedAt: 20,
+        since: 20,
+        actions: [{ label: 'Answer', op: 'task.answer', params: { id: 't-q' } }],
+        notify: 'important',
+        repoLabel: 'jawfish',
+      },
+    ],
+    running: [
+      {
+        id: 't-run',
+        rev: 3,
+        title: 'Running task',
+        repo,
+        repoLabel: 'jawfish',
+        executor: 'cursor',
+        state: 'running',
+        phase: 'working',
+        attemptStartedAt: 1_700_000_000,
+        updatedAt: 1_700_000_050,
+        review: null,
+        liveness: { stalled: true, reason: 'waiting', since: 1_699_999_000 },
+        worktree: '/wt',
+        orcaWorkspaceId: 'ws-wt',
+      },
+    ],
+    doneToday: Array.from({ length: 10 }, (_, i) => ({
+      id: `done-${i}`,
+      rev: 1,
+      title: `Done ${i}`,
+      repo,
+      executor: 'cursor',
+      state: 'done',
+      updatedAt: 1_700_000_000 - i,
+      review: i === 0 ? { accepted: true } : i === 1 ? { accepted: false } : null,
+    })),
+    executors: [
+      {
+        id: 'cursor',
+        agent: 'cursor',
+        account: 'default',
+        rank: 1,
+        state: 'ready',
+        tone: 'good',
+        sub: 'Ready',
+        next: true,
+        slots: { used: 0, max: 2 },
+        enabled: true,
+      },
+      {
+        id: 'codex',
+        agent: 'codex',
+        account: 'default',
+        rank: 2,
+        state: 'busy',
+        tone: 'info',
+        sub: 'Busy',
+        next: false,
+        slots: { used: 1, max: 1 },
+        enabled: true,
+      },
+    ],
+    ...over,
+  }
+}
+
+test('scope filtering includes repo-null items in every scope', () => {
+  const s = snap()
+  const repoIds = scopedAttention(s, 'repo').map((a) => a.id)
+  assert.deepEqual(repoIds.sort(), ['g1', 'q1', 'r1'])
+  assert.equal(scopedAttention(s, 'global').length, 4)
+  assert.equal(otherReposNeedsYou(s), 1)
+  assert.equal(globalNeedsYouCount(s), 4)
+})
+
+test('card tone and glyph mapping', () => {
+  assert.equal(attentionCardTone('failed'), 'bad')
+  assert.equal(attentionCardTone('limit'), 'bad')
+  assert.equal(attentionCardTone('question'), 'warn')
+  assert.equal(attentionCardTone('stuck'), 'warn')
+  assert.equal(attentionCardTone('stalled'), 'warn')
+  assert.equal(attentionCardTone('review'), 'default')
+  assert.equal(attentionGlyph('failed'), '✕')
+  assert.equal(attentionGlyph('question'), '◐')
+  assert.equal(attentionGlyph('review'), null)
+})
+
+test('planner headline and meter tone per verdict including stale', () => {
+  assert.equal(plannerHeadline({ agent: 'Claude', usedPct: 10, pacePct: 10, verdict: 'on_pace', advice: '', mode: 'normal', resetsAt: null, window: 'week', stale: false }), "You're on pace for the week.")
+  assert.equal(plannerHeadline({ agent: 'Claude', usedPct: 10, pacePct: 20, verdict: 'behind', advice: '', mode: 'normal', resetsAt: null, window: 'week', stale: false }), 'Plenty left this week.')
+  assert.equal(plannerHeadline({ agent: 'Claude', usedPct: 40, pacePct: 20, verdict: 'ahead', advice: '', mode: 'normal', resetsAt: null, window: 'week', stale: false }), "You're ahead of pace.")
+  assert.equal(plannerHeadline({ agent: 'Claude', usedPct: 100, pacePct: 20, verdict: 'out', advice: '', mode: 'normal', resetsAt: null, window: 'week', stale: false }, 'Mon 09:00'), 'Claude is out until Mon 09:00.')
+  assert.equal(meterTone('behind'), 'good')
+  assert.equal(meterTone('on_pace'), 'good')
+  assert.equal(meterTone('ahead'), 'warn')
+  assert.equal(meterTone('out'), 'bad')
+  assert.equal(meterTone('on_pace', true), 'neutral')
+})
+
+test('absolute time today vs other day is timezone-safe with injected clock', () => {
+  const tz = 'UTC'
+  const now = Date.UTC(2026, 10, 22, 12, 0, 0) / 1000
+  const today = Date.UTC(2026, 10, 22, 15, 21, 0) / 1000
+  const other = Date.UTC(2026, 10, 20, 14, 0, 0) / 1000
+  assert.equal(absoluteTime(today, now, tz), '15:21')
+  assert.match(absoluteTime(other, now, tz), /Fri 14:00/)
+})
+
+test('confirm strings use the wire string; danger defaults', () => {
+  assert.equal(confirmTextFor({ label: 'Retry', op: 'x', params: {}, confirm: 'Retry this task?' }), 'Retry this task?')
+  assert.equal(confirmTextFor({ label: 'Stop', op: 'task.stop', params: {}, style: 'danger' }), 'Stop this task?')
+})
+
+test('delegate request building', () => {
+  const auto = buildDelegateParams({
+    goal: 'Do the thing',
+    repoPath: '/repo',
+    kind: 'auto',
+    executor: 'auto',
+    worktree: 'new',
+    acceptance: '',
+    requestId: 'req-1',
+  })
+  assert.deepEqual(auto, {
+    goal: 'Do the thing',
+    repo: '/repo',
+    source: 'ui',
+    worktree: 'new',
+    request_id: 'req-1',
+  })
+  const full = buildDelegateParams({
+    goal: 'Fix it',
+    repoPath: '/repo',
+    kind: 'fix',
+    executor: 'cursor',
+    worktree: 'current',
+    acceptance: 'bun test',
+    requestId: 'req-2',
+  })
+  assert.equal(full.kind, 'debug')
+  assert.equal(full.executor, 'cursor')
+  assert.equal(full.worktree, 'current')
+  assert.equal(full.acceptance, 'bun test')
+  assert.equal(full.request_id, 'req-2')
+})
+
+test('done-today cap and glyph', () => {
+  const state = { ...initialPanelState(), snapshot: snap() }
+  const model = panelModel(state, 1_700_000_100)
   assert.equal(model.kind, 'ready')
   if (model.kind !== 'ready') return
-  assert.equal(model.heading, 'jawfish')
-  assert.equal(model.empty, 'Nothing needs you')
-  assert.deepEqual(
-    model.rows.map((row) => ({ id: row.id, time: row.time })),
-    [
-      { id: 'a1', time: '4m ago' },
-      { id: 'a2', time: 'now' },
-    ],
-  )
-  assert.equal(model.confirm, null)
+  assert.equal(model.doneVisible.length, 8)
+  assert.equal(model.doneMore, 2)
+  assert.deepEqual(doneGlyph(model.doneToday[0]!), { glyph: '✓', tone: 'good', label: 'Accepted' })
+  assert.deepEqual(doneGlyph(model.doneToday[1]!), { glyph: '✕', tone: 'bad', label: 'Rejected' })
 })
 
-test('panelModel carries the pending confirm view and clears it with the snapshot', () => {
-  const state = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
-  const model = panelModel({ ...state, snapshot: snapshot() }, NOW)
-  if (model.kind !== 'ready') return assert.fail('expected ready')
-  assert.deepEqual(model.confirm, {
-    title: 'Reject this?',
-    body: 'The executor will be told the work was rejected.',
-    danger: true,
+test('reducer keeps goal/answers/view/menu/confirm/pending across snapshot push', () => {
+  let state = initialPanelState()
+  const apply = (event: PanelEvent) => {
+    state = reducePanel(state, event).state
+  }
+  apply({ type: 'snapshot', snapshot: snap() })
+  apply({ type: 'set-goal', goal: 'Ship it' })
+  apply({ type: 'set-answer', id: 'q1', text: 'postgres' })
+  apply({ type: 'set-view', view: 'delegate' })
+  apply({ type: 'set-scope', scope: 'global' })
+  apply({ type: 'toggle-menu', open: true })
+  apply({
+    type: 'ask-confirm',
+    confirm: {
+      key: 'x',
+      text: 'Stop?',
+      confirmLabel: 'Stop it',
+      cancelLabel: 'Keep it',
+      run: { kind: 'act', op: 'task.stop', params: {}, pendingKey: 'x' },
+    },
   })
-  // Any new snapshot (including a pacer.changed re-render) clears the gate.
-  const next = panelModel(reducePanel({ ...state, snapshot: snapshot() }, { type: 'snapshot', snapshot: snapshot() }).state, NOW)
-  if (next.kind !== 'ready') return assert.fail('expected ready')
-  assert.equal(next.confirm, null)
+  // ask-confirm closes the menu; reopen to prove a snapshot push keeps it.
+  apply({ type: 'toggle-menu', open: true })
+  apply({ type: 'begin', pendingKey: 'x' })
+  apply({ type: 'snapshot', snapshot: snap({ at: 1_700_000_200 }) })
+  assert.equal(state.ui.goal, 'Ship it')
+  assert.equal(state.ui.answers.q1, 'postgres')
+  assert.equal(state.ui.view, 'delegate')
+  assert.equal(state.ui.menuOpen, true)
+  assert.equal(state.ui.scope, 'global')
+  // begin clears confirm; pending and interactive fields survive the push
+  assert.equal(state.ui.confirm, null)
+  assert.equal(state.ui.pending.x, true)
+  assert.equal(effectiveScope(state.snapshot!, state.ui.scope), 'global')
 })
 
-test('pressing an action with no confirm fires pacer.act immediately', () => {
-  const { state, run } = reducePanel(initialPanelState(), { type: 'press', action: noConfirmAction })
-  assert.deepEqual(state, initialPanelState())
-  assert.deepEqual(run, { op: 'attention.dismiss', params: { id: 'a1' } })
+test('conflict result becomes Already handled elsewhere', () => {
+  let state = initialPanelState()
+  state = reducePanel(state, { type: 'snapshot', snapshot: snap() }).state
+  state = reducePanel(state, { type: 'begin', pendingKey: 'att:r1:accept' }).state
+  state = reducePanel(state, {
+    type: 'act-result',
+    pendingKey: 'att:r1:accept',
+    ok: false,
+    conflict: true,
+    error: 'rev mismatch',
+  }).state
+  assert.deepEqual(state.ui.statusByKey['att:r1:accept'], {
+    tone: 'warn',
+    text: 'Already handled elsewhere',
+  })
 })
 
-test('pressing an action with a confirm starts the gate without firing', () => {
-  const { state, run } = reducePanel(initialPanelState(), { type: 'press', action: confirmAction })
-  assert.deepEqual(state, { snapshot: null, pending: confirmAction, loadError: false })
-  assert.equal(run, null)
+test('default scope is this repo when focusedRepo exists', () => {
+  const state = { ...initialPanelState(), snapshot: snap() }
+  const model = panelModel(state, 1)
+  assert.equal(model.kind, 'ready')
+  if (model.kind === 'ready') assert.equal(model.scope, 'repo')
 })
 
-test('confirm fires the pending action and clears the gate', () => {
-  const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
-  const { state, run } = reducePanel(started, { type: 'confirm' })
-  assert.deepEqual(state, { snapshot: null, pending: null, loadError: false })
-  assert.deepEqual(run, { op: confirmAction.op, params: confirmAction.params })
-})
-
-test('cancel clears the gate without firing', () => {
-  const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
-  const { state, run } = reducePanel(started, { type: 'cancel' })
-  assert.deepEqual(state, { snapshot: null, pending: null, loadError: false })
-  assert.equal(run, null)
-})
-
-test('confirm with nothing pending is a no-op', () => {
-  const { state, run } = reducePanel(initialPanelState(), { type: 'confirm' })
-  assert.deepEqual(state, initialPanelState())
-  assert.equal(run, null)
-})
-
-test('a snapshot event replaces the snapshot and clears any pending confirm', () => {
-  const started = reducePanel(initialPanelState(), { type: 'press', action: confirmAction }).state
-  const { state, run } = reducePanel(started, { type: 'snapshot', snapshot: snapshot({ connected: false }) })
-  assert.deepEqual(state, { snapshot: snapshot({ connected: false }), pending: null, loadError: false })
-  assert.equal(run, null)
+test('review items are kind review for Accept/Reject affordance', () => {
+  const review = snap().attention.find((a) => a.kind === 'review')
+  assert.equal(review?.kind, 'review')
+  assert.ok(review?.taskId)
 })
