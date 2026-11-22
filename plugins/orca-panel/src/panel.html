@@ -118,7 +118,7 @@
   .pc-header-spacer { flex: 1; }
   .pc-live { display: inline-flex; align-items: center; gap: 6px; font-size: 12px; line-height: 16px; color: var(--ink-muted); }
   .pc-live-dot { width: 6px; height: 6px; border-radius: 999px; background: var(--good-fill); }
-  .pc-live-dot.off { background: var(--ink-muted); }
+  .pc-live-dot.off { background: var(--bad-fill); }
   .pc-main { display: flex; flex-direction: column; gap: 20px; padding: 16px; flex: 1; }
   .pc-label {
     margin: 0; font-size: 11px; line-height: 14px; font-weight: 600;
@@ -150,6 +150,8 @@
     font-weight: 600; padding: 2px 8px; border-radius: 999px; white-space: nowrap;
     background: var(--surface-lane); color: var(--ink-secondary);
   }
+  /* In a column a pill hugs its words instead of stretching across the row. */
+  .pc-running-col > .pc-pill { align-self: flex-start; }
   .pc-pill--good { background: var(--good-bg); color: var(--good-fg); }
   .pc-pill--warn { background: var(--warn-bg); color: var(--warn-fg); }
   .pc-pill--bad { background: var(--bad-bg); color: var(--bad-fg); }
