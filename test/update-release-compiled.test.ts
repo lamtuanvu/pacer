@@ -1,8 +1,8 @@
 import { childEnv, closedPort } from "./child-env";
 import { expect, test } from "bun:test";
-import { readFileSync, statSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { join, resolve } from "node:path";
-import { type Platform, assetFile, companionFile, hostTarget, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
+import { type Platform, assetFile, companionFile, hostTarget, nativePluginFile, parseManifest, parseSha256Sums, sha256Hex } from "../src/update/manifest";
 import { tmpDir } from "./helpers";
 
 // Every test here reads the one real host release this file compiles: a release compile takes minutes.
@@ -12,6 +12,7 @@ const INSTALL_SH = join(ROOT, "install.sh");
 const SHELL = Bun.which("dash") ?? "/bin/sh";
 const PKG_VERSION = (JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as { version: string }).version;
 const HOST = hostTarget();
+const HAS_ASSISTANT = existsSync(join(ROOT, "crates/assistant-pacer/Cargo.toml"));
 // A cold release compile of the Rust binaries on a CI runner can exceed three minutes.
 const COMPILE_TIMEOUT_MS = 300_000;
 
@@ -32,9 +33,25 @@ test.skipIf(!HOST)("bun run release --host compiles a working binary with the ve
   const bin = readFileSync(join(dir, file));
   const manifest = parseManifest(JSON.parse(readFileSync(join(dir, "manifest.json"), "utf8")));
   const core = readFileSync(join(dir, companionFile(HOST!)));
-  expect(manifest).toEqual({ version: PKG_VERSION, assets: [{ os: HOST!.os, arch: HOST!.arch, file, sha256: sha256Hex(bin), size: bin.length, companions: [{ name: "pacer-core", file: companionFile(HOST!), sha256: sha256Hex(core), size: core.length }] }] });
-  expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(companionFile(HOST!))).toBe(sha256Hex(core));
-  expect(parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8")).get(file)).toBe(sha256Hex(bin));
+  const assistantName = "pacer-assistant-pacer" as const;
+  const assistantFile = nativePluginFile(assistantName, HOST!);
+  const assistant = HAS_ASSISTANT ? readFileSync(join(dir, assistantFile)) : undefined;
+  expect(manifest).toEqual({
+    version: PKG_VERSION,
+    assets: [{
+      os: HOST!.os,
+      arch: HOST!.arch,
+      file,
+      sha256: sha256Hex(bin),
+      size: bin.length,
+      companions: [{ name: "pacer-core", file: companionFile(HOST!), sha256: sha256Hex(core), size: core.length }],
+      ...(assistant ? { nativePlugins: [{ name: assistantName, file: assistantFile, sha256: sha256Hex(assistant), size: assistant.length }] } : {}),
+    }],
+  });
+  const sums = parseSha256Sums(readFileSync(join(dir, "SHA256SUMS"), "utf8"));
+  expect(sums.get(companionFile(HOST!))).toBe(sha256Hex(core));
+  expect(sums.get(file)).toBe(sha256Hex(bin));
+  if (assistant) expect(sums.get(assistantFile)).toBe(sha256Hex(assistant));
   expect(JSON.parse(readFileSync(join(out, "latest.json"), "utf8"))).toEqual({ version: PKG_VERSION });
   expect(statSync(join(dir, file)).mode & 0o111).not.toBe(0);
   const v = Bun.spawnSync([join(dir, file), "--version"], { env: { ...childEnv(tmpDir()), PATH: process.env.PATH ?? "/usr/bin:/bin" } });

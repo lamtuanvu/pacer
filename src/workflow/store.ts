@@ -10,117 +10,123 @@ import { CoreError } from "../core/errors";
 import type { WorkflowDef } from "./schema";
 
 // The connection is cached by taskDatabase; schema setup must therefore also run once
-// per connection, not per call (see dispatch/store.ts for the same guard).
+// per connection, not per call (see dispatch/store.ts for the same guard). Apply the
+// whole DDL in one immediate transaction so a concurrent reader (or a test that copies
+// tasks.db + WAL mid-startup) never observes a partial workflow schema — phase 2 added
+// many CREATE/ALTER steps after the original tables, which made that window flake
+// native/forwarded parity (workflow_decisions appearing on only one side).
 const ready = new WeakSet<Database>();
 export function workflowDatabase(ctx: Ctx): Database {
   const db = taskDatabase(ctx);
   if (ready.has(db)) return db;
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_defs(id TEXT, version INTEGER, source TEXT, def TEXT, added_at REAL, PRIMARY KEY(id, version));
-    CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
-    CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
-    CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
-  `);
-  // Added after the first schema; existing databases gain the columns in place
-  // (pattern: src/messaging/store.ts). advanced_at records when a done step's
-  // outgoing edges were processed ("nothing left to do" for the re-advance query),
-  // so advancement survives a crash in between; a database that predates the
-  // column has its finished rows backfilled as already advanced, so an upgrade
-  // does not replay every historical step's edges once.
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
-    db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
-    db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
-  }
-  // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
-  // The unique index makes firing an edge exclusive: a second attempt to insert a
-  // successor for an already-fired edge fails instead of duplicating the work
-  // (NULLs are allowed — entry steps and join rows have no trigger).
-  if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
-  db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
-  // The tick runs every second and reads steps by live status (orphans, re-advance,
-  // recovery); partial indexes keep those scans cheap as the step history grows
-  // (round 4 review).
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
-  // Phase 2: durable orchestrator wake-ups and turns (one live turn per run).
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_wakeups(
-      run_id TEXT NOT NULL,
-      cause TEXT NOT NULL,
-      ref TEXT NOT NULL,
-      created_at REAL NOT NULL,
-      turn_id TEXT NULL,
-      done_at REAL NULL,
-      by_person INTEGER NOT NULL DEFAULT 0,
-      PRIMARY KEY(run_id, cause, ref)
-    );
-    CREATE TABLE IF NOT EXISTS workflow_turns(
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
-      planner TEXT NOT NULL,
-      session_id TEXT NULL,
-      task_id TEXT NULL,
-      status TEXT NOT NULL,
-      reason TEXT NULL,
-      started_at REAL NOT NULL,
-      deadline REAL NOT NULL,
-      ended_at REAL NULL,
-      failures INTEGER NOT NULL DEFAULT 0,
-      seq INTEGER NOT NULL DEFAULT 0
-    );
-  `);
-  db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_turns_live ON workflow_turns(run_id) WHERE status IN ('starting', 'running')");
-  const turnColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_turns)").all().map(c => c.name);
-  if (!turnColumns.includes("seq")) {
-    db.exec("ALTER TABLE workflow_turns ADD COLUMN seq INTEGER NOT NULL DEFAULT 0");
-  }
-  // Orchestrator state columns on the run (auto mode, planner, session, budget).
-  const runColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
-  if (!runColumns.includes("auto")) db.exec("ALTER TABLE workflow_runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0");
-  if (!runColumns.includes("planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN planner TEXT");
-  if (!runColumns.includes("orchestrator_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_task_id TEXT");
-  if (!runColumns.includes("session_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN session_id TEXT");
-  if (!runColumns.includes("budget")) db.exec("ALTER TABLE workflow_runs ADD COLUMN budget TEXT");
-  if (!runColumns.includes("spent")) db.exec("ALTER TABLE workflow_runs ADD COLUMN spent TEXT");
-  if (!runColumns.includes("next_wake_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN next_wake_at REAL");
-  if (!runColumns.includes("orchestrator_state")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_state TEXT");
-  if (!runColumns.includes("parent_run_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT");
-  if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
-  if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
-  if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
-  // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
-  if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
-  if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
-  // Decision log: every orchestrator (and refused) choice with its reason (G7).
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_decisions(
-      id TEXT PRIMARY KEY,
-      run_id TEXT NOT NULL,
-      step_id TEXT NOT NULL,
-      attempt INTEGER NOT NULL,
-      actor TEXT NOT NULL,
-      kind TEXT NOT NULL,
-      choice TEXT NOT NULL,
-      reason TEXT NOT NULL,
-      at REAL NOT NULL
-    );
-  `);
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
-  // Phase 3: versioned generated graphs linked to the producing generate step.
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS workflow_graphs(
-      run_id TEXT NOT NULL,
-      step_id TEXT NOT NULL,
-      attempt INTEGER NOT NULL,
-      version INTEGER NOT NULL,
-      def TEXT NOT NULL,
-      status TEXT NOT NULL,
-      reason TEXT,
-      created_at REAL NOT NULL,
-      PRIMARY KEY(run_id, step_id, attempt, version)
-    );
-  `);
-  db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
+  db.transaction(() => {
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_defs(id TEXT, version INTEGER, source TEXT, def TEXT, added_at REAL, PRIMARY KEY(id, version));
+      CREATE TABLE IF NOT EXISTS workflow_runs(id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL);
+      CREATE TABLE IF NOT EXISTS workflow_steps(run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT, task_id TEXT UNIQUE, status TEXT, result TEXT, error TEXT, started_at REAL, ended_at REAL, PRIMARY KEY(run_id, step_id, attempt, branch));
+      CREATE TABLE IF NOT EXISTS workflow_cursor(id INTEGER PRIMARY KEY CHECK(id=1), seq INTEGER);
+    `);
+    // Added after the first schema; existing databases gain the columns in place
+    // (pattern: src/messaging/store.ts). advanced_at records when a done step's
+    // outgoing edges were processed ("nothing left to do" for the re-advance query),
+    // so advancement survives a crash in between; a database that predates the
+    // column has its finished rows backfilled as already advanced, so an upgrade
+    // does not replay every historical step's edges once.
+    if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "advanced_at")) {
+      db.exec("ALTER TABLE workflow_steps ADD COLUMN advanced_at REAL NULL");
+      db.exec("UPDATE workflow_steps SET advanced_at = COALESCE(ended_at, started_at) WHERE status NOT IN ('running', 'waiting')");
+    }
+    // trigger records what caused a successor row: '<runId>/<stepId>#<attempt>/<branch>@<edgeIndex>'.
+    // The unique index makes firing an edge exclusive: a second attempt to insert a
+    // successor for an already-fired edge fails instead of duplicating the work
+    // (NULLs are allowed — entry steps and join rows have no trigger).
+    if (!db.query<{ name: string }, []>("PRAGMA table_info(workflow_steps)").all().some(c => c.name === "trigger")) db.exec(`ALTER TABLE workflow_steps ADD COLUMN "trigger" TEXT NULL`);
+    db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS workflow_steps_trigger ON workflow_steps("trigger")`);
+    // The tick runs every second and reads steps by live status (orphans, re-advance,
+    // recovery); partial indexes keep those scans cheap as the step history grows
+    // (round 4 review).
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_live ON workflow_steps(run_id) WHERE status IN ('running', 'waiting')");
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_steps_unadvanced ON workflow_steps(run_id) WHERE status = 'done' AND advanced_at IS NULL");
+    // Phase 2: durable orchestrator wake-ups and turns (one live turn per run).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_wakeups(
+        run_id TEXT NOT NULL,
+        cause TEXT NOT NULL,
+        ref TEXT NOT NULL,
+        created_at REAL NOT NULL,
+        turn_id TEXT NULL,
+        done_at REAL NULL,
+        by_person INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(run_id, cause, ref)
+      );
+      CREATE TABLE IF NOT EXISTS workflow_turns(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        planner TEXT NOT NULL,
+        session_id TEXT NULL,
+        task_id TEXT NULL,
+        status TEXT NOT NULL,
+        reason TEXT NULL,
+        started_at REAL NOT NULL,
+        deadline REAL NOT NULL,
+        ended_at REAL NULL,
+        failures INTEGER NOT NULL DEFAULT 0,
+        seq INTEGER NOT NULL DEFAULT 0
+      );
+    `);
+    db.exec("CREATE UNIQUE INDEX IF NOT EXISTS workflow_turns_live ON workflow_turns(run_id) WHERE status IN ('starting', 'running')");
+    const turnColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_turns)").all().map(c => c.name);
+    if (!turnColumns.includes("seq")) {
+      db.exec("ALTER TABLE workflow_turns ADD COLUMN seq INTEGER NOT NULL DEFAULT 0");
+    }
+    // Orchestrator state columns on the run (auto mode, planner, session, budget).
+    const runColumns = db.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
+    if (!runColumns.includes("auto")) db.exec("ALTER TABLE workflow_runs ADD COLUMN auto INTEGER NOT NULL DEFAULT 0");
+    if (!runColumns.includes("planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN planner TEXT");
+    if (!runColumns.includes("orchestrator_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_task_id TEXT");
+    if (!runColumns.includes("session_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN session_id TEXT");
+    if (!runColumns.includes("budget")) db.exec("ALTER TABLE workflow_runs ADD COLUMN budget TEXT");
+    if (!runColumns.includes("spent")) db.exec("ALTER TABLE workflow_runs ADD COLUMN spent TEXT");
+    if (!runColumns.includes("next_wake_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN next_wake_at REAL");
+    if (!runColumns.includes("orchestrator_state")) db.exec("ALTER TABLE workflow_runs ADD COLUMN orchestrator_state TEXT");
+    if (!runColumns.includes("parent_run_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_run_id TEXT");
+    if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
+    if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
+    if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
+    // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
+    if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
+    if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
+    // Decision log: every orchestrator (and refused) choice with its reason (G7).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_decisions(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        actor TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        choice TEXT NOT NULL,
+        reason TEXT NOT NULL,
+        at REAL NOT NULL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
+    // Phase 3: versioned generated graphs linked to the producing generate step.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_graphs(
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        def TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at REAL NOT NULL,
+        PRIMARY KEY(run_id, step_id, attempt, version)
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
+  }).immediate();
   ready.add(db);
   return db;
 }

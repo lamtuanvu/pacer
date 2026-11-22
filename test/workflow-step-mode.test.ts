@@ -109,10 +109,14 @@ test("Phase 1 live run upgraded in place finishes as plain; a new run gets work_
     "INSERT INTO workflow_steps(run_id, step_id, attempt, branch, task_id, status, result, error, started_at, ended_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(runId, "one", 1, "", task.id, "running", null, null, now, null);
 
-  // Upgrade: Phase 3 schema adds step_mode DEFAULT plain.
+  // Upgrade through the atomic schema path (one immediate transaction): Phase 3
+  // columns + workflow_graphs land together; pre-existing rows read as plain.
   workflowDatabase(ctx);
-  const cols = workflowDatabase(ctx).query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
+  const dbUp = workflowDatabase(ctx);
+  const cols = dbUp.query<{ name: string }, []>("PRAGMA table_info(workflow_runs)").all().map(c => c.name);
   expect(cols).toContain("step_mode");
+  expect(cols).toContain("root_task_id");
+  expect(dbUp.query<{ name: string }, []>("PRAGMA table_info(workflow_graphs)").all().map(c => c.name)).toContain("def");
   expect(getRun(ctx, runId)!.stepMode).toBe("plain");
   expect(getRun(ctx, runId)!.rootTaskId).toBeUndefined();
 

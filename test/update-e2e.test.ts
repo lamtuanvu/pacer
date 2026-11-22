@@ -50,7 +50,11 @@ test.skipIf(!HOST)("a compiled pacer updates itself, migrates the strategy with 
   expect((await run([core, "--version"], env)).out.trim()).toBe("pacer 0.9.0");
   expect((await run([`${pacer}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
   expect((await run([`${core}.bak`, "--version"], env)).out.trim()).toBe("pacer 0.1.0");
-  expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer-core", "pacer-core.bak", "pacer.bak"]);
+  // #1179 / ADR 0031: update.apply installs pacer-assistant-pacer beside pacer-core.
+  // The 0.1.0 fixture had no assistant sibling, so there is no .bak for a first install.
+  const assistant = join(bin, "pacer-assistant-pacer");
+  expect((await run([assistant, "--version"], env)).out.trim()).toBe("pacer 0.9.0");
+  expect(readdirSync(bin).sort()).toEqual(["pacer", "pacer-assistant-pacer", "pacer-core", "pacer-core.bak", "pacer.bak"]);
 
   expect(readdirSync(join(home, ".pacer")).sort()).toEqual(["run", "setup-health.required", "strategy.yaml", "strategy.yaml.pre-accounts.bak", "update-check.json"]);
   expect(statSync(join(home, ".pacer/run/core-version.json")).mode & 0o777).toBe(0o600);
