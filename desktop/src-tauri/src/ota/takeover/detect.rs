@@ -111,6 +111,29 @@ pub fn detect_takeover(
     )
 }
 
+/// Same registration predicates as `detect_takeover`, but without requiring a
+/// consent record. Used when Consent/UseApp decides whether to start a takeover
+/// before writing consent (so the terminal link is not rewritten first).
+pub fn detect_takeover_for_consent(
+    user_home: &Path,
+    home: &Path,
+    port: u16,
+    bundled_cli: &Path,
+    trust: &ReleaseTrust,
+) -> Result<Option<TakeoverCandidate>, OtaError> {
+    candidate_from_sources(
+        user_home,
+        port,
+        bundled_cli,
+        &NativeSources {
+            user_home,
+            home,
+            port,
+            trust,
+        },
+    )
+}
+
 /// Offers a takeover only when every predicate holds; any other failure keeps
 /// today's behavior. `Io` is reported so the caller can retry later.
 ///
@@ -133,6 +156,15 @@ pub(crate) fn detect_with(
     if consent.is_none() {
         return Ok(None);
     }
+    candidate_from_sources(user_home, port, bundled_cli, sources)
+}
+
+fn candidate_from_sources(
+    user_home: &Path,
+    port: u16,
+    bundled_cli: &Path,
+    sources: &dyn TakeoverSources,
+) -> Result<Option<TakeoverCandidate>, OtaError> {
     let observed = match sources.observe() {
         Ok(value) => value,
         Err(OtaError::Io) => return Err(OtaError::Io),
@@ -388,6 +420,24 @@ mod tests {
         assert_eq!(
             candidate.registration_sha256,
             format!("{:x}", sha2::Sha256::digest(registration(&f, &f.program)))
+        );
+    }
+
+    #[test]
+    fn consent_time_detection_offers_without_a_consent_record() {
+        let f = fixture();
+        std::fs::remove_file(f.config.join("consent.json")).unwrap();
+        assert_eq!(detect(&f, &running(&f, &f.program)), Ok(None));
+        let candidate = candidate_from_sources(&f.root, 4317, &f.bundled, &running(&f, &f.program))
+            .unwrap()
+            .unwrap();
+        assert_eq!(candidate.program, f.program);
+        // Symlinks stay refused even before consent is written.
+        let link = f.root.join(".local/bin/pacer-link");
+        std::os::unix::fs::symlink(&f.program, &link).unwrap();
+        assert_eq!(
+            candidate_from_sources(&f.root, 4317, &f.bundled, &running(&f, &link)),
+            Ok(None)
         );
     }
 
