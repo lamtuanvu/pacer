@@ -86,6 +86,70 @@ function tinyChild(): WorkflowDef {
   };
 }
 
+describe("I2: replan seeding fires only entry-reachable finished steps", () => {
+  test("unreachable seeded b->c stays inert while a->d starts", async () => {
+    const ctx = fakeCtx();
+    writeStrategy(ctx, 8);
+    const parentDef: WorkflowDef = {
+      id: "t/f-i2-parent",
+      version: 1,
+      steps: {
+        plan: { type: "generate", prompt: "P", limits: tinyLimits },
+        done: { type: "end" },
+      },
+      edges: [{ from: "plan", to: "done" }],
+      entry: "plan",
+    };
+    // New graph: a->d->end plus unreachable b->c (stale from old a->b->c->end).
+    const def: WorkflowDef = {
+      id: "t/f-i2-stale",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        b: { type: "agent", kind: "feature", prompt: "B" },
+        c: { type: "agent", kind: "tests", prompt: "C" },
+        d: { type: "agent", kind: "research", prompt: "D" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "a", to: "d" },
+        { from: "d", to: "done" },
+        { from: "b", to: "c" },
+        { from: "c", to: "done" },
+      ],
+      entry: "a",
+    };
+    addDefinition(ctx, parentDef, "source");
+    addDefinition(ctx, def, "source");
+    const launches: string[] = [];
+    const spawn: SpawnRunner = (_c, id) => { launches.push(id); return 1; };
+    const parent = await startRun(ctx, { workflow: parentDef.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+    const child = await startRun(ctx, {
+      workflow: def.id, repo: parent.repo, brief: parent.brief,
+    }, spawn, defaultEngineDeps, {
+      parentRunId: parent.id,
+      parentStep: "plan",
+      seedFinished: {
+        finishedIds: ["a", "b"],
+        results: { a: { ok: true }, b: { ok: true } },
+      },
+    });
+
+    const rows = stepsOfRun(ctx, child.id);
+    const seededB = rows.find(s => s.stepId === "b")!;
+    expect(seededB.status).toBe("done");
+    expect(seededB.advancedAt).toBeDefined();
+
+    const c = rows.find(s => s.stepId === "c");
+    expect(c).toBeUndefined();
+
+    const d = rows.find(s => s.stepId === "d");
+    expect(d?.taskId).toBeTruthy();
+    expect(launches).toContain(d!.taskId!);
+    expect(getRun(ctx, child.id)!.status).not.toBe("failed");
+  });
+});
+
 describe("I1: generate successor starts from advanceFrom", () => {
   test("agent -> generate -> end: settle research starts plan; submit+approve+child done finishes parent", async () => {
     const ctx = fakeCtx();

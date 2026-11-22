@@ -647,10 +647,36 @@ export type SeedFinished = {
 };
 
 /**
+ * Seeded finished ids reachable from `def.entry` by following only matched edges
+ * whose targets are also finished. Unreachable seeded rows stay inert (already
+ * stamped advancedAt) so a replan that drops old edges cannot fire stale successors.
+ */
+function reachableFinishedFromEntry(
+  def: WorkflowDef,
+  run: RunRow,
+  finished: Set<string>,
+  results: Record<string, unknown>,
+): Set<string> {
+  const reachable = new Set<string>();
+  if (!finished.has(def.entry)) return reachable;
+  const queue = [def.entry];
+  reachable.add(def.entry);
+  while (queue.length > 0) {
+    const id = queue.shift()!;
+    const result = Object.prototype.hasOwnProperty.call(results, id) ? results[id] : {};
+    for (const { edge } of matchedEdges(def, run, id, result)) {
+      if (!finished.has(edge.to) || reachable.has(edge.to)) continue;
+      reachable.add(edge.to);
+      queue.push(edge.to);
+    }
+  }
+  return reachable;
+}
+
+/**
  * Seed finished steps from a prior child (replan) as done with their results,
  * stamp advancedAt on every seeded row, and resume from the unfinished frontier
- * (every unfinished ordinary target of a matched edge from any seeded row) via
- * fireEdge — not a single linear walk from the entry.
+ * of seeded rows still reachable from the entry through finished steps only.
  */
 async function seedFinishedAndResume(
   ctx: Ctx,
@@ -682,8 +708,10 @@ async function seedFinishedAndResume(
   let startedAny = false;
   let endReachable = false;
   const live = getRun(ctx, run.id) ?? run;
+  const frontier = reachableFinishedFromEntry(def, live, finished, seed.results);
+  const frontierRows = seededRows.filter(row => frontier.has(row.stepId));
 
-  for (const row of seededRows) {
+  for (const row of frontierRows) {
     if (isTerminal(getRun(ctx, run.id))) return;
     const matched = matchedEdges(def, live, row.stepId, row.result);
     for (const { edge, index } of matched) {
