@@ -143,7 +143,7 @@ layer = 5
 [crates.pacer-update]
 layer = 6
 [crates.pacer-desktop-update]
-layer = 6
+layer = 7
 [crates.pacer-account-ops]
 layer = 6
 [crates.pacer-config-ops]

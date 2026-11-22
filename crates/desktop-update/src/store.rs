@@ -5,10 +5,11 @@
 //! (the physical `admission.sqlite` lock), matching the TypeScript crash-safe
 //! CAS writer byte-for-byte.
 #![allow(clippy::result_large_err)] // CoreError is the shared public operation ABI.
+use crate::adoption_state;
 use crate::types::{UpdateRecord, is_valid_identifier, parse_update_record};
 use pacer_desktop_admission::coordinator::{self, AdmissionError};
 use pacer_foundation::api::{Code, CoreError};
-use rusqlite::{OptionalExtension, Transaction};
+use rusqlite::Transaction;
 use serde_json::Value;
 use std::{
     fs::{self, File, OpenOptions},
@@ -84,45 +85,7 @@ fn state_directory(home: &Path, create: bool) -> Result<PathBuf, CoreError> {
 }
 
 fn assert_no_pending_adoption(tx: &Transaction<'_>) -> Result<(), CoreError> {
-    let table: Option<String> = tx
-        .query_row(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name='desktop_adoptions'",
-            [],
-            |r| r.get(0),
-        )
-        .optional()
-        .map_err(|_| boundary())?;
-    if table.is_none() {
-        return Ok(());
-    }
-    let mut stmt = tx
-        .prepare("SELECT body FROM desktop_adoptions LIMIT 1025")
-        .map_err(|_| boundary())?;
-    let rows: Vec<String> = stmt
-        .query_map([], |r| r.get(0))
-        .map_err(|_| boundary())?
-        .collect::<Result<_, _>>()
-        .map_err(|_| boundary())?;
-    drop(stmt);
-    let adoption_changed = || {
-        CoreError::new(Code::Conflict, "Desktop service adoption changed")
-            .hint("Read the current adoption status and retry with a new request ID.")
-    };
-    if rows.len() > 1024 || rows.iter().any(|b| b.len() > 1048576) {
-        return Err(adoption_changed());
-    }
-    const TERMINAL: [&str; 3] = ["committed", "restored", "cancelled"];
-    for body in &rows {
-        let value: Value = serde_json::from_str(body).map_err(|_| adoption_changed())?;
-        let phase = value.get("phase").and_then(Value::as_str);
-        if phase.is_some_and(|p| !TERMINAL.contains(&p)) {
-            return Err(conflict(
-                "Desktop service adoption is pending",
-                "Cancel the waiting adoption or retain its recovery state.",
-            ));
-        }
-    }
-    Ok(())
+    adoption_state::assert_no_pending_adoption(tx)
 }
 
 /// Reads the current update record for an installation. Returns `Ok(None)`

@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 pacer-foundation = { path = "../foundation" }
 pacer-desktop-admission = { path = "../desktop-admission" }
+pacer-update = { path = "../update" }
 pacer-js-json = { path = "../js-json" }
 rusqlite = { version = "0.41", features = ["bundled"] }
 serde_json.workspace = true

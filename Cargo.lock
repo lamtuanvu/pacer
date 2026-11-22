@@ -1590,6 +1590,7 @@ dependencies = [
  "pacer-desktop-admission",
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-update",
  "rusqlite",
  "serde_json",
  "sha2",
