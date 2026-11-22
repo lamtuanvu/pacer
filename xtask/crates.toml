@@ -119,6 +119,9 @@ layer = "sdk"
 layer = "plugin"
 heavy = ["reqwest"]
 
+[crates.pacer-bundled-notify]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
