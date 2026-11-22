@@ -89,6 +89,33 @@ fn has_table(db: &Connection, name: &str) -> bool {
     .flatten()
     .unwrap_or(false)
 }
+
+/// Asker task ids with an open structured question — suppress ordinary `question:<taskId>` (I6 / R2-I3).
+fn open_question_asker_ids(ctx: &Ctx) -> std::collections::HashSet<String> {
+    let path = ctx.pacer_home.join("state/tasks.db");
+    let db = match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        Ok(db) => db,
+        Err(_) => return std::collections::HashSet::new(),
+    };
+    if !has_table(&db, "workflow_questions") {
+        return std::collections::HashSet::new();
+    }
+    let mut out = std::collections::HashSet::new();
+    let Ok(mut stmt) = db.prepare(
+        "SELECT asker_task_id FROM workflow_questions WHERE status = 'open' AND asker_task_id IS NOT NULL",
+    ) else {
+        return out;
+    };
+    let Ok(rows) = stmt.query_map([], |row| row.get::<_, Option<String>>(0)) else {
+        return out;
+    };
+    for id in rows.flatten().flatten() {
+        if !id.is_empty() {
+            out.insert(id);
+        }
+    }
+    out
+}
 /// Open person-answerer run questions for live runs. Missing tables → no items.
 pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
     let path = ctx.pacer_home.join("state/tasks.db");
@@ -289,6 +316,7 @@ pub fn raised(
     can_pair: bool,
 ) -> Vec<Value> {
     let mut items = Vec::new();
+    let structured_askers = open_question_asker_ids(ctx);
     let superseded = tasks::superseded(tasks);
     for source in tasks {
         if superseded.contains(&source["id"]) {
@@ -320,7 +348,8 @@ pub fn raised(
             && truth(&t["question"])
             && t["question"].get("answer").is_none()
             && !truth(&t["retriedBy"]);
-        if legacy && !truth(&t["dismissed"]) {
+        // I6 / R2-I3: suppress ordinary task.answer items for askers with an open structured question.
+        if legacy && !truth(&t["dismissed"]) && !structured_askers.contains(id) {
             let mut e = extra.clone();
             e["severity"] = json!("blocked");
             e["since"] = t["question"]["at"].clone();

@@ -14,6 +14,18 @@ fn ctx() -> (tempfile::TempDir, Ctx) {
 }
 
 fn seed_question(ctx: &Ctx, run_id: &str, q_id: &str, blocks: &str, created_at: f64, text: &str) {
+    seed_question_for_asker(ctx, run_id, q_id, blocks, created_at, text, "t-ask");
+}
+
+fn seed_question_for_asker(
+    ctx: &Ctx,
+    run_id: &str,
+    q_id: &str,
+    blocks: &str,
+    created_at: f64,
+    text: &str,
+    asker_task_id: &str,
+) {
     let path = ctx.pacer_home.join("state/tasks.db");
     let db = rusqlite::Connection::open(&path).expect("open db");
     db.execute_batch(
@@ -41,7 +53,7 @@ fn seed_question(ctx: &Ctx, run_id: &str, q_id: &str, blocks: &str, created_at: 
            id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
            options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
            status, rev, created_at, answered_at
-         ) VALUES (?1, ?2, 'ask', 1, NULL, 't-ask', 'executor', ?3, 'single',
+         ) VALUES (?1, ?2, 'ask', 1, NULL, ?7, 'executor', ?3, 'single',
            ?4, 'a', ?5, NULL, 'person', '[]', NULL, NULL, NULL, 'open', 1, ?6, NULL)",
         rusqlite::params![
             q_id,
@@ -49,7 +61,8 @@ fn seed_question(ctx: &Ctx, run_id: &str, q_id: &str, blocks: &str, created_at: 
             text,
             r#"[{"value":"a"},{"value":"b"}]"#,
             blocks,
-            created_at
+            created_at,
+            asker_task_id
         ],
     )
     .expect("question");
@@ -180,4 +193,75 @@ fn wire_json_is_stable() {
     let wire = stringify(item);
     let parsed: Value = serde_json::from_str(&wire).expect("parse");
     assert_eq!(&parsed, item);
+}
+
+#[test]
+fn r2_i3_suppresses_ordinary_question_item_for_open_structured_asker() {
+    let (_dir, ctx) = ctx();
+    seed_question_for_asker(
+        &ctx,
+        "run_abcdefghij",
+        "q_abcdefghij",
+        "step",
+        1_700_000_000.0 - 10.0,
+        "Ship?",
+        "t-ask",
+    );
+    let asker = json!({
+        "id":"t-ask","title":"Asker","state":"needs_input","rev":1,"updatedAt":1_700_000_000.0,
+        "executor":"codex","question":{"text":"Ship?","at":1_700_000_000.0 - 10.0}
+    });
+    let other = json!({
+        "id":"t-other","title":"Other","state":"needs_input","rev":1,"updatedAt":1_700_000_000.0,
+        "executor":"codex","question":{"text":"plain?","at":1_700_000_000.0 - 5.0}
+    });
+    let items = attention::raised(
+        &ctx,
+        &[asker, other],
+        &[],
+        &[],
+        &json!({"items":[]}),
+        &Value::Null,
+        false,
+    );
+    let ids: Vec<&str> = items.iter().map(|i| text(&i["id"])).collect();
+    assert!(
+        ids.contains(&"question:q_abcdefghij"),
+        "structured run question present: {ids:?}"
+    );
+    assert!(
+        !ids.contains(&"question:t-ask"),
+        "ordinary asker item suppressed: {ids:?}"
+    );
+    assert!(
+        ids.contains(&"question:t-other"),
+        "unrelated ordinary item kept: {ids:?}"
+    );
+}
+
+#[test]
+fn r2_i3_mixed_run_branch_ordinary_sort_is_total_order() {
+    let mut items = vec![
+        json!({
+            "id":"question:run_a","kind":"question","severity":"blocked","since":10.0,
+            "unblocks":"run","run":{"priority":"normal"}
+        }),
+        json!({
+            "id":"question:run_b","kind":"question","severity":"blocked","since":1.0,
+            "unblocks":"branch","run":{"priority":"normal"}
+        }),
+        json!({
+            "id":"question:t-ordinary","kind":"question","severity":"blocked","since":5.0,
+            "taskId":"t-ordinary"
+        }),
+    ];
+    attention::sort(&mut items);
+    let ids: Vec<&str> = items.iter().map(|i| text(&i["id"])).collect();
+    assert_eq!(
+        ids,
+        vec!["question:run_a", "question:run_b", "question:t-ordinary",]
+    );
+    let mut again = items.clone();
+    attention::sort(&mut again);
+    assert_eq!(again, items);
 }
