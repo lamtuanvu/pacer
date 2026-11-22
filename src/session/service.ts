@@ -75,7 +75,7 @@ export interface SessionInfo {takeover:{available:boolean;reason?:string};drivin
 function json(path:string):any{try{return JSON.parse(readFileSync(path,'utf8'));}catch{return {};}}
 export async function sessionInfo(ctx:Ctx,id:string,orcaLive?:boolean,includeTargets=true):Promise<SessionInfo>{
  validateTaskId(id);const task=readTask(ctx,id);if(!task)throw new CoreError('unknown_task',`unknown task ${id}`);
- const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,attempt:task.run?.attempt??null,cols:120,rows:40,controller:null,active:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v2/tasks/${id}/session`}};
+ const info:SessionInfo={takeover:takeoverAvailability(task),driving:task.takeover?.state==='driving',host:'none',capabilities:{snapshot:false,control:false,record:false,resize:false},live:false,machine:task.run?.host??null,attempt:task.run?.attempt??null,cols:120,rows:40,controller:null,active:null,viewers:0,targets:[],attach:{cli:attachCommand(id),ws:`/v3/tasks/${id}/session`}};
  const worker=Object.values(loadOrcaState(ctx).workers).find(w=>w.taskId===id);
  if(worker || (task.result?.backend??task.backend)==='orca'){
   info.host='orca';if(worker?.terminal){try{info.live=orcaLive??isLiveTerminal(await new OrcaClient(ctx.run,ctx.env).terminalShow(worker.terminal));}catch{}}

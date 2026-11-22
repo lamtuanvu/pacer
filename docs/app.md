@@ -2,8 +2,8 @@
 
 The pacer app is a browser interface for budgets, delegated work and configuration.
 It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
-embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
-pacer clients. Protocol [3.0](protocol.md) is current; `/v2` is deprecated in 0.18.0 and removed in 0.19.0. The app consumes the read model during this overlap.
+embedded in the pacer binary. It uses the [protocol 3](protocol.md) API directly.
+Protocol [3.0](protocol.md) is current; `/v2` is deprecated in 0.18.0 and removed in 0.19.0. As a first-party client the app has spoken protocol 3 only since this release.
 
 ## Workspace reads
 
@@ -307,7 +307,9 @@ port.
 Console commands and TUI actions use v2 operations. The TUI hides actions
 missing from `hello.ops`. Task sessions use the session API. `/state`,
 `/console/*`, `/link` and the unversioned `/events` route are removed.
-Internal probes and the app use `/v2/snapshot` during the one-minor overlap.
+Internal probes and the app use `/v3/snapshot`; the app subscribes over
+`/v3/events` after this release. Protocol 2 clients remain served, carrying
+deprecation headers, until removal in 0.19.0.
 
 
 `pacer status --line` adds `▸<running> ⚑<attention>` from the service counts.
