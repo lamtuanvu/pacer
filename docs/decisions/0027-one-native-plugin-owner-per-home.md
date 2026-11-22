@@ -23,9 +23,13 @@ A pacer home has at most one native plugin owner that other front doors attach t
 `run/host.sock` is that owner's lease.
 
 1. **Only serve binds `run/host.sock`.** A live socket means an owner exists. A socket that
-   refuses connections is stale and the next serve replaces it. The socket always stays in the
-   home, and serve refuses a `host.sock` path longer than 103 bytes before it creates anything,
-   so a home that deep cannot run a flag-on serve.
+   refuses connections is stale and the next serve replaces it. The socket normally stays in the
+   home. On a deep home where `run/host.sock` would be longer than 103 bytes, serve's default
+   path binds the owner socket in the same private per-user directory a connection uses on such a
+   home (item 5), and the attach probe and `read_owner_pid` follow wherever the socket actually
+   lives; exactly one authoritative lease per home. An explicit `PACER_NATIVE_PLUGIN_HOST=1`
+   opt-in stays strict and refuses a `host.sock` path longer than 103 bytes before it creates
+   anything.
 2. **A stdio connection decides once, before its Core child starts.** It probes
    `run/host.sock`. The run directory must be a real directory owned by the current user with
    no group or other access, the socket must be owned by the same user, and the process that
@@ -43,9 +47,11 @@ A pacer home has at most one native plugin owner that other front doors attach t
    prove the connection's credential (item 9) are served. When the connection ends, or the
    door receives SIGTERM, the door closes the listener, removes the socket and stops the
    children it started.
-5. **A deep home's connection socket goes to a private per-user directory.** When
+5. **A deep home's owner and connection sockets go to a private per-user directory.** When
    `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
-   allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
+   allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. Serve's default
+   path uses the same directory for `host.sock` when `run/host.sock` is too long (item 1).
+   `<user dir>` is the
    operating system's private directory for the user: `confstr(_CS_DARWIN_USER_TEMP_DIR)` on
    macOS (read through `/usr/bin/getconf`, since the workspace forbids unsafe code) and
    `$XDG_RUNTIME_DIR` on Linux, never a shared `/tmp` name or `$TMPDIR`. `<hash>` is a 64-bit
@@ -172,12 +178,19 @@ to serve's Core.
   that closes its output while still running gets the same SIGTERM, then SIGKILL.
 - With the native host on, `plugin.doctor` reports `pid: null` for owner-supervised children on
   both front doors, because Core's snapshot does not know the owner's process IDs.
-- A deep home keeps native stdio ownership, but its connection sockets live outside the home,
-  where `pacer doctor` does not look yet. A temporary-file cleaner that removes a long-lived
+- A deep home keeps native stdio ownership, and its connection sockets and a default-path serve's
+  `host.sock` live outside the home, where `pacer doctor` does not look yet for connection
+  sockets. A temporary-file cleaner that removes a long-lived
   connection's socket makes that connection's Core plugin calls fail until it reconnects.
-- A deep home cannot run a flag-on serve, because `host.sock` must stay in the home as the
-  owner lease. PR 7 decides how such homes run the service before the flag turns on by
-  default.
+- **Maintainer decision Q2: a deep home runs a flag-on serve through the per-user fallback**
+  **(option b).** Serve's default path binds `host.sock` in the same `<user dir>/pacer-<hash>/`
+  directory a stdio connection uses on a deep home (items 1 and 5), so a default-on serve stays
+  on a deep home. The attach probe and `read_owner_pid` follow wherever the socket actually
+  lives, and serve logs one line naming the fallback and home. An explicit
+  `PACER_NATIVE_PLUGIN_HOST=1` keeps the strict refusal (`reverse-bridge socket path exceeds
+  103 bytes`), so the operator still controls the layout. Option (a) — moving a deep home to
+  the TypeScript owner instead — was rejected: it would split the trust and supervision model
+  by path length, which a programmatic client cannot see.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
 - Detached task runners (`_run`) are the same kind of Core. Core removes `PACER_HOST_SOCKET`
@@ -214,7 +227,10 @@ to serve's Core.
   chosen endpoint account's key, the Keychain lookup stays in Core; signing keeps the machine key
   and the audit in Core). The resolved key crosses only that connection (0600 socket, same user)
   and the child's stdin, as the reply to the child's own request. The owner keeps nothing and
-  logs no frame. Endpoint and classifier calls that carry credential bindings stay refused.
+  logs no frame. Endpoint and classifier calls that carry a credential binding stay refused; a
+  keyless classifier (no binding) crosses the owner with the flag-off HTTP scope it already
+  projects (`classifierSnapshot`), answering flag-on as it does flag-off, while keyless endpoint
+  discovery keeps its refusal.
   Item 9 closes the residual risk of this decision (#918). Before it, a same-user process could
   reach the resolved key or a signature: it could put its own process in the assistant's or a
   signing plugin's lane (the bridge's unsealed spawn and stop, or a lane it started first), or
@@ -279,7 +295,11 @@ to serve's Core.
   grant is therefore consumed once and bound to its task, attempt, run directory and wrapper pid
   exactly as flag-off, with the same refusal codes and texts. The owner forwards an unsealed
   request to none of them, so a plugin cannot stop or inspect a run its call was not issued.
-  The flag-on remote stop then needs the SSH host runner, which the owner does not serve yet.
+  The flag-on remote stop's SSH legs run through the owner's host-runner lane, which the bridge
+  now serves for the host-issued legs (configured STOP, REPORT and host checks, and the remote
+  stop): those `hostRunner` calls are pinned with `expectPid` to the child serving the lane,
+  matching the flag-off local-process guarantee. Staged-input legs remain refused flag-on, as the
+  owner bridge does not carry staged command input.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
@@ -301,10 +321,11 @@ to serve's Core.
 - **Stdio leaves ownership to TypeScript when serve is live.** The stdio Core would start its
   own TypeScript children beside serve's native owner: the two-owner problem this record
   exists to avoid.
-- **Sealing the detached stop and inspection grants for the owner's native process broker.**
-  The grants would cross the socket as new `call_authority` resources, the native broker would
-  need a second one-use implementation with its own refusal texts, and a remote stop would
-  still need Core's host runner, which the bridge refuses.
+- **Moving the detached stop and inspection grants onto the bridge.** The grants would cross
+  the socket as new `call_authority` resources and the native broker would need a second
+  one-use implementation with its own refusal texts. This was not taken up; instead the
+  grants stay in Core (above), with the stop's SSH legs served through the owner's host-runner
+  lane once B0a pinned those legs to the serving child.
 
 ## Addendum: observation generations under the owner (2026-11-13)
 
@@ -363,3 +384,42 @@ child.
 **Rejected.** The owner reading the outbox and task store directly. That would duplicate
 Core's protocol 3 event conversion and task projection, and split the authority checks
 between two processes.
+
+## Addendum: default-on (2026-11-22)
+
+**The native owner is on by default.** `serve_starts_reverse_bridge_by_default` returns
+`true`: an unset `PACER_NATIVE_PLUGIN_HOST` runs the Rust owner on `run/host.sock` (or the
+per-user socket directory on a deep home), so a default `pacer serve` and every flag-less
+front-door test now run with the native owner. `0`, `false` or `no` on either the
+`PACER_NATIVE_PLUGIN_HOST` or `PACER_HOST_BRIDGE` flag selects the TypeScript owner — the
+escape hatch until bundled plugins (D2) make the escape removable. The escape prints one
+line and is silenced by removing the flag; an explicit `PACER_NATIVE_PLUGIN_HOST=1` keeps
+the strict deep-home layout (`PathTooLong`).
+
+**Default owner on a deep home.** A default-on serve whose `run/host.sock` would exceed 103
+bytes binds the owner socket in the private per-user directory (`<user dir>/pacer-<hash>/`,
+ADR 0027 items 1 and 5, #1203) and runs the native owner there, so deep homes start the
+native owner rather than failing or moving to TypeScript. An explicit
+`PACER_NATIVE_PLUGIN_HOST=1` keeps the strict `PathTooLong` refusal so the operator still
+controls the layout. The option (a) originally proposed for this slice — falling back to the
+TypeScript owner on a deep home — was rejected (maintainer decision Q2); no
+`default_owner_fallback` is needed because #1203 keeps the native owner's socket within
+`socket(SOCKET_PATH_MAX)` via the per-user directory.
+
+**Residual refusals with the owner on.** These `plugin_unavailable` refusals remain under
+the native owner; each names the deleting slice:
+
+| Refusal text (prefix) | User-visible effect with the owner on | Deleting slice |
+| --- | --- | --- |
+| `needs credential bindings, which the native process owner bridge does not carry` | classifier and keyed endpoint calls from Core are refused (Q1) | keyless classifier closed before B0b (#1192); keyed remains until B0c |
+| `needs host-side call options the native process owner bridge does not carry` | remote session streams (`onStreamProgress`), executor progress owners in serve's Core | B5 (streams), B0c |
+| `needs hosts resources, which the native process owner bridge does not serve` | `pacer-remote-caller` host calls from serve's Core | B0c / C2 |
+| `needs a staged command input, which the native process owner bridge does not carry` | staged SSH legs in serve's Core (none today: they run in `_run`) | B0c / C11 |
+| `needs a planner borrow the native process owner bridge does not carry` | none (planner borrows are always bound) | D2 |
+
+`test/plugins-native-owner-residuals.test.ts` pins these refusals to this table.
+
+**`pacer plugin run <id>` in Rust.** The CLI now has a Rust `plugin run` entry point
+(`crates/cli/src/plugin_run.rs`), the single place a bundled plugin child starts. Until
+`pacer-bundled` (C0) has a Rust entry for `<id>`, it execs `pacer-core plugin run <id>`;
+its usage (`pacer plugin run <id>`, exit 2) matches `src/commands/plugins.ts:29-36`.

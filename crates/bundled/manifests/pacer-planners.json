@@ -1,0 +1,44 @@
+{
+  "id": "pacer-planners",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": "^1.6",
+  "contributes": {
+    "planner": {
+      "agents": [
+        "claude-code",
+        "codex",
+        "cursor",
+        "opencode"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "fs.read",
+      "scopes": [
+        "${ACCOUNT_HOME}/**",
+        "${HOME}/**"
+      ]
+    },
+    {
+      "name": "fs.write",
+      "scopes": [
+        "${ACCOUNT_HOME}/**",
+        "${HOME}/**"
+      ]
+    },
+    {
+      "name": "process.spawn",
+      "scopes": [
+        "claude",
+        "codex",
+        "cursor-agent",
+        "cursor",
+        "opencode"
+      ]
+    }
+  ],
+  "reentrant": false,
+  "tier": "free"
+}

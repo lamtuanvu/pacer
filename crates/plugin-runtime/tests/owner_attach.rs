@@ -1,11 +1,12 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Stdio owner probe and attach (ADR 0027): who owns a home's plugin children,
 //! and where a connection binds its own socket.
 
 use pacer_plugin_runtime::{
-    AttachError, BridgeError, HOST_KEY_NAME, HomeOwner, OwnerKey, OwnerTrust, PeerAuth,
-    ProcessOwner, ReverseBridge, SOCKET_PATH_MAX, SpawnSpec, StopOutcome, connection_socket_name,
-    prepare_run_dir, probe_home_owner, probe_home_owner_as, stop_on_owner, stop_on_owner_as,
+    AttachError, BridgeError, HOST_KEY_NAME, HomeOwner, NativeHostSession, OwnerKey, OwnerTrust,
+    PeerAuth, ProcessOwner, ReverseBridge, SOCKET_PATH_MAX, SpawnSpec, StopOutcome,
+    connection_socket_name, prepare_run_dir, probe_home_owner, probe_home_owner_as, stop_on_owner,
+    stop_on_owner_as,
 };
 use std::{
     collections::HashMap,
@@ -339,4 +340,37 @@ fn a_deep_home_binds_its_connection_socket_in_the_private_user_directory() {
         fs::remove_file(socket).unwrap();
     }
     fs::remove_dir(&dir).unwrap();
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)] // the fixture mutex may be held while shutting the session down
+async fn a_deep_home_owner_is_probed_at_its_private_socket_directory() {
+    let _spawns = no_spawns();
+    let root = short_home();
+    let deep = root.path().join("d".repeat(SOCKET_PATH_MAX));
+    let Some(base) = user_private_dir() else {
+        return;
+    };
+    let (session, _env) = NativeHostSession::start_with_fallback(&deep, true)
+        .expect("a default-path serve falls back to the private per-user directory");
+    assert!(
+        session.used_fallback(),
+        "the deep home bound its owner socket outside run/"
+    );
+    let dir = session.socket_path().parent().unwrap().to_path_buf();
+    // The private per-user directory is the same one a connection socket uses.
+    assert_eq!(dir.parent().unwrap(), base);
+    assert!(
+        dir.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pacer-")
+    );
+    assert_eq!(
+        probe_home_owner(&deep),
+        HomeOwner::Live(session.socket_path().to_path_buf(), session.key().clone())
+    );
+    session.shutdown().await;
+    assert_eq!(probe_home_owner(&deep), HomeOwner::Absent);
 }

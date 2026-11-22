@@ -81,14 +81,15 @@ async function waitingServe(session: Session) {
 }
 
 /**
- * Fixed owner lifecycle on a healthy `--front-door rust --native-plugin-host` sandbox: crash and
- * backoff of the service's fixture child, a refused second serve, a restart that waits for the
- * old service to exit while a waiting serve takes the home over, and a service stop with a plugin
- * call in flight. Accepts no operation or override.
+ * Fixed owner lifecycle on a healthy Rust front-door sandbox that runs the native plugin owner
+ * (the default, or an explicit `--native-plugin-host`): crash and backoff of the service's
+ * fixture child, a refused second serve, a restart that waits for the old service to exit while
+ * a waiting serve takes the home over, and a service stop with a plugin call in flight. Accepts
+ * no operation or override.
  */
 export async function exerciseNativePluginOwner(session: Session): Promise<void> {
-  if (session.frontDoor !== "rust" || !session.nativePluginHost || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
-    throw Error("native plugin owner requires a --front-door rust --native-plugin-host sandbox without forwarding or real Keychain");
+  if (session.frontDoor !== "rust" || session.pluginOwner === "ts" || session.nativeForwardEcho || session.nativeForwardOps || session.realKeychain) {
+    throw Error("native plugin owner requires a --front-door rust sandbox with the native plugin owner (not --ts-plugin-host) and without forwarding or real Keychain");
   }
   if (session.stopped || !await healthy(session)) throw Error("native plugin owner requires a healthy sandbox");
   const home = join(session.root, "home");

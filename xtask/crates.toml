@@ -150,6 +150,8 @@ layer = 7
 layer = 7
 [crates.pacer-task-ops]
 layer = 8
+[crates.pacer-bundled]
+layer = 8
 [crates.pacer-assistant-ops]
 layer = 8
 
