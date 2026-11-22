@@ -40,7 +40,7 @@ describe("workflow attention plain wording", () => {
     const failed = deriveWorkflowAttention(ctx).find(i => i.id === `orchestrator_failed:${run.id}`)!;
     expect(failed.title).toBe('Workflow "Ship the feature" stopped');
     expect(failed.detail).toBe(
-      "The planner failed several times in a row. Retry it, switch planner, or stop the run.",
+      "The planner failed several times in a row. Retry now.",
     );
     expect(failed.title + failed.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
     expect(failed.title).not.toContain(run.id);
@@ -53,7 +53,7 @@ describe("workflow attention plain wording", () => {
     const unresolved = deriveWorkflowAttention(ctx).find(i => i.id === `unresolved_wake:${run.id}`)!;
     expect(unresolved.title).toBe('Workflow "Ship the feature" is waiting for a restart');
     expect(unresolved.detail).toBe(
-      "Nothing it did resolved what it was waiting for. Retry it, switch planner, or stop the run.",
+      "Nothing it did resolved what it was waiting for. Retry now.",
     );
     expect(unresolved.title + unresolved.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
 
@@ -64,7 +64,7 @@ describe("workflow attention plain wording", () => {
     });
     const spent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_spent:${run.id}`)!;
     expect(spent.title).toBe('Workflow "Ship the feature" used its planning budget');
-    expect(spent.detail).toBe("Add more planning, or stop the run.");
+    expect(spent.detail).toBe("Add 20 planning steps.");
     expect(spent.title + spent.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
 
     updateRun(ctx, run.id, getRev(ctx, run.id), {
@@ -72,7 +72,7 @@ describe("workflow attention plain wording", () => {
     });
     const msgSpent = deriveWorkflowAttention(ctx).find(i => i.id === `budget_msg_spent:${run.id}`)!;
     expect(msgSpent.title).toBe('Workflow "Ship the feature" used its message budget');
-    expect(msgSpent.detail).toBe("Add more messages, or stop the run.");
+    expect(msgSpent.detail).toBe("Add 20 messages.");
     expect(msgSpent.title + msgSpent.detail).not.toMatch(/orchestrator|wake|\bturn\b/i);
   });
 
@@ -137,6 +137,12 @@ describe("workflow attention plain wording", () => {
       expect(surfaces).not.toMatch(/orchestrator|wake|turn/i);
       expect(surfaces).not.toMatch(/run_[a-z0-9]+/i);
       expect(surfaces).not.toContain(run.id);
+      // Board/tray show only the first action; detail must not name the others.
+      const firstLabel = item.actions[0]?.label;
+      for (const other of item.actions.slice(1)) {
+        expect(item.detail).not.toContain(other.label);
+        if (firstLabel) expect(other.label).not.toBe(firstLabel);
+      }
     }
   });
 

@@ -137,10 +137,10 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
           ? `${subject} is waiting for a restart`
           : `${subject} stopped`,
         detail: budgetSpent
-          ? "Add more planning, or stop the run."
+          ? "Add 20 planning steps."
           : unresolved
-          ? "Nothing it did resolved what it was waiting for. Retry it, switch planner, or stop the run."
-          : "The planner failed several times in a row. Retry it, switch planner, or stop the run.",
+          ? "Nothing it did resolved what it was waiting for. Retry now."
+          : "The planner failed several times in a row. Retry now.",
         raisedAt: at,
         since: at,
         notify: "important",
@@ -158,7 +158,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: "decide",
         repo: null,
         title: `${subject} used its planning budget`,
-        detail: "Add more planning, or stop the run.",
+        detail: "Add 20 planning steps.",
         raisedAt: at,
         since: at,
         notify: "important",
@@ -188,7 +188,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
         severity: "decide",
         repo: null,
         title: `${subject} used its message budget`,
-        detail: "Add more messages, or stop the run.",
+        detail: "Add 20 messages.",
         raisedAt: at,
         since: at,
         notify: "important",
