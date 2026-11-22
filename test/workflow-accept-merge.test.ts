@@ -42,7 +42,7 @@ async function stepTaskWithCommit(ctx: ReturnType<typeof fakeCtx>, repo: string,
   updateTask(ctx, task.id, t => {
     t.state = "done";
     t.worktree = wt.path;
-    t.run = { mode: "new", workdir: wt.path, startedAt: ctx.now, executor: "codex", attempt: 1 };
+    t.run = { mode: "new", workdir: wt.path, dir: wt.path, logFile: join(wt.path, "log"), startedAt: ctx.now, executor: "codex", attempt: 1 };
     t.result = { status: "done", executor: "codex", model: null, files: file, report: "", backend: "direct", worktree: wt.path };
   });
   return { task: readTask(ctx, task.id)!, worktree: wt.path, branch: wt.branch };

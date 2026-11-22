@@ -24,15 +24,15 @@ test("runBranchName uses the 10 base32 chars of the run id", () => {
 });
 
 test("isCodeStep: research/docs/review default off; feature on; code flag overrides", () => {
-  expect(isCodeStep({ type: "agent", kind: "research", prompt: "x" })).toBe(false);
-  expect(isCodeStep({ type: "agent", kind: "docs", prompt: "x" })).toBe(false);
-  expect(isCodeStep({ type: "agent", kind: "unfamiliar-code", prompt: "x" })).toBe(false);
-  expect(isCodeStep({ type: "agent", kind: "review", prompt: "x" })).toBe(false);
-  expect(isCodeStep({ type: "agent", kind: "feature", prompt: "x" })).toBe(true);
-  expect(isCodeStep({ type: "agent", kind: "tests", prompt: "x" })).toBe(true);
-  expect(isCodeStep({ type: "agent", kind: "research", prompt: "x", code: true })).toBe(true);
-  expect(isCodeStep({ type: "agent", kind: "feature", prompt: "x", code: false })).toBe(false);
-  expect(isCodeStep({ type: "agent", role: "orchestrator", prompt: "x" })).toBe(false);
+  expect(isCodeStep({ kind: "research" })).toBe(false);
+  expect(isCodeStep({ kind: "docs" })).toBe(false);
+  expect(isCodeStep({ kind: "unfamiliar-code" })).toBe(false);
+  expect(isCodeStep({ kind: "review" })).toBe(false);
+  expect(isCodeStep({ kind: "feature" })).toBe(true);
+  expect(isCodeStep({ kind: "tests" })).toBe(true);
+  expect(isCodeStep({ kind: "research", code: true })).toBe(true);
+  expect(isCodeStep({ kind: "feature", code: false })).toBe(false);
+  expect(isCodeStep({ role: "orchestrator" })).toBe(false);
 });
 
 test("ensureRunBranch creates pacer/run-* from base tip without checking it out", async () => {
