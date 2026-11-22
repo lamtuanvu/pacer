@@ -2,6 +2,7 @@
 use super::*;
 use pacer_plugin_runtime::{
     HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV, NATIVE_PLUGIN_HOST_ENABLE_ENV,
+    SOCKET_PATH_MAX, read_owner_pid,
 };
 use std::{fs, os::unix::fs::PermissionsExt};
 
@@ -12,7 +13,12 @@ async fn flag_off_leaves_env_and_socket_untouched() {
     env.insert("PACER_HOME".into(), home.path().display().to_string());
     // A credential only ever comes from the owner this serve starts.
     env.insert(HOST_SOCKET_KEY_ENV.into(), "ab".repeat(32));
-    assert!(maybe_start(home.path(), &mut env).await.unwrap().is_none());
+    assert!(
+        maybe_start(home.path(), &mut env, false)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(!env.contains_key(HOST_SOCKET_ENV));
     assert!(!env.contains_key(HOST_SOCKET_KEY_ENV));
     assert!(!home.path().join("run").join("host.sock").exists());
@@ -24,7 +30,12 @@ async fn zero_escape_leaves_path_dark_even_with_bridge_yes() {
     let mut env = HashMap::new();
     env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
     env.insert(HOST_BRIDGE_ENABLE_ENV.into(), "yes".into());
-    assert!(maybe_start(home.path(), &mut env).await.unwrap().is_none());
+    assert!(
+        maybe_start(home.path(), &mut env, false)
+            .await
+            .unwrap()
+            .is_none()
+    );
     assert!(!env.contains_key(HOST_SOCKET_ENV));
     assert!(!home.path().join("run").join("host.sock").exists());
 }
@@ -34,7 +45,10 @@ async fn flag_on_sets_socket_env_and_cleans_up() {
     let home = tempfile::tempdir().unwrap();
     let mut env = HashMap::new();
     env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
-    let guard = maybe_start(home.path(), &mut env).await.unwrap().unwrap();
+    let guard = maybe_start(home.path(), &mut env, false)
+        .await
+        .unwrap()
+        .unwrap();
     let socket = env.get(HOST_SOCKET_ENV).cloned().unwrap();
     assert!(Path::new(&socket).exists());
     assert_eq!(
@@ -83,12 +97,12 @@ fn flag_on(wait_ms: u64) -> HashMap<String, String> {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_live_owner_refuses_a_second_serve_after_the_bounded_wait() {
     let home = tempfile::tempdir().unwrap();
-    let first = maybe_start(home.path(), &mut flag_on(0))
+    let first = maybe_start(home.path(), &mut flag_on(0), false)
         .await
         .unwrap()
         .unwrap();
     let started = std::time::Instant::now();
-    let error = match maybe_start(home.path(), &mut flag_on(600)).await {
+    let error = match maybe_start(home.path(), &mut flag_on(600), false).await {
         Err(error) => error,
         Ok(_) => panic!("a second owner started"),
     };
@@ -114,7 +128,7 @@ async fn a_live_owner_refuses_a_second_serve_after_the_bounded_wait() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn a_serve_waiting_on_an_exiting_owner_starts_once_it_is_gone() {
     let home = tempfile::tempdir().unwrap();
-    let first = maybe_start(home.path(), &mut flag_on(0))
+    let first = maybe_start(home.path(), &mut flag_on(0), false)
         .await
         .unwrap()
         .unwrap();
@@ -122,7 +136,7 @@ async fn a_serve_waiting_on_an_exiting_owner_starts_once_it_is_gone() {
         tokio::time::sleep(Duration::from_millis(400)).await;
         first.shutdown().await;
     });
-    let second = maybe_start(home.path(), &mut flag_on(5000))
+    let second = maybe_start(home.path(), &mut flag_on(5000), false)
         .await
         .unwrap()
         .unwrap();
@@ -140,7 +154,7 @@ async fn a_stale_socket_is_replaced_without_waiting() {
     drop(std::os::unix::net::UnixListener::bind(run.join("host.sock")).unwrap());
     fs::write(run.join("host.sock.pid"), "1\n").unwrap();
     let started = std::time::Instant::now();
-    let guard = maybe_start(home.path(), &mut flag_on(5000))
+    let guard = maybe_start(home.path(), &mut flag_on(5000), false)
         .await
         .unwrap()
         .unwrap();
@@ -152,4 +166,44 @@ async fn a_stale_socket_is_replaced_without_waiting() {
         std::process::id().to_string()
     );
     guard.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn default_on_fallback_binds_a_deep_home_owner_socket_outside_run() {
+    let home = tempfile::tempdir().unwrap();
+    let deep = home.path().join("d".repeat(SOCKET_PATH_MAX));
+    let mut env = HashMap::new();
+    env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
+    let guard = maybe_start(&deep, &mut env, true).await.unwrap().unwrap();
+    // The socket went to the per-user fallback, not run/.
+    let socket = env.get(HOST_SOCKET_ENV).cloned().unwrap();
+    assert!(
+        !socket.starts_with(deep.join("run").to_str().unwrap()),
+        "the deep home's owner socket should not be under run/: {socket}"
+    );
+    assert!(Path::new(&socket).exists());
+    // The pid sidecar is read wherever the socket actually lives.
+    assert_eq!(read_owner_pid(&deep), Some(std::process::id()));
+    guard.shutdown().await;
+    assert!(!Path::new(&socket).exists());
+    assert_eq!(read_owner_pid(&deep), None);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn explicit_flag_stays_strict_for_a_deep_home() {
+    let home = tempfile::tempdir().unwrap();
+    let deep = home.path().join("d".repeat(SOCKET_PATH_MAX));
+    let mut env = HashMap::new();
+    env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
+    let error = match maybe_start(&deep, &mut env, false).await {
+        Err(error) => error,
+        Ok(_) => panic!("explicit opt-in should refuse a deep home"),
+    };
+    assert!(
+        error
+            .to_string()
+            .contains("reverse-bridge socket path exceeds"),
+        "explicit opt-in keeps the strict PathTooLong refusal: {error}"
+    );
+    assert!(!deep.join("run").exists());
 }

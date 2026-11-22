@@ -51,6 +51,7 @@ use pacer_foundation::{
     Ctx,
     api::{Code, CoreError, Registry},
 };
+use pacer_plugin_runtime::serve_starts_reverse_bridge_by_default;
 use serde_json::Value;
 use std::{collections::HashMap, io, sync::Arc};
 // Bun's HTTP listener joins Cookie fields with semicolon-space; Fetch joins
@@ -926,7 +927,12 @@ pub async fn run_serve(
     // Flag-on P4d-1/P4d-4 path: claim ProcessOwner + reverse bridge before Core
     // spawn so the child inherits PACER_HOST_SOCKET and HTTP plugin RPC can use
     // the same owner. Default (flags unset) is a no-op.
-    let native_host = native_host::maybe_start(&ctx.pacer_home, &mut env).await?;
+    let native_host = native_host::maybe_start(
+        &ctx.pacer_home,
+        &mut env,
+        serve_starts_reverse_bridge_by_default(),
+    )
+    .await?;
     let plugins = match &native_host {
         Some(host) => crate::native::plugins::Service::with_native_owner(host.owner()),
         None => crate::native::plugins::Service::default(),
