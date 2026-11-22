@@ -132,6 +132,9 @@ layer = "plugin"
 layer = "plugin"
 heavy = ["reqwest"]
 
+[crates.pacer-bundled-exec-orca]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
