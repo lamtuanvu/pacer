@@ -1563,8 +1563,11 @@ dependencies = [
 name = "pacer-desktop-admission"
 version = "0.0.0"
 dependencies = [
+ "libproc",
  "nix",
+ "pacer-store",
  "rusqlite",
+ "serde",
  "serde_json",
  "tempfile",
  "thiserror 2.0.21",
