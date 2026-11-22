@@ -7,6 +7,11 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Fixed
 
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
+
+## [0.17.7] - 2026-11-20
+
+### Fixed
+
 - **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.
 
 ## [0.17.6] - 2026-11-20
