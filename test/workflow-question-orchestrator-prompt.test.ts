@@ -130,3 +130,71 @@ test("CLI question escalate|get|list are registered; ask accepts --artifact", as
   expect(askResult.code).toBe(0);
   expect(askResult.out).toContain("path/to.md");
 });
+
+test("orchestrator/run-grant CLI allows answer and question escalate (turn prompt commands)", async () => {
+  // Live Q1: turn prompt tells the orchestrator to run `pacer answer q_…` / `pacer question escalate`,
+  // but the PACER_ROLE=orchestrator allow-list refused those commands before the op ran.
+  const ctx = fakeCtx({ now: NOW });
+  ctx.env.PACER_API = "inprocess";
+  withStrategy(ctx);
+  const { runId, task } = setup(ctx);
+  const asked = await askQuestion(
+    { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor", PACER_TASK_ID: task.id } },
+    {
+      text: "Which DB?",
+      answerType: "single",
+      options: [{ value: "postgres" }, { value: "sqlite" }],
+      recommended: "postgres",
+      blocks: "step",
+    },
+  );
+  updateTask(ctx, task.id, t => { t.state = "needs_input"; });
+  insertTurn(ctx, {
+    id: `turn_${runId.slice(-6)}`,
+    runId,
+    planner: "claude-code",
+    status: "running",
+    startedAt: ctx.now,
+    deadline: ctx.now + 1200,
+  });
+  const bearer = issueRunGrant(ctx, { runId, turnId: `turn_${runId.slice(-6)}`, deadline: ctx.now + 600 });
+  const orchEnv = {
+    ...ctx.env,
+    PACER_ROLE: "orchestrator",
+    PACER_RUN_GRANT: bearer,
+    PACER_API: "inprocess",
+  };
+  delete orchEnv.PACER_PORT;
+  const orchCtx = { ...ctx, env: orchEnv };
+
+  const { cliDeps } = await import("../src/cli");
+  const prev = cliDeps.spawnRunner;
+  try {
+    cliDeps.spawnRunner = () => 1;
+    const answered = await main(["answer", asked.id, "postgres", "--expect-rev", String(asked.rev)], orchCtx);
+    expect(answered.err).not.toMatch(/orchestrator role only allows/);
+    expect(answered.code).toBe(0);
+  } finally {
+    cliDeps.spawnRunner = prev;
+  }
+
+  // Separate open question for escalate (blocks:nothing so it does not require needs_input).
+  updateTask(ctx, task.id, t => { t.state = "running"; delete t.question; });
+  const toEscalate = await askQuestion(
+    { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor", PACER_TASK_ID: task.id } },
+    { text: "FYI?", answerType: "text", blocks: "nothing" },
+  );
+  const escalateCli = await main(
+    ["question", "escalate", toEscalate.id, "--suggested", "later", "--reason", "needs human", "--expect-rev", String(toEscalate.rev)],
+    orchCtx,
+  );
+  // Allow-list must not refuse (live Q1 failure mode). Functional escalate uses the grant API path.
+  expect(escalateCli.err).not.toMatch(/orchestrator role only allows/);
+  const escalated = escalateQuestion(orchCtx, {
+    id: toEscalate.id,
+    suggested: "later",
+    reason: "needs human",
+    expectRev: toEscalate.rev,
+  });
+  expect(escalated.answerer).toBe("person");
+});
