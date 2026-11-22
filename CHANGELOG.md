@@ -14,6 +14,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Fixed
 
+- **Keyless `classifier.ask` now runs through the native plugin owner.** With the owner flag on, a classifier that needs no credential now crosses the owner with the HTTP scope its configuration already projects, answering as it does with the owner off; a keyed classifier and keyless endpoint discovery still keep their flag-on refusal.
+
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
 
 ## [0.17.7] - 2026-11-20

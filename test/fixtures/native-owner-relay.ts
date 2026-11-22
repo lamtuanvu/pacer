@@ -93,7 +93,7 @@ export async function relayOwner(path: string): Promise<Relay> {
         if (message.id !== 2) return;
         relay.replies.push(message.error ?? message.result);
         finish(message.error ? { error: { ...message.error, data: { ...message.error.data, origin: "plugin" } } }
-          : { result: { value: message.result, hello, logs: [] } });
+          : { result: { value: message.result, hello, logs: [], pid: child?.pid ?? null } });
       });
       toChild({ id: 1, method: "plugin.hello", params: call.spawn.hello });
     });
