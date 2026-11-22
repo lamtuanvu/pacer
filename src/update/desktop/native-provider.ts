@@ -434,13 +434,19 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                 peer.auditToken,
                 hello.role,
               );
-            } catch {
-              throw helloDenied("verifyPeer");
+            } catch (error) {
+              throw helloDenied(
+                "verifyPeer",
+                error instanceof Error ? error.message : undefined,
+              );
             }
             try {
               await this.options.verifyService();
-            } catch {
-              throw helloDenied("verifyService");
+            } catch (error) {
+              throw helloDenied(
+                "verifyService",
+                error instanceof Error ? error.message : undefined,
+              );
             }
             let installation: Installation | null = null;
             let adoptionSession: string | undefined,
@@ -453,8 +459,11 @@ export class NativeControlBridge implements NativeAuthorityProvider {
               const app = dirname(dirname(dirname(identity.executable)));
               try {
                 this.verifyBundle(app);
-              } catch {
-                throw helloDenied("verifyBundle");
+              } catch (error) {
+                throw helloDenied(
+                  "verifyBundle",
+                  error instanceof Error ? error.message : undefined,
+                );
               }
               try {
                 installation = await inspectInstallation(this.getCtx(), app);
@@ -547,8 +556,11 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                 hello.role,
                 identity.process,
               );
-            } catch {
-              throw helloDenied("verifyPeer");
+            } catch (error) {
+              throw helloDenied(
+                "verifyPeer",
+                error instanceof Error ? error.message : undefined,
+              );
             }
             connection = {
               peer,
