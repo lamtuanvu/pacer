@@ -7,6 +7,7 @@
 //! guarded by the shared admission coordinator for crash-safe, serialized
 //! compare-and-swap writes. Records and adoption rows round-trip byte-for-byte
 //! with the TypeScript writer through `pacer-js-json`'s `stringify`.
+pub mod adapter;
 pub mod adoption_state;
 pub mod adoption_store;
 pub mod policy;
