@@ -455,7 +455,7 @@ describe("backend choice", () => {
     const { ctx, deps } = setup({ respond: noLoop });
     const rows = candidates(ctx, deps);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false });
+    expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false, liveTools: true });
     expect(rows[0]).not.toHaveProperty("reason");
   });
 });
