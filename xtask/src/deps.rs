@@ -112,6 +112,9 @@ pub fn check(policy: &Policy, edges: &[Edge]) -> Vec<String> {
                     (Layer::Named(s), Layer::Number(n)) if s == "sdk" => *n == 0,
                     (Layer::Named(s), Layer::Named(t)) if s == "plugin" => t == "sdk",
                     (Layer::Number(a), Layer::Number(b)) => b < a,
+                    (Layer::Number(_), Layer::Named(t)) if edge.from == "pacer-bundled" => {
+                        t == "plugin" || t == "sdk"
+                    }
                     _ => false,
                 };
                 if !allowed {

@@ -1461,11 +1461,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-bundled"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
 name = "pacer-cli"
 version = "0.2.3"
 dependencies = [
  "flate2",
  "jiff",
+ "pacer-bundled",
  "pacer-foundation",
  "pacer-server",
  "serde_json",

@@ -185,7 +185,14 @@ pub(crate) struct SealedCall {
     required: Vec<String>,
     /// Core's restart backoff: the child may not start before this epoch ms.
     next_start_at: Option<u64>,
+    /// Core's pin for one host-issued SSH sequence: the call runs only on the
+    /// tracked child with this pid. The owner never starts, restarts or
+    /// substitutes a child for such a call.
+    expect_pid: Option<u32>,
 }
+
+/// Refusal text when the pinned child is gone or replaced.
+pub(crate) const EXPECTED_CHILD_CHANGED: &str = "host runner provider changed";
 
 impl SealedCall {
     /// `Ok(None)` keeps the bare call contract (call an already tracked child).
@@ -280,6 +287,15 @@ impl SealedCall {
             }
             Some(_) => return Err("invalid requireFeatures"),
         }
+        let expect_pid = match params.get("expectPid") {
+            None | Some(Value::Null) => None,
+            Some(pid) => Some(
+                pid.as_u64()
+                    .and_then(|pid| u32::try_from(pid).ok())
+                    .filter(|pid| *pid > 0)
+                    .ok_or("invalid expectPid")?,
+            ),
+        };
         Ok(Some(Self {
             spec: SpawnSpec {
                 argv,
@@ -293,6 +309,7 @@ impl SealedCall {
             core_methods,
             required,
             next_start_at,
+            expect_pid,
         }))
     }
 }
@@ -315,6 +332,9 @@ struct Sealed {
     hello: Option<(Value, HelloSource)>,
     /// The call's `capability.log` lines: `(level, message)`.
     logs: Vec<(String, String)>,
+    /// The serving child's pid, so Core can pin later calls of the same
+    /// host-issued sequence to it; `None` when no child served the call.
+    pid: Option<u32>,
 }
 
 impl Sealed {
@@ -323,6 +343,7 @@ impl Sealed {
             value: Err(failure),
             hello: None,
             logs: Vec::new(),
+            pid: None,
         }
     }
 }
@@ -373,7 +394,7 @@ pub(crate) async fn call_sealed(
         Ok(value) => value,
         Err(failure) => return Err(Box::new((failure, hello, logs))),
     };
-    Ok(json!({"value": value, "hello": hello, "logs": logs}))
+    Ok(json!({"value": value, "hello": hello, "logs": logs, "pid": outcome.pid}))
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -480,19 +501,40 @@ async fn prepare_sealed(
             StartFailure::Cancelled => cancelled(),
         })
     };
-    let mut lane = start().await?;
-    // A child whose generation was sealed under another observation fingerprint
-    // runs the old manifest, config or grant: the registry stops it and starts
-    // a fresh one before admitting the call.
-    let sealed_generation = observation.as_ref().and_then(|o| o.generation.clone());
-    if let (Some(sealed), Some(live)) = (sealed_generation, lane.observation().generation())
-        && sealed != live
-    {
-        lane.observation().retire();
-        let _ = lane.process().terminate().await;
-        lane.wait_settled(RESTART_SETTLE).await;
-        lane = start().await?;
-    }
+    let lane = if let Some(expect_pid) = sealed.expect_pid {
+        // Core pinned this host-issued sequence to a specific child. The owner
+        // must not start, restart or substitute one: refuse when that child is
+        // gone or replaced. It must also already be ready (its child answered
+        // hello); `Prepared::run` then treats it as `HelloSource::Known`.
+        let (pinned, _) = owner
+            .lock()
+            .await
+            .lane_for_call(id)
+            .map_err(|_error| unavailable(EXPECTED_CHILD_CHANGED))?;
+        if !pinned.process().is_alive()
+            || pinned.process().pid() != Some(expect_pid)
+            || !pinned.is_ready()
+        {
+            return Err(unavailable(EXPECTED_CHILD_CHANGED));
+        }
+        pinned
+    } else {
+        let started = start().await?;
+        // A child whose generation was sealed under another observation
+        // fingerprint runs the old manifest, config or grant: the registry
+        // stops it and starts a fresh one before admitting the call.
+        let sealed_generation = observation.as_ref().and_then(|o| o.generation.clone());
+        if let (Some(sealed), Some(live)) = (sealed_generation, started.observation().generation())
+            && sealed != live
+        {
+            started.observation().retire();
+            let _ = started.process().terminate().await;
+            started.wait_settled(RESTART_SETTLE).await;
+            start().await?
+        } else {
+            started
+        }
+    };
     let process = ProcessContext {
         account_home: sealed.roots.account_home.clone(),
         environment: sealed.environment,
@@ -572,7 +614,12 @@ impl Prepared {
             .call(id, method, params, until, cancel, &mut hello)
             .await;
         let logs = self.session.lock().await.take_logs();
-        Sealed { value, hello, logs }
+        Sealed {
+            value,
+            hello,
+            logs,
+            pid: self.lane.process().pid(),
+        }
     }
 
     #[allow(clippy::too_many_arguments)]
