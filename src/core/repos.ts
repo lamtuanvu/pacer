@@ -59,6 +59,7 @@ export function labelsFor(entries: {key: string; path: string}[]): Map<string,st
 const lastPruned = new Map<string,number>();
 function taskRepos(ctx: Ctx): RepoRef[] {
  return listActiveAndRecentTasks(ctx).filter(t=>{
+  if (t.kind === "orchestrate" || t.kind === "workflow-root") return false;
   const last=t.attempts.at(-1),updatedAt=Math.max(t.createdAt,last?.startedAt??0,last?.endedAt??0,t.attemptStartedAt??0);
   return ["queued","running"].includes(t.state)||(!t.dismissed&&updatedAt>=ctx.now-86400);
  }).map(t=>t.repo??repoFor(ctx,t.brief.repo));

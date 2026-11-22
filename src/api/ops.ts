@@ -11,6 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
@@ -460,10 +461,24 @@ export const OPS: Record<string, OpDef> = {
     q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, {q,...rest}=p;
-    // Over-fetch so filtering engine-owned orchestrate tasks still fills the page (D2.12).
-    const rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+20}).filter(t=>t.kind!=="orchestrate");
-    const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
-    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    // Loop past engine-owned kinds until the page is full (D2.12); a fixed +20
+    // over-fetch is not enough when many workflow-root/orchestrate rows sit first.
+    const visible: ReturnType<typeof core.tasks.list> = [];
+    let cursor = p.before;
+    while (visible.length <= limit) {
+      const batch = core.tasks.list(ctx, { ...rest, query: q, limit: Math.max(21, limit + 1 - visible.length + 20), before: cursor });
+      if (!batch.length) break;
+      const last = batch[batch.length - 1]!.id;
+      if (cursor === last) break;
+      for (const t of batch) {
+        if (!isEngineOwnedKind(t.kind)) visible.push(t);
+        if (visible.length > limit) break;
+      }
+      cursor = last;
+      if (visible.length > limit) break;
+    }
+    const page={tasks:apiTaskPage(ctx,visible.slice(0,limit)),next:visible.length>limit?visible[limit-1]!.id:null};
+    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:visible.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
   "task.delegate": op({

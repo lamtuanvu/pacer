@@ -112,6 +112,14 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       async (p) => scoped("run.decide", p));
     server.registerTool("run_choose", { description: "Choose a child workflow for a choose_workflow step.", inputSchema: { id: z.string(), step: z.string(), workflow: z.string(), reason: z.string() } },
       async (p) => scoped("run.choose", p));
+    server.registerTool("run_submit_graph", {
+      description: "Submit a generated sub-workflow for a waiting generate step under this run grant.",
+      inputSchema: {
+        id: z.string(),
+        step: z.string(),
+        source: z.union([z.string().min(1), z.record(z.string(), z.unknown())]),
+      },
+    }, async (p) => scoped("run.submit_graph", p));
     server.registerTool("step_skip", { description: "Skip a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },
       async (p) => scoped("step.skip", p));
     server.registerTool("step_retry", { description: "Retry a failed step under this run grant.", inputSchema: { id: z.string(), step: z.string() } },

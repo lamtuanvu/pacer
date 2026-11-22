@@ -11,7 +11,7 @@ import { getTurn } from "./wakeups";
 export const RUN_GRANT_KIND = "run";
 
 /** Operations a live `prg_` grant may call, and only on its own run's targets.
- *  question.* and run.submit_graph land in later phases; run.answer is person-only. */
+ *  run.answer stays person-only; question.* lands in a later phase. */
 export const RUN_GRANT_OPS = [
   "task.review",
   "task.stop",
@@ -20,6 +20,7 @@ export const RUN_GRANT_OPS = [
   "step.retry",
   "run.choose",
   "run.decide",
+  "run.submit_graph",
 ] as const;
 
 export type RunGrantOp = (typeof RUN_GRANT_OPS)[number];

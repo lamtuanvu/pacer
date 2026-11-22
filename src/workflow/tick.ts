@@ -348,6 +348,12 @@ export async function advanceRuns(
   // A transient error in it never stops the tick: the tick continues to the change
   // loop (Review Focus: run correctness 11).
   handled += await reconcileOrphans(ctx, spawn, deps);
+  // Engine-owned root leaks (dead root replacement left stopped wfroot tasks, or a
+  // crash created a root that was never stamped): sweep them each tick.
+  try {
+    const { reconcileOrphanWorkflowRoots } = await import("./worknode");
+    handled += reconcileOrphanWorkflowRoots(ctx).length;
+  } catch { /* never block the tick */ }
   // Then the stalled advancements (Review Focus: run correctness 4): a step that is
   // done but was never advanced gets its edges replayed, and a deferred end whose
   // siblings are gone finally ends the run. A transient error here never stops the

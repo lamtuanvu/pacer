@@ -4909,6 +4909,42 @@
       ],
       "additionalProperties": false
     },
+    "RunSubmitGraphParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        },
+        "step": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "source": {
+          "anyOf": [
+            {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 262144
+            },
+            {
+              "type": "object",
+              "propertyNames": {
+                "type": "string"
+              },
+              "additionalProperties": {}
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "step",
+        "source"
+      ],
+      "additionalProperties": false
+    },
     "RunnerAddParams": {
       "anyOf": [
         {

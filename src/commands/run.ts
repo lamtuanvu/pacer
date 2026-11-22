@@ -10,7 +10,7 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
 
-const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] | list [--status <s>] | show <id> | answer <id> <step> <answer> | stop <id> | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | decide <id> <step> <choice> --reason <text> | choose <id> <step> <workflow> --reason <text> [--json]";
+const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | decide <id> <step> <choice> --reason <text> | choose <id> <step> <workflow> --reason <text> [--json]";
 const STEP_USAGE = "usage: pacer step result --json '<JSON object>' | --file <path> | skip <id> <step> | retry <id> <step>";
 
 async function call(ctx: Ctx, op: string, params: Record<string, unknown>, deps: OpDeps): Promise<unknown> {
@@ -133,6 +133,41 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       if (json) return { code: 0, out: JSON.stringify(child, null, 2), err: "" };
       return { code: 0, out: `${child.id}  chose ${pos[2]}`, err: "" };
     }
+    if (sub === "graph") {
+      const { pos, flags } = commandArgs(rest, ["version"], ["json"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as {
+        run: RunLike;
+        graphs?: { stepId: string; attempt: number; version: number; status: string; stepCount: number }[];
+      };
+      const graphs = got.graphs ?? [];
+      const version = flags.version !== undefined ? Number(flags.version) : undefined;
+      const filtered = version === undefined || !Number.isFinite(version)
+        ? graphs
+        : graphs.filter(g => g.version === version);
+      if (json) return { code: 0, out: JSON.stringify(filtered, null, 2), err: "" };
+      if (filtered.length === 0) return { code: 0, out: "(no graphs)", err: "" };
+      return {
+        code: 0,
+        out: filtered.map(g =>
+          `${got.run.id}  ${g.stepId}#${g.attempt}@v${g.version}  ${g.status}  ${g.stepCount} steps`,
+        ).join("\n"),
+        err: "",
+      };
+    }
+    if (sub === "submit-graph") {
+      const { pos, flags } = commandArgs(rest, ["file", "id", "step"], ["json"]);
+      if (pos.length || !flags.file || !flags.id || !flags.step) throw Error(USAGE);
+      const source = readFileSync(String(flags.file), "utf8");
+      const result = await call(ctx, "run.submit_graph", {
+        id: String(flags.id), step: String(flags.step), source,
+      }, deps) as { ok: boolean; errors: unknown[]; version?: number };
+      if (json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      if (!result.ok) {
+        return { code: 2, out: "", err: `pacer: graph rejected (${JSON.stringify(result.errors)})` };
+      }
+      return { code: 0, out: `${flags.id}  graph v${result.version} submitted`, err: "" };
+    }
     throw Error(USAGE);
   } catch (e) { return { code: 2, out: "", err: `pacer: ${e instanceof Error ? e.message : String(e)}` }; }
 }
@@ -172,6 +207,6 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
 }
 
 export const COMMANDS: Command[] = [
-  { name: "run", usage: "run start|list|show|answer|stop|auto|planner|budget|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
+  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|auto|planner|budget|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
   { name: "step", usage: "step result --json <object> | --file <path> | skip <id> <step> | retry <id> <step>    report or resolve a workflow step", run: (args, ctx) => stepCmd(args, ctx) },
 ];

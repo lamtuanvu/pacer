@@ -57,6 +57,13 @@ function salvageDef(data: Record<string, unknown>): WorkflowDef {
   };
 }
 
+/** Normalize object-form workflow sources the same way as YAML/JSON text (edge tuples, max_loops, entry). */
+export function normalizeWorkflowObject(data: Record<string, unknown>): Record<string, unknown> {
+  const normalized = normalizeEntry(data);
+  normalized.edges = Array.isArray(normalized.edges) ? normalized.edges.map(normalizeEdge) : normalized.edges;
+  return normalized;
+}
+
 export function parseWorkflow(source: string): { def?: WorkflowDef; errors: WorkflowError[] } {
   let data: unknown;
   try {
@@ -65,8 +72,7 @@ export function parseWorkflow(source: string): { def?: WorkflowDef; errors: Work
     return { errors: [{ path: "", message: `invalid YAML or JSON: ${e instanceof Error ? e.message : String(e)}` }] };
   }
   if (!isPlainObject(data)) return { errors: [{ path: "", message: "workflow must be a mapping" }] };
-  const normalized = normalizeEntry(data);
-  normalized.edges = Array.isArray(normalized.edges) ? normalized.edges.map(normalizeEdge) : normalized.edges;
+  const normalized = normalizeWorkflowObject(data);
   const { def, errors } = checkWorkflowShape(normalized);
   if (def) return { def, errors: [] };
   return { def: salvageDef(normalized), errors };

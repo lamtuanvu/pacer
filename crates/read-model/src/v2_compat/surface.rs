@@ -161,6 +161,7 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "run.retry_orchestrator",
     "run.decide",
     "run.choose",
+    "run.submit_graph",
     "session.agent.list",
     "session.agent.get",
     "session.agent.create",
@@ -252,6 +253,9 @@ pub fn op_schemas(input: &Value) -> Value {
         json!("Preview agent integration files and the undo command before consenting.");
     out["agent.connect"]["description"] =
         json!("Connect an agent after explicit consent to write its integration files.");
+    // The usage record and its deprecation note are protocol 3 additions; 2.x keeps its frozen text.
+    out["account.list"]["description"] =
+        json!("Accounts, usage and sign-in commands without account emails.");
     // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
     out["notifications.get"]["description"] = json!("Current notification level.");
     out["notifications.set"]["description"] = json!("Set notifications to off, important or all.");

@@ -298,6 +298,7 @@
       "run.set_planner",
       "run.start",
       "run.stop",
+      "run.submit_graph",
       "runner.add",
       "runner.block",
       "runner.check",

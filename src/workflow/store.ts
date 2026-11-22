@@ -93,6 +93,9 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
     if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
     if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
+    // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
+    if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
+    if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -108,6 +111,21 @@ export function workflowDatabase(ctx: Ctx): Database {
       );
     `);
     db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
+    // Phase 3: versioned generated graphs linked to the producing generate step.
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_graphs(
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        version INTEGER NOT NULL,
+        def TEXT NOT NULL,
+        status TEXT NOT NULL,
+        reason TEXT,
+        created_at REAL NOT NULL,
+        PRIMARY KEY(run_id, step_id, attempt, version)
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
   }).immediate();
   ready.add(db);
   return db;
@@ -145,6 +163,10 @@ export interface RunRow {
   strictSteps?: string[];
   /** Planner switch queued for the next turn (D2). */
   pendingPlanner?: string;
+  /** Phase 3: `plain` (Phase 1/2) or `work_node` (engine-owned root). Pinned for the run's life (D8). */
+  stepMode?: "plain" | "work_node";
+  /** Engine-owned dispatcher root for `work_node` runs. */
+  rootTaskId?: string;
 }
 
 export interface DecisionRow {
@@ -193,6 +215,8 @@ export type NewRun = {
   sessionId?: string;
   budget?: string;
   spent?: string;
+  stepMode?: "plain" | "work_node";
+  rootTaskId?: string;
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -225,6 +249,8 @@ interface RunDbRow {
   parent_step?: string | null;
   strict_steps?: string | null;
   pending_planner?: string | null;
+  step_mode?: string | null;
+  root_task_id?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -260,6 +286,8 @@ function runFromRow(row: RunDbRow): RunRow {
     try { out.strictSteps = JSON.parse(row.strict_steps) as string[]; } catch { /* ignore bad JSON */ }
   }
   if (row.pending_planner) out.pendingPlanner = row.pending_planner;
+  out.stepMode = row.step_mode === "work_node" ? "work_node" : "plain";
+  if (row.root_task_id) out.rootTaskId = row.root_task_id;
   return out;
 }
 
@@ -359,14 +387,17 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
   if (r.sessionId) row.sessionId = r.sessionId;
   if (r.budget) row.budget = r.budget;
   if (r.spent) row.spent = r.spent;
+  row.stepMode = r.stepMode ?? "work_node";
+  if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
   db.query(
-    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
     JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
     row.parentRunId ?? null, row.parentStep ?? null,
     row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
     row.budget ?? null, row.spent ?? null,
+    row.stepMode, row.rootTaskId ?? null,
   );
   return row;
 }
@@ -386,6 +417,35 @@ export function getRun(ctx: Ctx, id: string): RunRow | null {
   return row ? runFromRow(row) : null;
 }
 
+/** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
+export function setRootTaskId(ctx: Ctx, runId: string, rootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND (root_task_id IS NULL OR root_task_id = ?)",
+  ).run(rootTaskId, runId, rootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId && current.rootTaskId !== rootTaskId) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a root task`);
+    }
+  }
+}
+
+/** Compare-and-set replacement when the previous root is dead (deleted/archived/lost work row). */
+export function replaceRootTaskId(ctx: Ctx, runId: string, oldRootTaskId: string, newRootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND root_task_id = ?",
+  ).run(newRootTaskId, runId, oldRootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId === newRootTaskId) return;
+    throw new CoreError("conflict", `conflict: run ${runId} root task changed`);
+  }
+}
+
 export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
   const db = workflowDatabase(ctx);
   const rows = status === undefined
@@ -401,7 +461,7 @@ export function liveRuns(ctx: Ctx): RunRow[] {
   return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
 }
 
-export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps">> & {
+export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps" | "stepMode" | "rootTaskId">> & {
   reason?: string | null;
   nextWakeAt?: number | null;
   orchestratorState?: string | null;
@@ -434,6 +494,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       pendingPlanner: patch.pendingPlanner === undefined ? current.pendingPlanner : (patch.pendingPlanner ?? undefined),
       nextWakeAt: patch.nextWakeAt === undefined ? current.nextWakeAt : (patch.nextWakeAt ?? undefined),
       orchestratorState: patch.orchestratorState === undefined ? current.orchestratorState : (patch.orchestratorState ?? undefined),
+      stepMode: patch.stepMode === undefined ? current.stepMode : patch.stepMode,
+      rootTaskId: patch.rootTaskId === undefined ? current.rootTaskId : patch.rootTaskId,
       rev: current.rev + 1,
       updatedAt: ctx.now,
     };
@@ -447,8 +509,10 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     if (updated.pendingPlanner === undefined) delete updated.pendingPlanner;
     if (updated.nextWakeAt === undefined) delete updated.nextWakeAt;
     if (updated.orchestratorState === undefined) delete updated.orchestratorState;
+    if (updated.stepMode === undefined) delete updated.stepMode;
+    if (updated.rootTaskId === undefined) delete updated.rootTaskId;
     const result = db.query(
-      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ? WHERE id = ? AND rev = ?",
+      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ?, step_mode = ?, root_task_id = ? WHERE id = ? AND rev = ?",
     ).run(
       updated.status,
       updated.reason ?? null,
@@ -466,6 +530,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       updated.orchestratorState ?? null,
       updated.strictSteps ? JSON.stringify(updated.strictSteps) : null,
       updated.pendingPlanner ?? null,
+      updated.stepMode ?? "plain",
+      updated.rootTaskId ?? null,
       id,
       expectRev,
     );
@@ -788,4 +854,117 @@ export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
   return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
     "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
   ).all(runId).map(decisionFromRow);
+}
+
+export type GraphStatus = "proposed" | "approved" | "rejected" | "superseded";
+
+export interface GraphRow {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  version: number;
+  def: WorkflowDef;
+  status: GraphStatus;
+  reason?: string;
+  createdAt: number;
+}
+
+interface GraphDbRow {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  version: number;
+  def: string;
+  status: string;
+  reason: string | null;
+  created_at: number;
+}
+
+function graphFromRow(row: GraphDbRow): GraphRow {
+  return {
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    version: row.version,
+    def: JSON.parse(row.def) as WorkflowDef,
+    status: row.status as GraphStatus,
+    reason: row.reason ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function listGraphs(ctx: Ctx, runId: string, stepId?: string): GraphRow[] {
+  const db = workflowDatabase(ctx);
+  if (stepId === undefined) {
+    return db.query<GraphDbRow, [string]>(
+      "SELECT * FROM workflow_graphs WHERE run_id = ? ORDER BY step_id, attempt, version",
+    ).all(runId).map(graphFromRow);
+  }
+  return db.query<GraphDbRow, [string, string]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? ORDER BY attempt, version",
+  ).all(runId, stepId).map(graphFromRow);
+}
+
+/** Insert a proposed graph version; any prior proposed/approved row for the same
+ *  (run, step, attempt) becomes superseded. */
+export function insertGraphVersion(ctx: Ctx, input: {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  def: WorkflowDef;
+  status?: GraphStatus;
+  reason?: string;
+}): GraphRow {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => {
+    db.query(
+      "UPDATE workflow_graphs SET status = 'superseded' WHERE run_id = ? AND step_id = ? AND attempt = ? AND status IN ('proposed', 'approved')",
+    ).run(input.runId, input.stepId, input.attempt);
+    const prior = db.query<{ version: number }, [string, string, number]>(
+      "SELECT version FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? ORDER BY version DESC LIMIT 1",
+    ).get(input.runId, input.stepId, input.attempt);
+    const version = (prior?.version ?? 0) + 1;
+    const status = input.status ?? "proposed";
+    db.query(
+      "INSERT INTO workflow_graphs(run_id, step_id, attempt, version, def, status, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(input.runId, input.stepId, input.attempt, version, JSON.stringify(input.def), status, input.reason ?? null, ctx.now);
+    return {
+      runId: input.runId,
+      stepId: input.stepId,
+      attempt: input.attempt,
+      version,
+      def: input.def,
+      status,
+      reason: input.reason,
+      createdAt: ctx.now,
+    };
+  })();
+}
+
+/** Update one graph version's status (and optional reason). */
+export function setGraphStatus(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+  status: GraphStatus,
+  reason?: string,
+): GraphRow {
+  const db = workflowDatabase(ctx);
+  const row = db.query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  if (!row) throw new CoreError("not_found", `unknown graph ${key.runId}/${key.stepId}#${key.attempt}@${key.version}`);
+  db.query(
+    "UPDATE workflow_graphs SET status = ?, reason = ? WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).run(status, reason ?? row.reason, key.runId, key.stepId, key.attempt, key.version);
+  return graphFromRow({ ...row, status, reason: reason ?? row.reason });
+}
+
+export function getGraph(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+): GraphRow | null {
+  const row = workflowDatabase(ctx).query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  return row ? graphFromRow(row) : null;
 }
