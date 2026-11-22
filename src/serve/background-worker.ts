@@ -121,7 +121,13 @@ function runLoops(): void {
   report({ type: "loops", names: MANAGED_LOOPS });
   // Poll changes/active tasks at 500ms; pumpOnce keeps status/entity/quota work at 15s.
   // A shorter pumpMs remains useful for tests; 0 disables both paths.
-  if (pumpMs > 0) loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, { poll: true }));
+  if (pumpMs > 0) {
+    loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, {
+      poll: true,
+      // Forward the service selfCommand: drain must not use this Worker's argv.
+      ...(spawnRunner ? { spawnRunner } : {}),
+    }));
+  }
   loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawnRunner ?? undefined, mode: statusMode, callerWake }));
   loop("sweep", 60 * 60_000, 500, c => autoCleanSweep(c));
   loop("certification", 10 * 60_000, 2000, c => certificationTick(c));

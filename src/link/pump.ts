@@ -16,6 +16,7 @@ import type { Strategy } from "../config/strategy";
 import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
 import { drainQueue } from "../tasks/drain";
+import type { SpawnRunner } from "../tasks/api";
 import { sessionTaskData } from "../session/link";
 import { withTimeout } from "../core/path-probe";
 import { resolveTask } from "../tasks/resolution";
@@ -159,6 +160,10 @@ export interface PumpOpts {
   ledger?: PumpLedgerApi;
   /** Cheap change/active-set poll between periodic passes. */
   poll?: boolean;
+  /** Service selfCommand launcher. Required when pump runs inside a Bun Worker
+   *  whose argv[1] is the worker module: drainQueue defaults to selfCommand()
+   *  and would otherwise spawn `background-worker.ts _run` (no _run handler). */
+  spawnRunner?: SpawnRunner;
 }
 
 /** Expensive periodic work (quota alerts, strategy fingerprints, host probes, entity
@@ -245,7 +250,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
   }
   if (!taskOnly) {
     rotateActivity(ctx);
-    await drainQueue(ctx).catch(() => {});
+    await drainQueue(ctx, opts.spawnRunner).catch(() => {});
   }
   const latest=readLatest(ctx),out:OutboxEvent[]=[]; let st:Status;
   try{st=taskOnly?statusPasses.get(ctx.pacerHome)!:await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");
