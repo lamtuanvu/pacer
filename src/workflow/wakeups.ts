@@ -255,7 +255,20 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
       return false;
     }
     if (cause === "question") {
-      return step.status === "waiting";
+      if (step.status !== "waiting") return false;
+      // Human-step / generate auto wakes use stepWakeRef. After escalate the open
+      // question's answerer is the person — do not keep the orchestrator cause open.
+      const openHuman = workflowDatabase(ctx).query<
+        { answerer: string },
+        [string, string, number]
+      >(
+        `SELECT answerer FROM workflow_questions
+         WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+           AND asker_kind = 'human_step'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(id, stepId, attempt);
+      if (openHuman) return openHuman.answerer === "orchestrator";
+      return true;
     }
     if (cause === "replan") {
       if (step.status !== "waiting") return false;
@@ -579,6 +592,15 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
       if (!stepDef) continue;
       if (step.status === "waiting" && stepDef.type === "human") {
         if (!canAutoDecide(rootRun, step.stepId, stepDef)) continue;
+        // Prefer the open question row's answerer: escalate flips it to person while
+        // the step stays waiting; do not recreate the orchestrator wake.
+        const openHuman = db.query<{ answerer: string }, [string, string, number]>(
+          `SELECT answerer FROM workflow_questions
+           WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+             AND asker_kind = 'human_step'
+           ORDER BY created_at DESC, id DESC LIMIT 1`,
+        ).get(run.id, step.stepId, step.attempt);
+        if (openHuman && openHuman.answerer !== "orchestrator") continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "question", ref)) continue;
         push(root, "question", ref, step.startedAt);

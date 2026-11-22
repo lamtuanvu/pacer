@@ -12,7 +12,9 @@ import {
 import { answerHumanStep, onTaskSettled, recordStepResult, startRun, type EngineDeps } from "../src/workflow/engine";
 import { answerQuestion, escalateQuestion } from "../src/workflow/questions";
 import { issueRunGrant } from "../src/workflow/run-grant";
-import { insertTurn, openWakeups } from "../src/workflow/wakeups";
+import {
+  insertTurn, needsOrchestrator, openWakeups, releaseWakeups, stepWakeRef, updateTurn, wakeCauseStillOpen,
+} from "../src/workflow/wakeups";
 import type { WorkflowDef } from "../src/workflow/schema";
 import type { Ctx } from "../src/types";
 
@@ -154,6 +156,38 @@ test("auto mode on → auto human step question answerer is orchestrator; must s
   const approveQ = listQuestions(ctx, runId, "open")[0]!;
   expect(approveQ.stepId).toBe("approve");
   expect(approveQ.answerer).toBe("person");
+});
+
+test("escalate auto human-step completes wakes; needsOrchestrator stays empty after turn ends", async () => {
+  const ctx = fakeCtx({ now: NOW });
+  withStrategy(ctx);
+  const { deps } = fakeDeps();
+  const { runId } = await reachAutoHuman(ctx, deps);
+  const routeQ = listQuestions(ctx, runId, "open")[0]!;
+  expect(routeQ.answerer).toBe("orchestrator");
+  const step = stepsOfRun(ctx, runId).find(s => s.stepId === "route")!;
+  const ref = stepWakeRef(runId, step.stepId, step.attempt, step.branch);
+  expect(openWakeups(ctx, runId).some(w => w.cause === "question" && w.ref === ref)).toBe(true);
+
+  const orch = grantFor(ctx, runId);
+  const turnId = `turn_${runId.slice(-6)}`;
+  const escalated = escalateQuestion(orch, {
+    id: routeQ.id,
+    suggested: "left",
+    reason: "needs a person",
+    expectRev: routeQ.rev,
+  });
+  expect(escalated.answerer).toBe("person");
+  expect(openWakeups(ctx, runId).every(w => w.ref !== ref && w.ref !== routeQ.id)).toBe(true);
+  expect(wakeCauseStillOpen(ctx, runId, "question", ref)).toBe(false);
+  expect(needsOrchestrator(ctx).filter(n => n.runId === runId && n.cause === "question")).toEqual([]);
+
+  // End the orchestrator turn the way settle does: release uncompleted claims.
+  updateTurn(ctx, turnId, { status: "done", endedAt: ctx.now });
+  releaseWakeups(ctx, turnId);
+  expect(openWakeups(ctx, runId).filter(w => w.cause === "question")).toEqual([]);
+  expect(needsOrchestrator(ctx).filter(n => n.runId === runId && n.cause === "question")).toEqual([]);
+  expect(wakeCauseStillOpen(ctx, runId, "question", ref)).toBe(false);
 });
 
 test("must question refuses an orchestrator answer even after an escalate-like attempt", async () => {

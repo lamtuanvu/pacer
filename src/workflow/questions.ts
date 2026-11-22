@@ -238,11 +238,23 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
   if (current.answerer !== "orchestrator") {
     throw new CoreError("not_allowed", "Only the current orchestrator answerer can escalate");
   }
-  return escalateQuestionRecord(ctx, input.id, {
+  const escalated = escalateQuestionRecord(ctx, input.id, {
     suggested: input.suggested,
     expectRev: input.expectRev,
     by: "orchestrator",
   });
+  // Person now owns the question: complete both the q_ wake (executor asks) and the
+  // human-step stepWakeRef so needsOrchestrator / turn settle cannot re-wake forever.
+  completeWakeupRef(ctx, current.runId, "question", current.id);
+  if (current.askerKind === "human_step") {
+    completeWakeupRef(
+      ctx,
+      current.runId,
+      "question",
+      stepWakeRef(current.runId, current.stepId, current.attempt, current.branch),
+    );
+  }
+  return escalated;
 }
 
 /** Answer by the current answerer; deliver to the asker unchanged. */
