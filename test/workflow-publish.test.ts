@@ -253,3 +253,16 @@ test("setRunPrUrl is idempotent for the same URL and conflicts on a different on
   expect(getRun(ctx, run.id)!.prUrl).toBe("https://example.test/pr/9");
   expect(() => setRunPrUrl(ctx, run.id, "https://example.test/pr/other")).toThrow(CoreError);
 });
+
+test("publish refuses a title that starts with '-' or contains NUL", async () => {
+  const { ctx, run } = await seededPublishable();
+  const { bin } = installGhStub(ctx.home);
+  withGhPath(ctx, bin);
+  await approveFresh(ctx, run);
+  await expect(publishRun(ctx, run.id, {
+    draft: false, title: "-sneaky", body: "b", expectRev: getRun(ctx, run.id)!.rev,
+  })).rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/title/i) });
+  await expect(publishRun(ctx, run.id, {
+    draft: false, title: "x\u0000y", body: "b", expectRev: getRun(ctx, run.id)!.rev,
+  })).rejects.toMatchObject({ code: "invalid_input", message: expect.stringMatching(/control/i) });
+});

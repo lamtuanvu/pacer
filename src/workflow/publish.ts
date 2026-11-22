@@ -66,6 +66,10 @@ function validatePublishInput(input: PublishInput): void {
   if (typeof input.title !== "string" || input.title.length < 1 || input.title.length > TITLE_MAX) {
     throw new CoreError("invalid_input", `title must be 1..${TITLE_MAX} characters`);
   }
+  // Leading '-' is refused so titles cannot be mistaken for argv flags when passed to gh.
+  if (input.title.startsWith("-")) {
+    throw new CoreError("invalid_input", "title must not start with '-'");
+  }
   if (/[\u0000-\u001f\u007f]/.test(input.title)) {
     throw new CoreError("invalid_input", "title must not contain control characters");
   }
