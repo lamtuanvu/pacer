@@ -41,7 +41,10 @@ fn open_params(params: &Value) -> Value {
 /// Open the remote session for `params.alias`. The session string defaults to
 /// `""` when the host returns none (mirroring an `undefined` `opened.session`).
 async fn open(ctx: &Ctx, params: &Value) -> Result<String, PluginError> {
-    let opened = ctx.host.call("capability.hosts.open", open_params(params)).await?;
+    let opened = ctx
+        .host
+        .call("capability.hosts.open", open_params(params))
+        .await?;
     Ok(opened
         .get("session")
         .and_then(Value::as_str)
@@ -151,10 +154,7 @@ pub async fn fetch(params: Value, ctx: Ctx) -> HandlerResult {
     if params.get("maxBytes").is_some() {
         fetch_params["maxBytes"] = params["maxBytes"].clone();
     }
-    let primary = ctx
-        .host
-        .call("capability.hosts.fetch", fetch_params)
-        .await;
+    let primary = ctx.host.call("capability.hosts.fetch", fetch_params).await;
     let close_result = close(&ctx, &session).await;
     swallow_close_after_failure(primary, close_result).await
 }
