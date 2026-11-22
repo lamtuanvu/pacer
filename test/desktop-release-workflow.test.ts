@@ -51,6 +51,20 @@ test("signed desktop builds use compile-time production trust, separate bundled 
   const attest = steps.find((s: any) => s.uses?.startsWith("actions/attest-build-provenance"));
   expect(attest.with["subject-path"].trim().split("\n")).toEqual(["dist/desktop-assets/*.app.tar.gz", "dist/desktop-assets/*.dmg"]);
 });
+
+test("desktop and desktop-build restore release-cache shared keys without saving on the tag ref", () => {
+  const warmer = (Bun.YAML.parse(readFileSync(".github/workflows/release-cache.yml", "utf8")) as any).jobs;
+  for (const jobName of ["desktop", "desktop-build"] as const) {
+    const cache = jobs[jobName].steps.find((s: any) => s.uses?.startsWith("Swatinem/rust-cache@"));
+    expect(cache.with["save-if"]).toBe(false);
+    expect(cache.with["shared-key"]).toBe("release-desktop-${{ matrix.target }}");
+    const warm = warmer[jobName].steps.find((s: any) => s.uses?.startsWith("Swatinem/rust-cache@"));
+    expect(warm.with["shared-key"]).toBe(cache.with["shared-key"]);
+    expect(String(cache.with.workspaces)).toContain("desktop/src-tauri -> target");
+  }
+  expect(String(jobs["desktop-build"].steps.find((s: any) => s.uses?.startsWith("Swatinem/rust-cache@")).with.workspaces))
+    .toContain(". -> target");
+});
 test("dispatch fixture release exercise needs no production credentials and cannot publish", () => {
   const job = jobs["desktop-fixture"];
   expect(job.permissions.contents).toBe("read");

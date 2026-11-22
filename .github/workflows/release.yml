@@ -113,9 +113,6 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add ${{ matrix.rust_target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: release-${{ matrix.target }}
       - name: Build runner targets
         env:
           TARGETS: ${{ matrix.target }}
@@ -181,9 +178,6 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add ${{ matrix.rust_target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          key: release-${{ matrix.target }}
       - name: Install Linux cross-build tools
         run: |
           python3 -m venv "$RUNNER_TEMP/pacer-cross"
@@ -270,6 +264,13 @@ jobs:
       - name: Install desktop CLI
         working-directory: desktop
         run: bun install --frozen-lockfile
+      # Restore-only: cache is warmed on protected main by release-cache.yml (compiled deps only).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-desktop-${{ matrix.target }}
+          save-if: false
+          workspaces: |
+            desktop/src-tauri -> target
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
         with:
           name: ${{ matrix.cli_artifact }}
@@ -613,6 +614,14 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add "$TARGET"
+      # Restore-only: cache is warmed on protected main by release-cache.yml (compiled deps only).
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          shared-key: release-desktop-${{ matrix.target }}
+          save-if: false
+          workspaces: |
+            . -> target
+            desktop/src-tauri -> target
       - name: Fetch pinned Rust dependencies
         working-directory: desktop/src-tauri
         run: |
