@@ -83,11 +83,19 @@ export async function assertPublishGate(ctx: Ctx, run: RunRow, draft: boolean): 
   }
 }
 
+function assertHttpsPrUrl(url: string): string {
+  const trimmed = url.trim();
+  if (!/^https:\/\//i.test(trimmed)) {
+    throw new CoreError("unavailable", "gh returned a non-https PR URL");
+  }
+  return trimmed;
+}
+
 async function existingPrUrl(ctx: Ctx, wt: string, branch: string, env: Record<string, string | undefined>): Promise<string | null> {
   const listed = await ctx.run(
     ["gh", "pr", "list", "--head", branch, "--json", "url", "--limit", "1"],
     30_000,
-    { env, stdin: "" },
+    { env, stdin: "", cwd: wt },
   );
   if (listed.code !== 0) return null;
   const text = listed.stdout.trim();
@@ -95,13 +103,14 @@ async function existingPrUrl(ctx: Ctx, wt: string, branch: string, env: Record<s
   try {
     const parsed = JSON.parse(text) as unknown;
     if (Array.isArray(parsed) && parsed[0] && typeof (parsed[0] as { url?: unknown }).url === "string") {
-      return (parsed[0] as { url: string }).url;
+      return assertHttpsPrUrl((parsed[0] as { url: string }).url);
     }
-  } catch {
+  } catch (error) {
+    if (error instanceof CoreError) throw error;
     // Non-JSON stub output: a bare URL from our recovery path.
   }
-  if (/^https?:\/\//.test(text.split(/\s+/)[0] ?? "")) return text.split(/\s+/)[0]!;
-  void wt;
+  const candidate = text.split(/\s+/)[0] ?? "";
+  if (/^https:\/\//i.test(candidate)) return assertHttpsPrUrl(candidate);
   return null;
 }
 
@@ -154,7 +163,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
         "--body-file", "-",
         ...(input.draft ? ["--draft"] as const : []),
       ];
-      const created = await ctx.run(argv, 120_000, { env: pathEnv, stdin: input.body });
+      const created = await ctx.run(argv, 120_000, { env: pathEnv, stdin: input.body, cwd: wt });
       if (created.code !== 0) {
         // Crash recovery: push may have left a PR from a prior attempt.
         prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv);
@@ -162,8 +171,10 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
           throw new CoreError("unavailable", cap(firstLine(created.stderr) || firstLine(created.stdout) || `gh pr create exit ${created.code}`, STDERR_CAP));
         }
       } else {
-        prUrl = created.stdout.trim().split(/\s+/).find(s => /^https?:\/\//.test(s)) ?? created.stdout.trim();
-        if (!prUrl) {
+        const token = created.stdout.trim().split(/\s+/).find(s => /:\/\//.test(s));
+        if (token) {
+          prUrl = assertHttpsPrUrl(token);
+        } else {
           prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv);
         }
         if (!prUrl) {
@@ -171,6 +182,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
         }
       }
     }
+    prUrl = assertHttpsPrUrl(prUrl);
 
     setRunPrUrl(ctx, live.id, prUrl);
     const updated = getRun(ctx, live.id) ?? { ...live, prUrl };

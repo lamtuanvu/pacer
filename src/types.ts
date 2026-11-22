@@ -85,7 +85,14 @@ export interface UsageReading {
 }
 
 export interface RunResult { timedOut?: boolean; code: number; stdout: string; stderr: string; stdoutOverflow?: boolean }
-export type RunFn = (argv: string[], timeoutMs: number, options?: { env?: Record<string, string | undefined>; stdin?: string; stdinUntilResponseId?: number; maxStdoutBytes?: number }) => Promise<RunResult>;
+export type RunFn = (argv: string[], timeoutMs: number, options?: {
+  env?: Record<string, string | undefined>;
+  stdin?: string;
+  stdinUntilResponseId?: number;
+  maxStdoutBytes?: number;
+  /** Working directory for the child (defaults to process.cwd()). */
+  cwd?: string;
+}) => Promise<RunResult>;
 
 export interface Ctx {
   /** Trusted request lifetime. Never accept from wire params or retain for detached work. */
