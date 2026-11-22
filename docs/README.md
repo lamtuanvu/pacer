@@ -11,7 +11,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [LAN discovery](discovery.md): what is advertised, ask-once per network, found-machine prompts and pairing plugins.
 - [Built-in terminal](terminal.md): workspace shells, tabs, splits, search and integrated app actions.
 - [Client protocol 3.0](protocol.md): HTTP + SSE and JSON-RPC transports, errors, events and operation schemas.
-- [Protocol 2.x overlap](protocol-v2.md): compatibility API, served for one more pacer minor release.
+- [Protocol 2.x overlap](protocol-v2.md): compatibility API, deprecated in 0.18.0 and removed in 0.19.0.
 - [Desktop app](../desktop/README.md): the recommended way to install and set up pacer.
 - [Live validation](testing/live-validation.md): sandbox service, real executors, surface checks and CT-11 evidence.
 

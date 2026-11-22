@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- **Protocol 2 (`/v2`) is deprecated.** Serving continues in 0.18.0 but every `/v2` response now carries the RFC 9694 `Deprecation`, RFC 8594 `Sunset` and successor `Link` headers, and both hellos report the removal timetable: v3 hello adds `previousRemovedIn: "0.19.0"`, v2 hello adds `removedIn: "0.19.0"`. Protocol 2 is removed in 0.19.0; first-party clients (the app, dashboard and CLI) already speak protocol 3 only.
+
 - **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
 
 ### Fixed

@@ -244,7 +244,7 @@ mod tests {
         );
         assert_eq!(summary("Other", "warn", "plain words"), "plain words");
         assert_eq!(
-            summary("Link latency", "warn", "/v2/snapshot max 61.5 ms across 3"),
+            summary("Link latency", "warn", "/v3/snapshot max 61.5 ms across 3"),
             "The slowest of three service reads took 61.5 ms (target: under 50 ms)."
         );
     }

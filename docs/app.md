@@ -3,7 +3,7 @@
 The pacer app is a browser interface for budgets, delegated work and configuration.
 It is served by `pacer serve` at `http://127.0.0.1:4317/app/`, with its files
 embedded in the pacer binary. It uses the same [2.x compatibility API](protocol-v2.md) as other
-pacer clients. Protocol [3.0](protocol.md) is current; `/v2` remains available for one pacer minor release. The app consumes the read model during this overlap.
+pacer clients. Protocol [3.0](protocol.md) is current; `/v2` is deprecated in 0.18.0 and removed in 0.19.0. The app consumes the read model during this overlap.
 
 ## Workspace reads
 

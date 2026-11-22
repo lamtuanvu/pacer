@@ -13,7 +13,7 @@ Canonical sources: [docs/protocol.md](../../docs/protocol.md), [docs/protocol-v2
 | API-4 | Errors are `CoreError(code, message, hint?, data?)`, mapped to HTTP status and JSON-RPC codes as documented. New codes are added to the protocol doc. | Established | `src/core/errors.ts`; docs/protocol.md Errors | Review; tests |
 | API-5 | No operation runs free-form text in a shell. An executor may delegate child work only through a service-issued task/attempt grant constrained to its own work subtree; executor sessions without a valid grant are refused. Amendment 0.24.0 below names the assistant grant as a further, separate credential, and amendment 0.25.0 the workflow run grant. | Proposed amendment 0.14.0 for the scoped exception, 0.24.0 for the assistant grant; prior blanket refusal established until maintainer merge | docs/protocol.md; constitution 0.14.0 | Review; grant and transport tests |
 | API-6 | Breaking protocol changes and compat-window removals are listed in CHANGELOG under the release that ships them. | Established | CHANGELOG (Keep a Changelog) | Review CHANGELOG diff |
-| API-7 | Each compat window names its removal release in CHANGELOG when it opens. For the current window, that means removing `/v2`, `protocol-v2.md` and `hello.previous`. | Proposed | The window currently says only "next minor" | Pending decision |
+| API-7 | Each compat window names its removal release in CHANGELOG when it opens. For the current window, that means removing `/v2`, `protocol-v2.md` and `hello.previous`. | Established | 0.18.0 names 0.19.0 in CHANGELOG and protocol docs (OD-4) | Review CHANGELOG and protocol-doc diff |
 
 ### Run grant credential (amendment 0.25.0)
 
