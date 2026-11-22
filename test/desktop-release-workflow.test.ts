@@ -39,6 +39,9 @@ test("signed desktop builds use compile-time production trust, separate bundled 
   expect(body).toContain("cargo build --offline --locked --release --target \"$TARGET\"");
   expect(body).toContain('target/$TARGET/release/bundle/macos/pacer.app');
   expect(body).toContain("lipo -archs");
+  expect(body).toContain('"$out"/pacer.app/Contents/MacOS/*');
+  expect(body).toContain('payload+=("$out/pacer-assistant-pacer-$BUN_TARGET")');
+  expect(body).not.toContain("stage-cli.sh");
   expect(body).toContain('rustup target add "$TARGET"');
   expect(body).toContain("desktop-credentials.ts");
   const cleanup = steps.find((s: any) => s.name === "Clean ephemeral signing credentials");

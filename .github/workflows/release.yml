@@ -557,48 +557,19 @@ jobs:
           CARGO_NET_OFFLINE: 'true'
         run: |
           set -euo pipefail
-          # Non-host bun targets may download a bun runtime; that is not cargo, so offline cargo is fine.
           bun scripts/release/build.ts --targets "$BUN_TARGET" --desktop-production --out dist/desktop-cli
-          cli="dist/desktop-cli/$VERSION/pacer-$BUN_TARGET"
-          core="dist/desktop-cli/$VERSION/pacer-core-$BUN_TARGET"
-          assistant="dist/desktop-cli/$VERSION/pacer-assistant-pacer-$BUN_TARGET"
-          chmod +x "$cli" "$core"
-          if test -f "$assistant"; then
-            chmod +x "$assistant"
-            TAURI_TARGET_TRIPLE="$TARGET" desktop/scripts/stage-cli.sh "$cli" "$core" "$assistant"
-          else
-            TAURI_TARGET_TRIPLE="$TARGET" desktop/scripts/stage-cli.sh "$cli" "$core"
-          fi
           (cd desktop && bunx --no-install tauri build --target "$TARGET" --bundles app --no-sign --features ota-production)
           cargo build --offline --locked --release --target "$TARGET" --features ota-production --manifest-path desktop/src-tauri/Cargo.toml --bin pacer-update-helper
           cp -R "desktop/src-tauri/target/$TARGET/release/bundle/macos/pacer.app" "dist/desktop-cli/$VERSION/pacer.app"
           cp "desktop/src-tauri/target/$TARGET/release/pacer-update-helper" "dist/desktop-cli/$VERSION/pacer-update-helper"
+          # x86_64 is cross-built: every Mach-O the app ships must match the leg's architecture.
+          out="dist/desktop-cli/$VERSION"
+          payload=("$out"/pacer.app/Contents/MacOS/* "$out/pacer-$BUN_TARGET" "$out/pacer-core-$BUN_TARGET" "$out/pacer-update-helper")
+          if [ -f crates/assistant-pacer/Cargo.toml ]; then payload+=("$out/pacer-assistant-pacer-$BUN_TARGET"); fi
           expected=$([ "$ARCH" = aarch64 ] && echo arm64 || echo x86_64)
-          app="dist/desktop-cli/$VERSION/pacer.app"
-          for path in \
-            "$app/Contents/MacOS/pacer" \
-            "$cli" \
-            "$core" \
-            "dist/desktop-cli/$VERSION/pacer-update-helper"
-          do
-            test "$(lipo -archs "$path")" = "$expected"
+          for path in "${payload[@]}"; do
+            test "$(lipo -archs "$path")" = "$expected" || { echo "$path is not $expected" >&2; exit 1; }
           done
-          if test -f "$assistant"; then
-            test "$(lipo -archs "$assistant")" = "$expected"
-          fi
-          for name in pacer-core pacer-assistant-pacer pacer-update-helper; do
-            sidecar="$app/Contents/MacOS/$name"
-            if test -f "$sidecar"; then
-              test "$(lipo -archs "$sidecar")" = "$expected"
-            fi
-            resource="$app/Contents/Resources/$name"
-            if test -f "$resource"; then
-              test "$(lipo -archs "$resource")" = "$expected"
-            fi
-          done
-          if test -f "$app/Contents/Resources/pacer"; then
-            test "$(lipo -archs "$app/Contents/Resources/pacer")" = "$expected"
-          fi
       - name: Sign complete app (Developer ID builds also notarize and staple) and version-sign final artifact
         env:
           # The runner context is unavailable in job-level env; credential steps set it.
