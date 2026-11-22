@@ -22,10 +22,12 @@ racing the same plugin children.
 A pacer home has at most one native plugin owner that other front doors attach to. A live
 `run/host.sock` is that owner's lease.
 
-1. **Only serve binds `run/host.sock`.** A live socket means an owner exists. A socket that
-   refuses connections is stale and the next serve replaces it. The socket always stays in the
-   home, and serve refuses a `host.sock` path longer than 103 bytes before it creates anything,
-   so a home that deep cannot run a flag-on serve.
+1. **Only serve binds the owner lease.** Serve's owner socket (`host.sock`) lives at
+   `run/host.sock` when that path fits, and for a deep home whose `run/host.sock` would
+   exceed 103 bytes, in the private per-user directory of item 5 next to that home's
+   connection sockets. Serve refuses a `host.sock` path longer than 103 bytes only when
+   neither `run/` nor the private per-user directory can hold it, so a deep home still runs
+   a flag-on serve.
 2. **A stdio connection decides once, before its Core child starts.** It probes
    `run/host.sock`. The run directory must be a real directory owned by the current user with
    no group or other access, the socket must be owned by the same user, and the process that
@@ -43,18 +45,21 @@ A pacer home has at most one native plugin owner that other front doors attach t
    prove the connection's credential (item 9) are served. When the connection ends, or the
    door receives SIGTERM, the door closes the listener, removes the socket and stops the
    children it started.
-5. **A deep home's connection socket goes to a private per-user directory.** When
-   `run/s<12-hex>.sock` would be longer than 103 bytes (the `sockaddr_un` limit on macOS; Linux
-   allows 107), the connection binds in `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
+5. **A deep home's sockets go to a private per-user directory.** When
+   `run/s<12-hex>.sock` (or serve's `run/host.sock`) would be longer than 103 bytes (the
+   `sockaddr_un` limit on macOS; Linux allows 107), the socket binds in
+   `<user dir>/pacer-<hash>/` instead. `<user dir>` is the
    operating system's private directory for the user: `confstr(_CS_DARWIN_USER_TEMP_DIR)` on
    macOS (read through `/usr/bin/getconf`, since the workspace forbids unsafe code) and
    `$XDG_RUNTIME_DIR` on Linux, never a shared `/tmp` name or `$TMPDIR`. `<hash>` is a 64-bit
    FNV-1a hash of the canonical home, so each home gets its own directory. The door checks
    `<user dir>` with `lstat`, creates `pacer-<hash>` with mode 0700 and checks it again: each
    must be a real directory, not a symlink, owned by the current user, with no group or other
-   access. If there is no such directory or a check fails, the connection refuses to start
-   and names `PACER_NATIVE_PLUGIN_HOST=0` and a shorter `PACER_HOME`. Homes whose `run/` path
-   fits keep their socket in `run/`.
+   access. If there is no such directory or a check fails, the connection (and a flag-on
+   serve for a deep home) refuses to start and names `PACER_NATIVE_PLUGIN_HOST=0` and a
+   shorter `PACER_HOME`. Homes whose `run/` path fits keep their socket in `run/`. Serve's
+   pid and key sidecars follow `host.sock` into the same directory, so the owner lease and
+   the probe agree on one location per home.
 6. **Connection sockets are private and swept.** Every socket is bound in a directory checked
    as above, then set to 0600 by path; the process umask is never changed. Before binding, the
    door removes stale connection sockets in that directory: `s<12-hex>.sock` sockets owned by
@@ -172,12 +177,11 @@ to serve's Core.
   that closes its output while still running gets the same SIGTERM, then SIGKILL.
 - With the native host on, `plugin.doctor` reports `pid: null` for owner-supervised children on
   both front doors, because Core's snapshot does not know the owner's process IDs.
-- A deep home keeps native stdio ownership, but its connection sockets live outside the home,
+- A deep home keeps native ownership, but its host and connection sockets live outside the home,
   where `pacer doctor` does not look yet. A temporary-file cleaner that removes a long-lived
-  connection's socket makes that connection's Core plugin calls fail until it reconnects.
-- A deep home cannot run a flag-on serve, because `host.sock` must stay in the home as the
-  owner lease. PR 7 decides how such homes run the service before the flag turns on by
-  default.
+  socket makes that connection's Core plugin calls fail until it reconnects. A deep home's
+  flag-on serve binds `host.sock` in the same private per-user directory, so it runs, but the
+  socket and sidecars are outside the home.
 - Plain CLI commands start their own Core and, flag-on, still start TypeScript children beside
   a live serve owner. This is a known limit for this wave.
 - Detached task runners (`_run`) are the same kind of Core. Core removes `PACER_HOST_SOCKET`
