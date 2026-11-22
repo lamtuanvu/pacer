@@ -247,6 +247,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       const row = workflowDatabase(ctx).query<{ id: string }, [string, string]>(
         `SELECT id FROM workflow_runs
          WHERE conflict IS NOT NULL
+           AND json_valid(conflict)
            AND (
              json_extract(conflict, '$.resolutionTaskId') = ?
              OR EXISTS (
@@ -269,18 +270,15 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
     const top = await resolveRepoTop(ctx, live.repo);
+    // F1: --quiet makes a missing ref exit 1 (locale-independent). Only exit 1
+    // means absent; every other non-zero (incl. 128 / timeout) stays unavailable.
     const hasBranch = await ctx.run(
-      ["git", "-C", top, "rev-parse", "--verify", `refs/heads/${taskBranch}`],
+      ["git", "-C", top, "rev-parse", "--verify", "--quiet", `refs/heads/${taskBranch}`],
       5_000,
+      { env: { ...ctx.env, LC_ALL: "C", LANG: "C" } },
     );
     if (hasBranch.code !== 0) {
-      // M4: exit 1 / "Needed a single revision" = absent branch → plain accept.
-      // Timeout or other failures must not be treated as "no branch".
-      const absent = hasBranch.code === 1
-        || /Needed a single revision|not a valid object|unknown revision/i.test(
-          `${hasBranch.stderr}\n${hasBranch.stdout}`,
-        );
-      if (!absent) {
+      if (hasBranch.code !== 1) {
         throw new CoreError(
           "unavailable",
           `cannot resolve task branch ${taskBranch}: ${cleanLine(hasBranch.stderr) || `exit ${hasBranch.code}`}`,

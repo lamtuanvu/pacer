@@ -1029,9 +1029,11 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
     ).get();
     if (!conflictCol) return false;
     // Support both legacy object markers and the R2-F3 list form.
+    // F2: json_valid so one corrupt row cannot raise "malformed JSON" on every accept probe.
     const marker = db.query<{ conflict: string | null }, [string, string]>(
       `SELECT conflict FROM workflow_runs
        WHERE conflict IS NOT NULL
+         AND json_valid(conflict)
          AND (
            json_extract(conflict, '$.resolutionTaskId') = ?
            OR EXISTS (
