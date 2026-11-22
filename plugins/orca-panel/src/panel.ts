@@ -5,6 +5,7 @@ import {
   answerActionParams,
   answerDisabled,
   attentionButtons,
+  allReposQuestionTitle,
   attentionCaptionFor,
   attentionCardTone,
   attentionGlyph,
@@ -513,7 +514,7 @@ function renderAttentionListRow(
   row.dataset.id = item.id
   const g = attentionListGlyph(item.kind)
   const glyph = el('span', 'pc-needs-glyph', g.glyph)
-  glyph.style.color = g.colorVar
+  if (g.glyph) glyph.style.color = g.colorVar
   glyph.setAttribute('aria-label', g.label)
   row.append(glyph)
 
@@ -533,6 +534,11 @@ function renderAttentionListRow(
     title.append(el('span', 'pc-warn-glyph', '◐'), document.createTextNode(` ${questionWaitingTitle(exec)}`))
     col.append(title, el('div', 'pc-caption', caption))
     if (item.detail) col.append(el('p', 'pc-question-box', item.detail))
+  } else if (item.kind === 'question') {
+    col.append(
+      el('div', 'pc-row-title', allReposQuestionTitle(exec, item.detail)),
+      el('div', 'pc-caption', caption),
+    )
   } else {
     col.append(el('div', 'pc-row-title', item.title), el('div', 'pc-caption', caption))
   }

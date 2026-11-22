@@ -293,15 +293,27 @@ export function otherReposNeedsYou(snapshot: PanelSnapshot): number {
 
 export type CardTone = 'default' | 'warn' | 'bad'
 
+/** Warn-tone attention kinds (S19): problem states that need a decision, not failure. */
+const WARN_ATTENTION_KINDS = new Set([
+  'question',
+  'stuck',
+  'stalled',
+  'planner_quota',
+  'account_signin',
+  'executor_down',
+  'host_down',
+])
+
 export function attentionCardTone(kind: string): CardTone {
   if (kind === 'failed' || kind === 'limit') return 'bad'
-  if (kind === 'question' || kind === 'stuck' || kind === 'stalled') return 'warn'
+  if (WARN_ATTENTION_KINDS.has(kind)) return 'warn'
   return 'default'
 }
 
 export function attentionGlyph(kind: string): string | null {
   if (kind === 'failed' || kind === 'limit') return '✕'
-  if (kind === 'question' || kind === 'stuck' || kind === 'stalled') return '◐'
+  if (WARN_ATTENTION_KINDS.has(kind)) return '◐'
+  // review and every other kind: no title glyph on Main cards
   return null
 }
 
@@ -404,14 +416,24 @@ export function questionWaitingTitle(executorLabel: string | null): string {
   return `${executorLabel ?? 'pacer'} is waiting on you`
 }
 
-/** All-repos list glyph (S9). */
+/**
+ * All-repos collapsed question row title (S18):
+ * "<Executor|pacer> asks: <question text>" (question text = item.detail).
+ */
+export function allReposQuestionTitle(executorLabel: string | null, detail: string | null | undefined): string {
+  const asker = executorLabel ?? 'pacer'
+  const question = (detail ?? '').trim()
+  return question ? `${asker} asks: ${question}` : `${asker} asks:`
+}
+
+/** All-repos list glyph (S9/S19). Empty glyph for kinds with no board marker. */
 export function attentionListGlyph(kind: string): { glyph: string; colorVar: string; label: string } {
   if (kind === 'review') return { glyph: '●', colorVar: 'var(--info-fg)', label: 'Waiting for review' }
   if (kind === 'failed' || kind === 'limit') return { glyph: '✕', colorVar: 'var(--bad-fg)', label: 'Failed' }
-  if (kind === 'question' || kind === 'stuck' || kind === 'stalled') {
+  if (WARN_ATTENTION_KINDS.has(kind)) {
     return { glyph: '◐', colorVar: 'var(--warn-fg)', label: 'Needs attention' }
   }
-  return { glyph: '·', colorVar: 'var(--ink-muted)', label: 'Needs you' }
+  return { glyph: '', colorVar: 'var(--ink-muted)', label: 'Needs you' }
 }
 
 export type AttentionBtnRole = 'secondary' | 'ghost'

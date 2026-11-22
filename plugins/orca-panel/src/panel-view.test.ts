@@ -5,6 +5,7 @@ import type { PanelSnapshot } from './protocol'
 import {
   absoluteTime,
   actionButtonLabel,
+  allReposQuestionTitle,
   answerActionParams,
   answerDisabled,
   attentionButtons,
@@ -258,10 +259,23 @@ test('card tone and glyph mapping', () => {
   assert.equal(attentionCardTone('question'), 'warn')
   assert.equal(attentionCardTone('stuck'), 'warn')
   assert.equal(attentionCardTone('stalled'), 'warn')
+  assert.equal(attentionCardTone('planner_quota'), 'warn')
+  assert.equal(attentionCardTone('account_signin'), 'warn')
+  assert.equal(attentionCardTone('executor_down'), 'warn')
+  assert.equal(attentionCardTone('host_down'), 'warn')
   assert.equal(attentionCardTone('review'), 'default')
+  assert.equal(attentionCardTone('setup'), 'default')
+  assert.equal(attentionCardTone('message'), 'default')
   assert.equal(attentionGlyph('failed'), '✕')
+  assert.equal(attentionGlyph('limit'), '✕')
   assert.equal(attentionGlyph('question'), '◐')
+  assert.equal(attentionGlyph('planner_quota'), '◐')
+  assert.equal(attentionGlyph('account_signin'), '◐')
+  assert.equal(attentionGlyph('executor_down'), '◐')
+  assert.equal(attentionGlyph('host_down'), '◐')
   assert.equal(attentionGlyph('review'), null)
+  assert.equal(attentionGlyph('setup'), null)
+  assert.equal(attentionGlyph('discovery'), null)
 })
 
 test('planner headline and meter tone per verdict including stale', () => {
@@ -749,6 +763,58 @@ test('S1/S3: question waiting title and captions per kind', () => {
   )
 })
 
+test('S18: all-repos question title uses asks: detail, caption is task · asked', () => {
+  assert.equal(
+    allReposQuestionTitle('OpenCode', 'cap the backoff at 30 s or 60 s?'),
+    'OpenCode asks: cap the backoff at 30 s or 60 s?',
+  )
+  assert.equal(allReposQuestionTitle(null, 'Pick a plan?'), 'pacer asks: Pick a plan?')
+  assert.equal(allReposQuestionTitle('Cursor', '  '), 'Cursor asks:')
+  assert.equal(
+    attentionCaptionFor('question', {
+      executorLabel: 'OpenCode',
+      when: '12:54',
+      taskTitle: 'Harden the SSE reconnect loop',
+      detail: 'cap the backoff at 30 s or 60 s?',
+    }),
+    'Harden the SSE reconnect loop · asked 12:54',
+  )
+})
+
+test('S19: tone and list glyph for every attention kind', () => {
+  const cases: Array<{
+    kind: string
+    tone: 'bad' | 'warn' | 'default'
+    cardGlyph: string | null
+    listGlyph: string
+  }> = [
+    { kind: 'failed', tone: 'bad', cardGlyph: '✕', listGlyph: '✕' },
+    { kind: 'limit', tone: 'bad', cardGlyph: '✕', listGlyph: '✕' },
+    { kind: 'question', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'stuck', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'stalled', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'planner_quota', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'account_signin', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'executor_down', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'host_down', tone: 'warn', cardGlyph: '◐', listGlyph: '◐' },
+    { kind: 'review', tone: 'default', cardGlyph: null, listGlyph: '●' },
+    { kind: 'setup', tone: 'default', cardGlyph: null, listGlyph: '' },
+    { kind: 'update', tone: 'default', cardGlyph: null, listGlyph: '' },
+    { kind: 'discovery', tone: 'default', cardGlyph: null, listGlyph: '' },
+    { kind: 'discovery-network', tone: 'default', cardGlyph: null, listGlyph: '' },
+    { kind: 'message', tone: 'default', cardGlyph: null, listGlyph: '' },
+  ]
+  for (const c of cases) {
+    assert.equal(attentionCardTone(c.kind), c.tone, `${c.kind} tone`)
+    assert.equal(attentionGlyph(c.kind), c.cardGlyph, `${c.kind} card glyph`)
+    assert.equal(attentionListGlyph(c.kind).glyph, c.listGlyph, `${c.kind} list glyph`)
+    assert.notEqual(attentionListGlyph(c.kind).glyph, '·', `${c.kind} never bare ·`)
+  }
+  assert.equal(attentionListGlyph('review').colorVar, 'var(--info-fg)')
+  assert.equal(attentionListGlyph('planner_quota').colorVar, 'var(--warn-fg)')
+  assert.equal(attentionListGlyph('failed').colorVar, 'var(--bad-fg)')
+})
+
 test('S2/S9: attention button roles for this-repo and all-repos', () => {
   const review = snap().attention.find((a) => a.id === 'r1')!
   const repoBtns = attentionButtons(review, 'repo')
@@ -826,6 +892,8 @@ test('S5/S6/S9/S10/S15/S16: stalled copy, short names, glyphs, slots, pause, que
   assert.equal(attentionListGlyph('review').glyph, '●')
   assert.equal(attentionListGlyph('question').glyph, '◐')
   assert.equal(attentionListGlyph('failed').glyph, '✕')
+  assert.equal(attentionListGlyph('planner_quota').glyph, '◐')
+  assert.equal(attentionListGlyph('setup').glyph, '')
   assert.deepEqual(slotsInUse(s.executors), { used: 1, max: 4 })
   assert.equal(pauseBannerExtra({ by: 'ui', reason: null }, '12:10'), 'Paused by you at 12:10.')
   assert.equal(pauseBannerExtra({ by: 'remote-host', reason: null }, '12:10'), null)
