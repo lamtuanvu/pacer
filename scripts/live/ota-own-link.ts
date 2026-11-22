@@ -12,9 +12,14 @@ import { incarnationExited, privateFixtureBytes } from "./ota-exercise";
 import { attachFixtureOwnLink, fixtureEnvironment, fixtureInstallation, fixtureTakeoverCli, inspectFixtureJobs, verifyFixtureBundle } from "./ota-native";
 import { FIXTURE_IDENTIFIERS } from "../../src/update/desktop/bundle-identity";
 import { assertRealAppUnchanged, realAppNote, snapshotRealApp } from "./ota-real-app";
-import { desktopControls, waitFor } from "./ota-takeover";
+import { desktopControls, hasAccessibilityText, settingsReady, waitFor } from "./ota-takeover";
 
 const digest = (bytes: Uint8Array | string) => createHash("sha256").update(bytes).digest("hex");
+const sleep = (ms: number) => Bun.sleep(ms);
+/** Watcher interval is 20 s; wait past one full cycle before counting one-shot repairs. */
+const WATCHER_SETTLE_MS = 45000;
+const RESTORED_LINE = /own-link repair failed after mutation \(.+\); original registration restored; not retrying this launch/;
+const RESTORE_FAILED_LINE = /own-link repair failed after mutation \(.+\); restore also failed/;
 
 export async function runOwnLinkExercise(id: string, scenario: string, options: OtaOptions = {}): Promise<void> {
   if (!(OWN_LINK_SCENARIOS as readonly string[]).includes(scenario)) throw Error("Unknown fixed own-link scenario");
@@ -78,9 +83,10 @@ export async function runOwnLinkExercise(id: string, scenario: string, options: 
       const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
       return jobs.jobs[0].executable === bundled && jobs.jobs[0].loaded && jobs.jobs[0].registrationSha256 !== originalRegistration ? true : null;
     }, 180000, "Own-link registration was not rewritten to the bundled CLI");
+    await sleep(WATCHER_SETTLE_MS);
     const log = readFileSync(evidence("native-desktop.log"), "utf8");
     const repairs = log.match(/own-link repair committed/g) ?? [];
-    if (repairs.length !== 1) throw Error(`Expected one own-link repair commit, saw ${repairs.length}`);
+    if (repairs.length !== 1) throw Error(`Expected one own-link repair commit after watcher settle, saw ${repairs.length}`);
     if (!lstatSync(link).isSymbolicLink() || readlinkSync(link) !== bundled) throw Error("Own-link repair changed the terminal symlink");
     const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
     if (!jobs.jobs[0].process || jobs.jobs[0].executable !== bundled) throw Error("Repaired service is not the bundled CLI");
@@ -91,34 +97,52 @@ export async function runOwnLinkExercise(id: string, scenario: string, options: 
         try { await client.snapshot(); return true; } catch { return null; }
       }, 60000, "Repaired service did not answer");
     } finally { client.close(); }
-    // Settings should load after connect (not stuck on takeoverProgress).
     await waitFor(async () => {
       const texts = await ui.texts();
-      return texts.some(value => value.toLowerCase() === "updates") ? true : null;
+      return settingsReady(texts, false) && !hasAccessibilityText(texts, "Replacing the pacer service") ? true : null;
     }, 60000, "App did not reach Settings after own-link repair");
+    await ui.capture(evidence("own-link-after-repair.png"), "dark").catch(error => {
+      record(session, { kind: "note", behavior: `OTA ${scenario} capture`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
+    });
     observed.repaired = true;
     observed.registrationExecutable = bundled;
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service", verdict: "PASS", text: `Own-link registration rewritten once to the bundled CLI; link unchanged. Observed: ${JSON.stringify(observed)}` });
   } else {
-    // own-link-repair-failure: compiled fault after bootout → restore
+    // own-link-repair-failure: compiled fault after bootout + registration rewrite → restore
     await waitFor(async () => {
       const log = readFileSync(evidence("native-desktop.log"), "utf8");
-      return /own-link repair failed after mutation/.test(log) ? true : null;
-    }, 180000, "Own-link repair failure was not logged");
+      return RESTORED_LINE.test(log) ? true : null;
+    }, 180000, "Own-link repair failure with restore was not logged");
+    await sleep(WATCHER_SETTLE_MS);
     state = readOtaRecord(id, options);
-    if (state.exercise?.faults.some(f => !f.consumed)) throw Error("Compiled own-link-bootstrap checkpoint was not consumed");
+    const exercise = state.exercise;
+    if (!exercise || exercise.transactionId !== "own-link" || exercise.faults.length !== 1 || exercise.faults[0].point !== "own-link-bootstrap") {
+      throw Error("Own-link-bootstrap exercise was not bound");
+    }
+    const consumed = exercise.faults[0].consumed;
+    if (!consumed || consumed.transactionId !== "own-link" || !sameProcess(consumed.process, state.runtime!.desktop!)) {
+      throw Error("Compiled own-link-bootstrap checkpoint was not consumed by the fixture desktop");
+    }
     const jobs = await inspectFixtureJobs(state);
     if (!jobs.jobs[0].loaded || jobs.jobs[0].registrationSha256 !== originalRegistration || jobs.jobs[0].registrationText !== originalPlist) throw Error("Original own-link registration was not restored");
     if (!lstatSync(link).isSymbolicLink() || readlinkSync(link) !== bundled) throw Error("Restore changed the terminal symlink");
     const log = readFileSync(evidence("native-desktop.log"), "utf8");
-    if ((log.match(/own-link repair failed after mutation/g) ?? []).length !== 1) throw Error("Own-link repair retried after failure this launch");
-    if (/holding takeover page takeoverProgress/.test(log) && !/holding takeover page (starting|connected)/.test(log)) {
-      // Progress may flash; the window must leave it and connect.
-    }
+    const restored = log.match(new RegExp(RESTORED_LINE.source, "g")) ?? [];
+    const restoreFailed = log.match(new RegExp(RESTORE_FAILED_LINE.source, "g")) ?? [];
+    if (restored.length !== 1) throw Error(`Expected one restored failure line after watcher settle, saw ${restored.length}`);
+    if (restoreFailed.length !== 0) throw Error(`Restore also failed was logged ${restoreFailed.length} time(s)`);
     await waitFor(async () => {
       const texts = await ui.texts();
-      return texts.some(value => value.toLowerCase() === "updates") || texts.some(value => /starting|connected|home/i.test(value)) ? true : null;
+      // Progress page heading must be gone; Settings Updates must be ready.
+      return settingsReady(texts, false) && !hasAccessibilityText(texts, "Replacing the pacer service") ? true : null;
     }, 60000, "App did not leave takeoverProgress after own-link restore");
+    const pages = [...log.matchAll(/holding takeover page (\S+)/g)].map(match => match[1]);
+    if (pages.length && pages[pages.length - 1] === "takeoverProgress") {
+      throw Error(`Last holding takeover page was still takeoverProgress: ${pages.join(",")}`);
+    }
+    await ui.capture(evidence("own-link-after-restore.png"), "dark").catch(error => {
+      record(session, { kind: "note", behavior: `OTA ${scenario} capture`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
+    });
     const token = privateFixtureBytes(join(state.pacerHome, "token"), 4096).toString("utf8").trim();
     const client = new HttpClient(`http://127.0.0.1:${session.port}`, token, { protocol: 3, timeoutMs: 10000 });
     try {
@@ -128,6 +152,7 @@ export async function runOwnLinkExercise(id: string, scenario: string, options: 
     } finally { client.close(); }
     observed.restored = true;
     observed.forwardLogged = true;
+    observed.lastHoldingPage = pages[pages.length - 1] ?? null;
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service", verdict: "PASS", text: `Own-link repair fault restored the original registration once. Observed: ${JSON.stringify(observed)}` });
   }
 

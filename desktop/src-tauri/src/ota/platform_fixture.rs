@@ -309,48 +309,11 @@ pub(crate) async fn fixture_jobs(
             // cannot acknowledge fixture cleanup. The driver has already ended
             // every fixture desktop; stop only this exact verified service.
             ensure(desktops.is_empty() && jobs[1].2.is_none())?;
-            let link = policy.takeover_cli();
-            let bundled = policy.current_app.join("Contents/Resources/pacer");
-            let own_link = std::fs::symlink_metadata(&link)
-                .map(|meta| meta.file_type().is_symlink())
-                .unwrap_or(false)
-                && std::fs::canonicalize(&link).ok().as_ref() == Some(&bundled);
-            if own_link {
-                // stop_exact requires argv[0] == process executable; boot out
-                // the label after verifying the live process is the bundled CLI.
-                let loaded = copy_user_job(&policy.service_label)?.ok_or(OtaError::Identity)?;
-                let pid = job
-                    .definition
-                    .match_loaded(&loaded)?
-                    .pid
-                    .ok_or(OtaError::Identity)?;
-                let details = native::process_details(pid)
-                    .map_err(|_| OtaError::Identity)?
-                    .ok_or(OtaError::Identity)?;
-                ensure(details.identity == *service && details.executable == bundled)?;
-                trust.verify_process(&details.identity, CodeRole::Cli)?;
-                let domain = format!("gui/{}", unsafe { libc::geteuid() });
-                let target = format!("{domain}/{}", policy.service_label);
-                let mut command = tokio::process::Command::new("/bin/launchctl");
-                command
-                    .arg("bootout")
-                    .arg(&target)
-                    .stdin(std::process::Stdio::null())
-                    .stdout(std::process::Stdio::null())
-                    .stderr(std::process::Stdio::null())
-                    .kill_on_drop(true);
-                let status = tokio::time::timeout(
-                    std::time::Duration::from_secs(10),
-                    command.status(),
-                )
-                .await
-                .map_err(|_| OtaError::Timeout)?
-                .map_err(|_| OtaError::Io)?;
-                ensure(status.success())?;
-                wait_exact_exit(service).await?;
-            } else {
-                job.stop_exact(trust, service).await?;
-            }
+            // Regular takeover CLI or own-link symlink: stop_exact records the
+            // ledger, re-checks the on-disk registration, and re-observes the
+            // loaded pid. Own-link equality is accepted only under ota-fixture
+            // when fixture_own_link_program holds (see change_inner_with).
+            job.stop_exact(trust, service).await?;
         } else {
         let endpoint = control::ServiceEndpoint {
             home: &policy.home,
@@ -618,7 +581,9 @@ pub(crate) async fn fixture_attach_own_link(trust: &ReleaseTrust) -> Result<Fixt
         crate::ota::platform_fs::publish_registration(&job.plist_path, &bytes)?;
         job.change(trust, JobChange::Bootstrap).await?;
         // Seed owner.json with the ADR 0021 desktop shape. owner.rs lives in the
-        // bin crate; the fixture only needs the same on-disk record.
+        // bin crate; mirror its private atomic write (0600, temp + rename, no overwrite).
+        let owner_path = policy.home.join("owner.json");
+        ensure(exact_absent(&owner_path)?)?;
         let at = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map_err(|_| OtaError::Io)?
@@ -629,11 +594,33 @@ pub(crate) async fn fixture_attach_own_link(trust: &ReleaseTrust) -> Result<Fixt
             "executable": bundled,
             "at": at,
         });
-        std::fs::write(
-            policy.home.join("owner.json"),
-            serde_json::to_vec(&owner).map_err(|_| OtaError::Invalid)?,
-        )
-        .map_err(|_| OtaError::Io)?;
+        let contents = serde_json::to_vec(&owner).map_err(|_| OtaError::Invalid)?;
+        let temp = policy.home.join(format!(
+            ".owner-{}-{}.tmp",
+            std::process::id(),
+            at
+        ));
+        {
+            use std::io::Write;
+            use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+            let mut file = std::fs::OpenOptions::new()
+                .write(true)
+                .create_new(true)
+                .mode(0o600)
+                .custom_flags(libc::O_NOFOLLOW)
+                .open(&temp)
+                .map_err(|_| OtaError::Io)?;
+            let written = (|| {
+                file.write_all(&contents)?;
+                file.set_permissions(std::fs::Permissions::from_mode(0o600))?;
+                file.sync_all()?;
+                std::fs::rename(&temp, &owner_path)
+            })();
+            if written.is_err() {
+                let _ = std::fs::remove_file(&temp);
+            }
+            written.map_err(|_| OtaError::Io)?;
+        }
     }
     fixture_jobs(trust, false).await
 }

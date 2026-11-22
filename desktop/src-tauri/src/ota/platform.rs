@@ -348,7 +348,24 @@ impl OwnedJob {
                 return Err(OtaError::Identity);
             }
             if let Some(details) = &process {
-                ensure(details.executable == Path::new(&self.definition.arguments[0]))?;
+                let argv0 = Path::new(&self.definition.arguments[0]);
+                // Own-link stuck shape: argv[0] is the terminal symlink; the live
+                // process executable is the resolved bundled CLI. Accept only when
+                // the fixture lease proves that link (ota-fixture builds only).
+                #[cfg(feature = "ota-fixture")]
+                let matches_program = if fixture_own_link_program(trust, argv0)? {
+                    let bundled = trust
+                        .fixture_policy()
+                        .ok_or(OtaError::Unavailable)?
+                        .current_app
+                        .join("Contents/Resources/pacer");
+                    details.executable == bundled
+                } else {
+                    details.executable == argv0
+                };
+                #[cfg(not(feature = "ota-fixture"))]
+                let matches_program = details.executable == argv0;
+                ensure(matches_program)?;
                 match program {
                     ProgramCheck::Role(role) => {
                         verify_fixture_or_release_process(

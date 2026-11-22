@@ -165,19 +165,30 @@ export async function runConsentExercise(id: string, scenario: string, options: 
     observed.kept = true;
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service", verdict: "PASS", text: "Plain Consent kept the Existing page; Keep mine wrote keep:true and left the CLI service untouched." });
   } else {
-    // Snapshot command bytes before UseApp so we can prove no early relink.
-    const beforeUseApp = digest(readFileSync(file));
+    // Snapshot command bytes before UseApp; keep sampling until commit.
+    if (digest(readFileSync(file)) !== originalHash || lstatSync(file).isSymbolicLink()) {
+      throw Error("Terminal command changed before UseApp");
+    }
     await ui.click("Use this app's pacer");
-    if (beforeUseApp !== originalHash || lstatSync(file).isSymbolicLink()) throw Error("UseApp relinked before the takeover committed");
+    function linkStillOriginal(): boolean {
+      return !lstatSync(file).isSymbolicLink() && digest(readFileSync(file)) === originalHash;
+    }
+    function assertNoEarlyRelink(when: string) {
+      if (!linkStillOriginal()) throw Error(`UseApp relinked before the takeover committed (${when})`);
+    }
+    assertNoEarlyRelink("immediately after click");
     observed.noEarlyRelink = true;
 
     if (scenario === "consent-use-app-busy" || scenario === "consent-use-app-dismiss" || scenario === "consent-use-app-restart") {
       // App must stay usable while work is outstanding; no journal yet.
-      await waitFor(async () => {
+      const waited = await waitFor(async () => {
+        if (!linkStillOriginal()) return "early-relink" as const;
         const log = readFileSync(evidence("native-desktop.log"), "utf8");
         return /consent takeover waiting for \d+ tasks \/ \d+ terminals/.test(log) ? true : null;
       }, 90000, "Consent takeover did not log a wait for busy work");
+      if (waited === "early-relink") throw Error("UseApp relinked before the takeover committed (busy wait)");
       if (takeoverJournal(state.pacerHome)) throw Error("Takeover journal appeared while work was busy");
+      assertNoEarlyRelink("after busy wait log");
       // Prove the web UI is reachable (Settings path) while waiting.
       await settings(ui, `settings-waiting-${theme}.png`, true).catch(async () => {
         // Settings → Updates may already be open after connect; fall through.
@@ -197,6 +208,7 @@ export async function runConsentExercise(id: string, scenario: string, options: 
         clearQueuedHold(state.pacerHome, holdId!);
         holdId = null;
         await sleep(25000); // watcher interval is 20 s
+        assertNoEarlyRelink("dismiss idle settle");
         if (takeoverJournal(state.pacerHome)) throw Error("Dismissed UseApp still wrote a takeover journal after idle");
         const jobs = await inspectFixtureJobs(readOtaRecord(id, options));
         if (!sameProcess(jobs.jobs[0].process, originalProcess) || jobs.jobs[0].registrationSha256 !== originalRegistration) throw Error("Dismissed UseApp changed the CLI service");
@@ -207,12 +219,14 @@ export async function runConsentExercise(id: string, scenario: string, options: 
         await waitFor(async () => incarnationExited(desktop!) ? true : null, 10000, "Pending desktop did not exit");
         clearQueuedHold(state.pacerHome, holdId!);
         holdId = null;
+        assertNoEarlyRelink("before relaunch");
         const relaunched = launch("native-desktop-relaunch.log", theme);
         state = updateOtaDriverRecord(id, readOtaRecord(id, options), { exercise: state.exercise, runtime: { ...state.runtime!, desktop: relaunched } }, options);
         desktop = relaunched;
         const next = await desktopControls(relaunched.pid);
         await pageShown(next, "Use the app's service", "Takeover offer after restart");
         await capture(next, `consent-offer-after-restart-${theme}.png`, "ADR 0011 offer after restart");
+        assertNoEarlyRelink("after relaunch offer");
         if (takeoverJournal(state.pacerHome)) throw Error("Restart auto-committed a UseApp takeover");
         observed.reofferAfterRestart = true;
         record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop", verdict: "PASS", text: "Relaunch while a UseApp move was pending showed the normal ADR 0011 offer; no automatic move." });
@@ -221,24 +235,30 @@ export async function runConsentExercise(id: string, scenario: string, options: 
         holdId = null;
         const result = await waitFor(async () => {
           const tx = takeoverJournal(state.pacerHome);
-          return tx?.journal.state === "committed" ? tx : null;
+          if (tx?.journal.state === "committed") return tx;
+          if (!linkStillOriginal()) return "early-relink" as const;
+          return null;
         }, 180000, "Consent takeover did not commit after idle");
+        if (result === "early-relink") throw Error("UseApp relinked before the takeover committed (polling for commit after idle)");
         writeFileSync(evidence("takeover-journal.json"), JSON.stringify(result.journal, null, 2) + "\n", { flag: "wx", mode: 0o600 });
         state = readOtaRecord(id, options);
         await assertCommitted(state, session, ui, file, originalHash, originalRegistration, observed, theme, evidence, settings);
+        assertNoManagedInstallLoop(evidence("native-desktop.log"));
         record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `Busy UseApp deferred then committed. Observed: ${JSON.stringify(observed)}` });
       }
     } else {
       // consent-use-app: idle immediately → commit with relink
       const result = await waitFor(async () => {
         const tx = takeoverJournal(state.pacerHome);
-        return tx?.journal.state === "committed" ? tx : null;
+        if (tx?.journal.state === "committed") return tx;
+        if (!linkStillOriginal()) return "early-relink" as const;
+        return null;
       }, 180000, "Consent UseApp takeover did not commit");
+      if (result === "early-relink") throw Error("UseApp relinked before the takeover committed (polling for commit)");
       writeFileSync(evidence("takeover-journal.json"), JSON.stringify(result.journal, null, 2) + "\n", { flag: "wx", mode: 0o600 });
       state = readOtaRecord(id, options);
       await assertCommitted(state, session, ui, file, originalHash, originalRegistration, observed, theme, evidence, settings);
-      const log = readFileSync(evidence("native-desktop.log"), "utf8");
-      if (/automatic install/.test(log) || /could not finish signing in/.test(log)) throw Error("UseApp still looped through managed install");
+      assertNoManagedInstallLoop(evidence("native-desktop.log"));
       record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service / journal", verdict: "PASS", text: `UseApp committed with relink-after-commit. Observed: ${JSON.stringify(observed)}` });
     }
   }
@@ -262,6 +282,17 @@ export async function runConsentExercise(id: string, scenario: string, options: 
     if (!existsSync(evidence("real-app-after.json"))) {
       writeFileSync(evidence("real-app-after.json"), JSON.stringify(snapshotRealApp(enumerateNativeProcesses()), null, 2) + "\n", { flag: "wx", mode: 0o600 });
     }
+  }
+}
+
+function assertNoManagedInstallLoop(logPath: string): void {
+  const log = readFileSync(logPath, "utf8");
+  if (
+    /automatic install/.test(log)
+    || /could not finish signing in/.test(log)
+    || /managed service (install|start) refused/.test(log)
+  ) {
+    throw Error("UseApp still looped through managed install");
   }
 }
 
