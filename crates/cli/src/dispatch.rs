@@ -32,6 +32,15 @@ pub fn main(argv: Vec<String>) -> i32 {
     {
         return guard::run(&args[1..]);
     }
+    // A native bundled plugin needs neither pacer-core nor self-repair: serve it here, before
+    // `current_exe` / core resolution. `None` rows fall through to B0b's `pacer-core plugin run`.
+    if let [verb, sub, id] = args
+        && verb == "plugin"
+        && sub == "run"
+        && let Some(code) = crate::plugin_run::run_native(id)
+    {
+        return code;
+    }
     let exe = match std::env::current_exe().and_then(|p| p.canonicalize()) {
         Ok(exe) => exe,
         Err(error) => {
