@@ -542,6 +542,17 @@ async fn headless_pipe_session_publishes_prompt_md() {
         fs::metadata(&prompt).unwrap().permissions().mode() & 0o777,
         0o600
     );
+    // The started process still writes into the run directory: let it exit before the fixture
+    // removes the home, or the teardown races it ("Directory not empty").
+    let mut state = Value::Null;
+    for _ in 0..200 {
+        state = run.answer("capability.process.pollRun", &p).await.unwrap();
+        if state["state"] == "exited" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(state["state"], "exited");
 }
 
 /// Char-boundary-safe window after `start` (fixed byte slices can panic mid-UTF-8).
