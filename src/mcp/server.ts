@@ -133,6 +133,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
         options: z.array(z.object({ value: z.string(), note: z.string().optional() })).optional(),
         recommended: z.string().optional(),
         blocks: z.enum(["step", "branch", "nothing"]).optional(),
+        artifact: z.string().optional(),
         id: z.string().optional(),
         answer: z.string().optional(),
         note: z.string().optional(),
@@ -140,6 +141,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
         reason: z.string().optional(),
         expect_rev: z.number().int().positive().optional(),
         stepId: z.string().optional(),
+        attempt: z.number().int().positive().optional(),
         runId: z.string().optional(),
         run: z.string().optional(),
         status: z.enum(["open", "answered", "withdrawn"]).optional(),
@@ -148,7 +150,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       if (p.action === "ask") {
         return scoped("question.ask", {
           text: p.text, answerType: p.answerType, options: p.options, recommended: p.recommended,
-          blocks: p.blocks ?? "step", stepId: p.stepId, runId: p.runId,
+          blocks: p.blocks ?? "step", stepId: p.stepId, attempt: p.attempt, runId: p.runId,
+          artifact: p.artifact,
         });
       }
       if (p.action === "answer") {
@@ -277,6 +280,7 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       reason: z.string().optional(),
       expect_rev: z.number().int().positive().optional(),
       stepId: z.string().optional(),
+      attempt: z.number().int().positive().optional(),
       runId: z.string().optional(),
       run: z.string().optional(),
       status: z.enum(["open", "answered", "withdrawn"]).optional(),
@@ -285,7 +289,8 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
     if (p.action === "ask") {
       return json(await callOp(getCtx(), "question.ask", {
         text: p.text, answerType: p.answerType, options: p.options, recommended: p.recommended,
-        blocks: p.blocks ?? "step", stepId: p.stepId, runId: p.runId, artifact: p.artifact,
+        blocks: p.blocks ?? "step", stepId: p.stepId, attempt: p.attempt, runId: p.runId,
+        artifact: p.artifact,
       }, msgDeps()) as Record<string, unknown>);
     }
     if (p.action === "answer") {

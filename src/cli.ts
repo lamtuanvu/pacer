@@ -491,7 +491,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     if (!allowed) {
       return {
         code: 2, out: "",
-        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry, run decide|choose|submit-graph, answer, question, ask",
+        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry, run decide|choose|submit-graph, answer, question, ask --type ...",
       };
     }
   }

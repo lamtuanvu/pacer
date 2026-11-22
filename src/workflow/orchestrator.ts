@@ -748,6 +748,7 @@ export function buildTurnPrompt(
     "  pacer step result --json '<object>'",
     "  pacer answer q_<id> \"<answer>\" [--note <text>] [--expect-rev <n>]",
     "  pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev <n>]",
+    "  pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] --step <id> [--attempt <n>] \"<text>\"",
     "  pacer review <taskId> --accept|--reject  /  pacer stop <taskId>",
   ].join("\n");
   // Wake-ups and run-state first so the UTF-8 cap never drops decision triggers

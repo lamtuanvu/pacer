@@ -656,6 +656,11 @@
             "stepId": {
               "type": "string"
             },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
             "runId": {
               "type": "string"
             },
@@ -3442,6 +3447,23 @@
       },
       {
         "name": "pacer_question",
+        "field": "attempt",
+        "args": {
+          "action": "ask",
+          "attempt": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received string at attempt"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
         "field": "runId",
         "args": {
           "action": "ask",
@@ -5694,6 +5716,76 @@
         "response": {
           "isError": true,
           "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected int, received number at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too small: expected number to be >0 at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too big: expected int to be <=9007199254740991 at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received Infinity at attempt"
         }
       },
       {

@@ -38,7 +38,6 @@ test("lists planner and strategy tools", async () => {
   ].sort());
 });
 
-
 test("task_answer retries a question with text and revision checks", async()=>{
   const {ctx,call,spawned,client}=await connect();
   const d=await call("delegate",{goal:"g",repo:tmpDir(),executor:"codex"});

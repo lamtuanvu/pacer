@@ -45,7 +45,7 @@ const validationCases = [
   ...([ ["delegate", "timeout_min", 1, 240, false], ["delegate", "acceptance_timeout_min", 1, 120, true],
     ["task_wait", "timeout_s", 1, 3000, true],
     ...["task_send", "task_answer", "task_request_review", "task_review", "task_stop", "work_answer", "work_retry", "pacer_question"].map(name => [name, "expect_rev", 1, 9007199254740991, true] as const),
-
+    ["pacer_question", "attempt", 1, 9007199254740991, true] as const,
     ["work_events", "after", 0, 9007199254740991, true],
   ] as const).flatMap(([name, field, min, max, integer]) => [
     { name, field, raw: `${min}.0`, accepted: true },
