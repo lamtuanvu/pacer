@@ -17,7 +17,7 @@ pub struct Bundled {
 pub const TABLE: &[Bundled] = &[
     Bundled { id: "pacer-planners", manifest: include_str!("../manifests/pacer-planners.json"), run: None },
     Bundled { id: "pacer-endpoints", manifest: include_str!("../manifests/pacer-endpoints.json"), run: None },
-    Bundled { id: "pacer-notify", manifest: include_str!("../manifests/pacer-notify.json"), run: None },
+    Bundled { id: "pacer-notify", manifest: pacer_bundled_notify::MANIFEST, run: Some(pacer_bundled_notify::plugin) },
     Bundled { id: "pacer-classify", manifest: include_str!("../manifests/pacer-classify.json"), run: None },
     Bundled { id: "pacer-usage", manifest: include_str!("../manifests/pacer-usage.json"), run: None },
     Bundled { id: "pacer-agent-session", manifest: include_str!("../manifests/pacer-agent-session.json"), run: None },
