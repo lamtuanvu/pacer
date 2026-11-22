@@ -109,6 +109,36 @@ const denied = () =>
     "Authenticated native control is unavailable",
     "Use the supported signed desktop and service baseline.",
   );
+/** Named hello failure; never includes nonces, tokens or challenge material. */
+class HelloRejection extends Error {
+  constructor(
+    readonly step: string,
+    detail?: string,
+  ) {
+    super(detail ? `${step}: ${detail}` : step);
+    this.name = "HelloRejection";
+  }
+}
+const helloDenied = (step: string, detail?: string) => new HelloRejection(step, detail);
+const HELLO_REJECTION_LOG_INTERVAL_MS = 5 * 60_000;
+const helloRejectionLogAt = new Map<string, number>();
+/** Rate-limited serve.log line for a failed native hello (once per reason per 5 minutes). */
+export function logHelloRejection(reason: string, now = Date.now()): void {
+  const last = helloRejectionLogAt.get(reason);
+  if (last !== undefined && now - last < HELLO_REJECTION_LOG_INTERVAL_MS) return;
+  helloRejectionLogAt.set(reason, now);
+  console.error(`pacer: native hello rejected: ${reason}`);
+}
+export function resetHelloRejectionLogForTests(): void {
+  helloRejectionLogAt.clear();
+}
+function helloRejectionReason(error: unknown): string {
+  if (error instanceof HelloRejection) return error.message;
+  if (error instanceof z.ZodError) return "helloSchema";
+  if (error instanceof CoreError) return error.message;
+  if (error instanceof Error && error.message) return error.message;
+  return "denied";
+}
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const bindingSchema = z
@@ -387,26 +417,60 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       }
       chain = chain
         .then(async () => {
-          if (dead) throw denied();
+          if (dead) throw helloDenied("closed");
           if (!connection) {
-            const hello = helloSchema.parse(frame);
-            if (hello.challenge !== challenge) throw denied();
-            const identity = this.options.authority.verifyPeer(
-              peer.auditToken,
-              hello.role,
-            );
-            await this.options.verifyService();
+            let hello: z.infer<typeof helloSchema>;
+            try {
+              hello = helloSchema.parse(frame);
+            } catch (error) {
+              if (error instanceof z.ZodError) throw helloDenied("helloSchema");
+              throw error;
+            }
+            if (hello.challenge !== challenge)
+              throw helloDenied("challenge mismatch");
+            let identity: NativePeer;
+            try {
+              identity = this.options.authority.verifyPeer(
+                peer.auditToken,
+                hello.role,
+              );
+            } catch {
+              throw helloDenied("verifyPeer");
+            }
+            try {
+              await this.options.verifyService();
+            } catch {
+              throw helloDenied("verifyService");
+            }
             let installation: Installation | null = null;
             let adoptionSession: string | undefined,
               recoveryInstallationId: string | null = null;
-            if (hello.ticket && hello.adoption) throw denied();
+            if (hello.ticket && hello.adoption)
+              throw helloDenied("ticket and adoption");
             if (hello.role === "desktop") {
               if (!identity.executable.endsWith(".app/Contents/MacOS/pacer"))
-                throw denied();
+                throw helloDenied("verifyPeer", "desktop executable path");
               const app = dirname(dirname(dirname(identity.executable)));
-              this.verifyBundle(app);
-              installation = await inspectInstallation(this.getCtx(), app);
-              if (hello.version !== installation.version) throw denied();
+              try {
+                this.verifyBundle(app);
+              } catch {
+                throw helloDenied("verifyBundle");
+              }
+              try {
+                installation = await inspectInstallation(this.getCtx(), app);
+              } catch (error) {
+                // Task requires the inspectInstallation refusal message in the local log.
+                throw helloDenied(
+                  "inspectInstallation",
+                  error instanceof CoreError
+                    ? error.message
+                    : error instanceof Error
+                      ? error.message
+                      : undefined,
+                );
+              }
+              if (hello.version !== installation.version)
+                throw helloDenied("version mismatch");
               if (!hello.ticket && !hello.adoption) {
                 const pending = listAdoptions(this.getCtx()).filter(
                   (r) =>
@@ -414,7 +478,8 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     r.authority.target.appPath === installation!.appPath &&
                     r.authority.bootId !== identity.process.bootId,
                 );
-                if (pending.length > 1) throw denied();
+                if (pending.length > 1)
+                  throw helloDenied("pending adoption count > 1");
                 if (pending[0]) {
                   const tx = readNativeAdoption(
                     this.getCtx(),
@@ -425,7 +490,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     !tx.authorization ||
                     !hasReservation(this.getCtx(), tx.command.transactionId)
                   )
-                    throw denied();
+                    throw helloDenied("adoption/ticket verification");
                   const original = tx.manifest.source.target;
                   for (const key of [
                     "appPath",
@@ -437,38 +502,54 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     "serviceLabel",
                     "version",
                   ] as const)
-                    if (original[key] !== installation[key]) throw denied();
+                    if (original[key] !== installation[key])
+                      throw helloDenied("adoption/ticket verification");
                   recoveryInstallationId = original.id;
                 }
               }
               if (hello.adoption) {
-                const verified = verifyAdoptionLaunch(
-                  this.getCtx(),
-                  hello.adoption,
-                  identity.process,
-                  this.service!,
-                  this.serviceExecutable,
-                  currentVersion(),
-                );
-                if (installation.id !== verified.selected.installationId)
-                  throw denied();
-                adoptionSession = verified.selected.launchId;
+                try {
+                  const verified = verifyAdoptionLaunch(
+                    this.getCtx(),
+                    hello.adoption,
+                    identity.process,
+                    this.service!,
+                    this.serviceExecutable,
+                    currentVersion(),
+                  );
+                  if (installation.id !== verified.selected.installationId)
+                    throw helloDenied("adoption/ticket verification");
+                  adoptionSession = verified.selected.launchId;
+                } catch (error) {
+                  if (error instanceof HelloRejection) throw error;
+                  throw helloDenied("adoption/ticket verification");
+                }
               }
               if (hello.ticket) {
-                verifyNativeLaunch(
-                  this.getCtx(),
-                  hello.ticket,
-                  identity.process,
-                );
-                if (!sameProcess(hello.ticket.service, this.service))
-                  throw denied();
+                try {
+                  verifyNativeLaunch(
+                    this.getCtx(),
+                    hello.ticket,
+                    identity.process,
+                  );
+                  if (!sameProcess(hello.ticket.service, this.service))
+                    throw helloDenied("adoption/ticket verification");
+                } catch (error) {
+                  if (error instanceof HelloRejection) throw error;
+                  throw helloDenied("adoption/ticket verification");
+                }
               }
-            } else if (hello.ticket || hello.adoption) throw denied();
-            this.options.authority.verifyPeer(
-              peer.auditToken,
-              hello.role,
-              identity.process,
-            );
+            } else if (hello.ticket || hello.adoption)
+              throw helloDenied("adoption/ticket verification");
+            try {
+              this.options.authority.verifyPeer(
+                peer.auditToken,
+                hello.role,
+                identity.process,
+              );
+            } catch {
+              throw helloDenied("verifyPeer");
+            }
             connection = {
               peer,
               identity,
@@ -491,7 +572,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                 hello.ticket?.transactionId ??
                 null,
             };
-            if (dead) throw denied();
+            if (dead) throw helloDenied("closed");
             this.connections.add(connection);
             clearTimeout(timeout);
             await peer.send({
@@ -505,7 +586,10 @@ export class NativeControlBridge implements NativeAuthorityProvider {
             });
           } else await this.handle(connection, frame);
         })
-        .catch(() => peer.close())
+        .catch((error) => {
+          if (!connection) logHelloRejection(helloRejectionReason(error));
+          peer.close();
+        })
         .finally(() => {
           pending--;
         });

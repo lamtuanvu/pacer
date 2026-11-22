@@ -343,7 +343,7 @@ fn not_ready<T>(result: Result<T, OtaError>) -> Result<Option<T>, OtaError> {
 fn not_ready_handshake<T>(result: Result<T, OtaError>) -> Result<Option<T>, OtaError> {
     match result {
         Ok(value) => Ok(Some(value)),
-        Err(OtaError::Unavailable | OtaError::Io) => Ok(None),
+        Err(OtaError::Unavailable | OtaError::Io | OtaError::HandshakeClosed) => Ok(None),
         Err(error) => Err(error),
     }
 }
@@ -990,6 +990,7 @@ mod restore_tests {
     fn managed_handshake_io_is_retried_without_ignoring_identity_failures() {
         assert_eq!(not_ready_handshake::<()>(Err(OtaError::Io)), Ok(None));
         assert_eq!(not_ready_handshake::<()>(Err(OtaError::Unavailable)), Ok(None));
+        assert_eq!(not_ready_handshake::<()>(Err(OtaError::HandshakeClosed)), Ok(None));
         assert_eq!(not_ready_handshake::<()>(Err(OtaError::Identity)), Err(OtaError::Identity));
     }
 

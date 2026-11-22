@@ -3322,7 +3322,13 @@ pub fn desktop_update_connection(
     } else if alive {
         ("available", None)
     } else if let Some(error) = error {
-        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity { if takeover && supports_takeover { "service-takeover" } else { "service-identity" } } else { "connection" }))
+        ("unavailable", Some(if error == pacer_desktop::ota::OtaError::Identity {
+            if takeover && supports_takeover { "service-takeover" } else { "service-identity" }
+        } else if error == pacer_desktop::ota::OtaError::HandshakeClosed {
+            "handshake"
+        } else {
+            "connection"
+        }))
     } else {
         ("connecting", None)
     };
@@ -3351,6 +3357,7 @@ mod desktop_connection_tests {
     fn connection_failure_is_not_an_up_to_date_or_manual_only_state() {
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), false, true), serde_json::json!({"state":"unavailable","reason":"service-identity"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Io), true, true), serde_json::json!({"state":"unavailable","reason":"connection"}));
+        assert_eq!(desktop_update_connection(true, false, Some(OtaError::HandshakeClosed), false, true), serde_json::json!({"state":"unavailable","reason":"handshake"}));
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, true)["reason"], "service-takeover");
         assert_eq!(desktop_update_connection(true, false, Some(OtaError::Identity), true, false)["reason"], "service-identity");
     }

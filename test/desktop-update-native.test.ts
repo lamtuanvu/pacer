@@ -961,3 +961,66 @@ test("native helper factory advertises service adoption and its recovery", async
   const factory = createNativePipeFactory(() => ctx, { sessions: () => [], reverify: async () => {} }, {} as never);
   expect([...factory.capabilities].sort()).toEqual(["adopt", "check", "download", "install", "recover", "recover-adoption"]);
 });
+
+test("hello rejection logs a rate-limited named reason to serve.log", async () => {
+  const { NativeControlBridge, logHelloRejection, resetHelloRejectionLogForTests } = await import(
+    "../src/update/desktop/native-provider"
+  );
+  const { spyOn } = await import("bun:test");
+  resetHelloRejectionLogForTests();
+  const errSpy = spyOn(console, "error").mockImplementation(() => {});
+  try {
+    logHelloRejection("challenge mismatch", 1_000);
+    logHelloRejection("challenge mismatch", 1_000 + 60_000);
+    logHelloRejection("verifyService", 1_000 + 60_000);
+    logHelloRejection("challenge mismatch", 1_000 + 6 * 60_000);
+    expect(errSpy.mock.calls.map((c) => c[0])).toEqual([
+      "pacer: native hello rejected: challenge mismatch",
+      "pacer: native hello rejected: verifyService",
+      "pacer: native hello rejected: challenge mismatch",
+    ]);
+
+    const sent: unknown[] = [];
+    let resolveClosed!: () => void;
+    const peer = {
+      auditToken: new Uint8Array(32),
+      closed: new Promise<void>((resolve) => (resolveClosed = resolve)),
+      onFrame: (_value: unknown) => {},
+      send: async (value: unknown) => {
+        sent.push(value);
+      },
+      close: () => resolveClosed(),
+    };
+    const ctx = fakeCtx();
+    mkdirSync(ctx.pacerHome);
+    resetHelloRejectionLogForTests();
+    errSpy.mockClear();
+    const bridge = new NativeControlBridge(() => ctx, {
+      port: 7433,
+      authority: {
+        verifyPeer: () => {
+          throw Error("unsigned");
+        },
+        verifyStatic: () => {},
+      },
+      verifyService: async () => {},
+    });
+    bridge.accept(peer);
+    await Bun.sleep(1);
+    const challenge = sent[0] as { nonce: string };
+    peer.onFrame({
+      schema: 1,
+      kind: "hello",
+      role: "desktop",
+      version: "1.0.0",
+      nonce: "a".repeat(64),
+      challenge: challenge.nonce,
+    });
+    await Bun.sleep(20);
+    expect(errSpy.mock.calls.some((c) => String(c[0]).includes("pacer: native hello rejected: verifyPeer"))).toBe(true);
+    bridge.stop();
+  } finally {
+    errSpy.mockRestore();
+    resetHelloRejectionLogForTests();
+  }
+});

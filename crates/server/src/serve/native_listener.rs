@@ -37,6 +37,95 @@ impl NativeListener {
     pub fn listener(&self) -> &UnixListener {
         &self.listener
     }
+    /// Cheap path check via the held directory fd: the published names still
+    /// refer to this listener's socket and owner inodes.
+    pub fn published_intact(&self) -> bool {
+        if self.check_directory().is_err() || self.socket_inode == 0 || self.owner_inode == 0 {
+            return false;
+        }
+        let Some(socket_name) = self.path.file_name() else {
+            return false;
+        };
+        let Some(owner_name) = self.owner.file_name() else {
+            return false;
+        };
+        entry_inode(&self.directory, socket_name) == Some(self.socket_inode)
+            && entry_inode(&self.directory, owner_name) == Some(self.owner_inode)
+    }
+    /// Another live process owns a socket published at this path. Recovery must
+    /// not unlink or restart against that owner.
+    pub fn foreign_live_owner(&self) -> bool {
+        let Some(socket_name) = self.path.file_name() else {
+            return false;
+        };
+        let Some(owner_name) = self.owner.file_name() else {
+            return false;
+        };
+        use nix::{
+            fcntl::{AtFlags, OFlag, openat},
+            sys::stat::{Mode, fstatat},
+        };
+        use std::io::Read;
+        let Ok(stat) = fstatat(&self.directory, socket_name, AtFlags::AT_SYMLINK_NOFOLLOW) else {
+            return false;
+        };
+        if stat.st_ino == self.socket_inode {
+            return false;
+        }
+        if stat.st_mode & nix::libc::S_IFMT != nix::libc::S_IFSOCK
+            || stat.st_uid != nix::unistd::getuid().as_raw()
+            || stat.st_mode & 0o077 != 0
+        {
+            return false;
+        }
+        let Ok(file) = openat(
+            &self.directory,
+            owner_name,
+            OFlag::O_RDONLY | OFlag::O_NONBLOCK | OFlag::O_NOFOLLOW | OFlag::O_CLOEXEC,
+            Mode::empty(),
+        ) else {
+            return false;
+        };
+        let file = std::fs::File::from(file);
+        let Ok(metadata) = file.metadata() else {
+            return false;
+        };
+        if !metadata.is_file()
+            || metadata.nlink() != 1
+            || metadata.uid() != stat.st_uid
+            || metadata.mode() & 0o077 != 0
+            || metadata.len() > 4096
+        {
+            return false;
+        }
+        let mut bytes = Vec::new();
+        if file.take(4097).read_to_end(&mut bytes).is_err() || bytes.len() > 4096 {
+            return false;
+        }
+        let Ok(record) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+            return false;
+        };
+        if record["inode"].as_u64() != Some(stat.st_ino) {
+            return false;
+        }
+        let Some(pid) = record["process"]["pid"]
+            .as_u64()
+            .and_then(|v| u32::try_from(v).ok())
+            .filter(|v| *v > 1)
+        else {
+            return false;
+        };
+        let Some(boot) = record["process"]["bootId"].as_str().filter(|v| !v.is_empty()) else {
+            return false;
+        };
+        let Some(birth) = record["process"]["birth"].as_str().filter(|v| !v.is_empty()) else {
+            return false;
+        };
+        matches!(
+            super::native_trust::process_details(pid),
+            Ok(current) if current.process.boot_id == boot && current.process.birth == birth
+        )
+    }
     fn bind_at(path: PathBuf, process: &ProcessIdentity) -> io::Result<Self> {
         let parent = path.parent().ok_or_else(denied)?;
         let directory = std::fs::OpenOptions::new()
@@ -139,6 +228,75 @@ impl NativeListener {
 }
 fn denied() -> io::Error {
     io::Error::other("native listener ownership unavailable")
+}
+
+/// Decision for the root socket watchdog. Live handoff of a rebound listener to
+/// Core is not available, so Restart asks launchd KeepAlive to replace the process.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SocketWatchAction {
+    Intact,
+    Restart,
+    BackOff,
+    LeaveAlone,
+}
+
+pub fn socket_watch_action(
+    published_intact: bool,
+    recently_restarted: bool,
+    foreign_live_owner: bool,
+) -> SocketWatchAction {
+    if published_intact {
+        SocketWatchAction::Intact
+    } else if foreign_live_owner {
+        SocketWatchAction::LeaveAlone
+    } else if recently_restarted {
+        SocketWatchAction::BackOff
+    } else {
+        SocketWatchAction::Restart
+    }
+}
+
+/// Stamp age under which a prior socket-loss restart suppresses another exit.
+pub const SOCKET_REBIND_BACKOFF: std::time::Duration = std::time::Duration::from_secs(30);
+
+pub fn socket_rebind_stamp(home: &Path) -> PathBuf {
+    home.join("run/native-socket-rebind.stamp")
+}
+
+pub fn recently_rebound(home: &Path, now: std::time::SystemTime) -> bool {
+    let stamp = socket_rebind_stamp(home);
+    let Ok(metadata) = std::fs::metadata(&stamp) else {
+        return false;
+    };
+    let Ok(modified) = metadata.modified() else {
+        return false;
+    };
+    now.duration_since(modified)
+        .map(|age| age < SOCKET_REBIND_BACKOFF)
+        .unwrap_or(false)
+}
+
+pub fn mark_rebind_attempt(home: &Path) -> io::Result<()> {
+    use std::os::unix::fs::{OpenOptionsExt, PermissionsExt};
+    let stamp = socket_rebind_stamp(home);
+    if let Some(parent) = stamp.parent() {
+        std::fs::create_dir_all(parent)?;
+        let _ = std::fs::set_permissions(parent, std::fs::Permissions::from_mode(0o700));
+    }
+    let temporary = stamp.with_extension("stamp.tmp");
+    {
+        let mut file = std::fs::OpenOptions::new()
+            .write(true)
+            .create(true)
+            .truncate(true)
+            .mode(0o600)
+            .open(&temporary)?;
+        use std::io::Write;
+        file.write_all(b"1")?;
+        file.sync_all()?;
+    }
+    std::fs::rename(&temporary, &stamp)?;
+    Ok(())
 }
 fn bind_private(directory: &std::fs::File, path: &Path) -> io::Result<UnixListener> {
     use nix::{
