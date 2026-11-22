@@ -17066,7 +17066,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.17.5",
+        "releaseVersion": "0.17.6",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -17074,7 +17074,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.17.5",
+      "pacer": "0.17.6",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17255,6 +17255,7 @@
         "run.set_planner",
         "run.start",
         "run.stop",
+        "run.submit_graph",
         "runner.add",
         "runner.block",
         "runner.check",
@@ -17365,7 +17366,7 @@
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.17.5",
+      "pacer": "0.17.6",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17819,7 +17820,7 @@
         }
       },
       "account.list": {
-        "description": "Accounts, usage and sign-in commands without account emails.",
+        "description": "Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -22793,7 +22794,7 @@
         }
       },
       "run.answer": {
-        "description": "Answer a waiting human step; the answer advances the run. Requires the run's current rev.",
+        "description": "Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -22863,7 +22864,7 @@
         }
       },
       "run.decide": {
-        "description": "Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.",
+        "description": "Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -22898,7 +22899,7 @@
         }
       },
       "run.get": {
-        "description": "One run with its step instances.",
+        "description": "One run with its step instances and generated graph versions.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",
@@ -23107,6 +23108,46 @@
           "required": [
             "id",
             "expect_rev"
+          ],
+          "additionalProperties": false
+        }
+      },
+      "run.submit_graph": {
+        "description": "Submit a generated sub-workflow for a waiting generate step under a live run grant.",
+        "params": {
+          "$schema": "https://json-schema.org/draft/2020-12/schema",
+          "type": "object",
+          "properties": {
+            "id": {
+              "type": "string",
+              "pattern": "^run_[a-z2-7]{10}$"
+            },
+            "step": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 128
+            },
+            "source": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 262144
+                },
+                {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {}
+                }
+              ]
+            }
+          },
+          "required": [
+            "id",
+            "step",
+            "source"
           ],
           "additionalProperties": false
         }
@@ -28468,6 +28509,7 @@
     "run.retry_orchestrator",
     "run.decide",
     "run.choose",
+    "run.submit_graph",
     "session.agent.list",
     "session.agent.get",
     "session.agent.create",

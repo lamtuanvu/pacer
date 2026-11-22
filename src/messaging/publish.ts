@@ -5,6 +5,7 @@ import type { OutboxEvent } from "../link/envelope";
 import { taskData } from "../link/pump";
 import { publish, type PublishReport } from "../link/publish";
 import { readLatest } from "../link/store";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { readTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -16,7 +17,7 @@ import type { Ctx } from "../types";
  */
 export function taskMessageEvents(ctx: Ctx, taskId: string): OutboxEvent[] {
   const record = readTask(ctx, taskId);
-  if (!record) return [];
+  if (!record || isEngineOwnedKind(record.kind)) return [];
   // Keep what the pump last published, which carries session fields taskData lacks.
   const task: OutboxEvent = { type: "task", data: readLatest(ctx).tasks.find(t => t.id === taskId) ?? taskData(record) };
   // The task's retry decides whether its items are superseded.
