@@ -653,12 +653,21 @@ export const workflowOps: Record<string, OpDef> = {
     description: "Read one structured run question by id.",
     params: z.object({ id: questionId }),
     handler: (ctx, p) => {
+      const unknownMsg = `unknown question ${p.id}`;
       const q = getQuestion(ctx, p.id);
-      if (!q) throw new CoreError("not_found", `unknown question ${p.id}`);
+      if (!q) throw new CoreError("not_found", unknownMsg);
       if (ctx.env.PACER_RUN_GRANT) {
         const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
         if (!grant || rootRunId(ctx, q.runId) !== grant.runId) {
-          throw new CoreError("not_found", `unknown question ${p.id}`);
+          throw new CoreError("not_found", unknownMsg);
+        }
+      } else if (isExecutorSession(ctx)) {
+        // Executors may only read questions on their own run (M-h).
+        const taskId = ctx.env.PACER_TASK_ID;
+        if (!taskId) throw new CoreError("not_found", unknownMsg);
+        const step = stepByTask(ctx, taskId);
+        if (!step || rootRunId(ctx, step.runId) !== rootRunId(ctx, q.runId)) {
+          throw new CoreError("not_found", unknownMsg);
         }
       }
       return q;
