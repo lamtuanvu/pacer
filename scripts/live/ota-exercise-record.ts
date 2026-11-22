@@ -5,19 +5,27 @@ export const MANAGED_SCENARIOS = ["upgrade", "startup-failure", "helper-crash", 
 /** Scenarios that start Desktop attached to the lease's one external service. */
 export const ATTACHED_SCENARIOS = ["adopt", "adopt-failure", "attached"] as const;
 export const TAKEOVER_SCENARIOS = ["takeover", "takeover-relink", "takeover-dismiss", "takeover-failure", "takeover-crash"] as const;
-export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS, ...TAKEOVER_SCENARIOS] as const;
+/** First-run Existing/UseApp paths that move a CLI service through ADR 0011. */
+export const CONSENT_SCENARIOS = ["consent-use-app", "consent-plain-existing", "consent-use-app-busy", "consent-use-app-dismiss", "consent-use-app-restart"] as const;
+/** Desktop-owned registration that still names the app's own terminal link. */
+export const OWN_LINK_SCENARIOS = ["own-link-repair", "own-link-repair-failure"] as const;
+/** Paired-layout scenarios that attach an external CLI and exercise desktop service moves. */
+export const SERVICE_MOVE_SCENARIOS = [...TAKEOVER_SCENARIOS, ...CONSENT_SCENARIOS, ...OWN_LINK_SCENARIOS] as const;
+export const NATIVE_SCENARIOS = [...MANAGED_SCENARIOS, ...ATTACHED_SCENARIOS, ...SERVICE_MOVE_SCENARIOS] as const;
 const points = {
   upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"],
   "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
   takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
+  "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],
+  "own-link-repair": [], "own-link-repair-failure": ["own-link-bootstrap"],
 } as const;
 const transaction = z.string().regex(/^[A-Za-z0-9_-]{1,128}$/);
 export const exerciseSchema = z.object({
   schema: z.literal(1), scenario: z.enum(NATIVE_SCENARIOS), state: z.enum(["armed", "running", "complete", "failed"]),
   driver: fixtureProcessSchema, installationId: z.string().regex(/^[a-f0-9]{64}$/), transactionId: transaction.nullable(),
   faults: z.array(z.object({
-    point: z.enum(["authorized", "installed", "restore", "candidate-startup", "adoption-startup", "takeover-startup", "takeover-switch"]),
+    point: z.enum(["authorized", "installed", "restore", "candidate-startup", "adoption-startup", "takeover-startup", "takeover-switch", "own-link-bootstrap"]),
     consumed: z.object({ process: fixtureProcessSchema, transactionId: transaction }).strict().nullable(),
   }).strict()).max(2),
 }).strict().superRefine((value, context) => {

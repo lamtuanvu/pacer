@@ -3,7 +3,7 @@ import { readyControl, retryForeground, settingsReady } from "../scripts/live/ot
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { assertFixtureLayoutScenario, initialFixtureVersion } from "../scripts/live/ota";
-import { TAKEOVER_SCENARIOS } from "../scripts/live/ota-exercise-record";
+import { SERVICE_MOVE_SCENARIOS, TAKEOVER_SCENARIOS } from "../scripts/live/ota-exercise-record";
 
 const button = (disabled?: boolean) => ({ ref: "e1", role: "button", name: "Use the app's service", actions: ["click"], disabled });
 
@@ -45,11 +45,20 @@ test("native fixture drivers run beside the installed app and prove it untouched
 test("takeover scenarios require the candidate desktop and helper layout", () => {
   const candidate = { initialLayout: "paired" as const, nativeFixture: { baselineVersion: "0.2.3", candidateVersion: "0.2.4" } as any };
   expect(initialFixtureVersion(candidate)).toBe("0.2.4");
-  for (const scenario of TAKEOVER_SCENARIOS) {
+  for (const scenario of SERVICE_MOVE_SCENARIOS) {
     expect(() => assertFixtureLayoutScenario(candidate, scenario)).not.toThrow();
     expect(() => assertFixtureLayoutScenario({ initialLayout: "bridge" }, scenario)).toThrow("candidate desktop");
   }
   expect(() => assertFixtureLayoutScenario(candidate, "upgrade")).toThrow();
+  expect(TAKEOVER_SCENARIOS.length).toBeGreaterThan(0);
+});
+
+test("consent and own-link drivers sit beside the installed app like takeover", () => {
+  for (const file of ["ota-consent.ts", "ota-own-link.ts"]) {
+    const source = readFileSync(join(import.meta.dir, "../scripts/live", file), "utf8");
+    expect(source).toContain("snapshotRealApp(enumerateNativeProcesses())");
+    expect(source).toContain("assertRealAppUnchanged(realApp,");
+  }
 });
 
 test("native takeover inspector stops accessibility parent-child cycles before descending", () => {

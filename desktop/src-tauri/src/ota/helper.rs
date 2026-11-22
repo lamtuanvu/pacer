@@ -701,6 +701,19 @@ pub async fn fixture_attach(takeover: bool, standard: bool) -> Result<serde_json
         .map_err(|_| OtaError::Invalid)
 }
 
+/// Fixed fixture entry point for the stuck desktop-owned terminal-link registration.
+#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+pub async fn fixture_attach_own_link() -> Result<serde_json::Value, OtaError> {
+    let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
+    let own = super::native::process_details(std::process::id())
+        .map_err(|_| OtaError::Identity)?
+        .ok_or(OtaError::Identity)?;
+    trust.verify_process(&own.identity, CodeRole::Helper)?;
+    trust.verify_static(&own.executable, CodeRole::Helper)?;
+    serde_json::to_value(super::platform::fixture_attach_own_link(&trust).await?)
+        .map_err(|_| OtaError::Invalid)
+}
+
 #[cfg(all(target_os = "macos", feature = "ota-fixture"))]
 pub async fn fixture_refresh_takeover() -> Result<serde_json::Value, OtaError> {
     let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;

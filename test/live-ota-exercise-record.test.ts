@@ -11,7 +11,13 @@ test("startup retry requires no exercise, no request, and every former participa
   expect(resumableStartup({ ...runtime, desktop: null }, null, () => true)).toBe(false);
   expect(resumableStartup({ ...runtime, request: { op: "desktop.update.check", requestId: "pending", paramsSha256: "a".repeat(64) } }, null, () => true)).toBe(false);
 });
-for (const [scenario, points] of Object.entries({ upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"], "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"], adopt: [], "adopt-failure": ["adoption-startup"], attached: [] })) {
+for (const [scenario, points] of Object.entries({
+  upgrade: [], "startup-failure": ["candidate-startup"], "helper-crash": ["authorized"], "interrupted-install": ["installed"], "restore-failure": ["candidate-startup", "restore"],
+  adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
+  takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
+  "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],
+  "own-link-repair": [], "own-link-repair-failure": ["own-link-bootstrap"],
+})) {
   test(`fixed ${scenario} fault points`, () => {
     const record = newExercise(scenario, driver, id);
     expect(record.faults.map(f => String(f.point))).toEqual(points);
