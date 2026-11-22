@@ -71,8 +71,12 @@ export interface EdgeDef {
   maxLoops?: number;
 }
 
+/** Re-plan after a generated child step fails: auto N times then ask, or always ask. */
+export type ReplanPolicy = { auto: number; then: "ask" } | "ask";
+
 export interface WorkflowPolicy {
   budget?: { orchestrator_turns?: number; message_turns?: number };
+  replan?: ReplanPolicy;
 }
 
 export interface WorkflowDef {
@@ -175,11 +179,20 @@ const stepSchemas: Record<StepType, z.ZodType> = {
   end: endStepSchema,
 };
 
+const replanPolicySchema = z.union([
+  z.literal("ask"),
+  z.strictObject({
+    auto: z.number().int().min(0),
+    then: z.literal("ask"),
+  }),
+]);
+
 const workflowPolicySchema = z.strictObject({
   budget: z.strictObject({
     orchestrator_turns: z.number().int().min(1).optional(),
     message_turns: z.number().int().min(1).optional(),
   }).optional(),
+  replan: replanPolicySchema.optional(),
 });
 
 export const edgeDefSchema = z.strictObject({

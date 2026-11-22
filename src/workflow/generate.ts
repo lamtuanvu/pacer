@@ -254,6 +254,20 @@ export async function submitGraph(
 
   const depth = nestingDepth(ctx, run.id);
   const errors = validateGenerated(input.source, stepDef.limits, depth);
+  // Re-plan submissions must keep finished step ids unchanged.
+  const finished = Array.isArray(prior.replanFinished)
+    ? (prior.replanFinished as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+  if (finished.length > 0) {
+    const { validateReplanKeepFinished } = await import("./replan");
+    const priorGraphs = listGraphs(ctx, run.id, input.stepId);
+    const baseline = [...priorGraphs].reverse().find(g =>
+      g.status === "approved" || g.status === "superseded" || g.status === "rejected" || g.status === "proposed",
+    );
+    if (baseline) {
+      errors.push(...validateReplanKeepFinished(baseline.def, input.source, finished));
+    }
+  }
   if (errors.length > 0) {
     const priorFails = typeof prior.submitFails === "number" ? prior.submitFails : 0;
     const submitFails = priorFails + 1;

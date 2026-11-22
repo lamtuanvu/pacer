@@ -67,7 +67,7 @@ edges:
 const FIXTURE_UNKNOWN = `
 id: t/unknown
 version: 1
-policy: { replan: 1 }
+policy: { colour: 1 }
 steps:
   a:
     type: agent
@@ -129,8 +129,8 @@ test("rejects a when clause that does not parse", () => {
 
 test("unknown top-level and step fields are errors", () => {
   const errs = parseWorkflow(FIXTURE_UNKNOWN).errors;
-  // policy is a known top-level key; unknown keys inside it (here: replan) are errors.
-  expect(errs.map(e => e.path)).toEqual(expect.arrayContaining(["policy.replan", "steps.a.colour"]));
+  // policy is a known top-level key; unknown keys inside it are errors.
+  expect(errs.map(e => e.path)).toEqual(expect.arrayContaining(["policy.colour", "steps.a.colour"]));
   expect(errs.find(e => e.path === "steps.a.colour")!.message).toContain("unknown field 'colour'");
 });
 
@@ -306,6 +306,17 @@ edges: []
 `);
   expect(ok.errors).toEqual([]);
   expect(ok.def!.policy).toEqual({ budget: { orchestrator_turns: 60, message_turns: 20 } });
+
+  const withReplan = parseWorkflow(`
+id: t/pol3
+version: 1
+policy: { replan: { auto: 1, then: ask } }
+steps:
+  done: { type: end }
+edges: []
+`);
+  expect(withReplan.errors).toEqual([]);
+  expect(withReplan.def!.policy).toEqual({ replan: { auto: 1, then: "ask" } });
 });
 
 test("Phase 1 fixtures still parse unchanged", () => {

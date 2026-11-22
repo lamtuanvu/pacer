@@ -782,6 +782,12 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     return;
   }
   if (row.status === "failed") {
+    // Generated child: replan policy may take the failure instead of a plain step_failed wake.
+    if (run.parentRunId && run.parentStep) {
+      const { noteChildStepFailureForReplan } = await import("./replan");
+      const noted = noteChildStepFailureForReplan(ctx, run.id, step.stepId);
+      if (noted) return;
+    }
     // Decision point: wake the orchestrator instead of ending the run (Phase 2).
     // Mechanical failures (no edge, loop limit, start failure) still use failRun.
     // Child runs share the root orchestrator: wake-ups are always keyed by root.
