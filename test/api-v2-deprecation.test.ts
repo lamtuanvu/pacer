@@ -24,7 +24,7 @@ test("isV2Path matches /v2 and its children only", () => {
   expect(["/v3/hello", "/v20/x", "/app/v2"].map(isV2Path)).toEqual([false, false, false]);
 });
 
-test("every /v2 response carries Deprecation, Sunset and a successor link; /v3 does not", async () => {
+test("every /v2 response carries Deprecation and a successor link but no Sunset; /v3 does not", async () => {
   const { url, h } = await serve();
   for (const path of ["/v2/hello", "/v2/snapshot", "/v2/ops/nope"]) {
     const res = await fetch(`${url}${path}`, {
@@ -33,8 +33,9 @@ test("every /v2 response carries Deprecation, Sunset and a successor link; /v3 d
       body: path.includes("/ops/") ? "{}" : undefined,
     });
     expect(res.headers.get("deprecation")).toBe(V2_HEADERS.Deprecation);
-    expect(res.headers.get("sunset")).toBe(V2_HEADERS.Sunset);
     expect(res.headers.get("link")).toBe(V2_HEADERS.Link);
+    // The `Sunset` header is not sent until the removal release is dated.
+    expect(res.headers.get("sunset")).toBeNull();
   }
   expect((await fetch(`${url}/v3/hello`, { headers: h })).headers.get("deprecation")).toBeNull();
 });
@@ -48,7 +49,6 @@ test("Rust and TypeScript use the same header values", () => {
   const rust = readFileSync(join(import.meta.dir, "..", "crates/server/src/serve/deprecation.rs"), "utf8");
   for (const [name, value] of [
     ["V2_DEPRECATION", V2_HEADERS.Deprecation],
-    ["V2_SUNSET", V2_HEADERS.Sunset],
     ["V2_LINK", V2_HEADERS.Link],
     ["V2_REMOVAL_RELEASE", V2_REMOVAL_RELEASE],
   ] as const) {

@@ -77,13 +77,11 @@ async fn protocol_2_responses_carry_deprecation_headers() {
         "v2: {v2}"
     );
     assert!(
-        v2lower.contains(&deprecation::V2_SUNSET.to_ascii_lowercase()),
-        "v2: {v2}"
-    );
-    assert!(
         v2lower.contains(&deprecation::V2_LINK.to_ascii_lowercase()),
         "v2: {v2}"
     );
+    // The `Sunset` header is not sent until the removal release is dated.
+    assert!(!v2lower.contains("sunset:"), "v2: {v2}");
     let v3 = request(port, "GET", "/v3/hello", bearer).await;
     assert!(v3.starts_with("HTTP/1.1 200"), "v3: {v3}");
     let lower = v3.to_ascii_lowercase();
