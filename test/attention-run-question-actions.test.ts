@@ -10,6 +10,7 @@ import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import type { TaskRecord } from "../src/tasks/types";
 import { deriveWorkflowAttention } from "../src/workflow/attention";
+import { startRun, type EngineDeps } from "../src/workflow/engine";
 import { askQuestion, escalateQuestion } from "../src/workflow/questions";
 import { issueRunGrant } from "../src/workflow/run-grant";
 import type { WorkflowDef } from "../src/workflow/schema";
@@ -23,6 +24,7 @@ import {
 } from "../src/workflow/store";
 import { insertTurn } from "../src/workflow/wakeups";
 import type { Ctx } from "../src/types";
+import type { DelegateInput } from "../src/tasks/api";
 import { buildRustProbe, closeRustProbe, rustRequest } from "./read-model-rust-helpers";
 
 const NOW = 1_700_000_000;
@@ -251,6 +253,77 @@ test("G: asker cues distinguish human_step / orchestrator / executor", () => {
   }
 });
 
+function engineDeps(): EngineDeps {
+  const byRequest = new Map<string, TaskRecord>();
+  return {
+    delegate: async (ctx, input: DelegateInput) => {
+      const prior = input.requestId ? byRequest.get(input.requestId) : undefined;
+      if (prior) return readTask(ctx, prior.id) ?? prior;
+      const task = createTask(ctx, {
+        brief: input.brief,
+        kind: input.kind ?? null,
+        requestedExecutor: null,
+        timeoutS: 600,
+        ...(input.title !== undefined ? { title: input.title } : {}),
+        ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+      });
+      if (input.requestId) byRequest.set(input.requestId, task);
+      return task;
+    },
+    stopTask: (ctx, id) => { updateTask(ctx, id, t => { t.state = "stopped"; }); },
+  };
+}
+
+/** I-1: custom approve_revise options must make actions[0] succeed through question.answer. */
+test("H I-1: approve_revise custom options — first action params answer the human-step question", async () => {
+  const ctx = fakeCtx({ now: NOW });
+  withStrategy(ctx);
+  const defCustom: WorkflowDef = {
+    id: "t/attn-ar-custom",
+    version: 1,
+    steps: {
+      gate: {
+        type: "human",
+        decision: "must",
+        question: { text: "Ship or hold?", kind: "approve_revise", options: ["ship", "hold"] },
+      },
+      done: { type: "end" },
+    },
+    edges: [{ from: "gate", to: "done", when: "result.answer == 'ship'" }],
+    entry: "gate",
+  };
+  addDefinition(ctx, defCustom, "id: t/attn-ar-custom\n");
+  const run = await startRun(ctx, { workflow: "t/attn-ar-custom", repo: tmpDir(), brief: "B" }, undefined, engineDeps());
+  const q = getQuestion(ctx, deriveWorkflowAttention(personCtx(ctx))
+    .find(i => i.id.startsWith("question:q_"))!.question!.id as string)!;
+  expect(q.answerType).toBe("approve_revise");
+  expect(q.options?.map(o => o.value)).toEqual(["ship", "hold"]);
+
+  const item = deriveWorkflowAttention(personCtx(ctx)).find(i => i.id === `question:${q.id}`)!;
+  expect(item.detail).toContain("Options: ship / hold.");
+  // Broken today: Approve answers literal "approve", which validateQuestionAnswer rejects.
+  const first = item.actions[0];
+  expect(first).toBeTruthy();
+  expect(first!.op).toBe("question.answer");
+  expect(first!.params.answer).toBe("ship");
+  expect(["ship", "hold"]).toContain(String(first!.params.answer));
+
+  const result = await callOp(personCtx(ctx), "question.answer", first!.params) as { status: string; answer?: string };
+  expect(result.status).toBe("answered");
+  expect(result.answer).toBe(String(first!.params.answer));
+  expect(getQuestion(ctx, q.id)?.status).toBe("answered");
+  expect(getQuestion(ctx, q.id)?.answer).toBe(String(first!.params.answer));
+});
+
+test("H I-1: approve_revise keeps Approve when options include approve (case-insensitive)", async () => {
+  const { item } = await personQuestionItem("approve_revise", {
+    options: [{ value: "Approve" }, { value: "revise" }],
+    askerKind: "human_step",
+  });
+  expect(item.actions[0]?.label).toBe("Approve");
+  expect(item.actions[0]?.params.answer).toBe("Approve");
+});
+
 test("G: prompt_wait first action is Convert to question (params succeed)", () => {
   const ctx = fakeCtx({ now: NOW });
   const task = createTask(ctx, {
@@ -301,6 +374,7 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
   }> = [
     { answerType: "yes_no", text: "Ship?", askerKind: "executor", recommended: "yes" },
     { answerType: "approve_revise", text: "Approve?", askerKind: "human_step", options: [{ value: "approve" }, { value: "revise" }] },
+    { answerType: "approve_revise", text: "Ship or hold?", askerKind: "human_step", options: [{ value: "ship" }, { value: "hold" }] },
     { answerType: "single", text: "Pick?", askerKind: "orchestrator", options: [{ value: "a" }, { value: "b" }, { value: "c" }], recommended: "b" },
     { answerType: "text", text: "Notes?", askerKind: "executor" },
   ];

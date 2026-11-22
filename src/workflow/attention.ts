@@ -50,6 +50,28 @@ function complementaryYesNo(first: string): string {
   return "yes";
 }
 
+/** Up to 3 option buttons; recommended first. Shared by `single` and custom `approve_revise`. */
+function optionChoiceActions(
+  id: string,
+  expect_rev: number,
+  values: string[],
+  recommended?: string | null,
+): Action[] {
+  if (values.length === 0) return [];
+  const ordered = recommended && values.includes(recommended)
+    ? [recommended, ...values.filter(v => v !== recommended)]
+    : values;
+  return ordered.slice(0, 3).map((answer, i) => {
+    const action: Action = {
+      label: answer,
+      op: "question.answer",
+      params: { id, expect_rev, answer },
+    };
+    if (i === 0) action.style = "primary";
+    return action;
+  });
+}
+
 /**
  * Actions whose first entry can succeed via a direct op call (UI-13 / Dispatch
  * renders only the first action). Text/multi and other shapes have no op action.
@@ -68,24 +90,28 @@ export function runQuestionActions(q: QuestionRow): Action[] {
     ];
   }
   if (q.answerType === "approve_revise") {
-    return [
-      { label: "Approve", op: "question.answer", params: { id, expect_rev, answer: "approve" }, style: "primary" },
-    ];
+    const values = q.options?.map(o => o.value) ?? [];
+    if (values.length === 0) {
+      return [
+        { label: "Approve", op: "question.answer", params: { id, expect_rev, answer: "approve" }, style: "primary" },
+      ];
+    }
+    const approveSpelling = values.find(v => v.toLowerCase() === "approve");
+    if (approveSpelling !== undefined) {
+      return [
+        {
+          label: "Approve",
+          op: "question.answer",
+          params: { id, expect_rev, answer: approveSpelling },
+          style: "primary",
+        },
+      ];
+    }
+    // Custom options without "approve" — same as single (I-1).
+    return optionChoiceActions(id, expect_rev, values, q.recommended);
   }
   if (q.answerType === "single" && q.options && q.options.length > 0) {
-    const values = q.options.map(o => o.value);
-    const ordered = q.recommended && values.includes(q.recommended)
-      ? [q.recommended, ...values.filter(v => v !== q.recommended)]
-      : values;
-    return ordered.slice(0, 3).map((answer, i) => {
-      const action: Action = {
-        label: answer,
-        op: "question.answer",
-        params: { id, expect_rev, answer },
-      };
-      if (i === 0) action.style = "primary";
-      return action;
-    });
+    return optionChoiceActions(id, expect_rev, q.options.map(o => o.value), q.recommended);
   }
   return [];
 }

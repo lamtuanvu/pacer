@@ -157,6 +157,42 @@ fn complementary_yes_no(first: &str) -> String {
     }
 }
 
+/// Up to 3 option buttons; recommended first. Shared by `single` and custom `approve_revise`.
+fn option_choice_actions(
+    id: &str,
+    expect_rev: &Value,
+    values: Vec<String>,
+    recommended: Option<&str>,
+) -> Value {
+    let mut ordered = values.clone();
+    if let Some(rec) = recommended
+        && values.iter().any(|v| v == rec)
+    {
+        ordered = std::iter::once(rec.to_string())
+            .chain(values.into_iter().filter(|v| v != rec))
+            .collect();
+    }
+    let actions: Vec<Value> = ordered
+        .into_iter()
+        .take(3)
+        .enumerate()
+        .map(|(i, answer)| {
+            let mut a = Map::new();
+            a.insert("label".into(), json!(answer.clone()));
+            a.insert("op".into(), json!("question.answer"));
+            a.insert(
+                "params".into(),
+                json!({"id": id, "expect_rev": expect_rev, "answer": answer}),
+            );
+            if i == 0 {
+                a.insert("style".into(), json!("primary"));
+            }
+            Value::Object(a)
+        })
+        .collect();
+    Value::Array(actions)
+}
+
 /// Mirror of TS `runQuestionActions` — first action must succeed via direct op call.
 fn run_question_actions(
     id: &str,
@@ -198,48 +234,39 @@ fn run_question_actions(
             Value::Array(vec![Value::Object(primary), Value::Object(secondary)])
         }
         "approve_revise" => {
-            let mut a = Map::new();
-            a.insert("label".into(), json!("Approve"));
-            a.insert("op".into(), json!("question.answer"));
-            a.insert(
-                "params".into(),
-                json!({"id": id, "expect_rev": expect_rev, "answer": "approve"}),
-            );
-            a.insert("style".into(), json!("primary"));
-            Value::Array(vec![Value::Object(a)])
+            let values = option_values(options);
+            if values.is_empty() {
+                let mut a = Map::new();
+                a.insert("label".into(), json!("Approve"));
+                a.insert("op".into(), json!("question.answer"));
+                a.insert(
+                    "params".into(),
+                    json!({"id": id, "expect_rev": expect_rev, "answer": "approve"}),
+                );
+                a.insert("style".into(), json!("primary"));
+                return Value::Array(vec![Value::Object(a)]);
+            }
+            if let Some(approve_spelling) = values.iter().find(|v| v.eq_ignore_ascii_case("approve"))
+            {
+                let mut a = Map::new();
+                a.insert("label".into(), json!("Approve"));
+                a.insert("op".into(), json!("question.answer"));
+                a.insert(
+                    "params".into(),
+                    json!({"id": id, "expect_rev": expect_rev.clone(), "answer": approve_spelling}),
+                );
+                a.insert("style".into(), json!("primary"));
+                return Value::Array(vec![Value::Object(a)]);
+            }
+            // Custom options without "approve" — same as single (I-1).
+            option_choice_actions(id, &expect_rev, values, recommended)
         }
         "single" => {
             let values = option_values(options);
             if values.is_empty() {
                 return json!([]);
             }
-            let mut ordered = values.clone();
-            if let Some(rec) = recommended
-                && values.iter().any(|v| v == rec)
-            {
-                ordered = std::iter::once(rec.to_string())
-                    .chain(values.into_iter().filter(|v| v != rec))
-                    .collect();
-            }
-            let actions: Vec<Value> = ordered
-                .into_iter()
-                .take(3)
-                .enumerate()
-                .map(|(i, answer)| {
-                    let mut a = Map::new();
-                    a.insert("label".into(), json!(answer.clone()));
-                    a.insert("op".into(), json!("question.answer"));
-                    a.insert(
-                        "params".into(),
-                        json!({"id": id, "expect_rev": expect_rev, "answer": answer}),
-                    );
-                    if i == 0 {
-                        a.insert("style".into(), json!("primary"));
-                    }
-                    Value::Object(a)
-                })
-                .collect();
-            Value::Array(actions)
+            option_choice_actions(id, &expect_rev, values, recommended)
         }
         _ => json!([]),
     }
