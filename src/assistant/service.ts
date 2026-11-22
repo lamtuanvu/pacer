@@ -15,7 +15,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
 
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
@@ -41,7 +41,7 @@ export interface AssistantDeps {
   keys?: (ctx: Ctx, strategy: Strategy) => Promise<string[]>;
   strategy?: (ctx: Ctx) => Strategy;
   /** Whether ask mode may run on an account; defaults to the recorded self-test (src/assistant/selftest.ts). */
-  selfTest?: (ctx: Ctx, account: string) => { ok: boolean; reason?: string };
+  selfTest?: (ctx: Ctx, account: string) => { ok: boolean; reason?: string; liveTools?: boolean };
 }
 
 const cachedStatus = (ctx: Ctx, strategy: Strategy) => computeStatus({ ...ctx, readOnly: true }, strategy, { cacheOnly: true });
@@ -197,8 +197,12 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   const configured = !!settings.account;
   let admission: Admission = { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
   if (configured) { try { admission = await admit(ctx, deps); } catch (e) { admission = { ok: false, reason: e instanceof Error ? e.message : String(e) }; } }
+  const row = configured
+    ? candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)
+    : undefined;
   return {
     available: configured && admission.ok, configured, account: settings.account ?? undefined, runner: settings.runner ?? undefined,
+    liveTools: row?.liveTools ?? false,
     ...(admission.ok ? {} : { reason: admission.reason, ...(admission.hint ? { hint: admission.hint } : {}) }),
     limits: settings.limits, retention: settings.retention, rev: settings.rev, today: usageToday(ctx),
   };
@@ -586,15 +590,16 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
     };
     // A non-default Claude/Codex account without its own config dir must not fall back to the default.
     if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, reason: `${name} has no Claude config directory.` }];
+      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
     }
     if (account.kind === "codex" && !codexAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, reason: `${name} has no Codex home.` }];
+      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
     }
     const adapter = askAdapterFor(ctx, account);
     if (!adapter) return [];
     const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
-    return [{ ...row, available: check.ok, ...(check.ok ? {} : { reason: check.reason }) }];
+    const liveTools = check.ok && (check.liveTools ?? askAdapterLiveTools(adapter));
+    return [{ ...row, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
   return [...pacerRows(ctx, strategy), ...executor];
 }
@@ -634,6 +639,7 @@ function pacerRows(ctx: Ctx, strategy: Strategy) {
       account: name,
       backend: "pacer" as AssistantBackend,
       available,
+      liveTools: available,
       ...(available ? {} : { reason: nativePacerUnavailableReason(account.connection.api) }),
       models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
       runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),

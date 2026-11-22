@@ -530,14 +530,14 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     const account = page.getByLabel("Account that answers");
     await account.click();
     await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).waitFor();
-    expect(await page.getByRole("option", { name: /oc · via opencode/ }).count()).toBe(1);
+    expect(await page.getByRole("option", { name: /oc · via agent CLI/ }).count()).toBe(1);
     // Pacer backend: the reads card lists the host tools summary.
     await page.getByRole("option", { name: /localmodel.*pacer's agent/ }).click();
     await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").waitFor();
     expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(0);
-    // Unchecked executor: plain copy, not the raw reason; Run check is offered.
+    // Unchecked executor: plain copy, not the raw reason; Run check is offered; digest-only reads card.
     await account.click();
-    await page.getByRole("option", { name: /oc · via opencode/ }).click();
+    await page.getByRole("option", { name: /oc · via agent CLI/ }).click();
     await page.getByText("Not checked yet.").waitFor();
     // Raw reason stays in the closed technical details disclosure, not in the alert body.
     expect(await page.getByText("oc has not passed the ask-mode check yet.", { exact: true }).isVisible()).toBe(false);
@@ -548,12 +548,24 @@ browserTest("settings_assistant_maps_check_reasons_confirms_executor_and_varies_
     await page.getByRole("button", { name: "Run ask-mode check" }).click();
     await page.getByText("Check finished.").waitFor();
     expect(await page.evaluate(() => (window as any).selftestCalls)).toEqual([{ account: "oc" }]);
+    // After a proven check, the reads card lists the same tools and says the CLI reaches them through pacer.
+    await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").waitFor();
+    expect(await page.getByText("The agent CLI reaches these only through pacer's tools.").count()).toBe(1);
+    expect(await page.getByText("The agent answers from pacer's summary only.").count()).toBe(0);
+    // Digest-only executor (passed check, no live tools): summary wording returns.
+    await account.click();
+    await page.getByRole("option", { name: /claude-digest · via agent CLI/ }).click();
+    await page.getByText("The agent answers from pacer's summary only.").waitFor();
+    expect(await page.getByText("Counts, attention items, the pacing mode and whether delegation is paused.").count()).toBe(0);
     // Saving an executor after a pacer setting asks for a distinct confirmation.
+    await account.click();
+    await page.getByRole("option", { name: /oc · via agent CLI/ }).click();
     await page.getByRole("button", { name: "Save", exact: true }).click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();
     expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
     await expect(dialog.getAttribute("aria-label")).resolves.toBe("Answer through the agent CLI?");
+    expect(await dialog.textContent()).toContain("it may use only pacer's read tools");
     // Cancel leaves settings unchanged and returns focus to Save.
     await dialog.getByRole("button", { name: "Cancel" }).click();
     await page.waitForFunction(() => !document.querySelector("dialog[open]"));
@@ -589,11 +601,25 @@ browserTest("sheet_setup_confirms_executor_and_escape_closes_dialog_only", async
     await page.getByRole("button", { name: "Open assistant" }).waitFor();
     await page.keyboard.press("Meta+j");
     await focused(page, "[data-assistant-setup]");
+    // Both wordings appear on ready executor rows; title carries the full Settings sentence.
+    await page.getByText("via agent CLI · checked · with pacer's live tools").waitFor();
+    await page.getByText("via agent CLI · checked · from pacer's summary").waitFor();
+    expect(await page.locator("span[title=\"Answers through the agent CLI with pacer's live tools.\"]").count()).toBe(1);
+    expect(await page.locator("span[title=\"Answers through the agent CLI, from pacer's summary.\"]").count()).toBe(1);
+    // Digest-only ready row: trust dialog says summary-only.
+    await page.getByRole("button", { name: "Use Claude digest" }).click();
+    const digestDialog = page.getByRole("dialog");
+    await digestDialog.waitFor();
+    expect(await digestDialog.textContent()).toContain("answers from pacer's summary only");
+    expect(await digestDialog.textContent()).not.toContain("it may use only pacer's read tools");
+    await digestDialog.getByRole("button", { name: "Cancel" }).click();
+    await page.waitForFunction(() => !document.querySelector("dialog[open]"));
     const use = page.getByRole("button", { name: "Use Local model" }).nth(1);
     await use.click();
     const dialog = page.getByRole("dialog");
     await dialog.waitFor();
     expect(await dialog.getByRole("heading").textContent()).toBe("Answer through the agent CLI?");
+    expect(await dialog.textContent()).toContain("it may use only pacer's read tools");
     // Escape dismisses only the confirm; the sheet stays open and nothing is saved.
     await page.keyboard.press("Escape");
     await page.waitForFunction(() => !document.querySelector("dialog[open]"));

@@ -19,7 +19,7 @@
 .pc-assistant-setup__account+.pc-assistant-setup__account{border-top:1px solid var(--line)}
 .pc-assistant-setup h2{margin:0;font-size:var(--type-session-title-size);line-height:var(--type-session-title-line);font-weight:var(--type-session-title-weight)}
 .pc-assistant-setup__name{flex:1;min-width:0;display:flex;flex-direction:column}
-.pc-assistant-setup__name span{font-size:var(--type-caption-size);color:var(--ink-secondary);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.pc-assistant-setup__name span{font-size:var(--type-caption-size);color:var(--ink-secondary);display:-webkit-box;-webkit-box-orient:vertical;-webkit-line-clamp:2;overflow:hidden;overflow-wrap:anywhere}
 @media(max-width:767px){.pc-assistant-setup__account{flex-wrap:wrap}.pc-assistant-setup__name{flex-basis:70%}}
 
 .pc-assistant-preferences{display:flex;align-items:center;flex-wrap:wrap;gap:var(--space-3)}

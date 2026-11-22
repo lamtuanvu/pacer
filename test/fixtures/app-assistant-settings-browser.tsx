@@ -15,12 +15,18 @@ w.assistantSettings = alreadyExecutor
   : { rev: 2, account: null, backend: "pacer", runner: null, limits: { turnsPerDay: 50 }, retention: { days: 30 } };
 w.candidates = {
   accounts: [
-    { account: "localmodel", backend: "pacer", available: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel", model: "qwen" }], isPlanner: false },
+    { account: "localmodel", backend: "pacer", available: true, liveTools: true, models: [{ id: "qwen", name: "Qwen" }], runners: [{ id: "opencode#localmodel", model: "qwen" }], isPlanner: false },
     {
       account: "oc", backend: "executor",
       available: alreadyExecutor,
+      liveTools: alreadyExecutor,
       ...(alreadyExecutor ? {} : { reason: "oc has not passed the ask-mode check yet." }),
       models: [{ id: "glm", name: "GLM" }], runners: [{ id: "opencode#oc", model: "glm" }], isPlanner: false,
+    },
+    {
+      account: "claude-digest", backend: "executor",
+      available: true, liveTools: false,
+      models: [{ id: "sonnet", name: "Sonnet" }], runners: [{ id: "claude#claude-digest", model: "sonnet" }], isPlanner: false,
     },
   ],
   reads: [
@@ -55,7 +61,9 @@ const api = {
       w.candidates = {
         ...w.candidates,
         accounts: w.candidates.accounts.map((row: { account: string; backend: string }) =>
-          row.account === account && row.backend === "executor" ? { ...row, available: true, reason: undefined } : row),
+          row.account === account && row.backend === "executor"
+            ? { ...row, available: true, liveTools: true, reason: undefined }
+            : row),
       };
       return { passed: true };
     }

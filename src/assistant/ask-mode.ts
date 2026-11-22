@@ -32,6 +32,15 @@ export const ASK_GRANT_REF = "secrets:assistantAskGrant";
 export type AskAdapter = "opencode" | "claude-code" | "codex";
 
 /**
+ * Default liveTools for a passing ask-mode record that omits the field (legacy).
+ * Opencode (ACP) and Codex (app-server) always proved a pacer call. Claude control-protocol
+ * records set `liveTools` explicitly; older digest-only Claude passes stay false via this default.
+ */
+export function askAdapterLiveTools(adapter: AskAdapter): boolean {
+  return adapter === "opencode" || adapter === "codex";
+}
+
+/**
  * How ask mode restricts opencode over ACP (verified against opencode 2.2.3):
  * - Agent-permission deny hides tools that ignore `tool.use` policy (notably Code Mode `execute`)
  *   and other non-canary builtins (edit/write/task/…).
