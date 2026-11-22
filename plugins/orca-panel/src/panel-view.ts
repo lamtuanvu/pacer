@@ -188,6 +188,14 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
         statusByKey[event.pendingKey] = { tone: 'warn', text: 'Already handled elsewhere' }
       } else if (!event.ok) {
         statusByKey[event.pendingKey] = { tone: 'bad', text: event.error || 'Failed' }
+      } else if ((event.result as { opened?: unknown } | undefined)?.opened === false) {
+        // task.attach and similar ops succeed with `opened: false` when nothing could be
+        // opened, offering the command to run instead: never report that as done.
+        const command = (event.result as { command?: unknown }).command
+        statusByKey[event.pendingKey] = {
+          tone: 'warn',
+          text: typeof command === 'string' && command !== '' ? `Couldn't open it in Orca. Run: ${command}` : "Couldn't open it in Orca.",
+        }
       } else if (event.successText) {
         statusByKey[event.pendingKey] = { tone: 'good', text: event.successText }
       }

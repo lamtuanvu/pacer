@@ -404,6 +404,32 @@ test('reducer keeps goal/answers/view/menu/confirm/pending across snapshot push'
   assert.equal(effectiveScope(state.snapshot!, state.ui.scope), 'global')
 })
 
+test("an ok result with opened:false is a warning with the command, not 'Watching'", () => {
+  let state = initialPanelState()
+  state = reducePanel(state, { type: 'snapshot', snapshot: snap() }).state
+  state = reducePanel(state, { type: 'begin', pendingKey: 'run:t4:watch' }).state
+  state = reducePanel(state, {
+    type: 'act-result',
+    pendingKey: 'run:t4:watch',
+    ok: true,
+    result: { opened: false, command: "pacer attach 't4'" },
+    successText: 'Watching',
+  }).state
+  assert.deepEqual(state.ui.statusByKey['run:t4:watch'], {
+    tone: 'warn',
+    text: "Couldn't open it in Orca. Run: pacer attach 't4'",
+  })
+  state = reducePanel(state, { type: 'begin', pendingKey: 'run:t5:watch' }).state
+  state = reducePanel(state, {
+    type: 'act-result',
+    pendingKey: 'run:t5:watch',
+    ok: true,
+    result: { opened: true },
+    successText: 'Watching',
+  }).state
+  assert.deepEqual(state.ui.statusByKey['run:t5:watch'], { tone: 'good', text: 'Watching' })
+})
+
 test('conflict result becomes Already handled elsewhere', () => {
   let state = initialPanelState()
   state = reducePanel(state, { type: 'snapshot', snapshot: snap() }).state
