@@ -129,4 +129,11 @@ jobs:
             desktop/src-tauri -> target
       - name: Warm desktop Linux Rust compilation
         working-directory: desktop/src-tauri
-        run: cargo build --locked --release --target "$TARGET"
+        run: |
+          set -euo pipefail
+          # tauri-build only checks that externalBin sidecars exist; the release stages the real CLI.
+          mkdir -p binaries
+          for name in pacer pacer-core pacer-assistant-pacer; do
+            install -m 0755 /dev/null "binaries/$name-$TARGET"
+          done
+          cargo build --locked --release --target "$TARGET"
