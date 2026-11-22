@@ -143,11 +143,11 @@ The release workflow has an opt-in `desktop-release` environment. Keep the
 repository variable `PACER_DESKTOP_RELEASE_ENABLED` unset until the signed native
 validation matrix and baseline manual installation have been accepted. The
 implementation does not configure credentials or enable publishing. With the
-variable set to `true`, stable version tags build natively on `macos-15`
-(Apple Silicon) and `macos-15-intel` (Intel), sign and notarize each complete app,
-then validate the pair on macOS before publishing. Runner availability is
-specified by [GitHub's hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners);
-a successful local ARM build does not establish Intel coverage.
+variable set to `true`, stable version tags build both architectures on `macos-15`
+(Apple Silicon): arm64 natively and x86_64 by cross-compiling for
+`x86_64-apple-darwin` (smoke-tested under Rosetta), then sign and notarize each
+complete app and validate the pair on macOS before publishing. Runner availability is
+specified by [GitHub's hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 Release CI requires these explicitly configured inputs:
 
