@@ -13,12 +13,94 @@ import {
   listOpenPersonQuestions,
   liveRuns,
   workflowSchemaPresent,
+  type QuestionAskerKind,
   type QuestionBlocks,
   type QuestionRow,
   type RunRow,
 } from "./store";
 import { taskDatabase } from "../tasks/store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+
+/** Person-facing cue so human-step / planner / executor questions differ on Dispatch. */
+function askerCue(kind: QuestionAskerKind): string {
+  if (kind === "human_step") return "Needs your approval";
+  if (kind === "orchestrator") return "Asked by the workflow planner";
+  return "Asked by a step";
+}
+
+/** Plain-word option list for the attention detail (yes_no always yes/no). */
+function optionWords(q: QuestionRow): string[] | null {
+  if (q.answerType === "yes_no") return ["yes", "no"];
+  if (q.answerType === "approve_revise") {
+    return q.options?.length ? q.options.map(o => o.value) : ["approve", "revise"];
+  }
+  if (q.options?.length) return q.options.map(o => o.value);
+  return null;
+}
+
+function complementaryYesNo(first: string): string {
+  const lower = first.toLowerCase();
+  if (lower === "yes") {
+    if (first === "Yes") return "No";
+    if (first === "YES") return "NO";
+    return "no";
+  }
+  if (first === "No") return "Yes";
+  if (first === "NO") return "YES";
+  return "yes";
+}
+
+/**
+ * Actions whose first entry can succeed via a direct op call (UI-13 / Dispatch
+ * renders only the first action). Text/multi and other shapes have no op action.
+ */
+export function runQuestionActions(q: QuestionRow): Action[] {
+  const id = q.id;
+  const expect_rev = q.rev;
+  if (q.answerType === "yes_no") {
+    const first = q.recommended && ["yes", "no"].includes(q.recommended.toLowerCase())
+      ? q.recommended
+      : "Yes";
+    const second = complementaryYesNo(first);
+    return [
+      { label: first, op: "question.answer", params: { id, expect_rev, answer: first }, style: "primary" },
+      { label: second, op: "question.answer", params: { id, expect_rev, answer: second } },
+    ];
+  }
+  if (q.answerType === "approve_revise") {
+    return [
+      { label: "Approve", op: "question.answer", params: { id, expect_rev, answer: "approve" }, style: "primary" },
+    ];
+  }
+  if (q.answerType === "single" && q.options && q.options.length > 0) {
+    const values = q.options.map(o => o.value);
+    const ordered = q.recommended && values.includes(q.recommended)
+      ? [q.recommended, ...values.filter(v => v !== q.recommended)]
+      : values;
+    return ordered.slice(0, 3).map((answer, i) => {
+      const action: Action = {
+        label: answer,
+        op: "question.answer",
+        params: { id, expect_rev, answer },
+      };
+      if (i === 0) action.style = "primary";
+      return action;
+    });
+  }
+  return [];
+}
+
+/** Detail: question text, asker cue, options/recommended, CLI hint when no op action. */
+export function runQuestionDetail(q: QuestionRow, actions: Action[]): string {
+  const parts: string[] = [q.text.slice(0, 200), `${askerCue(q.askerKind)}.`];
+  const opts = optionWords(q);
+  if (opts) parts.push(`Options: ${opts.join(" / ")}.`);
+  if (q.recommended) parts.push(`Recommended: ${q.recommended}.`);
+  if (actions.length === 0) {
+    parts.push(`Answer with: pacer answer ${q.id} "<your answer>"`);
+  }
+  return parts.join(" ");
+}
 
 /**
  * Asker task ids whose open person-answerer blocking (step/branch) question raises
@@ -83,24 +165,18 @@ function questionPayload(q: QuestionRow): Record<string, unknown> {
 function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
   const unblocks = unblocksFor(q.blocks);
   const at = q.createdAt || ctx.now;
+  const actions = runQuestionActions(q);
   return {
     id: `question:${q.id}`,
     kind: "question",
     severity: unblocks === "nothing" ? "decide" : "blocked",
     repo: null,
     title: run.title || run.workflow,
-    detail: q.text.slice(0, 200),
+    detail: runQuestionDetail(q, actions),
     raisedAt: at,
     since: at,
     notify: unblocks === "nothing" ? "all" : "important",
-    actions: [
-      {
-        label: "Answer",
-        op: "question.answer",
-        params: { id: q.id, expect_rev: q.rev },
-        style: "primary",
-      },
-    ],
+    actions,
     unblocks,
     run: {
       id: run.id,

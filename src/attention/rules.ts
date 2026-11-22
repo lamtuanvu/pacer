@@ -78,8 +78,10 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
         since: t.promptWait.at,
         notify: "important",
         actions: [
-          open("Answer in terminal", { view: "task", id: t.id, tab: "terminal" }),
+          // Convert first: Dispatch/tray show only the first action; convert_prompt
+          // succeeds with { id } alone (UI evidence batch G).
           { label: "Convert to question", op: "question.convert_prompt", params: { id: t.id }, style: "primary" },
+          open("Answer in terminal", { view: "task", id: t.id, tab: "terminal" }),
         ],
         ...(t.executor ? { executor: t.executor } : {}),
         ...(t.host ? { host: t.host } : {}),

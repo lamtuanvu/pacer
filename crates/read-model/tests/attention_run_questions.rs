@@ -101,6 +101,11 @@ fn run_question_item_shape_matches_typescript() {
     assert_eq!(text(&item["question"]["id"]), "q_abcdefghij");
     assert_eq!(text(&item["question"]["answerType"]), "single");
     assert_eq!(text(&item["actions"][0]["op"]), "question.answer");
+    assert_eq!(text(&item["actions"][0]["label"]), "a");
+    assert_eq!(text(&item["actions"][0]["params"]["answer"]), "a");
+    assert!(text(&item["detail"]).contains("Ship?"));
+    assert!(text(&item["detail"]).contains("Asked by a step."));
+    assert!(text(&item["detail"]).contains("Options: a / b."));
     assert!(v2_compat::is_workflow_attention_item(item));
 }
 

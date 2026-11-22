@@ -79,13 +79,20 @@ test("open person-answerer questions become v3 attention items with run identity
     kind: "question",
     severity: "blocked",
     unblocks: "run",
-    detail: "Ship?",
     run: { id: run.id, title: "Ship?", priority: "normal" },
     question: { id: q.id, text: "Ship?", answerType: "single", blocks: "step" },
   });
+  expect(item!.detail).toContain("Ship?");
+  expect(item!.detail).toContain("Asked by a step.");
+  expect(item!.detail).toContain("Options: a / b.");
+  expect(item!.detail).toContain("Recommended: a.");
   expect(typeof item!.run!.letter).toBe("string");
   expect(item!.run!.letter.length).toBe(1);
-  expect(item!.actions.some(a => a.op === "question.answer")).toBe(true);
+  expect(item!.actions[0]).toMatchObject({
+    label: "a",
+    op: "question.answer",
+    params: { id: q.id, expect_rev: q.rev, answer: "a" },
+  });
   expect(isWorkflowAttentionItem(item!)).toBe(true);
   expect(items.some(i => i.detail === "Internal?")).toBe(false);
 });

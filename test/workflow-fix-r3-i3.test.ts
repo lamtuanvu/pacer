@@ -55,7 +55,8 @@ test("I-3: TS and Rust prompt_wait attention items are byte-identical", async ()
   }) as AttentionItem[];
   const rust = rustRaised.filter(i => i.id === `prompt_wait:${task.id}`);
   expect(JSON.stringify(rust)).toBe(JSON.stringify(ts));
-  expect(rust[0]?.actions.map(a => a.op).sort()).toEqual(["question.convert_prompt", "ui.open"]);
+  expect(rust[0]?.actions.map(a => a.op)).toEqual(["question.convert_prompt", "ui.open"]);
+  expect(ts[0]?.actions[0]?.label).toBe("Convert to question");
 }, 120_000);
 
 test("I-3 / M-g: v2 task JSON strips promptWait", () => {

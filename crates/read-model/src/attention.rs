@@ -121,6 +121,168 @@ fn open_question_asker_ids(ctx: &Ctx) -> std::collections::HashSet<String> {
     out
 }
 /// Open person-answerer run questions for live runs. Missing tables → no items.
+fn asker_cue(kind: &str) -> &'static str {
+    match kind {
+        "human_step" => "Needs your approval",
+        "orchestrator" => "Asked by the workflow planner",
+        _ => "Asked by a step",
+    }
+}
+
+fn option_values(options: Option<&[Value]>) -> Vec<String> {
+    options
+        .unwrap_or(&[])
+        .iter()
+        .filter_map(|o| o.get("value").and_then(|v| v.as_str()).map(str::to_string))
+        .collect()
+}
+
+fn complementary_yes_no(first: &str) -> String {
+    let lower = first.to_ascii_lowercase();
+    if lower == "yes" {
+        return if first == "Yes" {
+            "No".into()
+        } else if first == "YES" {
+            "NO".into()
+        } else {
+            "no".into()
+        };
+    }
+    if first == "No" {
+        "Yes".into()
+    } else if first == "NO" {
+        "YES".into()
+    } else {
+        "yes".into()
+    }
+}
+
+/// Mirror of TS `runQuestionActions` — first action must succeed via direct op call.
+fn run_question_actions(
+    id: &str,
+    rev: i64,
+    answer_type: &str,
+    options: Option<&[Value]>,
+    recommended: Option<&str>,
+) -> Value {
+    let expect_rev = number(rev as f64);
+    match answer_type {
+        "yes_no" => {
+            let first = match recommended {
+                Some(r) => {
+                    let lower = r.to_ascii_lowercase();
+                    if lower == "yes" || lower == "no" {
+                        r.to_string()
+                    } else {
+                        "Yes".to_string()
+                    }
+                }
+                None => "Yes".to_string(),
+            };
+            let second = complementary_yes_no(&first);
+            let mut primary = Map::new();
+            primary.insert("label".into(), json!(first.clone()));
+            primary.insert("op".into(), json!("question.answer"));
+            primary.insert(
+                "params".into(),
+                json!({"id": id, "expect_rev": expect_rev.clone(), "answer": first}),
+            );
+            primary.insert("style".into(), json!("primary"));
+            let mut secondary = Map::new();
+            secondary.insert("label".into(), json!(second.clone()));
+            secondary.insert("op".into(), json!("question.answer"));
+            secondary.insert(
+                "params".into(),
+                json!({"id": id, "expect_rev": expect_rev, "answer": second}),
+            );
+            Value::Array(vec![Value::Object(primary), Value::Object(secondary)])
+        }
+        "approve_revise" => {
+            let mut a = Map::new();
+            a.insert("label".into(), json!("Approve"));
+            a.insert("op".into(), json!("question.answer"));
+            a.insert(
+                "params".into(),
+                json!({"id": id, "expect_rev": expect_rev, "answer": "approve"}),
+            );
+            a.insert("style".into(), json!("primary"));
+            Value::Array(vec![Value::Object(a)])
+        }
+        "single" => {
+            let values = option_values(options);
+            if values.is_empty() {
+                return json!([]);
+            }
+            let mut ordered = values.clone();
+            if let Some(rec) = recommended
+                && values.iter().any(|v| v == rec)
+            {
+                ordered = std::iter::once(rec.to_string())
+                    .chain(values.into_iter().filter(|v| v != rec))
+                    .collect();
+            }
+            let actions: Vec<Value> = ordered
+                .into_iter()
+                .take(3)
+                .enumerate()
+                .map(|(i, answer)| {
+                    let mut a = Map::new();
+                    a.insert("label".into(), json!(answer.clone()));
+                    a.insert("op".into(), json!("question.answer"));
+                    a.insert(
+                        "params".into(),
+                        json!({"id": id, "expect_rev": expect_rev, "answer": answer}),
+                    );
+                    if i == 0 {
+                        a.insert("style".into(), json!("primary"));
+                    }
+                    Value::Object(a)
+                })
+                .collect();
+            Value::Array(actions)
+        }
+        _ => json!([]),
+    }
+}
+
+/// Mirror of TS `runQuestionDetail`.
+fn run_question_detail(
+    text_body: &str,
+    asker_kind: &str,
+    answer_type: &str,
+    options: Option<&[Value]>,
+    recommended: Option<&str>,
+    id: &str,
+    action_count: usize,
+) -> String {
+    let mut parts: Vec<String> = vec![slice(text_body, 200), format!("{}.", asker_cue(asker_kind))];
+    let opt_words: Option<Vec<String>> = match answer_type {
+        "yes_no" => Some(vec!["yes".into(), "no".into()]),
+        "approve_revise" => {
+            let vals = option_values(options);
+            Some(if vals.is_empty() {
+                vec!["approve".into(), "revise".into()]
+            } else {
+                vals
+            })
+        }
+        _ => {
+            let vals = option_values(options);
+            if vals.is_empty() { None } else { Some(vals) }
+        }
+    };
+    if let Some(opts) = opt_words {
+        parts.push(format!("Options: {}.", opts.join(" / ")));
+    }
+    if let Some(rec) = recommended {
+        parts.push(format!("Recommended: {rec}."));
+    }
+    if action_count == 0 {
+        parts.push(format!("Answer with: pacer answer {id} \"<your answer>\""));
+    }
+    parts.join(" ")
+}
+
 pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
     let path = ctx.pacer_home.join("state/tasks.db");
     let db = match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
@@ -213,6 +375,28 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         } else {
             ctx.now
         };
+        let parsed_options: Option<Vec<Value>> = options
+            .as_ref()
+            .filter(|s| !s.is_empty())
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .and_then(|v| v.as_array().cloned());
+        let recommended_val = recommended.filter(|s| !s.is_empty());
+        let actions = run_question_actions(
+            &id,
+            rev,
+            &answer_type,
+            parsed_options.as_deref(),
+            recommended_val.as_deref(),
+        );
+        let detail = run_question_detail(
+            &text_body,
+            &asker_kind,
+            &answer_type,
+            parsed_options.as_deref(),
+            recommended_val.as_deref(),
+            &id,
+            actions.as_array().map_or(0, Vec::len),
+        );
         let mut question = Map::new();
         question.insert("id".into(), json!(id));
         question.insert("text".into(), json!(text_body));
@@ -220,12 +404,10 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         question.insert("blocks".into(), json!(blocks));
         question.insert("rev".into(), number(rev as f64));
         question.insert("askerKind".into(), json!(asker_kind));
-        if let Some(raw) = options.filter(|s| !s.is_empty())
-            && let Ok(parsed) = serde_json::from_str::<Value>(&raw)
-        {
-            question.insert("options".into(), parsed);
+        if let Some(opts) = &parsed_options {
+            question.insert("options".into(), Value::Array(opts.clone()));
         }
-        if let Some(v) = recommended.filter(|s| !s.is_empty()) {
+        if let Some(v) = &recommended_val {
             question.insert("recommended".into(), json!(v));
         }
         if let Some(v) = artifact.filter(|s| !s.is_empty()) {
@@ -247,19 +429,11 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         obj.insert("severity".into(), json!(severity));
         obj.insert("repo".into(), Value::Null);
         obj.insert("title".into(), json!(run_title.clone()));
-        obj.insert("detail".into(), json!(slice(&text_body, 200)));
+        obj.insert("detail".into(), json!(detail));
         obj.insert("raisedAt".into(), number(at));
         obj.insert("since".into(), number(at));
         obj.insert("notify".into(), json!(notify));
-        obj.insert(
-            "actions".into(),
-            json!([{
-                "label":"Answer",
-                "op":"question.answer",
-                "params":{"id":id,"expect_rev":number(rev as f64)},
-                "style":"primary"
-            }]),
-        );
+        obj.insert("actions".into(), actions);
         obj.insert("unblocks".into(), json!(unblocks));
         obj.insert(
             "run".into(),
@@ -502,6 +676,8 @@ pub fn raised(
         // Field order matches TS attention/rules.ts for byte-identical wire JSON.
         if t["state"] == "running" && truth(&t["promptWait"]) {
             let raw = slice(text(&t["promptWait"]["text"]), 200);
+            // Convert first: Dispatch shows only the first action; convert_prompt
+            // succeeds with { id } alone (UI evidence batch G / UI-13).
             let mut convert = action(
                 "Convert to question",
                 "question.convert_prompt",
@@ -527,11 +703,11 @@ pub fn raised(
             row.insert(
                 "actions".into(),
                 json!([
+                    convert,
                     open(
                         "Answer in terminal",
                         json!({"view":"task","id":id,"tab":"terminal"})
                     ),
-                    convert,
                 ]),
             );
             if truth(&t["executor"]) {
