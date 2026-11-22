@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type z } from "zod";
+import { ENDPOINT_DEFAULT_BASE_URL, type EndpointApi } from "../config/accounts";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { taskTitle } from "../core/short-title";
@@ -169,6 +170,9 @@ export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admissi
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const endpoint = endpointFor(ctx, strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
+  // Anthropic/Gemini need the native assistant-pacer binary; never fall back to the legacy TS plugin.
+  if (settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api) && !replyProvider(ctx, "pacer"))
+    return { ok: false, reason: nativePacerUnavailableReason(endpoint.account.connection!.api!), hint: "Install pacer's assistant binary, or choose an openai-compatible account." };
   // Ask mode runs only on an account that passed the fail-closed check with today's CLI (spec §3).
   if (settings.backend === "executor") {
     // The native plugin owner's bridge cannot carry the ask-mode config binding yet.
@@ -358,6 +362,10 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
     const system = SYSTEM(ctx.now, scope);
     const replyTo = replyProvider(ctx, settings.backend);
+    // Anthropic/Gemini must never reach the legacy openai-compatible respond path.
+    if (!replyTo && settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api)) {
+      throw new CoreError("not_allowed", nativePacerUnavailableReason(endpoint.account.connection!.api!), "Install pacer's assistant binary, or choose an openai-compatible account.");
+    }
     // One tool state for the turn: a plugin backend is charged one call per round, the host's own
     // loop rounds × calls. The same object is reachable through the reply call's authority and by
     // turnId, so `capability.assistant.tool` and the `assistant.tool` op share one budget.
@@ -396,13 +404,11 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
-        // Pacer backends need the account connection URL; executor turns get spawn pins instead.
-        // key=none (local servers) is an explicit keyless flag so the native plugin omits Authorization.
+        // Pacer backends need the account connection; executor turns get spawn pins instead.
+        // key=none (local openai-compatible servers) is an explicit keyless flag so the native
+        // plugin omits Authorization. Anthropic/Gemini never send keyless.
         ...(settings.backend === "pacer" ? {
-          endpoint: {
-            baseUrl: endpoint.baseUrl,
-            ...(endpoint.account.connection?.key === "none" ? { keyless: true as const } : {}),
-          },
+          endpoint: pacerEndpointParams(endpoint.account.connection!.api, endpoint.baseUrl, endpoint.account.connection!.key),
         } : {}),
         ...(ask ? { executor: {
           configRef: ASK_CONFIG_REF,
@@ -590,18 +596,50 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
     const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
     return [{ ...row, available: check.ok, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
-  return [...pacerRows(strategy), ...executor];
+  return [...pacerRows(ctx, strategy), ...executor];
 }
 
-function pacerRows(strategy: Strategy) {
-  return Object.entries(strategy.accounts).flatMap(([name, account]) => account.kind === "endpoint" && account.connection ? [{
-    account: name,
-    backend: "pacer" as AssistantBackend,
-    available: true,
-    models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
-    runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
-    isPlanner: strategy.planner.account === name,
-  }] : []);
+/** Anthropic and Gemini need assistant-pacer; the legacy TS plugin only speaks openai-compatible. */
+function needsNativePacer(api: EndpointApi | undefined): boolean {
+  return api === "anthropic" || api === "gemini";
+}
+
+function nativePacerUnavailableReason(api: EndpointApi): string {
+  return `pacer's agent needs its native binary for ${api} accounts.`;
+}
+
+/** Build the additive `endpoint` object for `assistant.reply` (api + optional baseUrl + keyless). */
+function pacerEndpointParams(api: EndpointApi, baseUrl: string, key: string): {
+  api: EndpointApi;
+  baseUrl?: string;
+  keyless?: true;
+} {
+  const defaultBase = ENDPOINT_DEFAULT_BASE_URL[api];
+  // Omit baseUrl when it matches the provider default so the plugin can use Rig's built-in URL.
+  const omitBase = !!defaultBase && baseUrl.replace(/\/$/, "") === defaultBase.replace(/\/$/, "");
+  return {
+    api,
+    ...(omitBase ? {} : { baseUrl }),
+    ...(api === "openai-compatible" && key === "none" ? { keyless: true as const } : {}),
+  };
+}
+
+function pacerRows(ctx: Ctx, strategy: Strategy) {
+  const native = !!replyProvider(ctx, "pacer");
+  return Object.entries(strategy.accounts).flatMap(([name, account]) => {
+    if (account.kind !== "endpoint" || !account.connection) return [];
+    const needsNative = needsNativePacer(account.connection.api);
+    const available = !needsNative || native;
+    return [{
+      account: name,
+      backend: "pacer" as AssistantBackend,
+      available,
+      ...(available ? {} : { reason: nativePacerUnavailableReason(account.connection.api) }),
+      models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
+      runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
+      isPlanner: strategy.planner.account === name,
+    }];
+  });
 }
 
 /** What the read tools can see, in plain words, for the settings page. */

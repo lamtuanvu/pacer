@@ -162,6 +162,12 @@ pacer account add endpoint local --base-url http://localhost:1234/v1 \
   --key none --models qwen3 --usage unmetered --no-test
 ```
 
+`connection.api` is `openai-compatible` (OpenCode and the assistant), `anthropic` or `gemini`
+(assistant via the native `assistant-pacer` binary). Anthropic and Gemini may omit `base_url`
+and use the provider default (`https://api.anthropic.com` /
+`https://generativelanguage.googleapis.com`). Keys stay by reference (`keychain`, `file`,
+`env:VAR`, or `none` for local openai-compatible servers only).
+
 With `--key keychain` or `--key file`, pipe the key on stdin; never put its value
 in command arguments. `--context` and `--output` set model limits (defaults 128K
 and 16K). Metered usage may add `--weekly-tokens`; quota usage needs
