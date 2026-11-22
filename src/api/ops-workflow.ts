@@ -12,10 +12,16 @@ import { WORKFLOW_OPS_REFUSAL } from "./caller-policy";
 import { normalizeWorkflowObject, parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
-  addDefinition, getDefinition, getGraph, getRun, listDefinitions, listRuns, recordDecision,
+  addDefinition, getDefinition, getGraph, getQuestion, getRun, listDefinitions, listOpenPersonQuestions,
+  listQuestions, listRuns, recordDecision,
   rootRunId, runEntityValue, stepByTask, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
+import {
+  answerQuestion, askQuestion, escalateQuestion,
+} from "../workflow/questions";
+import { questionInputSchema } from "../workflow/question-schema";
+import { convertPromptWaitToQuestion } from "../workflow/prompt-detector";
 import {
   answerGenerateApproval, answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
   skipFailedStep, startRun, stopRun,
@@ -36,6 +42,7 @@ import { publish } from "../link/publish";
 const op = <P extends z.ZodTypeAny>(def: OpDef<P>) => def as unknown as OpDef;
 
 const runId = z.string().regex(/^run_[a-z2-7]{10}$/);
+const questionId = z.string().regex(/^q_[a-z2-7]{10}$/);
 const workflowRef = z.string().min(1).max(256);
 const status = z.enum(["running", "waiting", "done", "failed", "stopped"]);
 // A workflow file's text is capped at 256 KiB like other free-text bodies.
@@ -567,6 +574,105 @@ export const workflowOps: Record<string, OpDef> = {
         });
       }
       return result;
+    },
+  }),
+  "question.ask": op({
+    description: "Ask a structured run question from an executor step or the orchestrator grant.",
+    params: questionInputSchema.extend({
+      stepId: z.string().min(1).max(128).optional(),
+      attempt: z.number().int().positive().optional(),
+      branch: z.string().min(1).max(128).optional(),
+      runId: runId.optional(),
+    }).strict(),
+    handler: async (ctx, p) => askQuestion(ctx, {
+      text: p.text,
+      answerType: p.answerType,
+      ...(p.options ? { options: p.options } : {}),
+      ...(p.recommended ? { recommended: p.recommended } : {}),
+      blocks: p.blocks,
+      ...(p.artifact ? { artifact: p.artifact } : {}),
+      ...(p.stepId ? { stepId: p.stepId } : {}),
+      ...(p.attempt !== undefined ? { attempt: p.attempt } : {}),
+      ...(p.branch ? { branch: p.branch } : {}),
+      ...(p.runId ? { runId: p.runId } : {}),
+    }),
+  }),
+  "question.answer": op({
+    description: "Answer a structured run question as the current answerer (person or orchestrator grant).",
+    params: z.object({
+      id: questionId,
+      answer: z.string().min(1),
+      note: z.string().max(4000).optional(),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p, deps) => answerQuestion(ctx, {
+      id: p.id,
+      answer: p.answer,
+      ...(p.note !== undefined ? { note: p.note } : {}),
+      expectRev: p.expect_rev,
+    }, { spawnRunner: deps.spawnRunner }),
+  }),
+  "question.escalate": op({
+    description: "Escalate an open orchestrator-answerer question to the person with a suggested answer.",
+    params: z.object({
+      id: questionId,
+      suggested: z.string().min(1).max(4000),
+      reason: z.string().min(1).max(4000),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: (ctx, p) => escalateQuestion(ctx, {
+      id: p.id,
+      suggested: p.suggested,
+      reason: p.reason,
+      expectRev: p.expect_rev,
+    }),
+  }),
+  "question.get": op({
+    description: "Read one structured run question by id.",
+    params: z.object({ id: questionId }),
+    handler: (ctx, p) => {
+      const q = getQuestion(ctx, p.id);
+      if (!q) throw new CoreError("not_found", `unknown question ${p.id}`);
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, q.runId) !== grant.runId) {
+          throw new CoreError("not_found", `unknown question ${p.id}`);
+        }
+      }
+      return q;
+    },
+  }),
+  "question.list": op({
+    description: "List structured run questions, optionally for one run.",
+    params: z.object({
+      run: runId.optional(),
+      status: z.enum(["open", "answered", "withdrawn"]).optional(),
+    }),
+    handler: (ctx, p) => {
+      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
+      if (ctx.env.PACER_RUN_GRANT && !grant) throw new CoreError("not_found", "unknown run");
+      if (p.run) {
+        if (grant && rootRunId(ctx, p.run) !== grant.runId) {
+          throw new CoreError("not_found", `unknown run ${p.run}`);
+        }
+        return listQuestions(ctx, p.run, p.status);
+      }
+      if (grant) {
+        const runs = listRuns(ctx).filter(r => rootRunId(ctx, r.id) === grant.runId);
+        const rows = runs.flatMap(r => listQuestions(ctx, r.id, p.status));
+        return rows.sort((a, b) => a.createdAt - b.createdAt || a.id.localeCompare(b.id));
+      }
+      assertPersonCaller(ctx);
+      if (p.status === "open" || p.status === undefined) return listOpenPersonQuestions(ctx);
+      throw new CoreError("invalid_input", "run is required when listing non-open questions");
+    },
+  }),
+  "question.convert_prompt": op({
+    description: "Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.",
+    params: z.object({ id: z.string().min(1).max(128) }),
+    handler: (ctx, p) => {
+      assertPersonCaller(ctx);
+      return convertPromptWaitToQuestion(ctx, p.id);
     },
   }),
 };

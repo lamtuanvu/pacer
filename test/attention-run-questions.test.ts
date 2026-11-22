@@ -170,7 +170,7 @@ test("v2 snapshot strips run-question attention and keeps ordinary task question
     setup: { items: [] },
     attention: [runQuestion, ordinary],
     counts: { attention: 2, problems: 2, review: 0, running: 0, queued: 0, ready: 0, executors: 0, setupOpen: 0, hostsWithProblems: 0, byRepo: [] },
-  } as Parameters<typeof toV2Snapshot>[0]);
+  } as unknown as Parameters<typeof toV2Snapshot>[0]);
   expect(v2.attention.map(a => a.id)).toEqual(["question:t-keep"]);
 });
 

@@ -65,7 +65,7 @@ export function refreshPromptWait(ctx: Ctx, taskId: string): PromptWaitMark | nu
     clearPromptWait(ctx, taskId);
     return null;
   }
-  const lastOut = task.progress?.lastOutputAt ?? task.run?.startedAt ?? task.updatedAt;
+  const lastOut = task.progress?.lastOutputAt ?? task.run?.startedAt ?? task.createdAt;
   if (ctx.now - lastOut < PROMPT_WAIT_QUIET_S) {
     clearPromptWait(ctx, taskId);
     return null;

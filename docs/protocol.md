@@ -6336,6 +6336,252 @@ Params JSON Schema:
 }
 ```
 
+### `question.answer`
+
+Answer a structured run question as the current answerer (person or orchestrator grant).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "answer",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.ask`
+
+Ask a structured run question from an executor step or the orchestrator grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "answerType": {
+      "type": "string",
+      "enum": [
+        "single",
+        "multi",
+        "text",
+        "yes_no",
+        "approve_revise"
+      ]
+    },
+    "options": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "recommended": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blocks": {
+      "type": "string",
+      "enum": [
+        "step",
+        "branch",
+        "nothing"
+      ]
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stepId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "text",
+    "answerType",
+    "blocks"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.convert_prompt`
+
+Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.escalate`
+
+Escalate an open orchestrator-answerer question to the person with a suggested answer.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "suggested": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "suggested",
+    "reason",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.get`
+
+Read one structured run question by id.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.list`
+
+List structured run questions, optionally for one run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "answered",
+        "withdrawn"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `repo.add`
 
 Register a git repository.
