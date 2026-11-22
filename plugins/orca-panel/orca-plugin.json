@@ -15,7 +15,7 @@
       {
         "id": "pacer",
         "title": "Pacer",
-        "icon": "blocks",
+        "icon": "gauge",
         "entry": "src/panel.html",
         "ui": "html"
       }
@@ -24,6 +24,7 @@
       {
         "id": "pacer-pace",
         "text": "pacer",
+        "icon": "gauge",
         "tooltip": "Pacer budget and pace"
       }
     ]
