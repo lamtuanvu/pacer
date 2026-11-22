@@ -113,7 +113,7 @@ test("cleanupRun deletes the local run branch and not the bare remote's", async 
   await stopRun(ctx, live.id, live.rev);
   const afterStop = getRun(ctx, run.id)!;
   const cleaned = await cleanupRun(ctx, afterStop.id, { deleteBranch: true, expectRev: afterStop.rev });
-  expect(cleaned.deleted_branch).toBe(run.branch);
+  expect(cleaned.deleted_branch).toBe(run.branch!);
 
   const local = await ctx.run(["git", "-C", repo, "rev-parse", "--verify", run.branch!], 10_000);
   expect(local.code).not.toBe(0);
