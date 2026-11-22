@@ -3,7 +3,9 @@
 //! Normally `$PACER_HOME/run/`, beside `host.sock`. When `run/s<12-hex>.sock`
 //! would not fit in `sockaddr_un`, the socket goes to a private per-user
 //! directory outside the home, `<user dir>/pacer-<hash of the canonical home>/`,
-//! so deep homes keep native plugin ownership. The user directory is the OS's
+//! so deep homes keep native plugin ownership. Serve's `host.sock` uses the
+//! same fallback (through [`crate::bridge_listener::ReverseBridge::bind_owner`]),
+//! so a flag-on serve also runs on a deep home. The user directory is the OS's
 //! per-user private directory (`DARWIN_USER_TEMP_DIR` on macOS,
 //! `$XDG_RUNTIME_DIR` on Linux), never a shared `/tmp` name or `$TMPDIR`.
 //! Every directory a socket is bound in must be a real directory owned by the
@@ -73,10 +75,44 @@ pub(crate) fn connection_socket_dir(
     name: &str,
     uid: u32,
 ) -> Result<PathBuf, BridgeError> {
+    let dir = socket_dir(pacer_home, name, uid)?;
+    sweep_stale_sockets(&dir, uid);
+    Ok(dir)
+}
+
+/// The directory socket `name` binds in, as `uid`: `run/` when the path
+/// fits, otherwise the private per-user directory of ADR 0027 item 5. Creates
+/// and verifies the private directory when the per-user fallback is used.
+pub(crate) fn socket_dir(pacer_home: &Path, name: &str, uid: u32) -> Result<PathBuf, BridgeError> {
     if pacer_home.join("run").join(name).as_os_str().len() <= SOCKET_PATH_MAX {
         return Ok(prepare_run_dir(pacer_home)?);
     }
     private_socket_dir(pacer_home, user_private_dir(), name, uid)
+}
+
+/// Where socket `name` would be found for this home, without creating
+/// anything: `run/` when the path fits; otherwise the private per-user
+/// directory of ADR 0027 item 5, returned only when it already exists. Does
+/// not check ownership or mode, so a caller that cares (for example a probe
+/// that reports `Untrusted`) checks the returned directory itself.
+pub(crate) fn find_socket_dir(pacer_home: &Path, name: &str) -> Option<PathBuf> {
+    if pacer_home.join("run").join(name).as_os_str().len() <= SOCKET_PATH_MAX {
+        // Read only: report `run/` as-is so a probe sees an open or missing
+        // run directory rather than having it created and fixed up here.
+        return Some(pacer_home.join("run"));
+    }
+    let base = user_private_dir().ok()?;
+    let canonical = fs::canonicalize(pacer_home).unwrap_or_else(|_| pacer_home.to_path_buf());
+    let dir = base.join(format!(
+        "pacer-{:016x}",
+        fnv1a(canonical.as_os_str().as_encoded_bytes())
+    ));
+    (dir.is_dir()
+        || match fs::symlink_metadata(&dir) {
+            Ok(meta) => meta.is_dir(),
+            Err(_) => false,
+        })
+    .then_some(dir)
 }
 
 /// `<base>/pacer-<hash>/` for a home whose `run/` path is too long. `base` is

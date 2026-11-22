@@ -1,0 +1,30 @@
+{
+  "id": "pacer-notify",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": "^1.6",
+  "contributes": {
+    "notifier": {
+      "kinds": [
+        "os"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "process.spawn",
+      "scopes": [
+        "osascript",
+        "notify-send"
+      ]
+    },
+    {
+      "name": "config.get"
+    },
+    {
+      "name": "log"
+    }
+  ],
+  "reentrant": false,
+  "tier": "free"
+}
