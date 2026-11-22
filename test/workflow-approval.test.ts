@@ -28,7 +28,7 @@ function validPlan(): WorkflowDef {
     version: 1,
     steps: {
       impl: { type: "agent", kind: "feature", prompt: "Implement" },
-      review: { type: "agent", role: "reviewer", prompt: "Review" },
+      review: { type: "agent", role: "reviewer", prompt: "Review", result: { required: ["verdict"] } },
       tests: { type: "agent", kind: "tests", prompt: "Test" },
       done: { type: "end" },
     },
@@ -185,15 +185,22 @@ test("approve starts the child; child's end settles the generate step", async ()
 
 test("child done advances the generate step", async () => {
   const ctx = fakeCtx();
-  // Tiny generated plan: single end entry so startRun finishes as done immediately.
+  // Minimal generated plan (end-only graphs are refused by validateGenerated).
   const tiny: WorkflowDef = {
     id: "gen/tiny",
     version: 1,
-    steps: { done: { type: "end" } },
-    edges: [],
-    entry: "done",
+    steps: {
+      work: { type: "agent", kind: "docs", prompt: "W" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "work", to: "done" }],
+    entry: "work",
   };
-  const limitsTiny: GenerateLimits = { step_types: ["agent", "human", "fanout"], max_steps: 3 };
+  const limitsTiny: GenerateLimits = {
+    step_types: ["agent", "human", "fanout"],
+    max_steps: 3,
+    kinds: ["docs"],
+  };
   const def: WorkflowDef = {
     id: "t/gen-settle-done",
     version: 1,
@@ -211,11 +218,16 @@ test("child done advances the generate step", async () => {
   await answerGenerateApproval(ctx, {
     runId: run.id, stepId: "plan", answer: "approve", expectRev: getRun(ctx, run.id)!.rev,
   }, deps);
-  const parent = getRun(ctx, run.id)!;
-  // Child end-entry finishes at start; parent generate should be done and run advanced to done.
   const planStep = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!;
-  expect(planStep.status).toBe("done");
-  expect(parent.status === "done" || getRun(ctx, run.id)!.status === "done").toBe(true);
+  const childId = (planStep.result as { childRunId: string }).childRunId;
+  expect(childId).toBeTruthy();
+  const childWork = stepsOfRun(ctx, childId).find(s => s.stepId === "work")!;
+  expect(childWork.taskId).toBeTruthy();
+  recordStepResult(ctx, childWork.taskId!, { ok: true });
+  updateTask(ctx, childWork.taskId!, t => { t.state = "done"; });
+  await onTaskSettled(ctx, childWork.taskId!, undefined, deps);
+  expect(stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!.status).toBe("done");
+  expect(getRun(ctx, run.id)!.status).toBe("done");
 });
 
 test("approval auto may be answered when run.auto is on", async () => {
@@ -239,6 +251,4 @@ test("approval auto may be answered when run.auto is on", async () => {
 
 // silence unused imports when some paths share helpers
 void answerHumanStep;
-void onTaskSettled;
-void recordStepResult;
 void CoreError;

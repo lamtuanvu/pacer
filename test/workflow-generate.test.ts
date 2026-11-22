@@ -22,7 +22,7 @@ function validPlan(): WorkflowDef {
   return graph({
     steps: {
       impl: { type: "agent", kind: "feature", prompt: "Implement" },
-      review: { type: "agent", role: "reviewer", prompt: "Review" },
+      review: { type: "agent", role: "reviewer", prompt: "Review", result: { required: ["verdict"] } },
       tests: { type: "agent", kind: "tests", prompt: "Test" },
       done: { type: "end" },
     },

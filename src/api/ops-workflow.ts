@@ -9,7 +9,7 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { WORKFLOW_OPS_REFUSAL } from "./caller-policy";
-import { parseWorkflow } from "../workflow/parse";
+import { normalizeWorkflowObject, parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
   addDefinition, getDefinition, getGraph, getRun, listDefinitions, listRuns, recordDecision,
@@ -24,7 +24,9 @@ import {
 import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
 import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
-import { checkWorkflowShape, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef } from "../workflow/schema";
+import {
+  checkWorkflowShape, isPlainObject, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef,
+} from "../workflow/schema";
 import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
@@ -508,7 +510,18 @@ export const workflowOps: Record<string, OpDef> = {
     params: z.object({
       id: runId,
       step: z.string().min(1).max(128),
-      source: z.union([z.string().min(1).max(256 * 1024), z.record(z.string(), z.unknown())]),
+      source: z.union([
+        z.string().min(1).max(256 * 1024),
+        z.record(z.string(), z.unknown()).superRefine((obj, ctx) => {
+          const bytes = Buffer.byteLength(JSON.stringify(obj), "utf8");
+          if (bytes > 256 * 1024) {
+            ctx.addIssue({
+              code: "custom",
+              message: `object-form source is ${bytes} bytes; max is ${256 * 1024}`,
+            });
+          }
+        }),
+      ]),
     }),
     handler: async (ctx, p, deps) => {
       const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
@@ -524,13 +537,15 @@ export const workflowOps: Record<string, OpDef> = {
         } else {
           def = parsed.def;
         }
-      } else {
-        const shaped = checkWorkflowShape(p.source);
+      } else if (isPlainObject(p.source)) {
+        const shaped = checkWorkflowShape(normalizeWorkflowObject(p.source));
         if (!shaped.def || shaped.errors.length > 0) {
           shapeErrors = shaped.errors.length ? shaped.errors : [{ path: "", message: "invalid workflow source" }];
         } else {
           def = shaped.def;
         }
+      } else {
+        shapeErrors = [{ path: "source", message: "invalid workflow source" }];
       }
       if (shapeErrors) {
         // Shape/parse errors count toward generate retries (same as validateGenerated).

@@ -24,9 +24,12 @@ import {
   type WorkflowDef,
   type WorkflowError,
 } from "./schema";
-import { validateWorkflow } from "./validate";
+import { backEdgeIndexes, validateWorkflow } from "./validate";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import type { SpawnRunner } from "../tasks/api";
+
+/** Cap validation errors returned/stored so a hostile graph cannot flood the step result. */
+const MAX_GENERATE_ERRORS = 32;
 
 /** Narrow deps shape so generate.ts does not import engine (cycle). */
 export type GenerateEngineDeps = {
@@ -47,33 +50,29 @@ function kindsFromPredicate(key: string): Set<string> | null {
   return null;
 }
 
-function adjacency(def: WorkflowDef): Map<string, string[]> {
+/** Forward adjacency only (excludes back edges) so require_after cannot be satisfied by a retry loop. */
+function forwardAdjacency(def: WorkflowDef): Map<string, string[]> {
+  const backs = backEdgeIndexes(def);
   const map = new Map<string, string[]>();
-  for (const edge of def.edges) {
-    if (typeof edge?.from !== "string" || typeof edge?.to !== "string") continue;
+  def.edges.forEach((edge, index) => {
+    if (backs.has(index)) return;
+    if (typeof edge?.from !== "string" || typeof edge?.to !== "string") return;
     const list = map.get(edge.from) ?? [];
     list.push(edge.to);
     map.set(edge.from, list);
-  }
+  });
   return map;
-}
-
-function reachableFrom(start: string, adj: Map<string, string[]>): Set<string> {
-  const seen = new Set<string>([start]);
-  const queue = [start];
-  while (queue.length > 0) {
-    for (const next of adj.get(queue.shift()!) ?? []) {
-      if (!seen.has(next)) {
-        seen.add(next);
-        queue.push(next);
-      }
-    }
-  }
-  return seen;
 }
 
 function isReviewer(step: unknown): boolean {
   return isPlainObject(step) && step.type === "agent" && step.role === "reviewer";
+}
+
+function reviewerHasCriterion(step: unknown): boolean {
+  if (!isReviewer(step) || !isPlainObject(step)) return false;
+  const result = step.result;
+  if (!isPlainObject(result) || !Array.isArray(result.required)) return false;
+  return result.required.includes("verdict");
 }
 
 function agentKind(step: unknown): string | undefined {
@@ -81,9 +80,75 @@ function agentKind(step: unknown): string | undefined {
   return typeof step.kind === "string" ? step.kind : undefined;
 }
 
-/** Count runnable steps (everything except `end`). */
+/** Effective kind for limits checks: agent.kind or fanout.each.kind. */
+function stepKindForLimits(step: unknown): string | undefined {
+  if (!isPlainObject(step)) return undefined;
+  if (step.type === "agent") return agentKind(step);
+  if (step.type === "fanout" && isPlainObject(step.each)) return agentKind(step.each);
+  return undefined;
+}
+
+/** Count runnable work units: fanout counts as its branch count; other non-end steps count as 1. */
+function effectiveStepBudget(def: WorkflowDef): number {
+  let n = 0;
+  for (const step of Object.values(def.steps ?? {})) {
+    if (!step || step.type === "end") continue;
+    if (step.type === "fanout") n += Math.max(1, step.branches?.length ?? 1);
+    else n += 1;
+  }
+  for (const edge of def.edges ?? []) {
+    if (typeof edge.maxLoops === "number" && Number.isFinite(edge.maxLoops)) n += edge.maxLoops;
+  }
+  return n;
+}
+
+/** Count runnable steps (everything except `end`) — used for graph summaries. */
 function runnableStepCount(def: WorkflowDef): number {
   return Object.values(def.steps).filter(s => s?.type !== "end").length;
+}
+
+/**
+ * Every forward path from `start`'s successors must hit a reviewer before end.
+ * Edges with `when` are included as possible paths (honouring conditionals).
+ */
+function allPathsHitReviewer(
+  start: string,
+  steps: WorkflowDef["steps"],
+  adj: Map<string, string[]>,
+): boolean {
+  const memo = new Map<string, boolean>();
+  const visiting = new Set<string>();
+  const ok = (node: string): boolean => {
+    if (isReviewer(steps[node])) return true;
+    if (steps[node]?.type === "end") return false;
+    if (memo.has(node)) return memo.get(node)!;
+    if (visiting.has(node)) return true; // cycle with no end: not a bypass of the reviewer
+    visiting.add(node);
+    const nexts = adj.get(node) ?? [];
+    const result = nexts.length > 0 && nexts.every(n => ok(n));
+    memo.set(node, result);
+    visiting.delete(node);
+    return result;
+  };
+  const nexts = adj.get(start) ?? [];
+  return nexts.length > 0 && nexts.every(n => ok(n));
+}
+
+function capErrors(errors: WorkflowError[]): WorkflowError[] {
+  return errors.length <= MAX_GENERATE_ERRORS ? errors : errors.slice(0, MAX_GENERATE_ERRORS);
+}
+
+/** Force generated human gates to `must` so the orchestrator cannot auto-answer its own graph. */
+export function forceGeneratedHumanMust(graph: WorkflowDef): WorkflowDef {
+  let changed = false;
+  const steps: WorkflowDef["steps"] = { ...graph.steps };
+  for (const [id, step] of Object.entries(steps)) {
+    if (step?.type === "human" && step.decision === "auto") {
+      steps[id] = { ...step, decision: "must" };
+      changed = true;
+    }
+  }
+  return changed ? { ...graph, steps } : graph;
 }
 
 /**
@@ -104,8 +169,25 @@ export function validateGenerated(
   const allowedTypes = new Set<string>(limits.step_types);
   const steps = graph.steps ?? {};
   const runnable = runnableStepCount(graph);
-  if (runnable > limits.max_steps) {
-    errors.push({ path: "steps", message: `too many steps: ${runnable} exceeds max_steps ${limits.max_steps}` });
+  if (runnable === 0 || graph.entry === undefined || steps[graph.entry]?.type === "end") {
+    errors.push({ path: "steps", message: "generated graph has no work (end-only / empty work is refused)" });
+  }
+
+  const budget = effectiveStepBudget(graph);
+  if (budget > limits.max_steps) {
+    errors.push({
+      path: "steps",
+      message: `too many steps: effective budget ${budget} exceeds max_steps ${limits.max_steps}`,
+    });
+  }
+
+  for (const [index, edge] of (graph.edges ?? []).entries()) {
+    if (typeof edge.maxLoops === "number" && edge.maxLoops > limits.max_steps) {
+      errors.push({
+        path: `edges[${index}].maxLoops`,
+        message: `max_loops ${edge.maxLoops} exceeds max_steps ${limits.max_steps}`,
+      });
+    }
   }
 
   for (const [id, step] of Object.entries(steps)) {
@@ -114,15 +196,49 @@ export function validateGenerated(
     if (!allowedTypes.has(step.type)) {
       errors.push({ path: `steps.${id}.type`, message: `step type '${step.type}' is not allowed by limits.step_types` });
     }
-    if (step.type === "agent" && limits.kinds) {
-      const kind = agentKind(step);
-      if (kind && !limits.kinds.includes(kind)) {
-        errors.push({ path: `steps.${id}.kind`, message: `kind '${kind}' is not allowed by limits.kinds` });
+    if (step.type === "agent") {
+      if (step.role === "orchestrator") {
+        errors.push({
+          path: `steps.${id}.role`,
+          message: "role: orchestrator is not allowed in generated graphs",
+        });
       }
+      if (step.interactive === true) {
+        errors.push({
+          path: `steps.${id}.interactive`,
+          message: "interactive is not allowed in generated graphs",
+        });
+      }
+      if (step.role === "reviewer") {
+        if (!reviewerHasCriterion(step)) {
+          errors.push({
+            path: `steps.${id}.result`,
+            message: "role: reviewer must declare result.required including 'verdict' (reviewer criterion)",
+          });
+        }
+      } else if (!agentKind(step)) {
+        errors.push({
+          path: `steps.${id}.kind`,
+          message: "kind is required for non-reviewer agent steps in generated graphs",
+        });
+      }
+    }
+    if (limits.kinds) {
+      const kind = stepKindForLimits(step);
+      if (kind && !limits.kinds.includes(kind)) {
+        const path = step.type === "fanout" ? `steps.${id}.each.kind` : `steps.${id}.kind`;
+        errors.push({ path, message: `kind '${kind}' is not allowed by limits.kinds` });
+      }
+    }
+    if (step.type === "fanout" && step.branches.length > limits.max_steps) {
+      errors.push({
+        path: `steps.${id}.branches`,
+        message: `fanout branches ${step.branches.length} exceed max_steps ${limits.max_steps}`,
+      });
     }
   }
 
-  const adj = adjacency(graph);
+  const adj = forwardAdjacency(graph);
   if (limits.require_after) {
     for (const [predicate, role] of Object.entries(limits.require_after)) {
       if (role !== "reviewer") continue;
@@ -132,15 +248,12 @@ export function validateGenerated(
         continue;
       }
       for (const [id, step] of Object.entries(steps)) {
-        const kind = agentKind(step);
+        const kind = stepKindForLimits(step);
         if (!kind || !kinds.has(kind)) continue;
-        const after = reachableFrom(id, adj);
-        after.delete(id);
-        const hasReviewer = [...after].some(name => isReviewer(steps[name]));
-        if (!hasReviewer) {
+        if (!allPathsHitReviewer(id, steps, adj)) {
           errors.push({
             path: `steps.${id}`,
-            message: `require_after: step '${id}' (kind ${kind}) has no following reviewer`,
+            message: `require_after: step '${id}' (kind ${kind}) has no following reviewer on every path`,
           });
         }
       }
@@ -154,7 +267,8 @@ export function validateGenerated(
     for (const endId of ends) {
       const preds = graph.edges.filter(e => e.to === endId).map(e => e.from);
       if (preds.length === 0) continue;
-      if (preds.every(id => agentKind(steps[id]) === required)) continue;
+      const ok = preds.every(id => stepKindForLimits(steps[id]) === required);
+      if (ok) continue;
       if (!reported) {
         errors.push({
           path: "steps",
@@ -171,7 +285,7 @@ export function validateGenerated(
     }
   }
 
-  return errors;
+  return capErrors(errors);
 }
 
 function latestWaitingGenerate(ctx: Ctx, runId: string, stepId: string): StepRow | undefined {
@@ -306,7 +420,8 @@ export async function submitGraph(
   }
 
   const depth = nestingDepth(ctx, run.id);
-  const errors = validateGenerated(input.source, stepDef.limits, depth);
+  const source = forceGeneratedHumanMust(input.source);
+  const errors = validateGenerated(source, stepDef.limits, depth);
   // Re-plan submissions must keep finished step ids unchanged.
   const finished = Array.isArray(prior.replanFinished)
     ? (prior.replanFinished as unknown[]).filter((id): id is string => typeof id === "string")
@@ -317,14 +432,14 @@ export async function submitGraph(
   );
   if (finished.length > 0 && baseline) {
     const { validateReplanKeepFinished } = await import("./replan");
-    errors.push(...validateReplanKeepFinished(baseline.def, input.source, finished));
+    errors.push(...validateReplanKeepFinished(baseline.def, source, finished));
   }
   if (errors.length > 0) {
-    return noteGenerateSubmitErrors(ctx, input.runId, input.stepId, errors);
+    return noteGenerateSubmitErrors(ctx, input.runId, input.stepId, capErrors(errors));
   }
 
   const { graphDiff, formatReplanSummary } = await import("./replan");
-  const diff = baseline ? graphDiff(baseline.def, input.source) : { added: [] as string[], removed: [] as string[], changed: [] as string[] };
+  const diff = baseline ? graphDiff(baseline.def, source) : { added: [] as string[], removed: [] as string[], changed: [] as string[] };
   const failedStep = typeof prior.replanFailedStep === "string" ? prior.replanFailedStep : "";
   const replanSummary = prior.replanMode
     ? formatReplanSummary(diff, failedStep || "(unknown)")
@@ -335,7 +450,7 @@ export async function submitGraph(
     runId: run.id,
     stepId: input.stepId,
     attempt: row.attempt,
-    def: input.source,
+    def: source,
     status: "proposed",
   });
 
