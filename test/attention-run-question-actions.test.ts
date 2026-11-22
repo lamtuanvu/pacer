@@ -400,12 +400,12 @@ test("H m2: long options are clipped in detail/labels; oversize options get no b
   expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
 });
 
-test("UI-1: title carries question clipped to 80 code points; newlines collapse before clip", () => {
+test("UI-1 / I-1: clipped title ends with … and detail carries Full question", () => {
   const ctx = fakeCtx({ now: NOW });
   withStrategy(ctx);
   addDefinition(ctx, def, "id: t/attn-act\n");
   const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "U" });
-  // 79 BMP + emoji would split under String.slice; title clips by code point to 80.
+  // 79 BMP + emoji + y = 81 code points; title clips to 79 + … (marker that text continues).
   const text = `${"x".repeat(79)}\u{1F600}y`;
   const multiline = `Ship the Phase 4\nquestions change\ntonight?`;
   const qLong = insertQuestion(ctx, {
@@ -428,26 +428,73 @@ test("UI-1: title carries question clipped to 80 code points; newlines collapse 
     blocks: "step",
     answerer: "person",
   });
+  const qPad = insertQuestion(ctx, {
+    runId: run.id,
+    stepId: "ask",
+    attempt: 1,
+    askerKind: "executor",
+    text: "  leading space?",
+    answerType: "text",
+    blocks: "step",
+    answerer: "person",
+  });
   const items = deriveWorkflowAttention(ctx);
   const longItem = items.find(i => i.id === `question:${qLong.id}`)!;
   const multiItem = items.find(i => i.id === `question:${qMulti.id}`)!;
-  const clipped = Array.from(text).slice(0, 80).join("");
-  expect(longItem.title).toBe(clipped);
+  const padItem = items.find(i => i.id === `question:${qPad.id}`)!;
+  const expectedTitle = `${"x".repeat(79)}…`;
+  expect(longItem.title).toBe(expectedTitle);
+  expect(Array.from(longItem.title).length).toBe(80);
   expect(longItem.title.includes("\uD83D") && !longItem.title.includes("\uDE00")).toBe(false);
   expect(longItem.detail.startsWith("U.")).toBe(true);
+  expect(longItem.detail).toContain(`Full question: ${text}.`);
+  expect(longItem.detail.indexOf("Full question:")).toBeLessThan(longItem.detail.indexOf("Answer with:"));
   expect(longItem.detail).not.toContain("\n");
   expect(multiItem.title).toBe("Ship the Phase 4 questions change tonight?");
   expect(multiItem.title).not.toContain("\n");
+  expect(multiItem.detail).not.toContain("Full question:");
   expect(multiItem.detail.startsWith('The first button answers "Yes".')).toBe(true);
   expect(multiItem.actions[0]?.label).toBe("Yes");
   expect(multiItem.actions[0]?.params.answer).toBe("Yes");
+  expect(padItem.title).toBe("leading space?");
+});
+
+test("I-2: run detail subject collapses newlines, trims shared whitespace, falls back to slug", () => {
+  const ctx = fakeCtx({ now: NOW });
+  withStrategy(ctx);
+  addDefinition(ctx, def, "id: t/attn-act\n");
+  const cases: Array<{ title: string; expectSubject: string }> = [
+    { title: " Foo ", expectSubject: "Foo" },
+    { title: "  ", expectSubject: "t/attn-act" },
+    { title: "Line1\nLine2", expectSubject: "Line1 Line2" },
+    { title: "Pad\u00A0", expectSubject: "Pad" },
+    { title: "", expectSubject: "t/attn-act" },
+  ];
+  for (const c of cases) {
+    const run = insertRun(ctx, {
+      workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: c.title,
+    });
+    const q = insertQuestion(ctx, {
+      runId: run.id,
+      stepId: "ask",
+      attempt: 1,
+      askerKind: "executor",
+      text: `Q for ${c.expectSubject}`,
+      answerType: "text",
+      blocks: "step",
+      answerer: "person",
+    });
+    const item = deriveWorkflowAttention(ctx).find(i => i.id === `question:${q.id}`)!;
+    expect(item.detail.startsWith(`${c.expectSubject}.`)).toBe(true);
+    expect(item.detail).not.toContain(run.id);
+  }
 });
 
 test("UI-1: untitled run detail uses workflow slug, never a run id", () => {
   const ctx = fakeCtx({ now: NOW });
   withStrategy(ctx);
   addDefinition(ctx, def, "id: t/attn-act\n");
-  const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B" });
+  const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "" });
   const q = insertQuestion(ctx, {
     runId: run.id,
     stepId: "ask",
@@ -467,29 +514,56 @@ test("UI-1: untitled run detail uses workflow slug, never a run id", () => {
 beforeAll(buildRustProbe, 600_000);
 afterAll(closeRustProbe);
 
-test("G: TS and Rust run-question actions/detail are byte-identical for all variants", async () => {
+function clip40(s: string): string {
+  const points = Array.from(s);
+  return points.length <= 40 ? s : `${points.slice(0, 40).join("")}…`;
+}
+
+test("G / I-3: TS and Rust run-question actions/detail are byte-identical for all variants", async () => {
   const ctx = fakeCtx({ now: NOW });
   withStrategy(ctx);
   addDefinition(ctx, def, "id: t/attn-act\n");
+  const repo = tmpDir();
   const run = insertRun(
     { ...ctx, now: NOW - 10 },
-    { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "Parity" },
+    { workflow: "t/attn-act", version: 1, repo, brief: "B", title: "Parity" },
   );
-  // m4 parity seed: unicode at the 200-clip boundary, ZWJ emoji, quotes, newlines,
-  // a very long option, and 4+ options (CLI hint + clipped labels).
-  const unicodeText = `${"u".repeat(198)}\u{1F600}\u{1F468}\u{200D}\u{1F4BB}`;
+  const runUntitled = insertRun(
+    { ...ctx, now: NOW - 10 },
+    { workflow: "t/attn-act", version: 1, repo, brief: "B", title: "" },
+  );
+  const runPadded = insertRun(
+    { ...ctx, now: NOW - 10 },
+    { workflow: "t/attn-act", version: 1, repo, brief: "B", title: "  Padded  " },
+  );
+  const runMulti = insertRun(
+    { ...ctx, now: NOW - 10 },
+    { workflow: "t/attn-act", version: 1, repo, brief: "B", title: "Multi\nLine" },
+  );
+  // I-3 parity seeds: emoji/ZWJ at 79/80/81, RTL, leading whitespace, CRLF,
+  // untitled/padded/multi-line run titles, 1000-char question, option/recommended newlines.
+  const zwj = "\u{1F468}\u{200D}\u{1F4BB}"; // 3 code points
+  const at79 = `${"a".repeat(76)}${zwj}`; // 79
+  const at80 = `${"a".repeat(77)}${zwj}`; // 80
+  const at81 = `${"a".repeat(78)}${zwj}`; // 81
+  const rtl = "שאלה בעברית עם כיוון RTL";
+  const crlf = "Line one\r\nLine two?";
+  const thousand = `Q${"z".repeat(999)}`;
+  const unicodeText = `${"u".repeat(198)}\u{1F600}${zwj}`;
   const seeds: Array<{
+    runId: string;
     answerType: QuestionAnswerType;
     text: string;
     askerKind: "executor" | "orchestrator" | "human_step";
     options?: { value: string }[];
     recommended?: string;
   }> = [
-    { answerType: "yes_no", text: "Ship?", askerKind: "executor", recommended: "yes" },
-    { answerType: "approve_revise", text: "Approve?", askerKind: "human_step", options: [{ value: "approve" }, { value: "revise" }] },
-    { answerType: "approve_revise", text: "Ship or hold?", askerKind: "human_step", options: [{ value: "ship" }, { value: "hold" }] },
-    { answerType: "single", text: "Pick?", askerKind: "orchestrator", options: [{ value: "a" }, { value: "b" }, { value: "c" }], recommended: "b" },
+    { runId: run.id, answerType: "yes_no", text: "Ship?", askerKind: "executor", recommended: "yes" },
+    { runId: run.id, answerType: "approve_revise", text: "Approve?", askerKind: "human_step", options: [{ value: "approve" }, { value: "revise" }] },
+    { runId: run.id, answerType: "approve_revise", text: "Ship or hold?", askerKind: "human_step", options: [{ value: "ship" }, { value: "hold" }] },
+    { runId: run.id, answerType: "single", text: "Pick?", askerKind: "orchestrator", options: [{ value: "a" }, { value: "b" }, { value: "c" }], recommended: "b" },
     {
+      runId: run.id,
       answerType: "single",
       text: `${unicodeText} "quoted"\nline2`,
       askerKind: "executor",
@@ -500,13 +574,23 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
         { value: "fourth" },
         { value: "y".repeat(90) },
       ],
-      recommended: "short",
+      recommended: "rec\nwith\nnewlines-and-more-than-forty-codepoints",
     },
-    { answerType: "text", text: "Notes?", askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: "Notes?", askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: at79, askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: at80, askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: at81, askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: rtl, askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: "  leading whitespace", askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: crlf, askerKind: "executor" },
+    { runId: run.id, answerType: "text", text: thousand, askerKind: "executor" },
+    { runId: runUntitled.id, answerType: "text", text: "Untitled run?", askerKind: "executor" },
+    { runId: runPadded.id, answerType: "text", text: "Padded run?", askerKind: "executor" },
+    { runId: runMulti.id, answerType: "text", text: "Multi run?", askerKind: "executor" },
   ];
   for (const s of seeds) {
     insertQuestion({ ...ctx, now: NOW - 10 }, {
-      runId: run.id,
+      runId: s.runId,
       stepId: "ask",
       attempt: 1,
       askerKind: s.askerKind,
@@ -529,14 +613,45 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
   expect(types).toContain("approve_revise");
   expect(types).toContain("single");
   expect(types).toContain("text");
-  expect(ts.find(i => i.question?.answerType === "text")?.actions).toEqual([]);
+  expect(ts.find(i => i.question?.answerType === "text" && i.title === "Notes?")?.actions).toEqual([]);
   const yesNo = ts.find(i => i.question?.answerType === "yes_no");
   expect(yesNo?.actions[0]?.label).toBe("Yes");
   expect(yesNo?.actions[0]?.params).toMatchObject({ answer: "yes" });
   expect(yesNo?.detail.startsWith('The first button answers "Yes".')).toBe(true);
+  const at79Item = ts.find(i => i.question?.text === at79);
+  const at80Item = ts.find(i => i.question?.text === at80);
+  const at81Item = ts.find(i => i.question?.text === at81);
+  expect(at79Item?.title).toBe(at79);
+  expect(at79Item?.detail).not.toContain("Full question:");
+  expect(at80Item?.title).toBe(at80);
+  expect(at80Item?.detail).not.toContain("Full question:");
+  expect(at81Item?.title).toBe(`${Array.from(at81).slice(0, 79).join("")}…`);
+  expect(at81Item?.detail).toContain(`Full question: ${at81}.`);
+  expect(ts.find(i => i.question?.text === rtl)?.title).toBe(rtl);
+  expect(ts.find(i => i.question?.text === "  leading whitespace")?.title).toBe("leading whitespace");
+  expect(ts.find(i => i.question?.text === crlf)?.title).toBe("Line one Line two?");
+  const thousandItem = ts.find(i => i.question?.text === thousand)!;
+  expect(Array.from(thousandItem.title).length).toBe(80);
+  expect(thousandItem.title.endsWith("…")).toBe(true);
+  expect(thousandItem.detail).toMatch(/Full question: Qz{199}…\./);
+  expect(ts.find(i => i.title === "Untitled run?")?.detail.startsWith("t/attn-act.")).toBe(true);
+  expect(ts.find(i => i.title === "Padded run?")?.detail.startsWith("Padded.")).toBe(true);
+  expect(ts.find(i => i.title === "Multi run?")?.detail.startsWith("Multi Line.")).toBe(true);
+  const nlOpts = ts.find(i => typeof i.question?.recommended === "string"
+    && String(i.question.recommended).includes("\n"));
+  // Options/recommended: newlines collapsed; each value clipped to 40 + … when longer.
+  expect(nlOpts?.detail).toContain(
+    `Options: short / ${clip40(`long-${"x".repeat(50)}`)} / opt with newlines / fourth / ${clip40("y".repeat(90))}.`,
+  );
+  expect(nlOpts?.detail).toContain(
+    `Recommended: ${clip40("rec with newlines-and-more-than-forty-codepoints")}.`,
+  );
+  expect(nlOpts?.detail).not.toMatch(/\n/);
   // Newlines collapsed into the title before the 80-code-point clip.
-  const unicodeItem = ts.find(i => typeof i.question?.text === "string"
-    && String(i.question.text).includes("\n"));
+  const unicodeSeed = `${unicodeText} "quoted"\nline2`;
+  const unicodeItem = ts.find(i => i.question?.text === unicodeSeed);
   expect(unicodeItem?.title).not.toContain("\n");
-  expect(Array.from(unicodeItem?.title ?? "").length).toBeLessThanOrEqual(80);
+  expect(Array.from(unicodeItem?.title ?? "").length).toBe(80);
+  expect(unicodeItem?.title.endsWith("…")).toBe(true);
+  expect(unicodeItem?.detail).toContain("Full question:");
 }, 120_000);

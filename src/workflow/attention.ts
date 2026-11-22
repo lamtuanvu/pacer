@@ -39,6 +39,7 @@ export function clipCodePoints(s: string, max: number, ellipsis = false): string
 const OPTION_DETAIL_CLIP = 40;
 const OPTION_BUTTON_MAX_CODE_POINTS = 80;
 const QUESTION_TITLE_CLIP = 80;
+const FULL_QUESTION_CLIP = 200;
 const RUN_DETAIL_CLIP = 80;
 const ANSWER_CHAR_LIMIT = 2000;
 const OPTION_BUTTON_CAP = 3;
@@ -46,6 +47,19 @@ const OPTION_BUTTON_CAP = 3;
 /** Collapse newlines to spaces so title/detail stay one line before clipping. */
 export function collapseNewlines(s: string): string {
   return s.replace(/\r\n|\r|\n/g, " ");
+}
+
+/**
+ * Shared TS/Rust trim: space, tab, CR, LF, NBSP only (not JS trim's U+FEFF/U+0085).
+ * Used after collapseNewlines so CR/LF are already spaces.
+ */
+export function trimSharedWhitespace(s: string): string {
+  return s.replace(/^[\t\n\r \u00A0]+|[\t\n\r \u00A0]+$/g, "");
+}
+
+/** One-line question body for title/detail: collapse newlines, then shared trim. */
+function collapsedQuestionText(text: string): string {
+  return trimSharedWhitespace(collapseNewlines(text));
 }
 
 /** Plain-word option list for the attention detail (yes_no always yes/no). */
@@ -80,7 +94,9 @@ function yesNoButtonLabel(answer: string): string {
 
 /** Run title for detail, or the workflow slug when untitled (never a run id). */
 function runDetailSubject(run: Pick<RunRow, "title" | "workflow">): string {
-  const raw = typeof run.title === "string" ? run.title.trim() : "";
+  const raw = typeof run.title === "string"
+    ? trimSharedWhitespace(collapseNewlines(run.title))
+    : "";
   return clipCodePoints(raw || run.workflow, RUN_DETAIL_CLIP);
 }
 
@@ -166,14 +182,20 @@ export function runQuestionActions(q: QuestionRow): Action[] {
   return [];
 }
 
-/** Title: the question itself (one line, clipped to 80 code points; no ids). */
+/**
+ * Title: the question itself (one line). When longer than 80 code points, clip to
+ * 79 and append … so the tray/Dispatch line shows the text was truncated (I-1).
+ */
 export function runQuestionTitle(q: QuestionRow): string {
-  return clipCodePoints(collapseNewlines(q.text), QUESTION_TITLE_CLIP);
+  const collapsed = collapsedQuestionText(q.text);
+  if (Array.from(collapsed).length <= QUESTION_TITLE_CLIP) return collapsed;
+  return clipCodePoints(collapsed, QUESTION_TITLE_CLIP - 1, true);
 }
 
 /**
- * Detail: first-button cue (when present), run title/slug, asker cue, options /
- * recommended, CLI hint last when needed. Question text lives in the title (UI-1).
+ * Detail: first-button cue (when present), run title/slug, asker cue, Full question
+ * when the title was clipped, options / recommended (newlines collapsed, clipped),
+ * CLI hint last when needed (UI-1 / I-1 / I-3).
  */
 export function runQuestionDetail(
   q: QuestionRow,
@@ -185,11 +207,17 @@ export function runQuestionDetail(
     parts.push(`The first button answers "${actions[0]!.label}".`);
   }
   parts.push(`${runDetailSubject(run)}.`, `${askerCue(q.askerKind)}.`);
+  const collapsed = collapsedQuestionText(q.text);
+  if (Array.from(collapsed).length > QUESTION_TITLE_CLIP) {
+    parts.push(`Full question: ${clipCodePoints(collapsed, FULL_QUESTION_CLIP, true)}.`);
+  }
   const opts = optionWords(q);
   if (opts) {
-    parts.push(`Options: ${opts.map(o => clipCodePoints(o, OPTION_DETAIL_CLIP, true)).join(" / ")}.`);
+    parts.push(`Options: ${opts.map(o => clipCodePoints(collapseNewlines(o), OPTION_DETAIL_CLIP, true)).join(" / ")}.`);
   }
-  if (q.recommended) parts.push(`Recommended: ${q.recommended}.`);
+  if (q.recommended) {
+    parts.push(`Recommended: ${clipCodePoints(collapseNewlines(q.recommended), OPTION_DETAIL_CLIP, true)}.`);
+  }
   // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
   if (actions.length === 0 || (opts !== null && opts.length > actions.length)) {
     parts.push(`Answer with: pacer answer ${q.id} "<your answer>"`);

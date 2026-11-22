@@ -173,6 +173,7 @@ const OPTION_DETAIL_CLIP: usize = 40;
 const OPTION_BUTTON_MAX_CODE_POINTS: usize = 80;
 const QUESTION_TITLE_CLIP: usize = 80;
 const RUN_DETAIL_CLIP: usize = 80;
+const FULL_QUESTION_CLIP: usize = 200;
 const ANSWER_CHAR_LIMIT: usize = 2000;
 const OPTION_BUTTON_CAP: usize = 3;
 
@@ -196,6 +197,18 @@ fn collapse_newlines(s: &str) -> String {
     out
 }
 
+/// Shared TS/Rust trim: space, tab, CR, LF, NBSP only (not Unicode White_Space).
+fn trim_shared_whitespace(s: &str) -> &str {
+    let is_ws = |c: char| matches!(c, '\t' | '\n' | '\r' | ' ' | '\u{00A0}');
+    s.trim_matches(is_ws)
+}
+
+/// One-line question body for title/detail: collapse newlines, then shared trim.
+fn collapsed_question_text(text: &str) -> String {
+    let collapsed = collapse_newlines(text);
+    trim_shared_whitespace(&collapsed).to_string()
+}
+
 /// Clip to `max` Unicode code points (mirrors TS `clipCodePoints` / Array.from).
 fn clip_code_points(s: &str, max: usize, ellipsis: bool) -> String {
     let points: Vec<char> = s.chars().collect();
@@ -204,6 +217,14 @@ fn clip_code_points(s: &str, max: usize, ellipsis: bool) -> String {
     }
     let head: String = points.into_iter().take(max).collect();
     if ellipsis { format!("{head}…") } else { head }
+}
+
+/// Run title for detail, or the workflow slug when untitled (never a run id).
+fn run_detail_subject(title: &str, workflow: &str) -> String {
+    let collapsed = collapse_newlines(title);
+    let raw = trim_shared_whitespace(&collapsed);
+    let subject = if raw.is_empty() { workflow } else { raw };
+    clip_code_points(subject, RUN_DETAIL_CLIP, false)
 }
 
 fn option_fits_button(value: &str) -> bool {
@@ -334,12 +355,18 @@ fn run_question_actions(
     }
 }
 
-/// Mirror of TS `runQuestionTitle`.
+/// Mirror of TS `runQuestionTitle` — clip to 79 + … when over 80 code points (I-1).
 fn run_question_title(text_body: &str) -> String {
-    clip_code_points(&collapse_newlines(text_body), QUESTION_TITLE_CLIP, false)
+    let collapsed = collapsed_question_text(text_body);
+    if collapsed.chars().count() <= QUESTION_TITLE_CLIP {
+        collapsed
+    } else {
+        clip_code_points(&collapsed, QUESTION_TITLE_CLIP - 1, true)
+    }
 }
 
 /// Mirror of TS `runQuestionDetail`.
+#[allow(clippy::too_many_arguments)]
 fn run_question_detail(
     asker_kind: &str,
     answer_type: &str,
@@ -348,6 +375,7 @@ fn run_question_detail(
     id: &str,
     run_subject: &str,
     actions: &Value,
+    question_text: &str,
 ) -> String {
     let action_count = actions.as_array().map_or(0, Vec::len);
     let first_label = actions
@@ -359,11 +387,15 @@ fn run_question_detail(
     if let Some(label) = first_label {
         parts.push(format!("The first button answers \"{label}\"."));
     }
-    parts.push(format!(
-        "{}.",
-        clip_code_points(run_subject, RUN_DETAIL_CLIP, false)
-    ));
+    parts.push(format!("{run_subject}."));
     parts.push(format!("{}.", asker_cue(asker_kind)));
+    let collapsed = collapsed_question_text(question_text);
+    if collapsed.chars().count() > QUESTION_TITLE_CLIP {
+        parts.push(format!(
+            "Full question: {}.",
+            clip_code_points(&collapsed, FULL_QUESTION_CLIP, true)
+        ));
+    }
     let opt_words: Option<Vec<String>> = match answer_type {
         "yes_no" => Some(vec!["yes".into(), "no".into()]),
         "approve_revise" => {
@@ -382,12 +414,15 @@ fn run_question_detail(
     if let Some(opts) = &opt_words {
         let clipped: Vec<String> = opts
             .iter()
-            .map(|o| clip_code_points(o, OPTION_DETAIL_CLIP, true))
+            .map(|o| clip_code_points(&collapse_newlines(o), OPTION_DETAIL_CLIP, true))
             .collect();
         parts.push(format!("Options: {}.", clipped.join(" / ")));
     }
     if let Some(rec) = recommended {
-        parts.push(format!("Recommended: {rec}."));
+        parts.push(format!(
+            "Recommended: {}.",
+            clip_code_points(&collapse_newlines(rec), OPTION_DETAIL_CLIP, true)
+        ));
     }
     // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
     if action_count == 0
@@ -486,7 +521,14 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         } else {
             "important"
         };
-        let run_title = if title.is_empty() { workflow } else { title };
+        // Item `run.title` keeps the stored value (or workflow when empty) — matches
+        // TS `run.title || run.workflow`. Detail subject is separately normalised (I-2).
+        let run_title = if title.is_empty() {
+            workflow.clone()
+        } else {
+            title.clone()
+        };
+        let detail_subject = run_detail_subject(&title, &workflow);
         let at = if created_at > 0.0 {
             created_at
         } else {
@@ -512,8 +554,9 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             parsed_options.as_deref(),
             recommended_val.as_deref(),
             &id,
-            &run_title,
+            &detail_subject,
             &actions,
+            &text_body,
         );
         let mut question = Map::new();
         question.insert("id".into(), json!(id));
