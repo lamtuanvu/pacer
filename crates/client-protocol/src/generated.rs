@@ -10052,6 +10052,7 @@ impl<'de> ::serde::Deserialize<'de> for ProjectStrategySetParamsRepo {
 ///  "properties": {
 ///    "answer": {
 ///      "type": "string",
+///      "maxLength": 2000,
 ///      "minLength": 1
 ///    },
 ///    "expect_rev": {
@@ -10088,6 +10089,7 @@ pub struct QuestionAnswerParams {
 /// ```json
 ///{
 ///  "type": "string",
+///  "maxLength": 2000,
 ///  "minLength": 1
 ///}
 /// ```
@@ -10109,6 +10111,9 @@ impl ::std::convert::From<QuestionAnswerParamsAnswer> for ::std::string::String 
 impl ::std::str::FromStr for QuestionAnswerParamsAnswer {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
         if value.chars().count() < 1usize {
             return Err("shorter than 1 characters".into());
         }
@@ -10320,7 +10325,7 @@ impl<'de> ::serde::Deserialize<'de> for QuestionAnswerParamsNote {
 ///    },
 ///    "text": {
 ///      "type": "string",
-///      "maxLength": 4000,
+///      "maxLength": 1000,
 ///      "minLength": 1
 ///    }
 ///  },
@@ -10912,7 +10917,7 @@ impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsStepId {
 /// ```json
 ///{
 ///  "type": "string",
-///  "maxLength": 4000,
+///  "maxLength": 1000,
 ///  "minLength": 1
 ///}
 /// ```
@@ -10934,8 +10939,8 @@ impl ::std::convert::From<QuestionAskParamsText> for ::std::string::String {
 impl ::std::str::FromStr for QuestionAskParamsText {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 4000usize {
-            return Err("longer than 4000 characters".into());
+        if value.chars().count() > 1000usize {
+            return Err("longer than 1000 characters".into());
         }
         if value.chars().count() < 1usize {
             return Err("shorter than 1 characters".into());
