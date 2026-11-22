@@ -4,7 +4,7 @@ import { awaitsAnswer } from "../tasks/types";
 import { parseRunnerId } from "../config/runner-id";
 import { executorName } from "../link/notification";
 import { workActionRequestId } from "../work/action-id";
-import type { Action, AttentionItem, AttentionKind } from "./types";
+import type { Action, AttentionItem, AttentionKind, AttentionUnblocks, RunAttentionPriority } from "./types";
 import { discoveryPrompts, type DiscoveryRuleInput } from "../discovery/prompts";
 
 export interface RuleInput {
@@ -20,8 +20,15 @@ const callerLabel = (p?: string) => /^external:([a-z-]+)/.exec(p ?? "")?.[1] ?? 
 const displayName = (id: string | null) => executorName(id ? parseRunnerId(id)?.agent ?? id : null);
 const open = (label: string, params: Action["params"]): Action => ({ label, op: "ui.open", params });
 const severityOrder = { blocked: 0, problem: 1, decide: 2 };
+const unblocksOrder: Record<AttentionUnblocks, number> = { run: 0, branch: 1, nothing: 2 };
+const priorityOrder: Record<RunAttentionPriority, number> = { urgent: 0, normal: 1, background: 2 };
 export function sortItems(items: AttentionItem[]): AttentionItem[] {
-  return items.sort((a,b) => severityOrder[a.severity]-severityOrder[b.severity] || a.since-b.since || a.id.localeCompare(b.id));
+  return items.sort((a, b) =>
+    severityOrder[a.severity] - severityOrder[b.severity]
+    || (a.unblocks && b.unblocks ? unblocksOrder[a.unblocks] - unblocksOrder[b.unblocks] : 0)
+    || (a.run && b.run ? priorityOrder[a.run.priority] - priorityOrder[b.run.priority] : 0)
+    || a.since - b.since
+    || a.id.localeCompare(b.id));
 }
 export function deriveItems(input: RuleInput): AttentionItem[] {
   const items: AttentionItem[] = [];

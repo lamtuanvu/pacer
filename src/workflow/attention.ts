@@ -2,12 +2,84 @@
 // exhaustion and orchestrator failures, with actions that include expect_rev and
 // concrete run.set_budget / run.set_planner params. since/raisedAt are stable via
 // spent.attention_at (no orchestrator-attention.json / budget-attention.json).
+// Phase 4 also raises /v3-only items for open person-answerer structured questions (D10).
 import type { Ctx } from "../types";
-import type { Action, AttentionItem } from "../attention/types";
+import type { Action, AttentionItem, AttentionUnblocks } from "../attention/types";
+import { sortItems } from "../attention/rules";
 import { PLANNERS } from "../config/strategy";
 import { agentInfo } from "../view-model/agents";
-import { liveRuns, type RunRow } from "./store";
+import {
+  getRun,
+  listOpenPersonQuestions,
+  liveRuns,
+  type QuestionBlocks,
+  type QuestionRow,
+  type RunRow,
+} from "./store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+
+/** Stable A–Z letter from a run id until Phase 6 assigns fixed letters. */
+export function runAttentionLetter(runId: string): string {
+  let h = 0;
+  for (let i = 0; i < runId.length; i++) h = (h * 31 + runId.charCodeAt(i)) >>> 0;
+  return String.fromCharCode(65 + (h % 26));
+}
+
+function unblocksFor(blocks: QuestionBlocks): AttentionUnblocks {
+  if (blocks === "branch") return "branch";
+  if (blocks === "nothing") return "nothing";
+  return "run";
+}
+
+function questionPayload(q: QuestionRow): Record<string, unknown> {
+  const out: Record<string, unknown> = {
+    id: q.id,
+    text: q.text,
+    answerType: q.answerType,
+    blocks: q.blocks,
+    rev: q.rev,
+    askerKind: q.askerKind,
+  };
+  if (q.options) out.options = q.options;
+  if (q.recommended) out.recommended = q.recommended;
+  if (q.artifact) out.artifact = q.artifact;
+  if (q.suggested) out.suggested = q.suggested;
+  if (q.askerTaskId) out.askerTaskId = q.askerTaskId;
+  if (q.branch) out.branch = q.branch;
+  return out;
+}
+
+function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
+  const unblocks = unblocksFor(q.blocks);
+  const at = q.createdAt || ctx.now;
+  return {
+    id: `question:${q.id}`,
+    kind: "question",
+    severity: unblocks === "nothing" ? "decide" : "blocked",
+    repo: null,
+    title: run.title || run.workflow,
+    detail: q.text.slice(0, 200),
+    raisedAt: at,
+    since: at,
+    notify: unblocks === "nothing" ? "all" : "important",
+    actions: [
+      {
+        label: "Answer",
+        op: "question.answer",
+        params: { id: q.id, expect_rev: q.rev },
+        style: "primary",
+      },
+    ],
+    unblocks,
+    run: {
+      id: run.id,
+      letter: runAttentionLetter(run.id),
+      title: run.title || run.workflow,
+      priority: "normal",
+    },
+    question: questionPayload(q),
+  };
+}
 
 function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
   const spent = parseSpent(run.spent);
@@ -111,9 +183,15 @@ function blockedFailureActions(run: RunRow): Action[] {
   return actions;
 }
 
-/** Attention items for live runs: blocked orchestrator and budget thresholds. */
+/** Attention items for live runs: blocked orchestrator, budget thresholds, and person questions. */
 export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
   const items: AttentionItem[] = [];
+  const liveById = new Map(liveRuns(ctx).map(r => [r.id, r]));
+  for (const q of listOpenPersonQuestions(ctx)) {
+    const run = liveById.get(q.runId) ?? getRun(ctx, q.runId);
+    if (!run || (run.status !== "running" && run.status !== "waiting")) continue;
+    items.push(runQuestionItem(ctx, q, run));
+  }
   for (const run of liveRuns(ctx)) {
     // Child runs share the root's orchestrator/budget attention.
     if (run.parentRunId) continue;
@@ -210,7 +288,7 @@ export function deriveWorkflowAttention(ctx: Ctx): AttentionItem[] {
       });
     }
   }
-  return items;
+  return sortItems(items);
 }
 
 /** Budget / message attention for a run from the live derive path. */

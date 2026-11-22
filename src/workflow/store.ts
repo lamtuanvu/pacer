@@ -1208,6 +1208,19 @@ export function listQuestions(ctx: Ctx, runId: string, status?: QuestionStatus):
   ).all(runId).map(questionFromRow);
 }
 
+/** Open questions whose current answerer is the person (attention queue). Missing table → []. */
+export function listOpenPersonQuestions(ctx: Ctx): QuestionRow[] {
+  try {
+    return workflowDatabase(ctx).query<QuestionDbRow, []>(
+      `SELECT * FROM workflow_questions
+       WHERE status = 'open' AND answerer = 'person'
+       ORDER BY created_at, id`,
+    ).all().map(questionFromRow);
+  } catch {
+    return [];
+  }
+}
+
 /** Compare-and-set answer: requires the current rev and an open status. */
 export function answerQuestionRecord(
   ctx: Ctx,
