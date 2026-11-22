@@ -190,7 +190,7 @@ test("real git ranges cover renames, deletions, metadata refresh and missing-his
 
 
 test("every currently UI-scoped path also selects UI evidence", () => {
-  for (const path of ["app/src/view.tsx", "app/build.ts", "src/app/assets.generated.ts",
+  for (const path of ["app/src/view.tsx", "app/build.ts", "app/assets.generated.json", "src/app/assets.generated.ts",
     "src/dashboard/frame.ts", "src/render/table.ts", "src/view-model/words.ts",
     "desktop/ui/index.html", "desktop/src-tauri/src/main.rs", "desktop/src-tauri/icons/tray.png",
     "desktop/src-tauri/tauri.conf.json"]) expect(select([path]).ui).toBe(true);

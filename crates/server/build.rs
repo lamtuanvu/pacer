@@ -1,4 +1,4 @@
-use std::{env, fs, path::PathBuf, process::Command};
+use std::{env, fs, path::PathBuf};
 
 fn main() {
     let root = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..");
@@ -15,22 +15,13 @@ fn main() {
     println!("cargo:rustc-env=PACER_PACKAGE_VERSION={package_version}");
     let version = std::env::var("PACER_BUILD_VERSION").unwrap_or(package_version);
     println!("cargo:rustc-env=PACER_BUILD_VERSION={version}");
-    let assets = root.join("src/app/assets.generated.ts");
-    println!("cargo:rerun-if-changed={}", assets.display());
-    // Import the same checked-in bundle used by the TypeScript server.
-    let output = Command::new("bun")
-        .args(["-e", "import { APP_FILES } from './src/app/assets.generated.ts'; process.stdout.write(JSON.stringify(APP_FILES));"])
-        .current_dir(&root)
-        .output()
-        .unwrap_or_else(|error| panic!("cannot read embedded web assets (bun): {error}"));
-    if !output.status.success() {
-        panic!(
-            "cannot read embedded web assets: {}",
-            String::from_utf8_lossy(&output.stderr)
-        );
-    }
-    let files: serde_json::Value = serde_json::from_slice(&output.stdout)
-        .unwrap_or_else(|error| panic!("web build returned malformed assets: {error}"));
+    let manifest = root.join("app/assets.generated.json");
+    println!("cargo:rerun-if-changed={}", manifest.display());
+    let text = fs::read_to_string(&manifest)
+        .unwrap_or_else(|error| panic!("cannot read {}: {error}", manifest.display()));
+    let bundle: serde_json::Value = serde_json::from_str(&text)
+        .unwrap_or_else(|error| panic!("app/assets.generated.json is malformed: {error}"));
+    let files = bundle.get("files").cloned().unwrap_or_else(|| panic!("app/assets.generated.json has no files"));
     assert!(
         files
             .as_array()
@@ -38,6 +29,7 @@ fn main() {
         "web build has no index.html"
     );
     let out = env::var_os("OUT_DIR").unwrap_or_else(|| panic!("OUT_DIR is required"));
-    fs::write(PathBuf::from(out).join("app-assets.json"), output.stdout)
+    let bytes = serde_json::to_vec(&files).unwrap_or_else(|error| panic!("cannot encode web assets: {error}"));
+    fs::write(PathBuf::from(out).join("app-assets.json"), bytes)
         .unwrap_or_else(|error| panic!("cannot write embedded web assets: {error}"));
 }

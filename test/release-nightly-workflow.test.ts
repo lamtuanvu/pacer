@@ -37,14 +37,14 @@ function fixture() {
   const desktop = join(work, "desktop", "src-tauri");
   mkdirSync(desktop, { recursive: true });
   mkdirSync(join(work, "tools"));
-  mkdirSync(join(work, "src", "app"), { recursive: true });
+  mkdirSync(join(work, "app"), { recursive: true });
   mkdirSync(join(work, "bin"));
   writeFileSync(join(desktop, "Cargo.toml"), '[package]\nname = "pacer-desktop"\nversion = "0.15.1"\n');
   writeFileSync(join(desktop, "Cargo.lock"), 'version = 4\n\n[[package]]\nname = "pacer-desktop"\nversion = "0.15.1"\n');
   writeFileSync(join(desktop, "tauri.conf.json"), '{\n  "version": "0.15.1"\n}\n');
   writeFileSync(join(work, "package.json"), `${JSON.stringify({ name: "fixture", version: "0.15.1", scripts: { "app:build": "bun tools/app.ts" } }, null, 2)}\n`);
-  writeFileSync(join(work, "tools", "app.ts"), 'const { version } = await Bun.file("package.json").json();\nawait Bun.write("src/app/assets.generated.ts", `export const APP_VERSION = ${JSON.stringify(version)};\\n`);\n');
-  writeFileSync(join(work, "src", "app", "assets.generated.ts"), 'export const APP_VERSION = "0.15.1";\n');
+  writeFileSync(join(work, "tools", "app.ts"), 'const { version } = await Bun.file("package.json").json();\nawait Bun.write("app/assets.generated.json", `${JSON.stringify({ version, files: [] }, null, 2)}\\n`);\n');
+  writeFileSync(join(work, "app", "assets.generated.json"), `${JSON.stringify({ version: "0.15.1", files: [] }, null, 2)}\n`);
   writeFileSync(join(work, "CHANGELOG.md"), "# Changelog\n\n## [0.15.1]\n\n- Old.\n");
   symlinkSync(resolve("scripts"), join(work, "scripts"));
   appendFileSync(join(work, ".git", "info", "exclude"), "scripts\nbin\noutput\nsummary\nenv\ngh.log\n");

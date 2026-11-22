@@ -109,23 +109,11 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 
 #[test]
-fn embedded_assets_match_typescript_bundle() {
+fn embedded_assets_match_the_tracked_manifest() {
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../..");
-    let output = std::process::Command::new("bun")
-        .args(["-e", "import { APP_FILES } from './src/app/assets.generated.ts'; process.stdout.write(JSON.stringify(APP_FILES));"])
-        .current_dir(root).output().unwrap();
-    assert!(
-        output.status.success(),
-        "asset import failed: {}",
-        String::from_utf8_lossy(&output.stderr)
-    );
-    let typescript: Value = serde_json::from_slice(&output.stdout).unwrap();
-    let embedded: Value =
-        serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
-    assert_eq!(
-        typescript, embedded,
-        "embedded assets differ from TypeScript"
-    );
+    let manifest: Value = serde_json::from_str(&std::fs::read_to_string(root.join("app/assets.generated.json")).unwrap()).unwrap();
+    let embedded: Value = serde_json::from_str(include_str!(concat!(env!("OUT_DIR"), "/app-assets.json"))).unwrap();
+    assert_eq!(manifest["files"], embedded, "embedded assets differ from app/assets.generated.json");
 }
 
 fn fixture() -> (tempfile::TempDir, Ctx) {

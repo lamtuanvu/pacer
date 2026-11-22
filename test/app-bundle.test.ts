@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { buildApp, generatedSource } from "../app/build";
+import { buildApp, generatedManifest, generatedSource } from "../app/build";
 import { APP_FILES, APP_VERSION } from "../src/app/assets.generated";
 import pkg from "../package.json";
 
@@ -7,7 +7,8 @@ test("embedded app assets equal a fresh deterministic build", async () => {
   const files = await buildApp();
   expect(APP_VERSION).toBe(pkg.version);
   expect(APP_FILES).toEqual(files);
-  expect(await Bun.file(new URL("../src/app/assets.generated.ts", import.meta.url)).text()).toBe(generatedSource(files));
+  expect(await Bun.file(new URL("../app/assets.generated.json", import.meta.url)).text()).toBe(generatedManifest(files));
+  expect(await Bun.file(new URL("../src/app/assets.generated.ts", import.meta.url)).text()).toBe(generatedSource());
 });
 
 test("app HTML uses external scripts and styles under the app CSP", async () => {
@@ -27,9 +28,9 @@ test("release refuses stale embedded app versions before compiling", async () =>
   const { tmpDir } = await import("./helpers");
   const { buildRelease } = await import("../scripts/release/build");
   const root = tmpDir();
-  mkdirSync(join(root, "src/app"), { recursive: true });
+  mkdirSync(join(root, "app"), { recursive: true });
   writeFileSync(join(root, "package.json"), JSON.stringify({ version: "1.2.3" }));
-  writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.0.0";');
+  writeFileSync(join(root, "app/assets.generated.json"), JSON.stringify({ version: "0.0.0", files: [] }));
   await expect(buildRelease({ root, targets: [] })).rejects.toThrow("run bun run app:build first");
 });
 

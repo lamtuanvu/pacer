@@ -45,7 +45,7 @@ test("notes list commit subjects and fit the desktop limit", () => {
 });
 
 test("stamp files are exactly the version files", () => {
-  expect([...NIGHTLY_STAMP_FILES].sort()).toEqual(["desktop/src-tauri/Cargo.lock", "desktop/src-tauri/Cargo.toml", "desktop/src-tauri/tauri.conf.json", "package.json", "src/app/assets.generated.ts"]);
+  expect([...NIGHTLY_STAMP_FILES].sort()).toEqual(["app/assets.generated.json", "desktop/src-tauri/Cargo.lock", "desktop/src-tauri/Cargo.toml", "desktop/src-tauri/tauri.conf.json", "package.json"]);
 });
 
 const cargo = '[package]\nname = "pacer-desktop"\nversion = "0.15.1"\n\n[dependencies]\nother = { version = "0.1.0" }\n';
@@ -58,14 +58,14 @@ function fixture(): string {
   const desktop = join(root, "desktop", "src-tauri");
   mkdirSync(desktop, { recursive: true });
   mkdirSync(join(root, "scripts"));
-  mkdirSync(join(root, "src", "app"), { recursive: true });
+  mkdirSync(join(root, "app"), { recursive: true });
   writeFileSync(join(desktop, "Cargo.toml"), cargo);
   writeFileSync(join(desktop, "Cargo.lock"), lock);
   writeFileSync(join(desktop, "tauri.conf.json"), tauriConf);
   writeFileSync(join(root, "package.json"), `${JSON.stringify({ name: "fixture", version: "0.15.1", scripts: { "app:build": "bun scripts/app.ts" } }, null, 2)}\n`);
   // Stub app:build: regenerate the embedded APP_VERSION from package.json, as the real build does.
-  writeFileSync(join(root, "scripts", "app.ts"), 'const { version } = await Bun.file("package.json").json();\nawait Bun.write("src/app/assets.generated.ts", `export const APP_VERSION = ${JSON.stringify(version)};\\n`);\n');
-  writeFileSync(join(root, "src", "app", "assets.generated.ts"), 'export const APP_VERSION = "0.15.1";\n');
+  writeFileSync(join(root, "scripts", "app.ts"), 'const { version } = await Bun.file("package.json").json();\nawait Bun.write("app/assets.generated.json", `${JSON.stringify({ version, files: [] }, null, 2)}\\n`);\n');
+  writeFileSync(join(root, "app", "assets.generated.json"), `${JSON.stringify({ version: "0.15.1", files: [] }, null, 2)}\n`);
   writeFileSync(join(root, "CHANGELOG.md"), changelog);
   return root;
 }
@@ -90,7 +90,9 @@ test("stampNightly writes the version into every stamp file and leaves CHANGELOG
   expect(readFileSync(join(desktop, "tauri.conf.json"), "utf8")).toBe(tauriConf.replace('"version": "0.15.1"', `"version": "${NIGHTLY}"`));
   expect(readFileSync(join(desktop, "Cargo.toml"), "utf8")).toBe(cargo.replace('version = "0.15.1"', `version = "${NIGHTLY}"`));
   expect(readFileSync(join(desktop, "Cargo.lock"), "utf8")).toBe(lock.replace('name = "pacer-desktop"\nversion = "0.15.1"', `name = "pacer-desktop"\nversion = "${NIGHTLY}"`));
-  expect(readFileSync(join(root, "src", "app", "assets.generated.ts"), "utf8")).toContain(`APP_VERSION = "${NIGHTLY}"`);
+  const manifestJson = JSON.parse(readFileSync(join(root, "app", "assets.generated.json"), "utf8"));
+  expect(manifestJson.version).toBe(NIGHTLY);
+  expect(readFileSync(join(root, "app", "assets.generated.json"), "utf8").endsWith("}\n")).toBe(true);
   expect(readFileSync(join(root, "CHANGELOG.md"), "utf8")).toBe(changelog);
 });
 

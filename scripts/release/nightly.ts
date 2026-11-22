@@ -17,7 +17,7 @@ export const NIGHTLY_STAMP_FILES: readonly string[] = Object.freeze([
   "desktop/src-tauri/tauri.conf.json",
   "desktop/src-tauri/Cargo.toml",
   "desktop/src-tauri/Cargo.lock",
-  "src/app/assets.generated.ts",
+  "app/assets.generated.json",
 ]);
 
 export function isNightlyVersion(version: string): boolean {

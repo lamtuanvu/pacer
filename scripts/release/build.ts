@@ -187,8 +187,8 @@ export async function buildRelease(o: BuildOptions): Promise<{ dir: string; mani
   if (o.desktopTrust && (o.targets ?? TARGETS).some(t => t.os !== "darwin")) throw Error("Desktop trust requires macOS targets");
   const version = o.version ?? readPackageVersion(o.root);
   if (!isVersion(version)) throw new Error(`invalid version "${version}" (expected MAJOR.MINOR.PATCH[-PRERELEASE])`);
-  const appAssets = join(o.root, "src", "app", "assets.generated.ts");
-  if (o.version === undefined && existsSync(appAssets) && !readFileSync(appAssets, "utf8").includes(`APP_VERSION = ${JSON.stringify(version)};`)) {
+  const appAssets = join(o.root, "app", "assets.generated.json");
+  if (o.version === undefined && existsSync(appAssets) && (JSON.parse(readFileSync(appAssets, "utf8")) as { version?: unknown }).version !== version) {
     throw new Error(`the bundled app assets are not built for ${version}; run bun run app:build first`);
   }
   const outRoot = o.outRoot ?? join(o.root, "dist", "release");

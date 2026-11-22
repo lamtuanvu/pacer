@@ -73,10 +73,12 @@ describe("UI PR evidence manifest", () => {
       if (result.exitCode) throw Error(result.stderr.toString());
       return result.stdout.toString().trim();
     };
-    const assets = "src/app/assets.generated.ts", tauri = "desktop/src-tauri/tauri.conf.json";
+    const assets = "app/assets.generated.json", tauri = "desktop/src-tauri/tauri.conf.json";
     const write = (version: string, extra = "") => {
-      mkdirSync(join(root, "src/app"), { recursive: true }); mkdirSync(join(root, "desktop/src-tauri"), { recursive: true });
-      writeFileSync(join(root, assets), `// Generated.\nexport const APP_VERSION = "${version}";\nexport const APP_FILES = [];${extra}\n`);
+      mkdirSync(join(root, "app"), { recursive: true }); mkdirSync(join(root, "desktop/src-tauri"), { recursive: true });
+      const manifest: Record<string, unknown> = { version, files: [] };
+      if (extra) manifest.files = [{ path: "main.tsx", text: extra.trim() }];
+      writeFileSync(join(root, assets), `${JSON.stringify(manifest, null, 2)}\n`);
       writeFileSync(join(root, tauri), `{\n  "productName": "pacer",\n  "version": "${version}",\n  "identifier": "dev.pacer"\n}\n`);
       writeFileSync(join(root, "package.json"), `{ "version": "${version}" }\n`);
     };
@@ -107,9 +109,9 @@ describe("UI PR evidence manifest", () => {
     try {
       git("init", "--quiet");
       mkdirSync(join(root, "app/src"), { recursive: true });
-      mkdirSync(join(root, "src/app"), { recursive: true });
+      mkdirSync(join(root, "app"), { recursive: true });
       writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'original';\n");
-      writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.4.0";\n');
+      writeFileSync(join(root, "app/assets.generated.json"), '{\n  "version": "0.4.0",\n  "files": []\n}\n');
       git("add", "--all"); git("commit", "-m", "test: shared ancestor");
       const ancestor = git("rev-parse", "HEAD");
       writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'new on main';\n");
@@ -117,7 +119,7 @@ describe("UI PR evidence manifest", () => {
       const reviewedBase = git("rev-parse", "HEAD");
       git("checkout", "--detach", ancestor);
       if (change === "CLI") writeFileSync(join(root, "watch.ts"), "export const watch = true;\n");
-      if (change === "version") writeFileSync(join(root, "src/app/assets.generated.ts"), 'export const APP_VERSION = "0.5.0";\n');
+      if (change === "version") writeFileSync(join(root, "app/assets.generated.json"), '{\n  "version": "0.5.0",\n  "files": []\n}\n');
       if (change === "UI") writeFileSync(join(root, "app/src/main.tsx"), "export const title = 'new in PR';\n");
       git("add", "--all"); git("commit", "-m", "test: PR change");
       const reviewedHead = git("rev-parse", "HEAD"), event = join(root, "event.json");
@@ -125,7 +127,7 @@ describe("UI PR evidence manifest", () => {
       const violations = checkUiPullRequest(event, root);
       if (change === "UI") expect(violations.some(v => v.rule === "UI-24")).toBe(true);
       else expect(violations).toEqual([]);
-      if (change === "version") expect(versionOnlyUiChange(["src/app/assets.generated.ts", "app/src/main.tsx"], reviewedBase, reviewedHead, root)).toBe(true);
+      if (change === "version") expect(versionOnlyUiChange(["app/assets.generated.json", "app/src/main.tsx"], reviewedBase, reviewedHead, root)).toBe(true);
     } finally { rmSync(root, { recursive: true, force: true }); }
   });
 
