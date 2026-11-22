@@ -86,6 +86,82 @@ function tinyChild(): WorkflowDef {
   };
 }
 
+describe("M2: local_max_tasks bounds fanout width via slotBlock/slotUse", () => {
+  /** High per-runner max_tasks so execution.local_max_tasks is the binding cap. */
+  function writeSlotStrategy(ctx: ReturnType<typeof fakeCtx>, localMax: number) {
+    mkdirSync(ctx.pacerHome, { recursive: true });
+    writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
+      "planner: claude-code",
+      "accounts:",
+      "  claude: { kind: claude }",
+      "  codex: { kind: codex }",
+      "runners:",
+      "  claude-code: { agent: claude-code, account: claude, max_tasks: 8 }",
+      "  codex: { agent: codex, account: codex, max_tasks: 8 }",
+      "execution:",
+      `  local_max_tasks: ${localMax}`,
+      "",
+    ].join("\n"));
+  }
+
+  async function startFanoutBranches(localMax: number) {
+    const ctx = fakeCtx();
+    writeSlotStrategy(ctx, localMax);
+    const def: WorkflowDef = {
+      id: `t/f-m2-fan-${localMax}`,
+      version: 1,
+      steps: {
+        fan: {
+          type: "fanout",
+          branches: ["x", "y", "z"],
+          each: { type: "agent", kind: "tests", prompt: "T {{branch}}" },
+          join: "all",
+        },
+        done: { type: "end" },
+      },
+      edges: [{ from: "fan", to: "done" }],
+      entry: "fan",
+    };
+    addDefinition(ctx, def, "source");
+    const spawn: SpawnRunner = () => 1;
+    const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
+    expect(getWork(ctx, getRun(ctx, run.id)!.rootTaskId!)!.options.maxConcurrent).toBe(64);
+    const branches = stepsOfRun(ctx, run.id).filter(s => s.stepId === "fan" && s.branch);
+    expect(branches).toHaveLength(3);
+    return { ctx, branches: branches.map(b => b.taskId!) };
+  }
+
+  function markLocalRunning(ctx: ReturnType<typeof fakeCtx>, taskId: string, executor = "codex") {
+    updateTask(ctx, taskId, t => {
+      t.state = "running";
+      t.executor = executor;
+    });
+  }
+
+  test("local_max_tasks 1: one running fanout branch fills the machine slot", async () => {
+    const { ctx, branches } = await startFanoutBranches(1);
+    markLocalRunning(ctx, branches[0]!);
+    const strategy = loadStrategy(ctx);
+    const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }), ctx);
+    expect(use.local).toBe(1);
+    expect(slotBlock(strategy, "codex", use)).toBe("this machine busy (1/1)");
+    expect(slotBlock(strategy, "claude-code", use)).toBe("this machine busy (1/1)");
+  });
+
+  test("local_max_tasks 2: two running branches leave the third blocked", async () => {
+    const { ctx, branches } = await startFanoutBranches(2);
+    markLocalRunning(ctx, branches[0]!, "codex");
+    markLocalRunning(ctx, branches[1]!, "claude-code");
+    const strategy = loadStrategy(ctx);
+    const use = slotUse(listTasksWhere(ctx, { states: SLOT_STATES }), ctx);
+    expect(use.local).toBe(2);
+    expect(slotBlock(strategy, "codex", use)).toBe("this machine busy (2/2)");
+    // Root stays at schema max — width is from slots, not a pinned root maxConcurrent.
+    const root = listTasksWhere(ctx, { states: ["running"] }).find(t => t.kind === "workflow-root")!;
+    expect(getWork(ctx, root.id)!.options.maxConcurrent).toBe(64);
+  });
+});
+
 describe("M1: child admission excludes workflow-root like reserveDispatch", () => {
   test("delegateChild under a maxConcurrent:1 workflow-root is not blocked by the root itself", async () => {
     const { gitRepo, realRun } = await import("./helpers");
