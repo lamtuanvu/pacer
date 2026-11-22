@@ -150,9 +150,8 @@ describe("I3: child root sized from the approved graph", () => {
     const spawn: SpawnRunner = () => 1;
     const run = await startRun(ctx, { workflow: parent.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
     const parentRoot = getWork(ctx, getRun(ctx, run.id)!.rootTaskId!)!;
-    // Parent graph is tiny (generate + end); must not inherit max_steps+10.
-    expect(parentRoot.options.maxDescendants).toBeLessThan(50);
-    expect(parentRoot.options.maxDescendants).toBe(Math.max(20, 1 + 10)); // generate + retries slack
+    // Workflow roots use the schema cap (engine bounds loops/steps separately).
+    expect(parentRoot.options.maxDescendants).toBe(1000);
 
     const steps: WorkflowDef["steps"] = { done: { type: "end" } };
     const edges: WorkflowDef["edges"] = [];
@@ -192,11 +191,11 @@ describe("I3: child root sized from the approved graph", () => {
     expect(childRunId).toBeTruthy();
     const child = getRun(ctx, childRunId!)!;
     const childRoot = getWork(ctx, child.rootTaskId!)!;
-    // Per-cycle budget: base + maxLoops×cycle units + slack (not max(maxLoops)+1 over all steps).
+    // Child root uses the same schema cap as every workflow root (fixF M4).
     const { rootCapacityFromGraph } = await import("../src/workflow/worknode");
     const expected = rootCapacityFromGraph(childGraph);
     expect(childRoot.options.maxDescendants).toBe(expected);
-    expect(expected).toBeGreaterThan(20);
+    expect(expected).toBe(1000);
   });
 });
 

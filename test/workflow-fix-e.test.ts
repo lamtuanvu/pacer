@@ -363,9 +363,9 @@ describe("F4 / F5: descendant budget estimate", () => {
       ],
       entry: "a",
     };
-    // base 4 + 3*2 + 5*2 = 4+6+10 = 20
+    // base 4 + 3*2 + 5*2 = 4+6+10 = 20 — estimate kept for generated graphs / validate.
     expect(estimateWorkUnits(def)).toBe(20);
-    expect(rootCapacityFromGraph(def)).toBe(Math.max(20, estimateDescendantBudget(def)));
-    expect(rootCapacityFromGraph(def)).toBeLessThanOrEqual(1000);
+    expect(estimateDescendantBudget(def)).toBeGreaterThanOrEqual(20);
+    expect(rootCapacityFromGraph(def)).toBe(1000);
   });
 });

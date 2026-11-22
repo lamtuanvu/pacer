@@ -22,7 +22,6 @@ import {
   type RunRow,
 } from "./store";
 import type { WorkflowDef } from "./schema";
-import { estimateDescendantBudget } from "./validate";
 
 /** Schema cap for work options.maxDescendants. */
 const MAX_DESCENDANTS_CAP = 1000;
@@ -30,12 +29,12 @@ const MAX_DESCENDANTS_CAP = 1000;
 const MAX_CONCURRENT_CAP = 64;
 
 /**
- * Descendant budget from the concrete graph. Loop iterations re-create tasks for
- * every step on each back-edge cycle; non-cycle steps count once. Capped at 1000.
+ * Workflow roots use the schema maxDescendants cap. The engine already bounds
+ * loops and steps; validateWorkflow still rejects uncapped estimates above 1000
+ * as an early check, and estimateWorkUnits remains for generated-graph limits.
  */
-export function rootCapacityFromGraph(def: WorkflowDef | null): number {
-  if (!def) return 20;
-  return Math.min(MAX_DESCENDANTS_CAP, Math.max(20, estimateDescendantBudget(def)));
+export function rootCapacityFromGraph(_def: WorkflowDef | null): number {
+  return MAX_DESCENDANTS_CAP;
 }
 
 /**

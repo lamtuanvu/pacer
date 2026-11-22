@@ -110,7 +110,7 @@ test("successor step has no dispatcher dependency edge; engine advances on done"
   expect(pendingDependencies(ctx, two.taskId!)).toEqual([]);
 });
 
-test("the root's maxDescendants follows the concrete graph; ordinary dispatch roots stay at 20", async () => {
+test("the root's maxDescendants is the schema cap; ordinary dispatch roots stay at 20", async () => {
   const ctx = fakeCtx();
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
@@ -126,8 +126,8 @@ test("the root's maxDescendants follows the concrete graph; ordinary dispatch ro
   const r = await startRun(ctx, { workflow: "t/wn-gen", repo: tmpDir(), brief: "B" }, undefined, deps);
   const run = getRun(ctx, r.id)!;
   const root = getWork(ctx, run.rootTaskId!)!;
-  // Parent generate graph is one generate step (+ end); child runs size their own roots.
-  expect(root.options.maxDescendants).toBe(Math.max(20, 1 + 10));
+  // Workflow roots use the schema cap; generated children size their own roots the same way.
+  expect(root.options.maxDescendants).toBe(1000);
   expect(root.options.maxConcurrent).toBe(64);
 
   const ordinary = createTask(ctx, { brief: { goal: "root", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });

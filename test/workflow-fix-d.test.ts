@@ -216,15 +216,13 @@ describe("I-1 / I-2: root capacity and concurrency", () => {
       ],
       entry: "build",
     };
-    // Old formula: max(20, 1+5+1+3)=20; real need ~28+.
-    expect(rootCapacityFromGraph(def)).toBeGreaterThanOrEqual(28);
-    expect(rootCapacityFromGraph(def)).toBeLessThanOrEqual(1000);
+    expect(rootCapacityFromGraph(def)).toBe(1000);
 
     addDefinition(ctx, def, "source");
     const spawn: SpawnRunner = () => 1;
     const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
     const root = getWork(ctx, getRun(ctx, run.id)!.rootTaskId!)!;
-    expect(root.options.maxDescendants).toBeGreaterThanOrEqual(28);
+    expect(root.options.maxDescendants).toBe(1000);
     expect(root.options.maxConcurrent).toBe(64); // schema max; slots bind local width
 
     // Drive one full loop iteration of the fanout without hitting descendant limit.

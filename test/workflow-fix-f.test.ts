@@ -86,6 +86,23 @@ function tinyChild(): WorkflowDef {
   };
 }
 
+describe("M4: workflow root maxDescendants is the schema cap", () => {
+  test("rootCapacityFromGraph returns 1000 for any concrete graph", () => {
+    const tiny: WorkflowDef = {
+      id: "t/f-m4-tiny",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A" },
+        done: { type: "end" },
+      },
+      edges: [{ from: "a", to: "done" }],
+      entry: "a",
+    };
+    expect(rootCapacityFromGraph(tiny)).toBe(1000);
+    expect(rootCapacityFromGraph(null)).toBe(1000);
+  });
+});
+
 describe("M2: local_max_tasks bounds fanout width via slotBlock/slotUse", () => {
   /** High per-runner max_tasks so execution.local_max_tasks is the binding cap. */
   function writeSlotStrategy(ctx: ReturnType<typeof fakeCtx>, localMax: number) {
