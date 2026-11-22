@@ -18,6 +18,8 @@ export async function artifactRoute(req: Request, ctx: Ctx): Promise<Response | 
     const file = getArtifact(ctx, runId, artId);
     if (!file) throw new CoreError("not_found", `unknown artifact ${artId}`);
     const dangerous = /^(text\/html|image\/svg\+xml)\b/i.test(file.mime);
+    // M9: PDFs as attachment (html/svg already attachment); other types stay inline.
+    const attachment = dangerous || /^application\/pdf\b/i.test(file.mime);
     return new Response(Bun.file(file.absPath), {
       headers: {
         "Content-Type": file.mime,
@@ -26,7 +28,7 @@ export async function artifactRoute(req: Request, ctx: Ctx): Promise<Response | 
           ? "default-src 'none'; sandbox; form-action 'none'; base-uri 'none'"
           : "default-src 'none'",
         "Cache-Control": "no-store",
-        "Content-Disposition": dangerous
+        "Content-Disposition": attachment
           ? `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`
           : `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
       },

@@ -14,8 +14,12 @@ import {
 /** Extra names beyond ghEnv that publish children may need. */
 const PUBLISH_EXTRA = new Set([
   "GH_ENTERPRISE_TOKEN", "GH_HOST", "SSH_AUTH_SOCK",
+  "ALL_PROXY", "NODE_EXTRA_CA_CERTS",
+  "http_proxy", "https_proxy", "HTTP_PROXY", "HTTPS_PROXY", "no_proxy", "NO_PROXY",
+  "LANG", "LC_ALL",
 ]);
 const PUBLISH_EXTRA_PREFIXES = ["GCM_", "SSH_"];
+const PUBLISH_EXTRA_SUFFIXES = ["_CA_BUNDLE"];
 /** GIT_* that must not leak a caller's checkout into engine-owned git. */
 const GIT_DROP = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
 
@@ -32,7 +36,8 @@ export function publishChildEnv(ctx: Ctx): Record<string, string | undefined> {
     if (name.startsWith("PACER_")) continue;
     if (GIT_DROP.has(name)) continue;
     if (name.startsWith("GIT_") || PUBLISH_EXTRA.has(name)
-      || PUBLISH_EXTRA_PREFIXES.some(p => name.startsWith(p))) {
+      || PUBLISH_EXTRA_PREFIXES.some(p => name.startsWith(p))
+      || PUBLISH_EXTRA_SUFFIXES.some(s => name.endsWith(s))) {
       out[name] = value;
     }
   }
@@ -81,7 +86,8 @@ export function hasUnresolvedConflictTask(ctx: Ctx, runId: string): boolean {
 }
 
 async function branchTipSha(ctx: Ctx, repo: string, branch: string): Promise<string> {
-  const tip = await ctx.run(["git", "-C", repo, "rev-parse", branch], 10_000);
+  // M9: qualify refs/heads/ so a tag of the same name cannot spoof the tip.
+  const tip = await ctx.run(["git", "-C", repo, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
   const sha = tip.stdout.trim();
   if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/i.test(sha)) {
     throw new CoreError("unavailable", `cannot read branch tip: ${firstLine(tip.stderr)}`);
@@ -90,7 +96,7 @@ async function branchTipSha(ctx: Ctx, repo: string, branch: string): Promise<str
 }
 
 async function branchTipCommitTime(ctx: Ctx, repo: string, branch: string): Promise<number> {
-  const tip = await ctx.run(["git", "-C", repo, "log", "-1", "--format=%ct", branch], 10_000);
+  const tip = await ctx.run(["git", "-C", repo, "log", "-1", "--format=%ct", `refs/heads/${branch}`], 10_000);
   const n = Number(tip.stdout.trim());
   if (tip.code !== 0 || !Number.isFinite(n)) {
     throw new CoreError("unavailable", `cannot read branch tip time: ${firstLine(tip.stderr)}`);
@@ -140,9 +146,25 @@ function assertHttpsPrUrl(url: string): string {
   return trimmed;
 }
 
-async function existingPrUrl(ctx: Ctx, wt: string, branch: string, env: Record<string, string | undefined>, ghBin: string): Promise<string | null> {
+/** Parse `owner/name` from an origin remote URL for `gh --repo` (M9). */
+export async function originRepoSlug(ctx: Ctx, repoOrWt: string): Promise<string | null> {
+  const got = await ctx.run(["git", "-C", repoOrWt, "remote", "get-url", "origin"], 10_000);
+  if (got.code !== 0) return null;
+  const url = got.stdout.trim();
+  const m = /(?:github\.com[:/]|git@[^:]+:)([^/]+)\/([^/.]+?)(?:\.git)?$/i.exec(url)
+    || /[:/]([^/]+)\/([^/.]+?)(?:\.git)?$/i.exec(url);
+  if (!m) return null;
+  return `${m[1]}/${m[2]}`;
+}
+
+async function existingPrUrl(
+  ctx: Ctx, wt: string, branch: string, env: Record<string, string | undefined>, ghBin: string, repoSlug: string | null,
+): Promise<string | null> {
   const listed = await ctx.run(
-    [ghBin, "pr", "list", "--head", branch, "--json", "url", "--limit", "1"],
+    [
+      ghBin, "pr", "list", "--head", branch, "--json", "url", "--limit", "1",
+      ...(repoSlug ? ["--repo", repoSlug] as const : []),
+    ],
     30_000,
     { env, stdin: "", cwd: wt },
   );
@@ -196,6 +218,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
     if (!ghBin) {
       throw new CoreError("unavailable", "gh is not installed");
     }
+    const repoSlug = await originRepoSlug(ctx, wt);
 
     const pushed = await ctx.run(
       ["git", "-C", wt, "push", "origin", `refs/heads/${live.branch}:refs/heads/${live.branch}`],
@@ -206,7 +229,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
       throw new CoreError("unavailable", cap(firstLine(pushed.stderr) || firstLine(pushed.stdout) || `git push exit ${pushed.code}`, STDERR_CAP));
     }
 
-    let prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin);
+    let prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
     if (!prUrl) {
       const base = live.baseRef.startsWith("origin/") ? live.baseRef.slice("origin/".length) : live.baseRef;
       const argv = [
@@ -215,12 +238,13 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
         "--base", base,
         `--title=${input.title}`,
         "--body-file", "-",
+        ...(repoSlug ? ["--repo", repoSlug] as const : []),
         ...(input.draft ? ["--draft"] as const : []),
       ];
       const created = await ctx.run(argv, 120_000, { env: pathEnv, stdin: input.body, cwd: wt });
       if (created.code !== 0) {
         // Crash recovery: push may have left a PR from a prior attempt.
-        prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin);
+        prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
         if (!prUrl) {
           throw new CoreError("unavailable", cap(firstLine(created.stderr) || firstLine(created.stdout) || `gh pr create exit ${created.code}`, STDERR_CAP));
         }
@@ -229,7 +253,7 @@ export async function publishRun(ctx: Ctx, runId: string, input: PublishInput): 
         if (token) {
           prUrl = assertHttpsPrUrl(token);
         } else {
-          prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin);
+          prUrl = await existingPrUrl(ctx, wt, live.branch, pathEnv, ghBin, repoSlug);
         }
         if (!prUrl) {
           throw new CoreError("unavailable", "gh pr create succeeded without a PR URL");

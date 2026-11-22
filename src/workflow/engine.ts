@@ -149,7 +149,16 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
-    try { await settleRunGitOnTerminal(ctx, updated); } catch { /* git settle must not block terminal */ }
+    // M6: bounded retry so a transient merge-lock timeout does not leave the integration worktree forever.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await settleRunGitOnTerminal(ctx, updated);
+        break;
+      } catch {
+        if (attempt === 2) break;
+        await Bun.sleep(250 * (attempt + 1));
+      }
+    }
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
     await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);

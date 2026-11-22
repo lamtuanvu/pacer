@@ -129,7 +129,7 @@ export async function cleanupRun(ctx: Ctx, runId: string, input: CleanupInput): 
       throw new CoreError("not_allowed", `run ${runId} is still ${live.status}; cleanup requires a terminal run`);
     }
     const tipSha = live.branch
-      ? (await ctx.run(["git", "-C", live.repo, "rev-parse", live.branch], 10_000)).stdout.trim() || null
+      ? (await ctx.run(["git", "-C", live.repo, "rev-parse", "--verify", `refs/heads/${live.branch}`], 10_000)).stdout.trim() || null
       : null;
     const aheadBefore = await runBranchAhead(ctx, live);
     await removeIntegrationWorktree(ctx, live);
@@ -150,9 +150,9 @@ export async function cleanupRun(ctx: Ctx, runId: string, input: CleanupInput): 
       }
       deleted = live.branch;
       clearRunBranch(ctx, live.id);
+      // M1: clear conflict markers only when the branch is deleted (surviving branch may still hold conflicts).
+      clearRunConflict(ctx, live.id);
     }
-    // Terminal cleanup clears any leftover conflict markers.
-    clearRunConflict(ctx, live.id);
 
     const updated = getRun(ctx, live.id) ?? live;
     const ahead = await runBranchAhead(ctx, updated);

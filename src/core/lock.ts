@@ -1,6 +1,7 @@
 import { CoreError } from './errors';
-import { closeSync, mkdirSync, openSync, rmSync, statSync } from "node:fs";
+import { closeSync, mkdirSync, openSync, readFileSync, rmSync, statSync, utimesSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
+import { randomBytes } from "node:crypto";
 import type { Ctx } from "../types";
 
 /** Lock files stay in <pacerHome>/orca/ so pacer versions from before the core move still see them. */
@@ -11,7 +12,10 @@ const lockDir = (ctx: Ctx) => join(ctx.pacerHome, "orca");
  * this event loop, and Atomics.wait would block the loop and deadlock both callers. */
 const suspendedHolders = new Map<string, number>();
 
-/** A cross-process lock file. Stale locks (older than staleMs) are taken over. */
+const HEARTBEAT_MS = 30_000;
+
+/** A cross-process lock file. Stale locks (older than staleMs) are taken over.
+ *  M6: heartbeat the mtime every 30s while held; finally deletes only this holder's token. */
 export async function withLock<T>(
   ctx: Ctx, name: string, fn: () => Promise<T> | T, o: { timeoutMs?: number; staleMs?: number } = {},
 ): Promise<T> {
@@ -20,9 +24,11 @@ export async function withLock<T>(
   const file = join(lockDir(ctx), `${name}.lock`);
   const deadline = Date.now() + (o.timeoutMs ?? 20_000);
   const staleMs = o.staleMs ?? 120_000;
+  const token = randomBytes(16).toString("hex");
   for (;;) {
     try {
       closeSync(openSync(file, "wx"));
+      writeFileSync(file, token);
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;
@@ -38,7 +44,16 @@ export async function withLock<T>(
       await Bun.sleep(50);
     }
   }
+  let heartbeat: ReturnType<typeof setInterval> | undefined;
   try {
+    heartbeat = setInterval(() => {
+      try {
+        const now = new Date();
+        utimesSync(file, now, now);
+      } catch { /* taken over or released */ }
+    }, HEARTBEAT_MS);
+    // Unref so a hung holder does not keep the process alive solely for the timer.
+    heartbeat.unref?.();
     const result = fn();
     // Do not retain a completed synchronous transaction until a microtask runs:
     // another synchronous caller can block that microtask waiting for this lock.
@@ -57,7 +72,14 @@ export async function withLock<T>(
     }
     return result;
   } finally {
-    rmSync(file, { force: true });
+    if (heartbeat) clearInterval(heartbeat);
+    // M6: delete only our own lock (token compare) so a takeover's holder is not wiped.
+    try {
+      const body = readFileSync(file, "utf8");
+      if (body === token) rmSync(file, { force: true });
+    } catch {
+      // Missing or unreadable: leave it (may belong to a takeover holder).
+    }
   }
 }
 

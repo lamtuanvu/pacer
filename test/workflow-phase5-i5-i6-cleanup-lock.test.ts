@@ -63,8 +63,8 @@ test("R2-F7: withMergeLock takes over a stale lock and runs", async () => {
   await Bun.write(join(lockDir, ".keep"), "");
   const lockFile = join(lockDir, `run-merge-${runId}.lock`);
   closeSync(openSync(lockFile, "wx"));
-  // Older than MERGE_LOCK_STALE_MS (420s): set mtime 500s ago.
-  const old = new Date(Date.now() - 500_000);
+  // Older than MERGE_LOCK_STALE_MS (540s): set mtime 600s ago.
+  const old = new Date(Date.now() - 600_000);
   utimesSync(lockFile, old, old);
 
   const result = await withMergeLock(ctx, runId, async () => "took-over");
