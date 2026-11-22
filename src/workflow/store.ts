@@ -853,6 +853,38 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   return row ? stepFromRow(row) : null;
 }
 
+/**
+ * Read-only: true when `taskId` is a workflow step of a run that already has a
+ * branch. Uses sqlite_master only — never runs workflow DDL — so ordinary
+ * accepts and the native review probe stay side-effect free on old DBs.
+ * Missing tables / columns mean "no" (fail closed for the merge gate: skip).
+ */
+export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
+  const db = taskDatabase(ctx);
+  const present = db.query(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+  ).get();
+  if (!present) return false;
+  const runsPresent = db.query(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+  ).get();
+  if (!runsPresent) return false;
+  try {
+    const row = db.query<{ branch: string | null }, [string]>(
+      `SELECT r.branch AS branch
+       FROM workflow_steps s
+       JOIN workflow_runs r ON r.id = s.run_id
+       WHERE s.task_id = ?
+       LIMIT 1`,
+    ).get(taskId);
+    return typeof row?.branch === "string" && row.branch.length > 0;
+  } catch (error) {
+    const msg = String(error);
+    if (/no such table/i.test(msg) || /no such column/i.test(msg)) return false;
+    throw error;
+  }
+}
+
 /** Running step rows without a task id, oldest first: the orphans (a crash between
  *  writing the row and attaching the delegated task) that every tick reconciles. */
 export function orphanSteps(ctx: Ctx): StepRow[] {
