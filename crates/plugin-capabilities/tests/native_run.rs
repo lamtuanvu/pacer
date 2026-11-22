@@ -579,7 +579,7 @@ fn prompt_md_interactive_flag_matches_typescript_launch_files() {
                 None
             }
         })
-        .expect("TS LAUNCH_FILES.prompt.md interactive flag");
+        .unwrap_or_else(|| panic!("TS LAUNCH_FILES.prompt.md interactive flag"));
     let rust_flag = rust
         .find("\"prompt.md\" =>")
         .and_then(|i| {
@@ -592,7 +592,7 @@ fn prompt_md_interactive_flag_matches_typescript_launch_files() {
                 None
             }
         })
-        .expect("Rust prompt.md interactive flag");
+        .unwrap_or_else(|| panic!("Rust prompt.md interactive flag"));
     assert_eq!(ts_flag, "false");
     assert_eq!(rust_flag, "false");
     assert_eq!(ts_flag, rust_flag);
