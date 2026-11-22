@@ -616,10 +616,17 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
             const task=readTask(ctx,pos[0]);
             if(!task)throw new Error(`unknown task ${pos[0]}`);
             authorizeWorkOperation(ctx,"task.review",{id:pos[0],verdict,expect_rev:task.rev});
-            const result=await callOp(ctx,"task.review",{id:pos[0],verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note),expect_rev:task.rev},{spawnRunner:cliDeps.spawnRunner,participant:"orchestrator"});
+            const result=await callOp(ctx,"task.review",{id:pos[0],verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note),expect_rev:task.rev},{spawnRunner:cliDeps.spawnRunner,participant:"orchestrator"}) as {merge?:string;resolution_task?:string};
+            if(result.merge==="conflict"){
+              return {code:1,out:opts.json?JSON.stringify(result):`${pos[0]} merge conflict  ${result.resolution_task ?? ""}`.trimEnd(),err:""};
+            }
             return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
           }
           const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner),spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
+          if(result.merge==="conflict"){
+            // Spec: non-zero exit, print resolution task id; skip diagnostic recheck.
+            return {code:1,out:opts.json?JSON.stringify(result):`${pos[0]} merge conflict  ${result.resolution_task ?? ""}`.trimEnd(),err:""};
+          }
           const recheck=verdict==="accept"?await recheckDiagnostic(ctx,pos[0],setupDoctor).then(()=>"",e=>`pacer: diagnostics recheck failed: ${e instanceof Error?e.message:String(e)}`):"";
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:recheck};
         }

@@ -49,9 +49,21 @@ function lockName(runId: string): string {
   return `run-merge-${runId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
 }
 
+/** Longest merge/publish holder: push 120s + gh 120s + merge 60s → stale above that. */
+const MERGE_LOCK_TIMEOUT_MS = 150_000;
+const MERGE_LOCK_STALE_MS = 300_000;
+
 /** Serialize merges (and branch creation) for one run. */
 export function withMergeLock<T>(ctx: Ctx, runId: string, fn: () => Promise<T> | T): Promise<T> {
-  return withLock(ctx, lockName(runId), fn);
+  return withLock(ctx, lockName(runId), fn, {
+    timeoutMs: MERGE_LOCK_TIMEOUT_MS,
+    staleMs: MERGE_LOCK_STALE_MS,
+  }).catch((error: unknown) => {
+    if (error instanceof Error && /^timed out waiting for /.test(error.message)) {
+      throw new CoreError("unavailable", `merge lock timed out for ${runId}`);
+    }
+    throw error;
+  });
 }
 
 export type RunBranchInfo = { branch: string; base_ref: string; base_sha: string };

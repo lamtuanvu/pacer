@@ -86,7 +86,14 @@ export async function settleRunGitOnTerminal(ctx: Ctx, run: RunRow): Promise<voi
 }
 
 export type CleanupInput = { deleteBranch: boolean; expectRev: number };
-export type CleanupResult = { run: RunRow; deleted_branch: string | null; ahead?: number };
+export type CleanupResult = {
+  run: RunRow;
+  deleted_branch: string | null;
+  ahead?: number;
+  /** Tip sha of the run branch before deletion (confirmation). */
+  deleted_tip?: string | null;
+  pr_url?: string;
+};
 
 /**
  * Person-only run cleanup. Removes any leftover integration worktree; deletes the local
@@ -108,12 +115,23 @@ export async function cleanupRun(ctx: Ctx, runId: string, input: CleanupInput): 
   if (run.rev !== input.expectRev) {
     throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
   }
+  const terminal = run.status === "done" || run.status === "failed" || run.status === "stopped";
+  if (!terminal) {
+    throw new CoreError("not_allowed", `run ${runId} is still ${run.status}; cleanup requires a terminal run`);
+  }
 
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, runId) ?? run;
     if (live.rev !== input.expectRev) {
       throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${input.expectRev}`);
     }
+    if (!(live.status === "done" || live.status === "failed" || live.status === "stopped")) {
+      throw new CoreError("not_allowed", `run ${runId} is still ${live.status}; cleanup requires a terminal run`);
+    }
+    const tipSha = live.branch
+      ? (await ctx.run(["git", "-C", live.repo, "rev-parse", live.branch], 10_000)).stdout.trim() || null
+      : null;
+    const aheadBefore = await runBranchAhead(ctx, live);
     await removeIntegrationWorktree(ctx, live);
     await deleteMergedTaskBranches(ctx, live);
 
@@ -136,8 +154,12 @@ export async function cleanupRun(ctx: Ctx, runId: string, input: CleanupInput): 
 
     const updated = getRun(ctx, live.id) ?? live;
     const ahead = await runBranchAhead(ctx, updated);
-    return ahead === undefined
-      ? { run: updated, deleted_branch: deleted }
-      : { run: updated, deleted_branch: deleted, ahead };
+    return {
+      run: updated,
+      deleted_branch: deleted,
+      ...(ahead === undefined && aheadBefore === undefined ? {} : { ahead: ahead ?? aheadBefore }),
+      ...(tipSha ? { deleted_tip: tipSha } : {}),
+      ...(updated.prUrl || live.prUrl ? { pr_url: updated.prUrl ?? live.prUrl } : {}),
+    };
   });
 }

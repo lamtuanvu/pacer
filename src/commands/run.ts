@@ -95,9 +95,12 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       if (pos.length !== 1) throw Error(USAGE);
       const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
       const result = await call(ctx, "run.sync_base", { id: pos[0], expect_rev: got.run.rev }, deps);
-      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
       const r = result as { ok: boolean; merge?: string; resolution_task?: string; run: RunLike };
-      if (!r.ok) return { code: 0, out: `${pos[0]}  sync conflict  ${r.resolution_task}`, err: "" };
+      if (!r.ok) {
+        if (flags.json || json) return { code: 1, out: JSON.stringify(result, null, 2), err: "" };
+        return { code: 1, out: `${pos[0]}  sync conflict  ${r.resolution_task}`, err: "" };
+      }
+      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
       return { code: 0, out: `${pos[0]}  synced`, err: "" };
     }
     if (sub === "publish") {
