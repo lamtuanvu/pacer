@@ -1,0 +1,35 @@
+{
+  "id": "pacer-classify",
+  "version": "0.2.0",
+  "publisher": "pacer",
+  "host": "^1.6",
+  "contributes": {
+    "classifier": {
+      "adapters": [
+        "rules",
+        "ollama",
+        "jev"
+      ]
+    }
+  },
+  "capabilities": [
+    {
+      "name": "net.http",
+      "scopes": [
+        "127.0.0.1",
+        "api.typesafe.ai"
+      ]
+    },
+    {
+      "name": "secrets.resolve"
+    },
+    {
+      "name": "config.get"
+    },
+    {
+      "name": "log"
+    }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}
