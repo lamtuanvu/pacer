@@ -115,10 +115,16 @@ impl NativeListener {
         else {
             return false;
         };
-        let Some(boot) = record["process"]["bootId"].as_str().filter(|v| !v.is_empty()) else {
+        let Some(boot) = record["process"]["bootId"]
+            .as_str()
+            .filter(|v| !v.is_empty())
+        else {
             return false;
         };
-        let Some(birth) = record["process"]["birth"].as_str().filter(|v| !v.is_empty()) else {
+        let Some(birth) = record["process"]["birth"]
+            .as_str()
+            .filter(|v| !v.is_empty())
+        else {
             return false;
         };
         matches!(
