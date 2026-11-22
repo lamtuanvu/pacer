@@ -113,10 +113,6 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add ${{ matrix.rust_target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: release-${{ matrix.target }}
-          save-if: false
       - name: Build runner targets
         env:
           TARGETS: ${{ matrix.target }}
@@ -182,10 +178,6 @@ jobs:
         run: |
           rustup show active-toolchain
           rustup target add ${{ matrix.rust_target }}
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-        with:
-          shared-key: release-${{ matrix.target }}
-          save-if: false
       - name: Install Linux cross-build tools
         run: |
           python3 -m venv "$RUNNER_TEMP/pacer-cross"

@@ -97,7 +97,7 @@ The workflow checks the input against `package.json` and typechecks. It builds a
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
 
-**Rust caches.** Tag runs of `release.yml` restore warm dependency caches from `main` (GitHub only restores caches from the tag itself or from the default branch). `.github/workflows/release-cache.yml` warms those caches on `main` (path-filtered pushes, a weekly schedule so unused caches are not evicted after 7 days, and `workflow_dispatch`) under `shared-key` values that match the release jobs. Release steps use `save-if: false` so tag-scoped saves do not waste the 10GB cache quota; PR runs of `ci.yml` restore Rust caches but save only on `main`.
+**Rust caches.** Tag runs of `release.yml` restore warm dependency caches from `main` (GitHub only restores caches from the tag itself or from the default branch). `.github/workflows/release-cache.yml` warms those caches on `main` (path-filtered pushes, a weekly schedule so unused caches are not evicted after 7 days, and `workflow_dispatch`) under `shared-key` values that match the release jobs. Only the desktop builds, the release's critical path, are warmed; the CLI legs build cold to keep the caches within GitHub's 10GB repository limit. Release steps use `save-if: false` so tag-scoped saves do not waste the 10GB cache quota; PR runs of `ci.yml` restore Rust caches but save only on `main`.
 
 ## Nightly builds
 

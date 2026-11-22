@@ -178,8 +178,8 @@ test("the release builds and publishes; validation runs post-merge on main", () 
     expect((build as any)["continue-on-error"]).toBeUndefined();
     expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
     expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
-    const cache = build.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
-    expect(cache?.with).toMatchObject({ "shared-key": "release-${{ matrix.target }}", "save-if": false });
+    // CLI legs are off the critical path; only desktop caches are warmed (10GB cache budget).
+    expect(build.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"))).toBeUndefined();
     const upload = build.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
     expect(upload?.with).toMatchObject({ name: "binaries-${{ matrix.os }}-${{ matrix.arch }}", path: "dist/release/*/pacer-*" });
     const smoke = build.steps.find(s => s.name === "Smoke test native binary")?.run ?? "";
@@ -446,12 +446,10 @@ test("release Rust caches restore shared keys warmed on main; PR CI does not sav
     (jobs[jobName].steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@")).map(s => s.with) ?? []);
 
   for (const job of ["build-macos", "build-linux"] as const) {
-    for (const cache of releaseCaches(job)) {
-      expect(cache).toMatchObject({ "shared-key": "release-${{ matrix.target }}", "save-if": false });
-    }
-    expect(warmerCaches(job)).toEqual([{ "shared-key": "release-${{ matrix.target }}" }]);
-    expect(warmer.jobs[job].strategy?.matrix.include).toEqual(jobs[job].strategy?.matrix.include?.map(({ smoke_prefix: _, ...rest }) => rest) ?? jobs[job].strategy?.matrix.include);
+    expect(releaseCaches(job)).toEqual([]);
+    expect(warmer.jobs[job]).toBeUndefined();
   }
+  expect(Object.keys(warmer.jobs).sort()).toEqual(["desktop", "desktop-build"]);
 
   const desktopRelease = releaseCaches("desktop");
   expect(desktopRelease).toHaveLength(1);
@@ -473,7 +471,7 @@ test("release Rust caches restore shared keys warmed on main; PR CI does not sav
   expect(warmerCaches("desktop-build")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
 
   // Each release shared-key matches a warmer job that uses the same runner image and target.
-  for (const [job, warmerJob] of [["build-macos", "build-macos"], ["build-linux", "build-linux"], ["desktop", "desktop"], ["desktop-build", "desktop-build"]] as const) {
+  for (const [job, warmerJob] of [["desktop", "desktop"], ["desktop-build", "desktop-build"]] as const) {
     const key = releaseCaches(job)[0]?.["shared-key"];
     expect(warmerCaches(warmerJob).some(c => c?.["shared-key"] === key)).toBe(true);
     expect(jobs[job].strategy?.matrix.include?.map(e => e.image ?? e.runner)).toEqual(
