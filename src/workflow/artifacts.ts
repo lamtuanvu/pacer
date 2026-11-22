@@ -163,12 +163,33 @@ export function copyFdCapped(srcFd: number, outFd: number, cap: number): number 
   return copied;
 }
 
-/** Remove leftover O_EXCL temp blobs under the run artifacts dir (M5). */
-function cleanOrphanTmp(root: string): void {
+/** Temps younger than this whose writer pid is still alive are left alone (F8). */
+const ORPHAN_TMP_MAX_AGE_MS = 10 * 60 * 1000;
+
+/**
+ * Remove leftover O_EXCL temp blobs under the run artifacts dir (M5/F8).
+ * Only deletes temps older than 10 minutes, or whose pid (from `.tmp-<pid>-`) is dead,
+ * so a concurrent storeArtifact on the same run is not unlinked mid-copy.
+ */
+export function cleanOrphanTmp(root: string, nowMs = Date.now()): void {
   try {
     for (const name of readdirSync(root)) {
-      if (!name.includes(".tmp-")) continue;
-      try { unlinkSync(join(root, name)); } catch { /* */ }
+      const m = /\.tmp-(\d+)-[0-9a-f]+$/i.exec(name);
+      if (!m) continue;
+      const path = join(root, name);
+      let mtimeMs: number;
+      try { mtimeMs = lstatSync(path).mtimeMs; } catch { continue; }
+      const age = nowMs - mtimeMs;
+      const pid = Number(m[1]);
+      if (Number.isFinite(pid) && age < ORPHAN_TMP_MAX_AGE_MS) {
+        try {
+          process.kill(pid, 0);
+          continue; // live writer and fresh temp — keep
+        } catch {
+          // pid is dead → orphan
+        }
+      }
+      try { unlinkSync(path); } catch { /* */ }
     }
   } catch { /* */ }
 }

@@ -14,6 +14,21 @@ const suspendedHolders = new Map<string, number>();
 
 const HEARTBEAT_MS = 30_000;
 
+/** Write the lock token after a successful `wx` create. On write failure, unlink the
+ *  empty lock file so it does not linger until stale takeover (F8). */
+export function writeLockToken(
+  file: string,
+  token: string,
+  write: (path: string, data: string) => void = writeFileSync,
+): void {
+  try {
+    write(file, token);
+  } catch (writeErr) {
+    try { rmSync(file, { force: true }); } catch { /* */ }
+    throw writeErr;
+  }
+}
+
 /** A cross-process lock file. Stale locks (older than staleMs) are taken over.
  *  M6: heartbeat the mtime every 30s while held; finally deletes only this holder's token. */
 export async function withLock<T>(
@@ -28,7 +43,7 @@ export async function withLock<T>(
   for (;;) {
     try {
       closeSync(openSync(file, "wx"));
-      writeFileSync(file, token);
+      writeLockToken(file, token);
       break;
     } catch (e) {
       if ((e as NodeJS.ErrnoException).code !== "EEXIST") throw e;

@@ -470,7 +470,7 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
       PATH: ctx.env.PATH ?? process.env.PATH,
       HOME: ctx.env.HOME ?? process.env.HOME,
       GIT_TERMINAL_PROMPT: "0",
-      GIT_ASKPASS: "/usr/bin/true",
+      GIT_ASKPASS: "true",
     };
     for (const [name, value] of Object.entries(ctx.env)) {
       if (value === undefined || name.startsWith("PACER_")) continue;
