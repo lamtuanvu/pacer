@@ -627,12 +627,14 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
     }
   }
 
-  // Phase 4: open questions waiting on the orchestrator (ref = question id).
+  // Phase 4: open executor/orchestrator questions waiting on the orchestrator
+  // (ref = question id). Human-step questions keep the stepWakeRef recovery path.
   const openQs = db.query<{ id: string; run_id: string; created_at: number }, []>(`
     SELECT q.id, q.run_id, q.created_at
     FROM workflow_questions q
     JOIN workflow_runs r ON r.id = q.run_id
     WHERE q.status = 'open' AND q.answerer = 'orchestrator'
+      AND q.asker_kind IN ('executor', 'orchestrator')
       AND r.status IN ('running', 'waiting')
     ORDER BY q.created_at, q.id
   `).all();

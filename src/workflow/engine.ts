@@ -33,6 +33,7 @@ import {
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
@@ -48,6 +49,20 @@ function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: numbe
     ref: stepWakeRef(run.id, stepId, attempt),
     createdAt: ctx.now,
   });
+}
+
+/** Insert the human step's structured question (and auto wake-up when applicable). */
+function startHumanWaiting(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  attempt: number,
+  stepDef: HumanStep,
+  branch?: string,
+): ReturnType<typeof raiseHumanStepQuestion> {
+  const q = raiseHumanStepQuestion(ctx, run, stepId, attempt, stepDef, branch);
+  wakeAutoHumanStep(ctx, run, stepId, attempt, stepDef);
+  return q;
 }
 
 /** Task states whose settlement a step instance follows. `partial` and `needs_input`
@@ -250,7 +265,7 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
     const db = workflowDatabase(ctx);
     const row = db.transaction(() => {
       const inserted = insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
-      wakeAutoHumanStep(ctx, run, stepId, attempt, stepDef);
+      startHumanWaiting(ctx, run, stepId, attempt, stepDef);
       return inserted;
     })();
     if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
@@ -754,7 +769,7 @@ async function seedFinishedAndResume(
       try {
         if (target.type === "human") {
           const humanRow = outcome.rows[0];
-          if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
+          if (humanRow) startHumanWaiting(ctx, fresh, humanRow.stepId, humanRow.attempt, target, humanRow.branch);
           if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
           continue;
         }
@@ -1192,7 +1207,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     try {
       if (target.type === "human") {
         const humanRow = outcome.rows[0];
-        if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
+        if (humanRow) startHumanWaiting(ctx, fresh, humanRow.stepId, humanRow.attempt, target, humanRow.branch);
         if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "waiting" });
         continue;
       }
@@ -1422,6 +1437,20 @@ export async function answerHumanStep(
   // step loses the race and is a conflict — it starts nothing.
   const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
+  // Resolve the structured question this human step raised (Phase 4); ignore if
+  // already answered (question.answer may have raced with run.answer).
+  try {
+    resolveHumanStepQuestion(
+      ctx,
+      runId,
+      stepId,
+      row.attempt,
+      answer,
+      ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
+    );
+  } catch (err) {
+    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+  }
   // The answer is recorded: a conflicting run patch (the run went terminal, or a
   // concurrent writer moved its rev) must not fail the answer — it took effect and
   // advances below, or via the tick's re-advance when this advance is lost

@@ -8,18 +8,24 @@ import { insertMessage } from "../messaging/store";
 import { rootOf } from "../messaging/participants";
 import { readTask, updateTask } from "../tasks/store";
 import type { SpawnRunner } from "../tasks/api";
+import { canAutoDecide } from "./auto";
 import { questionAnswerInputSchema, questionInputSchema, type QuestionInput } from "./question-schema";
+import type { HumanStep } from "./schema";
 import {
   answerQuestionRecord,
   escalateQuestionRecord,
+  getDefinition,
   getQuestion,
   getRun,
   insertQuestion,
+  listQuestions,
   rootRunId,
   stepByTask,
+  type QuestionAnswerType,
   type QuestionRow,
+  type RunRow,
 } from "./store";
-import { completeWakeupRef, enqueueWakeup } from "./wakeups";
+import { completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "./run-grant";
 
 export type AskQuestionInput = QuestionInput & {
@@ -147,6 +153,60 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
   return q;
 }
 
+/** Raise the structured question for a waiting human step (same transaction as the row). */
+export function raiseHumanStepQuestion(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  attempt: number,
+  stepDef: HumanStep,
+  branch?: string,
+): QuestionRow {
+  const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+  // must / strict / auto-off → person; only auto-effective steps may start with orchestrator.
+  const answerer = canAutoDecide(root, stepId, stepDef) ? "orchestrator" : "person";
+  const answerType = stepDef.question.kind as QuestionAnswerType;
+  const options = stepDef.question.options?.map(value => ({ value }));
+  return insertQuestion(ctx, {
+    runId: run.id,
+    stepId,
+    attempt,
+    ...(branch ? { branch } : {}),
+    askerKind: "human_step",
+    text: stepDef.question.text,
+    answerType,
+    ...(options && options.length > 0 ? { options } : {}),
+    blocks: "step",
+    answerer,
+  });
+}
+
+/** Mark the open human-step question answered (run.answer / run.decide path). */
+export function resolveHumanStepQuestion(
+  ctx: Ctx,
+  runId: string,
+  stepId: string,
+  attempt: number,
+  answer: string,
+  answeredBy: string,
+): QuestionRow | null {
+  const open = listQuestions(ctx, runId, "open").filter(q =>
+    q.askerKind === "human_step"
+    && q.stepId === stepId
+    && q.attempt === attempt,
+  );
+  const q = open[open.length - 1];
+  if (!q) return null;
+  const answered = answerQuestionRecord(ctx, q.id, {
+    answer,
+    expectRev: q.rev,
+    answeredBy,
+  });
+  completeWakeupRef(ctx, runId, "question", q.id);
+  completeWakeupRef(ctx, runId, "question", stepWakeRef(runId, stepId, attempt));
+  return answered;
+}
+
 /** Escalate an open question to the person (orchestrator grant). */
 export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): QuestionRow {
   if (typeof input.suggested !== "string" || input.suggested.length < 1) {
@@ -161,11 +221,22 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
   if (rootRunId(ctx, current.runId) !== grant.runId) {
     throw new CoreError("not_allowed", "Operation is outside this run grant");
   }
-  if (current.answerer !== "orchestrator") {
-    throw new CoreError("not_allowed", "Only the current orchestrator answerer can escalate");
-  }
   if (current.status !== "open") {
     throw new CoreError("conflict", `conflict: question ${input.id} is ${current.status}`);
+  }
+  if (current.askerKind === "human_step") {
+    const run = getRun(ctx, current.runId);
+    const root = run ? (getRun(ctx, rootRunId(ctx, run.id)) ?? run) : null;
+    const def = root
+      ? (getDefinition(ctx, `${root.workflow}@${root.version}`) ?? getDefinition(ctx, root.workflow))
+      : null;
+    const stepDef = def?.steps[current.stepId];
+    if (!root || !stepDef || stepDef.type !== "human" || !canAutoDecide(root, current.stepId, stepDef)) {
+      throw new CoreError("not_allowed", "Cannot escalate a must human step question");
+    }
+  }
+  if (current.answerer !== "orchestrator") {
+    throw new CoreError("not_allowed", "Only the current orchestrator answerer can escalate");
   }
   return escalateQuestionRecord(ctx, input.id, {
     suggested: input.suggested,
@@ -192,17 +263,33 @@ export async function answerQuestion(
   }
 
   let answeredBy: string;
-  if (current.answerer === "orchestrator") {
+  if (current.askerKind === "human_step") {
+    const run = getRun(ctx, current.runId);
+    if (!run) throw new CoreError("not_found", `unknown run ${current.runId}`);
+    const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+    const def = getDefinition(ctx, `${root.workflow}@${root.version}`) ?? getDefinition(ctx, root.workflow);
+    const stepDef = def?.steps[current.stepId];
+    if (!stepDef || stepDef.type !== "human") {
+      throw new CoreError("conflict", `conflict: step ${current.stepId} is not a human step`);
+    }
+    if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
+      const grant = requireRunGrant(ctx);
+      if (rootRunId(ctx, current.runId) !== grant.runId) {
+        throw new CoreError("not_allowed", "Operation is outside this run grant");
+      }
+      if (!canAutoDecide(root, current.stepId, stepDef)) {
+        throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+      }
+      answeredBy = orchestratorTaskIdForGrant(ctx, grant) ?? "orchestrator";
+    } else if (personCaller(ctx)) {
+      answeredBy = "person";
+    } else {
+      throw new CoreError("not_allowed", "Only the person can answer this question");
+    }
+  } else if (current.answerer === "orchestrator") {
     const grant = requireRunGrant(ctx);
     if (rootRunId(ctx, current.runId) !== grant.runId) {
       throw new CoreError("not_allowed", "Operation is outside this run grant");
-    }
-    // must human_step questions never accept an orchestrator answer (Task 3).
-    if (current.askerKind === "human_step") {
-      const run = getRun(ctx, rootRunId(ctx, current.runId)) ?? getRun(ctx, current.runId);
-      // Defence in depth: human_step rows created for must steps use answerer person.
-      // Refuse anyway if answerer was wrongly left as orchestrator.
-      if (!run) throw new CoreError("not_found", `unknown run ${current.runId}`);
     }
     answeredBy = orchestratorTaskIdForGrant(ctx, grant) ?? "orchestrator";
   } else {
@@ -210,6 +297,23 @@ export async function answerQuestion(
       throw new CoreError("not_allowed", "Only the person can answer this question");
     }
     answeredBy = "person";
+  }
+
+  // Human steps settle through the Phase 1 compare-and-set (answerHumanStep),
+  // which also resolves the open question record.
+  if (current.askerKind === "human_step") {
+    if (current.rev !== parsed.expectRev) {
+      throw new CoreError("conflict", `conflict: question ${current.id} changed since rev ${parsed.expectRev}`);
+    }
+    const run = getRun(ctx, current.runId);
+    if (!run) throw new CoreError("not_found", `unknown run ${current.runId}`);
+    const { answerHumanStep } = await import("./engine");
+    await answerHumanStep(ctx, current.runId, current.stepId, parsed.answer, run.rev, undefined, deps.spawnRunner);
+    const settled = getQuestion(ctx, current.id);
+    if (!settled || settled.status !== "answered") {
+      throw new CoreError("conflict", `conflict: question ${current.id} was not resolved`);
+    }
+    return settled;
   }
 
   // Yield so a concurrent answer can race the compare-and-set (same pattern as answerHumanStep).
