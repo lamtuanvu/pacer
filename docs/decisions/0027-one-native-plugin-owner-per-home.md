@@ -384,3 +384,43 @@ child.
 **Rejected.** The owner reading the outbox and task store directly. That would duplicate
 Core's protocol 3 event conversion and task projection, and split the authority checks
 between two processes.
+
+## Addendum: default-on (2026-11-22)
+
+**The native owner is on by default.** `serve_starts_reverse_bridge_by_default` returns
+`true`: an unset `PACER_NATIVE_PLUGIN_HOST` runs the Rust owner on `run/host.sock` (or the
+per-user socket directory on a deep home), so a default `pacer serve` and every flag-less
+front-door test now run with the native owner. `0`, `false` or `no` on either the
+`PACER_NATIVE_PLUGIN_HOST` or `PACER_HOST_BRIDGE` flag selects the TypeScript owner — the
+escape hatch until bundled plugins (D2) make the escape removable. The escape prints one
+line and is silenced by removing the flag; an explicit `PACER_NATIVE_PLUGIN_HOST=1` keeps
+the strict deep-home layout (`PathTooLong`).
+
+**Default owner on a deep home.** A default-on serve whose `run/host.sock` would exceed 103
+bytes falls back to the TypeScript owner instead of failing, printing
+`pacer: serve: plugin host socket path exceeds 103 bytes; running the TypeScript plugin owner
+(set PACER_NATIVE_PLUGIN_HOST=0 to silence, or use a shorter PACER_HOME)`. This replaces
+the earlier option (a) that would have moved a deep home to the TypeScript owner by default:
+the per-user socket-directory fallback (#1203, ADR 0027 items 1 and 5) already keeps a
+default-on serve on a deep home, and `default_owner_fallback` only triggers when even that
+directory is unavailable, so the option-(a) fixture rows that expected the TS fallback line
+were dropped. An explicit `=1` keeps the strict `PathTooLong` refusal so the operator still
+controls the layout.
+
+**Residual refusals with the owner on.** These `plugin_unavailable` refusals remain under
+the native owner; each names the deleting slice:
+
+| Refusal text (prefix) | User-visible effect with the owner on | Deleting slice |
+| --- | --- | --- |
+| `needs credential bindings, which the native process owner bridge does not carry` | classifier and keyed endpoint calls from Core are refused (Q1) | keyless classifier closed before B0b (#1192); keyed remains until B0c |
+| `needs host-side call options the native process owner bridge does not carry` | remote session streams (`onStreamProgress`), executor progress owners in serve's Core | B5 (streams), B0c |
+| `needs hosts resources, which the native process owner bridge does not serve` | `pacer-remote-caller` host calls from serve's Core | B0c / C2 |
+| `needs a staged command input, which the native process owner bridge does not carry` | staged SSH legs in serve's Core (none today: they run in `_run`) | B0c / C11 |
+| `needs a planner borrow the native process owner bridge does not carry` | none (planner borrows are always bound) | D2 |
+
+`test/plugins-native-owner-residuals.test.ts` pins these refusals to this table.
+
+**`pacer plugin run <id>` in Rust.** The CLI now has a Rust `plugin run` entry point
+(`crates/cli/src/plugin_run.rs`), the single place a bundled plugin child starts. Until
+`pacer-bundled` (C0) has a Rust entry for `<id>`, it execs `pacer-core plugin run <id>`;
+its usage (`pacer plugin run <id>`, exit 2) matches `src/commands/plugins.ts:29-36`.
