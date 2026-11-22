@@ -100,24 +100,67 @@ test("R3-I2: runCmd sync with PACER_RUN_GRANT reaches run.get then sync_base ove
   }
 });
 
-test("R3-I2: MCP run grant surface includes run_get alongside sync/publish", async () => {
+test("R3-I2/F5: MCP run_get tool returns the grant's own run", async () => {
   const ctx = fakeCtx({ now: NOW, run: realRun });
   const { run, bearer } = await seededGrantRun(ctx);
-  const granted = grantCtx(ctx, bearer);
+  // Grant MCP tools forward over HTTP (allowFallback:false) — need a live serve.
+  const http = startServer(() => ({ ...ctx, now: NOW }), {
+    port: 0, listener: false, pumpMs: 0, backgroundWorker: false, supervisionWorker: false,
+  });
+  try {
+    await Bun.sleep(20);
+    const granted = grantCtx(ctx, bearer, http.port);
+    const { createMcpServer } = await import("../src/mcp/server");
+    const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
+    const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
+    const server = createMcpServer(() => granted);
+    const [ct, st] = InMemoryTransport.createLinkedPair();
+    const client = new Client({ name: "t", version: "1" });
+    await Promise.all([client.connect(ct), server.connect(st)]);
+    const names = (await client.listTools()).tools.map(t => t.name);
+    expect(names).toContain("run_get");
+    expect(names).toContain("run_sync_base");
+    expect(names).toContain("run_publish");
 
-  const { createMcpServer } = await import("../src/mcp/server");
-  const { Client } = await import("@modelcontextprotocol/sdk/client/index.js");
-  const { InMemoryTransport } = await import("@modelcontextprotocol/sdk/inMemory.js");
-  const server = createMcpServer(() => granted);
-  const [ct, st] = InMemoryTransport.createLinkedPair();
-  const client = new Client({ name: "t", version: "1" });
-  await Promise.all([client.connect(ct), server.connect(st)]);
-  const names = (await client.listTools()).tools.map(t => t.name);
-  expect(names).toContain("run_get");
-  expect(names).toContain("run_sync_base");
-  expect(names).toContain("run_publish");
-  const own = await callOp(granted, "run.get", { id: run.id }) as { run: { id: string; rev: number } };
-  expect(own.run.id).toBe(run.id);
-  expect(own.run.rev).toBeGreaterThan(0);
-  await client.close();
+    const tool = await client.callTool({ name: "run_get", arguments: { id: run.id } });
+    expect(tool.isError).toBeFalsy();
+    const text = (tool.content as { type: string; text?: string }[])
+      .map(c => c.text ?? "").join("\n");
+    const parsed = JSON.parse(text) as { run: { id: string; rev: number } };
+    expect(parsed.run.id).toBe(run.id);
+    expect(parsed.run.rev).toBe(run.rev);
+    await client.close();
+  } finally {
+    await http.stop();
+  }
+});
+
+test("R3-I2/F5: runCmd publish with PACER_RUN_GRANT reaches run.get then publish over HTTP", async () => {
+  const ctx = fakeCtx({ now: NOW, run: realRun });
+  const { run, bearer } = await seededGrantRun(ctx);
+  const bodyFile = join(tmpDir(), "body.md");
+  writeFileSync(bodyFile, "publish body\n");
+  const server = startServer(() => ({ ...ctx, now: NOW }), {
+    port: 0, listener: false, pumpMs: 0, backgroundWorker: false, supervisionWorker: false,
+  });
+  try {
+    await Bun.sleep(20);
+    const granted = grantCtx(ctx, bearer, server.port);
+    const out = await runCmd(
+      ["publish", run.id, "--draft", "--title", "t", "--body-file", bodyFile, "--json"],
+      granted,
+      {},
+    );
+    const text = `${out.err}\n${out.out}`;
+    expect(text).not.toMatch(/person-only workflow operations/i);
+    expect(text).not.toMatch(/Unable to connect/i);
+    // Draft publish of a branched run may succeed (0) or hit a real gate —
+    // never the old person-only refusal from run.get.
+    expect([0, 1, 2]).toContain(out.code);
+    if (out.code === 2) {
+      expect(text).not.toMatch(/person-only/i);
+    }
+  } finally {
+    await server.stop();
+  }
 });

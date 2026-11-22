@@ -15,7 +15,11 @@ import type { WorkflowDef } from "./schema";
 // tasks.db + WAL mid-startup) never observes a partial workflow schema — phase 2 added
 // many CREATE/ALTER steps after the original tables, which made that window flake
 // native/forwarded parity (workflow_decisions appearing on only one side).
-const ready = new WeakSet<Database>();
+let ready = new WeakSet<Database>();
+/** Test-only: forget schema-init so the next `workflowDatabase` re-runs DDL/migrations. */
+export function resetWorkflowSchemaReadyForTests(): void {
+  ready = new WeakSet();
+}
 export function workflowDatabase(ctx: Ctx): Database {
   const db = taskDatabase(ctx);
   if (ready.has(db)) return db;

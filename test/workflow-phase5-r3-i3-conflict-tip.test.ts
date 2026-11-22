@@ -1,60 +1,73 @@
 import { expect, test } from "bun:test";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
+import { taskDatabase } from "../src/tasks/store";
 import {
   addDefinition, claimStepAnswer, getRun, insertRun, insertStep, listDecisions,
-  parseRunConflicts, setRunBranch, workflowDatabase,
+  parseRunConflicts, resetWorkflowSchemaReadyForTests, setRunBranch, workflowDatabase,
 } from "../src/workflow/store";
 import { answerHumanStep } from "../src/workflow/engine";
 import type { WorkflowDef } from "../src/workflow/schema";
 
-test("R3-I3: legacy OBJECT conflict migrates to list; idempotent; NULL and list stay safe", () => {
+test("R3-I3/F3: store migration turns legacy OBJECT conflict into a list (idempotent)", () => {
   const ctx = fakeCtx();
-  const db = workflowDatabase(ctx);
-  const run = insertRun(ctx, { workflow: "t/mig", version: 1, repo: tmpDir(), brief: "b" });
-
-  // Seed a pre-R2-F3 object-shaped marker directly (bypass setRunConflict).
+  // Open tasks.db WITHOUT running workflow schema init.
+  const raw = taskDatabase(ctx);
+  raw.exec(`
+    CREATE TABLE workflow_runs(
+      id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT,
+      title TEXT, status TEXT, reason TEXT, loops TEXT, rev INTEGER,
+      created_at REAL, updated_at REAL, conflict TEXT
+    );
+  `);
   const legacy = JSON.stringify({
     taskId: "t_old", branch: "pacer/t_old", resolutionTaskId: "t_res",
   });
-  db.query("UPDATE workflow_runs SET conflict = ? WHERE id = ?").run(legacy, run.id);
+  raw.query(
+    `INSERT INTO workflow_runs(id, workflow, version, repo, brief, status, rev, created_at, updated_at, conflict)
+     VALUES ('run_legacyobj1', 't/mig', 1, ?, 'b', 'running', 1, 1, 1, ?)`,
+  ).run(tmpDir(), legacy);
 
-  // Schema init is cached; exercise the same idempotent migration SQL the store runs.
-  const migrateSql = `
-    UPDATE workflow_runs
-    SET conflict = json_array(json(conflict))
-    WHERE conflict IS NOT NULL
-      AND json_valid(conflict)
-      AND json_type(conflict) = 'object'
-  `;
-  db.exec(migrateSql);
-  const mid = db.query<{ conflict: string | null }, [string]>(
+  // First workflowDatabase call runs the store's object→list migration.
+  workflowDatabase(ctx);
+  const mid = raw.query<{ conflict: string | null }, [string]>(
     "SELECT conflict FROM workflow_runs WHERE id = ?",
-  ).get(run.id)!;
+  ).get("run_legacyobj1")!;
   expect(Array.isArray(JSON.parse(mid.conflict!))).toBe(true);
   expect(parseRunConflicts(mid.conflict)).toEqual([{
     taskId: "t_old", branch: "pacer/t_old", resolutionTaskId: "t_res",
   }]);
 
-  // Already-list: migration is a no-op (json_type is array, not object).
-  db.exec(migrateSql);
-  const again = db.query<{ conflict: string | null }, [string]>(
+  // Second open re-runs migration (schema-ready reset) and is a no-op on a list.
+  resetWorkflowSchemaReadyForTests();
+  workflowDatabase(ctx);
+  const again = raw.query<{ conflict: string | null }, [string]>(
     "SELECT conflict FROM workflow_runs WHERE id = ?",
-  ).get(run.id)!;
+  ).get("run_legacyobj1")!;
   expect(again.conflict).toBe(mid.conflict);
 
-  // NULL stays NULL.
-  db.query("UPDATE workflow_runs SET conflict = NULL WHERE id = ?").run(run.id);
-  expect(getRun(ctx, run.id)!.conflict).toBeUndefined();
+  // NULL stays NULL through migration.
+  raw.query("UPDATE workflow_runs SET conflict = NULL WHERE id = ?").run("run_legacyobj1");
+  resetWorkflowSchemaReadyForTests();
+  workflowDatabase(ctx);
+  expect(
+    raw.query<{ conflict: string | null }, [string]>(
+      "SELECT conflict FROM workflow_runs WHERE id = ?",
+    ).get("run_legacyobj1")!.conflict,
+  ).toBeNull();
 
-  // parseRunConflicts still accepts a legacy object without migration.
-  expect(parseRunConflicts(legacy)).toEqual([{
-    taskId: "t_old", branch: "pacer/t_old", resolutionTaskId: "t_res",
-  }]);
+  // Already-list seeded before init stays a list.
+  const listJson = JSON.stringify([{ taskId: "t_a", branch: "pacer/t_a", resolutionTaskId: "t_r" }]);
+  raw.query("UPDATE workflow_runs SET conflict = ? WHERE id = ?").run(listJson, "run_legacyobj1");
+  resetWorkflowSchemaReadyForTests();
+  workflowDatabase(ctx);
+  expect(
+    raw.query<{ conflict: string | null }, [string]>(
+      "SELECT conflict FROM workflow_runs WHERE id = ?",
+    ).get("run_legacyobj1")!.conflict,
+  ).toBe(listJson);
 
   // Malformed fails closed (publish gate sees unresolved).
-  db.query("UPDATE workflow_runs SET conflict = ? WHERE id = ?").run("{not-json", run.id);
   expect(parseRunConflicts("{not-json")![0]!.taskId).toBe("__malformed__");
-  expect((getRun(ctx, run.id)!.conflict?.length ?? 0) > 0).toBe(true);
 });
 
 test("R3-I3: publish approval fails closed when tip cannot be read; step stays waiting; no decision", async () => {

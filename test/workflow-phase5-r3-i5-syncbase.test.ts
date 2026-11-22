@@ -117,14 +117,10 @@ test("R3-I5: sync conflict stores the base SHA not the moving ref name", async (
   live = getRun(ctx, run.id)!;
 
   const result = await syncBase(ctx, live.id, live.rev);
-  if (!result.ok) {
-    const entry = getRun(ctx, live.id)!.conflict?.find(e => e.taskId.startsWith("base:"));
-    expect(entry).toBeTruthy();
-    expect(entry!.branch).toMatch(/^[0-9a-f]{40,64}$/);
-    expect(entry!.branch).not.toBe("origin/main");
-    expect(entry!.branch).not.toBe("main");
-  } else {
-    // If merge was clean somehow, still a useful path — skip SHA assertion.
-    expect(result.ok).toBe(true);
-  }
+  expect(result.ok).toBe(false);
+  const entry = getRun(ctx, live.id)!.conflict?.find(e => e.taskId.startsWith("base:"));
+  expect(entry).toBeTruthy();
+  expect(entry!.branch).toMatch(/^[0-9a-f]{40,64}$/);
+  expect(entry!.branch).not.toBe("origin/main");
+  expect(entry!.branch).not.toBe("main");
 });

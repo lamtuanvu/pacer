@@ -1,11 +1,9 @@
 import { expect, test } from "bun:test";
 import { join } from "node:path";
 import { fakeCtx, gitRepo, realRun } from "./helpers";
-import * as tasks from "../src/core/tasks";
 import { reviewWork } from "../src/core/work";
 import { callOp } from "../src/api/ops";
-import { registerWork } from "../src/dispatch/work";
-import { workEvents } from "../src/dispatch/work";
+import { registerWork, workEvents } from "../src/dispatch/work";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { createTaskWorktree } from "../src/supervisor/worktree";
 import { gitInfo } from "../src/core/git";
@@ -82,17 +80,33 @@ test("R3-I4: reviewWork on merge conflict does not emit work.reviewed or accept"
   expect(events.length).toBe(before);
 });
 
-test("R3-I4: task.review op path skips recheckAfterAccept on conflict", async () => {
+test("R3-I4/F4: task.review op skips recheckAfterAccept, recordWorkReview, and work.reviewed on conflict", async () => {
   const { ctx, task } = await seededConflictWork();
+  // Make recheckAfterAccept observable: without the conflict guard it would invoke diagnosticRecheck.
+  updateTask(ctx, task.id, t => { t.diagnosticCheck = "CLI codex"; });
+  const live = readTask(ctx, task.id)!;
+  const beforeEvents = workEvents(ctx, live.id, 0).length;
+  let recheckCalls = 0;
+  const { dispatchDatabase } = await import("../src/dispatch/store");
+  const reviewsBefore = dispatchDatabase(ctx).query<{ n: number }, []>(
+    "SELECT COUNT(*) AS n FROM work_reviews",
+  ).get()!.n;
+
   const result = await callOp(ctx, "task.review", {
-    id: task.id, verdict: "accept", expect_rev: task.rev,
+    id: live.id, verdict: "accept", expect_rev: live.rev,
+  }, {
+    diagnosticRecheck: () => { recheckCalls += 1; },
+    doctor: async () => ({ ok: true, checks: [] } as never),
   }) as { accepted?: boolean; merge?: string; resolution_task?: string };
+
   expect(result.accepted).toBe(false);
   expect(result.merge).toBe("conflict");
-  expect(readTask(ctx, task.id)!.review).toBeUndefined();
-  // No false acceptance via the plain tasks.review path either.
-  const again = await tasks.review(ctx, task.id, { verdict: "accept" });
-  // Still conflict (or already has resolution); never records accept without merge.
-  expect(readTask(ctx, task.id)!.review?.accepted).not.toBe(true);
-  void again;
+  expect(readTask(ctx, live.id)!.review).toBeUndefined();
+  expect(workEvents(ctx, live.id, 0).some(e => e.kind === "work.reviewed")).toBe(false);
+  expect(workEvents(ctx, live.id, 0).length).toBe(beforeEvents);
+  expect(recheckCalls).toBe(0);
+  const reviewsAfter = dispatchDatabase(ctx).query<{ n: number }, []>(
+    "SELECT COUNT(*) AS n FROM work_reviews",
+  ).get()!.n;
+  expect(reviewsAfter).toBe(reviewsBefore);
 });
