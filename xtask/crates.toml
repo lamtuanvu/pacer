@@ -82,6 +82,8 @@ layer = 2
 layer = 2
 [crates.pacer-config]
 layer = 3
+[crates.pacer-desktop-admission]
+layer = 3
 [crates.pacer-messaging-ops]
 layer = 4
 [crates.pacer-machine-ops]
@@ -139,6 +141,8 @@ layer = 6
 [crates.pacer-install]
 layer = 5
 [crates.pacer-update]
+layer = 6
+[crates.pacer-desktop-update]
 layer = 6
 [crates.pacer-account-ops]
 layer = 6
