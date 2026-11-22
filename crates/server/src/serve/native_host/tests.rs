@@ -7,21 +7,27 @@ use pacer_plugin_runtime::{
 use std::{fs, os::unix::fs::PermissionsExt};
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
-async fn flag_off_leaves_env_and_socket_untouched() {
+async fn default_serve_owns_plugins() {
     let home = tempfile::tempdir().unwrap();
     let mut env = HashMap::new();
     env.insert("PACER_HOME".into(), home.path().display().to_string());
-    // A credential only ever comes from the owner this serve starts.
+    // No flag: the native owner runs by default (B0b), with the serve
+    // fallback bound to `use_fallback`. A credential only ever comes from the
+    // owner this serve starts, so the env is scrubbed of any prior key.
     env.insert(HOST_SOCKET_KEY_ENV.into(), "ab".repeat(32));
-    assert!(
-        maybe_start(home.path(), &mut env, false)
-            .await
-            .unwrap()
-            .is_none()
-    );
-    assert!(!env.contains_key(HOST_SOCKET_ENV));
+    let guard = maybe_start(home.path(), &mut env, true)
+        .await
+        .unwrap()
+        .unwrap();
+    let socket = env.get(HOST_SOCKET_ENV).cloned().unwrap();
+    assert!(Path::new(&socket).exists());
     assert!(!env.contains_key(HOST_SOCKET_KEY_ENV));
-    assert!(!home.path().join("run").join("host.sock").exists());
+    let sidecar = home.path().join("run").join("host.sock.pid");
+    assert_eq!(
+        fs::read_to_string(&sidecar).unwrap().trim(),
+        std::process::id().to_string()
+    );
+    guard.shutdown().await;
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]

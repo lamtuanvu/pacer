@@ -820,17 +820,19 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
     Ok(())
 }
 
-/// When true, unset env enables the native plugin host; set
-/// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
+/// When true, the native plugin owner runs by default on serve; set
+/// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape back to the
+/// TypeScript owner.
 ///
-/// Kept `false`: with the host on, Core refuses to spawn plugin children, and
-/// only native HTTP `plugin.*` operations start them through the owner. Every
-/// TypeScript plugin consumer (usage refresh, doctor, setup.health, planners)
-/// must reach the owner over the bridge, with Core's spawn spec, call authority
-/// and per-call resources, before this can flip. P4d-13 flipped it without
-/// that and was reverted.
+/// Default-on since B0b: Core refuses to spawn plugin children and only native
+/// HTTP `plugin.*` operations start them through the owner. The TypeScript
+/// plugin consumers (usage refresh, doctor, setup.health, planners) reach the
+/// owner over the bridge with Core's spawn spec, call authority and per-call
+/// resources (established by #1192 for the keyless classifier and #1203 for
+/// per-user socket fallback on deep homes). P4d-13 flipped it without those
+/// paths and was reverted.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
-    false
+    true
 }
 
 /// Public client/TCP surfaces must never advertise private bridge methods.
