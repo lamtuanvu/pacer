@@ -1,12 +1,11 @@
-//! Flag-gated native plugin-host session for serve (P4d-1 … P4d-5).
+//! Native plugin-host session for serve (P4d-1 … P4d-5).
 //!
-//! Default serve stays TypeScript-owned until
-//! [`crate::serve_starts_reverse_bridge_by_default`] flips. Truthy
-//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt in
-//! today; falsy values (`0` / `false` / `no`) are the documented escape hatch
-//! for the future default-on cutover. When enabled, serve claims a
-//! [`ProcessOwner`], binds the reverse bridge with live call/find/spawn/stop,
-//! and exports [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
+//! Serve owns plugins natively by default (B0b). Falsy
+//! [`NATIVE_PLUGIN_HOST_ENABLE_ENV`] / [`crate::HOST_BRIDGE_ENABLE_ENV`] opt
+//! out to the TypeScript owner; truthy values are the escape for that path.
+//! When the native host is active, serve claims a [`ProcessOwner`], binds the
+//! reverse bridge with live call/find/spawn/stop, and exports
+//! [`crate::HOST_SOCKET_ENV`] for the Core child. A stdio
 //! connection with no live serve owner starts the same session on its own
 //! connection socket ([`NativeHostSession::start_connection`]).
 //!
@@ -88,8 +87,8 @@ fn remove_if_holds(path: &Path, text: &str) {
 
 /// Enable / escape env for serve-owned native plugin supervision (P4d-1 / P4d-5).
 ///
-/// Truthy values opt in while the default const is still off. `0` / `false` /
-/// `no` disable the path (escape hatch once default-on lands).
+/// The native owner runs by default; `0` / `false` / `no` disable the path
+/// (escape hatch) and return supervise to the TypeScript owner.
 pub const NATIVE_PLUGIN_HOST_ENABLE_ENV: &str = "PACER_NATIVE_PLUGIN_HOST";
 
 #[derive(Debug, Error)]
@@ -325,14 +324,13 @@ mod tests {
     use std::collections::HashMap;
 
     #[test]
-    fn flags_default_off_with_zero_escape() {
-        assert!(!serve_starts_reverse_bridge_by_default());
-        assert!(!native_plugin_host_enabled(None, None));
+    fn flags_default_on_with_zero_escape() {
+        assert!(serve_starts_reverse_bridge_by_default());
+        assert!(native_plugin_host_enabled(None, None));
         assert!(!native_plugin_host_enabled(Some("0"), None));
         assert!(!native_plugin_host_enabled(None, Some("false")));
-        assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
-        // Explicit disable wins over a conflicting truthy companion flag.
         assert!(!native_plugin_host_enabled(Some("true"), Some("0")));
+        assert!(!native_plugin_host_enabled(Some("0"), Some("false")));
         assert!(!native_plugin_host_enabled(Some("0"), Some("1")));
         assert!(native_plugin_host_enabled(Some("1"), None));
         assert!(native_plugin_host_enabled(None, Some("1")));
@@ -343,11 +341,15 @@ mod tests {
     #[test]
     fn env_map_reads_either_flag_and_honors_zero() {
         let mut env = HashMap::new();
-        assert!(!native_plugin_host_enabled_from_env(&env));
+        assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
         assert!(native_plugin_host_enabled_from_env(&env));
         env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "0".into());
         assert!(!native_plugin_host_enabled_from_env(&env));
+        // The inherited-process fallback would mask the empty-env ("unset") case,
+        // so call the gate directly instead of removing the variable (unsafe in
+        // edition 2024).
+        assert!(native_plugin_host_enabled(None, None));
         env.clear();
         env.insert(HOST_BRIDGE_ENABLE_ENV.into(), "yes".into());
         assert!(native_plugin_host_enabled_from_env(&env));
