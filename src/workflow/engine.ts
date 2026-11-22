@@ -730,6 +730,12 @@ async function seedFinishedAndResume(
           if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
           continue;
         }
+        if (target.type === "generate") {
+          for (const fired of outcome.rows) {
+            await startGenerateStep(ctx, fresh, fired.stepId, target, fired.attempt);
+          }
+          continue;
+        }
         if (fresh.status === "waiting") {
           try { await patchRun(ctx, run.id, { status: "running" }); }
           catch (err) {
@@ -743,8 +749,6 @@ async function seedFinishedAndResume(
           } else if (target.type === "agent") await delegateAgentRow(ctx, fresh, fired, target, e);
           else if (target.type === "choose_workflow") {
             await startChooseWorkflowStep(ctx, fresh, fired.stepId, target, fired.attempt);
-          } else if (target.type === "generate") {
-            await startGenerateStep(ctx, fresh, fired.stepId, target, fired.attempt);
           } else {
             throw new CoreError("not_allowed", `step type '${(target as { type: string }).type}' is not started as a task here`);
           }
@@ -1125,22 +1129,23 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     const current = getRun(ctx, runId);
     if (isTerminal(current)) return; // another edge's settle or a stop ended the run
     const target = def.steps[edge.to]!;
+    const waitingTarget = target.type === "human" || target.type === "generate" || target.type === "choose_workflow";
     const outcome = fireEdge(ctx, {
       runId,
       from: { stepId: settled.stepId, attempt: settled.attempt, branch: settled.branch },
       edgeIndex: index,
       stepId: edge.to,
-      status: target.type === "human" ? "waiting" : "running",
+      status: waitingTarget ? "waiting" : "running",
       ...(target.type === "fanout" ? { branches: target.branches } : {}),
       ...(back.has(index) ? { back: { key: `${edge.from}->${edge.to}`, maxLoops: edge.maxLoops ?? 0 } } : {}),
     });
     if (outcome.kind === "handled") {
       // An already-fired edge still owns the run's continuation: the original pass
       // may have crashed before it evaluated its end edges, so a replay must not
-      // fall through to them (round 4 review). A human successor whose row is
+      // fall through to them (round 4 review). A human/generate successor whose row is
       // waiting re-asserts the run's waiting status, idempotently — the original
       // pass may have crashed before its patchRun (round 4 review).
-      if (target.type === "human" && getRun(ctx, runId)?.status === "running") {
+      if ((target.type === "human" || target.type === "generate") && getRun(ctx, runId)?.status === "running") {
         await patchRun(ctx, runId, { status: "waiting" });
       }
       started = true; // handled or fired, a started successor owns the continuation
@@ -1163,7 +1168,13 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
         if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "waiting" });
         continue;
       }
-      // A non-human successor puts the run back to running: a swallowed run.answer
+      if (target.type === "generate") {
+        for (const row of outcome.rows) {
+          await startGenerateStep(ctx, fresh, row.stepId, target, row.attempt);
+        }
+        continue;
+      }
+      // A non-waiting successor puts the run back to running: a swallowed run.answer
       // conflict (the answer was recorded, its waiting→running patch lost) must not
       // leave the run waiting while a task of the run is in flight (round 5 review).
       if (fresh.status === "waiting") {

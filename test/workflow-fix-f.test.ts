@@ -1,0 +1,213 @@
+// Phase 3 fixF: I1 generate advanceFrom, I2 seed reachability, M1/M2/M4 capacity.
+import { describe, expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
+import { createTask, listTasksWhere, readTask, updateTask } from "../src/tasks/store";
+import type { SpawnRunner, DelegateInput } from "../src/tasks/api";
+import type { TaskRecord } from "../src/tasks/types";
+import { getWork, registerWork, setWorkDependencies } from "../src/dispatch/work";
+import { loadStrategy } from "../src/config/strategy";
+import { SLOT_STATES, slotBlock, slotUse } from "../src/engine/slots";
+import {
+  answerGenerateApproval, defaultEngineDeps, onTaskSettled, recordStepResult, startRun,
+  type EngineDeps,
+} from "../src/workflow/engine";
+import { submitGraph } from "../src/workflow/generate";
+import { addDefinition, getRun, stepsOfRun } from "../src/workflow/store";
+import { rootCapacityFromGraph } from "../src/workflow/worknode";
+import type { GenerateLimits, WorkflowDef } from "../src/workflow/schema";
+import { fakeCtx, tmpDir } from "./helpers";
+
+function writeStrategy(ctx: ReturnType<typeof fakeCtx>, localMaxTasks: number | "unlimited") {
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
+    "planner: claude-code",
+    "providers:",
+    "  claude-code: {}",
+    "  codex: {}",
+    "execution:",
+    `  local_max_tasks: ${localMaxTasks}`,
+    "",
+  ].join("\n"));
+}
+
+function fakeDeps(): { deps: EngineDeps } {
+  const byRequest = new Map<string, TaskRecord>();
+  const delegate: EngineDeps["delegate"] = async (ctx, input: DelegateInput) => {
+    const prior = input.requestId ? byRequest.get(input.requestId) : undefined;
+    if (prior) return readTask(ctx, prior.id) ?? prior;
+    const task = createTask(ctx, {
+      brief: input.brief,
+      kind: input.kind ?? null,
+      requestedExecutor: null,
+      timeoutS: 600,
+      ...(input.title !== undefined ? { title: input.title } : {}),
+      ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
+    });
+    if (input.workParent) {
+      registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+      if (input.dependencies?.length) {
+        setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+      }
+    }
+    if (input.requestId) byRequest.set(input.requestId, task);
+    return task;
+  };
+  return {
+    deps: {
+      delegate,
+      stopTask: (ctx, id) => { updateTask(ctx, id, t => { t.state = "stopped"; }); },
+    },
+  };
+}
+
+async function settleAgent(ctx: ReturnType<typeof fakeCtx>, taskId: string, deps: EngineDeps, result: unknown = { ok: true }) {
+  recordStepResult(ctx, taskId, result);
+  updateTask(ctx, taskId, t => { t.state = "done"; });
+  await onTaskSettled(ctx, taskId, undefined, deps);
+}
+
+const tinyLimits: GenerateLimits = {
+  step_types: ["agent", "human", "fanout"],
+  max_steps: 4,
+  kinds: ["docs", "research", "feature", "tests"],
+};
+
+function tinyChild(): WorkflowDef {
+  return {
+    id: "gen/tiny-f",
+    version: 1,
+    steps: {
+      work: { type: "agent", kind: "docs", prompt: "W" },
+      done: { type: "end" },
+    },
+    edges: [{ from: "work", to: "done" }],
+    entry: "work",
+  };
+}
+
+describe("I1: generate successor starts from advanceFrom", () => {
+  test("agent -> generate -> end: settle research starts plan; submit+approve+child done finishes parent", async () => {
+    const ctx = fakeCtx();
+    writeStrategy(ctx, 8);
+    const def: WorkflowDef = {
+      id: "t/f-i1-chain",
+      version: 1,
+      steps: {
+        research: { type: "agent", kind: "research", prompt: "R" },
+        plan: { type: "generate", prompt: "P", limits: tinyLimits, approval: "must" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "research", to: "plan" },
+        { from: "plan", to: "done" },
+      ],
+      entry: "research",
+    };
+    addDefinition(ctx, def, "source");
+    const { deps } = fakeDeps();
+    const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, undefined, deps);
+    const research = stepsOfRun(ctx, run.id).find(s => s.stepId === "research")!;
+    expect(research.taskId).toBeTruthy();
+    await settleAgent(ctx, research.taskId!, deps);
+
+    const plan = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan");
+    expect(plan?.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.status).not.toBe("failed");
+    expect(getRun(ctx, run.id)!.reason ?? "").not.toMatch(/not started as a task/i);
+
+    await submitGraph(ctx, { runId: run.id, stepId: "plan", source: tinyChild() }, deps);
+    await answerGenerateApproval(ctx, {
+      runId: run.id, stepId: "plan", answer: "approve", expectRev: getRun(ctx, run.id)!.rev,
+    }, deps);
+    const childId = (stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!.result as { childRunId: string }).childRunId;
+    const childWork = stepsOfRun(ctx, childId).find(s => s.stepId === "work")!;
+    await settleAgent(ctx, childWork.taskId!, deps);
+
+    expect(stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!.status).toBe("done");
+    expect(getRun(ctx, run.id)!.status).toBe("done");
+  });
+
+  test("generate after fanout join starts waiting", async () => {
+    const ctx = fakeCtx();
+    writeStrategy(ctx, 8);
+    const def: WorkflowDef = {
+      id: "t/f-i1-fan",
+      version: 1,
+      steps: {
+        fan: {
+          type: "fanout",
+          branches: ["a", "b"],
+          each: { type: "agent", kind: "tests", prompt: "T {{branch}}" },
+          join: "all",
+        },
+        plan: { type: "generate", prompt: "P", limits: tinyLimits, approval: "must" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "fan", to: "plan" },
+        { from: "plan", to: "done" },
+      ],
+      entry: "fan",
+    };
+    addDefinition(ctx, def, "source");
+    const { deps } = fakeDeps();
+    const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, undefined, deps);
+    const branches = stepsOfRun(ctx, run.id).filter(s => s.stepId === "fan" && s.branch);
+    expect(branches).toHaveLength(2);
+    for (const br of branches) await settleAgent(ctx, br.taskId!, deps, { v: br.branch });
+
+    const plan = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan");
+    expect(plan?.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.reason ?? "").not.toMatch(/not started as a task/i);
+  });
+
+  test("generate on a loop back-edge starts waiting again", async () => {
+    const ctx = fakeCtx();
+    writeStrategy(ctx, 8);
+    const def: WorkflowDef = {
+      id: "t/f-i1-loop",
+      version: 1,
+      steps: {
+        research: { type: "agent", kind: "research", prompt: "R", result: { required: ["v"] } },
+        plan: { type: "generate", prompt: "P", limits: tinyLimits, approval: "must" },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "research", to: "plan" },
+        { from: "plan", to: "research", when: "result.again == true", maxLoops: 2 },
+        { from: "plan", to: "done", when: "result.again != true" },
+      ],
+      entry: "research",
+    };
+    addDefinition(ctx, def, "source");
+    const { deps } = fakeDeps();
+    const { readvanceStep } = await import("../src/workflow/engine");
+    const { updateStep } = await import("../src/workflow/store");
+    const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, undefined, deps);
+    await settleAgent(ctx, stepsOfRun(ctx, run.id).find(s => s.stepId === "research")!.taskId!, deps, { v: 1 });
+
+    const plan1 = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan" && s.attempt === 1)!;
+    expect(plan1.status).toBe("waiting");
+
+    // Finish the waiting generate with a loop result (no child needed for this edge case).
+    updateStep(ctx, { runId: run.id, stepId: "plan", attempt: 1 }, {
+      status: "done", result: { again: true }, endedAt: ctx.now,
+    });
+    const donePlan = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan" && s.attempt === 1)!;
+    expect(donePlan.advancedAt).toBeUndefined();
+    await readvanceStep(ctx, donePlan, undefined, deps);
+
+    const research2 = stepsOfRun(ctx, run.id).filter(s => s.stepId === "research").at(-1)!;
+    expect(research2.attempt).toBeGreaterThan(1);
+    expect(research2.taskId).toBeTruthy();
+    await settleAgent(ctx, research2.taskId!, deps, { v: 2 });
+
+    const plan2 = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan" && s.attempt === 2);
+    expect(plan2?.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.status).toBe("waiting");
+    expect(getRun(ctx, run.id)!.reason ?? "").not.toMatch(/not started as a task/i);
+  });
+});
