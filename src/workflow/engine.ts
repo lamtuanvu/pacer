@@ -36,6 +36,7 @@ import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
+import { ensureRunBranch, isCodeStep } from "./branch";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
 
@@ -468,6 +469,14 @@ export async function chooseWorkflow(
  *  start path and by the trigger-transaction advancement, which inserts the row
  *  first and delegates after the transaction, so a crash before the delegation is
  *  an ordinary orphan the reconciliation recovers. */
+async function codeStepBrief(ctx: Ctx, run: RunRow, stepDef: AgentStep, prompt: string): Promise<{ goal: string; repo: string; base?: string }> {
+  const brief: { goal: string; repo: string; base?: string } = { goal: prompt, repo: run.repo };
+  if (!isCodeStep(stepDef)) return brief;
+  const ensured = await ensureRunBranch(ctx, getRun(ctx, run.id) ?? run);
+  brief.base = ensured.branch;
+  return brief;
+}
+
 async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
   const prompt = renderPrompt(stepDef.prompt, {
     brief: run.brief,
@@ -478,16 +487,17 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
   const key = keyOf(row);
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
+  const brief = await codeStepBrief(ctx, live, stepDef, prompt);
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
@@ -536,16 +546,17 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   const key = keyOf(row);
   const live = getRun(ctx, run.id) ?? run;
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
+  const brief = await codeStepBrief(ctx, live, stepDef.each, prompt);
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),

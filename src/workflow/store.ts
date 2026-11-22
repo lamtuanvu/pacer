@@ -96,6 +96,10 @@ export function workflowDatabase(ctx: Ctx): Database {
     // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
     if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
     if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
+    // Phase 5: run branch (created lazily at the first code step). Pre-existing rows stay NULL.
+    if (!runColumns.includes("branch")) db.exec("ALTER TABLE workflow_runs ADD COLUMN branch TEXT");
+    if (!runColumns.includes("base_ref")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_ref TEXT");
+    if (!runColumns.includes("base_sha")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_sha TEXT");
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -167,6 +171,10 @@ export interface RunRow {
   stepMode?: "plain" | "work_node";
   /** Engine-owned dispatcher root for `work_node` runs. */
   rootTaskId?: string;
+  /** Phase 5: local run branch (`pacer/run-<id>`), base ref name and the tip sha at creation. */
+  branch?: string;
+  baseRef?: string;
+  baseSha?: string;
 }
 
 export interface DecisionRow {
@@ -251,6 +259,9 @@ interface RunDbRow {
   pending_planner?: string | null;
   step_mode?: string | null;
   root_task_id?: string | null;
+  branch?: string | null;
+  base_ref?: string | null;
+  base_sha?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -288,6 +299,9 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.pending_planner) out.pendingPlanner = row.pending_planner;
   out.stepMode = row.step_mode === "work_node" ? "work_node" : "plain";
   if (row.root_task_id) out.rootTaskId = row.root_task_id;
+  if (row.branch) out.branch = row.branch;
+  if (row.base_ref) out.baseRef = row.base_ref;
+  if (row.base_sha) out.baseSha = row.base_sha;
   return out;
 }
 
@@ -415,6 +429,21 @@ export function rootRunId(ctx: Ctx, runId: string): string {
 export function getRun(ctx: Ctx, id: string): RunRow | null {
   const row = workflowDatabase(ctx).query<RunDbRow, [string]>("SELECT * FROM workflow_runs WHERE id = ?").get(id);
   return row ? runFromRow(row) : null;
+}
+
+/** Record the run branch once without bumping `rev` (engine-owned, like setRootTaskId). */
+export function setRunBranch(ctx: Ctx, runId: string, info: { branch: string; base_ref: string; base_sha: string }): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET branch = ?, base_ref = ?, base_sha = ? WHERE id = ? AND (branch IS NULL OR branch = '')",
+  ).run(info.branch, info.base_ref, info.base_sha, runId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.branch && current.branch !== info.branch) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a branch`);
+    }
+  }
 }
 
 /** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */

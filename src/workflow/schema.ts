@@ -14,6 +14,9 @@ export interface AgentStep {
   role?: "orchestrator" | "reviewer";
   interactive?: boolean;
   difficulty?: "simple" | "standard" | "complex";
+  /** When false, the step never creates or uses the run branch. When true, it always does.
+   *  When omitted, kinds that edit the tree do; research/docs/unfamiliar-code do not. */
+  code?: boolean;
   prompt: string;
   result?: JsonSchemaLite;
 }
@@ -108,6 +111,7 @@ const agentStepSchema = z.strictObject({
   role: z.enum(["orchestrator", "reviewer"]).optional(),
   interactive: z.boolean().optional(),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  code: z.boolean().optional(),
   prompt: z.string().min(1),
   result: jsonSchemaLite.optional(),
 }).superRefine((value, ctx) => {
@@ -134,6 +138,7 @@ const fanoutEachSchema = z.strictObject({
   type: z.literal("agent"),
   kind: z.string().min(1),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  code: z.boolean().optional(),
   prompt: z.string().min(1),
   result: jsonSchemaLite.optional(),
 });
