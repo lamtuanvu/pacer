@@ -1025,7 +1025,7 @@ export function recordDecision(ctx: Ctx, d: {
 
 export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
   return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
-    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
+    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, rowid",
   ).all(runId).map(decisionFromRow);
 }
 
