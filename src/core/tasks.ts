@@ -207,7 +207,7 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
 
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
-): Promise<{ task: ApiTask; retry?: ApiTask }> {
+): Promise<{ task: ApiTask; retry?: ApiTask; accepted?: false; merge?: "conflict"; resolution_task?: string }> {
   ctx={...ctx,env:{...ctx.env}};v={...v};
   const check = () => {
     const task = readTask(ctx, id);
@@ -280,6 +280,20 @@ export async function review(
     });
     if(!reviewed)throw new CoreError("conflict","Review retry did not consume its admitted commit");
     return {task:apiTask(ctx,reviewed),retry:apiTask(ctx,readTask(ctx,result.retry.id)??result.retry)};
+  }
+  // Phase 5: for a run task whose run has a branch, merge into the run branch before the verdict.
+  if (verdict === "accept") {
+    validateReview();
+    const { mergeTaskOnAccept } = await import("../workflow/branch");
+    const merge = await mergeTaskOnAccept(ctx, id);
+    if (merge && !merge.merged) {
+      return {
+        task: apiTask(ctx, readTask(ctx, id)!),
+        accepted: false,
+        merge: "conflict",
+        resolution_task: merge.resolution_task,
+      };
+    }
   }
   const task=withTaskLock(ctx,id,()=>{validateReview();return record(verdict,executor);});
   await autoCleanTask(ctx, id);

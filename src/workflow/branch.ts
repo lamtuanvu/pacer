@@ -4,14 +4,17 @@
 // serialized by withMergeLock. Spec: "Run branch beyond the happy path".
 import { createHash } from "node:crypto";
 import { basename, join } from "node:path";
-import { existsSync, mkdirSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import { gitInfo, realpathSafe } from "../core/git";
-import { resolveWorktreeBase, taskWorktreesDir } from "../supervisor/worktree";
+import { resolveWorktreeBase, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
+import { createTask, readTask } from "../tasks/store";
+import type { TaskRecord } from "../tasks/types";
 import type { AgentStep } from "./schema";
-import { getRun, setRunBranch, type RunRow } from "./store";
+import { getRun, setRunBranch, stepByTask, type RunRow } from "./store";
+import { enqueueWakeup, stepWakeRef } from "./wakeups";
 
 /** Kinds that edit the tree by default. Others (research/docs/review/…) stay off
  *  unless the step sets `code: true`. Unknown kinds also stay off. */
@@ -54,46 +57,47 @@ async function resolveRepoTop(ctx: Ctx, repo: string): Promise<string> {
   return info.top;
 }
 
+async function ensureRunBranchUnlocked(ctx: Ctx, run: RunRow): Promise<RunBranchInfo> {
+  const live = getRun(ctx, run.id) ?? run;
+  if (live.branch && live.baseRef && live.baseSha) {
+    return { branch: live.branch, base_ref: live.baseRef, base_sha: live.baseSha };
+  }
+  const top = await resolveRepoTop(ctx, live.repo);
+  let configured: string | null = null;
+  try {
+    const { loadStrategy } = await import("../config/strategy");
+    const { validateExecution } = await import("../config/execution");
+    configured = validateExecution(loadStrategy(ctx).execution).baseBranch;
+  } catch {
+    configured = null;
+  }
+  const resolved = await resolveWorktreeBase(ctx, top, { worktreeBase: configured ? undefined : "head" }, configured, true);
+  if ("error" in resolved) throw new CoreError("unavailable", resolved.error);
+  const branch = runBranchName(live.id);
+  const existing = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
+  if (existing.code !== 0) {
+    const created = await ctx.run(["git", "-C", top, "branch", branch, resolved.sha], 10_000);
+    if (created.code !== 0) {
+      const again = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
+      if (again.code !== 0) {
+        throw new CoreError("unavailable", `cannot create run branch: ${firstLine(created.stderr) || `exit ${created.code}`}`);
+      }
+    }
+  }
+  const baseRef = resolved.base.startsWith("origin/") ? resolved.base.slice("origin/".length)
+    : resolved.base === "HEAD" ? (await ctx.run(["git", "-C", top, "rev-parse", "--abbrev-ref", "HEAD"], 10_000)).stdout.trim() || "HEAD"
+    : resolved.base;
+  const info = { branch, base_ref: baseRef, base_sha: resolved.sha };
+  setRunBranch(ctx, live.id, info);
+  return info;
+}
+
 /** Create the run branch from the base tip if missing; idempotent under the merge lock. */
 export async function ensureRunBranch(ctx: Ctx, run: RunRow): Promise<RunBranchInfo> {
   if (run.branch && run.baseRef && run.baseSha) {
     return { branch: run.branch, base_ref: run.baseRef, base_sha: run.baseSha };
   }
-  return withMergeLock(ctx, run.id, async () => {
-    const live = getRun(ctx, run.id) ?? run;
-    if (live.branch && live.baseRef && live.baseSha) {
-      return { branch: live.branch, base_ref: live.baseRef, base_sha: live.baseSha };
-    }
-    const top = await resolveRepoTop(ctx, live.repo);
-    let configured: string | null = null;
-    try {
-      const { loadStrategy } = await import("../config/strategy");
-      const { validateExecution } = await import("../config/execution");
-      configured = validateExecution(loadStrategy(ctx).execution).baseBranch;
-    } catch {
-      configured = null;
-    }
-    const resolved = await resolveWorktreeBase(ctx, top, { worktreeBase: configured ? undefined : "head" }, configured, true);
-    if ("error" in resolved) throw new CoreError("unavailable", resolved.error);
-    const branch = runBranchName(live.id);
-    const existing = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
-    if (existing.code !== 0) {
-      const created = await ctx.run(["git", "-C", top, "branch", branch, resolved.sha], 10_000);
-      if (created.code !== 0) {
-        // A concurrent creator may have won; accept an existing ref at the same tip.
-        const again = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `refs/heads/${branch}`], 10_000);
-        if (again.code !== 0) {
-          throw new CoreError("unavailable", `cannot create run branch: ${firstLine(created.stderr) || `exit ${created.code}`}`);
-        }
-      }
-    }
-    const baseRef = resolved.base.startsWith("origin/") ? resolved.base.slice("origin/".length)
-      : resolved.base === "HEAD" ? (await ctx.run(["git", "-C", top, "rev-parse", "--abbrev-ref", "HEAD"], 10_000)).stdout.trim() || "HEAD"
-      : resolved.base;
-    const info = { branch, base_ref: baseRef, base_sha: resolved.sha };
-    setRunBranch(ctx, live.id, info);
-    return info;
-  });
+  return withMergeLock(ctx, run.id, () => ensureRunBranchUnlocked(ctx, run));
 }
 
 function integrationPath(ctx: Ctx, top: string, runId: string): string {
@@ -102,20 +106,126 @@ function integrationPath(ctx: Ctx, top: string, runId: string): string {
   return join(taskWorktreesDir(ctx), tag, `run-${runId}`);
 }
 
-/** One integration worktree per run, checked out on the run branch. */
-export async function integrationWorktree(ctx: Ctx, run: RunRow): Promise<string> {
-  const ensured = await ensureRunBranch(ctx, run);
+async function integrationWorktreeUnlocked(ctx: Ctx, run: RunRow): Promise<string> {
+  const ensured = await ensureRunBranchUnlocked(ctx, run);
   const top = await resolveRepoTop(ctx, run.repo);
   const path = integrationPath(ctx, top, run.id);
   if (existsSync(path)) return path;
-  return withMergeLock(ctx, run.id, async () => {
+  mkdirSync(join(path, ".."), { recursive: true });
+  const added = await ctx.run(["git", "-C", top, "worktree", "add", "-q", path, ensured.branch], 60_000);
+  if (added.code !== 0) {
     if (existsSync(path)) return path;
-    mkdirSync(join(path, ".."), { recursive: true });
-    const added = await ctx.run(["git", "-C", top, "worktree", "add", "-q", path, ensured.branch], 60_000);
-    if (added.code !== 0) {
-      if (existsSync(path)) return path;
-      throw new CoreError("unavailable", `cannot create integration worktree: ${firstLine(added.stderr) || `exit ${added.code}`}`);
+    throw new CoreError("unavailable", `cannot create integration worktree: ${firstLine(added.stderr) || `exit ${added.code}`}`);
+  }
+  return path;
+}
+
+/** One integration worktree per run, checked out on the run branch. */
+export async function integrationWorktree(ctx: Ctx, run: RunRow): Promise<string> {
+  const live = getRun(ctx, run.id) ?? run;
+  if (live.branch) {
+    const top = await resolveRepoTop(ctx, live.repo);
+    const path = integrationPath(ctx, top, live.id);
+    if (existsSync(path)) return path;
+  }
+  return withMergeLock(ctx, run.id, () => integrationWorktreeUnlocked(ctx, run));
+}
+
+/** Repo setting `workflow.merge_signoff` from `<repo>/.pacer/workflow.json`. */
+export function mergeSignoffEnabled(repoTop: string): boolean {
+  try {
+    const raw = readFileSync(join(repoTop, ".pacer", "workflow.json"), "utf8");
+    const parsed = JSON.parse(raw) as { merge_signoff?: unknown };
+    return parsed.merge_signoff === true;
+  } catch {
+    return false;
+  }
+}
+
+export type AcceptMergeResult =
+  | { merged: true }
+  | { merged: false; merge: "conflict"; resolution_task: string };
+
+/**
+ * When `taskId` belongs to a run that has a branch, merge `pacer/<taskId>` into the
+ * run branch under the merge lock. Returns null when the task is not a run-branch
+ * task (ordinary accept path). On conflict: aborts, creates a resolution task, no verdict.
+ */
+export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<AcceptMergeResult | null> {
+  const step = stepByTask(ctx, taskId);
+  if (!step) return null;
+  const run = getRun(ctx, step.runId);
+  if (!run?.branch) return null;
+  const task = readTask(ctx, taskId);
+  if (!task) return null;
+
+  const worktree = task.worktree ?? task.result?.worktree;
+  if (worktree) {
+    const dirty = await worktreeDirty(ctx, worktree);
+    if (dirty === true) {
+      throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
     }
-    return path;
+  }
+
+  const taskBranch = `pacer/${taskId}`;
+  return withMergeLock(ctx, run.id, async () => {
+    const live = getRun(ctx, run.id) ?? run;
+    const wt = await integrationWorktreeUnlocked(ctx, live);
+    const top = await resolveRepoTop(ctx, live.repo);
+    const signoff = mergeSignoffEnabled(top);
+    const argv = [
+      "git", "-C", wt,
+      "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
+      "merge", "--no-ff", "--no-edit",
+      ...(signoff ? ["--signoff"] : []),
+      "-m", `Accept ${taskId} into ${live.branch}`,
+      taskBranch,
+    ];
+    const merged = await ctx.run(argv, 60_000);
+    if (merged.code === 0) return { merged: true };
+
+    const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
+      || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
+    if (conflicted) {
+      const files = (await ctx.run(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"], 15_000)).stdout.trim();
+      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+      const resolution = createConflictResolutionTask(ctx, live, task, taskBranch, files);
+      return { merged: false, merge: "conflict", resolution_task: resolution.id };
+    }
+    throw new CoreError("unavailable", `merge failed: ${firstLine(merged.stderr) || firstLine(merged.stdout) || `exit ${merged.code}`}`);
   });
+}
+
+function createConflictResolutionTask(
+  ctx: Ctx, run: RunRow, task: TaskRecord, taskBranch: string, files: string,
+): TaskRecord {
+  const fileList = files.trim() || "(unknown)";
+  const goal = [
+    `Resolve merge conflict for run ${run.id}.`,
+    `Run branch: ${run.branch}. Task branch: ${taskBranch}.`,
+    `Conflicting paths:\n${fileList}`,
+    `Merge the fix into ${run.branch} and report when the conflict is clear.`,
+  ].join("\n");
+  const resolution = createTask(ctx, {
+    brief: { goal, repo: run.repo, base: run.branch },
+    kind: "debug",
+    requestedExecutor: null,
+    timeoutS: 3600,
+    title: `Conflict · ${task.id}`.slice(0, 60),
+    requestId: `wfconflict:${run.id}:${task.id}:${task.rev}`,
+  });
+  // Phase 2: wake the orchestrator when the run has one (reuse step_failed; no dedicated conflict cause yet).
+  if (run.orchestratorTaskId || run.planner) {
+    try {
+      enqueueWakeup(ctx, {
+        runId: run.id,
+        cause: "step_failed",
+        ref: stepWakeRef(run.id, `conflict:${task.id}`, 1),
+        createdAt: ctx.now,
+      });
+    } catch {
+      // Wakeup is best-effort; the resolution task is the durable record.
+    }
+  }
+  return resolution;
 }
