@@ -44,7 +44,8 @@ const validationCases = [
   // Every exposed numeric field gets literal spellings and both range edges.
   ...([ ["delegate", "timeout_min", 1, 240, false], ["delegate", "acceptance_timeout_min", 1, 120, true],
     ["task_wait", "timeout_s", 1, 3000, true],
-    ...["task_send", "task_answer", "task_request_review", "task_review", "task_stop", "work_answer", "work_retry"].map(name => [name, "expect_rev", 1, 9007199254740991, true] as const),
+    ...["task_send", "task_answer", "task_request_review", "task_review", "task_stop", "work_answer", "work_retry", "pacer_question"].map(name => [name, "expect_rev", 1, 9007199254740991, true] as const),
+
     ["work_events", "after", 0, 9007199254740991, true],
   ] as const).flatMap(([name, field, min, max, integer]) => [
     { name, field, raw: `${min}.0`, accepted: true },
@@ -138,6 +139,7 @@ function validationArgs(name: string): Record<string, unknown> {
     case "work_answer": return { task_id: "missing", expect_rev: 1, requestId: "r", text: "ok" };
     case "work_retry": return { task_id: "missing", expect_rev: 1, requestId: "r" };
     case "task_send": case "task_answer": case "task_request_review": return { task_id: "missing", text: "ok", note: "ok" };
+    case "pacer_question": return { action: "answer", id: "q_abcdefghij", answer: "ok", expect_rev: 1 };
     case "report_limit": return { provider: "missing" };
     case "msg_send": return { to: "human", body: "ok" };
     case "msg_read": return { ids: ["id"] };
@@ -201,6 +203,7 @@ async function rawValidation(env: Record<string, string>, cases: readonly (typeo
           work_retry: ["Unknown managed work", "Feedback must contain at most 2000 characters"],
           task_answer: ["unknown task missing", "answer must contain 1–2000 characters"],
           task_request_review: ["unknown task missing", "review request needs a note of 1–2000 characters"],
+          pacer_question: ["unknown question q_abcdefghij"],
           msg_send: ["Message body is empty"], report_limit: ['unknown provider "missing"'],
           dispatch_preview: ["repo must be an absolute path or a registered repo key"],
         };
@@ -310,6 +313,7 @@ async function capture(mode: "planner" | "grant", native = false) {
       { name: "task_request_review", args: { task_id: "missing", note: "review" } },
       { name: "task_review", args: { task_id: "missing", verdict: "accept" } },
       { name: "work_retry", args: { task_id: "missing", expect_rev: 1, requestId: "retry" } },
+      { name: "pacer_question", args: { action: "get", id: "q_abcdefghij" } },
       { name: "msg_send", args: { to: "missing", body: "hello" } },
       { name: "msg_log", args: { task: "missing" } },
       { name: "msg_close", args: { task: "missing" } },
@@ -398,8 +402,8 @@ async function capture(mode: "planner" | "grant", native = false) {
       }
     }
     const validation = await rawValidation(env, validationCases.filter(row =>
-      mode === "planner" ? !("grantOnly" in row) && ["task_send", "task_answer", "task_request_review", "task_review", "task_wait", "work_answer", "work_retry", "msg_wait", "report_limit", "msg_send", "msg_read", "delegate", "dispatch_preview"].includes(row.name) && row.field !== "requestId"
-        : !["task_send", "task_answer", "task_request_review", "report_limit", "dispatch_preview"].includes(row.name) && !(row.name === "delegate" && !["acceptance_timeout_min", "requestId"].includes(row.field) && !(row.field === "title" && "grantOnly" in row))));
+      mode === "planner" ? !("grantOnly" in row) && ["task_send", "task_answer", "task_request_review", "task_review", "task_wait", "work_answer", "work_retry", "pacer_question", "msg_wait", "report_limit", "msg_send", "msg_read", "delegate", "dispatch_preview"].includes(row.name) && row.field !== "requestId"
+        : !["task_send", "task_answer", "task_request_review", "report_limit", "dispatch_preview", "pacer_question"].includes(row.name) && !(row.name === "delegate" && !["acceptance_timeout_min", "requestId"].includes(row.field) && !(row.field === "title" && "grantOnly" in row))));
     function numericPaths(schema: any, path = ""): string[] {
       if (!schema || typeof schema !== "object") return [];
       if (["number", "integer"].includes(schema.type)) return [path];
