@@ -1,25 +1,36 @@
-// Generated sub-workflows: limits validation and versioned graph storage.
-// Approval and child-run start are Phase 3 Task 4; the grant op is Task 6.
+// Generated sub-workflows: limits validation, versioned graph storage, and
+// approval/child-run start (Phase 3). The grant op is Task 6.
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import {
+  addDefinition,
   getDefinition,
+  getGraph,
   getRun,
   insertGraphVersion,
+  listGraphs,
+  setGraphStatus,
   stepsOfRun,
   updateStep,
+  type RunRow,
   type StepKey,
   type StepRow,
 } from "./store";
 import {
   isPlainObject,
-  type AgentStep,
   type GenerateLimits,
   type GenerateStep,
   type WorkflowDef,
   type WorkflowError,
 } from "./schema";
 import { validateWorkflow } from "./validate";
+import type { SpawnRunner } from "../tasks/api";
+
+/** Narrow deps shape so generate.ts does not import engine (cycle). */
+export type GenerateEngineDeps = {
+  delegate: (ctx: Ctx, input: import("../tasks/api").DelegateInput, spawn?: SpawnRunner) => Promise<import("../tasks/types").TaskRecord>;
+  stopTask: (ctx: Ctx, id: string) => void;
+};
 
 /** Parse `kind in [a, b]` or a bare kind name into the set of matching kinds. */
 function kindsFromPredicate(key: string): Set<string> | null {
@@ -189,14 +200,41 @@ export interface SubmitGraphResult {
   version?: number;
 }
 
+function stepResultObj(row: StepRow): Record<string, unknown> {
+  return row.result != null && typeof row.result === "object" && !Array.isArray(row.result)
+    ? { ...(row.result as Record<string, unknown>) }
+    : {};
+}
+
+/** Install a unique child workflow definition from an approved graph version. */
+export function installGeneratedDefinition(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  version: number,
+): WorkflowDef {
+  const row = latestWaitingGenerate(ctx, run.id, stepId);
+  if (!row) throw new CoreError("conflict", `conflict: step ${stepId} is not waiting`);
+  const graph = getGraph(ctx, { runId: run.id, stepId, attempt: row.attempt, version });
+  if (!graph) throw new CoreError("not_found", `unknown graph version ${version}`);
+  const childId = `gen/${run.id}/${stepId}/v${version}`;
+  const childDef: WorkflowDef = { ...graph.def, id: childId, version: 1 };
+  const source = JSON.stringify(childDef);
+  addDefinition(ctx, childDef, source);
+  return childDef;
+}
+
 /**
  * Validate and store a generated graph for a waiting `generate` step.
- * Invalid graphs return every error; past `retries` the step fails.
+ * With no `approval`, starts the child run at once. With `approval: must|auto`,
+ * leaves the graph proposed until approve/revise.
  */
-export function submitGraph(
+export async function submitGraph(
   ctx: Ctx,
   input: { runId: string; stepId: string; source: WorkflowDef },
-): SubmitGraphResult {
+  deps?: GenerateEngineDeps,
+  spawn?: SpawnRunner,
+): Promise<SubmitGraphResult> {
   const run = getRun(ctx, input.runId);
   if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
   const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
@@ -206,13 +244,18 @@ export function submitGraph(
   }
   const row = latestWaitingGenerate(ctx, input.runId, input.stepId);
   if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a graph`);
+  const prior = stepResultObj(row);
+  if (typeof prior.childRunId === "string") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} already has a child run`);
+  }
+  if (prior.pendingApproval === true) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is waiting for approval`);
+  }
 
   const depth = nestingDepth(ctx, run.id);
   const errors = validateGenerated(input.source, stepDef.limits, depth);
   if (errors.length > 0) {
-    const priorFails = typeof (row.result as { submitFails?: unknown } | undefined)?.submitFails === "number"
-      ? (row.result as { submitFails: number }).submitFails
-      : 0;
+    const priorFails = typeof prior.submitFails === "number" ? prior.submitFails : 0;
     const submitFails = priorFails + 1;
     const retries = stepDef.retries ?? 2;
     if (submitFails > retries) {
@@ -220,10 +263,10 @@ export function submitGraph(
         status: "failed",
         error: `generate validation failed after ${retries} retries`,
         endedAt: ctx.now,
-        result: { submitFails, errors },
+        result: { ...prior, submitFails, errors, pendingApproval: undefined, reviseNote: undefined },
       });
     } else {
-      updateStep(ctx, keyOf(row), { result: { submitFails, errors } });
+      updateStep(ctx, keyOf(row), { result: { ...prior, submitFails, errors } });
     }
     return { ok: false, errors };
   }
@@ -235,13 +278,76 @@ export function submitGraph(
     def: input.source,
     status: "proposed",
   });
+
+  if (!stepDef.approval) {
+    updateStep(ctx, keyOf(row), {
+      result: {
+        ...prior,
+        graphVersion: stored.version,
+        submitFails: 0,
+        pendingApproval: undefined,
+        reviseNote: undefined,
+      },
+    });
+    const { startGeneratedChild } = await import("./engine");
+    await startGeneratedChild(ctx, {
+      runId: run.id,
+      stepId: input.stepId,
+      version: stored.version,
+    }, spawn, deps);
+    return { ok: true, errors: [], version: stored.version };
+  }
+
   updateStep(ctx, keyOf(row), {
     result: {
+      ...prior,
       graphVersion: stored.version,
       submitFails: 0,
+      pendingApproval: true,
+      approval: stepDef.approval,
+      reviseNote: undefined,
     },
   });
+  // Auto approval: wake the orchestrator like an auto human question.
+  if (stepDef.approval === "auto") {
+    const { enqueueWakeup, stepWakeRef } = await import("./wakeups");
+    const { canAutoApproveGenerate } = await import("./auto");
+    const { rootRunId } = await import("./store");
+    const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+    if (canAutoApproveGenerate(root, input.stepId, stepDef)) {
+      enqueueWakeup(ctx, {
+        runId: run.id,
+        cause: "question",
+        ref: stepWakeRef(run.id, input.stepId, row.attempt),
+        createdAt: ctx.now,
+      });
+    }
+  }
   return { ok: true, errors: [], version: stored.version };
+}
+
+/** Latest proposed graph version for a waiting generate step, if any. */
+export function pendingGraphVersion(ctx: Ctx, runId: string, stepId: string): number | undefined {
+  const row = latestWaitingGenerate(ctx, runId, stepId);
+  if (!row) return undefined;
+  const version = stepResultObj(row).graphVersion;
+  return typeof version === "number" ? version : undefined;
+}
+
+export function listGraphSummaries(ctx: Ctx, runId: string): {
+  stepId: string;
+  attempt: number;
+  version: number;
+  status: string;
+  stepCount: number;
+}[] {
+  return listGraphs(ctx, runId).map(g => ({
+    stepId: g.stepId,
+    attempt: g.attempt,
+    version: g.version,
+    status: g.status,
+    stepCount: runnableStepCount(g.def),
+  }));
 }
 
 export type { GenerateStep, GenerateLimits };

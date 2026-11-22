@@ -113,7 +113,7 @@ test("an unbounded back edge is refused through validateWorkflow", () => {
   expect(errs.some(e => /max_loops/i.test(e.message))).toBe(true);
 });
 
-test("a valid graph is stored as version 1; a resubmission is version 2 and supersedes version 1", () => {
+test("a valid graph without approval is approved and starts; approval:must stays proposed across resubmits", async () => {
   const ctx = fakeCtx();
   const parent: WorkflowDef = {
     id: "t/gen-parent",
@@ -125,6 +125,7 @@ test("a valid graph is stored as version 1; a resubmission is version 2 and supe
         prompt: "Write a plan",
         limits,
         retries: 2,
+        approval: "must",
       },
       done: { type: "end" },
     },
@@ -135,22 +136,32 @@ test("a valid graph is stored as version 1; a resubmission is version 2 and supe
   const run = insertRun(ctx, { workflow: parent.id, version: 1, repo: tmpDir(), brief: "B" });
   insertStep(ctx, { runId: run.id, stepId: "plan", attempt: 1, status: "waiting" });
 
-  const first = submitGraph(ctx, { runId: run.id, stepId: "plan", source: validPlan() });
+  const first = await submitGraph(ctx, { runId: run.id, stepId: "plan", source: validPlan() });
   expect(first.ok).toBe(true);
   expect(first.errors).toEqual([]);
   expect(first.version).toBe(1);
   const v1 = listGraphs(ctx, run.id, "plan").find(g => g.version === 1)!;
   expect(v1.status).toBe("proposed");
 
-  const second = submitGraph(ctx, { runId: run.id, stepId: "plan", source: validPlan() });
+  // Clear pending approval so a resubmit is allowed (revise path); supersede by rejecting first.
+  const { setGraphStatus, updateStep } = await import("../src/workflow/store");
+  const step = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!;
+  setGraphStatus(ctx, { runId: run.id, stepId: "plan", attempt: 1, version: 1 }, "rejected");
+  updateStep(ctx, { runId: run.id, stepId: "plan", attempt: 1 }, {
+    result: { submitFails: 0, reviseCount: 1 },
+  });
+
+  const second = await submitGraph(ctx, { runId: run.id, stepId: "plan", source: validPlan() });
   expect(second.ok).toBe(true);
   expect(second.version).toBe(2);
   const graphs = listGraphs(ctx, run.id, "plan");
-  expect(graphs.find(g => g.version === 1)!.status).toBe("superseded");
+  // Rejected versions stay rejected; insertGraphVersion only supersedes proposed/approved.
+  expect(graphs.find(g => g.version === 1)!.status).toBe("rejected");
   expect(graphs.find(g => g.version === 2)!.status).toBe("proposed");
+  void step;
 });
 
-test("invalid submissions return every error and fail the step past retries", () => {
+test("invalid submissions return every error and fail the step past retries", async () => {
   const ctx = fakeCtx();
   const parent: WorkflowDef = {
     id: "t/gen-retry",
@@ -181,12 +192,12 @@ test("invalid submissions return every error and fail the step past retries", ()
     edges: [{ from: "x", to: "done" }],
     entry: "x",
   };
-  const first = submitGraph(ctx, { runId: run.id, stepId: "plan", source: bad });
+  const first = await submitGraph(ctx, { runId: run.id, stepId: "plan", source: bad });
   expect(first.ok).toBe(false);
   expect(first.errors.length).toBeGreaterThan(0);
   expect(stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!.status).toBe("waiting");
 
-  const second = submitGraph(ctx, { runId: run.id, stepId: "plan", source: bad });
+  const second = await submitGraph(ctx, { runId: run.id, stepId: "plan", source: bad });
   expect(second.ok).toBe(false);
   const step = stepsOfRun(ctx, run.id).find(s => s.stepId === "plan")!;
   expect(step.status).toBe("failed");

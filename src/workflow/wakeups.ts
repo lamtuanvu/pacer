@@ -3,7 +3,7 @@
 // scan when a wake-up is lost (spec "Wake-ups and turns are durable").
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
-import { canAutoDecide } from "./auto";
+import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
   type StepRow,
@@ -231,6 +231,14 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
         // Waiting with a stamped childRunId means the choice already happened (N1).
         if (step.status !== "waiting") return false;
         return !chooseStepChildRunId(step.result);
+      }
+      if (stepDef.type === "generate") {
+        if (step.status !== "waiting") return false;
+        if (chooseStepChildRunId(step.result)) return false;
+        const pending = step.result != null && typeof step.result === "object"
+          && (step.result as { pendingApproval?: unknown }).pendingApproval === true;
+        // Pending approval waits on the person (question), not another orchestrator turn.
+        return !pending;
       }
       if (stepDef.type === "agent" && stepDef.role === "orchestrator") {
         return step.status === "running" || step.status === "waiting";
@@ -541,6 +549,23 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         // Already chose: result.childRunId is stamped until the child settles (N1).
         if (chooseStepChildRunId(step.result)) continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
+        push(root, "orchestrator_step", ref, step.startedAt);
+        continue;
+      }
+      if (step.status === "waiting" && stepDef.type === "generate") {
+        if (chooseStepChildRunId(step.result)) continue;
+        const pending = step.result != null && typeof step.result === "object"
+          && (step.result as { pendingApproval?: unknown }).pendingApproval === true;
+        const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (pending) {
+          if (canAutoApproveGenerate(rootRun, step.stepId, stepDef)) {
+            if (!hasOpenWakeup(ctx, root, "question", ref)) {
+              push(root, "question", ref, step.startedAt);
+            }
+          }
+          continue;
+        }
         if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
         push(root, "orchestrator_step", ref, step.startedAt);
         continue;

@@ -920,3 +920,31 @@ export function insertGraphVersion(ctx: Ctx, input: {
     };
   })();
 }
+
+/** Update one graph version's status (and optional reason). */
+export function setGraphStatus(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+  status: GraphStatus,
+  reason?: string,
+): GraphRow {
+  const db = workflowDatabase(ctx);
+  const row = db.query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  if (!row) throw new CoreError("not_found", `unknown graph ${key.runId}/${key.stepId}#${key.attempt}@${key.version}`);
+  db.query(
+    "UPDATE workflow_graphs SET status = ?, reason = ? WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).run(status, reason ?? row.reason, key.runId, key.stepId, key.attempt, key.version);
+  return graphFromRow({ ...row, status, reason: reason ?? row.reason });
+}
+
+export function getGraph(
+  ctx: Ctx,
+  key: { runId: string; stepId: string; attempt: number; version: number },
+): GraphRow | null {
+  const row = workflowDatabase(ctx).query<GraphDbRow, [string, string, number, number]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+  ).get(key.runId, key.stepId, key.attempt, key.version);
+  return row ? graphFromRow(row) : null;
+}

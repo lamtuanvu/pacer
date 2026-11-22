@@ -27,14 +27,15 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
-import { canAutoDecide } from "./auto";
+import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, predecessorTaskIds } from "./worknode";
+import { installGeneratedDefinition } from "./generate";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
 
@@ -142,6 +143,9 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   // A choose_workflow child ending must leave the root's live turn alone.
   if (patch.status && RUN_TERMINAL.includes(patch.status) && !updated.parentRunId) {
     stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
+  }
+  if (patch.status && RUN_TERMINAL.includes(patch.status)) {
+    settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
     await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);
@@ -1186,14 +1190,226 @@ export async function answerHumanStep(
   return getRun(ctx, runId)!;
 }
 
+/** Start a child run from an approved (or auto-approved) graph version. */
+export async function startGeneratedChild(
+  ctx: Ctx,
+  input: { runId: string; stepId: string; version: number },
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+): Promise<RunRow> {
+  const run = getRun(ctx, input.runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
+  if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
+  const def = loadDefinition(ctx, run);
+  const stepDef = def?.steps[input.stepId];
+  if (!stepDef || stepDef.type !== "generate") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is not a generate step`);
+  }
+  const waiting = stepsOfRun(ctx, run.id).filter(s => s.stepId === input.stepId && s.status === "waiting");
+  const latest = waiting[waiting.length - 1];
+  if (!latest) throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a graph`);
+  const priorChild = chooseStepChildRunId(latest.result);
+  if (priorChild) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} already has child ${priorChild}`);
+  }
+  const prior = latest.result != null && typeof latest.result === "object"
+    ? { ...(latest.result as Record<string, unknown>) }
+    : {};
+  if (prior.choosing === true) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is already starting a child`);
+  }
+  updateStep(ctx, keyOf(latest), {
+    result: { ...prior, graphVersion: input.version, choosing: true, choosingAt: ctx.now, pendingApproval: undefined },
+  });
+  setGraphStatus(ctx, {
+    runId: run.id, stepId: input.stepId, attempt: latest.attempt, version: input.version,
+  }, "approved");
+  const childDef = installGeneratedDefinition(ctx, run, input.stepId, input.version);
+  const rootId = rootRunId(ctx, run.id);
+  const root = getRun(ctx, rootId)!;
+  let child: RunRow;
+  try {
+    child = await startRun(ctx, {
+      workflow: childDef.id,
+      repo: run.repo,
+      brief: run.brief,
+      title: `${run.title} · ${childDef.id}`,
+    }, spawn, deps, {
+      parentRunId: run.id,
+      parentStep: input.stepId,
+      planner: root.planner,
+      orchestratorTaskId: root.orchestratorTaskId,
+      sessionId: root.sessionId,
+    });
+  } catch (err) {
+    try {
+      const fresh = stepsOfRun(ctx, latest.runId).find(s =>
+        s.stepId === latest.stepId && s.attempt === latest.attempt
+        && (latest.branch !== undefined ? s.branch === latest.branch : !s.branch),
+      );
+      const choosing = fresh?.result != null && typeof fresh.result === "object"
+        && (fresh.result as { choosing?: unknown }).choosing === true;
+      if (fresh?.status === "waiting" && choosing) {
+        updateStep(ctx, keyOf(latest), {
+          result: { ...prior, graphVersion: input.version, pendingApproval: stepDef.approval ? true : undefined },
+        });
+        if (stepDef.approval) {
+          setGraphStatus(ctx, {
+            runId: run.id, stepId: input.stepId, attempt: latest.attempt, version: input.version,
+          }, "proposed");
+        }
+      }
+    } catch { /* */ }
+    throw err;
+  }
+  updateStep(ctx, keyOf(latest), {
+    result: {
+      ...prior,
+      graphVersion: input.version,
+      childRunId: child.id,
+      pendingApproval: undefined,
+      choosing: undefined,
+      choosingAt: undefined,
+    },
+  });
+  completeWakeupRef(ctx, run.id, "orchestrator_step", stepWakeRef(run.id, input.stepId, latest.attempt));
+  completeWakeupRef(ctx, run.id, "question", stepWakeRef(run.id, input.stepId, latest.attempt));
+  return child;
+}
+
+/** Approve or revise a proposed generated graph (Phase 2 human-step machinery). */
+export async function answerGenerateApproval(
+  ctx: Ctx,
+  input: {
+    runId: string;
+    stepId: string;
+    answer: "approve" | "revise" | string;
+    note?: string;
+    expectRev: number;
+  },
+  deps: EngineDeps = defaultEngineDeps,
+  spawn?: SpawnRunner,
+): Promise<RunRow> {
+  const run = getRun(ctx, input.runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${input.runId}`);
+  if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${input.runId} is ${run.status}`);
+  if (run.rev !== input.expectRev) {
+    throw new CoreError("conflict", `conflict: run ${input.runId} changed since rev ${input.expectRev}`);
+  }
+  const def = loadDefinition(ctx, run);
+  const stepDef = def?.steps[input.stepId];
+  if (!stepDef || stepDef.type !== "generate") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is not a generate step`);
+  }
+  if (!stepDef.approval) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} does not require approval`);
+  }
+  const waiting = stepsOfRun(ctx, input.runId).filter(s => s.stepId === input.stepId && s.status === "waiting");
+  const row = waiting[waiting.length - 1];
+  if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not waiting`);
+  const prior = row.result != null && typeof row.result === "object"
+    ? { ...(row.result as Record<string, unknown>) }
+    : {};
+  if (prior.pendingApproval !== true || typeof prior.graphVersion !== "number") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for approval`);
+  }
+  const root = getRun(ctx, rootRunId(ctx, input.runId)) ?? run;
+  if (ctx.env.PACER_RUN_GRANT) {
+    if (!canAutoApproveGenerate(root, input.stepId, stepDef)) {
+      throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+    }
+  }
+  const answer = input.answer.trim().toLowerCase();
+  const isApprove = answer === "approve";
+  const isRevise = answer === "revise" || answer.startsWith("revise");
+  if (!isApprove && !isRevise) {
+    throw new CoreError("invalid_input", "answer must be approve or revise");
+  }
+  if (isApprove) {
+    await startGeneratedChild(ctx, {
+      runId: input.runId,
+      stepId: input.stepId,
+      version: prior.graphVersion as number,
+    }, spawn, deps);
+    return getRun(ctx, input.runId)!;
+  }
+  const note = input.note
+    ?? (answer.startsWith("revise:") || answer.startsWith("revise ")
+      ? answer.replace(/^revise[:\s]+/i, "").trim()
+      : "");
+  const reviseCount = (typeof prior.reviseCount === "number" ? prior.reviseCount : 0) + 1;
+  const retries = stepDef.retries ?? 2;
+  setGraphStatus(ctx, {
+    runId: run.id, stepId: input.stepId, attempt: row.attempt, version: prior.graphVersion as number,
+  }, "rejected", note || undefined);
+  if (reviseCount > retries) {
+    updateStep(ctx, keyOf(row), {
+      status: "failed",
+      error: `generate revise failed after ${retries} retries`,
+      endedAt: ctx.now,
+      result: { ...prior, reviseCount, reviseNote: note || undefined, pendingApproval: undefined },
+    });
+    return getRun(ctx, input.runId)!;
+  }
+  updateStep(ctx, keyOf(row), {
+    result: {
+      ...prior,
+      reviseCount,
+      reviseNote: note || undefined,
+      pendingApproval: undefined,
+      graphVersion: undefined,
+    },
+  });
+  enqueueWakeup(ctx, {
+    runId: run.id,
+    cause: "orchestrator_step",
+    ref: stepWakeRef(run.id, input.stepId, row.attempt),
+    createdAt: ctx.now,
+  });
+  completeWakeupRef(ctx, run.id, "question", stepWakeRef(run.id, input.stepId, row.attempt));
+  try {
+    if (!isTerminal(getRun(ctx, input.runId)) && getRun(ctx, input.runId)?.status === "waiting") {
+      await patchRun(ctx, input.runId, { status: "waiting" });
+    }
+  } catch { /* */ }
+  return getRun(ctx, input.runId)!;
+}
+
+/** Settle the engine-owned root work node when its run ends. */
+function settleRootWorkNode(ctx: Ctx, run: RunRow, status: "done" | "stopped" | "failed"): void {
+  if (!run.rootTaskId) return;
+  const task = readTask(ctx, run.rootTaskId);
+  if (!task || SETTLE_STATES.includes(task.state)) return;
+  try {
+    updateTask(ctx, run.rootTaskId, t => {
+      t.state = status === "failed" ? "failed" : status === "stopped" ? "stopped" : "done";
+      t.result = {
+        status: t.state as "done" | "stopped" | "failed",
+        executor: null,
+        model: null,
+        files: "",
+        report: `workflow root ${status}`,
+        backend: "direct",
+      };
+    });
+  } catch { /* */ }
+}
+
 /** Stops a run: every running or waiting step row is marked stopped, running step
- *  tasks are stopped through the task.stop op path, and the run itself is marked
- *  stopped. A terminal run stays terminal (conflict). */
+ *  tasks are stopped through the task.stop op path, child runs are stopped, the
+ *  root work node is settled, and the run itself is marked stopped. */
 export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<RunRow> {
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${runId} is ${run.status}`);
   if (run.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+  // Stop choose/generate children first so their settlement does not race the parent.
+  const children = workflowDatabase(ctx).query<{ id: string; rev: number }, [string]>(
+    "SELECT id, rev FROM workflow_runs WHERE parent_run_id = ? AND status IN ('running', 'waiting')",
+  ).all(runId);
+  for (const child of children) {
+    try { await stopRun(ctx, child.id, child.rev, deps); } catch { /* */ }
+  }
   for (const row of stepsOfRun(ctx, runId)) {
     if (row.status !== "running" && row.status !== "waiting") continue;
     if (row.taskId) {
@@ -1201,5 +1417,7 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
     }
     try { updateStep(ctx, keyOf(row), { status: "stopped", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
   }
-  return patchRun(ctx, runId, { status: "stopped" });
+  const stopped = await patchRun(ctx, runId, { status: "stopped" });
+  settleRootWorkNode(ctx, stopped, "stopped");
+  return stopped;
 }
