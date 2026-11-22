@@ -132,7 +132,8 @@ export function toV2OpResult(name:string,result:any):unknown {
  if(name==='version.get')return {...result,protocol:V2_PROTOCOL};
  if(name==='task.diff')return {...result,diff:result.patch};
  // `fullTitle` and `derived` are 3.x additions; 2.x responses stay byte-identical.
- const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,...rest}=task;return rest;};
+ // promptWait is v3-only (M-g); 2.x task JSON stays frozen without it.
+ const legacyTask=(task:any)=>{if(!task||typeof task!=='object')return task;const {fullTitle:_,promptWait:_pw,...rest}=task;return rest;};
  if(name==='task.list'){const list=result?.[LEGACY_TASK_LIST]??result;if(Array.isArray(list))return list.map(legacyTask);return list&&Array.isArray(list.tasks)?{...list,tasks:list.tasks.map(legacyTask)}:list;}
  if(name==='task.get'&&result&&typeof result==='object'){const {derived:_,work:__,...rest}=legacyTask(result);return rest;}
  if(name==='task.review'&&result&&typeof result==='object'&&!Array.isArray(result))return 'task' in result?{...result,task:legacyTask(result.task)}:legacyTask(result);

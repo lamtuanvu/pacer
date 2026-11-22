@@ -576,6 +576,9 @@ fn enrich_api_task(
     if truth(&t["question"]) {
         row["question"] = t["question"].clone();
     }
+    if truth(&t["promptWait"]) {
+        row["promptWait"] = t["promptWait"].clone();
+    }
     row["rev"] = t.get("rev").cloned().unwrap_or(json!(1));
     row["queue"] = t["queue"].clone();
     if truth(&t["source"]) {

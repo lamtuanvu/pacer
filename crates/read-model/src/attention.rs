@@ -498,6 +498,47 @@ pub fn raised(
                 extra.clone(),
             ));
         }
+        // prompt_wait:<taskId> — Convert to question (I-3). Id prefix is not the kind.
+        // Field order matches TS attention/rules.ts for byte-identical wire JSON.
+        if t["state"] == "running" && truth(&t["promptWait"]) {
+            let raw = slice(text(&t["promptWait"]["text"]), 200);
+            let mut convert = action(
+                "Convert to question",
+                "question.convert_prompt",
+                json!({
+                "id":id}
+                ),
+            );
+            convert["style"] = json!("primary");
+            let mut row = Map::new();
+            row.insert("id".into(), json!(format!("prompt_wait:{id}")));
+            row.insert("kind".into(), json!("stuck"));
+            row.insert("severity".into(), json!("blocked"));
+            row.insert("repo".into(), t["repo"].clone());
+            row.insert("taskId".into(), json!(id));
+            row.insert("title".into(), json!(text(&t["goal"])));
+            row.insert(
+                "detail".into(),
+                json!(format!("May be waiting on you: {raw}")),
+            );
+            row.insert("raisedAt".into(), t["promptWait"]["at"].clone());
+            row.insert("since".into(), t["promptWait"]["at"].clone());
+            row.insert("notify".into(), json!("important"));
+            row.insert(
+                "actions".into(),
+                json!([
+                    open("Answer in terminal", json!({"view":"task","id":id,"tab":"terminal"})),
+                    convert,
+                ]),
+            );
+            if truth(&t["executor"]) {
+                row.insert("executor".into(), t["executor"].clone());
+            }
+            if truth(&t["host"]) {
+                row.insert("host".into(), t["host"].clone());
+            }
+            items.push(Value::Object(row));
+        }
         if t["liveness"]["stalled"] == true {
             let mut e = extra.clone();
             e["since"] = t["liveness"]["since"].clone();

@@ -73,6 +73,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "run_questions" => stringify(&Value::Array(
                 pacer_read_model::attention::run_question_items(&ctx),
             )),
+            "raised" => stringify(&Value::Array(pacer_read_model::attention::raised(
+                &ctx,
+                array(&input["tasks"]),
+                array(&input["executors"]),
+                array(&input["accounts"]),
+                &input["setup"],
+                &input["planner"],
+                truth(&input["canPair"]),
+            ))),
             _ => {
                 let probes = Probes {
                     setup: input["setup"].clone(),

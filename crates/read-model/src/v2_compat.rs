@@ -59,7 +59,8 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
 }
 
 fn legacy_task(value: &Value) -> Value {
-    object_without(value, &["fullTitle"])
+    // promptWait is a v3-only field (M-g); 2.x task JSON stays frozen without it.
+    object_without(value, &["fullTitle", "promptWait"])
 }
 
 pub fn op_result(name: &str, value: &Value) -> Value {
