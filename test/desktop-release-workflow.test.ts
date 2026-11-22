@@ -10,9 +10,14 @@ test("desktop promotion requires the native signed build and standalone release 
   }
   expect(jobs["desktop-publish"].needs).toEqual(["verify", "desktop-build", "publish"]);
   expect(jobs["desktop-build"].strategy.matrix.include).toEqual([
-    { runner: "macos-15", arch: "aarch64" },
-    { runner: "macos-15-intel", arch: "x86_64" },
+    { runner: "macos-15", arch: "aarch64", target: "aarch64-apple-darwin", bun_target: "darwin-arm64" },
+    { runner: "macos-15", arch: "x86_64", target: "x86_64-apple-darwin", bun_target: "darwin-x64" },
   ]);
+  expect(jobs["desktop-build"].strategy.matrix.include.every((entry: any) => entry.runner === "macos-15")).toBe(true);
+  expect(jobs["desktop-build"].strategy.matrix.include.some((entry: any) => /intel/i.test(entry.runner))).toBe(false);
+  const cross = jobs["desktop-build"].strategy.matrix.include.find((entry: any) => entry.arch === "x86_64");
+  expect(cross.target).toBe("x86_64-apple-darwin");
+  expect(cross.bun_target).toBe("darwin-x64");
   expect(jobs["desktop-build"].permissions.contents).toBe("read");
   expect(jobs["desktop-publish"].permissions.contents).toBe("write");
   expect(jobs["desktop-build"].if).toContain("PACER_DESKTOP_RELEASE_ENABLED");
@@ -28,6 +33,16 @@ test("signed desktop builds use compile-time production trust, separate bundled 
   const body = steps.map((s: any) => s.run ?? "").join("\n");
   expect(body).toContain("--features ota-production");
   expect(body).toContain("--desktop-production --out dist/desktop-cli");
+  expect(body).toContain('--targets "$BUN_TARGET"');
+  expect(body).not.toContain("build.ts --host");
+  expect(body).toContain('tauri build --target "$TARGET"');
+  expect(body).toContain("cargo build --offline --locked --release --target \"$TARGET\"");
+  expect(body).toContain('target/$TARGET/release/bundle/macos/pacer.app');
+  expect(body).toContain("lipo -archs");
+  expect(body).toContain('"$out"/pacer.app/Contents/MacOS/*');
+  expect(body).toContain('payload+=("$out/pacer-assistant-pacer-$BUN_TARGET")');
+  expect(body).not.toContain("stage-cli.sh");
+  expect(body).toContain('rustup target add "$TARGET"');
   expect(body).toContain("desktop-credentials.ts");
   const cleanup = steps.find((s: any) => s.name === "Clean ephemeral signing credentials");
   expect(cleanup.if).toBe("always()");
@@ -48,8 +63,11 @@ test("dispatch fixture release exercise needs no production credentials and cann
 test("interim certificate signing is wired through build, signing and publication without Apple-only gates", () => {
   for (const job of ["desktop-build", "desktop-publish"]) expect(jobs[job].env.PACER_SIGNING_CERT_SHA1).toBe("${{ vars.PACER_SIGNING_CERT_SHA1 }}");
   const steps = jobs["desktop-build"].steps;
-  const trust = steps.find((s: any) => s.name === "Verify native runner and production trust").run;
+  const trust = steps.find((s: any) => s.name === "Verify Apple Silicon runner and production trust").run;
   expect(trust).toContain('test -n "$PACER_APPLE_TEAM_ID" || test -n "$PACER_SIGNING_CERT_SHA1"');
+  expect(trust).toContain('test "$(uname -m)" = arm64');
+  expect(trust).toContain("arch -x86_64 /usr/bin/true");
+  expect(trust).not.toContain('test "$actual" = "$ARCH"');
   const sign = steps.find((s: any) => s.name?.startsWith("Sign complete app"));
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_BASE64).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_BASE64 }}");
   expect(sign.env.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD).toBe("${{ secrets.PACER_SELF_SIGNING_CERTIFICATE_PASSWORD }}");
