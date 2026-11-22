@@ -166,6 +166,11 @@ export interface PumpOpts {
   spawnRunner?: SpawnRunner;
 }
 
+/** Background-worker pump wiring: always forward the service spawnRunner (never omit). */
+export function pumpOnceOpts(spawnRunner: SpawnRunner): { poll: true; spawnRunner: SpawnRunner } {
+  return { poll: true, spawnRunner };
+}
+
 /** Expensive periodic work (quota alerts, strategy fingerprints, host probes, entity
  *  diffs — spec §4) leaves the per-tick path: the bounded snapshot read model
  *  runs at most this often, and always on a periodic full reconcile. */
