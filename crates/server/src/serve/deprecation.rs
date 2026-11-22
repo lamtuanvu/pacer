@@ -7,10 +7,7 @@
 //! string-equal; `test/api-v2-deprecation.test.ts` compares the Rust file
 //! against the TypeScript constants.
 
-use axum::{
-    http::HeaderValue,
-    response::Response,
-};
+use axum::{http::HeaderValue, response::Response};
 
 /// Release that removes protocol 2 (the next release after 0.18.0).
 pub const V2_REMOVAL_RELEASE: &str = "0.19.0";

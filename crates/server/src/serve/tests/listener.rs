@@ -92,18 +92,13 @@ async fn protocol_2_responses_carry_deprecation_headers() {
     assert!(!lower.contains("successor-version"), "v3: {v3}");
     // `/v2/events` is an SSE stream that never closes, so only read the response
     // header block (enough to observe status and the deprecation headers).
-    let mut stream = tokio::net::TcpStream::connect((
-        std::net::Ipv4Addr::LOCALHOST,
-        port,
-    ))
-    .await
-    .unwrap();
+    let mut stream = tokio::net::TcpStream::connect((std::net::Ipv4Addr::LOCALHOST, port))
+        .await
+        .unwrap();
     stream
         .write_all(
-            format!(
-                "GET /v2/events?since=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{bearer}\r\n"
-            )
-            .as_bytes(),
+            format!("GET /v2/events?since=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{bearer}\r\n")
+                .as_bytes(),
         )
         .await
         .unwrap();
