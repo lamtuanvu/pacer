@@ -31,6 +31,7 @@ import { authorizeAssistantGrant, getWork, registerWork, requireWorkScope, autho
 import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/store";
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
+import { authorizeRunGrantOperation } from "../workflow/run-grant";
 
 // The assistant grant (`pag_`): the internal issue/revoke API the assistant service calls (spec §3).
 export { issueAssistantGrant, authorizeAssistantGrant, revokeAssistantGrants, ASSISTANT_GRANT_KIND, type AssistantGrant } from "../dispatch/work";
@@ -322,6 +323,16 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
   if(typeof turnId!=="string"||!turnId)throw new CoreError("invalid_input","turnId is required");
   if(turnId!==grant.turnId)throw new CoreError("not_allowed","This assistant grant belongs to another turn.");
   return;
+ }
+ // The workflow run grant (`prg_`) answers next: only RUN_GRANT_OPS on its own run (API-5b).
+ // An unknown, expired or revoked bearer is refused here and never treated as the operator or an executor.
+ if(ctx.env.PACER_RUN_GRANT){
+  authorizeRunGrantOperation(ctx,name,params);
+  return;
+ }
+ // Orchestrator role without a live prg_ must not fall through to the operator path (M1).
+ if(ctx.env.PACER_ROLE==="orchestrator"){
+  throw new CoreError("not_allowed","PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT");
  }
  if(ctx.env.PACER_ENFORCEMENT_TOKEN){
   if(name!=="dispatch.enforcement.denied")throw new CoreError("not_allowed","Enforcement identity only reports a native child denial");

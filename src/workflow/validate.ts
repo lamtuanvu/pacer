@@ -118,6 +118,12 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
     if (value.type !== "end" && !candidates.some(c => c.edge.from === id)) {
       errors.push({ path: `steps.${id}`, message: `step ${id} has no outgoing edge` });
     }
+    if (value.type === "choose_workflow") {
+      const outgoing = candidates.filter(c => c.edge.from === id).length;
+      if (outgoing !== 1) {
+        errors.push({ path: `steps.${id}`, message: `choose_workflow step ${id} must have exactly one outgoing edge` });
+      }
+    }
   }
 
   const adjacency = new Map<string, string[]>();

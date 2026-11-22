@@ -98,7 +98,8 @@ test("a substitution longer than 16 KiB is truncated with a marker", () => {
   const out = renderPrompt("{{brief}}", big);
   const n = nonceOf(out);
   const substituted = out.split(`--- data ${n} from the brief ---\n`)[1]!.split(`\n--- end data ${n} ---`)[0]!;
-  expect(substituted.length).toBe(16 * 1024);
+  // Cap is UTF-8 bytes; the "…" marker is 3 bytes / 1 char, so .length is 16382.
+  expect(Buffer.byteLength(substituted, "utf8")).toBe(16 * 1024);
   expect(substituted.endsWith("…[truncated]")).toBe(true);
   // The cap applies to the substitution; the fixed preamble and instruction stay whole.
   expect(out.startsWith(`${DATA_PREAMBLE} Every data block in this prompt carries`)).toBe(true);

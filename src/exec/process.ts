@@ -17,7 +17,15 @@ export function withoutPlannerSession<T extends Record<string, string | undefine
  * are removed. A value the user's login profile set (`profileKeys`) stays, as in a terminal, unless the account
  * (a named account folder) overrides it.
  */
-export function executorEnv(base: Record<string, string | undefined>, account: Record<string, string>, taskId?: string, profileKeys: readonly string[] = []): Record<string, string | undefined> {
+export function executorEnv(
+  base: Record<string, string | undefined>,
+  account: Record<string, string>,
+  taskId?: string,
+  profileKeys: readonly string[] = [],
+  /** Round-2 B3: honour a run grant ONLY when the caller opts in (orchestrate task).
+   *  Never read PACER_RUN_GRANT from base/account — step workers inherit that base. */
+  opts?: { runGrant?: string },
+): Record<string, string | undefined> {
   const env = withoutPlannerSession(base);
   if (!profileKeys.includes("CLAUDE_CONFIG_DIR")) delete env.CLAUDE_CONFIG_DIR;
   if (!profileKeys.includes("CODEX_HOME")) delete env.CODEX_HOME;
@@ -28,6 +36,26 @@ export function executorEnv(base: Record<string, string | undefined>, account: R
   delete env.PACER_HOST_SOCKET;
   for (const name of CORE_SECRET_ENV) delete env[name];
   if (env.PACER_API === "inprocess") delete env.PACER_API;
+  // Drop any inherited orchestrator credential unless this call explicitly opts in.
+  delete env.PACER_RUN_GRANT;
+  if (env.PACER_ROLE === "orchestrator") delete env.PACER_ROLE;
+  const runGrant = typeof opts?.runGrant === "string" && opts.runGrant.startsWith("prg_")
+    ? opts.runGrant
+    : undefined;
+  if (runGrant) {
+    const out: Record<string, string | undefined> = {
+      ...env,
+      ...account,
+      PACER_RUN_GRANT: runGrant,
+      PACER_ROLE: "orchestrator",
+      PACER_TASK_ID: taskId,
+    };
+    delete out.PACER_WORK_GRANT;
+    delete out.PACER_AUTH_TOKEN;
+    delete out.PACER_HOST_SOCKET;
+    for (const name of CORE_SECRET_ENV) delete out[name];
+    return out;
+  }
   return {...env, ...account, PACER_ROLE: "executor", PACER_TASK_ID: taskId};
 }
 

@@ -134,3 +134,119 @@ fn aggregates_and_cursor_survive_append_and_rotation() {
     assert_eq!(replay.discovery_at_counts.get(&8), Some(&0));
     assert_eq!(replay.entries, crate::read_outbox_since(&ctx, 2.0).unwrap());
 }
+
+fn attention_line(seq: u64, id: &str, severity: &str, removed: bool) -> String {
+    let data = if removed {
+        serde_json::json!({"kind":"attention","id":id,"removed":true})
+    } else {
+        serde_json::json!({"kind":"attention","id":id,"value":{"id":id,"severity":severity}})
+    };
+    format!(
+        "{}\n",
+        serde_json::json!({"seq":seq,"envelope":{"type":"entity","data":data}})
+    )
+}
+
+#[test]
+fn workflow_attention_aggregates_track_open_and_problems() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        Default::default(),
+        1.0,
+    );
+    let path = dir.path().join("link/outbox.jsonl");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        attention_line(1, "budget_spent:r1", "decide", false)
+            + &attention_line(2, "budget_warn:r1", "problem", false)
+            + &attention_line(3, "discovery:a", "decide", false)
+            + &line(4, "counts", "counts"),
+    )
+    .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.discovery_at_counts.get(&4), Some(&1));
+    assert_eq!(replay.workflow_at_counts.get(&4), Some(&2));
+    assert_eq!(replay.workflow_problems_at_counts.get(&4), Some(&1));
+
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(
+            (attention_line(5, "budget_spent:r1", "decide", true)
+                + &attention_line(6, "budget_warn:r1", "problem", true)
+                + &line(7, "counts", "counts"))
+                .as_bytes(),
+        )
+        .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&7), Some(&0));
+    assert_eq!(replay.workflow_problems_at_counts.get(&7), Some(&0));
+    assert_eq!(replay.discovery_at_counts.get(&7), Some(&1));
+}
+
+/// Publisher order after entityDiff: removal then counts last. Snapshot at the
+/// counts line must already exclude the removed workflow item. The old
+/// counts-then-removal order is no longer produced by the TypeScript publisher.
+#[test]
+fn workflow_aggregates_use_publisher_removal_before_counts_order() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        Default::default(),
+        1.0,
+    );
+    let path = dir.path().join("link/outbox.jsonl");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        attention_line(1, "failed:t-1", "problem", false)
+            + &attention_line(2, "budget_spent:r1", "decide", false)
+            + &line(3, "counts", "counts"),
+    )
+    .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&3), Some(&1));
+    assert_eq!(replay.workflow_problems_at_counts.get(&3), Some(&0));
+
+    fs::OpenOptions::new()
+        .append(true)
+        .open(&path)
+        .unwrap()
+        .write_all(
+            (attention_line(4, "budget_spent:r1", "decide", true) + &line(5, "counts", "counts"))
+                .as_bytes(),
+        )
+        .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&5), Some(&0));
+    assert_eq!(replay.workflow_problems_at_counts.get(&5), Some(&0));
+}
+
+/// One open problem-severity workflow item, then counts at seq 7 — matches the
+/// TypeScript replayOutbox pin (workflowOpen/workflowProblemsOpen both 1 at 7).
+#[test]
+fn workflow_aggregates_pin_open_problem_at_counts_seq_seven() {
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().to_path_buf(),
+        dir.path().to_path_buf(),
+        Default::default(),
+        1.0,
+    );
+    let path = dir.path().join("link/outbox.jsonl");
+    fs::create_dir_all(path.parent().unwrap()).unwrap();
+    fs::write(
+        &path,
+        attention_line(6, "budget_warn:r1", "problem", false) + &line(7, "counts", "counts"),
+    )
+    .unwrap();
+    let replay = read_outbox_replay(&ctx, 0.0).unwrap();
+    assert_eq!(replay.workflow_at_counts.get(&7), Some(&1));
+    assert_eq!(replay.workflow_problems_at_counts.get(&7), Some(&1));
+    assert_eq!(replay.discovery_at_counts.get(&7), Some(&0));
+}

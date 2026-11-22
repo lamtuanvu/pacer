@@ -66,6 +66,7 @@ pub mod error {
 ///          "liveness",
 ///          "machine",
 ///          "run",
+///          "decision",
 ///          "assistant",
 ///          "discovery.found",
 ///          "control"
@@ -114,6 +115,7 @@ pub struct CapabilityEventsSubscribeParams {
 ///    "liveness",
 ///    "machine",
 ///    "run",
+///    "decision",
 ///    "assistant",
 ///    "discovery.found",
 ///    "control"
@@ -176,6 +178,8 @@ pub enum CapabilityEventsSubscribeParamsTypesItem {
     Machine,
     #[serde(rename = "run")]
     Run,
+    #[serde(rename = "decision")]
+    Decision,
     #[serde(rename = "assistant")]
     Assistant,
     #[serde(rename = "discovery.found")]
@@ -212,6 +216,7 @@ impl ::std::fmt::Display for CapabilityEventsSubscribeParamsTypesItem {
             Self::Liveness => f.write_str("liveness"),
             Self::Machine => f.write_str("machine"),
             Self::Run => f.write_str("run"),
+            Self::Decision => f.write_str("decision"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
             Self::Control => f.write_str("control"),
@@ -243,6 +248,7 @@ impl ::std::str::FromStr for CapabilityEventsSubscribeParamsTypesItem {
             "liveness" => Ok(Self::Liveness),
             "machine" => Ok(Self::Machine),
             "run" => Ok(Self::Run),
+            "decision" => Ok(Self::Decision),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),
             "control" => Ok(Self::Control),
@@ -2934,6 +2940,7 @@ impl<'de> ::serde::Deserialize<'de> for PolicyBeforeResultReason {
 ///        "liveness",
 ///        "machine",
 ///        "run",
+///        "decision",
 ///        "assistant",
 ///        "discovery.found",
 ///        "control"
@@ -3058,6 +3065,7 @@ impl ::std::convert::From<::std::collections::HashMap<::std::string::String, Pol
 ///    "liveness",
 ///    "machine",
 ///    "run",
+///    "decision",
 ///    "assistant",
 ///    "discovery.found",
 ///    "control"
@@ -3120,6 +3128,8 @@ pub enum PolicyEventType {
     Machine,
     #[serde(rename = "run")]
     Run,
+    #[serde(rename = "decision")]
+    Decision,
     #[serde(rename = "assistant")]
     Assistant,
     #[serde(rename = "discovery.found")]
@@ -3156,6 +3166,7 @@ impl ::std::fmt::Display for PolicyEventType {
             Self::Liveness => f.write_str("liveness"),
             Self::Machine => f.write_str("machine"),
             Self::Run => f.write_str("run"),
+            Self::Decision => f.write_str("decision"),
             Self::Assistant => f.write_str("assistant"),
             Self::DiscoveryFound => f.write_str("discovery.found"),
             Self::Control => f.write_str("control"),
@@ -3187,6 +3198,7 @@ impl ::std::str::FromStr for PolicyEventType {
             "liveness" => Ok(Self::Liveness),
             "machine" => Ok(Self::Machine),
             "run" => Ok(Self::Run),
+            "decision" => Ok(Self::Decision),
             "assistant" => Ok(Self::Assistant),
             "discovery.found" => Ok(Self::DiscoveryFound),
             "control" => Ok(Self::Control),

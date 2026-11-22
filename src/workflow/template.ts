@@ -71,19 +71,34 @@ function render(value: unknown): string {
   return json === undefined ? "" : json;
 }
 
-/** Caps one rendered substitution at 16 KiB, marking the cut. */
-function cap(text: string): string {
-  return text.length <= MAX_SUBSTITUTION ? text : text.slice(0, MAX_SUBSTITUTION - TRUNCATED.length) + TRUNCATED;
+/** Caps one rendered substitution, marking the cut (one code-point pass; A-M3 / J5). */
+function cap(text: string, maxBytes = MAX_SUBSTITUTION): string {
+  if (Buffer.byteLength(text, "utf8") <= maxBytes) return text;
+  const budget = Math.max(0, maxBytes - Buffer.byteLength(TRUNCATED, "utf8"));
+  let out = "";
+  let used = 0;
+  for (const ch of text) {
+    const n = Buffer.byteLength(ch, "utf8");
+    if (used + n > budget) break;
+    out += ch;
+    used += n;
+  }
+  return out + TRUNCATED;
 }
 
-export function renderPrompt(tpl: string, scope: RenderScope): string {
+export function renderPrompt(
+  tpl: string,
+  scope: RenderScope,
+  opts?: { maxSubstitutionBytes?: number },
+): string {
   // One fresh nonce per rendered prompt: both lines of every marker pair carry it,
   // so marker-like text inside substituted data never closes a block.
+  const maxSubst = opts?.maxSubstitutionBytes ?? MAX_SUBSTITUTION;
   const nonce = randomBytes(4).toString("hex");
   const open = (label: string) => `--- data ${nonce} ${label} ---`;
   const close = `--- end data ${nonce} ---`;
   const body = tpl.replace(/\{\{([^{}]*)\}\}/g, (_match, expr: string) => {
-    const rendered = cap(render(lookup(expr, scope)));
+    const rendered = cap(render(lookup(expr, scope)), maxSubst);
     if (!rendered) return "";
     const label = dataMarkerLabel(expr, scope);
     return label ? `${open(label)}\n${rendered}\n${close}` : rendered;

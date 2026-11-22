@@ -22,9 +22,11 @@ import { readTask } from "../tasks/store";
 import { taskChangesSince } from "../tasks/changes";
 import {
   attachStepTask, getCursor, getDefinition, getRun, liveRuns, orphanSteps, setCursor, stepByTask, stepsOfRun,
-  taskByRequestId, unadvancedDoneSteps, updateStep, type StepRow,
+  taskByRequestId, unadvancedDoneSteps, updateRun, updateStep, type StepRow,
 } from "./store";
 import { defaultEngineDeps, failRun, joinFanout, onTaskSettled, readvanceStep, reconcileOrphanStep, stepRequestId, type EngineDeps } from "./engine";
+import { orchestrateRuns, type OrchestratorDeps } from "./orchestrator";
+import { enqueueWakeup, stepWakeRef } from "./wakeups";
 
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 
@@ -250,17 +252,29 @@ async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, 
   for (const run of liveRuns(ctx)) { // live runs only, filtered in SQL (round 4 review)
     try {
       const rows = stepsOfRun(ctx, run.id);
-      // (a) A claimed failure whose failRun never landed.
+      // (a) A claimed failure whose orchestrator wake-up never landed: recreate the
+      // wake-up and leave the run live for the orchestrate phase (Phase 2). Fan-out
+      // join failures still fail the run below.
       const lostFailures = rows.filter(r => r.branch === undefined && r.status === "failed" && r.advancedAt === undefined);
       if (lostFailures.length > 0) {
-        const first = lostFailures[0]!;
-        await failRun(ctx, run.id, `step ${first.stepId} ${first.error ?? "failed"}`, undefined, deps);
         for (const row of lostFailures) {
+          const cause = row.error === "no step result" ? "step_invalid" as const : "step_failed" as const;
+          enqueueWakeup(ctx, {
+            runId: run.id,
+            cause,
+            ref: stepWakeRef(row.runId, row.stepId, row.attempt, row.branch),
+            createdAt: ctx.now,
+          });
           try { updateStep(ctx, { runId: run.id, stepId: row.stepId, attempt: row.attempt }, { advancedAt: ctx.now }); }
-          catch { /* the row may have changed meanwhile; the run is terminal now anyway */ }
+          catch { /* the row may have changed meanwhile */ }
+        }
+        const current = getRun(ctx, run.id);
+        if (current && current.status === "running") {
+          try { updateRun(ctx, run.id, current.rev, { status: "waiting" }); }
+          catch { /* concurrent patch */ }
         }
         handled += lostFailures.length;
-        continue; // the run is terminal now; the rest of the recovery does not apply
+        // The run stays live for the orchestrator; continue recovery for other rows.
       }
       // (c) Settled tasks whose step row never claimed its settlement.
       let progressed = false;
@@ -322,7 +336,12 @@ async function recoverLostSettlements(ctx: Ctx, spawn: SpawnRunner | undefined, 
   return handled;
 }
 
-export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDeps = defaultEngineDeps): Promise<{ handled: number; rescanned: boolean }> {
+export async function advanceRuns(
+  ctx: Ctx,
+  spawn?: SpawnRunner,
+  deps: EngineDeps = defaultEngineDeps,
+  orch: OrchestratorDeps = {},
+): Promise<{ handled: number; rescanned: boolean; orchestrated: number }> {
   let handled = 0;
   // Orphan reconciliation first, on every tick (not only after a gap): a recovered
   // step may then also have its own change waiting in the log below, which is a no-op.
@@ -341,5 +360,8 @@ export async function advanceRuns(ctx: Ctx, spawn?: SpawnRunner, deps: EngineDep
   // It is skipped when the walk stopped early (a transient or an aborted rescan):
   // the next tick re-processes the log first, then recovers.
   if (!walk.stopped) handled += await recoverLostSettlements(ctx, spawn, deps);
-  return { handled, rescanned: walk.rescanned };
+  // Fifth phase: start due orchestrator turns, settle terminal ones, recreate lost wake-ups.
+  const orchDeps: OrchestratorDeps = { ...orch, ...(spawn && !orch.spawn ? { spawn } : {}) };
+  const orchestrated = await orchestrateRuns(ctx, orchDeps);
+  return { handled, rescanned: walk.rescanned, orchestrated };
 }

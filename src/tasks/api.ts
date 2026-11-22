@@ -163,6 +163,10 @@ export const runnerProcess = (command: readonly string[]): SpawnRunner => (ctx, 
   const [cmd, ...pre] = command;
   if (!cmd) throw new Error("runner self command is empty");
   const { PACER_HOST_SOCKET: _owner, ...env } = ctx.env;
+  // Always scrub: `_run` issues its own grant into the agent env (N6/M3). Keeping a
+  // grant here makes `_run` hit the orchestrator allow-list again on relaunch.
+  delete env.PACER_RUN_GRANT;
+  if (env.PACER_ROLE === "orchestrator") delete env.PACER_ROLE;
   const log = openRunnerLog(ctx);
   try {
     const child = spawn(cmd, [...pre, "_run", taskId], {
@@ -184,7 +188,13 @@ export function launchTaskRunner(ctx: Ctx, taskId: string, spawn: SpawnRunner, a
   describeWorkSync(ctx, lease, { kind: "task", id: taskId, label: `Task ${taskId}` });
   markLaunchStartedSync(ctx, lease);
   const {operation:_requestLifetime,...launchCtx}=ctx;
-  return spawn({ ...launchCtx, env: { ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId } }, taskId);
+  const env: Record<string, string | undefined> = {
+    ...ctx.env, PACER_ADMISSION_LEASE: lease, PACER_ADMISSION_TASK: taskId,
+  };
+  // Always scrub (M3): the runner re-issues the grant into the agent env only.
+  delete env.PACER_RUN_GRANT;
+  if (env.PACER_ROLE === "orchestrator") delete env.PACER_ROLE;
+  return spawn({ ...launchCtx, env }, taskId);
 }
 const spawnRunnerProcess: SpawnRunner = (ctx, taskId) => runnerProcess(selfCommand())(ctx, taskId);
 export const spawnRunner: SpawnRunner = (ctx, taskId) => launchTaskRunner(ctx, taskId, spawnRunnerProcess);
@@ -707,7 +717,10 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
   const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
   const needsSupervision = [...active, ...gaps].filter(t => {
     if (t.run?.host) return false;                    // remote
-    if (t.runnerPid && alive(t.runnerPid)) return false; // healthy local
+    // A healthy local runner still needs supervision when stop is pending: owned
+    // attempts block inside executor.run and only settle after executor.stop
+    // (via this pass) kills the wrapper. Skipping them left hang stubs forever.
+    if (t.runnerPid && alive(t.runnerPid) && !t.stopPending) return false;
     if (t.state === 'queued' && !t.worktreeIntent && !t.runClaim && !t.baseFetchIntent?.sha && !t.remotePrepareIntent) return false;
     return true;
   });

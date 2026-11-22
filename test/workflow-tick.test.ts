@@ -406,25 +406,34 @@ const driveBranch = async (ctx: Ctx, runId: string, branch: string, deps: Engine
   await onTaskSettled(ctx, row.taskId!, undefined, deps);
 };
 
-test("a claimed failure whose failRun was lost to a lock error fails the run on the next tick", async () => {
+test("a claimed failure whose wake-up write was lost is recovered on the next tick", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, demo, "source");
   const { deps } = fakeDeps();
-  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, undefined, deps);
-  const s1 = stepsOfRun(ctx, r.id)[0];
+  const spawn = () => 1;
+  const r = await startRun(ctx, { workflow: "t/demo", repo: tmpDir(), brief: "B" }, spawn, deps);
+  const s1 = stepsOfRun(ctx, r.id)[0]!;
   settle(ctx, s1.taskId!); // no result: the step settles as failed
-  // The exact point: the settlement is claimed, then failRun's run patch hits a lock.
-  workflowDatabase(ctx).exec(`CREATE TRIGGER wf_lock_fail BEFORE UPDATE ON workflow_runs WHEN OLD.id = '${r.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`);
-  const out = await advanceRuns(ctx, undefined, deps);
-  expect(out.handled).toBe(0);
-  expect(getRun(ctx, r.id)!.status).toBe("running"); // the run is still live
-  expect(stepsOfRun(ctx, r.id)[0]!.status).toBe("failed"); // the row was claimed
-  workflowDatabase(ctx).exec("DROP TRIGGER wf_lock_fail");
-  const out2 = await advanceRuns(ctx, undefined, deps);
+  await onTaskSettled(ctx, s1.taskId!, spawn, deps);
+  expect(stepsOfRun(ctx, r.id)[0]!.status).toBe("failed");
+  expect(getRun(ctx, r.id)!.status).not.toBe("failed");
+  // Simulate a lost wake-up (and clear any turn that claimed it).
+  workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+  workflowDatabase(ctx).query("DELETE FROM workflow_turns WHERE run_id = ?").run(r.id);
+  // Clear advanced_at so recovery treats this as an unrecovered claimed failure.
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_steps SET advanced_at = NULL WHERE run_id = ? AND step_id = ?",
+  ).run(r.id, s1.stepId);
+  await advanceRuns(ctx, spawn, deps);
   const run = getRun(ctx, r.id)!;
-  expect(run.status).toBe("failed"); // the lost failRun was recovered
-  expect(run.reason).toBe("step draft no step result");
-  expect(stepsOfRun(ctx, r.id)[0]!.advancedAt).toBeDefined(); // recorded, so no repeat
+  // Phase 2: recovery recreates the wake-up; the run stays live (not failed).
+  expect(run.status).not.toBe("failed");
+  expect(run.reason).toBeUndefined();
+  const wakes = workflowDatabase(ctx).query<{ cause: string; ref: string }, [string]>(
+    "SELECT cause, ref FROM workflow_wakeups WHERE run_id = ?",
+  ).all(r.id);
+  expect(wakes.some(w => w.cause === "step_invalid" || w.cause === "step_failed")).toBe(true);
+  expect(stepsOfRun(ctx, r.id)[0]!.advancedAt).toBeDefined();
 });
 
 test("a fan-out whose branches all settled without a join row is joined by the tick", async () => {

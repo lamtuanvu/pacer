@@ -87,7 +87,7 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
         ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}),
       };
       const requestCtx: Ctx = { ...base, operation };
-      const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
+      const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && !deps.getCtx().env.PACER_RUN_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
         : await (version===3?callOp:callV2Op)(requestCtx, pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client,clientInstance});
       return Response.json({ result });

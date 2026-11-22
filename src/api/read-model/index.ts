@@ -14,8 +14,10 @@ import { readPause } from "../../core/pause";
 import { deliveryPresenters } from "../../clients/registry";
 import { applyStore } from "../../attention/store";
 import { deriveTaskItems } from "../../core/task-attention";
+import { deriveWorkflowAttention } from "../../workflow/attention";
 import { discoveryRuleInput } from "../../discovery/prompts";
 import { executorsFor } from "../../engine/rank";
+import { listTasksWhere } from "../../tasks/store";
 import type { ExecutorRow } from "./types";
 import pkg from "../../../package.json";
 import type { Ctx } from "../../types";
@@ -49,19 +51,34 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  const {status,strategy,tasks}=input,executors=buildExecutors(status,strategy,tasks,ctx.now,ctx),accounts=buildAccounts(status,strategy,ctx).map(a=>({...a,signedIn:a.signedIn===false?false:input.signedIn?.find(row=>row.name===a.name)?.signedIn??a.signedIn})),planner=buildPlanner(status),hosts=buildHosts(input.hosts,executors,tasks,ctx),setup=buildSetup(withStatus(input.setup,status,ctx,tasks.some(t=>!!t.review)),policy);
  let policies: ProjectStrategyFile | undefined, policyError: string | undefined;
  try { policies = readProjectStrategies(ctx); } catch (error) { policyError = error instanceof Error ? error.message : String(error); }
- const attentionTasks = tasks.map(task => ({ ...task, title: task.fullTitle ?? task.title }));
- const attention=applyStore(ctx,deriveTaskItems({now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies),discovery:discoveryRuleInput(ctx,ctx.now)}));
+ // Engine-owned orchestrator tasks stay out of ordinary attention (D2.12).
+ const attentionTasks = tasks.filter(t => t.kind !== "orchestrate").map(task => ({ ...task, title: task.fullTitle ?? task.title }));
+ const attention=applyStore(ctx,[
+  ...deriveTaskItems({now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies),discovery:discoveryRuleInput(ctx,ctx.now)}),
+  ...deriveWorkflowAttention(ctx),
+ ]);
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
  const safe=(text:string|null)=>text===null?null:redactEndpointError(text,secrets).replace(/[A-Z0-9._%+-]+@[A-Z0-9.-]+\.[A-Z]{2,}/gi,"[redacted]");
  const pause=paused?{...paused,reason:safe(paused.reason),by:safe(paused.by)}:null;
- const recent=tasks.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed&&t.updatedAt>=ctx.now-86400));
+ // Hide orchestrate tasks from ordinary task lists in the snapshot (D2.12).
+ const visibleTasks = tasks.filter(t => t.kind !== "orchestrate");
+ const recent=visibleTasks.filter(t=>["queued","running"].includes(t.state)||(!t.dismissed&&t.updatedAt>=ctx.now-86400));
  const repos=[...listRepos(ctx,recent.map(t=>t.repo))],known=new Set(repos.map(r=>r.key));
  for(const t of recent)if(!known.has(t.repo.key)){repos.push(t.repo);known.add(t.repo.key);}
  const labels=labelsFor(repos);
  const notifiers=serviceNotifiers(ctx);
  const exec = validateExecution(strategy.execution);
- const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: tasks.filter(t => t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy,t.executor)?.host : null))).length+activeAgentSessions(ctx).length, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
- return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(tasks,executors,setup,hosts,attention),today:buildToday(ctx,tasks)};
+  // Orchestrate tasks are hidden from lists (and from `tasks` when callers use
+  // snapshotTasks) but still occupy local capacity. Count them from the store.
+  const localRunning = (t: typeof tasks[number]) =>
+   t.state === "running" && !(t.host ?? (t.executor ? resolveRunner(strategy, t.executor)?.host : null));
+  const localRunningRecord = (t: { state: string; executor?: string | null; run?: { host?: string } }) =>
+   t.state === "running" && !(t.run?.host ?? (t.executor ? resolveRunner(strategy, t.executor)?.host : null));
+  const usedLocal = visibleTasks.filter(localRunning).length
+   + listTasksWhere(ctx, { states: ["running"] }).filter(t => t.kind === "orchestrate" && localRunningRecord(t)).length
+   + activeAgentSessions(ctx).length;
+ const machine = {agentSessionsRevision:agentSessionsRevision(ctx),os: machineOS, arch: arch(), used: usedLocal, ...machineCap(exec.localMaxTasks ?? null), ...machineGuardState(exec)};
+ return {policy,desktopUpdates:desktopUpdateStatuses(ctx),machine,pause,attention,service:{...(policyError ? {projectStrategyError: policyError} : {}),version:pkg.version,protocol:PROTOCOL_VERSION,pid:process.pid,startedAt,notifiers,notifier:notifiers.os,...waitingField()},planner,executors,accounts,hosts,repos:repos.map(r=>{schedulePathRefresh(r.path);return {...r,label:labels.get(r.key)!,...(cachedPath(r.path).unreachable?{unreachable:true as const}:{})};}),setup,counts:buildCounts(visibleTasks,executors,setup,hosts,attention),today:buildToday(ctx,visibleTasks)};
 }
 
 export function serviceNotifiers(ctx: Ctx): ServiceNotifiers {
