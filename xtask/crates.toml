@@ -122,6 +122,9 @@ heavy = ["reqwest"]
 [crates.pacer-bundled-notify]
 layer = "plugin"
 
+[crates.pacer-bundled-remote-caller]
+layer = "plugin"
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]
