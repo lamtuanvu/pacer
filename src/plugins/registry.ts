@@ -98,6 +98,10 @@ const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
 const HOST_RUNTIME_PROBE_ISSUER = Symbol("host-runtime-probe-issuer");
 const HOST_CALL_PROBE_ISSUER = Symbol("host-call-probe-issuer");
 const HOST_BINARY_UPLOAD_ISSUER = Symbol("host-binary-upload-issuer");
+/** Issuers of the host-issued SSH legs that a native-owner `hostRunner` call may pin to its serving lane. */
+const HOST_PROVIDER_ISSUERS: ReadonlySet<symbol> = new Set([HOST_CHECK_ISSUER, HOST_PROVIDER_MUTATION_ISSUER, HOST_REPORT_ISSUER,
+  HOST_PREPARE_RECOVER_ISSUER, HOST_SESSION_FILES_ISSUER, HOST_ATTEMPT_PREFLIGHT_ISSUER, HOST_READ_FROM_ISSUER,
+  HOST_BINARY_CHECK_ISSUER, HOST_RUNTIME_PROBE_ISSUER, HOST_BINARY_UPLOAD_ISSUER]);
 const stagedFetchResult = z.object({ handle: z.string().regex(/^[a-f0-9-]{36}$/),
   bytes: z.number().int().nonnegative().max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict();
 type StagedFetchResult = z.infer<typeof stagedFetchResult>;
@@ -122,9 +126,11 @@ const NATIVE_DETACHED_INSPECT_METHOD = "capability.process.inspectRun";
 const NATIVE_REMOTE_STOP_METHOD = "capability.hosts.stopOwned";
 interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProcess; generation: string;
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
+/** The provider child one host-issued SSH sequence must stay on: the local process flag-off, the owner lane's pid flag-on. */
+interface HostRunnerPin { readonly alive: () => boolean; readonly options: Pick<PluginCallOptions, "expectedProcess" | "expectPid"> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { /** The turn whose tools `capability.assistant.tool` may run, bound to this `assistant.reply` call's authority and revoked with it. */ assistantTurn?: AssistantToolTurn; plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_PREPARE_RECOVER_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { /** The turn whose tools `capability.assistant.tool` may run, bound to this `assistant.reply` call's authority and revoked with it. */ assistantTurn?: AssistantToolTurn; plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; spawnAdmission?: (spawn: () => ChildProcess) => ChildProcess; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; /** Internal owner-lane binding: a host-issued SSH sequence pinned to the owner child with this pid (flag-on twin of expectedProcess). */ expectPid?: number; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_PREPARE_RECOVER_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export type SurfaceKind = "activity" | "panelTabs" | "settings" | "status";
 export interface SurfaceInfo { plugin: string; surface: SurfaceKind; id: string; title: string; icon: string | null; context: "global" | "task"; visible: boolean; state: PluginState }
 const KINDS: SurfaceKind[] = ["activity", "panelTabs", "settings", "status"];
@@ -161,6 +167,8 @@ interface Entry {
   id: string; manifest: PluginManifest | null; bundled: boolean; dir: string | null;
   state: PluginState; error: string | null; served: string[]; pluginProtocol: string | null;
   process?: PluginProcess; starting?: Promise<PluginProcess>; queue: SerialCalls;
+  /** The pid of the owner lane that served this entry's requests, set from the owner's `pid` reply. */
+  nativePid?: number;
   authorities: Map<string, CallAuthority>;
   readOwner?:ReadOwner;subscription?:EventSubscription;observationFingerprint?:string;processObservationFingerprint?:string;
   crashes: number[]; nextStartAt: number; stopping: boolean;
@@ -239,8 +247,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -252,7 +260,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, fingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777) &&
         argv.includes(`ControlPath=${controlPath}`);
@@ -268,7 +276,7 @@ export class PluginRegistry {
       const result = await this.call<ConfiguredHostCheck>(
         ctx, provider.id, "hostRunner.check", { alias, ...(target.repo === undefined ? {} : { repo: target.repo }),
           ...(home === undefined ? {} : { home }), sshTarget: host.ssh, controlPath },
-        { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: 60_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_CHECK_ISSUER]: true });
       if (home !== undefined && (result.checks.length !== 1 || result.checks[0]?.name !== "account home" ||
         result.checks[0].ok !== result.ok || result.facts !== undefined))
@@ -291,8 +299,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -302,7 +310,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -316,7 +324,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       await validateConfiguredHostClone(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured clone retired");
@@ -330,7 +338,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.run",
           { session, script: "CHECK_REPO", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: 60_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_PROVIDER_MUTATION_ISSUER]: true });
         const receipt = `\n__PACER_DONE__=${nonce}\n`;
         if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
@@ -346,7 +354,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -363,8 +371,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -374,7 +382,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -388,7 +396,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       await validateConfiguredHostClean(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured cleanup retired");
@@ -402,7 +410,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.run",
           { session, script: "CLEAN", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: 60_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: 60_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_PROVIDER_MUTATION_ISSUER]: true });
         const receipt = `\n__PACER_DONE__=${nonce}\n`;
         if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
@@ -418,7 +426,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -435,8 +443,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -446,7 +454,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -460,7 +468,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostStop(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured stop retired");
@@ -474,7 +482,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.run",
           { session, script: "STOP", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_PROVIDER_MUTATION_ISSUER]: true });
         const receipt = `\n__PACER_DONE__=${nonce}\n`;
         if (result.timedOut || result.code === 255 || !result.stdout.endsWith(receipt))
@@ -490,7 +498,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -507,8 +515,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -518,7 +526,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -532,7 +540,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       await validateConfiguredHostPrepare(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured prepare retired");
@@ -546,7 +554,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.run",
           { session, script: "PREPARE", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs, mode: "prepare-bundle", input,
               inputSha256: createHash("sha256").update(input).digest("hex") }], stores: [] },
             [HOST_PROVIDER_MUTATION_ISSUER]: true });
@@ -564,7 +572,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -581,8 +589,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -593,7 +601,7 @@ export class PluginRegistry {
       try { validateConfiguredHostStartState(ctx, grant); } catch { return false; }
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -607,7 +615,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostStart(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured start retired");
@@ -621,7 +629,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.run",
           { session, script: "START", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs, mode: "start-input", input,
               inputSha256: createHash("sha256").update(input).digest("hex") }], stores: [] },
             [HOST_PROVIDER_MUTATION_ISSUER]: true });
@@ -639,7 +647,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -656,8 +664,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -668,7 +676,7 @@ export class PluginRegistry {
       try { validateConfiguredHostBinaryUploadState(ctx, grant); } catch { return false; }
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && !current.paused && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -682,7 +690,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostBinaryUpload(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured binary upload retired");
@@ -696,7 +704,7 @@ export class PluginRegistry {
         const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
           ctx, provider.id, "hostRunner.upload",
           { session, script: "BINARY", args: [...args], timeoutMs, maxBytes: grant.resource.maxBytes, completionNonce: nonce },
-          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
             resources: { reads: [], commands: [{ argv, timeoutMs, mode: "binary-upload", input,
               inputSha256: createHash("sha256").update(input).digest("hex") }], stores: [] },
             [HOST_BINARY_UPLOAD_ISSUER]: true });
@@ -714,7 +722,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -731,8 +739,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -743,7 +751,7 @@ export class PluginRegistry {
       try { validateConfiguredHostAttemptPreflight(ctx, grant); } catch { return false; }
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -757,7 +765,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostAttemptPreflight(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured attempt preflight retired");
@@ -767,7 +775,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "PREFLIGHT", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_ATTEMPT_PREFLIGHT_ISSUER]: true });
       validateConfiguredHostAttemptPreflight(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured attempt preflight host changed after observation");
@@ -775,7 +783,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -793,8 +801,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -804,7 +812,7 @@ export class PluginRegistry {
     const active = () => {
       const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && !current.paused && JSON.stringify(current) === hostFingerprint &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -818,7 +826,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       await validateConfiguredHostPrepareRecover(ctx, grant);
       if (controller.signal.aborted || !active())
@@ -829,7 +837,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "PREPARE_RECOVER", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs, mode: "prepare-recover" }], stores: [] },
           [HOST_PREPARE_RECOVER_ISSUER]: true });
       await validateConfiguredHostPrepareRecover(ctx, grant);
@@ -838,7 +846,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -855,8 +863,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -866,7 +874,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -880,7 +888,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostReport(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured report retired");
@@ -890,7 +898,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "REPORT", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_REPORT_ISSUER]: true });
       validateConfiguredHostReport(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured report host changed after observation");
@@ -898,7 +906,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -915,8 +923,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -926,7 +934,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -940,7 +948,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostSessionFiles(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session files retired");
@@ -950,7 +958,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "SESSION_FILES", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_SESSION_FILES_ISSUER]: true });
       validateConfiguredHostSessionFiles(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured session files host changed after observation");
@@ -958,7 +966,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -975,8 +983,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -986,7 +994,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -1000,7 +1008,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostReadFrom(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured read retired");
@@ -1010,7 +1018,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "READ_FROM", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_READ_FROM_ISSUER]: true });
       validateConfiguredHostReadFrom(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured read host changed after observation");
@@ -1021,7 +1029,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -1042,9 +1050,10 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const process = provider.process!;
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
       (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
@@ -1054,7 +1063,7 @@ export class PluginRegistry {
       validateConfiguredHostSessionStream(ctx, grant);
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -1073,7 +1082,7 @@ export class PluginRegistry {
         if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session retired");
         const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
           { alias, sshTarget: host.ssh, controlPath },
-          { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+          { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
         session = opened.session;
         if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session retired");
         const argv = sshArgv(ctx, host, SCRIPTS.SESSION_PIPE, [...args]);
@@ -1081,7 +1090,7 @@ export class PluginRegistry {
           throw new CoreError("capability_denied", "configured session SSH path changed");
         const result = await this.call<{ code: number; bytes: number }>(ctx, provider.id, "hostRunner.stream",
           { session, script: "SESSION_PIPE", args: [...args], timeoutMs, maxBytes, streamId },
-          { deadlineMs: 0, signal: controller.signal, expectedProcess: process,
+          { deadlineMs: 0, signal: controller.signal, ...pin.options,
             onStreamProgress: async bytes => {
               if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "session viewer retired");
               await onBytes(bytes);
@@ -1096,7 +1105,7 @@ export class PluginRegistry {
       finally {
         clearInterval(watch); signal.removeEventListener("abort", cancel);
         if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-          { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+          { deadlineMs: 5000, ...pin.options }).catch(() => {});
       }
     })();
     void done.catch(() => {});
@@ -1120,8 +1129,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -1132,7 +1141,7 @@ export class PluginRegistry {
       try { validateConfiguredHostRuntimeProbe(ctx, grant); } catch { return false; }
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -1146,7 +1155,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostRuntimeProbe(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured runtime probe retired");
@@ -1156,7 +1165,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "PROBE", args: [], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_RUNTIME_PROBE_ISSUER]: true });
       validateConfiguredHostRuntimeProbe(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured runtime probe host changed after observation");
@@ -1164,7 +1173,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -1181,8 +1190,8 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
-    const process = provider.process, generation = this.hostGeneration(ctx, provider);
-    if (!process?.alive || !provider.served.includes("hostRunner"))
+    const pin = this.hostRunnerPin(ctx, provider), generation = this.hostGeneration(ctx, provider);
+    if (!pin || !provider.served.includes("hostRunner"))
       throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
     const directory = controlDir(ctx), original = lstatSync(directory);
     if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
@@ -1192,7 +1201,7 @@ export class PluginRegistry {
     const active = () => {
       const current = cachedStrategy(ctx).hosts[alias], now = lstatSync(directory);
       return current && matchesHostFingerprint(current, hostFingerprint) &&
-        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        pin.alive() && this.hostGeneration(ctx, provider) === generation &&
         now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
         now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
     };
@@ -1206,7 +1215,7 @@ export class PluginRegistry {
     try {
       const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
         { alias, sshTarget: host.ssh, controlPath },
-        { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        { deadlineMs: 10_000, signal: controller.signal, ...pin.options });
       session = opened.session;
       validateConfiguredHostBinaryCheck(ctx, grant);
       if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured binary check retired");
@@ -1216,7 +1225,7 @@ export class PluginRegistry {
       const result = await this.call<{ code: number; stdout: string; stderr: string; timedOut: boolean }>(
         ctx, provider.id, "hostRunner.run",
         { session, script: "BINARY", args: [...args], timeoutMs, maxBytes },
-        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, expectedProcess: process,
+        { deadlineMs: timeoutMs + 10_000, signal: controller.signal, ...pin.options,
           resources: { reads: [], commands: [{ argv, timeoutMs }], stores: [] }, [HOST_BINARY_CHECK_ISSUER]: true });
       validateConfiguredHostBinaryCheck(ctx, grant);
       if (!active()) throw new CoreError("capability_denied", "configured binary host changed after observation");
@@ -1224,7 +1233,7 @@ export class PluginRegistry {
     } finally {
       clearInterval(watch); signal?.removeEventListener("abort", cancel);
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
-        { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+        { deadlineMs: 5000, ...pin.options }).catch(() => {});
     }
   }
 
@@ -1895,7 +1904,7 @@ export class PluginRegistry {
       throw new CoreError("plugin_unavailable", "one distinct SSH host runner provider is required");
     const provider = this.entries.get(providers[0]!)!;
     const providerGeneration = this.hostGeneration(ctx, provider);
-    const providerProcess = provider.process?.pid ?? 0;
+    const providerProcess = provider.process?.pid ?? provider.nativePid ?? 0;
     const seen = new Set<string>();
     const out: HostSnapshotSeal[] = [];
     for (const op of hosts) {
@@ -1925,16 +1934,50 @@ export class PluginRegistry {
     this.setState(ctx, e, "ready");
   }
 
-  async nativeStop(ctx: Ctx, id: string): Promise<void> { await this.stop(this.findEntry(ctx, id)); }
+  /** The provider child one host-issued SSH sequence must stay on: the local process flag-off, the owner lane's pid flag-on. */
+  private hostRunnerPin(ctx: Ctx, provider: Entry): HostRunnerPin | undefined {
+    if (ctx.env.PACER_HOST_SOCKET) {
+      const pid = provider.nativePid;
+      if (!pid || provider.state !== "ready") return undefined;
+      return { alive: () => provider.nativePid === pid && provider.state === "ready", options: { expectPid: pid } };
+    }
+    const process = provider.process;
+    if (!process?.alive) return undefined;
+    return { alive: () => provider.process === process && process.alive, options: { expectedProcess: process } };
+  }
+
+  /** Flag-off host-runner result checks (schema, byte limits), shared with the flag-on owner path. */
+  private checkHostRunnerResult<T>(method: string, input: unknown, result: unknown, ownerBoundStream: boolean): T {
+    const output = (HOST_RUNNER_METHODS as Record<string, { result: z.ZodType<unknown> }>)[method].result.safeParse(result);
+    if (!output.success) throw new CoreError("plugin_refused", "host runner returned an invalid result");
+    if (method === "hostRunner.fetch" || (method === "hostRunner.stream" && !ownerBoundStream)) {
+      if ((output.data as { bytes: number }).bytes > (input as { maxBytes: number }).maxBytes)
+        throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
+    }
+    if (method === "hostRunner.run" || method === "hostRunner.upload") {
+      if (Buffer.byteLength((output.data as { stdout: string; stderr: string }).stdout) +
+        Buffer.byteLength((output.data as { stdout: string; stderr: string }).stderr) > (input as { maxBytes: number }).maxBytes)
+        throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
+    }
+    return output.data as T;
+  }
+
+  async nativeStop(ctx: Ctx, id: string): Promise<void> {
+    const e = this.findEntry(ctx, id);
+    e.nativePid = undefined;
+    await this.stop(e);
+  }
 
   /** An owner-supervised child exited unasked: the bookkeeping `onExit` does for a local child. */
   nativeCrash(ctx: Ctx, id: string, reason: string): void {
     const e = this.findEntry(ctx, id);
+    e.nativePid = undefined;
     if (ENABLED.has(e.state)) this.recordCrash(ctx, e, reason);
   }
 
   nativeReset(ctx: Ctx, id: string): void {
     const e = this.findEntry(ctx, id);
+    e.nativePid = undefined;
     e.crashes = []; e.nextStartAt = 0;
     if (e.state === "failing") e.state = "idle";
     this.refresh(ctx);
@@ -2540,14 +2583,9 @@ export class PluginRegistry {
             return undefined as T;
           }
           if (method === "usage.read" || hostRunner || executorAvailable || executorAttempt) {
+            if (hostRunner) return this.checkHostRunnerResult<T>(method, input, result, ownerBoundStream);
             const output = def.result.safeParse(result);
-            if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
-            if(hostRunner && (method === "hostRunner.fetch" || method === "hostRunner.stream" && !ownerBoundStream) &&
-              (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
-              throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
-            if((method === "hostRunner.run" || method === "hostRunner.upload") &&
-              Buffer.byteLength((output.data as {stdout:string;stderr:string}).stdout) + Buffer.byteLength((output.data as {stdout:string;stderr:string}).stderr) > (input as {maxBytes:number}).maxBytes)
-              throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
+            if (!output.success) throw new CoreError("plugin_refused", executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
             return output.data as T;
           }
           if (method.startsWith("ui.")) {
@@ -2574,15 +2612,19 @@ export class PluginRegistry {
   private callNativeOwner<T>(ctx: Ctx, e: Entry, method: string, input: unknown, options: PluginCallOptions, socket: string, deadlineAt: number, plannerFingerprint?: string, credentialBound = false): Promise<T> {
     const lease = options.plannerResources;
     const assistantTurn = method === "assistant.reply" ? options.assistantTurn : undefined;
+    const pinned = method.startsWith("hostRunner.") && options.expectPid !== undefined && e.id === "pacer-ssh";
     const hostOnly = options.onProgress ?? options.onStreamProgress ?? options.onStreamReady
       ?? options.expectedProcess ?? options.spawnAdmission
-      ?? Object.getOwnPropertySymbols(options).find(key => (options as Record<symbol, unknown>)[key] !== undefined);
+      ?? Object.getOwnPropertySymbols(options).find(key => !(pinned && HOST_PROVIDER_ISSUERS.has(key))
+        && (options as Record<symbol, unknown>)[key] !== undefined);
     const effects = lease !== undefined && NATIVE_PLANNER_EFFECTS.includes(method);
     if (hostOnly !== undefined || (lease && !effects && !NATIVE_READ_ONLY_PLANNER.includes(method)))
       throw new CoreError("plugin_unavailable", `${method} needs host-side call options the native process owner bridge does not carry`);
     const issued = options.resources;
     if (issued?.hosts?.length)
       throw new CoreError("plugin_unavailable", `${method} needs hosts resources, which the native process owner bridge does not serve`);
+    if (pinned && issued?.commands.some(command => command.mode !== undefined))
+      throw new CoreError("plugin_unavailable", `${method} needs a staged command input, which the native process owner bridge does not carry`);
     const { orcaAttempt, orcaLive, detachedStop, detachedInspect, remoteStop } = issued ?? {};
     const writes = issued?.writes?.length ? issued.writes : undefined;
     const point = method.split(".")[0]!;
@@ -2697,6 +2739,7 @@ export class PluginRegistry {
           scopeRoots: { home: ctx.home, pacerHome: ctx.pacerHome, accountHome: options.accountHome ?? null },
           ...(Object.keys(processEnv).length ? { processEnv } : {}),
           ...(coreMethods.length ? { coreMethods } : {}),
+          ...(options.expectPid !== undefined ? { expectPid: options.expectPid } : {}),
         };
         let reply: Awaited<ReturnType<typeof callNativeOwner>>;
         let value: unknown;
@@ -2754,6 +2797,7 @@ export class PluginRegistry {
             throw error;
           }
           writeLogs(reply.logs);
+          if (reply.pid) e.nativePid = reply.pid;
           value = reply.value;
           // A child that sent its result in `$/resultChunk` pieces ends with a
           // `_chunkedResult` completion: assemble the staged bytes now, while the
@@ -2785,6 +2829,7 @@ export class PluginRegistry {
           if (!output.success) throw new CoreError("plugin_refused", method === "executor.available" ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
           return output.data as T;
         }
+        if (method.startsWith("hostRunner.")) return this.checkHostRunnerResult<T>(method, input, value, false);
         if (method.startsWith("ui.")) {
           const checked = def.result.safeParse(value);
           if (!checked.success) { appendPluginLog(ctx, e.id, "stderr", `invalid ${method} result: ${checked.error.issues[0]?.path.join(".") || "result"}`); throw new CoreError("invalid_input", `plugin ${e.id} returned an invalid ${method} result`); }
