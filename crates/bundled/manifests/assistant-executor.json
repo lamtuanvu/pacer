@@ -1,0 +1,30 @@
+{
+  "id": "assistant-executor",
+  "version": "1.0.0",
+  "publisher": "pacer",
+  "host": ">=1.11.0",
+  "contributes": {
+    "assistant": {
+      "backend": "executor",
+      "reply": true
+    }
+  },
+  "capabilities": [
+    {
+      "name": "process.spawn",
+      "scopes": [
+        "opencode",
+        "claude",
+        "codex"
+      ]
+    },
+    {
+      "name": "secrets.resolve",
+      "scopes": [
+        "secrets"
+      ]
+    }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}
