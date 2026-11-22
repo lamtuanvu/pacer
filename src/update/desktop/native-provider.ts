@@ -303,8 +303,12 @@ type Authority = Pick<DarwinAuthority, "verifyPeer" | "verifyStatic">;
 export interface NativeBridgeOptions {
   port: number;
   authority: Authority;
-  /** Internal system adapter. Never accepted from an API or environment. */
-  verifyService: () => Promise<void>;
+  /**
+   * Internal system adapter. Never accepted from an API or environment.
+   * Identity checks always run. Process coverage runs only when `coverage` is set
+   * (install/apply/takeover/adoption effects), never for hello or read-only reverify.
+   */
+  verifyService: (options?: { coverage?: boolean }) => Promise<void>;
   shutdown?: () => void;
   /** Verified private bootstrap only; never constructed from public or ambient claims. */
   paired?: PairedNativeBootstrap;
@@ -732,6 +736,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     prepared: PreparedFrame,
   ): Promise<boolean> {
     await this.reverify(session);
+    await this.options.verifyService({ coverage: true });
     if (
       !prepared.transactionId ||
       prepared.reservationId !== prepared.transactionId ||
@@ -808,6 +813,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     prepared: PreparedFrame,
   ): Promise<boolean> {
     await this.reverify(session);
+    await this.options.verifyService({ coverage: true });
     if (
       !prepared.transactionId ||
       prepared.reservationId !== prepared.transactionId
@@ -866,7 +872,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     if (!tx.authorization) {
       this.verifyBundle(tx.command.target.appPath);
       await verifyInstallation(this.getCtx(), tx.command.target);
-      await this.options.verifyService();
+      await this.options.verifyService({ coverage: true });
       if (
         outcome !== "restored" ||
         tx.command.target.id !== session.installation.id
@@ -1108,7 +1114,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       const reservationId = `fixture-cleanup-${policy.nonce}`;
       const reservation = await reserveIdle(this.getCtx(), reservationId);
       if (!reservation.reserved) throw denied();
-      await this.options.verifyService();
+      await this.options.verifyService({ coverage: true });
       const desktops = [...this.connections].filter(
         (peer) =>
           !peer.dead &&
@@ -1269,6 +1275,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       frame.kind === "adoption-suppress" ||
       frame.kind === "adoption-shutdown"
     ) {
+      await this.options.verifyService({ coverage: true });
       if (!frame.binding.transactionId) throw denied();
       const tx = readNativeAdoption(
         this.getCtx(),
@@ -1571,6 +1578,13 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       (item) =>
         !item.dead && item.installation?.id === frame.binding.installationId,
     );
+    if (
+      frame.kind === "suppress-lifecycle" ||
+      frame.kind === "shutdown-desktop" ||
+      frame.kind === "shutdown-service"
+    ) {
+      await this.options.verifyService({ coverage: true });
+    }
     if (frame.kind === "suppress-lifecycle")
       for (const desktop of desktops) {
         await this.effect(desktop, "maintenance", frame.binding);
@@ -1783,7 +1797,7 @@ export function configuredNativeBridge(
   const executable = paired?.owner.executable ?? realpathSync(process.execPath);
   if (!paired) assertLegacyNativeServiceLayout(executable);
   const metadata = paired ? nativeServiceMetadata(paired.owner.appPath) : null;
-  const verifyService = async () => {
+  const verifyService = async (options?: { coverage?: boolean }) => {
     const ctx = getCtx(),
       registration = parseDesktopServiceRegistration(
         readFileSync(servicePath(ctx, "darwin"), "utf8"),
@@ -1817,7 +1831,9 @@ export function configuredNativeBridge(
         allowed.push(process.process);
       }
     }
-    assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+    if (options?.coverage) {
+      assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+    }
     const status = await ctx.run(
       ["/bin/launchctl", "print", `gui/${process.getuid!()}/${registration.label}`], 5000,
     );
@@ -1832,7 +1848,126 @@ export function configuredNativeBridge(
   return new NativeControlBridge(getCtx, { port, authority, verifyService, shutdown, paired });
 }
 
-/** Conservative known-CLI coverage; arbitrary renamed legacy executables are not identifiable. */
+/** Roles used when deciding whether a known pacer process blocks an install. */
+export type NativeCoverageRole = "service" | "lease" | "verified" | "cli" | "foreign";
+
+const PACER_NAME = /(^|[-_.])pacer($|[-_.])/;
+let lastCoverageLogAt = 0;
+
+function looksLikePacerProcess(process: NativeProcess, registeredExecutable: string): boolean {
+  const name = process.executable ? basename(process.executable) : process.name;
+  return (
+    process.executable === registeredExecutable ||
+    PACER_NAME.test(name) ||
+    process.name === "pacer"
+  );
+}
+
+/**
+ * Members of the process trees rooted at the given identities.
+ * A root counts only when its exact incarnation is present in the table.
+ * Dead or unmatched roots never become parentPid anchors (PID reuse must not
+ * cover a foreign child under a recycled enrolled/service pid).
+ */
+export function nativeProcessTreePids(
+  roots: readonly ProcessIdentity[],
+  processes: readonly NativeProcess[],
+): Set<number> {
+  const covered = new Set<number>();
+  for (const root of roots) {
+    const match = processes.find((process) => sameProcess(process.process, root));
+    if (match) covered.add(match.process.pid);
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const process of processes) {
+      if (covered.has(process.process.pid)) continue;
+      if (covered.has(process.parentPid)) {
+        covered.add(process.process.pid);
+        grew = true;
+      }
+    }
+  }
+  return covered;
+}
+
+/**
+ * Classify every same-UID pacer-named process for install coverage.
+ * Service and lease trees are covered. Same-path CLI clients (msg inbox, status,
+ * hooks) do not refuse install forever: reserveIdle drains enrolled leases, and
+ * short-lived CLI work is not an install blocker. A foreign path still blocks.
+ * Running macOS processes keep their old inode after a bundle replace; they are
+ * not restarted by the replace itself.
+ */
+export function classifyNativeProcessCoverage(
+  processes: readonly NativeProcess[],
+  service: ProcessIdentity,
+  enrolled: readonly ProcessIdentity[],
+  registeredExecutable: string,
+  verifiedNative: readonly ProcessIdentity[] = [],
+): { process: NativeProcess; role: NativeCoverageRole }[] {
+  const serviceTree = nativeProcessTreePids([service], processes);
+  const leaseTree = nativeProcessTreePids(enrolled, processes);
+  const decisions: { process: NativeProcess; role: NativeCoverageRole }[] = [];
+  for (const process of processes) {
+    if (!looksLikePacerProcess(process, registeredExecutable)) continue;
+    if (sameProcess(process.process, service) || serviceTree.has(process.process.pid)) {
+      decisions.push({ process, role: "service" });
+      continue;
+    }
+    if (
+      enrolled.some((identity) => sameProcess(identity, process.process)) ||
+      leaseTree.has(process.process.pid)
+    ) {
+      decisions.push({ process, role: "lease" });
+      continue;
+    }
+    if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {
+      decisions.push({ process, role: "verified" });
+      continue;
+    }
+    // Same registered front door, or a sibling under the paired Resources dir
+    // (pacer-core / short-lived CLI clients). Delegated `_run` / `_session` work
+    // is enrolled as leases and drained by reserveIdle; these CLI clients are
+    // not that work and must not refuse install forever. A different install
+    // path stays foreign.
+    if (
+      process.executable === registeredExecutable ||
+      (process.executable !== null &&
+        dirname(process.executable) === dirname(registeredExecutable))
+    ) {
+      decisions.push({ process, role: "cli" });
+      continue;
+    }
+    decisions.push({ process, role: "foreign" });
+  }
+  return decisions;
+}
+
+function logCoverageDecision(decisions: readonly { role: NativeCoverageRole }[]): void {
+  const now = Date.now();
+  if (now - lastCoverageLogAt < 30_000) return;
+  lastCoverageLogAt = now;
+  const counts: Record<NativeCoverageRole, number> = {
+    service: 0,
+    lease: 0,
+    verified: 0,
+    cli: 0,
+    foreign: 0,
+  };
+  for (const decision of decisions) counts[decision.role]++;
+  const summary = (Object.keys(counts) as NativeCoverageRole[])
+    .filter((role) => counts[role] > 0)
+    .map((role) => `${role}=${counts[role]}`)
+    .join(" ");
+  console.info(`pacer: desktop update coverage ${summary || "none"}`);
+}
+
+/**
+ * Install-time coverage only. Connecting and read-only native ops never call this.
+ * Foreign-path pacer binaries still refuse; service/lease trees and same-path CLI clients do not.
+ */
 export function assertNativeProcessCoverage(
   processes: readonly NativeProcess[],
   service: ProcessIdentity,
@@ -1840,26 +1975,20 @@ export function assertNativeProcessCoverage(
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
 ): void {
-  for (const process of processes) {
-    if (
-      sameProcess(process.process, service) ||
-      enrolled.some((identity) => sameProcess(identity, process.process)) ||
-      verifiedNative.some((identity) => sameProcess(identity, process.process))
-    )
-      continue;
-    const name = process.executable
-      ? basename(process.executable)
-      : process.name;
-    if (
-      process.executable === registeredExecutable ||
-      /(^|[-_.])pacer($|[-_.])/.test(name) ||
-      process.name === "pacer"
-    )
-      throw new CoreError(
-        "not_allowed",
-        "Another pacer CLI process prevents desktop update",
-        "Close or upgrade the other CLI process, then reconnect the desktop.",
-      );
+  const decisions = classifyNativeProcessCoverage(
+    processes,
+    service,
+    enrolled,
+    registeredExecutable,
+    verifiedNative,
+  );
+  logCoverageDecision(decisions);
+  if (decisions.some((decision) => decision.role === "foreign")) {
+    throw new CoreError(
+      "not_allowed",
+      "Another pacer CLI process prevents desktop update",
+      "Close or upgrade the other CLI process, then retry the update.",
+    );
   }
 }
 

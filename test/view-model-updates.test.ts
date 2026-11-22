@@ -34,7 +34,9 @@ test("desktop view uses authoritative actions for ready, waiting and unavailable
   expect(desktopUpdateView({ ...ready, actions: [] }).primary).toBeNull();
   const waiting = desktopStatus({ phase: "waiting", actions: ["cancel"], blockers: [{ kind: "task", id: "t1", label: "Running task" }, { kind: "session", id: "s1", label: "Interactive session" }] });
   expect(desktopUpdateView(waiting)).toMatchObject({ primary: "Cancel update", cancellable: true });
-  expect(desktopUpdateView(waiting).detail).toContain("work");
+  expect(desktopUpdateView(waiting).detail).toBe("Update will install when 2 running tasks finish. You can cancel while it waits.");
+  expect(desktopUpdateView(desktopStatus({ phase: "waiting", actions: ["cancel"], blockers: [{ kind: "task", id: "t1", label: "One" }] })).detail)
+    .toBe("Update will install when 1 running task finishes. You can cancel while it waits.");
   expect(desktopUpdateView(desktopStatus({ phase: "installing", actions: [] }))).toMatchObject({ primary: null, cancellable: false });
   expect(desktopUpdateView(desktopStatus({ ownership: "attached", actions: [] })).primary).toBeNull();
 });

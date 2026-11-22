@@ -1,4 +1,4 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
@@ -8,7 +8,7 @@ import { assertIdentifier, type Blocker } from "./types";
 import { withDesktopCoordinator } from "./coordinator";
 import { optionalFence } from "./reconciliation-fence";
 import type { Database } from "bun:sqlite";
-import { ownProcessIdentity } from "./process-identity";
+import { ownProcessIdentity, processIdentity, sameProcess } from "./process-identity";
 
 import { OrcaClient, type OrcaReply, type WorkerClosureResult } from "../../exec/orca/client";
 import { workerClosureProof, terminalClosureProof } from "./orca-proof";
@@ -92,6 +92,7 @@ export async function reserveIdle(ctx: Ctx, transactionId: string): Promise<{ re
   await reconcileAdmission(ctx);
   const external = await externalBlockers(ctx);
   return mutate(ctx, (state, db) => {
+    pruneDeadLocalLeases(state);
     if (optionalFence(db)?.transaction) throw new CoreError("conflict", "Reconciliation maintenance is reserved");
     if (state.reservation && state.reservation !== transactionId) throw new CoreError("conflict", "Desktop reservation conflict");
     const blockers = [...state.leases.map(lease => lease.blocker), ...storedBlockers(ctx), ...external];
@@ -115,11 +116,8 @@ export function hasReservation(ctx: Ctx, transactionId: string): boolean {
 
 /** Private native coverage projection; these incarnations have durable work leases. */
 export function enrolledWorkProcesses(ctx: Ctx): import("./process-identity").ProcessIdentity[] {
-  return withDesktopCoordinator(ctx, db => {
-    if (!db.query("SELECT name FROM sqlite_master WHERE type='table' AND name='admission'").get()) return [];
-    const row = db.query<{state:string}, []>("SELECT state FROM admission WHERE id=1").get();
-    if (!row) return [];
-    const state = stateSchema.parse(JSON.parse(row.state));
+  return mutate(ctx, state => {
+    pruneDeadLocalLeases(state);
     return state.leases.flatMap(lease => lease.process ? [lease.process] : []);
   });
 }
@@ -134,11 +132,16 @@ export async function releaseReservation(ctx: Ctx, transactionId: string): Promi
 
 /**
  * Crash recovery deliberately keeps ambiguous leases and update reservations.
- * Owner death does not prove a detached/remote child finished. Runtime adapters
- * must supply positive completion evidence before clearing orphaned work.
+ * Remote and Orca leases still need positive completion evidence. Local leases
+ * are not ambiguous when their process cannot survive the current boot: a
+ * different bootId, a missing runDir, a dead owner with no live runDir child,
+ * or a dead owner without runDir evidence.
  */
 export async function reconcileAdmission(ctx: Ctx): Promise<void> {
-  const leases = mutate(ctx, state => state.leases.filter(lease => lease.orca?.terminal && lease.orca.incarnationId));
+  const leases = mutate(ctx, state => {
+    pruneDeadLocalLeases(state);
+    return state.leases.filter(lease => lease.orca?.terminal && lease.orca.incarnationId);
+  });
   const client = new OrcaClient(ctx.run, ctx.env);
   for (const lease of leases) {
     const binding = lease.orca!;
@@ -149,6 +152,49 @@ export async function reconcileAdmission(ctx: Ctx): Promise<void> {
       }
     } catch { /* Failed/ambiguous lookup retains the blocker. */ }
   }
+}
+
+/** True when a runDir pid/child file names a process still alive on `bootId`. */
+function runDirHasLiveLocalProcess(runDir: string, bootId: string): boolean {
+  for (const name of ["child", "pid"] as const) {
+    try {
+      const pid = Number(readFileSync(join(runDir, name), "utf8").trim());
+      if (!Number.isSafeInteger(pid) || pid <= 1) continue;
+      const live = processIdentity(pid);
+      if (live && live.bootId === bootId) return true;
+    } catch { /* missing or unreadable evidence */ }
+  }
+  return false;
+}
+
+/**
+ * True when the lease's recorded local process cannot still be that incarnation.
+ * Remote and Orca leases are never pruned here. Local rule (see docs/desktop-updates.md):
+ * - bootId ≠ current boot → dead (local processes never survive reboot);
+ * - runDir path gone → dead;
+ * - same boot, unfinished runDir, owner dead/reused → keep only if child/pid is live;
+ * - otherwise dead when owner pid is gone or reused.
+ */
+export function localLeaseProcessDead(
+  lease: Pick<z.infer<typeof leaseSchema>, "process" | "remote" | "orca" | "runDir">,
+): boolean {
+  if (!lease.process || lease.remote || lease.orca) return false;
+  const currentBoot = ownProcessIdentity()?.bootId ?? processIdentity(process.pid)?.bootId ?? null;
+  // Local processes, including detached children, never survive a reboot.
+  if (currentBoot && lease.process.bootId !== currentBoot) return true;
+  if (lease.runDir) {
+    if (!existsSync(lease.runDir)) return true;
+    if (!runFinished(lease.runDir)) {
+      const owner = processIdentity(lease.process.pid);
+      if (owner && sameProcess(owner, lease.process)) return false;
+      // Owner gone or reused: keep only when runDir still names a live child/session.
+      return !runDirHasLiveLocalProcess(lease.runDir, lease.process.bootId);
+    }
+  }
+  const live = processIdentity(lease.process.pid);
+  if (!live) return true;
+  if (live.bootId !== lease.process.bootId) return true;
+  return !sameProcess(live, lease.process);
 }
 
 /** Change presentation metadata after a pre-admitted operation allocates its entity. */
@@ -188,7 +234,13 @@ export function attachRunEvidenceSync(ctx: Ctx, leaseId: string, dir: string, re
     if (remote) lease.remote = remote;
   });
 }
+function pruneDeadLocalLeases(state: AdmissionState): void {
+  state.leases = state.leases.filter(lease => !localLeaseProcessDead(lease));
+}
+
 function reconcileStored(state: AdmissionState): void {
+  // Dead local process pruning runs in reconcileAdmission / reserveIdle / enrolled
+  // projection, not on every mutate, so ownership checks still see a just-exited child.
   state.leases = state.leases.filter(lease => {
     if (!lease.runDir || !runFinished(lease.runDir)) return true;
     try {
