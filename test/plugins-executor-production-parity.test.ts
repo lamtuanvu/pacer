@@ -130,6 +130,50 @@ test("a long headless brief spills to prompt.md so argv stays under the limit", 
   } finally { cleanup(); }
 });
 
+/** Codex headless carries the prompt on stdin (262144); must not become "read this file". */
+test("a long headless codex brief stays on stdin without prompt.md", async () => {
+  const { ctx, repo, cleanup } = fixture(
+    runners("codex", "headless"),
+    { codex: CODEX });
+  try {
+    const goal = `codex brief ${"z".repeat(40 * 1024)}`;
+    const task = selected(ctx, repo, "codex", goal);
+    const out = await runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers.codex as ProviderCfg, task);
+    expect(out.exec.code).toBe(0);
+    const run = readTask(ctx, task.id)!.run!;
+    expect(existsSync(join(run.dir, "prompt.md"))).toBe(false);
+    expect(readFileSync(join(run.dir, "stdin"), "utf8")).toContain(goal);
+  } finally { cleanup(); }
+});
+
+/** Resume puts the turn prompt on argv for claude; oversize turns must spill too. */
+test("a long headless resume turn spills to prompt.md", async () => {
+  const { ctx, repo, cleanup } = fixture(runners("claude-code", "headless"), { claude: CLAUDE, codex: CODEX });
+  try {
+    const created = createTask(ctx, { brief: { goal: "first turn", repo }, kind: null,
+      requestedExecutor: "claude-code", timeoutS: 30, placement: { requested: "current" } });
+    updateTask(ctx, created.id, task => { task.origin = "external:claude-code"; });
+    const first = await runTask({ ...ctx, now: Date.now() / 1000 }, created.id, deps(["codex", "claude-code"]));
+    expect(first.state).toBe("done");
+    const session = first.run?.agentSession;
+    expect(session?.source).toBe("assigned");
+
+    const body = `resume wake ${"w".repeat(40 * 1024)}`;
+    const sent = await sendMessage({ ...ctx, env: { ...ctx.env, CLAUDECODE: "1" }, now: Date.now() / 1000 }, {
+      to: `task:${created.id}`, body, requestId: "turn-long" }, { spawnRunner: () => 1 });
+    expect(sent.delivery).toBe("turn_started");
+    const second = await runTask({ ...ctx, now: Date.now() / 1000 }, created.id, deps(["codex", "claude-code"]));
+    expect(second.run?.attempt).toBe(2);
+    const file = join(second.run!.dir, "prompt.md");
+    expect(readFileSync(file, "utf8")).toContain(body);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    const turnArgv = readFileSync(join(second.run!.dir, "stdout"), "utf8");
+    expect(turnArgv).toContain(`Read the complete task instructions in ${JSON.stringify(file)} and carry them out.`);
+    expect(turnArgv).toContain(`--resume\n${session!.id}`);
+    expect(turnArgv).not.toContain(body.slice(0, 80));
+  } finally { cleanup(); }
+});
+
 test("the planned strict guard matches strictClaudeLaunch byte for byte", () => {
   const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer" } }), dir = tmpDir();
   const argv = ["claude", "-p", "--dangerously-skip-permissions", "prompt"];

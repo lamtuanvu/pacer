@@ -6,7 +6,7 @@ import type { ExecutionCfg } from "../config/execution";
 import { parseRunnerId } from "../config/runner-id";
 import { STRICT_INTERACTIVE_REASON, planStrictClaudeLaunch } from "../dispatch/enforcement";
 import { mcpNotApproved, preapproveClaudeTrust, projectMcpAnswers } from "../exec/direct";
-import { headlessTurnPath, INTERACTIVE_PROMPT_BYTES, launchFor, launchModeFor, promptFileInstruction,
+import { EXECUTOR_ARGV_BYTES, INTERACTIVE_PROMPT_BYTES, launchFor, launchModeFor, promptFileInstruction,
   providerEnv, resumeHeadlessFor, type Launch, type LaunchModeChoice } from "../exec/launch";
 import { executorEnv, execProcess } from "../exec/process";
 import { profileColor, profileKeys, strictServiceEnv, terminalEnv, terminalEnvNote, terminalUmask } from "../exec/login-env";
@@ -83,21 +83,36 @@ export async function planOwnedLaunch(ctx: Ctx, input: { cfg: ProviderCfg; task:
   // Only a stored or discovered session resumes; a freshly assigned one replays the brief.
   let resumeSession = turn && !interactive ? (priorSession ?? (agentSession?.source === "lookup" ? agentSession : undefined)) : undefined;
   let launch: Launch | undefined;
+  const files: ExecutorLaunchFile[] = [];
+  /** Spill only when this launch would put an oversize prompt on argv (not stdin). */
+  const spillIfArgvOverflow = (text: string, built: Launch, rebuild: (short: string) => Launch): Launch => {
+    if (!built.argv.some(arg => Buffer.byteLength(arg, "utf8") > EXECUTOR_ARGV_BYTES)) return built;
+    files.push({ name: "prompt.md", content: text, mode: 0o600 });
+    return rebuild(promptFileInstruction(join(dir, "prompt.md")));
+  };
   if (resumeSession && !interactive) {
     // No headless resume for this agent: replay the thread in a fresh session instead.
-    try { launch = resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, dir, task.id); }
-    catch { if (agentSession === resumeSession) agentSession = undefined; resumeSession = undefined; }
+    try {
+      launch = spillIfArgvOverflow(prompt, resumeHeadlessFor(cfg, resumeSession.id, prompt, workdir, dir, task.id),
+        short => resumeHeadlessFor(cfg, resumeSession!.id, short, workdir, dir, task.id));
+    } catch { if (agentSession === resumeSession) agentSession = undefined; resumeSession = undefined; }
   }
-  const files: ExecutorLaunchFile[] = [];
   if (!launch) {
     let text = turn ? [brief, renderReplayThread(ctx, task, turn.messages), prompt, instructions].filter(Boolean).join("\n\n") : prompt + instructions;
-    // Headless claude/cursor/agy put the prompt on argv (EXECUTOR_ARGV_BYTES).
-    // Replan wakes and long briefs exceed that; spill for every launch mode.
-    if (Buffer.byteLength(text, "utf8") > INTERACTIVE_PROMPT_BYTES) {
+    // Interactive launchFor also writes prompt.md itself above INTERACTIVE_PROMPT_BYTES;
+    // pre-spill into host-published files so the empty-claim path stays clean.
+    // Headless: spill only when argv would exceed EXECUTOR_ARGV_BYTES (claude/cursor/agy/
+    // opencode). Codex headless carries the prompt on stdin (262144) and must not convert
+    // ordinary long briefs into "read this file".
+    if (interactive && Buffer.byteLength(text, "utf8") > INTERACTIVE_PROMPT_BYTES) {
       files.push({ name: "prompt.md", content: text, mode: 0o600 });
       text = promptFileInstruction(join(dir, "prompt.md"));
     }
     launch = launchFor(cfg, text, workdir, dir, task.id, agentSession?.id, input.trustRoot ?? workdir);
+    if (!interactive) {
+      launch = spillIfArgvOverflow(text, launch,
+        short => launchFor(cfg, short, workdir, dir, task.id, agentSession?.id, input.trustRoot ?? workdir));
+    }
   }
   if (strict && agent === "claude-code") {
     const guarded = planStrictClaudeLaunch(ctx, launch.argv, dir);
