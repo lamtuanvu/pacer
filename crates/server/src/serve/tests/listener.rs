@@ -274,52 +274,58 @@ async fn public_listener_forwards_to_available_core() {
             "{path}: {response}"
         );
     }
-    let mut upgrade = format!("ws://127.0.0.1:{port}/v3/tasks/one/session")
-        .into_client_request()
-        .unwrap();
-    upgrade
-        .headers_mut()
-        .insert("authorization", "Bearer token".parse().unwrap());
-    upgrade
-        .headers_mut()
-        .append("x-test", "first".parse().unwrap());
-    upgrade
-        .headers_mut()
-        .append("x-test", "second".parse().unwrap());
-    let (mut websocket, response) = tokio_tungstenite::connect_async(upgrade).await.unwrap();
-    assert_eq!(response.status().as_u16(), 101);
-    websocket
-        .send(tokio_tungstenite::tungstenite::Message::Text(
-            "headers".into(),
-        ))
-        .await
-        .unwrap();
-    let headers = websocket.next().await.unwrap().unwrap();
-    assert_eq!(headers.to_text().unwrap(), "first, second");
-    websocket
-        .send(tokio_tungstenite::tungstenite::Message::Text("echo".into()))
-        .await
-        .unwrap();
-    let echoed = tokio::time::timeout(std::time::Duration::from_secs(2), websocket.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(echoed.to_text().unwrap(), "echo");
-    let bytes = vec![0, 255, 27, 128];
-    websocket
-        .send(tokio_tungstenite::tungstenite::Message::Binary(
-            bytes.clone().into(),
-        ))
-        .await
-        .unwrap();
-    let echoed = tokio::time::timeout(std::time::Duration::from_secs(2), websocket.next())
-        .await
-        .unwrap()
-        .unwrap()
-        .unwrap();
-    assert_eq!(echoed.into_data().as_ref(), bytes.as_slice());
-    websocket.close(None).await.unwrap();
+    for path in [
+        "/v3/tasks/one/session",
+        "/v3/tasks/one/agent-sessions/12345678-1234-1234-1234-123456789abc/session",
+        "/v3/terminals/12345678-1234-1234-1234-123456789abc/session",
+    ] {
+        let mut upgrade = format!("ws://127.0.0.1:{port}{path}")
+            .into_client_request()
+            .unwrap();
+        upgrade
+            .headers_mut()
+            .insert("authorization", "Bearer token".parse().unwrap());
+        upgrade
+            .headers_mut()
+            .append("x-test", "first".parse().unwrap());
+        upgrade
+            .headers_mut()
+            .append("x-test", "second".parse().unwrap());
+        let (mut websocket, response) = tokio_tungstenite::connect_async(upgrade).await.unwrap();
+        assert_eq!(response.status().as_u16(), 101);
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Text(
+                "headers".into(),
+            ))
+            .await
+            .unwrap();
+        let headers = websocket.next().await.unwrap().unwrap();
+        assert_eq!(headers.to_text().unwrap(), "first, second");
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Text("echo".into()))
+            .await
+            .unwrap();
+        let echoed = tokio::time::timeout(std::time::Duration::from_secs(2), websocket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(echoed.to_text().unwrap(), "echo");
+        let bytes = vec![0, 255, 27, 128];
+        websocket
+            .send(tokio_tungstenite::tungstenite::Message::Binary(
+                bytes.clone().into(),
+            ))
+            .await
+            .unwrap();
+        let echoed = tokio::time::timeout(std::time::Duration::from_secs(2), websocket.next())
+            .await
+            .unwrap()
+            .unwrap()
+            .unwrap();
+        assert_eq!(echoed.into_data().as_ref(), bytes.as_slice());
+        websocket.close(None).await.unwrap();
+    }
     core.shutdown().await;
     server.abort();
 }

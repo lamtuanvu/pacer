@@ -12,6 +12,18 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use tokio_tungstenite::tungstenite::{Message as CoreMessage, client::IntoClientRequest};
 
+/// Session WebSocket paths the core serves (`src/serve/http.ts:162-164`), upgraded through [`bridge`].
+pub(super) fn is_session_upgrade(path: &str, headers: &axum::http::HeaderMap) -> bool {
+    let task = (path.starts_with("/v2/tasks/") || path.starts_with("/v3/tasks/"))
+        && path.ends_with("/session");
+    let terminal = path.starts_with("/v3/terminals/") && path.ends_with("/session");
+    (task || terminal)
+        && headers
+            .get("upgrade")
+            .and_then(|v| v.to_str().ok())
+            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
+}
+
 fn relay(refused: axum::http::Response<Option<Vec<u8>>>) -> Response {
     let (parts, body) = refused.into_parts();
     let mut response = Response::new(Body::from(body.unwrap_or_default()));
@@ -104,4 +116,38 @@ pub async fn bridge(req: Request<Body>, target: (u16, String), auth: AuthKind) -
         };
         tokio::select! { _ = incoming => {}, _ = outgoing => {} }
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_session_upgrade;
+    use axum::http::{HeaderMap, HeaderValue};
+    fn ws() -> HeaderMap {
+        let mut h = HeaderMap::new();
+        h.insert("upgrade", HeaderValue::from_static("WebSocket"));
+        h
+    }
+    #[test]
+    fn session_upgrade_paths_match_the_core_routes() {
+        let uuid = "12345678-1234-1234-1234-123456789abc";
+        for path in [
+            "/v2/tasks/t1/session".to_string(),
+            "/v3/tasks/t1/session".into(),
+            format!("/v3/tasks/t1/agent-sessions/{uuid}/session"),
+            format!("/v3/terminals/{uuid}/session"),
+        ] {
+            assert!(is_session_upgrade(&path, &ws()), "{path}");
+            assert!(
+                !is_session_upgrade(&path, &HeaderMap::new()),
+                "{path} without upgrade"
+            );
+        }
+        for path in [
+            format!("/v3/terminals/{uuid}"),
+            format!("/v2/terminals/{uuid}/session"),
+            "/v3/ops/task.session".into(),
+        ] {
+            assert!(!is_session_upgrade(&path, &ws()), "{path}");
+        }
+    }
 }

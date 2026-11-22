@@ -856,11 +856,7 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
     let Some(target) = state.core.target().await else {
         return proxy::unavailable(path.starts_with("/app/"));
     };
-    if (path.starts_with("/v2/tasks/") || path.starts_with("/v3/tasks/"))
-        && path.ends_with("/session")
-        && header_value(req.headers(), "upgrade")
-            .is_some_and(|v| v.eq_ignore_ascii_case("websocket"))
-    {
+    if ws::is_session_upgrade(path, req.headers()) {
         return ws::bridge(req, target, auth).await;
     }
     proxy::forward(req, target, auth).await

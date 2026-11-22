@@ -307,6 +307,8 @@ store and attachment drafts with no live session state (see its row). The M2
 session lifecycle slice then made the other thirteen Native (Selective): Rust owns
 admission and Core keeps live session state (see their rows).
 
+**B5-0 WS bridge (2026-11-22):** `/v3/terminals/<id>/session` is bridged like task sessions (B5-0). The Rust front door now upgrades task and terminal session WebSockets through `ws::bridge` via `ws::is_session_upgrade` (task `/v2|/v3/tasks/<id>/session` plus `/v3/terminals/<id>/session`, upgrade equal-ignore-case `websocket`); the `serve::load` route matches the TS routes (`src/serve/http.ts:162-164`). Listener test looped over three session paths; desktop terminal stays **UNVERIFIED** (decisions.md line 142).
+
 **M2 session lifecycle validation (2026-11-20):** the slice is validated by the
 cross-runtime parity tests above (`test/native-session-lifecycle-parity.test.ts`,
 `test/session-lifecycle-bridge-access.test.ts`, `test/session-takeover.test.ts`,
