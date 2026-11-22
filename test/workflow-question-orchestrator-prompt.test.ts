@@ -158,7 +158,7 @@ test("orchestrator/run-grant CLI allows answer and question escalate (turn promp
     deadline: ctx.now + 1200,
   });
   const bearer = issueRunGrant(ctx, { runId, turnId: `turn_${runId.slice(-6)}`, deadline: ctx.now + 600 });
-  const orchEnv = {
+  const orchEnv: Record<string, string | undefined> = {
     ...ctx.env,
     PACER_ROLE: "orchestrator",
     PACER_RUN_GRANT: bearer,
@@ -214,16 +214,14 @@ test("orchestrator CLI ask requires --step and records a person-facing question"
     deadline: ctx.now + 1200,
   });
   const bearer = issueRunGrant(ctx, { runId, turnId: `turn_${runId.slice(-6)}ask`, deadline: ctx.now + 600 });
-  const orchCtx = {
-    ...ctx,
-    env: {
-      ...ctx.env,
-      PACER_ROLE: "orchestrator",
-      PACER_RUN_GRANT: bearer,
-      PACER_API: "inprocess",
-    },
+  const orchEnv: Record<string, string | undefined> = {
+    ...ctx.env,
+    PACER_ROLE: "orchestrator",
+    PACER_RUN_GRANT: bearer,
+    PACER_API: "inprocess",
   };
-  delete orchCtx.env.PACER_PORT;
+  delete orchEnv.PACER_PORT;
+  const orchCtx = { ...ctx, env: orchEnv };
 
   const missing = await main(
     ["ask", "--type", "yes_no", "--blocks", "step", "Which approach?"],

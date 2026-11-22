@@ -197,7 +197,7 @@ test("v2 snapshot strips promptWait from tasks (M-g)", () => {
     attention: [],
     counts: { attention: 0, problems: 0, review: 0, running: 0, queued: 0, ready: 0, executors: 0, setupOpen: 0, hostsWithProblems: 0, byRepo: [] },
   } as unknown as Parameters<typeof toV2Snapshot>[0]);
-  const task = (v2 as { tasks: Record<string, unknown>[] }).tasks[0]!;
+  const task = (v2 as unknown as { tasks: Record<string, unknown>[] }).tasks[0]!;
   expect(task.id).toBe("t-wait");
   expect(task.promptWait).toBeUndefined();
   expect(task.fullTitle).toBeUndefined();

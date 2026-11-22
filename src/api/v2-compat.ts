@@ -51,10 +51,10 @@ function budget(s: SnapshotV3): BudgetData | null {
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
 /** Strip protocol-3 task fields so 2.x snapshot/task surfaces stay frozen (M-g). */
-function legacyTaskForV2(task: unknown): unknown {
+function legacyTaskForV2<T>(task: T): T {
  if (!task || typeof task !== "object") return task;
- const { fullTitle: _ft, promptWait: _pw, derived: _d, work: _w, ...rest } = task as Record<string, unknown>;
- return rest;
+ const { fullTitle: _ft, promptWait: _pw, derived: _d, work: _w, ...rest } = task as T & Record<string, unknown>;
+ return rest as T;
 }
 
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
