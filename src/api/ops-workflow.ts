@@ -601,7 +601,7 @@ export const workflowOps: Record<string, OpDef> = {
     description: "Answer a structured run question as the current answerer (person or orchestrator grant).",
     params: z.object({
       id: questionId,
-      answer: z.string().min(1),
+      answer: z.string().min(1).max(2000),
       note: z.string().max(4000).optional(),
       expect_rev: z.number().int().positive(),
     }),

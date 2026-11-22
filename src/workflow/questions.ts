@@ -9,7 +9,10 @@ import { rootOf } from "../messaging/participants";
 import { readTask, updateTask } from "../tasks/store";
 import type { SpawnRunner } from "../tasks/api";
 import { canAutoDecide } from "./auto";
-import { questionAnswerInputSchema, questionInputSchema, type QuestionInput } from "./question-schema";
+import {
+  questionAnswerInputSchema, questionInputSchema, validateQuestionAnswer, type QuestionInput,
+} from "./question-schema";
+import { directInputAvailable } from "../session/send";
 import type { HumanStep } from "./schema";
 import {
   answerQuestionRecord,
@@ -271,16 +274,25 @@ export async function answerQuestion(
   raw: AnswerQuestionInput,
   deps: QuestionDeps = {},
 ): Promise<QuestionRow> {
-  const parsed = questionAnswerInputSchema.parse({
-    answer: raw.answer,
-    ...(raw.note !== undefined ? { note: raw.note } : {}),
-    expectRev: raw.expectRev,
-  });
+  let parsed: { answer: string; note?: string; expectRev: number };
+  try {
+    parsed = questionAnswerInputSchema.parse({
+      answer: raw.answer,
+      ...(raw.note !== undefined ? { note: raw.note } : {}),
+      expectRev: raw.expectRev,
+    });
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : "invalid answer";
+    throw new CoreError("invalid_input", msg.includes("2000") || msg.includes("<=2000")
+      ? "answer must contain 1–2000 characters"
+      : msg);
+  }
   const current = getQuestion(ctx, raw.id);
   if (!current) throw new CoreError("not_found", `unknown question ${raw.id}`);
   if (current.status !== "open") {
     throw new CoreError("conflict", `conflict: question ${raw.id} is ${current.status}`);
   }
+  validateQuestionAnswer(current.answerType, parsed.answer, current.options);
 
   let answeredBy: string;
   if (current.askerKind === "human_step") {
@@ -341,14 +353,14 @@ export async function answerQuestion(
   const deliveryBody = parsed.note !== undefined
     ? `${parsed.answer}\n\n${parsed.note}`
     : parsed.answer;
-  const answered = answerQuestionRecord(ctx, current.id, {
-    answer: parsed.answer,
-    ...(parsed.note !== undefined ? { note: parsed.note } : {}),
-    expectRev: parsed.expectRev,
-    answeredBy,
-  });
 
   if (current.askerKind === "orchestrator") {
+    const answered = answerQuestionRecord(ctx, current.id, {
+      answer: parsed.answer,
+      ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+      expectRev: parsed.expectRev,
+      answeredBy,
+    });
     // Person answered an orchestrator ask: wake the orchestrator with the answer in the turn prompt.
     enqueueWakeup(ctx, {
       runId: current.runId,
@@ -359,27 +371,51 @@ export async function answerQuestion(
     return answered;
   }
 
-  completeWakeupRef(ctx, current.runId, "question", current.id);
-
-  if (current.askerTaskId && (current.blocks === "step" || current.blocks === "branch")) {
+  const blocking = current.blocks === "step" || current.blocks === "branch";
+  if (blocking && current.askerTaskId) {
     const asker = readTask(ctx, current.askerTaskId);
     if (asker?.question && asker.question.answer === undefined) {
+      // Deliver first so a not-yet-needs_input / stopped asker leaves the record open (retryable).
+      if (asker.state !== "needs_input" && !directInputAvailable(asker)) {
+        throw new CoreError(
+          "conflict",
+          "asker is not waiting for an answer yet; retry when the task needs input",
+        );
+      }
       await answerTask(ctx, current.askerTaskId, deliveryBody, {}, {
         ...(deps.spawnRunner ? { spawnRunner: deps.spawnRunner } : {}),
       });
-    } else if (asker) {
-      // Prompt-convert (and any asker without task.question): deliver as a message.
-      insertMessage(ctx, {
-        taskId: current.askerTaskId,
-        rootId: rootOf(ctx, `task:${current.askerTaskId}`),
-        from: "human",
-        to: `task:${current.askerTaskId}`,
-        kind: "message",
-        body: deliveryBody,
-        replyTo: null,
-        requestId: `question.answer:${current.id}:${answered.rev}`,
+      const answered = answerQuestionRecord(ctx, current.id, {
+        answer: parsed.answer,
+        ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+        expectRev: parsed.expectRev,
+        answeredBy,
       });
+      completeWakeupRef(ctx, current.runId, "question", current.id);
+      return answered;
     }
+  }
+
+  const answered = answerQuestionRecord(ctx, current.id, {
+    answer: parsed.answer,
+    ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+    expectRev: parsed.expectRev,
+    answeredBy,
+  });
+  completeWakeupRef(ctx, current.runId, "question", current.id);
+
+  if (current.askerTaskId && blocking) {
+    // Prompt-convert (no task.question): deliver as a message.
+    insertMessage(ctx, {
+      taskId: current.askerTaskId,
+      rootId: rootOf(ctx, `task:${current.askerTaskId}`),
+      from: "human",
+      to: `task:${current.askerTaskId}`,
+      kind: "message",
+      body: deliveryBody,
+      replyTo: null,
+      requestId: `question.answer:${current.id}:${answered.rev}`,
+    });
   } else if (current.askerTaskId && current.blocks === "nothing") {
     insertMessage(ctx, {
       taskId: current.askerTaskId,

@@ -1,5 +1,6 @@
 // Zod bounds for structured workflow questions (Phase 4).
 import { z } from "zod";
+import { CoreError } from "../core/errors";
 
 export const questionOptionSchema = z.strictObject({
   value: z.string().min(1),
@@ -23,7 +24,8 @@ export const questionBlocksSchema = z.enum(["step", "branch", "nothing"]);
 export type QuestionBlocks = z.infer<typeof questionBlocksSchema>;
 
 export const questionInputSchema = z.strictObject({
-  text: z.string().min(1).max(4000),
+  // Aligned with core task.ask (1–1000); structured asks share the same bound.
+  text: z.string().min(1).max(1000),
   answerType: questionAnswerTypeSchema,
   options: z.array(questionOptionSchema).max(12).optional(),
   recommended: z.string().min(1).optional(),
@@ -52,11 +54,44 @@ export const questionInputSchema = z.strictObject({
 
 export type QuestionInput = z.infer<typeof questionInputSchema>;
 
-/** Answer payload bounds: approve_revise may carry a note ≤ 4000. */
+/** Answer payload bounds: answer ≤ 2000 (core task.answer); note ≤ 4000. */
 export const questionAnswerInputSchema = z.strictObject({
-  answer: z.string().min(1),
+  answer: z.string().min(1).max(2000),
   note: z.string().max(4000).optional(),
   expectRev: z.number().int(),
 });
+
+/** Validate answer text against the question's answerType / options. */
+export function validateQuestionAnswer(
+  answerType: QuestionAnswerType,
+  answer: string,
+  options?: Array<{ value: string }>,
+): void {
+  const values = (options ?? []).map(o => o.value);
+  switch (answerType) {
+    case "yes_no": {
+      const normalized = answer.trim().toLowerCase();
+      if (normalized !== "yes" && normalized !== "no") {
+        throw new CoreError("invalid_input", "yes_no answers must be yes or no");
+      }
+      return;
+    }
+    case "single":
+    case "approve_revise":
+      if (values.length > 0 && !values.includes(answer)) {
+        throw new CoreError("invalid_input", `answer must be one of: ${values.join(", ")}`);
+      }
+      return;
+    case "multi": {
+      const parts = answer.split(",").map(s => s.trim()).filter(Boolean);
+      if (values.length > 0 && parts.some(p => !values.includes(p))) {
+        throw new CoreError("invalid_input", `each multi answer must be one of: ${values.join(", ")}`);
+      }
+      return;
+    }
+    case "text":
+      return;
+  }
+}
 
 export type QuestionAnswerInput = z.infer<typeof questionAnswerInputSchema>;

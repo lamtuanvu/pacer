@@ -143,12 +143,13 @@ test("executor ask → escalate → person answers; chain records orchestrator",
   const person = { ...ctx, env: { ...ctx.env } }; // no run grant
   const answered = await answerQuestion(person, {
     id: escalated.id,
-    answer: "no — wait",
+    answer: "no",
+    note: "wait",
     expectRev: escalated.rev,
   }, { spawnRunner: () => 1 });
-  expect(answered.answer).toBe("no — wait");
+  expect(answered.status).toBe("answered");
   expect(getQuestion(ctx, asked.id)?.chain).toContain("orchestrator");
-  expect(readTask(ctx, task.id)?.question?.answer).toBe("no — wait");
+  expect(readTask(ctx, task.id)?.question?.answer).toBe("no\n\nwait");
 });
 
 test("blocks: nothing leaves the task running and delivers a message", async () => {

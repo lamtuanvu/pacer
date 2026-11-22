@@ -12,9 +12,9 @@ import {
 import { insertRun } from "../src/workflow/store";
 import { tmpDir } from "./helpers";
 
-test("QuestionInput rejects text over 4000 and more than 12 options", () => {
+test("QuestionInput rejects text over 1000 and more than 12 options", () => {
   expect(() => questionInputSchema.parse({
-    text: "x".repeat(4001),
+    text: "x".repeat(1001),
     answerType: "text",
     blocks: "nothing",
   })).toThrow();
