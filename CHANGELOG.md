@@ -10,10 +10,13 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- **The service runs plugins in its native owner by default.** `PACER_NATIVE_PLUGIN_HOST=0` restores the TypeScript owner.
+
 - **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
 
 ### Fixed
 
+- **Keyless `classifier.ask` now runs through the native plugin owner.** With the owner flag on, a classifier that needs no credential now crosses the owner with the HTTP scope its configuration already projects, answering as it does with the owner off; a keyed classifier and keyless endpoint discovery still keep their flag-on refusal.
 - **Desktop updates stay connected while pacer is busy.** Connecting and read-only native update status no longer require every pacer process to be covered. Install still waits for running work to drain, treats the service's own process tree and enrolled lease trees as covered, ignores short-lived same-path CLI clients, prunes local leases that cannot survive the current boot (including unfinished `runDir` evidence from a previous boot or a missing `runDir`), and still refuses a foreign-path pacer binary. Settings shows that the update will install when running tasks finish instead of "Automatic desktop updates are unavailable".
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
 
