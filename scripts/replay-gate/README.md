@@ -13,16 +13,16 @@ Chromium renders the reference checkpoint and Rust replay into fresh xterm.js in
 Run from the checkout root with existing Bun dependencies and a Playwright-compatible Chromium installed. `VT100_SPIKE_CHROMIUM` can select an explicit executable; otherwise Playwright uses its installed browser cache. The browser uses a fresh context and no user browser profile.
 
 ```sh
-bun test scripts/spike/vt100-replay
+bun test scripts/replay-gate
 mkdir -p .work/fixtures/vt100-replay
-bun scripts/spike/vt100-replay/run.ts --rust-input > .work/fixtures/vt100-replay/input.json
+bun scripts/replay-gate/run.ts --rust-input > .work/fixtures/vt100-replay/input.json
 ```
 
 For the actual native experiment, create a disposable crate outside the production workspace:
 
 ```sh
 mkdir -p .work/fixtures/vt100-replay/rust-current/src
-cp scripts/spike/vt100-replay/vt100.rs .work/fixtures/vt100-replay/rust-current/src/main.rs
+cp scripts/replay-gate/adapters/vt100.rs .work/fixtures/vt100-replay/rust-current/src/main.rs
 cat > .work/fixtures/vt100-replay/rust-current/Cargo.toml <<'TOML'
 [package]
 name = "pacer-vt100-replay-spike"
@@ -36,7 +36,7 @@ serde_json = "1"
 base64 = "0.22"
 TOML
 cargo run --quiet --manifest-path .work/fixtures/vt100-replay/rust-current/Cargo.toml < .work/fixtures/vt100-replay/input.json > .work/fixtures/vt100-replay/candidate-current.json
-bun scripts/spike/vt100-replay/run.ts --candidate .work/fixtures/vt100-replay/candidate-current.json --out .work/fixtures/vt100-replay/results
+bun scripts/replay-gate/run.ts --candidate .work/fixtures/vt100-replay/candidate-current.json --out .work/fixtures/vt100-replay/results
 ```
 
 Scratch Cargo dependencies/lock/target stay untracked. No root Cargo file changes are needed. `--no-browser` runs state checks only. Without `--candidate`, the harness checks the xterm oracle and browser determinism; it cannot establish vt100 parity. Exit codes: 0 PASS, 1 observed FAIL, 2 UNVERIFIED. Reports distinguish reference and native verdicts; a known state failure remains FAIL when browser evidence is unavailable.
@@ -68,7 +68,7 @@ Applicable project context: constitution 0.8.0; ARCH-1/12 (no production host cu
 
 ## Follow-up: distinguish exporters, parsers and the reference
 
-`vt100-public.rs` is a second real native adapter using the same 0.18.1 scratch dependency. Copy it to the scratch crate's `src/main.rs`, rerun Cargo with the same input, then pass `--adapter scripts/spike/vt100-replay/vt100-public.rs` alongside `--candidate` to record the correct adapter source hash.
+`vt100-public.rs` is a second real native adapter using the same 0.18.1 scratch dependency. Copy it to the scratch crate's `src/main.rs`, rerun Cargo with the same input, then pass `--adapter scripts/replay-gate/adapters/vt100-public.rs` alongside `--candidate` to record the correct adapter source hash.
 
 This variant uses `write_contents_formatted_basic(Full(...))`, converts its bare line feeds to raw-terminal CRLF, and restores cursor/attributes/modes afterward. That closes the scrollback mismatch with public APIs. It records unhandled CSI sequences and tracks focus reporting via the documented callback; that closes `input-modes`. These were exporter gaps, not evidence the core parser discarded scrollback or could not preserve a nonvisual mode through an adapter.
 

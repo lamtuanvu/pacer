@@ -1,6 +1,6 @@
 {
- "scripts/spike/vt100-replay/browser.test.ts": 1.49,
- "scripts/spike/vt100-replay/replay.test.ts": 0.8,
+ "scripts/replay-gate/browser.test.ts": 1.49,
+ "scripts/replay-gate/replay.test.ts": 0.8,
  "test/account-signin-state.test.ts": 3.6,
  "test/account-signin.test.ts": 0.99,
  "test/account-usage-check.test.ts": 0.09,

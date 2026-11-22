@@ -1,11 +1,12 @@
 import { createHash } from "node:crypto";
 import type { Terminal } from "@xterm/headless";
-import { Screen } from "../../../src/session/screen";
+import { Screen } from "../../src/session/screen";
+import { terminalState, type Run, type Row } from "./state";
 
 export interface Stream { id: string; tags: string[]; data: string; chunkSizes: number[] }
 export interface Corpus { schema: 1; cols: 120; rows: 40; streams: Stream[]; sha256: string }
 export interface Candidate { schema: 1; engine: "vt100"; version: string; corpusSha256: string; entries: {id:string; replayBase64:string}[] }
-export const corpusPath = new URL("../../../test/fixtures/sessions/vt100-synthetic.json", import.meta.url);
+export const corpusPath = new URL("../../test/fixtures/sessions/vt100-synthetic.json", import.meta.url);
 export async function loadCorpus(): Promise<Corpus> {
   const bytes = await Bun.file(corpusPath).bytes();
   const corpus = JSON.parse(Buffer.from(bytes).toString());
@@ -60,7 +61,7 @@ function observedScreen() {
   });
   return {
     screen,
-    state:() => terminalState(screen.term,cursorVisible),
+    state:() => terminalState(screen.term,cursorVisible,scrollTop,scrollBottom),
     prospectiveReplay(replay:string) {
       // Experiment only. The actual Screen checkpoint above remains the gate.
       // SerializeAddon emits DECOM after its cursor restore, which homes the
@@ -74,23 +75,6 @@ function observedScreen() {
     },
   };
 }
-export function terminalState(term: Terminal, cursorVisible:boolean) {
-  const buffer = term.buffer.active;
-  const cells: unknown[][] = [];
-  for (let row = 0; row < buffer.length; row++) {
-    const line = buffer.getLine(row)!;
-    const values: unknown[] = [line.isWrapped];
-    for (let col = 0; col < term.cols; col++) {
-      const cell = line.getCell(col)!;
-      values.push([cell.getChars(),cell.getWidth(),cell.getFgColorMode(),cell.getFgColor(),
-        cell.getBgColorMode(),cell.getBgColor(),cell.isBold(),cell.isItalic(),cell.isDim(),
-        cell.isUnderline(),cell.isBlink(),cell.isInverse(),cell.isInvisible(),cell.isStrikethrough(),cell.isOverline()]);
-    }
-    cells.push(values);
-  }
-  return {cursorVisible,type:buffer.type,cursorX:buffer.cursorX,cursorY:buffer.cursorY,baseY:buffer.baseY,
-    viewportY:buffer.viewportY,modes:{...term.modes},cells};
-}
 export async function reference(stream:Stream) {
   const {screen,state,prospectiveReplay} = observedScreen();
   try {
@@ -99,27 +83,29 @@ export async function reference(stream:Stream) {
     return {id:stream.id,replay,prospectiveReplay:prospectiveReplay(replay),state:state()};
   } finally { screen.dispose(); }
 }
-export async function compareReplay(baseline:Awaited<ReturnType<typeof reference>>, replay:string) {
+export async function compareReplay(baseline:{state:ReturnType<typeof terminalState>}, replay:string) {
   const {screen,state} = observedScreen();
   try {
     await screen.output(Buffer.from(replay));
     const actual = state();
     const differences: string[] = [];
-    for (const key of ["cursorVisible","type","cursorX","cursorY","baseY","viewportY","modes"] as const) {
+    for (const key of ["cursorVisible","type","cursorX","cursorY","baseY","viewportY","scrollTop","scrollBottom","modes"] as const) {
       if (JSON.stringify(actual[key]) !== JSON.stringify(baseline.state[key])) differences.push(key);
     }
-    if (JSON.stringify(actual.cells) !== JSON.stringify(baseline.state.cells)) differences.push("cells");
+    if (JSON.stringify(actual.rows) !== JSON.stringify(baseline.state.rows)) differences.push("rows");
     const details: unknown[] = [];
-    for (const key of differences.filter(key => key !== "cells")) {
+    for (const key of differences.filter(key => key !== "rows")) {
       details.push({field:key,expected:baseline.state[key as keyof typeof actual],actual:actual[key as keyof typeof actual]});
     }
-    if (differences.includes("cells")) {
-      outer: for (let row = 0; row < Math.max(actual.cells.length,baseline.state.cells.length); row++) {
-        const expected = baseline.state.cells[row], actualRow = actual.cells[row];
+    if (differences.includes("rows")) {
+      const expectedRows = baseline.state.rows, actualRows = actual.rows;
+      outer: for (let row = 0; row < Math.max(actualRows.length, expectedRows.length); row++) {
+        const expected = expectedRows[row], actualRow = actualRows[row];
         if (!expected || !actualRow) { details.push({field:"row",row,expected:!!expected,actual:!!actualRow}); break; }
-        for (let col = 0; col < expected.length; col++) {
-          if (JSON.stringify(expected[col]) !== JSON.stringify(actualRow[col])) {
-            details.push({field:col === 0 ? "wrapped" : "cell",row,col:col-1,expected:expected[col],actual:actualRow[col]});
+        const eFlat = flattenRuns(expected), aFlat = flattenRuns(actualRow);
+        for (let col = 0; col < Math.max(eFlat.length, aFlat.length); col++) {
+          if (JSON.stringify(eFlat[col]) !== JSON.stringify(aFlat[col])) {
+            details.push({field:col === 0 ? "wrapped" : "cell",row,col:col-1,expected:eFlat[col],actual:aFlat[col]});
             if (details.length >= 8) break outer;
           }
         }
@@ -127,6 +113,11 @@ export async function compareReplay(baseline:Awaited<ReturnType<typeof reference
     }
     return {differences,details};
   } finally { screen.dispose(); }
+}
+function flattenRuns(row: Row): unknown[] {
+  const out: unknown[] = [row[0]];
+  for (const run of row[1]) for (let i = 0; i < run[0]; i++) out.push(run.slice(1) as Run);
+  return out;
 }
 export function parseCandidate(value:unknown, corpus:Corpus):Candidate {
   const candidate = value as Candidate;

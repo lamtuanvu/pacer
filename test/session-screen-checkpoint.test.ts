@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
 import { Screen } from "../src/session/screen";
-import { compareReplay, loadCorpus, reference } from "../scripts/spike/vt100-replay/replay";
+import { compareReplay, loadCorpus, reference } from "../scripts/replay-gate/replay";
 
 describe("Screen checkpoint DECTCEM / origin restore", () => {
   test("serializes CSI ? 25 l so a restored checkpoint stays cursor-hidden", async () => {
