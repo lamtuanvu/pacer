@@ -133,7 +133,11 @@ async function integrationWorktreeUnlocked(ctx: Ctx, run: RunRow): Promise<strin
   const path = integrationPath(ctx, top, run.id);
   if (existsSync(path)) return path;
   mkdirSync(join(path, ".."), { recursive: true });
-  const added = await ctx.run(["git", "-C", top, "worktree", "add", "-q", path, ensured.branch], 60_000);
+  let added = await ctx.run(["git", "-C", top, "worktree", "add", "-q", path, ensured.branch], 60_000);
+  if (added.code !== 0 && !existsSync(path)) {
+    await ctx.run(["git", "-C", top, "worktree", "prune"], 30_000);
+    added = await ctx.run(["git", "-C", top, "worktree", "add", "-q", path, ensured.branch], 60_000);
+  }
   if (added.code !== 0) {
     if (existsSync(path)) return path;
     throw new CoreError("unavailable", `cannot create integration worktree: ${firstLine(added.stderr) || `exit ${added.code}`}`);
@@ -238,10 +242,15 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     }
 
     const wt = await integrationWorktreeUnlocked(ctx, live);
+    // Crash leftover: clear an interrupted merge before starting another.
+    if ((await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0) {
+      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+    }
     const signoff = mergeSignoffEnabled(top);
     const argv = [
       "git", "-C", wt,
       "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
+      "-c", "core.hooksPath=/dev/null",
       "merge", "--no-ff", "--no-edit",
       ...(signoff ? ["--signoff"] : []),
       "-m", `Accept ${taskId} into ${live.branch}`,

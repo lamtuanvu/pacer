@@ -17,13 +17,18 @@ export async function artifactRoute(req: Request, ctx: Ctx): Promise<Response | 
     if (!getRun(ctx, runId)) throw new CoreError("not_found", `unknown run ${runId}`);
     const file = getArtifact(ctx, runId, artId);
     if (!file) throw new CoreError("not_found", `unknown artifact ${artId}`);
+    const dangerous = /^(text\/html|image\/svg\+xml)\b/i.test(file.mime);
     return new Response(Bun.file(file.absPath), {
       headers: {
         "Content-Type": file.mime,
         "X-Content-Type-Options": "nosniff",
-        "Content-Security-Policy": "default-src 'none'",
+        "Content-Security-Policy": dangerous
+          ? "default-src 'none'; sandbox; form-action 'none'; base-uri 'none'"
+          : "default-src 'none'",
         "Cache-Control": "no-store",
-        "Content-Disposition": `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
+        "Content-Disposition": dangerous
+          ? `attachment; filename*=UTF-8''${encodeURIComponent(file.name)}`
+          : `inline; filename*=UTF-8''${encodeURIComponent(file.name)}`,
       },
     });
   } catch (error) {

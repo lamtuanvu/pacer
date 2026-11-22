@@ -478,18 +478,19 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
-  // Orchestrator turns: review/stop/step result|skip|retry/run decide|choose|submit-graph only — never delegate or run.answer.
+  // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish.
+  // run.cleanup stays person-only (refused here and in the op).
   if (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT) {
     const sub = rest[0];
     const allowed =
       cmd === "review" || cmd === "stop"
-      || (cmd === "step" && (sub === "result" || sub === "skip" || sub === "retry"))
-      || (cmd === "run" && (sub === "decide" || sub === "choose" || sub === "submit-graph"))
+      || (cmd === "step" && (sub === "result" || sub === "skip" || sub === "retry" || sub === "artifact"))
+      || (cmd === "run" && (sub === "decide" || sub === "choose" || sub === "submit-graph" || sub === "sync" || sub === "publish"))
       || cmd === "api" || cmd === "mcp";
     if (!allowed) {
       return {
         code: 2, out: "",
-        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry, run decide|choose|submit-graph",
+        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry|artifact, run decide|choose|submit-graph|sync|publish",
       };
     }
   }
