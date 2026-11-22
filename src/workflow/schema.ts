@@ -7,6 +7,11 @@ export interface JsonSchemaLite {
   required?: string[];
 }
 
+/** Frame-provided evidence result shape (Phase 5), or a light required-keys schema. */
+export type StepResultSchema = JsonSchemaLite | "evidence";
+
+export type EvidenceNeed = "browser" | "desktop" | "tui";
+
 export interface AgentStep {
   type: "agent";
   /** Required for executor steps; optional when `role` is `orchestrator` or `reviewer`. */
@@ -17,8 +22,10 @@ export interface AgentStep {
   /** When false, the step never creates or uses the run branch. When true, it always does.
    *  When omitted, kinds that edit the tree do; research/docs/unfamiliar-code do not. */
   code?: boolean;
+  /** Tool routing for agent-driven tests (D9): matched against a runner `tools` list. */
+  needs?: EvidenceNeed[];
   prompt: string;
-  result?: JsonSchemaLite;
+  result?: StepResultSchema;
 }
 
 export interface HumanStep {
@@ -104,6 +111,8 @@ export const STEP_TYPES = ["agent", "human", "fanout", "choose_workflow", "gener
 type StepType = (typeof STEP_TYPES)[number];
 
 const jsonSchemaLite = z.strictObject({ required: z.array(z.string()).optional() });
+const stepResultSchema = z.union([z.literal("evidence"), jsonSchemaLite]);
+const evidenceNeeds = z.array(z.enum(["browser", "desktop", "tui"])).min(1);
 
 /** Executor agent steps need `kind`; orchestrator and reviewer steps may omit it.
  *  `interactive` is only valid with `role: orchestrator` (checked in the refine below). */
@@ -114,8 +123,9 @@ const agentStepSchema = z.strictObject({
   interactive: z.boolean().optional(),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
   code: z.boolean().optional(),
+  needs: evidenceNeeds.optional(),
   prompt: z.string().min(1),
-  result: jsonSchemaLite.optional(),
+  result: stepResultSchema.optional(),
 }).superRefine((value, ctx) => {
   if (value.interactive === true && value.role !== "orchestrator") {
     ctx.addIssue({ code: "custom", path: ["interactive"], message: "interactive is only valid with role: orchestrator" });
@@ -142,8 +152,9 @@ const fanoutEachSchema = z.strictObject({
   kind: z.string().min(1),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
   code: z.boolean().optional(),
+  needs: evidenceNeeds.optional(),
   prompt: z.string().min(1),
-  result: jsonSchemaLite.optional(),
+  result: stepResultSchema.optional(),
 });
 
 const fanoutStepSchema = z.strictObject({

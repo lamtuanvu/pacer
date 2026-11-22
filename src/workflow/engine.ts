@@ -38,8 +38,9 @@ import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
 import { ensureRunBranch, isCodeStep } from "./branch";
 import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
-import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
+import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
+import { missingNeedsPrompt, validateEvidenceResult, type EvidenceNeed } from "./evidence";
 
 /** Wake the root orchestrator for an auto-effective waiting human step. */
 function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
@@ -489,12 +490,16 @@ async function codeStepBrief(ctx: Ctx, run: RunRow, stepDef: AgentStep, prompt: 
 }
 
 async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
-  const prompt = renderPrompt(stepDef.prompt, {
+  let prompt = renderPrompt(stepDef.prompt, {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
     branch: row.branch,
     run: { id: run.id, stepId: row.stepId },
   });
+  if (stepDef.needs && stepDef.needs.length > 0) {
+    const note = missingNeedsPrompt(stepDef.needs, advertisedEvidenceTools(ctx));
+    if (note) prompt = `${prompt}\n\n${note}`;
+  }
   const key = keyOf(row);
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
@@ -962,9 +967,28 @@ async function settleParentChooseStep(
   await advanceFrom(ctx, parent.id, def, claimed, result, { deps, spawn });
 }
 
-function resultErrors(result: unknown, schema: JsonSchemaLite | undefined): string[] {
+function resultErrors(result: unknown, schema: StepResultSchema | undefined, ctx: Ctx, runId: string): string[] {
+  if (schema === "evidence") return validateEvidenceResult(ctx, runId, result);
   if (!isPlainObject(result)) return ["result must be a JSON object"];
-  return (schema?.required ?? []).filter(key => !Object.hasOwn(result, key)).map(key => `missing required key '${key}'`);
+  const lite = schema as JsonSchemaLite | undefined;
+  return (lite?.required ?? []).filter(key => !Object.hasOwn(result, key)).map(key => `missing required key '${key}'`);
+}
+
+/** Collect runner-advertised evidence tools (D9). Missing config → empty set. */
+function advertisedEvidenceTools(ctx: Ctx): ReadonlySet<EvidenceNeed> {
+  try {
+    const strategy = loadStrategy(ctx);
+    const out = new Set<EvidenceNeed>();
+    for (const runner of Object.values(strategy.runners ?? {})) {
+      if (runner.enabled === false) continue;
+      for (const tool of runner.tools ?? []) {
+        if (tool === "browser" || tool === "desktop" || tool === "tui") out.add(tool);
+      }
+    }
+    return out;
+  } catch {
+    return new Set();
+  }
 }
 
 /** Records an agent step's structured result before settlement. Validated at once
@@ -987,7 +1011,7 @@ export function recordStepResult(ctx: Ctx, taskId: string, result: unknown): Ste
   if (bytes > 64 * 1024) {
     throw new CoreError("invalid_input", `result is ${bytes} bytes; the limit is ${64 * 1024}`);
   }
-  const errors = resultErrors(result, schema);
+  const errors = resultErrors(result, schema, ctx, run.id);
   if (errors.length > 0) throw new CoreError("invalid_input", errors.join("; "));
   return updateStep(ctx, keyOf(step), { result });
 }
