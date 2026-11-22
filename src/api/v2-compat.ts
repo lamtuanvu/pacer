@@ -50,17 +50,18 @@ function budget(s: SnapshotV3): BudgetData | null {
  providers:s.executors.map(e=>{const a=s.accounts.find(a=>a.name===e.account);return {...(e.eligibility?{eligibility:e.eligibility}:{}),id:e.id,agent:e.agent,account:e.account,verdict:v2Verdict(a?.verdict??'UNKNOWN'),usedPct:e.usedPct,pacePct:e.pacePct,resetsAt:a?.resetsAt??null,window:a?.window??null,stale:e.rank==='planner'?s.planner!.stale:false,...(e.state==='blocked'?{blockedReason:e.reason??e.sub}:{}),...(e.state==='down'?{brokenReason:e.reason??e.sub}:{})};}),
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
-/** Strip protocol-3 task fields so 2.x snapshot/task surfaces stay frozen (M-g). */
-function legacyTaskForV2<T>(task: T): T {
- if (!task || typeof task !== "object") return task;
- const { fullTitle: _ft, promptWait: _pw, derived: _d, work: _w, ...rest } = task as T & Record<string, unknown>;
- return rest as T;
+/** Strip promptWait from snapshot tasks; additive fields (fullTitle/derived/work) stay on the frozen v2 snapshot surface. */
+function stripPromptWait(task: Record<string, unknown>): Record<string, unknown> {
+ const { promptWait: _pw, ...rest } = task;
+ return rest;
 }
 
 export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
- const tasks=Array.isArray(compatible.tasks)?compatible.tasks.map(legacyTaskForV2):compatible.tasks;
+ const tasks=Array.isArray(compatible.tasks)?compatible.tasks.map(t =>
+  t && typeof t === "object" ? stripPromptWait(t as Record<string, unknown>) : t
+ ):compatible.tasks;
  const withVerdicts={...compatible,...(tasks!==undefined?{tasks}:{}),accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{
   if(a.id==="setup:connect"||isDiscoveryItemId(a.id)||isWorkflowAttentionItem(a))return [];

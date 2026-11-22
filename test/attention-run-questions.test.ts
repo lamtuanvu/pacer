@@ -176,6 +176,7 @@ test("v2 snapshot strips run-question attention and keeps ordinary task question
 
 test("v2 snapshot strips promptWait from tasks (M-g)", () => {
   // Live Q9: /v2/snapshot still carried promptWait on tasks while ops stripped it.
+  // Snapshot tasks keep additive fields (fullTitle/derived); only promptWait is stripped.
   const v2 = toV2Snapshot({
     seq: 3_000_000_000_000,
     at: 42,
@@ -186,6 +187,7 @@ test("v2 snapshot strips promptWait from tasks (M-g)", () => {
         state: "running",
         promptWait: { text: "Proceed? (y/n)", at: 1 },
         fullTitle: "full",
+        derived: {},
       },
     ],
     strategies: [],
@@ -200,7 +202,8 @@ test("v2 snapshot strips promptWait from tasks (M-g)", () => {
   const task = (v2 as unknown as { tasks: Record<string, unknown>[] }).tasks[0]!;
   expect(task.id).toBe("t-wait");
   expect(task.promptWait).toBeUndefined();
-  expect(task.fullTitle).toBeUndefined();
+  expect(task.fullTitle).toBe("full");
+  expect(task.derived).toEqual({});
   expect(JSON.stringify(v2)).not.toContain("promptWait");
 });
 

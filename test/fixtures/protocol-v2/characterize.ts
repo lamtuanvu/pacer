@@ -119,6 +119,18 @@ export function cases() {
     {...attention('failed:managed','problem',2),kind:'failed',taskId:'managed',actions:[{label:'Retry',op:'dispatch.retry',params:{id:'managed',expect_rev:7,requestId:'managed.7.retry'}}]},
     {...attention('failed:ordinary','problem',3),kind:'failed',taskId:'ordinary',actions:[{label:'Retry on Codex',op:'task.retry',params:{id:'ordinary',executor:'codex'}}]},
   ]});
+  // promptWait is v3-only; snapshot strips it while keeping additive fullTitle/derived.
+  add('strip-prompt-wait', {
+    tasks: [
+      {
+        id: 't-wait',
+        state: 'running',
+        fullTitle: 'preserved',
+        derived: {},
+        promptWait: { text: 'Proceed? (y/n)', at: 1 },
+      },
+    ],
+  });
   add('empty-unlimited', {});
   add('null-machine', { machine: null });
   add('no-planner-fixed', {
