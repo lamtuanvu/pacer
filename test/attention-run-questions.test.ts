@@ -1,4 +1,4 @@
-import { expect, test } from "bun:test";
+import { afterAll, beforeAll, expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { deriveItems, sortItems, type RuleInput } from "../src/attention/rules";
 import { apiTask } from "../src/api/read-model/tasks";
@@ -12,6 +12,7 @@ import {
 } from "../src/workflow/store";
 import type { AttentionItem } from "../src/attention/types";
 import { record } from "./read-model-helpers";
+import { buildRustProbe, closeRustProbe, rustRequest } from "./read-model-rust-helpers";
 
 const NOW = 1_700_000_000;
 
@@ -172,6 +173,23 @@ test("v2 snapshot strips run-question attention and keeps ordinary task question
   } as Parameters<typeof toV2Snapshot>[0]);
   expect(v2.attention.map(a => a.id)).toEqual(["question:t-keep"]);
 });
+
+beforeAll(buildRustProbe, 600_000);
+afterAll(closeRustProbe);
+
+test("TS and Rust run-question attention JSON are byte-identical over one fixture", async () => {
+  const ctx = { ...fakeCtx(), now: NOW };
+  const { q } = seedPersonQuestion(ctx, {
+    title: "Parity?",
+    blocks: "step",
+    createdAt: NOW - 10,
+    text: "Parity pick?",
+  });
+  const ts = deriveWorkflowAttention(ctx).filter(i => i.id.startsWith("question:q_"));
+  const rust = await rustRequest(ctx, { op: "run_questions" }) as AttentionItem[];
+  expect(JSON.stringify(rust)).toBe(JSON.stringify(ts));
+  expect(rust[0]?.id).toBe(`question:${q.id}`);
+}, 120_000);
 
 test("sortItems ranks run questions by unblocks before ordinary severity peers of equal since", () => {
   const items: AttentionItem[] = [

@@ -1,6 +1,7 @@
 use crate::{capacity, js::*, read, tasks};
 use pacer_foundation::Ctx;
-use serde_json::{Value, json};
+use rusqlite::{Connection, OpenFlags, OptionalExtension};
+use serde_json::{Map, Value, json};
 fn action(label: &str, op: &str, params: Value) -> Value {
     json!({
     "label":label,"op":op,"params":params}
@@ -36,6 +37,22 @@ fn item(
         &extra,
     )
 }
+fn unblocks_rank(v: &Value) -> i32 {
+    match text(&v["unblocks"]) {
+        "run" => 0,
+        "branch" => 1,
+        "nothing" => 2,
+        _ => 3,
+    }
+}
+fn priority_rank(v: &Value) -> i32 {
+    match text(&v["run"]["priority"]) {
+        "urgent" => 0,
+        "normal" => 1,
+        "background" => 2,
+        _ => 1,
+    }
+}
 pub fn sort(items: &mut [Value]) {
     let rank = |v: &Value| match text(&v["severity"]) {
         "blocked" => 0,
@@ -45,9 +62,202 @@ pub fn sort(items: &mut [Value]) {
     items.sort_by(|a, b| {
         rank(a)
             .cmp(&rank(b))
+            .then_with(|| {
+                let au = a.get("unblocks").is_some();
+                let bu = b.get("unblocks").is_some();
+                if au && bu {
+                    unblocks_rank(a).cmp(&unblocks_rank(b))
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
+            .then_with(|| {
+                let ar = a.get("run").is_some();
+                let br = b.get("run").is_some();
+                if ar && br {
+                    priority_rank(a).cmp(&priority_rank(b))
+                } else {
+                    std::cmp::Ordering::Equal
+                }
+            })
             .then(num(&a["since"]).total_cmp(&num(&b["since"])))
             .then(text(&a["id"]).cmp(text(&b["id"])))
     });
+}
+/// Stable A–Z letter from a run id (matches TS `runAttentionLetter` until Phase 6).
+pub fn run_attention_letter(run_id: &str) -> String {
+    let mut h: u32 = 0;
+    for b in run_id.bytes() {
+        h = h.wrapping_mul(31).wrapping_add(u32::from(b));
+    }
+    char::from(b'A' + (h % 26) as u8).to_string()
+}
+fn has_table(db: &Connection, name: &str) -> bool {
+    db.query_row(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name=?",
+        [name],
+        |_| Ok(true),
+    )
+    .optional()
+    .ok()
+    .flatten()
+    .unwrap_or(false)
+}
+/// Open person-answerer run questions for live runs. Missing tables → no items.
+pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
+    let path = ctx.pacer_home.join("state/tasks.db");
+    let db = match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
+        Ok(db) => db,
+        Err(_) => return Vec::new(),
+    };
+    if !has_table(&db, "workflow_questions") || !has_table(&db, "workflow_runs") {
+        return Vec::new();
+    }
+    let mut stmt = match db.prepare(
+        "SELECT q.id, q.run_id, q.step_id, q.attempt, q.branch, q.asker_task_id, q.asker_kind,
+                q.text, q.answer_type, q.options, q.recommended, q.blocks, q.artifact,
+                q.suggested, q.rev, q.created_at, r.title, r.workflow, r.status
+         FROM workflow_questions q
+         JOIN workflow_runs r ON r.id = q.run_id
+         WHERE q.status = 'open' AND q.answerer = 'person'
+           AND r.status IN ('running', 'waiting')
+         ORDER BY q.created_at, q.id",
+    ) {
+        Ok(s) => s,
+        Err(_) => return Vec::new(),
+    };
+    let rows = match stmt.query_map([], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, String>(2)?,
+            row.get::<_, i64>(3)?,
+            row.get::<_, Option<String>>(4)?,
+            row.get::<_, Option<String>>(5)?,
+            row.get::<_, String>(6)?,
+            row.get::<_, String>(7)?,
+            row.get::<_, String>(8)?,
+            row.get::<_, Option<String>>(9)?,
+            row.get::<_, Option<String>>(10)?,
+            row.get::<_, String>(11)?,
+            row.get::<_, Option<String>>(12)?,
+            row.get::<_, Option<String>>(13)?,
+            row.get::<_, i64>(14)?,
+            row.get::<_, f64>(15)?,
+            row.get::<_, String>(16)?,
+            row.get::<_, String>(17)?,
+            row.get::<_, String>(18)?,
+        ))
+    }) {
+        Ok(rows) => rows,
+        Err(_) => return Vec::new(),
+    };
+    let mut items = Vec::new();
+    for row in rows.flatten() {
+        let (
+            id,
+            run_id,
+            _step_id,
+            _attempt,
+            branch,
+            asker_task_id,
+            asker_kind,
+            text_body,
+            answer_type,
+            options,
+            recommended,
+            blocks,
+            artifact,
+            suggested,
+            rev,
+            created_at,
+            title,
+            workflow,
+            _status,
+        ) = row;
+        let unblocks = match blocks.as_str() {
+            "branch" => "branch",
+            "nothing" => "nothing",
+            _ => "run",
+        };
+        let severity = if unblocks == "nothing" {
+            "decide"
+        } else {
+            "blocked"
+        };
+        let notify = if unblocks == "nothing" {
+            "all"
+        } else {
+            "important"
+        };
+        let run_title = if title.is_empty() { workflow } else { title };
+        let at = if created_at > 0.0 {
+            created_at
+        } else {
+            ctx.now
+        };
+        let mut question = Map::new();
+        question.insert("id".into(), json!(id));
+        question.insert("text".into(), json!(text_body));
+        question.insert("answerType".into(), json!(answer_type));
+        question.insert("blocks".into(), json!(blocks));
+        question.insert("rev".into(), number(rev as f64));
+        question.insert("askerKind".into(), json!(asker_kind));
+        if let Some(raw) = options.filter(|s| !s.is_empty())
+            && let Ok(parsed) = serde_json::from_str::<Value>(&raw)
+        {
+            question.insert("options".into(), parsed);
+        }
+        if let Some(v) = recommended.filter(|s| !s.is_empty()) {
+            question.insert("recommended".into(), json!(v));
+        }
+        if let Some(v) = artifact.filter(|s| !s.is_empty()) {
+            question.insert("artifact".into(), json!(v));
+        }
+        if let Some(v) = suggested.filter(|s| !s.is_empty()) {
+            question.insert("suggested".into(), json!(v));
+        }
+        if let Some(v) = asker_task_id.filter(|s| !s.is_empty()) {
+            question.insert("askerTaskId".into(), json!(v));
+        }
+        if let Some(v) = branch.filter(|s| !s.is_empty()) {
+            question.insert("branch".into(), json!(v));
+        }
+        // Key order matches TS `runQuestionItem` for byte-identical stringify.
+        let mut obj = Map::new();
+        obj.insert("id".into(), json!(format!("question:{id}")));
+        obj.insert("kind".into(), json!("question"));
+        obj.insert("severity".into(), json!(severity));
+        obj.insert("repo".into(), Value::Null);
+        obj.insert("title".into(), json!(run_title.clone()));
+        obj.insert("detail".into(), json!(slice(&text_body, 200)));
+        obj.insert("raisedAt".into(), number(at));
+        obj.insert("since".into(), number(at));
+        obj.insert("notify".into(), json!(notify));
+        obj.insert(
+            "actions".into(),
+            json!([{
+                "label":"Answer",
+                "op":"question.answer",
+                "params":{"id":id,"expect_rev":number(rev as f64)},
+                "style":"primary"
+            }]),
+        );
+        obj.insert("unblocks".into(), json!(unblocks));
+        obj.insert(
+            "run".into(),
+            json!({
+                "id":run_id,
+                "letter":run_attention_letter(&run_id),
+                "title":run_title,
+                "priority":"normal"
+            }),
+        );
+        obj.insert("question".into(), Value::Object(question));
+        items.push(Value::Object(obj));
+    }
+    sort(&mut items);
+    items
 }
 pub fn derive(
     ctx: &Ctx,
@@ -507,6 +717,7 @@ pub fn raised(
             ));
         }
     }
+    items.extend(run_question_items(ctx));
     items
 }
 

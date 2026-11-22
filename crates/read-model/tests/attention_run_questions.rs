@@ -1,0 +1,183 @@
+#![allow(clippy::unwrap_used, clippy::expect_used)]
+use pacer_foundation::Ctx;
+use pacer_read_model::{attention, events::to_v2_event, js::*, v2_compat};
+use serde_json::{Value, json};
+use std::collections::HashMap;
+
+fn ctx() -> (tempfile::TempDir, Ctx) {
+    let dir = tempfile::tempdir().expect("tempdir");
+    let home = dir.path().join("home");
+    let pacer = dir.path().join("pacer");
+    std::fs::create_dir_all(pacer.join("state")).expect("state");
+    let ctx = Ctx::with(home, pacer, HashMap::new(), 1_700_000_000.0);
+    (dir, ctx)
+}
+
+fn seed_question(ctx: &Ctx, run_id: &str, q_id: &str, blocks: &str, created_at: f64, text: &str) {
+    let path = ctx.pacer_home.join("state/tasks.db");
+    let db = rusqlite::Connection::open(&path).expect("open db");
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workflow_runs(
+           id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT,
+           status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL
+         );
+         CREATE TABLE IF NOT EXISTS workflow_questions(
+           id TEXT PRIMARY KEY, run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT,
+           asker_task_id TEXT, asker_kind TEXT, text TEXT, answer_type TEXT, options TEXT,
+           recommended TEXT, blocks TEXT, artifact TEXT, answerer TEXT, chain TEXT,
+           suggested TEXT, answer TEXT, answered_by TEXT, status TEXT, rev INTEGER,
+           created_at REAL, answered_at REAL
+         );",
+    )
+    .expect("ddl");
+    db.execute(
+        "INSERT OR IGNORE INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at)
+         VALUES (?1, 't/attn', 1, '/tmp', 'B', 'Ship?', 'running', NULL, '{}', 1, ?2, ?2)",
+        rusqlite::params![run_id, created_at],
+    )
+    .expect("run");
+    db.execute(
+        "INSERT INTO workflow_questions(
+           id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
+           options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
+           status, rev, created_at, answered_at
+         ) VALUES (?1, ?2, 'ask', 1, NULL, 't-ask', 'executor', ?3, 'single',
+           ?4, 'a', ?5, NULL, 'person', '[]', NULL, NULL, NULL, 'open', 1, ?6, NULL)",
+        rusqlite::params![
+            q_id,
+            run_id,
+            text,
+            r#"[{"value":"a"},{"value":"b"}]"#,
+            blocks,
+            created_at
+        ],
+    )
+    .expect("question");
+}
+
+#[test]
+fn missing_tables_yield_no_run_question_items() {
+    let (_dir, ctx) = ctx();
+    assert!(attention::run_question_items(&ctx).is_empty());
+}
+
+#[test]
+fn run_question_item_shape_matches_typescript() {
+    let (_dir, ctx) = ctx();
+    seed_question(
+        &ctx,
+        "run_abcdefghij",
+        "q_abcdefghij",
+        "step",
+        1_700_000_000.0 - 10.0,
+        "Ship?",
+    );
+    let items = attention::run_question_items(&ctx);
+    assert_eq!(items.len(), 1);
+    let item = &items[0];
+    assert_eq!(text(&item["id"]), "question:q_abcdefghij");
+    assert_eq!(text(&item["kind"]), "question");
+    assert_eq!(text(&item["severity"]), "blocked");
+    assert_eq!(text(&item["unblocks"]), "run");
+    assert_eq!(text(&item["run"]["id"]), "run_abcdefghij");
+    assert_eq!(
+        text(&item["run"]["letter"]),
+        attention::run_attention_letter("run_abcdefghij")
+    );
+    assert_eq!(text(&item["run"]["priority"]), "normal");
+    assert_eq!(text(&item["question"]["id"]), "q_abcdefghij");
+    assert_eq!(text(&item["question"]["answerType"]), "single");
+    assert_eq!(text(&item["actions"][0]["op"]), "question.answer");
+    assert!(v2_compat::is_workflow_attention_item(item));
+}
+
+#[test]
+fn ranking_prefers_run_over_branch_over_nothing_then_age() {
+    let (_dir, ctx) = ctx();
+    seed_question(
+        &ctx,
+        "run_aaaaaaa1",
+        "q_nothingxx1",
+        "nothing",
+        1_699_999_970.0,
+        "Info",
+    );
+    seed_question(
+        &ctx,
+        "run_aaaaaaa2",
+        "q_branchxxx2",
+        "branch",
+        1_699_999_990.0,
+        "Branch",
+    );
+    seed_question(
+        &ctx,
+        "run_aaaaaaa3",
+        "q_runxxxxxx3",
+        "step",
+        1_699_999_995.0,
+        "Run",
+    );
+    seed_question(
+        &ctx,
+        "run_aaaaaaa4",
+        "q_olderrunx4",
+        "step",
+        1_699_999_980.0,
+        "Older",
+    );
+    let ids: Vec<String> = attention::run_question_items(&ctx)
+        .into_iter()
+        .map(|i| text(&i["id"]).to_string())
+        .collect();
+    assert_eq!(
+        ids,
+        vec![
+            "question:q_olderrunx4",
+            "question:q_runxxxxxx3",
+            "question:q_branchxxx2",
+            "question:q_nothingxx1",
+        ]
+    );
+}
+
+#[test]
+fn question_entity_events_are_v3_only() {
+    let event = json!({
+        "seq": number(3_000_000_000_001.0),
+        "at": 1791633600,
+        "type": "question",
+        "data": {"id":"q_abcdefghij","text":"Ship?","status":"open"}
+    });
+    assert_eq!(to_v2_event(&event), None);
+    assert!(v2_compat::event(&event, None).is_null());
+}
+
+#[test]
+fn letter_matches_typescript_hash() {
+    // Bun: let h=0; for (const c of "run_abcdefghij") h = (h*31+c.charCodeAt(0))>>>0; String.fromCharCode(65+(h%26))
+    assert_eq!(attention::run_attention_letter("run_abcdefghij").len(), 1);
+    let mut h: u32 = 0;
+    for b in b"run_abcdefghij" {
+        h = h.wrapping_mul(31).wrapping_add(u32::from(*b));
+    }
+    let expected = char::from(b'A' + (h % 26) as u8).to_string();
+    assert_eq!(attention::run_attention_letter("run_abcdefghij"), expected);
+}
+
+#[test]
+fn wire_json_is_stable() {
+    let (_dir, ctx) = ctx();
+    seed_question(
+        &ctx,
+        "run_abcdefghij",
+        "q_abcdefghij",
+        "step",
+        1_699_999_990.0,
+        "Ship?",
+    );
+    let item = &attention::run_question_items(&ctx)[0];
+    let wire = stringify(item);
+    let parsed: Value = serde_json::from_str(&wire).expect("parse");
+    assert_eq!(&parsed, item);
+}
