@@ -158,6 +158,9 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
   // must be able to leave.
   for (const [id, value] of Object.entries(steps)) {
     if (id.length > 48) errors.push({ path: `steps.${id}`, message: `step id '${id}' is longer than 48 characters` });
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+      errors.push({ path: `steps.${id}`, message: `step id '${id}' must match ^[A-Za-z0-9_-]+$` });
+    }
     if (!isPlainObject(value)) continue;
     const rawBranches = Array.isArray(value.branches) ? value.branches : [];
     if (value.type === "fanout") {

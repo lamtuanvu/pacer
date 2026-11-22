@@ -88,6 +88,11 @@ async function ensureRunBranchUnlocked(ctx: Ctx, run: RunRow): Promise<RunBranch
   } catch {
     configured = null;
   }
+  const abbrev = await ctx.run(["git", "-C", top, "rev-parse", "--abbrev-ref", "HEAD"], 10_000);
+  const headName = abbrev.stdout.trim();
+  if (abbrev.code !== 0 || !headName || headName === "HEAD") {
+    throw new CoreError("invalid_input", "run branch base cannot be a detached HEAD; set execution.baseBranch");
+  }
   const resolved = await resolveWorktreeBase(ctx, top, { worktreeBase: configured ? undefined : "head" }, configured, true);
   if ("error" in resolved) throw new CoreError("unavailable", resolved.error);
   const branch = runBranchName(live.id);
@@ -101,9 +106,8 @@ async function ensureRunBranchUnlocked(ctx: Ctx, run: RunRow): Promise<RunBranch
       }
     }
   }
-  const baseRef = resolved.base.startsWith("origin/") ? resolved.base.slice("origin/".length)
-    : resolved.base === "HEAD" ? (await ctx.run(["git", "-C", top, "rev-parse", "--abbrev-ref", "HEAD"], 10_000)).stdout.trim() || "HEAD"
-    : resolved.base;
+  // Prefer the remote-tracking form when present; never store detached HEAD.
+  const baseRef = !resolved.base || resolved.base === "HEAD" ? headName : resolved.base;
   const info = { branch, base_ref: baseRef, base_sha: resolved.sha };
   setRunBranch(ctx, live.id, info);
   return info;
@@ -364,6 +368,10 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     if (live.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
     const wt = await integrationWorktreeUnlocked(ctx, live);
     const top = await resolveRepoTop(ctx, live.repo);
+    // Fetch remote-tracking bases before resolving so "base moves on" sees origin.
+    if (live.baseRef.startsWith("origin/") || live.baseRef.includes("/")) {
+      await ctx.run(["git", "-C", top, "fetch", "--quiet", "origin"], 120_000);
+    }
     // Resolve the base tip without checking it out in the main worktree.
     const tip = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `${live.baseRef}^{commit}`], 10_000);
     const sha = tip.stdout.trim();

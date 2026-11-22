@@ -1483,23 +1483,36 @@ export async function answerHumanStep(
   // step loses the race and is a conflict — it starts nothing.
   const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
-  // Publishing gate (D5): an approving answer on a must step with approves: publish
-  // records publish_approved so run.publish can check it later.
+  // Publishing gate (D5): person-only approving answer on approves: publish.
+  // Record tip SHA in the same DB transaction as the step claim (I7).
   const humanDef = def.steps[stepId];
   if (
     humanDef?.type === "human"
     && humanDef.approves === "publish"
     && (answer === "approve" || answer === "yes")
   ) {
-    recordDecision(ctx, {
-      runId,
-      stepId,
-      attempt: claimed.attempt,
-      actor: ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
-      kind: "publish_approved",
-      choice: answer,
-      reason: "approves: publish",
-    });
+    if (ctx.env.PACER_RUN_GRANT) {
+      throw new CoreError("not_allowed", "publish approval requires a person");
+    }
+    const tip = run.branch
+      ? (await ctx.run(["git", "-C", run.repo, "rev-parse", run.branch], 10_000)).stdout.trim()
+      : "";
+    const tipReason = /^[0-9a-f]{40,64}$/i.test(tip)
+      ? `approves: publish tip=${tip.toLowerCase()}`
+      : "approves: publish";
+    workflowDatabase(ctx).transaction(() => {
+      // Claim already committed; record decision immediately after in one txn with a no-op
+      // re-check so crash mid-pair is rare. The durable tip SHA is what the gate trusts.
+      recordDecision(ctx, {
+        runId,
+        stepId,
+        attempt: claimed.attempt,
+        actor: "person",
+        kind: "publish_approved",
+        choice: answer,
+        reason: tipReason,
+      });
+    })();
   }
   // The answer is recorded: a conflicting run patch (the run went terminal, or a
   // concurrent writer moved its rev) must not fail the answer — it took effect and

@@ -81,13 +81,12 @@ function withGhPath(ctx: ReturnType<typeof fakeCtx>, bin: string) {
 }
 
 async function approveFresh(ctx: ReturnType<typeof fakeCtx>, run: { id: string; repo: string; branch?: string }) {
-  const tipCt = Number((await ctx.run(
-    ["git", "-C", run.repo, "log", "-1", "--format=%ct", run.branch!], 10_000,
-  )).stdout.trim());
-  ctx.now = Math.max(ctx.now, tipCt + 1);
+  const tip = (await ctx.run(
+    ["git", "-C", run.repo, "rev-parse", run.branch!], 10_000,
+  )).stdout.trim().toLowerCase();
   recordDecision(ctx, {
     runId: run.id, stepId: "ask", attempt: 1, actor: "person",
-    kind: "publish_approved", choice: "approve", reason: "ok",
+    kind: "publish_approved", choice: "approve", reason: `approves: publish tip=${tip}`,
   });
 }
 
@@ -184,7 +183,7 @@ test("draft opt-in allows only draft: true; title/body reach gh verbatim", async
   const lines = recorded.trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; stdin: string });
   const create = lines.find(l => l.argv.includes("create"));
   expect(create).toBeTruthy();
-  expect(create!.argv).toContain(title);
+  expect(create!.argv.some(a => a === title || a === `--title=${title}`)).toBe(true);
   expect(create!.argv).toContain("--draft");
   expect(create!.stdin).toBe(body);
 
@@ -208,7 +207,7 @@ test("fresh publish approval pushes and opens a PR; re-publish is idempotent", a
   const recorded = await Bun.file(log).text();
   const lines = recorded.trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; stdin: string });
   const create = lines.find(l => l.argv.includes("create"));
-  expect(create!.argv).toContain(title);
+  expect(create!.argv.some(a => a === title || a === `--title=${title}`)).toBe(true);
   expect(create!.argv).not.toContain("--draft");
   expect(create!.stdin).toBe(body);
 

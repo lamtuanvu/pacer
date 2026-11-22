@@ -71,8 +71,17 @@ export function runEvidenceDir(ctx: Ctx, runId: string): string {
   return join(ctx.pacerHome, "runs", runId, "evidence");
 }
 
-function artifactBlobPath(ctx: Ctx, runId: string, stepId: string, artId: string): string {
-  return join(runArtifactsDir(ctx, runId), stepId, artId);
+/** Flat blob path: step id lives in the DB only (I9 — no step id in the filesystem). */
+function artifactBlobPath(ctx: Ctx, runId: string, artId: string): string {
+  return join(runArtifactsDir(ctx, runId), artId);
+}
+
+function assertUnderArtifacts(dest: string, root: string): void {
+  const resolvedDest = resolve(dest);
+  const resolvedRoot = resolve(root);
+  if (resolvedDest !== resolvedRoot && !resolvedDest.startsWith(resolvedRoot + sep)) {
+    throw new CoreError("not_allowed", "artifact destination escapes the run artifacts directory");
+  }
 }
 
 function mimeFor(name: string): string {
@@ -179,9 +188,12 @@ export function storeArtifact(ctx: Ctx, taskId: string, input: { path: string; l
   const id = newArtifactId();
   const name = basename(source);
   const mime = mimeFor(name);
-  const dest = artifactBlobPath(ctx, run.id, step.stepId, id);
-  mkdirSync(dirname(dest), { recursive: true, mode: 0o700 });
-  const tmp = `${dest}.tmp-${process.pid}`;
+  const root = runArtifactsDir(ctx, run.id);
+  mkdirSync(root, { recursive: true, mode: 0o700 });
+  const dest = artifactBlobPath(ctx, run.id, id);
+  assertUnderArtifacts(dest, root);
+  const tmp = join(root, `${id}.tmp-${process.pid}`);
+  assertUnderArtifacts(tmp, root);
   try {
     copyFileSync(source, tmp);
     chmodSync(tmp, 0o600);
@@ -217,7 +229,7 @@ export function getArtifact(ctx: Ctx, runId: string, artId: string): (ArtifactRo
     "SELECT * FROM workflow_artifacts WHERE run_id = ? AND id = ?",
   ).get(runId, artId);
   if (!row) return null;
-  const absPath = artifactBlobPath(ctx, runId, row.step_id, row.id);
+  const absPath = artifactBlobPath(ctx, runId, row.id);
   if (!existsSync(absPath)) return null;
   return { ...fromRow(row), absPath };
 }
