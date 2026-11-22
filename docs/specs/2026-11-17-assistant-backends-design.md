@@ -182,7 +182,7 @@ Phases 2 and 3 are independent once phase 1 lands.
 
 Approved by the maintainer on 2026-11-18 with the proposed answers.
 
-1. **Shipping a native plugin.** `assistant-pacer` is the first bundled plugin built as a native binary. How it is packaged and signed with the desktop app and the CLI release needs a decision. Proposed: build it with `pacer-core` and sign it on the same path.
+1. **Shipping a native plugin.** `assistant-pacer` is the first bundled plugin built as a native binary. How it is packaged and signed with the desktop app and the CLI release needs a decision. Proposed: build it with `pacer-core` and sign it on the same path. **Addendum (2026-11-21):** the CLI manifest lists it under optional per-asset `nativePlugins` (not `companions`), so older updaters ignore the field; new updaters and self-repair install and version-guard it next to `pacer-core` ([ADR 0031](../decisions/0031-native-plugin-release-manifest.md)).
 2. **Rig's version.** Rig is pre-1.0 and has breaking releases. Proposed: pin an exact version and upgrade deliberately, with the fake-endpoint tests as the gate.
 3. **Is the self-test enough?** Should choosing an executor backend require a one-time acknowledgement that names the residual risk in §7? Proposed: yes.
 4. **`assistant-pacer` as an executor.** Should pacer's agent later become an executor backend for light, read-only task kinds, such as classification and summaries, and for endpoint or local models without a CLI? Proposed: defer, and decide with evidence from phase 3.

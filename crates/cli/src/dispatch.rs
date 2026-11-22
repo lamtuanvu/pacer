@@ -68,8 +68,20 @@ pub fn main(argv: Vec<String>) -> i32 {
         && env.get("PACER_NO_SELF_REPAIR").is_none_or(|s| s != "1")
     {
         let core = exe.with_file_name("pacer-core");
-        if !crate::self_repair::is_current(&core, version, &env) {
-            eprintln!("pacer: installing pacer-core {version}…");
+        let assistant = exe.with_file_name("pacer-assistant-pacer");
+        // Restore a stale installed assistant even when core is current; a missing
+        // assistant is restored by explicit `self-repair` or update.apply (ADR 0031).
+        let assistant_stale = assistant.is_file()
+            && crate::self_repair::core_version(&assistant).as_deref() != Some(version);
+        if !crate::self_repair::is_current(&core, version, &env) || assistant_stale {
+            eprintln!(
+                "pacer: installing {} {version}…",
+                if assistant_stale && crate::self_repair::is_current(&core, version, &env) {
+                    "pacer-assistant-pacer"
+                } else {
+                    "pacer-core"
+                }
+            );
             let base = env
                 .get("PACER_RELEASE_BASE")
                 .map(String::as_str)

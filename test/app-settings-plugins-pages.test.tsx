@@ -37,6 +37,10 @@ test('missing optional native sibling is neutral and excluded from plugin attent
   expect(attentionState(missingNative)).toBe(false);
   expect(pluginCardTone(missingNative)).toBeNull();
   expect(pluginStatus(missingNative)).toEqual({tone:'neutral',label:'Not installed'});
+  const outdatedNative={...missingNative,error:'native executable pacer-assistant-pacer is outdated (reports 0.0.1, pacer is 0.17.6)'};
+  expect(isNativeSiblingMissing(outdatedNative)).toBe(true);
+  expect(pluginStatus(outdatedNative)).toEqual({tone:'neutral',label:'Outdated'});
+  expect(attentionState(outdatedNative)).toBe(false);
   expect(attentionState({...pluginFixture,state:'refused',error:'manifest id mismatch'})).toBe(true);
   const refused={...pluginFixture,id:'broken',state:'refused' as const,error:'manifest id mismatch'};
   const html=draw(<PluginsPage initialData={{plugins:[missingNative,refused]}} initialSurfaces={surfaces}/>);
