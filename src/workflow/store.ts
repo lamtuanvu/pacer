@@ -126,6 +126,35 @@ export function workflowDatabase(ctx: Ctx): Database {
       );
     `);
     db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
+    // Phase 4: structured questions (one thread = one record).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_questions(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        branch TEXT,
+        asker_task_id TEXT,
+        asker_kind TEXT NOT NULL,
+        text TEXT NOT NULL,
+        answer_type TEXT NOT NULL,
+        options TEXT,
+        recommended TEXT,
+        blocks TEXT NOT NULL,
+        artifact TEXT,
+        answerer TEXT NOT NULL,
+        chain TEXT NOT NULL,
+        suggested TEXT,
+        answer TEXT,
+        answered_by TEXT,
+        status TEXT NOT NULL,
+        rev INTEGER NOT NULL,
+        created_at REAL NOT NULL,
+        answered_at REAL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_run ON workflow_questions(run_id, created_at, id)");
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_open ON workflow_questions(run_id) WHERE status = 'open'");
   }).immediate();
   ready.add(db);
   return db;
@@ -967,4 +996,313 @@ export function getGraph(
     "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
   ).get(key.runId, key.stepId, key.attempt, key.version);
   return row ? graphFromRow(row) : null;
+}
+
+// --- Phase 4: structured questions -------------------------------------------------
+
+export type QuestionAskerKind = "executor" | "orchestrator" | "human_step";
+export type QuestionAnswerer = "orchestrator" | "person";
+export type QuestionStatus = "open" | "answered" | "withdrawn";
+export type QuestionAnswerType = "single" | "multi" | "text" | "yes_no" | "approve_revise";
+export type QuestionBlocks = "step" | "branch" | "nothing";
+
+export interface QuestionOption {
+  value: string;
+  note?: string;
+}
+
+export interface QuestionRow {
+  id: string;
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  askerTaskId?: string;
+  askerKind: QuestionAskerKind;
+  text: string;
+  answerType: QuestionAnswerType;
+  options?: QuestionOption[];
+  recommended?: string;
+  blocks: QuestionBlocks;
+  artifact?: string;
+  answerer: QuestionAnswerer;
+  chain: QuestionAnswerer[];
+  suggested?: string;
+  answer?: string;
+  answeredBy?: string;
+  status: QuestionStatus;
+  rev: number;
+  createdAt: number;
+  answeredAt?: number;
+}
+
+export type NewQuestion = {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  branch?: string;
+  askerTaskId?: string;
+  askerKind: QuestionAskerKind;
+  text: string;
+  answerType: QuestionAnswerType;
+  options?: QuestionOption[];
+  recommended?: string;
+  blocks: QuestionBlocks;
+  artifact?: string;
+  answerer: QuestionAnswerer;
+  chain?: QuestionAnswerer[];
+  suggested?: string;
+};
+
+interface QuestionDbRow {
+  id: string;
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  branch: string | null;
+  asker_task_id: string | null;
+  asker_kind: string;
+  text: string;
+  answer_type: string;
+  options: string | null;
+  recommended: string | null;
+  blocks: string;
+  artifact: string | null;
+  answerer: string;
+  chain: string;
+  suggested: string | null;
+  answer: string | null;
+  answered_by: string | null;
+  status: string;
+  rev: number;
+  created_at: number;
+  answered_at: number | null;
+}
+
+function newQuestionId(): string {
+  const bytes = randomBytes(10);
+  let id = "q_";
+  for (const byte of bytes) id += BASE32[byte % 32];
+  return id;
+}
+
+function parseOptions(raw: string | null): QuestionOption[] | undefined {
+  if (raw == null || raw === "") return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return undefined;
+    return parsed as QuestionOption[];
+  } catch {
+    return undefined;
+  }
+}
+
+function parseChain(raw: string): QuestionAnswerer[] {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (!Array.isArray(parsed)) return [];
+    return parsed as QuestionAnswerer[];
+  } catch {
+    return [];
+  }
+}
+
+function questionFromRow(row: QuestionDbRow): QuestionRow {
+  const out: QuestionRow = {
+    id: row.id,
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    askerKind: row.asker_kind as QuestionAskerKind,
+    text: row.text,
+    answerType: row.answer_type as QuestionAnswerType,
+    blocks: row.blocks as QuestionBlocks,
+    answerer: row.answerer as QuestionAnswerer,
+    chain: parseChain(row.chain),
+    status: row.status as QuestionStatus,
+    rev: row.rev,
+    createdAt: row.created_at,
+  };
+  if (row.branch) out.branch = row.branch;
+  if (row.asker_task_id) out.askerTaskId = row.asker_task_id;
+  const options = parseOptions(row.options);
+  if (options) out.options = options;
+  if (row.recommended) out.recommended = row.recommended;
+  if (row.artifact) out.artifact = row.artifact;
+  if (row.suggested) out.suggested = row.suggested;
+  if (row.answer != null) out.answer = row.answer;
+  if (row.answered_by) out.answeredBy = row.answered_by;
+  if (row.answered_at != null) out.answeredAt = row.answered_at;
+  return out;
+}
+
+export function insertQuestion(ctx: Ctx, input: NewQuestion): QuestionRow {
+  const chain = input.chain ?? [];
+  const row: QuestionRow = {
+    id: newQuestionId(),
+    runId: input.runId,
+    stepId: input.stepId,
+    attempt: input.attempt,
+    askerKind: input.askerKind,
+    text: input.text,
+    answerType: input.answerType,
+    blocks: input.blocks,
+    answerer: input.answerer,
+    chain,
+    status: "open",
+    rev: 1,
+    createdAt: ctx.now,
+  };
+  if (input.branch) row.branch = input.branch;
+  if (input.askerTaskId) row.askerTaskId = input.askerTaskId;
+  if (input.options) row.options = input.options;
+  if (input.recommended) row.recommended = input.recommended;
+  if (input.artifact) row.artifact = input.artifact;
+  if (input.suggested) row.suggested = input.suggested;
+  workflowDatabase(ctx).query(
+    `INSERT INTO workflow_questions(
+      id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
+      options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
+      status, rev, created_at, answered_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?, NULL)`,
+  ).run(
+    row.id,
+    row.runId,
+    row.stepId,
+    row.attempt,
+    row.branch ?? null,
+    row.askerTaskId ?? null,
+    row.askerKind,
+    row.text,
+    row.answerType,
+    row.options ? JSON.stringify(row.options) : null,
+    row.recommended ?? null,
+    row.blocks,
+    row.artifact ?? null,
+    row.answerer,
+    JSON.stringify(row.chain),
+    row.suggested ?? null,
+    row.status,
+    row.rev,
+    row.createdAt,
+  );
+  return row;
+}
+
+export function getQuestion(ctx: Ctx, id: string): QuestionRow | null {
+  const row = workflowDatabase(ctx).query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  return row ? questionFromRow(row) : null;
+}
+
+export function listQuestions(ctx: Ctx, runId: string, status?: QuestionStatus): QuestionRow[] {
+  const db = workflowDatabase(ctx);
+  if (status) {
+    return db.query<QuestionDbRow, [string, string]>(
+      "SELECT * FROM workflow_questions WHERE run_id = ? AND status = ? ORDER BY created_at, id",
+    ).all(runId, status).map(questionFromRow);
+  }
+  return db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE run_id = ? ORDER BY created_at, id",
+  ).all(runId).map(questionFromRow);
+}
+
+/** Compare-and-set answer: requires the current rev and an open status. */
+export function answerQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  input: { answer: string; note?: string; expectRev: number; answeredBy: string },
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== input.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  if (current.status !== "open") {
+    throw new CoreError("conflict", `conflict: question ${id} is ${current.status}`);
+  }
+  const answer = input.note !== undefined
+    ? JSON.stringify({ answer: input.answer, note: input.note })
+    : input.answer;
+  const done = db.query(
+    `UPDATE workflow_questions
+     SET answer = ?, answered_by = ?, status = 'answered', rev = rev + 1, answered_at = ?
+     WHERE id = ? AND rev = ? AND status = 'open'`,
+  ).run(answer, input.answeredBy, ctx.now, id, input.expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
+}
+
+/** Compare-and-set escalate: answerer becomes person, chain grows, suggestion attached. */
+export function escalateQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  input: { suggested: string; expectRev: number; by: QuestionAnswerer },
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== input.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  if (current.status !== "open") {
+    throw new CoreError("conflict", `conflict: question ${id} is ${current.status}`);
+  }
+  const chain = parseChain(current.chain);
+  if (!chain.includes(input.by)) chain.push(input.by);
+  const done = db.query(
+    `UPDATE workflow_questions
+     SET answerer = 'person', chain = ?, suggested = ?, rev = rev + 1
+     WHERE id = ? AND rev = ? AND status = 'open'`,
+  ).run(JSON.stringify(chain), input.suggested, id, input.expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${input.expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
+}
+
+/** Patch open-question fields that routing updates (answerer only via escalate). */
+export function updateQuestionRecord(
+  ctx: Ctx,
+  id: string,
+  expectRev: number,
+  patch: Partial<Pick<QuestionRow, "suggested" | "status">>,
+): QuestionRow {
+  const db = workflowDatabase(ctx);
+  const current = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!current) throw new CoreError("not_found", `unknown question ${id}`);
+  if (current.rev !== expectRev) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${expectRev}`);
+  }
+  const status = patch.status ?? (current.status as QuestionStatus);
+  const suggested = patch.suggested !== undefined ? patch.suggested : current.suggested;
+  const done = db.query(
+    `UPDATE workflow_questions SET suggested = ?, status = ?, rev = rev + 1 WHERE id = ? AND rev = ?`,
+  ).run(suggested ?? null, status, id, expectRev);
+  if (done.changes !== 1) {
+    throw new CoreError("conflict", `conflict: question ${id} changed since rev ${expectRev}`);
+  }
+  const updated = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE id = ?",
+  ).get(id);
+  if (!updated) throw new CoreError("not_found", `unknown question ${id}`);
+  return questionFromRow(updated);
 }
