@@ -131,6 +131,8 @@ pub fn main(argv: Vec<String>) -> i32 {
                         2
                     }
                 }
+            } else if crate::plugin_run::is_plugin_run(args) {
+                crate::plugin_run::run(&core, args, &env)
             } else {
                 exec_core(&core, args, &env)
             }
