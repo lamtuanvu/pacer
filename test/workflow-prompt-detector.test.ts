@@ -142,7 +142,10 @@ test("R2-I1: readLogTail reads only the last 16 KiB of a large sparse log", () =
   const tail = readLogTail(path);
   expect(tail).toContain("Continue? (y/n)");
   expect(findPromptLikeLine(tail)).toMatch(/\(y\/n\)/i);
-  const bytesRead = readSpy.mock.calls.reduce((n, call) => n + (Number(call[3]) || 0), 0);
+  const bytesRead = readSpy.mock.calls.reduce((n, call) => {
+    const args = call as unknown as unknown[];
+    return n + (Number(args[3]) || 0);
+  }, 0);
   expect(bytesRead).toBeLessThanOrEqual(16_384);
   expect(bytesRead).toBeGreaterThan(0);
   readSpy.mockRestore();
@@ -156,7 +159,7 @@ test("R2-I1: brokerTick drives the detector and marks a quiet step task", async 
     withStep: true,
   });
   expect(readTask(ctx, task.id)?.promptWait).toBeUndefined();
-  await brokerTick(ctx, { mode: async () => "balanced" });
+  await brokerTick(ctx, { mode: async () => "normal" });
   expect(readTask(ctx, task.id)?.promptWait?.text).toMatch(/\(y\/n\)/i);
   // Also reachable via the all-tasks refresh used by the tick.
   refreshAllPromptWaits(ctx);
