@@ -352,6 +352,60 @@ test("G: prompt_wait first action is Convert to question (params succeed)", () =
     op: "question.convert_prompt",
     params: { id: task.id },
   });
+  // m5: Dispatch only shows Convert — detail explains what it does.
+  expect(items[0]?.detail).toContain("Convert hands the question to the workflow planner");
+});
+
+test("H m1: 4+ options lists all and appends CLI hint beyond the 3-button cap", async () => {
+  const { item, questionId } = await personQuestionItem("single", {
+    options: [
+      { value: "one" }, { value: "two" }, { value: "three" }, { value: "four" },
+    ],
+  });
+  expect(item.actions).toHaveLength(3);
+  expect(item.detail).toContain("Options: one / two / three / four.");
+  expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
+});
+
+test("H m2: long options are clipped in detail/labels; oversize options get no button", async () => {
+  const long40 = "a".repeat(45); // clips to 40 + …
+  const over80 = "b".repeat(81); // no button (> 80 code points)
+  const { item, questionId } = await personQuestionItem("single", {
+    options: [
+      { value: "ok" },
+      { value: long40 },
+      { value: over80 },
+    ],
+    recommended: "ok",
+  });
+  expect(item.detail).toContain(`Options: ok / ${"a".repeat(40)}… / ${"b".repeat(40)}….`);
+  expect(item.actions.map(a => a.params.answer)).toEqual(["ok", long40]);
+  expect(item.actions[1]?.label).toBe(`${"a".repeat(40)}…`);
+  expect(item.actions).toHaveLength(2);
+  expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
+});
+
+test("H m4: question text clips by code points (no lone surrogate)", () => {
+  const ctx = fakeCtx({ now: NOW });
+  withStrategy(ctx);
+  addDefinition(ctx, def, "id: t/attn-act\n");
+  const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "U" });
+  // 199 BMP + one emoji (2 UTF-16 units) would split under String.slice(0,200).
+  const text = `${"x".repeat(199)}\u{1F600}y`;
+  const q = insertQuestion(ctx, {
+    runId: run.id,
+    stepId: "ask",
+    attempt: 1,
+    askerKind: "executor",
+    text,
+    answerType: "text",
+    blocks: "step",
+    answerer: "person",
+  });
+  const item = deriveWorkflowAttention(ctx).find(i => i.id === `question:${q.id}`)!;
+  const clipped = Array.from(text).slice(0, 200).join("");
+  expect(item.detail.startsWith(clipped)).toBe(true);
+  expect(item.detail.includes("\uD83D") && !item.detail.includes("\uDE00")).toBe(false);
 });
 
 beforeAll(buildRustProbe, 600_000);
@@ -365,6 +419,9 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
     { ...ctx, now: NOW - 10 },
     { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "Parity" },
   );
+  // m4 parity seed: unicode at the 200-clip boundary, ZWJ emoji, quotes, newlines,
+  // a very long option, and 4+ options (CLI hint + clipped labels).
+  const unicodeText = `${"u".repeat(198)}\u{1F600}\u{1F468}\u{200D}\u{1F4BB}`;
   const seeds: Array<{
     answerType: QuestionAnswerType;
     text: string;
@@ -376,6 +433,19 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
     { answerType: "approve_revise", text: "Approve?", askerKind: "human_step", options: [{ value: "approve" }, { value: "revise" }] },
     { answerType: "approve_revise", text: "Ship or hold?", askerKind: "human_step", options: [{ value: "ship" }, { value: "hold" }] },
     { answerType: "single", text: "Pick?", askerKind: "orchestrator", options: [{ value: "a" }, { value: "b" }, { value: "c" }], recommended: "b" },
+    {
+      answerType: "single",
+      text: `${unicodeText} "quoted"\nline2`,
+      askerKind: "executor",
+      options: [
+        { value: "short" },
+        { value: `long-${"x".repeat(50)}` },
+        { value: "opt\nwith\nnewlines" },
+        { value: "fourth" },
+        { value: "y".repeat(90) },
+      ],
+      recommended: "short",
+    },
     { answerType: "text", text: "Notes?", askerKind: "executor" },
   ];
   for (const s of seeds) {

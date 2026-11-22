@@ -19,6 +19,11 @@ export interface RuleInput {
 const callerLabel = (p?: string) => /^external:([a-z-]+)/.exec(p ?? "")?.[1] ?? "the caller";
 const displayName = (id: string | null) => executorName(id ? parseRunnerId(id)?.agent ?? id : null);
 const open = (label: string, params: Action["params"]): Action => ({ label, op: "ui.open", params });
+/** Clip by Unicode code points so a surrogate pair is never split (m4). */
+const clipCodePoints = (s: string, max: number) => {
+  const points = Array.from(s);
+  return points.length > max ? points.slice(0, max).join("") : s;
+};
 const severityOrder = { blocked: 0, problem: 1, decide: 2 };
 const unblocksOrder: Record<AttentionUnblocks, number> = { run: 0, branch: 1, nothing: 2 };
 const priorityOrder: Record<RunAttentionPriority, number> = { urgent: 0, normal: 1, background: 2 };
@@ -44,7 +49,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     const reason = taskAttentionReason(t);
     if (awaitsAnswer(t)) {
       const q = t.question!;
-      add("question",t.id,t.goal,q.text.slice(0,200),[
+      add("question",t.id,t.goal,clipCodePoints(q.text,200),[
         {label:"Answer",op:t.work ? "dispatch.answer" : "task.answer",params:{id:t.id,...(t.work ? {expect_rev:t.rev,requestId:workActionRequestId(t.id,t.rev,"answer")} : {})}},
         {label:"Stop",op:"task.stop",params:{id:t.id},style:"danger"},
       ],{...extra,severity:"blocked",since:q.at,raisedAt:q.at});
@@ -65,7 +70,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
     }
     if (t.state === "running" && t.promptWait) {
-      const raw = t.promptWait.text.slice(0, 200);
+      const raw = clipCodePoints(t.promptWait.text, 200);
       items.push({
         id: `prompt_wait:${t.id}`,
         kind: "stuck",
@@ -73,7 +78,8 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
         repo: t.repo,
         taskId: t.id,
         title: t.goal,
-        detail: `May be waiting on you: ${raw}`,
+        // m5: Convert is first (Dispatch-only); say what it does so terminal answer is not a mystery.
+        detail: `May be waiting on you: ${raw}. Convert hands the question to the workflow planner, who answers or asks you.`,
         raisedAt: t.promptWait.at,
         since: t.promptWait.at,
         notify: "important",
@@ -101,7 +107,7 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
       const q = t.messages.question, n = t.messages.unreadForHuman;
       // A reviewed or stopped task takes no more messages (messaging isClosed), so its question can only be read.
       const answerable = !!q && !t.review && t.state !== "stopped";
-      add("message", t.id, t.goal, q ? q.text.slice(0, 200) : `${n} unread message${n === 1 ? "" : "s"}`, [
+      add("message", t.id, t.goal, q ? clipCodePoints(q.text, 200) : `${n} unread message${n === 1 ? "" : "s"}`, [
         // A question lands on the task's answer composer; other messages only open the task.
         { ...(answerable ? open("Answer", { view: "task", id: t.id, tab: "answer" }) : open("Open task", { view: "task", id: t.id })), style: "primary" },
       ], { ...extra, severity: q ? "blocked" : "decide", since: q?.at ?? t.updatedAt, raisedAt: q?.at ?? t.updatedAt });

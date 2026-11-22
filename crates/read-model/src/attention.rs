@@ -157,6 +157,27 @@ fn complementary_yes_no(first: &str) -> String {
     }
 }
 
+const OPTION_DETAIL_CLIP: usize = 40;
+const OPTION_BUTTON_MAX_CODE_POINTS: usize = 80;
+const ANSWER_CHAR_LIMIT: usize = 2000;
+const OPTION_BUTTON_CAP: usize = 3;
+
+/// Clip to `max` Unicode code points (mirrors TS `clipCodePoints` / Array.from).
+fn clip_code_points(s: &str, max: usize, ellipsis: bool) -> String {
+    let points: Vec<char> = s.chars().collect();
+    if points.len() <= max {
+        return s.to_string();
+    }
+    let head: String = points.into_iter().take(max).collect();
+    if ellipsis { format!("{head}…") } else { head }
+}
+
+fn option_fits_button(value: &str) -> bool {
+    // Match TS `value.length` (UTF-16 units) for the 2000 answer cap.
+    let utf16: usize = value.chars().map(char::len_utf16).sum();
+    utf16 <= ANSWER_CHAR_LIMIT && value.chars().count() <= OPTION_BUTTON_MAX_CODE_POINTS
+}
+
 /// Up to 3 option buttons; recommended first. Shared by `single` and custom `approve_revise`.
 fn option_choice_actions(
     id: &str,
@@ -174,11 +195,15 @@ fn option_choice_actions(
     }
     let actions: Vec<Value> = ordered
         .into_iter()
-        .take(3)
+        .filter(|v| option_fits_button(v))
+        .take(OPTION_BUTTON_CAP)
         .enumerate()
         .map(|(i, answer)| {
             let mut a = Map::new();
-            a.insert("label".into(), json!(answer.clone()));
+            a.insert(
+                "label".into(),
+                json!(clip_code_points(&answer, OPTION_DETAIL_CLIP, true)),
+            );
             a.insert("op".into(), json!("question.answer"));
             a.insert(
                 "params".into(),
@@ -246,7 +271,8 @@ fn run_question_actions(
                 a.insert("style".into(), json!("primary"));
                 return Value::Array(vec![Value::Object(a)]);
             }
-            if let Some(approve_spelling) = values.iter().find(|v| v.eq_ignore_ascii_case("approve"))
+            if let Some(approve_spelling) =
+                values.iter().find(|v| v.eq_ignore_ascii_case("approve"))
             {
                 let mut a = Map::new();
                 a.insert("label".into(), json!("Approve"));
@@ -282,7 +308,10 @@ fn run_question_detail(
     id: &str,
     action_count: usize,
 ) -> String {
-    let mut parts: Vec<String> = vec![slice(text_body, 200), format!("{}.", asker_cue(asker_kind))];
+    let mut parts: Vec<String> = vec![
+        clip_code_points(text_body, 200, false),
+        format!("{}.", asker_cue(asker_kind)),
+    ];
     let opt_words: Option<Vec<String>> = match answer_type {
         "yes_no" => Some(vec!["yes".into(), "no".into()]),
         "approve_revise" => {
@@ -298,13 +327,22 @@ fn run_question_detail(
             if vals.is_empty() { None } else { Some(vals) }
         }
     };
-    if let Some(opts) = opt_words {
-        parts.push(format!("Options: {}.", opts.join(" / ")));
+    if let Some(opts) = &opt_words {
+        let clipped: Vec<String> = opts
+            .iter()
+            .map(|o| clip_code_points(o, OPTION_DETAIL_CLIP, true))
+            .collect();
+        parts.push(format!("Options: {}.", clipped.join(" / ")));
     }
     if let Some(rec) = recommended {
         parts.push(format!("Recommended: {rec}."));
     }
-    if action_count == 0 {
+    // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
+    if action_count == 0
+        || opt_words
+            .as_ref()
+            .is_some_and(|opts| opts.len() > action_count)
+    {
         parts.push(format!("Answer with: pacer answer {id} \"<your answer>\""));
     }
     parts.join(" ")
@@ -571,7 +609,7 @@ pub fn raised(
                 "question",
                 id,
                 title,
-                &slice(text(&t["question"]["text"]), 200),
+                &clip_code_points(text(&t["question"]["text"]), 200, false),
                 vec![
                     action(
                         "Answer",
@@ -702,7 +740,7 @@ pub fn raised(
         // prompt_wait:<taskId> — Convert to question (I-3). Id prefix is not the kind.
         // Field order matches TS attention/rules.ts for byte-identical wire JSON.
         if t["state"] == "running" && truth(&t["promptWait"]) {
-            let raw = slice(text(&t["promptWait"]["text"]), 200);
+            let raw = clip_code_points(text(&t["promptWait"]["text"]), 200, false);
             // Convert first: Dispatch shows only the first action; convert_prompt
             // succeeds with { id } alone (UI evidence batch G / UI-13).
             let mut convert = action(
@@ -720,9 +758,12 @@ pub fn raised(
             row.insert("repo".into(), t["repo"].clone());
             row.insert("taskId".into(), json!(id));
             row.insert("title".into(), json!(text(&t["goal"])));
+            // m5: Convert is first (Dispatch-only); say what it does.
             row.insert(
                 "detail".into(),
-                json!(format!("May be waiting on you: {raw}")),
+                json!(format!(
+                    "May be waiting on you: {raw}. Convert hands the question to the workflow planner, who answers or asks you."
+                )),
             );
             row.insert("raisedAt".into(), t["promptWait"]["at"].clone());
             row.insert("since".into(), t["promptWait"]["at"].clone());
@@ -786,7 +827,7 @@ pub fn raised(
                 e["raisedAt"] = q["at"].clone();
             }
             let detail = if truth(q) {
-                slice(text(&q["text"]), 200)
+                clip_code_points(text(&q["text"]), 200, false)
             } else {
                 format!(
                     "{} unread message{}",

@@ -28,6 +28,19 @@ function askerCue(kind: QuestionAskerKind): string {
   return "Asked by a step";
 }
 
+/** Clip to `max` Unicode code points (never split a surrogate pair). */
+export function clipCodePoints(s: string, max: number, ellipsis = false): string {
+  const points = Array.from(s);
+  if (points.length <= max) return s;
+  const head = points.slice(0, max).join("");
+  return ellipsis ? `${head}…` : head;
+}
+
+const OPTION_DETAIL_CLIP = 40;
+const OPTION_BUTTON_MAX_CODE_POINTS = 80;
+const ANSWER_CHAR_LIMIT = 2000;
+const OPTION_BUTTON_CAP = 3;
+
 /** Plain-word option list for the attention detail (yes_no always yes/no). */
 function optionWords(q: QuestionRow): string[] | null {
   if (q.answerType === "yes_no") return ["yes", "no"];
@@ -50,6 +63,12 @@ function complementaryYesNo(first: string): string {
   return "yes";
 }
 
+/** An option that would not fit a Dispatch button (m2). */
+function optionFitsButton(value: string): boolean {
+  return value.length <= ANSWER_CHAR_LIMIT
+    && Array.from(value).length <= OPTION_BUTTON_MAX_CODE_POINTS;
+}
+
 /** Up to 3 option buttons; recommended first. Shared by `single` and custom `approve_revise`. */
 function optionChoiceActions(
   id: string,
@@ -61,9 +80,10 @@ function optionChoiceActions(
   const ordered = recommended && values.includes(recommended)
     ? [recommended, ...values.filter(v => v !== recommended)]
     : values;
-  return ordered.slice(0, 3).map((answer, i) => {
+  const buttonable = ordered.filter(optionFitsButton);
+  return buttonable.slice(0, OPTION_BUTTON_CAP).map((answer, i) => {
     const action: Action = {
-      label: answer,
+      label: clipCodePoints(answer, OPTION_DETAIL_CLIP, true),
       op: "question.answer",
       params: { id, expect_rev, answer },
     };
@@ -116,13 +136,16 @@ export function runQuestionActions(q: QuestionRow): Action[] {
   return [];
 }
 
-/** Detail: question text, asker cue, options/recommended, CLI hint when no op action. */
+/** Detail: question text, asker cue, options/recommended, CLI hint when needed. */
 export function runQuestionDetail(q: QuestionRow, actions: Action[]): string {
-  const parts: string[] = [q.text.slice(0, 200), `${askerCue(q.askerKind)}.`];
+  const parts: string[] = [clipCodePoints(q.text, 200), `${askerCue(q.askerKind)}.`];
   const opts = optionWords(q);
-  if (opts) parts.push(`Options: ${opts.join(" / ")}.`);
+  if (opts) {
+    parts.push(`Options: ${opts.map(o => clipCodePoints(o, OPTION_DETAIL_CLIP, true)).join(" / ")}.`);
+  }
   if (q.recommended) parts.push(`Recommended: ${q.recommended}.`);
-  if (actions.length === 0) {
+  // m1: CLI hint when no buttons, or when listed options exceed the buttons shown.
+  if (actions.length === 0 || (opts !== null && opts.length > actions.length)) {
     parts.push(`Answer with: pacer answer ${q.id} "<your answer>"`);
   }
   return parts.join(" ");
@@ -234,9 +257,7 @@ function attentionClock(ctx: Ctx, run: RunRow, kind = "default"): number {
  * line, at most 60 code points, with an ellipsis when clipped.
  */
 function clipTitleLine(line: string, maxCodePoints = 60): string {
-  // Count Unicode code points so a surrogate pair (emoji) is never split.
-  const points = Array.from(line);
-  return points.length > maxCodePoints ? `${points.slice(0, maxCodePoints).join("")}…` : line;
+  return clipCodePoints(line, maxCodePoints, true);
 }
 
 function workflowSubject(run: RunRow): string {
