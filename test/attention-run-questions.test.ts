@@ -79,10 +79,13 @@ test("open person-answerer questions become v3 attention items with run identity
     kind: "question",
     severity: "blocked",
     unblocks: "run",
+    // UI-1: item title is the question; run.title stays the run title.
+    title: "Ship?",
     run: { id: run.id, title: "Ship?", priority: "normal" },
     question: { id: q.id, text: "Ship?", answerType: "single", blocks: "step" },
   });
-  expect(item!.detail).toContain("Ship?");
+  expect(item!.detail.startsWith('The first button answers "a".')).toBe(true);
+  expect(item!.detail).toContain("Ship?.");
   expect(item!.detail).toContain("Asked by a step.");
   expect(item!.detail).toContain("Options: a / b.");
   expect(item!.detail).toContain("Recommended: a.");
@@ -94,7 +97,7 @@ test("open person-answerer questions become v3 attention items with run identity
     params: { id: q.id, expect_rev: q.rev, answer: "a" },
   });
   expect(isWorkflowAttentionItem(item!)).toBe(true);
-  expect(items.some(i => i.detail === "Internal?")).toBe(false);
+  expect(items.some(i => i.title === "Internal?")).toBe(false);
 });
 
 test("run questions rank by unblocks (run > branch > nothing), then age", () => {

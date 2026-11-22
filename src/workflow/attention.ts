@@ -38,8 +38,15 @@ export function clipCodePoints(s: string, max: number, ellipsis = false): string
 
 const OPTION_DETAIL_CLIP = 40;
 const OPTION_BUTTON_MAX_CODE_POINTS = 80;
+const QUESTION_TITLE_CLIP = 80;
+const RUN_DETAIL_CLIP = 80;
 const ANSWER_CHAR_LIMIT = 2000;
 const OPTION_BUTTON_CAP = 3;
+
+/** Collapse newlines to spaces so title/detail stay one line before clipping. */
+export function collapseNewlines(s: string): string {
+  return s.replace(/\r\n|\r|\n/g, " ");
+}
 
 /** Plain-word option list for the attention detail (yes_no always yes/no). */
 function optionWords(q: QuestionRow): string[] | null {
@@ -61,6 +68,20 @@ function complementaryYesNo(first: string): string {
   if (first === "No") return "Yes";
   if (first === "NO") return "YES";
   return "yes";
+}
+
+/** UI-3: capitalise yes/no button labels; params keep the validator spelling. */
+function yesNoButtonLabel(answer: string): string {
+  const lower = answer.toLowerCase();
+  if (lower === "yes") return "Yes";
+  if (lower === "no") return "No";
+  return answer;
+}
+
+/** Run title for detail, or the workflow slug when untitled (never a run id). */
+function runDetailSubject(run: Pick<RunRow, "title" | "workflow">): string {
+  const raw = typeof run.title === "string" ? run.title.trim() : "";
+  return clipCodePoints(raw || run.workflow, RUN_DETAIL_CLIP);
 }
 
 /** An option that would not fit a Dispatch button (m2). */
@@ -105,8 +126,17 @@ export function runQuestionActions(q: QuestionRow): Action[] {
       : "Yes";
     const second = complementaryYesNo(first);
     return [
-      { label: first, op: "question.answer", params: { id, expect_rev, answer: first }, style: "primary" },
-      { label: second, op: "question.answer", params: { id, expect_rev, answer: second } },
+      {
+        label: yesNoButtonLabel(first),
+        op: "question.answer",
+        params: { id, expect_rev, answer: first },
+        style: "primary",
+      },
+      {
+        label: yesNoButtonLabel(second),
+        op: "question.answer",
+        params: { id, expect_rev, answer: second },
+      },
     ];
   }
   if (q.answerType === "approve_revise") {
@@ -136,9 +166,25 @@ export function runQuestionActions(q: QuestionRow): Action[] {
   return [];
 }
 
-/** Detail: question text, asker cue, options/recommended, CLI hint when needed. */
-export function runQuestionDetail(q: QuestionRow, actions: Action[]): string {
-  const parts: string[] = [clipCodePoints(q.text, 200), `${askerCue(q.askerKind)}.`];
+/** Title: the question itself (one line, clipped to 80 code points; no ids). */
+export function runQuestionTitle(q: QuestionRow): string {
+  return clipCodePoints(collapseNewlines(q.text), QUESTION_TITLE_CLIP);
+}
+
+/**
+ * Detail: first-button cue (when present), run title/slug, asker cue, options /
+ * recommended, CLI hint last when needed. Question text lives in the title (UI-1).
+ */
+export function runQuestionDetail(
+  q: QuestionRow,
+  actions: Action[],
+  run: Pick<RunRow, "title" | "workflow">,
+): string {
+  const parts: string[] = [];
+  if (actions.length > 0) {
+    parts.push(`The first button answers "${actions[0]!.label}".`);
+  }
+  parts.push(`${runDetailSubject(run)}.`, `${askerCue(q.askerKind)}.`);
   const opts = optionWords(q);
   if (opts) {
     parts.push(`Options: ${opts.map(o => clipCodePoints(o, OPTION_DETAIL_CLIP, true)).join(" / ")}.`);
@@ -215,13 +261,14 @@ function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
   const unblocks = unblocksFor(q.blocks);
   const at = q.createdAt || ctx.now;
   const actions = runQuestionActions(q);
+  const runTitle = run.title || run.workflow;
   return {
     id: `question:${q.id}`,
     kind: "question",
     severity: unblocks === "nothing" ? "decide" : "blocked",
     repo: null,
-    title: run.title || run.workflow,
-    detail: runQuestionDetail(q, actions),
+    title: runQuestionTitle(q),
+    detail: runQuestionDetail(q, actions, run),
     raisedAt: at,
     since: at,
     notify: unblocks === "nothing" ? "all" : "important",
@@ -230,7 +277,7 @@ function runQuestionItem(ctx: Ctx, q: QuestionRow, run: RunRow): AttentionItem {
     run: {
       id: run.id,
       letter: runAttentionLetter(run.id),
-      title: run.title || run.workflow,
+      title: runTitle,
       priority: "normal",
     },
     question: questionPayload(q),

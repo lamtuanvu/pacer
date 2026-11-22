@@ -78,8 +78,8 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
         repo: t.repo,
         taskId: t.id,
         title: t.goal,
-        // m5: Convert is first (Dispatch-only); say what it does so terminal answer is not a mystery.
-        detail: `May be waiting on you: ${raw}. Convert hands the question to the workflow planner, who answers or asks you.`,
+        // UI-1: Convert sentence first, then the captured terminal text.
+        detail: `Convert hands the question to the workflow planner, who answers or asks you. ${raw}`,
         raisedAt: t.promptWait.at,
         since: t.promptWait.at,
         notify: "important",

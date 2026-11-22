@@ -157,10 +157,44 @@ fn complementary_yes_no(first: &str) -> String {
     }
 }
 
+/// UI-3: capitalise yes/no button labels; params keep the validator spelling.
+fn yes_no_button_label(answer: &str) -> String {
+    let lower = answer.to_ascii_lowercase();
+    if lower == "yes" {
+        "Yes".into()
+    } else if lower == "no" {
+        "No".into()
+    } else {
+        answer.to_string()
+    }
+}
+
 const OPTION_DETAIL_CLIP: usize = 40;
 const OPTION_BUTTON_MAX_CODE_POINTS: usize = 80;
+const QUESTION_TITLE_CLIP: usize = 80;
+const RUN_DETAIL_CLIP: usize = 80;
 const ANSWER_CHAR_LIMIT: usize = 2000;
 const OPTION_BUTTON_CAP: usize = 3;
+
+/// Collapse newlines to spaces so title/detail stay one line before clipping.
+/// Matches TS `/\r\n|\r|\n/g` (a CRLF pair becomes one space).
+fn collapse_newlines(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\r' {
+            if chars.peek() == Some(&'\n') {
+                chars.next();
+            }
+            out.push(' ');
+        } else if c == '\n' {
+            out.push(' ');
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
 
 /// Clip to `max` Unicode code points (mirrors TS `clipCodePoints` / Array.from).
 fn clip_code_points(s: &str, max: usize, ellipsis: bool) -> String {
@@ -241,8 +275,10 @@ fn run_question_actions(
                 None => "Yes".to_string(),
             };
             let second = complementary_yes_no(&first);
+            let first_label = yes_no_button_label(&first);
+            let second_label = yes_no_button_label(&second);
             let mut primary = Map::new();
-            primary.insert("label".into(), json!(first.clone()));
+            primary.insert("label".into(), json!(first_label));
             primary.insert("op".into(), json!("question.answer"));
             primary.insert(
                 "params".into(),
@@ -250,7 +286,7 @@ fn run_question_actions(
             );
             primary.insert("style".into(), json!("primary"));
             let mut secondary = Map::new();
-            secondary.insert("label".into(), json!(second.clone()));
+            secondary.insert("label".into(), json!(second_label));
             secondary.insert("op".into(), json!("question.answer"));
             secondary.insert(
                 "params".into(),
@@ -298,20 +334,36 @@ fn run_question_actions(
     }
 }
 
+/// Mirror of TS `runQuestionTitle`.
+fn run_question_title(text_body: &str) -> String {
+    clip_code_points(&collapse_newlines(text_body), QUESTION_TITLE_CLIP, false)
+}
+
 /// Mirror of TS `runQuestionDetail`.
 fn run_question_detail(
-    text_body: &str,
     asker_kind: &str,
     answer_type: &str,
     options: Option<&[Value]>,
     recommended: Option<&str>,
     id: &str,
-    action_count: usize,
+    run_subject: &str,
+    actions: &Value,
 ) -> String {
-    let mut parts: Vec<String> = vec![
-        clip_code_points(text_body, 200, false),
-        format!("{}.", asker_cue(asker_kind)),
-    ];
+    let action_count = actions.as_array().map_or(0, Vec::len);
+    let first_label = actions
+        .as_array()
+        .and_then(|arr| arr.first())
+        .and_then(|a| a.get("label"))
+        .and_then(|v| v.as_str());
+    let mut parts: Vec<String> = Vec::new();
+    if let Some(label) = first_label {
+        parts.push(format!("The first button answers \"{label}\"."));
+    }
+    parts.push(format!(
+        "{}.",
+        clip_code_points(run_subject, RUN_DETAIL_CLIP, false)
+    ));
+    parts.push(format!("{}.", asker_cue(asker_kind)));
     let opt_words: Option<Vec<String>> = match answer_type {
         "yes_no" => Some(vec!["yes".into(), "no".into()]),
         "approve_revise" => {
@@ -453,14 +505,15 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
             parsed_options.as_deref(),
             recommended_val.as_deref(),
         );
+        let item_title = run_question_title(&text_body);
         let detail = run_question_detail(
-            &text_body,
             &asker_kind,
             &answer_type,
             parsed_options.as_deref(),
             recommended_val.as_deref(),
             &id,
-            actions.as_array().map_or(0, Vec::len),
+            &run_title,
+            &actions,
         );
         let mut question = Map::new();
         question.insert("id".into(), json!(id));
@@ -493,7 +546,7 @@ pub fn run_question_items(ctx: &Ctx) -> Vec<Value> {
         obj.insert("kind".into(), json!("question"));
         obj.insert("severity".into(), json!(severity));
         obj.insert("repo".into(), Value::Null);
-        obj.insert("title".into(), json!(run_title.clone()));
+        obj.insert("title".into(), json!(item_title));
         obj.insert("detail".into(), json!(detail));
         obj.insert("raisedAt".into(), number(at));
         obj.insert("since".into(), number(at));
@@ -758,11 +811,11 @@ pub fn raised(
             row.insert("repo".into(), t["repo"].clone());
             row.insert("taskId".into(), json!(id));
             row.insert("title".into(), json!(text(&t["goal"])));
-            // m5: Convert is first (Dispatch-only); say what it does.
+            // UI-1: Convert sentence first, then the captured terminal text.
             row.insert(
                 "detail".into(),
                 json!(format!(
-                    "May be waiting on you: {raw}. Convert hands the question to the workflow planner, who answers or asks you."
+                    "Convert hands the question to the workflow planner, who answers or asks you. {raw}"
                 )),
             );
             row.insert("raisedAt".into(), t["promptWait"]["at"].clone());

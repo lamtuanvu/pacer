@@ -161,7 +161,8 @@ for (const case_ of [
     answerType: "yes_no" as const,
     options: [{ value: "yes" }, { value: "no" }],
     recommended: "yes",
-    expectFirstLabel: "yes",
+    // UI-3: capitalised label; answer keeps recommended spelling.
+    expectFirstLabel: "Yes",
     expectFirstAnswer: "yes",
   },
   {
@@ -191,7 +192,14 @@ for (const case_ of [
       options: case_.options,
       recommended: case_.recommended,
     });
-    // escalate leaves askerKind=executor; human_step cue is covered in the shape test.
+    // UI-1: title carries the question; detail opens with the first-button answer cue.
+    expect(item.title).toBe(
+      case_.answerType === "yes_no" ? "Ship?"
+        : case_.answerType === "approve_revise" ? "Approve the plan?"
+        : "Which DB?",
+    );
+    expect(item.detail.startsWith(`The first button answers "${case_.expectFirstLabel}".`)).toBe(true);
+    expect(item.detail).toContain("Act.");
     expect(item.detail).toContain("Asked by a step.");
     expect(item.detail).toMatch(/Options:/);
     if (case_.recommended) expect(item.detail).toContain(`Recommended: ${case_.recommended}.`);
@@ -223,6 +231,9 @@ test("G: text question has no op action and ends with CLI hint", async () => {
   const { item, questionId } = await personQuestionItem("text");
   expect(item.actions.filter(a => a.op === "question.answer")).toEqual([]);
   expect(item.actions).toEqual([]);
+  expect(item.title).toBe("Free text?");
+  expect(item.detail.startsWith("The first button answers")).toBe(false);
+  expect(item.detail.startsWith("Act.")).toBe(true);
   expect(item.detail.endsWith(`Answer with: pacer answer ${questionId} "<your answer>"`)).toBe(true);
   expect(item.detail).toContain("Asked by a step.");
 });
@@ -300,8 +311,9 @@ test("H I-1: approve_revise custom options — first action params answer the hu
   expect(q.options?.map(o => o.value)).toEqual(["ship", "hold"]);
 
   const item = deriveWorkflowAttention(personCtx(ctx)).find(i => i.id === `question:${q.id}`)!;
+  expect(item.title).toBe("Ship or hold?");
+  expect(item.detail.startsWith('The first button answers "ship".')).toBe(true);
   expect(item.detail).toContain("Options: ship / hold.");
-  // Broken today: Approve answers literal "approve", which validateQuestionAnswer rejects.
   const first = item.actions[0];
   expect(first).toBeTruthy();
   expect(first!.op).toBe("question.answer");
@@ -352,8 +364,11 @@ test("G: prompt_wait first action is Convert to question (params succeed)", () =
     op: "question.convert_prompt",
     params: { id: task.id },
   });
-  // m5: Dispatch only shows Convert — detail explains what it does.
-  expect(items[0]?.detail).toContain("Convert hands the question to the workflow planner");
+  // UI-1: Convert sentence first, then the captured terminal text.
+  expect(items[0]?.detail.startsWith(
+    "Convert hands the question to the workflow planner, who answers or asks you.",
+  )).toBe(true);
+  expect(items[0]?.detail).toContain("Overwrite? [Y/n]");
 });
 
 test("H m1: 4+ options lists all and appends CLI hint beyond the 3-button cap", async () => {
@@ -385,14 +400,15 @@ test("H m2: long options are clipped in detail/labels; oversize options get no b
   expect(item.detail).toContain(`Answer with: pacer answer ${questionId} "<your answer>"`);
 });
 
-test("H m4: question text clips by code points (no lone surrogate)", () => {
+test("UI-1: title carries question clipped to 80 code points; newlines collapse before clip", () => {
   const ctx = fakeCtx({ now: NOW });
   withStrategy(ctx);
   addDefinition(ctx, def, "id: t/attn-act\n");
   const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B", title: "U" });
-  // 199 BMP + one emoji (2 UTF-16 units) would split under String.slice(0,200).
-  const text = `${"x".repeat(199)}\u{1F600}y`;
-  const q = insertQuestion(ctx, {
+  // 79 BMP + emoji would split under String.slice; title clips by code point to 80.
+  const text = `${"x".repeat(79)}\u{1F600}y`;
+  const multiline = `Ship the Phase 4\nquestions change\ntonight?`;
+  const qLong = insertQuestion(ctx, {
     runId: run.id,
     stepId: "ask",
     attempt: 1,
@@ -402,10 +418,50 @@ test("H m4: question text clips by code points (no lone surrogate)", () => {
     blocks: "step",
     answerer: "person",
   });
+  const qMulti = insertQuestion(ctx, {
+    runId: run.id,
+    stepId: "ask",
+    attempt: 1,
+    askerKind: "executor",
+    text: multiline,
+    answerType: "yes_no",
+    blocks: "step",
+    answerer: "person",
+  });
+  const items = deriveWorkflowAttention(ctx);
+  const longItem = items.find(i => i.id === `question:${qLong.id}`)!;
+  const multiItem = items.find(i => i.id === `question:${qMulti.id}`)!;
+  const clipped = Array.from(text).slice(0, 80).join("");
+  expect(longItem.title).toBe(clipped);
+  expect(longItem.title.includes("\uD83D") && !longItem.title.includes("\uDE00")).toBe(false);
+  expect(longItem.detail.startsWith("U.")).toBe(true);
+  expect(longItem.detail).not.toContain("\n");
+  expect(multiItem.title).toBe("Ship the Phase 4 questions change tonight?");
+  expect(multiItem.title).not.toContain("\n");
+  expect(multiItem.detail.startsWith('The first button answers "Yes".')).toBe(true);
+  expect(multiItem.actions[0]?.label).toBe("Yes");
+  expect(multiItem.actions[0]?.params.answer).toBe("Yes");
+});
+
+test("UI-1: untitled run detail uses workflow slug, never a run id", () => {
+  const ctx = fakeCtx({ now: NOW });
+  withStrategy(ctx);
+  addDefinition(ctx, def, "id: t/attn-act\n");
+  const run = insertRun(ctx, { workflow: "t/attn-act", version: 1, repo: tmpDir(), brief: "B" });
+  const q = insertQuestion(ctx, {
+    runId: run.id,
+    stepId: "ask",
+    attempt: 1,
+    askerKind: "executor",
+    text: "Untitled?",
+    answerType: "text",
+    blocks: "step",
+    answerer: "person",
+  });
   const item = deriveWorkflowAttention(ctx).find(i => i.id === `question:${q.id}`)!;
-  const clipped = Array.from(text).slice(0, 200).join("");
-  expect(item.detail.startsWith(clipped)).toBe(true);
-  expect(item.detail.includes("\uD83D") && !item.detail.includes("\uDE00")).toBe(false);
+  expect(item.title).toBe("Untitled?");
+  expect(item.detail.startsWith("t/attn-act.")).toBe(true);
+  expect(item.detail).not.toContain(run.id);
 });
 
 beforeAll(buildRustProbe, 600_000);
@@ -474,5 +530,13 @@ test("G: TS and Rust run-question actions/detail are byte-identical for all vari
   expect(types).toContain("single");
   expect(types).toContain("text");
   expect(ts.find(i => i.question?.answerType === "text")?.actions).toEqual([]);
-  expect(ts.find(i => i.question?.answerType === "yes_no")?.actions[0]?.params).toMatchObject({ answer: "yes" });
+  const yesNo = ts.find(i => i.question?.answerType === "yes_no");
+  expect(yesNo?.actions[0]?.label).toBe("Yes");
+  expect(yesNo?.actions[0]?.params).toMatchObject({ answer: "yes" });
+  expect(yesNo?.detail.startsWith('The first button answers "Yes".')).toBe(true);
+  // Newlines collapsed into the title before the 80-code-point clip.
+  const unicodeItem = ts.find(i => typeof i.question?.text === "string"
+    && String(i.question.text).includes("\n"));
+  expect(unicodeItem?.title).not.toContain("\n");
+  expect(Array.from(unicodeItem?.title ?? "").length).toBeLessThanOrEqual(80);
 }, 120_000);
