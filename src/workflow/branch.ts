@@ -16,10 +16,11 @@ import type { AgentStep } from "./schema";
 import { getRun, setRunBranch, stepByTask, type RunRow } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 
-/** Kinds that edit the tree by default. Others (research/docs/review/…) stay off
- *  unless the step sets `code: true`. Unknown kinds also stay off. */
+/** Kinds that edit the tree by default. Research/review stay off unless
+ *  `code: true`. Docs and unfamiliar-code write files so they count as code. */
 const CODE_KINDS = new Set([
   "boilerplate", "tests", "rename", "migration", "feature", "debug", "refactor", "performance",
+  "docs", "unfamiliar-code",
 ]);
 
 const firstLine = (s: string) => s.trim().split("\n")[0] ?? "";
@@ -180,8 +181,24 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   const taskBranch = `pacer/${taskId}`;
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
-    const wt = await integrationWorktreeUnlocked(ctx, live);
     const top = await resolveRepoTop(ctx, live.repo);
+    const hasBranch = await ctx.run(
+      ["git", "-C", top, "rev-parse", "--verify", `refs/heads/${taskBranch}`],
+      5_000,
+    );
+    if (hasBranch.code !== 0) {
+      // Research / current-placement / cleaned worktree: nothing to merge.
+      return { merged: true };
+    }
+    const ahead = await ctx.run(
+      ["git", "-C", top, "rev-list", "--count", `${live.branch}..${taskBranch}`],
+      10_000,
+    );
+    if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
+      return { merged: true };
+    }
+
+    const wt = await integrationWorktreeUnlocked(ctx, live);
     const signoff = mergeSignoffEnabled(top);
     const argv = [
       "git", "-C", wt,

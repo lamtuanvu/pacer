@@ -207,6 +207,8 @@ export interface StartStepTaskInput {
   difficulty?: DelegateInput["difficulty"];
   title: string;
   requestId: string;
+  worktree?: DelegateInput["worktree"];
+  worktree_reason?: DelegateInput["worktree_reason"];
 }
 
 type DelegateFn = (ctx: Ctx, input: DelegateInput, spawn?: SpawnRunner) => Promise<TaskRecord>;
@@ -235,6 +237,8 @@ export async function startStepTask(
     title: input.title,
     requestId: input.requestId,
     workParent: rootId,
+    ...(input.worktree ? { worktree: input.worktree } : {}),
+    ...(input.worktree_reason ? { worktree_reason: input.worktree_reason } : {}),
   }, spawn);
 }
 

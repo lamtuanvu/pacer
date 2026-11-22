@@ -504,6 +504,10 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
   const brief = await codeStepBrief(ctx, live, stepDef, prompt);
+  // Code steps must get a dedicated worktree/branch from the run tip (I2).
+  const codePlacement = isCodeStep(stepDef)
+    ? { worktree: "new" as const, worktree_reason: "workflow code step" }
+    : {};
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
       brief,
@@ -511,6 +515,7 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
       brief,
@@ -518,6 +523,7 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      ...codePlacement,
     }, e.spawn);
   // Re-read after the await: the run may have gone terminal while the delegation was
   // pending; then the task is stopped and nothing else happens.
@@ -563,6 +569,9 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   const live = getRun(ctx, run.id) ?? run;
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
   const brief = await codeStepBrief(ctx, live, stepDef.each, prompt);
+  const codePlacement = isCodeStep(stepDef.each)
+    ? { worktree: "new" as const, worktree_reason: "workflow code step" }
+    : {};
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
       brief,
@@ -570,6 +579,7 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
       brief,
@@ -577,6 +587,7 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      ...codePlacement,
     }, e.spawn);
   if (isTerminal(getRun(ctx, run.id))) {
     try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }

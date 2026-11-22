@@ -23,15 +23,16 @@ test("runBranchName uses the 10 base32 chars of the run id", () => {
   expect(runBranchName("run_abcdefghij")).toBe("pacer/run-abcdefghij");
 });
 
-test("isCodeStep: research/docs/review default off; feature on; code flag overrides", () => {
+test("isCodeStep: research/review default off; docs/feature on; code flag overrides", () => {
   expect(isCodeStep({ kind: "research" })).toBe(false);
-  expect(isCodeStep({ kind: "docs" })).toBe(false);
-  expect(isCodeStep({ kind: "unfamiliar-code" })).toBe(false);
+  expect(isCodeStep({ kind: "docs" })).toBe(true);
+  expect(isCodeStep({ kind: "unfamiliar-code" })).toBe(true);
   expect(isCodeStep({ kind: "review" })).toBe(false);
   expect(isCodeStep({ kind: "feature" })).toBe(true);
   expect(isCodeStep({ kind: "tests" })).toBe(true);
   expect(isCodeStep({ kind: "research", code: true })).toBe(true);
   expect(isCodeStep({ kind: "feature", code: false })).toBe(false);
+  expect(isCodeStep({ kind: "docs", code: false })).toBe(false);
   expect(isCodeStep({ role: "orchestrator" })).toBe(false);
 });
 
