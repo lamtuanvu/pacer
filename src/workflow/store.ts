@@ -133,6 +133,21 @@ export function workflowDatabase(ctx: Ctx): Database {
       );
     `);
     db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
+    // Phase 5: step artifact metadata (blobs live under PACER_HOME/runs/<id>/artifacts/).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_artifacts(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        created_at REAL NOT NULL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_artifacts_run ON workflow_artifacts(run_id, created_at, id)");
   }).immediate();
   ready.add(db);
   return db;

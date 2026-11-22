@@ -16,6 +16,7 @@ export const RUN_GRANT_OPS = [
   "task.review",
   "task.stop",
   "step.result",
+  "step.artifact",
   "step.skip",
   "step.retry",
   "run.choose",
@@ -97,7 +98,7 @@ export function assertRunGrantTarget(ctx: Ctx, grant: RunGrant, name: string, pa
     if (!runInGrant(ctx, grant, id)) throw new CoreError("not_allowed", "Operation is outside this run grant");
     return;
   }
-  if (name === "step.result") {
+  if (name === "step.result" || name === "step.artifact") {
     const taskId = orchestratorTaskIdForGrant(ctx, grant) ?? ctx.env.PACER_TASK_ID;
     if (typeof taskId !== "string" || !taskId) {
       throw new CoreError("not_allowed", "Operation is outside this run grant");

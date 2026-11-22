@@ -11,6 +11,7 @@ import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
+import { artifactRoute } from "./artifact-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
@@ -772,6 +773,8 @@ export function startServer(
       if (app) return appRoute(req, getCtx());
       const attachmentResponse = await attachmentRoute(req, getCtx());
       if (attachmentResponse) return attachmentResponse;
+      const artifactResponse = await artifactRoute(req, getCtx());
+      if (artifactResponse) return artifactResponse;
       const captureResponse = await desktopCaptureRoute(req, getCtx());
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);

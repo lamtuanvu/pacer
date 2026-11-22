@@ -21,6 +21,7 @@ import {
   skipFailedStep, startRun, stopRun,
   type EngineDeps,
 } from "../workflow/engine";
+import { listArtifacts, storeArtifact } from "../workflow/artifacts";
 import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
 import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
@@ -177,6 +178,7 @@ export const workflowOps: Record<string, OpDef> = {
         run: runEntityValue(run),
         steps,
         graphs: listGraphSummaries(ctx, p.id),
+        artifacts: listArtifacts(ctx, p.id),
         ...(pendingApproval ? { pendingApproval } : {}),
       };
     },
@@ -220,6 +222,15 @@ export const workflowOps: Record<string, OpDef> = {
     description: "Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.",
     params: z.object({ result: z.record(z.string(), z.json()) }),
     handler: (ctx, p) => recordStepResult(ctx, requireStepResultCaller(ctx), p.result),
+  }),
+  "step.artifact": op({
+    description: "Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.",
+    params: z.object({ path: z.string().min(1).max(4096), label: z.string().min(1).max(256) }),
+    handler: (ctx, p) => {
+      const row = storeArtifact(ctx, requireStepResultCaller(ctx), { path: p.path, label: p.label });
+      // Never return filesystem paths to clients (DATA / no secrets in logs).
+      return { id: row.id, label: row.label, name: row.name, mime: row.mime, size: row.size, stepId: row.stepId };
+    },
   }),
   "step.skip": op({
     description: "Skip a failed step under a live run grant: mark it done as skipped and advance the run.",
