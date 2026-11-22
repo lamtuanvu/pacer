@@ -33,8 +33,7 @@ fn assert_identifier(value: &str) -> Result<(), AdmissionError> {
         && value.len() <= 128
         && value
             .bytes()
-            .enumerate()
-            .all(|(_index, byte)| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
+            .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
         && value
             .bytes()
             .next()
@@ -206,15 +205,11 @@ pub fn reconcile_admission(home: &Path, now: f64) -> Result<(), AdmissionError> 
             let fence = fence::optional_fence(tx, false)?;
             let allow_create = fence.is_none();
             let mut state = state::read_admission(tx, allow_create)?;
-            state.leases = state
-                .leases
-                .into_iter()
-                .filter(|lease| {
-                    !closed
-                        .iter()
-                        .any(|id| lease.get("id").and_then(serde_json::Value::as_str) == Some(id))
-                })
-                .collect();
+            state.leases.retain(|lease| {
+                !closed
+                    .iter()
+                    .any(|id| lease.get("id").and_then(serde_json::Value::as_str) == Some(id))
+            });
             state::write_admission(tx, &state)?;
             Ok(())
         })?;
