@@ -17066,7 +17066,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.17.5",
+        "releaseVersion": "0.17.7",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -17074,7 +17074,8 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.17.5",
+      "previousRemovedIn": "0.19.0",
+      "pacer": "0.17.7",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17365,7 +17366,7 @@
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.17.5",
+      "pacer": "0.17.7",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17478,7 +17479,8 @@
         "activity",
         "job",
         "notify"
-      ]
+      ],
+      "removedIn": "0.19.0"
     }
   },
   "schemas": {
@@ -17819,7 +17821,7 @@
         }
       },
       "account.list": {
-        "description": "Accounts, usage and sign-in commands without account emails.",
+        "description": "Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.",
         "params": {
           "$schema": "https://json-schema.org/draft/2020-12/schema",
           "type": "object",

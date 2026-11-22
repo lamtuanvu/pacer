@@ -1,6 +1,7 @@
 {
   "v2": {
     "protocol": "2.8.0",
+    "removedIn": "0.19.0",
     "ops": [
       "account.add",
       "account.adopt",
@@ -118,6 +119,7 @@
   "v3": {
     "protocol": "3.0.0",
     "previous": "2.8.0",
+    "previousRemovedIn": "0.19.0",
     "ops": [
       "account.add",
       "account.adopt",

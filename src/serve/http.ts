@@ -34,6 +34,7 @@ import { randomBytes } from "node:crypto";
 import { checkSession, safeEqual } from "./app-auth";
 import { appPage, appRoute } from "./app-routes";
 import { handleV2 } from "../api/http";
+import { withV2Deprecation } from "../api/deprecation";
 import type { OpDeps } from "../api/ops";
 import { existsSync, mkdirSync, readFileSync, writeFileSync, watch } from "node:fs";
 import { join } from "node:path";
@@ -794,7 +795,7 @@ export function startServer(
           await readCache.refreshAfterPending();
         }
         response.headers.set("X-Pacer","1");
-        return response;
+        return withV2Deprecation(pathname, response);
       }
       if(pathname==="/state"||pathname.startsWith("/console/"))return new Response("not found\n",{status:404});
       if (req.method !== "GET") return new Response("method not allowed\n", { status: 405 });

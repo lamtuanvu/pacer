@@ -2,6 +2,7 @@
 pub mod app_assets;
 pub mod auth;
 pub mod core_child;
+pub mod deprecation;
 pub mod discovery;
 #[cfg(test)]
 #[path = "tests/discovery.rs"]
@@ -97,7 +98,19 @@ async fn forward_plugin_read(
     proxy::forward(Request::from_parts(parts, Body::from(bytes)), target, auth).await
 }
 
-async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
+/// Public listener router handler: serves protocol 2 and 3 and the app shell.
+/// The deprecation wrapper annotates protocol 2 responses; `handle_inner` holds
+/// the actual routing so the wrapper can wrap every `Response` uniformly.
+async fn handle(state: State<Arc<Listener>>, req: Request<Body>) -> Response {
+    let v2 = deprecation::is_v2(req.uri().path());
+    let mut response = handle_inner(state, req).await;
+    if v2 {
+        deprecation::mark(&mut response);
+    }
+    response
+}
+
+async fn handle_inner(State(state): State<Arc<Listener>>, req: Request<Body>) -> Response {
     // Session expiry is checked against the time of this request, never the start-up time.
     let ctx = state.ctx.at_now();
     let auth = match auth::classify(&req, state.port, &state.token, &ctx) {

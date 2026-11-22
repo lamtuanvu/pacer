@@ -15,6 +15,123 @@ async fn request(port: u16, method: &str, path: &str, headers: &str) -> String {
 }
 
 #[tokio::test]
+async fn protocol_2_responses_carry_deprecation_headers() {
+    let script = r#"const server = Bun.serve({hostname:'127.0.0.1',port:0,fetch(req){const path=new URL(req.url).pathname;return new Response('core:'+path,{status:200})}});console.log(JSON.stringify({internal:{port:server.port}}));"#;
+    let bun = std::env::split_paths(&std::env::var_os("PATH").unwrap())
+        .map(|dir| dir.join("bun"))
+        .find(|path| path.is_file())
+        .unwrap();
+    let core = Arc::new(core_child::CoreChild::spawn(
+        vec![
+            bun.to_string_lossy().into_owned(),
+            "-e".into(),
+            script.into(),
+        ],
+        HashMap::new(),
+        None,
+    ));
+    for _ in 0..100 {
+        if core.target().await.is_some() {
+            break;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+    }
+    assert!(core.target().await.is_some(), "fixture core did not start");
+    let dir = tempfile::tempdir().unwrap();
+    let ctx = Ctx::with(
+        dir.path().into(),
+        dir.path().join("pacer"),
+        Default::default(),
+        1_800_000_000.0,
+    );
+    let socket = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, 0))
+        .await
+        .unwrap();
+    let port = socket.local_addr().unwrap().port();
+    let state = Arc::new(Listener {
+        core: core.clone(),
+        heartbeat: Arc::new(heartbeat::Heartbeat::new()),
+        ctx,
+        port,
+        token: "token".into(),
+        registry: service_registry(""),
+        scoped_work: false,
+        plugins: crate::native::plugins::Service::default(),
+        forward_log_follow: false,
+        forward_events: false,
+    });
+    let server = tokio::spawn(async move {
+        axum::serve(
+            socket,
+            Router::new().fallback(any(handle)).with_state(state),
+        )
+        .await
+        .unwrap();
+    });
+    let bearer = "Authorization: Bearer token\r\n";
+    let v2 = request(port, "GET", "/v2/hello", bearer).await;
+    assert!(v2.starts_with("HTTP/1.1 200"), "v2: {v2}");
+    let v2lower = v2.to_ascii_lowercase();
+    assert!(
+        v2lower.contains(&deprecation::V2_DEPRECATION.to_ascii_lowercase()),
+        "v2: {v2}"
+    );
+    assert!(
+        v2lower.contains(&deprecation::V2_SUNSET.to_ascii_lowercase()),
+        "v2: {v2}"
+    );
+    assert!(
+        v2lower.contains(&deprecation::V2_LINK.to_ascii_lowercase()),
+        "v2: {v2}"
+    );
+    let v3 = request(port, "GET", "/v3/hello", bearer).await;
+    assert!(v3.starts_with("HTTP/1.1 200"), "v3: {v3}");
+    let lower = v3.to_ascii_lowercase();
+    assert!(!lower.contains("deprecation:"), "v3: {v3}");
+    assert!(!lower.contains("sunset:"), "v3: {v3}");
+    assert!(!lower.contains("successor-version"), "v3: {v3}");
+    // `/v2/events` is an SSE stream that never closes, so only read the response
+    // header block (enough to observe status and the deprecation headers).
+    let mut stream = tokio::net::TcpStream::connect((
+        std::net::Ipv4Addr::LOCALHOST,
+        port,
+    ))
+    .await
+    .unwrap();
+    stream
+        .write_all(
+            format!(
+                "GET /v2/events?since=1 HTTP/1.1\r\nHost: 127.0.0.1:{port}\r\n{bearer}\r\n"
+            )
+            .as_bytes(),
+        )
+        .await
+        .unwrap();
+    let mut head = Vec::new();
+    let mut buf = [0u8; 1024];
+    loop {
+        let n = stream.read(&mut buf).await.unwrap();
+        if n == 0 {
+            break;
+        }
+        head.extend_from_slice(&buf[..n]);
+        if head.windows(4).any(|w| w == b"\r\n\r\n") {
+            break;
+        }
+    }
+    let events = String::from_utf8(head).unwrap();
+    assert!(events.starts_with("HTTP/1.1 200"), "events: {events}");
+    assert!(
+        events
+            .to_ascii_lowercase()
+            .contains(&deprecation::V2_DEPRECATION.to_ascii_lowercase()),
+        "events: {events}"
+    );
+    core.shutdown().await;
+    server.abort();
+}
+
+#[tokio::test]
 async fn public_listener_routes_static_and_forwards_fallbacks() {
     let dir = tempfile::tempdir().unwrap();
     let ctx = Ctx::with(

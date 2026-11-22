@@ -91,7 +91,10 @@ for (const kind of [
 }
 test('v2 hello and schemas retain the frozen operation surface and property order', async () => {
   // The surface is frozen; pacer is whatever version is being built.
-  expect(v2Hello()).toEqual({ ...characterization.hello.output, pacer: pkg.version });
+  expect(v2Hello()).toEqual({
+    ...(characterization.hello.output as ReturnType<typeof v2Hello>),
+    pacer: pkg.version,
+  } as ReturnType<typeof v2Hello>);
   expect(JSON.stringify(v2OpJsonSchemas())).toBe(
     JSON.stringify(characterization.schemas.output),
   );

@@ -8,6 +8,7 @@ import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
 import { CoreError } from '../core/errors';
 import type { Ctx } from '../types';
 import { helloBody, type ApiEventV2, type ApiEventV3 } from './protocol';
+import { V2_REMOVAL_RELEASE } from './deprecation';
 
 // The current 2.x service is 2.8.0; PREVIOUS names the promised 2.7 overlap baseline.
 export const V2_PROTOCOL = '2.8.0';
@@ -25,8 +26,8 @@ for (const op of ["desktop.reconcile.status", "desktop.reconcile.request", "desk
 for (const op of ['dispatch.config.get','dispatch.tierTargets.get','dispatch.tierTargets.set','dispatch.preview','dispatch.explain','dispatch.submit','dispatch.child','dispatch.tree','dispatch.list','dispatch.events','dispatch.wait','dispatch.review','dispatch.retry','dispatch.answer','dispatch.stop','dispatch.dependencies','dispatch.dependencies.waive','dispatch.models','dispatch.refresh','dispatch.analytics','dispatch.enforcement','dispatch.enforcement.probe','dispatch.enforcement.denied','dispatch.enforcement.consent','dispatch.learning.reset']) V3_ONLY_OPS.add(op);
 
 export function v2Hello() {
- const {previous:_,coreBuild: _coreBuild,...hello}=helloBody();
- return {...hello,protocol:V2_PROTOCOL,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
+ const {previous:_,coreBuild: _coreBuild,previousRemovedIn:_previousRemovedIn,...hello}=helloBody();
+ return {...hello,protocol:V2_PROTOCOL,removedIn:V2_REMOVAL_RELEASE,ops:hello.ops.filter(op=>!V3_ONLY_OPS.has(op)),events:[...V2_EVENT_TYPES]};
 }
 
 for (const op of ["setup.health", "setup.skip"]) V3_ONLY_OPS.add(op);

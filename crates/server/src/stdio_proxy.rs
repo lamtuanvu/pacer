@@ -1462,12 +1462,20 @@ mod tests {
                 .cloned()
                 .collect::<Vec<_>>()
         };
+        // Protocol 2 (deprecated in 0.18.0, removed in 0.19.0) reports the
+        // removal release via `removedIn` (A4).
         let v2 = hello_body(2, None).unwrap();
         assert_eq!(v2["pacer"], package["version"]);
-        assert_eq!(keys(&v2), ["protocol", "pacer", "ops", "events"]);
+        assert_eq!(v2["removedIn"], "0.19.0");
+        assert_eq!(
+            keys(&v2),
+            ["protocol", "pacer", "removedIn", "ops", "events"]
+        );
         let build = json!({"schemaVersion": 1});
+        // Protocol 3 names the previous protocol it replaces via `previousRemovedIn` (A4).
         let v3 = hello_body(3, Some(&build)).unwrap();
         assert_eq!(v3["pacer"], package["version"]);
+        assert_eq!(v3["previousRemovedIn"], "0.19.0");
         assert_eq!(
             keys(&v3),
             [
@@ -1475,6 +1483,7 @@ mod tests {
                 "protocol",
                 "previous",
                 "pacer",
+                "previousRemovedIn",
                 "ops",
                 "events"
             ]
