@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! Stdio owner probe and attach (ADR 0027): who owns a home's plugin children,
 //! and where a connection binds its own socket.
 
@@ -343,6 +343,7 @@ fn a_deep_home_binds_its_connection_socket_in_the_private_user_directory() {
 }
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+#[allow(clippy::await_holding_lock)] // the fixture mutex may be held while shutting the session down
 async fn a_deep_home_owner_is_probed_at_its_private_socket_directory() {
     let _spawns = no_spawns();
     let root = short_home();

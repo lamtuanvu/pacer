@@ -1,5 +1,6 @@
 //! Table invariants for pacer-bundled (M3 C0a). The suite has no `pacer-bundled`
 //! crate yet, so it fails until step 4 lands.
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 use pacer_bundled::{TABLE, find, native, serve_stdio};
 use serde_json::Value;
 
