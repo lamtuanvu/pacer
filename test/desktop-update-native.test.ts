@@ -399,42 +399,198 @@ test("OS process enumeration and dynamic signing use kernel incarnations", async
   expect(() => authority.verifyProcess(ownProcessIdentity()!, "cli")).toThrow();
 });
 
-test("coexisting known CLI outside service and enrolled work blocks native mutation", async () => {
-  const { assertNativeProcessCoverage } = await import(
+test("native coverage classifies service tree, lease tree, CLI client and foreign path", async () => {
+  const { assertNativeProcessCoverage, classifyNativeProcessCoverage } = await import(
     "../src/update/desktop/native-provider"
   );
   const service = { pid: 1, bootId: "boot", birth: "1:1" },
-    child = { pid: 2, bootId: "boot", birth: "2:1" };
+    core = { pid: 2, bootId: "boot", birth: "2:1" },
+    plugin = { pid: 3, bootId: "boot", birth: "3:1" },
+    leased = { pid: 4, bootId: "boot", birth: "4:1" },
+    leaseChild = { pid: 5, bootId: "boot", birth: "5:1" },
+    cli = { pid: 6, bootId: "boot", birth: "6:1" },
+    orphanCore = { pid: 8, bootId: "boot", birth: "8:1" },
+    foreign = { pid: 7, bootId: "boot", birth: "7:1" };
   const processes = [
-    {
-      process: service,
-      uid: 501,
-      parentPid: 0,
-      name: "pacer",
-      executable: "/opt/pacer",
-    },
-    {
-      process: child,
-      uid: 501,
-      parentPid: 1,
-      name: "pacer",
-      executable: "/opt/old-pacer",
-    },
+    { process: service, uid: 501, parentPid: 0, name: "pacer", executable: "/App/Contents/Resources/pacer" },
+    { process: core, uid: 501, parentPid: 1, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    { process: plugin, uid: 501, parentPid: 2, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    // Lease roots outside the service tree (e.g. handed-off work); descendants count as that lease.
+    { process: leased, uid: 501, parentPid: 50, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    { process: leaseChild, uid: 501, parentPid: 4, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    { process: cli, uid: 501, parentPid: 99, name: "pacer", executable: "/App/Contents/Resources/pacer" },
+    // Orphaned same-bundle core (ppid reaped) is a CLI client of this install, not foreign.
+    { process: orphanCore, uid: 501, parentPid: 999, name: "pacer-core", executable: "/App/Contents/Resources/pacer-core" },
+    { process: foreign, uid: 501, parentPid: 99, name: "pacer", executable: "/opt/old-pacer" },
   ];
+  const roles = Object.fromEntries(
+    classifyNativeProcessCoverage(processes, service, [leased], "/App/Contents/Resources/pacer").map(
+      (d) => [d.process.process.pid, d.role],
+    ),
+  );
+  expect(roles).toEqual({
+    1: "service",
+    2: "service",
+    3: "service",
+    4: "lease",
+    5: "lease",
+    6: "cli",
+    8: "cli",
+    7: "foreign",
+  });
+  // Service/lease trees and same-path CLI clients do not refuse install; foreign path does.
   expect(() =>
-    assertNativeProcessCoverage(processes, service, [], "/opt/pacer"),
-  ).toThrow();
-  expect(() =>
-    assertNativeProcessCoverage(processes, service, [child], "/opt/pacer"),
+    assertNativeProcessCoverage(processes.filter((p) => p.process.pid !== 7), service, [leased], "/App/Contents/Resources/pacer"),
   ).not.toThrow();
   expect(() =>
+    assertNativeProcessCoverage(processes, service, [leased], "/App/Contents/Resources/pacer"),
+  ).toThrow("Another pacer CLI process prevents desktop update");
+  // Enrolled identity must be the exact incarnation; a reused birth is not a lease root.
+  expect(() =>
     assertNativeProcessCoverage(
-      processes,
+      [processes[0]!, processes.find((p) => p.process.pid === 7)!],
       service,
-      [{ ...child, birth: "reused" }],
-      "/opt/pacer",
+      [{ ...foreign, birth: "reused" }],
+      "/App/Contents/Resources/pacer",
     ),
   ).toThrow();
+  // A dead enrolled pid must not cover a foreign child via parentPid anchor.
+  const reusedParent = { pid: 80, bootId: "boot", birth: "dead:1" };
+  const foreignUnderReuse = {
+    process: { pid: 81, bootId: "boot", birth: "81:1" },
+    uid: 501,
+    parentPid: 80,
+    name: "pacer",
+    executable: "/opt/foreign-under-reuse",
+  };
+  expect(
+    classifyNativeProcessCoverage(
+      [processes[0]!, foreignUnderReuse],
+      service,
+      [reusedParent],
+      "/App/Contents/Resources/pacer",
+    ).map((d) => d.role),
+  ).toEqual(["service", "foreign"]);
+  expect(() =>
+    assertNativeProcessCoverage(
+      [processes[0]!, foreignUnderReuse],
+      service,
+      [reusedParent],
+      "/App/Contents/Resources/pacer",
+    ),
+  ).toThrow();
+});
+
+test("hello verifyService without coverage succeeds while busy work would fail install coverage", async () => {
+  const calls: Array<{ coverage?: boolean } | undefined> = [];
+  const { writeFileSync } = await import("node:fs");
+  const { dirname, join } = await import("node:path");
+  const { plist, servicePath } = await import("../src/service");
+  const { NativeControlBridge } = await import("../src/update/desktop/native-provider");
+  const { ownProcessIdentity } = await import("../src/update/desktop/process-identity");
+  const { currentVersion } = await import("../src/update/version");
+  const { inspectInstallation } = await import("../src/update/desktop/identity");
+  const ctx = fakeCtx({ env: { PACER_PORT: "7433" } });
+  mkdirSync(ctx.pacerHome);
+  const app = join(ctx.home, "Applications/pacer.app");
+  const cli = join(app, "Contents/Resources/pacer");
+  const desktop = join(app, "Contents/MacOS/pacer");
+  mkdirSync(dirname(cli), { recursive: true });
+  mkdirSync(dirname(desktop), { recursive: true });
+  for (const path of [cli, desktop, join(dirname(cli), "pacer-update-helper")])
+    writeFileSync(path, "fixture", { mode: 0o755 });
+  writeFileSync(
+    join(dirname(cli), "pacer-release.json"),
+    JSON.stringify({
+      schema: 1,
+      bundleId: "dev.pacer.desktop",
+      version: currentVersion(),
+      arch: process.arch === "arm64" ? "aarch64" : "x86_64",
+      protocolMajors: [3],
+      admissionProtocol: 1,
+      nativeTransportAbi: 1,
+      rollbackCompatible: true,
+    }),
+  );
+  writeFileSync(
+    join(app, "Contents/Info.plist"),
+    `<plist><dict><key>CFBundleIdentifier</key><string>dev.pacer.desktop</string><key>CFBundleShortVersionString</key><string>${currentVersion()}</string><key>CFBundleExecutable</key><string>pacer</string></dict></plist>`,
+  );
+  mkdirSync(dirname(servicePath(ctx, "darwin")), { recursive: true });
+  writeFileSync(servicePath(ctx, "darwin"), plist(ctx, [cli]));
+  await inspectInstallation(ctx, app);
+  let resolveClosed!: () => void;
+  let closed = false;
+  const sent: any[] = [];
+  const peer = {
+    auditToken: new Uint8Array(32),
+    closed: new Promise<void>((r) => { resolveClosed = r; }),
+    onFrame: (_frame: unknown) => {},
+    send: async (frame: unknown) => { sent.push(frame); },
+    close: () => { closed = true; resolveClosed(); },
+  };
+  const bridge = new NativeControlBridge(() => ctx, {
+    port: 7433,
+    authority: {
+      verifyStatic: () => {},
+      verifyPeer: (_token, role) => ({
+        process: ownProcessIdentity()!,
+        uid: process.getuid!(),
+        executable: desktop,
+        auditToken: new Uint8Array(32),
+        role,
+      }),
+    },
+    verifyService: async (options) => {
+      calls.push(options);
+      if (options?.coverage) throw new Error("coverage refused while busy");
+    },
+  });
+  try {
+    bridge.accept(peer);
+    peer.onFrame({
+      schema: 1,
+      kind: "hello",
+      role: "desktop",
+      version: currentVersion(),
+      nonce: "a".repeat(64),
+      challenge: sent[0].nonce,
+    });
+    await Bun.sleep(30);
+    expect(closed).toBe(false);
+    expect(calls.length).toBeGreaterThan(0);
+    expect(calls.every((c) => !c?.coverage)).toBe(true);
+    peer.onFrame({
+      schema: 1,
+      kind: "desktop-ready",
+      sessionId: sent[1].sessionId,
+      sequence: 1,
+      validStateRead: true,
+      protocol: 3,
+      serviceVersion: currentVersion(),
+      proof: null,
+    });
+    await Bun.sleep(20);
+    const session = bridge.sessions()[0]!;
+    expect(session).toBeTruthy();
+    await expect(
+      bridge.authorizeInstall(session, {
+        kind: "authorize",
+        sequence: 1,
+        commandId: "c",
+        installationId: session.installation.id,
+        transactionId: "tx-busy",
+        reservationId: "tx-busy",
+        revision: 1,
+        nonce: "b".repeat(64),
+        journalSha256: "a".repeat(64),
+      } as any),
+    ).rejects.toThrow("coverage refused while busy");
+    expect(calls.some((c) => c?.coverage)).toBe(true);
+  } finally {
+    bridge.stop();
+    peer.close();
+  }
 });
 
 async function nativeBridgeFixture(role: "desktop" | "helper" = "desktop", paired = false) {
