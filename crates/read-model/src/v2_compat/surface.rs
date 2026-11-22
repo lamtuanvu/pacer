@@ -171,6 +171,10 @@ pub const V3_ONLY_OPS: &[&str] = &[
     "agent.undo",
 ];
 pub const V2_PROTOCOL: &str = "2.8.0";
+/// 2.x is deprecated in 0.18.0 and removed in this release (A4). The v2 hello
+/// reports the removal via `removedIn`, mirroring deprecation.ts's
+/// `V2_REMOVAL_RELEASE` and serve/deprecation.rs.
+pub const V2_REMOVAL_RELEASE: &str = "0.19.0";
 pub const V2_EVENT_TYPES: &[&str] = &[
     "budget",
     "task",
@@ -191,8 +195,9 @@ pub const V2_EVENT_TYPES: &[&str] = &[
 ];
 
 pub fn hello(input: &Value) -> Value {
-    let mut out = object_without(input, &["previous", "coreBuild"]);
+    let mut out = object_without(input, &["previous", "coreBuild", "previousRemovedIn"]);
     out["protocol"] = json!(V2_PROTOCOL);
+    out["removedIn"] = json!(V2_REMOVAL_RELEASE);
     out["ops"] = Value::Array(
         input["ops"]
             .as_array()
@@ -252,6 +257,9 @@ pub fn op_schemas(input: &Value) -> Value {
         json!("Preview agent integration files and the undo command before consenting.");
     out["agent.connect"]["description"] =
         json!("Connect an agent after explicit consent to write its integration files.");
+    // The usage record and its deprecation note are protocol 3 additions; 2.x keeps its frozen text.
+    out["account.list"]["description"] =
+        json!("Accounts, usage and sign-in commands without account emails.");
     // Notification sound is a protocol 3 addition; 2.x keeps its frozen level-only surface.
     out["notifications.get"]["description"] = json!("Current notification level.");
     out["notifications.set"]["description"] = json!("Set notifications to off, important or all.");
