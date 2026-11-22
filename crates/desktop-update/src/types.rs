@@ -177,9 +177,14 @@ fn check_bool(value: Option<&Value>, field: &'static str) -> Result<(), &'static
 }
 
 fn check_checked_at(value: Option<&Value>) -> Result<(), &'static str> {
+    // `checkedAt` mirrors TS `clock.nowS()` (`Date.now() / 1000`), an
+    // integer or fractional wall-clock seconds. Accept any finite number.
     match value {
         None | Some(Value::Null) => Ok(()),
         Some(Value::Number(n)) if n.is_u64() => Ok(()),
+        Some(Value::Number(n)) if n.is_f64() && n.as_f64().unwrap_or(f64::INFINITY).is_finite() => {
+            Ok(())
+        }
         _ => Err("checkedAt"),
     }
 }
