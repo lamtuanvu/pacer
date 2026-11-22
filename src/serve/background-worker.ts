@@ -163,7 +163,13 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   armHeartbeat();
   // Start-up: revoke orphan prg_ grants and settle live turns with no process.
   void recoverOrphanTurns(fresh()).catch(() => { /* recovery is best-effort */ });
-  runLoops();
+  try {
+    runLoops();
+  } catch (error) {
+    // runLoops throws sync (e.g. missing spawnRunner) outside the init try/catch;
+    // route it into a failed report instead of an unhandled rejection on onmessage.
+    report({ type: "failed", reason: String(error) });
+  }
 };
 
 process.on("exit", () => { stopped = true; });

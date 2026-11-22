@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
-import { pumpOnce, pumpOnceOpts, defaultPumpDeps, type PumpDeps } from "../src/link/pump";
+import { pumpOnce, defaultPumpDeps, type PumpDeps } from "../src/link/pump";
 import { readLatest } from "../src/link/store";
 import { latestPath } from "../src/link/paths";
 import { reduce } from "../src/link/envelope";
@@ -72,11 +72,11 @@ function pumpDeps(ctx: ReturnType<typeof fakeCtx>): PumpDeps {
 }
 
 describe("pump drain uses service selfCommand for queued fanout branches", () => {
-  test("background worker pump opts always forward the service spawnRunner", () => {
-    const spawn: SpawnRunner = () => 4242;
-    const opts = pumpOnceOpts(spawn);
-    expect(opts).toEqual({ poll: true, spawnRunner: spawn });
-    expect(opts.spawnRunner).toBe(spawn);
+  test("background-worker.ts forwards pumpOnceOpts(spawn) in pump, broker and workflow loops", () => {
+    const src = readFileSync(join(import.meta.dir, "../src/serve/background-worker.ts"), "utf8");
+    expect(src).toContain("pumpOnce(c, defaultPumpDeps, pumpOnceOpts(spawn))");
+    expect(src).toContain("brokerTick(c, { spawnRunner: spawn");
+    expect(src).toContain("advanceRuns(c, spawn)");
   });
 
   test("selfCommand under background-worker argv is not the cli _run entry", () => {
