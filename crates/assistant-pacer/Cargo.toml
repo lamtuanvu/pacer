@@ -10,6 +10,9 @@ rust-version.workspace = true
 name = "pacer-assistant-pacer"
 path = "src/main.rs"
 
+[build-dependencies]
+serde_json.workspace = true
+
 [dependencies]
 pacer-plugin = { path = "../plugin-sdk" }
 # Spec decision 2: pin an exact Rig version; upgrade deliberately.

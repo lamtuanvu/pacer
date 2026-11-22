@@ -6,6 +6,7 @@ import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability, pluginLogPath } from "../src/plugins/host";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
 import { ASSISTANT_PACER_BIN_ENV, ASSISTANT_PACER_EXECUTABLE, resolveBundledNativeExecutable } from "../src/plugins/native-bundled";
+import { currentVersion } from "../src/update/version";
 import type { BundledPlugin } from "../src/plugins/types";
 import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
@@ -464,12 +465,13 @@ describe("assistant-pacer native host routing", () => {
   const peer = join(import.meta.dir, "fixtures", "assistant-pacer", "peer.ts");
   const pacerStubUsage = { input: 7, output: 2, coverage: "measured" as const };
 
-  /** Place a sibling marker next to a fake core so refresh enables the bundled native plugin. */
+  /** Place a version-matched sibling next to a fake core so refresh enables the bundled native plugin. */
   function enableNativeSibling(ctx: Ctx) {
     const bin = join(ctx.home, "bin");
     mkdirSync(bin, { recursive: true });
-    writeFileSync(join(bin, "pacer-core"), "#!/bin/sh\n", { mode: 0o755 });
-    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const version = currentVersion();
+    writeFileSync(join(bin, "pacer-core"), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
+    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
     chmodSync(join(bin, "pacer-core"), 0o755);
     chmodSync(join(bin, ASSISTANT_PACER_EXECUTABLE), 0o755);
     ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
@@ -671,10 +673,13 @@ describe("assistant-pacer native host routing", () => {
     mkdirSync(bunDir, { recursive: true });
     mkdirSync(localBin, { recursive: true });
     mkdirSync(coreDir, { recursive: true });
+    const version = currentVersion();
+    const script = `#!/bin/sh\necho "pacer ${version}"\n`;
     writeFileSync(join(bunDir, ASSISTANT_PACER_EXECUTABLE), "bad", { mode: 0o755 });
     writeFileSync(join(localBin, ASSISTANT_PACER_EXECUTABLE), "bad-local", { mode: 0o755 });
     writeFileSync(join(coreDir, "pacer-core"), "core", { mode: 0o755 });
-    writeFileSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), "good", { mode: 0o755 });
+    writeFileSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), script, { mode: 0o755 });
+    chmodSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), 0o755);
     const bun = join(bunDir, "bun");
     writeFileSync(bun, "#!/bin/sh\n", { mode: 0o755 });
 

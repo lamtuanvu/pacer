@@ -35,6 +35,7 @@ export async function compileAssistantPacer(o: {
   root: string;
   target: Platform;
   outfile: string;
+  version?: string;
   cargoTargetDir?: string;
   smoke?: boolean;
 }): Promise<boolean> {
@@ -46,7 +47,11 @@ export async function compileAssistantPacer(o: {
     : ["cargo", "build", "--release", "--locked", "-p", "pacer-assistant-pacer", "--bin", ASSISTANT_PACER_EXECUTABLE, "--target", triple];
   const process = Bun.spawn(build, {
     cwd: o.root,
-    env: { ...Bun.env, CARGO_TARGET_DIR: targetDir },
+    env: {
+      ...Bun.env,
+      CARGO_TARGET_DIR: targetDir,
+      ...(o.version ? { PACER_BUILD_VERSION: o.version } : {}),
+    },
     stdout: "pipe",
     stderr: "pipe",
   });
