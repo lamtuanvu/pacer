@@ -48,6 +48,31 @@ function countOpenQuestionsForAsker(ctx: Ctx, askerTaskId: string): number {
   return row?.n ?? 0;
 }
 
+/** Recompute human_step answerer from auto/strict (I5). Escalated rows (chain has orchestrator) stay person. */
+export function syncHumanStepAnswerers(ctx: Ctx, runId: string): void {
+  const rootId = rootRunId(ctx, runId);
+  const root = getRun(ctx, rootId);
+  if (!root) return;
+  const def = getDefinition(ctx, `${root.workflow}@${root.version}`) ?? getDefinition(ctx, root.workflow);
+  if (!def) return;
+  const ids = [rootId, ...workflowDatabase(ctx).query<{ id: string }, [string]>(
+    "SELECT id FROM workflow_runs WHERE parent_run_id = ?",
+  ).all(rootId).map(r => r.id)];
+  for (const id of ids) {
+    const open = listQuestions(ctx, id, "open").filter(q => q.askerKind === "human_step");
+    for (const q of open) {
+      const stepDef = def.steps[q.stepId];
+      if (!stepDef || stepDef.type !== "human") continue;
+      if (q.chain.includes("orchestrator") && q.answerer === "person") continue; // escalated
+      const next = canAutoDecide(root, q.stepId, stepDef) ? "orchestrator" : "person";
+      if (next === q.answerer) continue;
+      workflowDatabase(ctx).query(
+        "UPDATE workflow_questions SET answerer = ?, rev = rev + 1 WHERE id = ? AND status = 'open'",
+      ).run(next, q.id);
+    }
+  }
+}
+
 export function assertOpenQuestionCaps(ctx: Ctx, runId: string, askerTaskId?: string): void {
   if (countOpenQuestionsForRun(ctx, runId) >= MAX_OPEN_QUESTIONS_PER_RUN) {
     throw new CoreError("conflict", `conflict: run ${runId} already has ${MAX_OPEN_QUESTIONS_PER_RUN} open questions`);

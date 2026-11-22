@@ -23,10 +23,12 @@ const severityOrder = { blocked: 0, problem: 1, decide: 2 };
 const unblocksOrder: Record<AttentionUnblocks, number> = { run: 0, branch: 1, nothing: 2 };
 const priorityOrder: Record<RunAttentionPriority, number> = { urgent: 0, normal: 1, background: 2 };
 export function sortItems(items: AttentionItem[]): AttentionItem[] {
+  // Total order: ordinary items use sentinel unblocks=nothing and priority=normal
+  // so mixed run/ordinary triples cannot cycle (I9).
   return items.sort((a, b) =>
     severityOrder[a.severity] - severityOrder[b.severity]
-    || (a.unblocks && b.unblocks ? unblocksOrder[a.unblocks] - unblocksOrder[b.unblocks] : 0)
-    || (a.run && b.run ? priorityOrder[a.run.priority] - priorityOrder[b.run.priority] : 0)
+    || unblocksOrder[a.unblocks ?? "nothing"] - unblocksOrder[b.unblocks ?? "nothing"]
+    || priorityOrder[a.run?.priority ?? "normal"] - priorityOrder[b.run?.priority ?? "normal"]
     || a.since - b.since
     || a.id.localeCompare(b.id));
 }

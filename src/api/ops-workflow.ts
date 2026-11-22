@@ -18,7 +18,7 @@ import {
   type RunRow, type RunStatus,
 } from "../workflow/store";
 import {
-  answerQuestion, askQuestion, escalateQuestion,
+  answerQuestion, askQuestion, escalateQuestion, syncHumanStepAnswerers,
 } from "../workflow/questions";
 import { questionInputSchema } from "../workflow/question-schema";
 import { convertPromptWaitToQuestion } from "../workflow/prompt-detector";
@@ -273,7 +273,9 @@ export const workflowOps: Record<string, OpDef> = {
         const prior = run.strictSteps ?? [];
         patch.strictSteps = [...new Set([...prior, ...p.strict_steps])];
       }
-      return runEntityValue(updateRun(ctx, p.id, p.expect_rev, patch));
+      const updated = updateRun(ctx, p.id, p.expect_rev, patch);
+      syncHumanStepAnswerers(ctx, updated.id);
+      return runEntityValue(updated);
     },
   }),
   "run.set_budget": op({

@@ -27,21 +27,39 @@ const LINE_PATTERNS: RegExp[] = [
   /\bpress enter\b/i,
 ];
 
-/** Numbered choice list (2+ items) ending with a prompt line. */
-const NUMBERED_LIST = /(?:^|\n)\s*\d+[.)]\s+\S[^\n]*(?:\n\s*\d+[.)]\s+\S[^\n]*)+\n+[^\n]*[?:]\s*$/i;
+const MAX_LINE_LEN = 400;
+const TAIL_NONEMPTY = 3;
 
+/** Scan only the last few non-empty lines (I10): avoid matching old prompts in a long log. */
 export function findPromptLikeLine(text: string): string | null {
-  const trimmed = text.replace(/\s+$/, "");
-  if (!trimmed) return null;
-  const lines = trimmed.split(/\r\n|\r|\n/);
+  const lines: string[] = [];
+  let start = 0;
+  for (let i = 0; i <= text.length; i++) {
+    const c = text.charCodeAt(i);
+    if (i === text.length || c === 10 || c === 13) {
+      let end = i;
+      while (end > start && (text.charCodeAt(end - 1) === 32 || text.charCodeAt(end - 1) === 9)) end--;
+      if (end > start) {
+        const line = text.slice(start, Math.min(end, start + MAX_LINE_LEN));
+        lines.push(line);
+        if (lines.length > TAIL_NONEMPTY) lines.shift();
+      }
+      if (c === 13 && text.charCodeAt(i + 1) === 10) i++;
+      start = i + 1;
+    }
+  }
+  if (lines.length === 0) return null;
   for (let i = lines.length - 1; i >= 0; i--) {
     const line = lines[i]!.trim();
     if (!line) continue;
     if (LINE_PATTERNS.some(re => re.test(line))) return line;
   }
-  if (NUMBERED_LIST.test(trimmed)) {
-    const last = lines.filter(l => l.trim()).at(-1)?.trim();
-    return last || trimmed.slice(-200);
+  // Numbered list: last 3 lines look like "1. …", "2. …", "Choose:"
+  if (lines.length >= 3) {
+    const [a, b, c] = lines.slice(-3);
+    if (/^\s*\d+[.)]\s+\S/.test(a!) && /^\s*\d+[.)]\s+\S/.test(b!) && /[?:]\s*$/.test(c!)) {
+      return c!.trim();
+    }
   }
   return null;
 }
@@ -108,8 +126,21 @@ function clearPromptWait(ctx: Ctx, taskId: string): void {
 
 /** Refresh marks for every running step task (broker / tick hook). */
 export function refreshAllPromptWaits(ctx: Ctx): void {
+  // Cheap pre-check: homes with no workflow tables skip the per-task work.
+  try {
+    const n = workflowDatabase(ctx).query<{ n: number }, []>(
+      "SELECT COUNT(*) AS n FROM workflow_steps WHERE status = 'running' LIMIT 1",
+    ).get()?.n ?? 0;
+    if (n === 0) return;
+  } catch {
+    return;
+  }
   for (const task of listTasksWhere(ctx, { states: ["running"] })) {
-    if (stepByTask(ctx, task.id)) refreshPromptWait(ctx, task.id);
+    try {
+      if (stepByTask(ctx, task.id)) refreshPromptWait(ctx, task.id);
+    } catch {
+      // Isolate per task so one failure cannot abort the whole broker tick (I10).
+    }
   }
 }
 

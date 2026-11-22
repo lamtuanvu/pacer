@@ -482,6 +482,32 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
+  // Step tasks with an open linked structured question: resolve the record (I6)
+  // before the ordinary resume path. Do not call answerQuestion (it would call
+  // answer again and recurse). Ordinary tasks (no step row) are unchanged.
+  try {
+    const { stepByTask, listQuestions, answerQuestionRecord } = await import("../workflow/store");
+    const step = stepByTask(ctx, id);
+    if (step) {
+      const open = listQuestions(ctx, step.runId, "open").filter(q =>
+        q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
+      );
+      const linked = open[open.length - 1];
+      if (linked && linked.answerer === "person") {
+        const { validateQuestionAnswer } = await import("../workflow/question-schema");
+        validateQuestionAnswer(linked.answerType, text, linked.options);
+        answerQuestionRecord(ctx, linked.id, {
+          answer: text,
+          expectRev: linked.rev,
+          answeredBy: "person",
+        });
+        const { completeWakeupRef } = await import("../workflow/wakeups");
+        completeWakeupRef(ctx, linked.runId, "question", linked.id);
+      }
+    }
+  } catch (err) {
+    if (err instanceof CoreError) throw err;
+  }
   const current = readTask(ctx, id);
   if (current && directInputAvailable(current)) {
     const result = apiTask(ctx, await answerLiveTask(ctx, id, text, o.expectRev));

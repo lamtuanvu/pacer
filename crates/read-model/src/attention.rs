@@ -42,7 +42,8 @@ fn unblocks_rank(v: &Value) -> i32 {
         "run" => 0,
         "branch" => 1,
         "nothing" => 2,
-        _ => 3,
+        // Ordinary items omit unblocks — same sentinel as TS (`nothing`).
+        _ => 2,
     }
 }
 fn priority_rank(v: &Value) -> i32 {
@@ -59,27 +60,12 @@ pub fn sort(items: &mut [Value]) {
         "problem" => 1,
         _ => 2,
     };
+    // Total order: missing unblocks/run use the same sentinels as TS (nothing / normal).
     items.sort_by(|a, b| {
         rank(a)
             .cmp(&rank(b))
-            .then_with(|| {
-                let au = a.get("unblocks").is_some();
-                let bu = b.get("unblocks").is_some();
-                if au && bu {
-                    unblocks_rank(a).cmp(&unblocks_rank(b))
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
-            .then_with(|| {
-                let ar = a.get("run").is_some();
-                let br = b.get("run").is_some();
-                if ar && br {
-                    priority_rank(a).cmp(&priority_rank(b))
-                } else {
-                    std::cmp::Ordering::Equal
-                }
-            })
+            .then(unblocks_rank(a).cmp(&unblocks_rank(b)))
+            .then(priority_rank(a).cmp(&priority_rank(b)))
             .then(num(&a["since"]).total_cmp(&num(&b["since"])))
             .then(text(&a["id"]).cmp(text(&b["id"])))
     });
