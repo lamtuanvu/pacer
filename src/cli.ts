@@ -577,11 +577,13 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       const structured = rest.some(a => a === "--type" || a.startsWith("--type=")
         || a === "--option" || a.startsWith("--option=")
         || a === "--recommend" || a.startsWith("--recommend=")
-        || a === "--blocks" || a.startsWith("--blocks="));
+        || a === "--blocks" || a.startsWith("--blocks=")
+        || a === "--artifact" || a.startsWith("--artifact="));
       if (structured) {
         try {
           const options: { value: string }[] = [];
           let type: string | undefined, recommend: string | undefined, blocks = "step", text: string | undefined;
+          let artifact: string | undefined;
           for (let i = 0; i < rest.length; i++) {
             const a = rest[i]!;
             if (a === "--type" || a.startsWith("--type=")) type = a.includes("=") ? a.slice(7) : rest[++i];
@@ -592,12 +594,14 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
               recommend = a.includes("=") ? a.slice(12) : rest[++i];
             } else if (a === "--blocks" || a.startsWith("--blocks=")) {
               blocks = (a.includes("=") ? a.slice(9) : rest[++i]) ?? "step";
+            } else if (a === "--artifact" || a.startsWith("--artifact=")) {
+              artifact = a.includes("=") ? a.slice(11) : rest[++i];
             } else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
             else if (text === undefined) text = a;
-            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] "<text>"');
+            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] "<text>"');
           }
           if (!type || !text?.trim()) {
-            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] "<text>"');
+            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] "<text>"');
           }
           const result = await callOp(ctx, "question.ask", {
             text,
@@ -605,6 +609,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
             blocks,
             ...(options.length ? { options } : {}),
             ...(recommend ? { recommended: recommend } : {}),
+            ...(artifact ? { artifact } : {}),
           });
           return { code: 0, out: JSON.stringify(result), err: "" };
         } catch (e) { return { code: 2, out: "", err: e instanceof Error ? e.message : String(e) }; }
