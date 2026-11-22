@@ -174,6 +174,36 @@ test("v2 snapshot strips run-question attention and keeps ordinary task question
   expect(v2.attention.map(a => a.id)).toEqual(["question:t-keep"]);
 });
 
+test("v2 snapshot strips promptWait from tasks (M-g)", () => {
+  // Live Q9: /v2/snapshot still carried promptWait on tasks while ops stripped it.
+  const v2 = toV2Snapshot({
+    seq: 3_000_000_000_000,
+    at: 42,
+    mode: "normal",
+    tasks: [
+      {
+        id: "t-wait",
+        state: "running",
+        promptWait: { text: "Proceed? (y/n)", at: 1 },
+        fullTitle: "full",
+      },
+    ],
+    strategies: [],
+    planner: { runner: "p", mode: "normal", stale: false },
+    accounts: [],
+    executors: [],
+    machine: { used: 0, max: 1, hardCap: null, unlimited: false },
+    setup: { items: [] },
+    attention: [],
+    counts: { attention: 0, problems: 0, review: 0, running: 0, queued: 0, ready: 0, executors: 0, setupOpen: 0, hostsWithProblems: 0, byRepo: [] },
+  } as unknown as Parameters<typeof toV2Snapshot>[0]);
+  const task = (v2 as { tasks: Record<string, unknown>[] }).tasks[0]!;
+  expect(task.id).toBe("t-wait");
+  expect(task.promptWait).toBeUndefined();
+  expect(task.fullTitle).toBeUndefined();
+  expect(JSON.stringify(v2)).not.toContain("promptWait");
+});
+
 beforeAll(buildRustProbe, 600_000);
 afterAll(closeRustProbe);
 
