@@ -1,0 +1,16 @@
+{
+  "id": "pacer-remote-caller",
+  "version": "0.1.0",
+  "publisher": "pacer",
+  "host": "^1.7",
+  "contributes": {
+    "remoteCaller": {}
+  },
+  "capabilities": [
+    {
+      "name": "hosts"
+    }
+  ],
+  "reentrant": true,
+  "tier": "free"
+}
