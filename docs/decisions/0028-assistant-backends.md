@@ -18,7 +18,10 @@ which runs its own loop, cannot serve it.
 
 - **D1. One turn-level interface.** The `assistant` extension point gains the plugin method `assistant.reply`: one user
   turn in, one answer out, with the tool list, optional `assistant.delta` notifications and a backend resume handle
-  (`session`). It replaces the call-level `assistant.respond`, which stays until phase 4 of the design.
+  (`session`). It replaces the call-level `assistant.respond`. Phase 4 of the design retires `assistant.respond` in two
+  steps: (1) mark it deprecated and keep the TypeScript `pacer-assistant` fallback while the native
+  `pacer-assistant-pacer` updater ([ADR 0031](0031-native-plugin-release-manifest.md)) is not yet in a released build;
+  (2) remove the method, the legacy plugin and the host-side model loop one release after that updater ships.
 - **D2. The host runs every tool.** Pacer's own agent calls `capability.assistant.tool`, and an executor's CLI calls the
   `assistant.tool` op through `pacer mcp --assistant`. Both are valid for one `turnId` and end in the same read pipeline,
   which counts tool rounds; `propose_action` becomes a card. The host also keeps admission, history and accounting. Where
