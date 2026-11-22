@@ -20,13 +20,14 @@ import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kick
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
 
 const usage = `usage: bun run live <command> [--id <id>]
-  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--native-test-ops] [--native-forward-echo] [--native-plugin-host] [--waiting-session-fixture] [--real-keychain]
+  up [--repo-template <dir>] [--seed ui|plugin-remove] [--front-door rust] [--native-test-ops] [--native-forward-echo] [--native-plugin-host] [--ts-plugin-host] [--waiting-session-fixture] [--real-keychain]
      [--local-model-ports <ollama>,<lmstudio>] [--local-model-fixture <modes>] [--core-fixture <test/fixtures file>] [--native-forward-ops <ops>]
                                   start isolated service and disposable repo; ui seeds sample data;
                                   plugin-remove adds one inert removable plugin;
                                   --real-keychain uses the login Keychain instead of a security stub;
                                   fixture options need --native-test-ops;
-                                  --native-plugin-host starts the service with PACER_NATIVE_PLUGIN_HOST=1
+                                  the plugin owner is native by default; --native-plugin-host is an accepted no-op;
+                                  --ts-plugin-host starts the Rust service with PACER_NATIVE_PLUGIN_HOST=0
   ota prepare --from-app <path> --to-app <path>
                                   copy disposable OTA bundles (requires --id)
   ota build [--signer cert] [--initial-layout bridge|paired] [--fixture-continue-old-service] [--baseline-process-type Background|Standard] [--baseline-request-stages] [--cargo-target-dir <dir>]
@@ -88,7 +89,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
     if (valueOptions.has(arg)) {
       if (!before[i + 1] || before[i + 1].startsWith("--")) throw Error(`${arg} requires a value`);
       options.set(arg, before[++i]);
-    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain", "--native-test-ops", "--native-forward-echo", "--native-plugin-host", "--stop-service", "--waiting-session-fixture"].includes(arg)) flags.add(arg);
+    } else if (["--keep", "--print", "--fixture-continue-old-service", "--baseline-request-stages", "--real-keychain", "--native-test-ops", "--native-forward-echo", "--native-plugin-host", "--ts-plugin-host", "--stop-service", "--waiting-session-fixture"].includes(arg)) flags.add(arg);
     else if (arg.startsWith("--")) throw Error(`Unknown option: ${arg}`);
     else positionals.push(arg);
   }
@@ -102,6 +103,7 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (flags.has("--native-test-ops") && command !== "up") throw Error("--native-test-ops is only valid for up");
   if (flags.has("--native-forward-echo") && command !== "up") throw Error("--native-forward-echo is only valid for up");
   if (flags.has("--native-plugin-host") && command !== "up") throw Error("--native-plugin-host is only valid for up");
+  if (flags.has("--ts-plugin-host") && command !== "up") throw Error("--ts-plugin-host is only valid for up");
   if (flags.has("--stop-service") && command !== "native-plugin-stdio") throw Error("--stop-service is only valid for native-plugin-stdio");
   for (const key of ["--local-model-ports", "--local-model-fixture", "--core-fixture", "--native-forward-ops"]) if (options.has(key) && command !== "up") throw Error(`${key} is only valid for up`);
   if (flags.has("--waiting-session-fixture") && command !== "up") throw Error("--waiting-session-fixture is only valid for up");
@@ -109,7 +111,8 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (options.has("--forward-id") && command !== "native-host-effects") throw Error("--forward-id is only valid for native-host-effects");
   if (command === "up") {
     const fixtures = { localModelPorts: options.get("--local-model-ports"), localModelFixture: options.get("--local-model-fixture"), coreFixture: options.get("--core-fixture"), nativeForwardOps: options.get("--native-forward-ops") };
-    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo"), fixtures, flags.has("--waiting-session-fixture"), flags.has("--native-plugin-host")), null, 2));
+    const pluginOwner: "native" | "ts" = flags.has("--ts-plugin-host") ? "ts" : "native";
+    console.log(JSON.stringify(await up(id, options.get("--repo-template"), undefined, options.get("--seed"), options.get("--front-door"), flags.has("--real-keychain"), flags.has("--native-test-ops"), flags.has("--native-forward-echo"), fixtures, flags.has("--waiting-session-fixture"), pluginOwner), null, 2));
     return 0;
   }
   if (command === "status") {

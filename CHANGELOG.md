@@ -10,6 +10,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ### Changed
 
+- **The service runs plugins in its native owner by default.** `PACER_NATIVE_PLUGIN_HOST=0` restores the TypeScript owner.
+
 - **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
 
 ### Fixed
