@@ -1,6 +1,7 @@
 // Phase 2 Task 4+: orchestrator turns driven by wake-ups (start/settle, tick
 // orchestrate phase, retry/limit/deadline, orchestrator steps and choose_workflow).
 import { describe, expect, spyOn, test } from "bun:test";
+import { Database } from "bun:sqlite";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
@@ -19,7 +20,7 @@ import {
   addWakeup, getTurn, liveTurn, openWakeups, insertTurn, updateTurn,
 } from "../src/workflow/wakeups";
 import {
-  buildHandoverPrompt, buildTurnPrompt, getOrchestratorAttention, recoverOrphanTurns, settleTurn, startTurn,
+  buildHandoverPrompt, buildTurnPrompt, getOrchestratorAttention, orchestrateRuns, recoverOrphanTurns, settleTurn, startTurn,
   type OrchestratorDeps,
 } from "../src/workflow/orchestrator";
 import { COALESCE_WINDOW_S } from "../src/workflow/budget";
@@ -994,6 +995,67 @@ describe("Task 5: failed, limited and overdue turns", () => {
       });
       await recoverOrphanTurns(ctx);
       expect(getTurn(ctx, turn.id)!.status).toBe("running");
+    }
+  });
+
+  test("orchestrateRuns withholds startTurn until orphan recovery succeeds under a writer lock", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-recovery-gate", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    expect(liveTurn(ctx, r.id)).toBeNull();
+    const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
+    writer.exec("BEGIN IMMEDIATE");
+    try {
+      await orchestrateRuns({ ...ctx, now: READY }, { spawn, plannerEligible: () => true });
+      expect(liveTurn(ctx, r.id)).toBeNull();
+    } finally {
+      writer.exec("ROLLBACK");
+      writer.close();
+    }
+    await orchestrateRuns({ ...ctx, now: READY }, { spawn, plannerEligible: () => true });
+    expect(liveTurn(ctx, r.id)).not.toBeNull();
+  });
+
+  test("a permanent orphan-recovery error keeps the startTurn gate closed until a later tick succeeds", async () => {
+    const ctx = fakeCtx({ now: NOW });
+    writePlanner(ctx);
+    addDefinition(ctx, chain, "source");
+    const { deps } = fakeDeps();
+    const spawn: SpawnRunner = () => 1;
+    const r = await startRun(ctx, { workflow: "t/orch-chain", repo: tmpDir(), brief: "B" }, spawn, deps);
+    workflowDatabase(ctx).query("DELETE FROM workflow_wakeups WHERE run_id = ?").run(r.id);
+    addWakeup(workflowDatabase(ctx), {
+      runId: r.id, cause: "message", ref: "m-recovery-perm", createdAt: NOW - COALESCE_WINDOW_S,
+    });
+    let fail = true;
+    const errSpy = spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const boom: OrchestratorDeps = {
+        spawn,
+        plannerEligible: () => true,
+        recoverOrphan: {
+          afterWriterProbe: () => {
+            if (fail) throw new Error("fixture permanent recovery failure");
+          },
+        },
+      };
+      await orchestrateRuns({ ...ctx, now: READY }, boom);
+      expect(liveTurn(ctx, r.id)).toBeNull();
+      await orchestrateRuns({ ...ctx, now: READY }, boom);
+      expect(liveTurn(ctx, r.id)).toBeNull();
+      expect(errSpy.mock.calls.length).toBe(1);
+      fail = false;
+      await orchestrateRuns({ ...ctx, now: READY }, boom);
+      expect(liveTurn(ctx, r.id)).not.toBeNull();
+    } finally {
+      errSpy.mockRestore();
     }
   });
 

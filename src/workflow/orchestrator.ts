@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import { launchTaskRunner, spawnRunner } from "../tasks/api";
-import { createTask, readTask, taskDatabase, updateTask } from "../tasks/store";
+import { createTask, readTask, TASK_DB_BUSY_TIMEOUT_MS, taskDatabase, updateTask } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
 import { stop as stopTaskCore } from "../core/tasks";
 import { appendActivity } from "../activity/log";
@@ -287,6 +287,20 @@ export type TurnOutcome =
   | { outcome: "done" }
   | { outcome: "failed"; reason?: string; countFailure?: boolean; resetAt?: number };
 
+/** Bounds and hooks for {@link recoverOrphanTurns} (fire-and-forget start-up path). */
+export interface RecoverOrphanTurnsOptions {
+  /** Cap on BUSY retries; default 40 (~40s with capped backoff). Tick path uses 1. */
+  maxAttempts?: number;
+  signal?: AbortSignal;
+  /** When true, stop retrying early (e.g. worker shutdown). */
+  stopped?: () => boolean;
+  /**
+   * Runs after the writer-lock probe succeeds and busy_timeout is restored,
+   * before revoke/settle. Tests use this to assert the pragma or inject errors.
+   */
+  afterWriterProbe?: (ctx: Ctx) => void;
+}
+
 export interface OrchestratorDeps {
   spawn?: SpawnRunner;
   /** When false, startTurn returns null (planner at limit / ineligible). */
@@ -304,6 +318,8 @@ export interface OrchestratorDeps {
    * plannerEligible already control eligibility). Production leaves this unset.
    */
   skipDefaultPacing?: boolean;
+  /** Options for start-up orphan recovery (startup callers and tests). */
+  recoverOrphan?: RecoverOrphanTurnsOptions;
 }
 
 function newTurnId(): string {
@@ -1011,9 +1027,10 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   return updated;
 }
 
-/** True once start-up orphan recovery has finished (success or permanent failure).
- *  orchestrateRuns refuses to start new turns until this is set (API-5b). */
-let orphanStartupRecovered = false;
+/** Databases whose start-up orphan recovery has fully succeeded (API-5b gate). */
+const orphanStartupRecovered = new WeakSet<object>();
+/** Distinct permanent recovery errors already logged per database handle. */
+const orphanRecoveryErrorsLogged = new WeakMap<object, Set<string>>();
 
 function isSqliteBusy(err: unknown): boolean {
   const code = (err as { code?: string } | null)?.code;
@@ -1024,56 +1041,99 @@ function isSqliteBusy(err: unknown): boolean {
     || text.includes("database schema is locked");
 }
 
-/** One attempt: fail fast on lock contention so the listener stays responsive. */
-async function recoverOrphanTurnsOnce(ctx: Ctx): Promise<number> {
-  const db = taskDatabase(ctx);
+function readBusyTimeoutMs(db: ReturnType<typeof taskDatabase>): number {
+  const row = db.query<{ timeout: number }, []>("PRAGMA busy_timeout").get();
+  return typeof row?.timeout === "number" ? row.timeout : TASK_DB_BUSY_TIMEOUT_MS;
+}
+
+function logOrphanRecoveryError(db: object, err: unknown): void {
+  const key = err instanceof Error ? `${err.name}:${err.message}` : String(err);
+  let seen = orphanRecoveryErrorsLogged.get(db);
+  if (!seen) {
+    seen = new Set();
+    orphanRecoveryErrorsLogged.set(db, seen);
+  }
+  if (seen.has(key)) return;
+  seen.add(key);
+  console.error("[workflow] orphan recovery failed:", err);
+}
+
+/** Fail-fast probe: under busy_timeout 0, try a cheap write lock then restore immediately. */
+function probeWriterLockFree(db: ReturnType<typeof taskDatabase>): void {
+  const prior = readBusyTimeoutMs(db);
   db.run("PRAGMA busy_timeout = 0");
   try {
-    revokeOrphanRunGrants(ctx);
-    let handled = 0;
-    const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, []>(
-      "SELECT id, task_id FROM workflow_turns WHERE status IN ('starting', 'running')",
-    ).all();
-    for (const row of live) {
-      const task = row.task_id ? readTask(ctx, row.task_id) : null;
-      // No task: the process is gone.
-      if (!task) {
-        await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
-        handled++;
-        continue;
-      }
-      // queued / done are still live or settleable — do not fail them as orphans.
-      if (task.state === "queued" || task.state === "done") continue;
-      if (task.state !== "running") {
-        await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
-        handled++;
-      }
-    }
-    return handled;
+    db.exec("BEGIN IMMEDIATE");
+    db.exec("ROLLBACK");
   } finally {
-    try { db.run("PRAGMA busy_timeout = 5000"); } catch { /* leave fail-fast if restore cannot run */ }
+    try { db.run(`PRAGMA busy_timeout = ${prior || TASK_DB_BUSY_TIMEOUT_MS}`); }
+    catch { /* leave fail-fast if restore cannot run */ }
   }
 }
 
-/** At start-up: revoke orphan grants and fail live turns with no live process.
- *  Yields before any SQLite write so fire-and-forget callers never block listener bind,
- *  and retries SQLITE_BUSY with async backoff instead of the connection's sync busy wait. */
-export async function recoverOrphanTurns(ctx: Ctx, _deps: OrchestratorDeps = {}): Promise<number> {
+/** One attempt: probe the writer lock, then revoke/settle under the normal busy_timeout. */
+async function recoverOrphanTurnsOnce(
+  ctx: Ctx,
+  opts: RecoverOrphanTurnsOptions = {},
+): Promise<number> {
+  const db = taskDatabase(ctx);
+  probeWriterLockFree(db);
+  opts.afterWriterProbe?.(ctx);
+  revokeOrphanRunGrants(ctx);
+  let handled = 0;
+  const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, []>(
+    "SELECT id, task_id FROM workflow_turns WHERE status IN ('starting', 'running')",
+  ).all();
+  for (const row of live) {
+    const task = row.task_id ? readTask(ctx, row.task_id) : null;
+    // No task: the process is gone.
+    if (!task) {
+      await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
+      handled++;
+      continue;
+    }
+    // queued / done are still live or settleable — do not fail them as orphans.
+    if (task.state === "queued" || task.state === "done") continue;
+    if (task.state !== "running") {
+      await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
+      handled++;
+    }
+  }
+  return handled;
+}
+
+/**
+ * At start-up: revoke orphan grants and fail live turns with no live process.
+ * Yields before any SQLite write so fire-and-forget callers never block listener bind.
+ * Retries SQLITE_BUSY with bounded async backoff; permanent errors rethrow without
+ * opening the orchestrateRuns startTurn gate.
+ */
+export async function recoverOrphanTurns(
+  ctx: Ctx,
+  deps: OrchestratorDeps = {},
+  options: RecoverOrphanTurnsOptions = {},
+): Promise<number> {
+  const opts = { ...deps.recoverOrphan, ...options };
+  const maxAttempts = Math.max(1, opts.maxAttempts ?? 40);
   await new Promise<void>(resolve => setImmediate(resolve));
-  for (let attempt = 0; ; attempt++) {
+  const db = taskDatabase(ctx);
+  for (let attempt = 0; attempt < maxAttempts; attempt++) {
+    if (opts.signal?.aborted || opts.stopped?.()) return 0;
     try {
-      const handled = await recoverOrphanTurnsOnce(ctx);
-      orphanStartupRecovered = true;
+      const handled = await recoverOrphanTurnsOnce(ctx, opts);
+      orphanStartupRecovered.add(db);
       return handled;
     } catch (err) {
       if (!isSqliteBusy(err)) {
-        orphanStartupRecovered = true;
+        logOrphanRecoveryError(db, err);
         throw err;
       }
+      if (attempt + 1 >= maxAttempts) return 0;
       // Cap backoff so a held writer unlocks recovery within about a second of release.
       await Bun.sleep(Math.min(1000, 25 * 2 ** Math.min(attempt, 5)));
     }
   }
+  return 0;
 }
 
 /** Stop an overdue turn through the real task.stop path and count it as a failure. */
@@ -1225,10 +1285,14 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
   }
 
   // API-5b: orphan grants revoked and dead live turns failed before any new turn starts.
-  if (!orphanStartupRecovered) {
+  // One attempt per tick — no sleep/retry loop (startup fire-and-forget owns backoff).
+  const recoveryDb = taskDatabase(ctx);
+  if (!orphanStartupRecovered.has(recoveryDb)) {
     try {
-      await recoverOrphanTurns(ctx, deps);
-    } catch {
+      await recoverOrphanTurnsOnce(ctx, deps.recoverOrphan ?? {});
+      orphanStartupRecovered.add(recoveryDb);
+    } catch (err) {
+      if (!isSqliteBusy(err)) logOrphanRecoveryError(recoveryDb, err);
       return handled;
     }
   }
