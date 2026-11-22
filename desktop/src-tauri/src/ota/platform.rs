@@ -118,16 +118,37 @@ fn fixture_own_link_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
     if path != policy.takeover_cli() {
         return Ok(false);
     }
-    policy.validate_live().map_err(|_| OtaError::Identity)?;
-    ensure(policy.signing_cert_sha1.is_some())?;
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
+    // Symlink shape first: a regular-file takeover CLI must stay Ok(false), not
+    // Identity from validate_live / signing_cert checks that follow.
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(false);
+    };
     if !metadata.file_type().is_symlink() {
         return Ok(false);
     }
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    ensure(policy.signing_cert_sha1.is_some())?;
     let bundled = policy.current_app.join("Contents/Resources/pacer");
     ensure(path.canonicalize().map_err(|_| OtaError::Identity)? == bundled)?;
     trust.verify_static(&bundled, CodeRole::Cli)?;
     Ok(true)
+}
+
+/// Fixture ledger "loaded" process check: argv[0] vs kernel-reported executable.
+/// Own-link registrations name the terminal symlink; proc_pidpath reports the
+/// resolved bundled CLI. The "retired" inventory filter stays exact on argv[0].
+#[cfg(any(test, feature = "ota-fixture"))]
+fn fixture_ledger_loaded_executable_ok(
+    argv0: &Path,
+    process_executable: &Path,
+    bundled_cli: &Path,
+    own_link: bool,
+) -> bool {
+    if own_link {
+        process_executable == bundled_cli
+    } else {
+        process_executable == argv0
+    }
 }
 
 #[cfg(not(target_os = "macos"))]
@@ -985,10 +1006,23 @@ impl OwnedJob {
                 let details = native::process_details(pid)
                     .map_err(|_| OtaError::Identity)?
                     .ok_or(OtaError::Identity)?;
-                ensure(
-                    details.uid == policy.uid
-                        && details.executable == Path::new(&self.definition.arguments[0]),
-                )?;
+                let argv0 = Path::new(&self.definition.arguments[0]);
+                // Same fixture-only own-link relaxation as change_inner_with: argv[0]
+                // is the terminal symlink; the live executable is the bundled CLI.
+                #[cfg(feature = "ota-fixture")]
+                let matches_program = {
+                    let own_link = fixture_own_link_program(trust, argv0)?;
+                    let bundled = policy.current_app.join("Contents/Resources/pacer");
+                    fixture_ledger_loaded_executable_ok(
+                        argv0,
+                        &details.executable,
+                        &bundled,
+                        own_link,
+                    )
+                };
+                #[cfg(not(feature = "ota-fixture"))]
+                let matches_program = details.executable == argv0;
+                ensure(details.uid == policy.uid && matches_program)?;
                 verify_fixture_or_release_process(
                     trust,
                     &details.identity,
@@ -1307,6 +1341,35 @@ mod settle_tests {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn fixture_ledger_loaded_accepts_own_link_resolved_executable_only() {
+        let link = Path::new("/tmp/fixture-home/.local/bin/pacer");
+        let bundled = Path::new("/tmp/fixture.app/Contents/Resources/pacer");
+        let foreign = Path::new("/tmp/other/Contents/Resources/pacer");
+        // Own-link: kernel reports the resolved bundled CLI.
+        assert!(fixture_ledger_loaded_executable_ok(
+            link, bundled, bundled, true
+        ));
+        // Own-link refuses argv[0] itself, a foreign executable, or a wrong bundle.
+        assert!(!fixture_ledger_loaded_executable_ok(
+            link, link, bundled, true
+        ));
+        assert!(!fixture_ledger_loaded_executable_ok(
+            link, foreign, bundled, true
+        ));
+        // Non-own-link stays exact: process executable must equal argv[0].
+        assert!(fixture_ledger_loaded_executable_ok(
+            bundled, bundled, bundled, false
+        ));
+        assert!(!fixture_ledger_loaded_executable_ok(
+            link, bundled, bundled, false
+        ));
+        assert!(!fixture_ledger_loaded_executable_ok(
+            bundled, foreign, bundled, false
+        ));
+    }
+
     #[cfg(target_os = "macos")]
     #[test]
     fn pinned_job_checks_file_identity_while_role_path_rejects_unsigned_file() {

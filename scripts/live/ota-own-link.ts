@@ -134,12 +134,10 @@ export async function runOwnLinkExercise(id: string, scenario: string, options: 
     await waitFor(async () => {
       const texts = await ui.texts();
       // Progress page heading must be gone; Settings Updates must be ready.
+      // Own-link repair has no takeover journal, so "holding takeover page" is
+      // never logged here — settingsReady + missing heading is the proof.
       return settingsReady(texts, false) && !hasAccessibilityText(texts, "Replacing the pacer service") ? true : null;
     }, 60000, "App did not leave takeoverProgress after own-link restore");
-    const pages = [...log.matchAll(/holding takeover page (\S+)/g)].map(match => match[1]);
-    if (pages.length && pages[pages.length - 1] === "takeoverProgress") {
-      throw Error(`Last holding takeover page was still takeoverProgress: ${pages.join(",")}`);
-    }
     await ui.capture(evidence("own-link-after-restore.png"), "dark").catch(error => {
       record(session, { kind: "note", behavior: `OTA ${scenario} capture`, surface: "native desktop", verdict: "UNVERIFIED", text: String(error) });
     });
@@ -152,7 +150,6 @@ export async function runOwnLinkExercise(id: string, scenario: string, options: 
     } finally { client.close(); }
     observed.restored = true;
     observed.forwardLogged = true;
-    observed.lastHoldingPage = pages[pages.length - 1] ?? null;
     record(session, { kind: "note", behavior: `OTA ${scenario}`, surface: "native desktop / service", verdict: "PASS", text: `Own-link repair fault restored the original registration once. Observed: ${JSON.stringify(observed)}` });
   }
 
