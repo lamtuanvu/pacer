@@ -12,9 +12,19 @@ so there is no build step.
 All non-trivial panel logic lives in `src/panel-view.ts`: a pure, DOM-free, `orca`-free
 view-model. The worker is an ordinary pacer v3 HTTP/SSE client (`src/pacer-client.ts`); it never
 reimplements business rules — attention actions come from the service, plus the direct controls
-listed in the design spec's Action model. `ui.open` is handled client-side by opening a
-`pacer://` deep link. Opening an Orca worktree uses host `workspace.open` and needs the
+listed in the design spec's Action model. `ui.open` is handled client-side by spawning
+`open`/`xdg-open` with a `pacer://` deep link via `node:child_process` (Orca's trusted-worker is
+Node, not Bun). Opening an Orca worktree uses host `workspace.open` and needs the
 `workspace:write` capability (in addition to `storage:own` and `workspace:read`).
+
+## Limitations
+
+- **Accept/Reject `expect_rev`:** when the reviewed task is no longer in `running` or `doneToday`
+  (for example finished before `today.since`), Accept/Reject omit `expect_rev`. The service treats
+  it as optional; a conflict surfaces as "Already handled elsewhere".
+- **`tab:"answer"` deep links:** `desktop/.../logic.rs` validates `/needs-you?answer=<id>` and
+  `#/needs-you?answer=<id>`, but rejects any `pacer://…?…` URL (early `?` guard). The worker can
+  only spawn `pacer://…`, so answer intents open `tasks/<id>` instead of the answer composer.
 
 `orca plugin test .` runs `src/pacer-client.test.ts`, `src/panel-view.test.ts` and
 `src/worker.test.ts` in Node with `orca/testing`. `bun x tsc -p .` type-checks against the

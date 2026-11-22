@@ -1,7 +1,7 @@
 // The plugin's own worker: a pacer v3 client feeding the panel (pacer.snapshot/pacer.act)
 // and the status bar item. Orca starts it when the plugin is enabled and keeps it running,
 // so the live loop (subscribeEvents + reconnect) runs without any panel open.
-/// <reference types="@types/bun" />
+import { spawn } from 'node:child_process'
 import type { OrcaWorkerApi } from 'orca/worker'
 import {
   callOp,
@@ -48,25 +48,48 @@ export function resetOpenDesktop(): void {
   openDesktopFn = defaultOpenDesktop
 }
 
+/**
+ * Spawn the desktop deep-link opener with an argv array (no shell). Orca's trusted-worker
+ * is a Node process, so this uses node:child_process — not Bun.spawn.
+ * Resolves true only when the spawn itself succeeded (listen for 'error').
+ */
 async function defaultOpenDesktop(url: string): Promise<boolean> {
   const argv = process.platform === 'darwin' ? ['open', url] : process.platform === 'linux' ? ['xdg-open', url] : null
   if (!argv) return false
-  try {
-    const result = await Bun.spawn(argv, { stdout: 'ignore', stderr: 'ignore' }).exited
-    return result === 0
-  } catch {
-    return false
-  }
+  return await new Promise((resolve) => {
+    let settled = false
+    const done = (ok: boolean) => {
+      if (settled) return
+      settled = true
+      resolve(ok)
+    }
+    try {
+      const child = spawn(argv[0]!, argv.slice(1), {
+        detached: true,
+        stdio: 'ignore',
+      })
+      child.once('error', () => done(false))
+      child.once('spawn', () => done(true))
+      child.unref()
+    } catch {
+      done(false)
+    }
+  })
 }
 
 /**
  * Map ui.open params to a `pacer://` route the desktop deep-link handler accepts
  * (desktop/src-tauri/src/logic.rs::route + app/src/data/actions.ts::uiHref).
+ *
+ * Answer intents: logic.rs validates `/needs-you?answer=<id>` and `#/needs-you?answer=<id>`,
+ * but rejects any `pacer://…?…` URL (early `?` guard before the pacer:// branch). The spawn
+ * path can only emit `pacer://…`, so tab:"answer" falls back to `tasks/<id>` (documented in README).
  */
 export function uiOpenRoute(params: Record<string, unknown>): string {
   const view = typeof params.view === 'string' ? params.view : 'overview'
   const id = typeof params.id === 'string' ? params.id : ''
   const section = typeof params.section === 'string' ? params.section : ''
+  const tab = typeof params.tab === 'string' ? params.tab : ''
   switch (view) {
     case 'overview':
     case 'home':
@@ -76,6 +99,8 @@ export function uiOpenRoute(params: Record<string, unknown>): string {
     case 'tasks':
       return id ? `tasks/${id}` : 'tasks'
     case 'task':
+      // tab:"answer" cannot become needs-you?answer= via pacer:// (see comment above).
+      void tab
       return id ? `tasks/${id}` : 'tasks'
     case 'review':
       return id ? `tasks/${id}` : 'needs-you'
@@ -97,9 +122,41 @@ export function attentionOrder(a: AttentionItem, b: AttentionItem): number {
 
 const active = (state: string) => state === 'running' || state === 'queued'
 
-/** Snooze-filter + order; port of selectors.needsYou({repo:null}) without the review-compat rewrite. */
-export function filterAttention(items: AttentionItem[], at: number): AttentionItem[] {
-  return items
+/**
+ * Compatibility for old services that raised a review for every completion.
+ * Port of src/view-model/selectors.ts actionableItems.
+ */
+export function actionableItems(items: AttentionItem[], tasks: PacerTask[]): AttentionItem[] {
+  return items.flatMap((item) => {
+    if (item.kind !== 'review') return [item]
+    const task = tasks.find((t) => t.id === item.taskId)
+    if (!task) return [item]
+    if (task.review || task.resolved || task.dismissed || task.retriedBy) return []
+    if (task.state === 'partial' || task.acceptanceState === 'failed') {
+      return [
+        {
+          ...item,
+          kind: 'failed',
+          severity: 'problem',
+          detail:
+            task.acceptanceState === 'failed' ? 'Acceptance checks failed' : 'Execution is incomplete',
+          actions: [
+            {
+              label: task.acceptanceState === 'failed' ? 'Inspect failures' : 'Inspect incomplete work',
+              op: 'ui.open',
+              params: { view: 'task', id: task.id },
+            },
+          ],
+        },
+      ]
+    }
+    return task.state !== 'done' || task.reviewRequest ? [item] : []
+  })
+}
+
+/** Snooze-filter + order; port of selectors.needsYou({repo:null}) including the review-compat rewrite. */
+export function filterAttention(items: AttentionItem[], at: number, tasks: PacerTask[] = []): AttentionItem[] {
+  return actionableItems(items, tasks)
     .filter((a) => !(a.snoozedUntil && a.snoozedUntil > at))
     .slice()
     .sort(attentionOrder)
@@ -181,7 +238,7 @@ function buildPanelSnapshot(
   const orcaByPath = new Map(workspaces.map((w) => [w.path, w.id]))
   const focusedRepo =
     focusedPath === null ? null : (snapshot.repos.find((r) => r.path === focusedPath) ?? null)
-  const attention = filterAttention(snapshot.attention, snapshot.at).map(
+  const attention = filterAttention(snapshot.attention, snapshot.at, snapshot.tasks).map(
     (item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }),
   )
   const runningAll = selectRunning(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))

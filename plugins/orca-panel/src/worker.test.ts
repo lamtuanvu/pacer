@@ -7,7 +7,14 @@ import { assert, mockHost, mountWorker, test } from 'orca/testing'
 import type { AttentionItem } from './pacer-client'
 import type { PanelSnapshot } from './protocol'
 import * as main from './worker'
-import { paceStatus, resetOpenDesktop, setOpenDesktop, uiOpenRoute } from './worker'
+import {
+  actionableItems,
+  filterAttention,
+  paceStatus,
+  resetOpenDesktop,
+  setOpenDesktop,
+  uiOpenRoute,
+} from './worker'
 
 const STATUS_ITEM = 'pacer-pace'
 const DEFAULT_TOKEN = 'worker-test-token'
@@ -605,6 +612,107 @@ test('activation updates the status bar', async () => {
   } finally {
     await pacer.dispose()
   }
+})
+
+test('R8: review-compat rewrite hides settled reviews and rewrites partials', () => {
+  const tasks = [
+    {
+      id: 'settled',
+      rev: 1,
+      title: 'Settled',
+      state: 'done',
+      repo: null,
+      updatedAt: 1,
+      review: { accepted: true },
+    },
+    {
+      id: 'partial',
+      rev: 1,
+      title: 'Partial',
+      state: 'partial',
+      repo: null,
+      updatedAt: 1,
+    },
+    {
+      id: 'open',
+      rev: 1,
+      title: 'Open review',
+      state: 'done',
+      repo: null,
+      updatedAt: 1,
+      reviewRequest: { at: 1 },
+    },
+  ]
+  const items = [
+    attentionItem('a', null, { kind: 'review', taskId: 'settled' }),
+    attentionItem('b', null, { kind: 'review', taskId: 'partial' }),
+    attentionItem('c', null, { kind: 'review', taskId: 'open' }),
+    attentionItem('d', null, { kind: 'question', taskId: 'open' }),
+  ]
+  const out = actionableItems(items, tasks as never[])
+  assert.equal(out.some((i) => i.id === 'a'), false)
+  const partial = out.find((i) => i.id === 'b')
+  assert.equal(partial?.kind, 'failed')
+  assert.equal(partial?.detail, 'Execution is incomplete')
+  assert.ok(out.some((i) => i.id === 'c' && i.kind === 'review'))
+  assert.ok(out.some((i) => i.id === 'd' && i.kind === 'question'))
+  assert.equal(filterAttention([attentionItem('snoozed', null, { snoozedUntil: 200 })], 100, []).length, 0)
+})
+
+test('uiOpenRoute covers review/session/settings/needs-you and documents answer tab fallback', () => {
+  assert.equal(uiOpenRoute({ view: 'overview' }), 'overview')
+  assert.equal(uiOpenRoute({ view: 'needs-you' }), 'needs-you')
+  assert.equal(uiOpenRoute({ view: 'review', id: 't-1' }), 'tasks/t-1')
+  assert.equal(uiOpenRoute({ view: 'session', id: 't-1' }), 'sessions/t-1')
+  assert.equal(uiOpenRoute({ view: 'settings', section: 'executors' }), 'settings/executors')
+  assert.equal(uiOpenRoute({ view: 'settings' }), 'settings')
+  // tab:answer cannot become needs-you?answer= via pacer:// (logic.rs rejects ? on pacer://).
+  assert.equal(uiOpenRoute({ view: 'task', id: 't-1', tab: 'answer' }), 'tasks/t-1')
+  assert.equal(uiOpenRoute({ view: 'task', id: 't-1', tab: 'messages' }), 'tasks/t-1')
+  assert.equal(uiOpenRoute({ view: 'unknown' }), 'overview')
+})
+
+test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
+  const base: PanelSnapshot = {
+    connected: true,
+    at: 1,
+    focusedRepo: null,
+    planner: null,
+    pause: null,
+    repos: [],
+    attention: [attentionItem('a'), attentionItem('b')],
+    running: [],
+    doneToday: [],
+    executors: [],
+  }
+  assert.deepEqual(
+    { text: paceStatus(base).text, tone: paceStatus(base).tone },
+    { text: 'pacer', tone: 'neutral' },
+  )
+  assert.match(paceStatus(base).tooltip, /2 need you/)
+  const onPace = {
+    ...base,
+    focusedRepo: { key: 'k1', label: 'jawfish', path: '/repo' },
+    planner: {
+      agent: 'Claude',
+      usedPct: 14,
+      pacePct: 12,
+      verdict: 'on_pace' as const,
+      advice: 'On pace for the week',
+      mode: 'normal',
+      resetsAt: null,
+      window: 'week',
+      stale: false,
+    },
+    attention: [],
+  }
+  assert.equal(paceStatus(onPace).tooltip, 'On pace for the week')
+  const ahead = {
+    ...onPace,
+    planner: { ...onPace.planner, usedPct: 41, verdict: 'ahead' as const, advice: 'Slow down' },
+  }
+  assert.equal(paceStatus(ahead).tooltip, 'Slow down')
+  assert.equal(paceStatus(ahead).text, 'pacer 41% · ahead')
 })
 
 test("a not-connected refresh sets the status bar to 'pacer off'", async () => {

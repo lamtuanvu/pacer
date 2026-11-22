@@ -95,6 +95,10 @@ export type PacerTask = {
   attemptStartedAt?: number;
   updatedAt: number;
   review?: { accepted: boolean } | null;
+  reviewRequest?: unknown;
+  acceptanceState?: string;
+  resolved?: string | null;
+  retriedBy?: string | null;
   liveness?: { stalled: boolean; reason: string; since: number } | null;
   worktree?: string | null;
   source?: string;

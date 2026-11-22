@@ -3,23 +3,50 @@ import {
   absoluteTime,
   actionButtonLabel,
   actionNeedsConfirm,
+  answerActionParams,
+  answerDisabled,
+  attentionCaption,
   attentionCardTone,
   attentionGlyph,
   buildDelegateParams,
+  byRepoCaption,
   confirmTextFor,
   DELEGATE_KINDS,
+  DELEGATE_SUBMIT_KEY,
+  delegatedCaption,
+  delegateWhyCaption,
   doneGlyph,
+  emptyNeedsYouCopy,
+  emptyRunningCopy,
   executorLabelFor,
   executorMonogram,
+  executorOptionDisabled,
   executorStateWords,
+  headerStatus,
   initialPanelState,
+  isAnswerAction,
+  isReviewOpenAction,
+  menuItems,
   meterTone,
   modePillLabel,
   panelModel,
+  pauseBannerExtra,
   phaseWords,
+  plannerCaption,
   plannerHeadline,
+  rankChipText,
   reducePanel,
+  rejectConfirmText,
   reviewExpectRev,
+  runningCaption,
+  showOpenWorktree,
+  showsAnswerComposer,
+  showsReviewVerdicts,
+  stalledMinutes,
+  successTextForAction,
+  successTextForConfirm,
+  whoRunsCounts,
+  worktreeRadioCaption,
   type ConfirmSpec,
   type PanelEvent,
   type PanelState,
@@ -31,6 +58,9 @@ import type { AttentionRow, PanelSnapshot, PanelTask } from './protocol'
 let state: PanelState = initialPanelState()
 const root = document.getElementById('pacer-panel')
 let menuButton: HTMLButtonElement | null = null
+let menuKeyHandler: ((e: KeyboardEvent) => void) | null = null
+let prevMenuOpen = false
+let prevView: PanelState['ui']['view'] = 'main'
 
 function dispatch(event: PanelEvent): void {
   const next = reducePanel(state, event)
@@ -61,6 +91,7 @@ async function runRequest(run: RunRequest, successText?: string): Promise<void> 
       conflict: answer.ok ? undefined : answer.conflict,
       result: answer.ok ? answer.result : undefined,
       successText: answer.ok ? successText : undefined,
+      now: Date.now() / 1000,
     })
   } catch (error) {
     dispatch({
@@ -115,14 +146,15 @@ function button(label: string, opts: {
   disabled?: boolean
   ariaLabel?: string
   className?: string
+  fullWidth?: boolean
   onClick: () => void
 }): HTMLButtonElement {
   const classes = ['pc-btn']
   if (opts.size === 'sm') classes.push('pc-btn--sm')
   if (opts.size === 'md' || opts.variant === 'primary') classes.push('pc-btn--md')
-  if (opts.size === 'sm') { /* keep sm */ }
   if (opts.variant === 'primary') classes.push('pc-btn--primary')
   if (opts.variant === 'ghost') classes.push('pc-btn--ghost')
+  if (opts.fullWidth) classes.push('pc-btn--block')
   if (opts.className) classes.push(opts.className)
   const node = el('button', classes.join(' '), label)
   node.type = 'button'
@@ -135,7 +167,10 @@ function button(label: string, opts: {
 function statusLine(key: string): HTMLElement | null {
   const status = state.ui.statusByKey[key]
   if (!status) return null
-  return el('p', `pc-status pc-status--${status.tone}`, status.text)
+  const node = el('p', `pc-status pc-status--${status.tone}`, status.text)
+  node.setAttribute('role', 'status')
+  node.setAttribute('aria-live', 'polite')
+  return node
 }
 
 function renderConfirm(confirm: ConfirmSpec): HTMLElement {
@@ -145,7 +180,7 @@ function renderConfirm(confirm: ConfirmSpec): HTMLElement {
   actions.append(
     button(confirm.confirmLabel, {
       size: 'sm',
-      onClick: () => void runRequest(confirm.run, confirm.confirmLabel === 'Reject it' ? 'Rejected' : confirm.confirmLabel === 'Stop it' ? 'Stopped' : 'Done'),
+      onClick: () => void runRequest(confirm.run, successTextForConfirm(confirm)),
     }),
     button(confirm.cancelLabel, {
       size: 'sm',
@@ -157,9 +192,15 @@ function renderConfirm(confirm: ConfirmSpec): HTMLElement {
   return box
 }
 
-function askOrRun(action: AttentionAction, pendingKey: string, successText: string, extraParams?: Record<string, unknown>): void {
+function askOrRun(
+  action: AttentionAction,
+  pendingKey: string,
+  kind: string,
+  extraParams?: Record<string, unknown>,
+): void {
   const params = { ...action.params, ...extraParams }
   const run: RunRequest = { kind: 'act', op: action.op, params, pendingKey }
+  const successText = successTextForAction(action, kind)
   if (actionNeedsConfirm(action)) {
     dispatch({
       type: 'ask-confirm',
@@ -168,12 +209,112 @@ function askOrRun(action: AttentionAction, pendingKey: string, successText: stri
         text: confirmTextFor(action),
         confirmLabel: action.label,
         cancelLabel: 'Cancel',
+        successText,
         run,
       },
     })
     return
   }
   void runRequest(run, successText)
+}
+
+function renderHeader(snapshot: PanelSnapshot, connected: boolean): HTMLElement {
+  const header = el('header', 'pc-header')
+  header.append(markSvg(), el('span', 'pc-wordmark', 'pacer'))
+  if (connected) {
+    const mode = modePillLabel(snapshot)
+    header.append(pill(mode.text, mode.tone))
+  }
+  header.append(el('span', 'pc-header-spacer'))
+  const live = el('span', 'pc-live')
+  live.append(el('span', `pc-live-dot${connected ? '' : ' off'}`), document.createTextNode(connected ? 'Live' : 'Not connected'))
+  header.append(live)
+  if (connected) {
+    menuButton = button('', {
+      variant: 'ghost',
+      size: 'sm',
+      className: 'pc-btn--icon',
+      ariaLabel: 'More actions',
+      onClick: () => dispatch({ type: 'toggle-menu' }),
+    })
+    menuButton.id = 'menu-button'
+    menuButton.setAttribute('aria-haspopup', 'menu')
+    menuButton.setAttribute('aria-expanded', state.ui.menuOpen ? 'true' : 'false')
+    menuButton.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>'
+    header.append(menuButton)
+    if (state.ui.menuOpen) header.append(renderMenu(snapshot))
+  } else {
+    menuButton = null
+  }
+  const status = headerStatus(state.ui.statusByKey)
+  if (status) {
+    const line = el('p', `pc-header-status pc-status pc-status--${status.tone}`, status.text)
+    line.setAttribute('role', 'status')
+    line.setAttribute('aria-live', 'polite')
+    header.append(line)
+  }
+  return header
+}
+
+function detachMenuKeyHandler(): void {
+  if (menuKeyHandler) {
+    document.removeEventListener('keydown', menuKeyHandler)
+    menuKeyHandler = null
+  }
+}
+
+function attachMenuKeyHandler(menu: HTMLElement): void {
+  detachMenuKeyHandler()
+  const items = () => Array.from(menu.querySelectorAll<HTMLButtonElement>('[role="menuitem"]'))
+  menuKeyHandler = (e: KeyboardEvent) => {
+    if (!state.ui.menuOpen) {
+      detachMenuKeyHandler()
+      return
+    }
+    const list = items()
+    if (e.key === 'Escape') {
+      e.preventDefault()
+      dispatch({ type: 'toggle-menu', open: false })
+      return
+    }
+    if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+      e.preventDefault()
+      if (list.length === 0) return
+      const i = list.indexOf(document.activeElement as HTMLButtonElement)
+      const next =
+        e.key === 'ArrowDown'
+          ? list[(i + 1) % list.length]!
+          : list[(i <= 0 ? list.length : i) - 1]!
+      next.focus()
+    }
+  }
+  document.addEventListener('keydown', menuKeyHandler)
+}
+
+function renderMenu(snapshot: PanelSnapshot): HTMLElement {
+  const menu = el('div', 'pc-menu')
+  menu.id = 'pc-menu'
+  menu.setAttribute('role', 'menu')
+  menu.setAttribute('aria-label', 'More actions')
+  const now = Date.now() / 1000
+  for (const item of menuItems(snapshot, now)) {
+    if (item.kind === 'divider') {
+      menu.append(el('div', 'pc-menu-divider'))
+      continue
+    }
+    const b = el('button', 'pc-menu-item')
+    b.type = 'button'
+    b.setAttribute('role', 'menuitem')
+    b.append(el('span', undefined, item.label))
+    if (item.caption) b.append(el('span', 'pc-caption', item.caption))
+    b.addEventListener('click', () => {
+      dispatch({ type: 'toggle-menu', open: false })
+      void runRequest(item.run, item.successText)
+    })
+    menu.append(b)
+  }
+  return menu
 }
 
 function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
@@ -183,20 +324,15 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
   if (model.scope === 'global') {
     card.append(el('div', 'pc-repo-label', item.repoLabel ?? 'All repos'))
   }
-  const head = el('div')
-  head.style.display = 'flex'
-  head.style.alignItems = 'flex-start'
-  head.style.gap = '10px'
+  const head = el('div', 'pc-card-head')
   const mono = executorMonogram(item.executor)
   if (mono) head.append(el('span', 'pc-mono-tile', mono))
   const glyph = attentionGlyph(item.kind)
-  const titleWrap = el('div')
-  titleWrap.style.minWidth = '0'
-  titleWrap.style.flex = '1'
+  const titleWrap = el('div', 'pc-card-body')
   const title = el('div', 'pc-row-title', `${glyph ? `${glyph} ` : ''}${item.title}`)
   const when = absoluteTime(item.since, now)
   const exec = executorLabelFor(item.executor, model.names)
-  titleWrap.append(title, el('div', 'pc-caption', [exec, when, item.detail].filter(Boolean).join(' · ')))
+  titleWrap.append(title, el('div', 'pc-caption', attentionCaption({ executorLabel: exec, when, detail: item.detail })))
   head.append(titleWrap)
   if (item.kind === 'review') head.append(pill('Review', 'info'))
   card.append(head)
@@ -210,12 +346,13 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
   const busy = Object.keys(state.ui.pending).some((k) => k.startsWith(`att:${item.id}`))
   const actions = el('div', 'pc-actions')
 
-  if (item.kind === 'question') {
+  if (showsAnswerComposer(item.kind)) {
     const answerId = `answer-${item.id}`
     const label = el('label', 'sr-only', 'Your answer')
     label.htmlFor = answerId
     const area = el('textarea')
     area.id = answerId
+    area.name = `answer-${item.id}`
     area.rows = 2
     area.placeholder = 'Your answer'
     area.value = state.ui.answers[item.id] ?? ''
@@ -223,7 +360,7 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
     card.append(label, area)
   }
 
-  if (item.kind === 'review') {
+  if (showsReviewVerdicts(item.kind)) {
     const taskId = item.taskId
     const expect = reviewExpectRev(model.snapshot, taskId)
     actions.append(
@@ -235,7 +372,7 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
             {
               kind: 'act',
               op: 'task.review',
-              params: { id: taskId, verdict: 'accept', ...(expect ? { expect_rev: expect } : {}) },
+              params: { id: taskId, verdict: 'accept', ...(expect != null ? { expect_rev: expect } : {}) },
               pendingKey: `att:${item.id}:accept`,
             },
             'Accepted',
@@ -250,13 +387,14 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
             type: 'ask-confirm',
             confirm: {
               key: `att:${item.id}:reject`,
-              text: `Reject this result? ${execName} is told it was rejected.`,
+              text: rejectConfirmText(execName),
               confirmLabel: 'Reject it',
               cancelLabel: 'Keep it',
+              successText: 'Rejected',
               run: {
                 kind: 'act',
                 op: 'task.review',
-                params: { id: taskId, verdict: 'reject', ...(expect ? { expect_rev: expect } : {}) },
+                params: { id: taskId, verdict: 'reject', ...(expect != null ? { expect_rev: expect } : {}) },
                 pendingKey: `att:${item.id}:reject`,
               },
             },
@@ -267,17 +405,16 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
   }
 
   for (const action of item.actions) {
-    const isAnswer = action.op === 'task.answer' || action.op === 'dispatch.answer' || action.label === 'Answer'
-    const isReviewOpen = item.kind === 'review' && action.op === 'ui.open'
     const label = actionButtonLabel(action, item.kind)
     const pendingKey = `att:${item.id}:${action.op}`
-    if (item.kind === 'question' && isAnswer) {
+    if (showsAnswerComposer(item.kind) && isAnswerAction(action)) {
       const text = (state.ui.answers[item.id] ?? '').trim()
+      const expect = reviewExpectRev(model.snapshot, item.taskId)
       actions.append(
         button(label, {
           size: 'sm',
-          disabled: busy || !text,
-          onClick: () => askOrRun(action, pendingKey, 'Answer sent', { text }),
+          disabled: answerDisabled(text, busy),
+          onClick: () => askOrRun(action, pendingKey, item.kind, answerActionParams(action, text, expect)),
         }),
       )
       continue
@@ -285,53 +422,54 @@ function renderAttentionCard(item: AttentionRow, model: Extract<ReturnType<typeo
     actions.append(
       button(label, {
         size: 'sm',
-        variant: isReviewOpen ? 'ghost' : 'secondary',
+        variant: isReviewOpenAction(item.kind, action) ? 'ghost' : 'secondary',
         disabled: busy,
-        onClick: () => askOrRun(action, pendingKey, label),
+        onClick: () => askOrRun(action, pendingKey, item.kind),
       }),
     )
   }
   card.append(actions)
-  const status = statusLine(`att:${item.id}:accept`) || statusLine(`att:${item.id}:reject`) ||
+  const status =
+    statusLine(`att:${item.id}:accept`) ||
+    statusLine(`att:${item.id}:reject`) ||
     item.actions.map((a) => statusLine(`att:${item.id}:${a.op}`)).find(Boolean)
-  if (status) {
-    status.setAttribute('role', 'status')
-    status.setAttribute('aria-live', 'polite')
-    card.append(status)
-  }
+  if (status) card.append(status)
   return card
 }
 
 function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
-  const row = el('div', 'pc-list-row')
+  const row = el('div', 'pc-list-row pc-list-row--running')
   row.dataset.id = task.id
   const mono = executorMonogram(task.executor)
   if (mono) row.append(el('span', 'pc-mono-tile', mono))
-  const mid = el('div')
-  mid.style.minWidth = '0'
-  mid.style.flex = '1'
+  const mid = el('div', 'pc-running-col')
   mid.append(el('div', 'pc-row-title ellipsis', task.title))
   const started = absoluteTime(task.attemptStartedAt ?? task.updatedAt, now)
-  const parts = [
-    model.scope === 'global' ? task.repoLabel : null,
-    executorLabelFor(task.executor, model.names),
-    phaseWords(task.phase),
-    `started ${started}`,
-  ].filter(Boolean)
-  mid.append(el('div', 'pc-caption', parts.join(' · ')))
-  row.append(mid)
+  mid.append(
+    el(
+      'div',
+      'pc-caption',
+      runningCaption({
+        scope: model.scope,
+        repoLabel: task.repoLabel,
+        executorLabel: executorLabelFor(task.executor, model.names),
+        phase: phaseWords(task.phase),
+        started,
+      }),
+    ),
+  )
   if (task.liveness?.stalled) {
-    const mins = Math.max(1, Math.floor((now - task.liveness.since) / 60))
-    row.append(pill(`No progress for ${mins} min`, 'warn'))
+    mid.append(pill(`No progress for ${stalledMinutes(task.liveness.since, now)} min`, 'warn'))
   }
-  const actions = el('div', 'pc-actions')
-  const busy = !!state.ui.pending[`run:${task.id}`] || !!state.ui.pending[`run:${task.id}:stop`]
   const confirm = state.ui.confirm
   if (confirm?.key === `run:${task.id}:stop`) {
-    row.append(renderConfirm(confirm))
+    mid.append(renderConfirm(confirm))
+    row.append(mid)
     return row
   }
-  if (task.orcaWorkspaceId) {
+  const actions = el('div', 'pc-running-actions')
+  const busy = !!state.ui.pending[`run:${task.id}`] || !!state.ui.pending[`run:${task.id}:stop`]
+  if (showOpenWorktree(task.orcaWorkspaceId)) {
     actions.append(
       button('Open worktree', {
         size: 'sm',
@@ -369,6 +507,7 @@ function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof pane
             text: 'Stop this task?',
             confirmLabel: 'Stop it',
             cancelLabel: 'Keep it',
+            successText: 'Stopped',
             run: {
               kind: 'act',
               op: 'task.stop',
@@ -379,65 +518,50 @@ function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof pane
         }),
     }),
   )
-  row.append(actions)
+  mid.append(actions)
+  row.append(mid)
   return row
 }
 
-function renderMenu(snapshot: PanelSnapshot): HTMLElement {
-  const menu = el('div', 'pc-menu')
-  menu.setAttribute('role', 'menu')
-  const item = (label: string, onClick: () => void) => {
-    const b = el('button', undefined, label)
-    b.type = 'button'
-    b.setAttribute('role', 'menuitem')
-    b.addEventListener('click', () => {
-      dispatch({ type: 'toggle-menu', open: false })
-      onClick()
-    })
-    menu.append(b)
-  }
-  if (snapshot.pause) {
-    item('Resume delegation', () =>
-      void runRequest({ kind: 'act', op: 'delegation.resume', params: {}, pendingKey: 'menu:resume' }, 'Resumed'),
-    )
-  } else {
-    item('Pause for 1 hour', () =>
-      void runRequest({ kind: 'act', op: 'delegation.pause', params: { for: '1h' }, pendingKey: 'menu:pause1h' }, 'Paused'),
-    )
-    item('Pause for 4 hours', () =>
-      void runRequest({ kind: 'act', op: 'delegation.pause', params: { for: '4h' }, pendingKey: 'menu:pause4h' }, 'Paused'),
-    )
-    item('Pause until tomorrow', () =>
-      void runRequest({ kind: 'act', op: 'delegation.pause', params: { for: '1d' }, pendingKey: 'menu:pause1d' }, 'Paused'),
-    )
-  }
-  if (snapshot.planner?.modeHeldUntil) {
-    item('Release the held mode', () =>
-      void runRequest({ kind: 'act', op: 'mode.release', params: {}, pendingKey: 'menu:mode-release' }, 'Released'),
-    )
-  } else {
-    item('Hold strict mode', () =>
-      void runRequest({ kind: 'act', op: 'mode.hold', params: { mode: 'strict' }, pendingKey: 'menu:mode-hold' }, 'Held'),
-    )
-  }
-  item('Open the pacer app', () =>
-    void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'menu:open' }),
-  )
-  return menu
-}
-
-function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>): HTMLElement {
+function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'ready' }>, now: number): HTMLElement {
   const section = el('section', 'pc-section')
   section.setAttribute('aria-label', 'Delegate')
+  const repoLabel = model.snapshot.focusedRepo?.label ?? 'this repo'
+
   if (model.ui.view === 'delegate-done' && model.ui.delegated) {
-    section.append(el('h2', 'pc-label', 'Delegate'))
-    const card = el('div', 'pc-card')
-    card.append(el('p', 'pc-status pc-status--good', `Running on ${model.ui.delegated.executorLabel}`))
-    card.append(el('code', 'pc-selectable', model.ui.delegated.taskId))
+    const shell = el('div', 'pc-shell')
+    const header = el('header', 'pc-header')
+    const back = button('', {
+      variant: 'ghost',
+      size: 'sm',
+      className: 'pc-btn--icon',
+      ariaLabel: 'Back to the panel',
+      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
+    })
+    back.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>'
+    header.append(back, el('h1', 'pc-headline', `Delegate in ${repoLabel}`))
+    shell.append(header)
+    const main = el('main', 'pc-main')
+    const card = el('div', 'pc-card pc-card--sunken')
+    const head = el('div', 'pc-delegate-done-head')
+    head.append(el('span', 'pc-status pc-status--good', '✓'))
+    head.append(el('strong', 'pc-headline', `Running on ${model.ui.delegated.executorLabel}`))
+    card.append(head)
+    card.append(el('p', undefined, model.ui.delegated.goal))
+    card.append(
+      el(
+        'span',
+        'pc-caption',
+        delegatedCaption(model.ui.delegated.worktree, absoluteTime(model.ui.delegated.startedAt, now)),
+      ),
+    )
+    card.append(el('code', 'pc-selectable pc-code-box', model.ui.delegated.taskId))
+    main.append(card)
     const actions = el('div', 'pc-actions')
     actions.append(
       button('Watch', {
-        size: 'sm',
+        size: 'md',
         onClick: () =>
           void runRequest(
             {
@@ -450,10 +574,10 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
           ),
       }),
     )
-    if (model.ui.delegated.orcaWorkspaceId) {
+    if (showOpenWorktree(model.ui.delegated.orcaWorkspaceId)) {
       actions.append(
         button('Open worktree', {
-          size: 'sm',
+          size: 'md',
           onClick: () =>
             void runRequest({
               kind: 'openWorkspace',
@@ -463,23 +587,45 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
         }),
       )
     }
-    actions.append(button('Back to the panel', { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'set-view', view: 'main' }) }))
-    card.append(actions)
-    section.append(card)
-    return section
+    main.append(actions)
+    const backLink = button('Back to the panel', {
+      size: 'sm',
+      variant: 'ghost',
+      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
+    })
+    backLink.classList.add('pc-back-link')
+    main.append(backLink)
+    shell.append(main)
+    return shell
   }
 
   if (model.ui.view === 'delegate') {
-    section.append(
-      button('Back', { size: 'sm', variant: 'ghost', onClick: () => dispatch({ type: 'set-view', view: 'main' }) }),
-      el('label', 'pc-label', 'Goal'),
-    )
+    const shell = el('div', 'pc-shell')
+    const header = el('header', 'pc-header')
+    const back = button('', {
+      variant: 'ghost',
+      size: 'sm',
+      className: 'pc-btn--icon',
+      ariaLabel: 'Back to the panel',
+      onClick: () => dispatch({ type: 'set-view', view: 'main' }),
+    })
+    back.innerHTML =
+      '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M15 18l-6-6 6-6"></path></svg>'
+    header.append(back, el('h1', 'pc-headline', `Delegate in ${repoLabel}`))
+    shell.append(header)
+    const main = el('main', 'pc-main')
+    const goalLabel = el('label', 'pc-label', 'Goal')
+    goalLabel.htmlFor = 'delegate-goal'
     const goal = el('textarea')
+    goal.id = 'delegate-goal'
+    goal.name = 'delegate-goal'
+    goal.rows = 5
     goal.value = model.ui.goal
-    goal.placeholder = `What should an executor do in ${model.snapshot.focusedRepo?.label ?? 'this repo'}?`
+    goal.placeholder = `What should an executor do in ${repoLabel}?`
     goal.addEventListener('input', () => dispatch({ type: 'set-goal', goal: goal.value }))
-    section.append(goal)
-    section.append(el('div', 'pc-label', 'Kind'))
+    main.append(goalLabel, goal)
+
+    main.append(el('div', 'pc-label', 'Kind'))
     const chips = el('div', 'pc-chips')
     for (const kind of DELEGATE_KINDS) {
       const chip = el('button', 'pc-chip', kind.label)
@@ -488,71 +634,106 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
       chip.addEventListener('click', () => dispatch({ type: 'set-delegate-kind', kind: kind.id }))
       chips.append(chip)
     }
-    section.append(chips)
-    section.append(el('label', 'pc-label', 'Executor'))
+    main.append(chips)
+
+    const execLabel = el('label', 'pc-label', 'Executor')
+    execLabel.htmlFor = 'delegate-executor'
     const select = el('select')
+    select.id = 'delegate-executor'
+    select.name = 'delegate-executor'
     const next = model.next
     const nextLabel = next ? executorLabelFor(next.id, model.names) : 'Automatic'
     const auto = el('option', undefined, `Auto · ${nextLabel} runs next`)
     auto.value = 'auto'
     select.append(auto)
     for (const row of model.snapshot.executors) {
-      const opt = el('option', undefined, executorLabelFor(row.id, model.names))
+      const name = executorLabelFor(row.id, model.names) ?? row.id
+      const opt = el('option', undefined, name)
       opt.value = row.id
-      if (!row.enabled || row.state === 'disabled' || row.state === 'down' || row.state === 'exhausted') {
+      if (executorOptionDisabled(row)) {
         opt.disabled = true
-        opt.textContent = `${executorLabelFor(row.id, model.names)} · ${executorStateWords(row).label}`
+        opt.textContent = `${name} · ${executorStateWords(row).label}`
       }
       select.append(opt)
     }
     select.value = model.ui.delegateExecutor
     select.addEventListener('change', () => dispatch({ type: 'set-delegate-executor', executor: select.value }))
-    section.append(select)
-    section.append(el('div', 'pc-label', 'Where it works'))
-    const where = el('div', 'pc-chips')
-    for (const [id, label] of [['new', 'New worktree'], ['current', 'This worktree']] as const) {
-      const chip = el('button', 'pc-chip', label)
-      chip.type = 'button'
-      chip.setAttribute('aria-pressed', model.ui.delegateWorktree === id ? 'true' : 'false')
-      chip.addEventListener('click', () => dispatch({ type: 'set-delegate-worktree', worktree: id }))
-      where.append(chip)
+    main.append(execLabel, select)
+    main.append(
+      el(
+        'p',
+        'pc-caption pc-why',
+        delegateWhyCaption(model.ui.delegateExecutor, next, model.names, model.snapshot.executors),
+      ),
+    )
+
+    const where = el('fieldset', 'pc-radio-list')
+    where.append(el('legend', 'pc-label', 'Where it works'))
+    for (const id of ['new', 'current'] as const) {
+      const label = el('label', 'pc-radio')
+      const input = el('input') as HTMLInputElement
+      input.type = 'radio'
+      input.name = 'delegate-worktree'
+      input.value = id
+      input.checked = model.ui.delegateWorktree === id
+      input.addEventListener('change', () => dispatch({ type: 'set-delegate-worktree', worktree: id }))
+      const text = el('span', 'pc-radio-text')
+      text.append(el('strong', undefined, id === 'new' ? 'New worktree' : 'This worktree'))
+      text.append(el('span', 'pc-caption', worktreeRadioCaption(id)))
+      label.append(input, text)
+      where.append(label)
     }
-    section.append(where)
+    main.append(where)
+
     const accLabel = el('label', 'pc-label', 'Done when this passes')
+    accLabel.htmlFor = 'delegate-acceptance'
+    const optional = el('span', 'pc-label-soft', ' · optional')
+    accLabel.append(optional)
     const acc = el('input', 'pc-mono') as HTMLInputElement
+    acc.id = 'delegate-acceptance'
+    acc.name = 'delegate-acceptance'
     acc.type = 'text'
     acc.value = model.ui.acceptance
     acc.placeholder = 'optional command'
     acc.addEventListener('input', () => dispatch({ type: 'set-acceptance', acceptance: acc.value }))
-    section.append(accLabel, acc)
+    main.append(accLabel, acc)
+
     const targetName =
       model.ui.delegateExecutor === 'auto'
         ? nextLabel
         : executorLabelFor(model.ui.delegateExecutor, model.names)
-    const submit = button(`Delegate to ${targetName}`, {
-      variant: 'primary',
-      size: 'md',
-      disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending['delegate'],
-      onClick: () => {
-        if (!model.snapshot.focusedRepo) return
-        const params = buildDelegateParams({
-          goal: model.ui.goal,
-          repoPath: model.snapshot.focusedRepo.path,
-          kind: model.ui.delegateKind,
-          executor: model.ui.delegateExecutor,
-          worktree: model.ui.delegateWorktree,
-          acceptance: model.ui.acceptance,
-          requestId: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
-        })
-        void runRequest(
-          { kind: 'act', op: 'task.delegate', params, pendingKey: 'delegate' },
-          `Running on ${targetName}`,
-        )
-      },
-    })
-    section.append(submit)
-    if (model.ui.delegateError) section.append(el('p', 'pc-status pc-status--bad', model.ui.delegateError))
-    return section
+    const row = el('div', 'pc-delegate-submit')
+    row.append(
+      button(`Delegate to ${targetName}`, {
+        variant: 'primary',
+        size: 'md',
+        disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending[DELEGATE_SUBMIT_KEY],
+        onClick: () => {
+          if (!model.snapshot.focusedRepo) return
+          const params = buildDelegateParams({
+            goal: model.ui.goal,
+            repoPath: model.snapshot.focusedRepo.path,
+            kind: model.ui.delegateKind,
+            executor: model.ui.delegateExecutor,
+            worktree: model.ui.delegateWorktree,
+            acceptance: model.ui.acceptance,
+            requestId: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+          })
+          void runRequest(
+            { kind: 'act', op: 'task.delegate', params, pendingKey: DELEGATE_SUBMIT_KEY },
+            `Running on ${targetName}`,
+          )
+        },
+      }),
+      button('Cancel', {
+        size: 'md',
+        onClick: () => dispatch({ type: 'set-view', view: 'main' }),
+      }),
+    )
+    main.append(row)
+    if (model.ui.delegateError) main.append(el('p', 'pc-status pc-status--bad', model.ui.delegateError))
+    shell.append(main)
+    return shell
   }
 
   // Compact delegate on main
@@ -560,27 +741,26 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
   label.htmlFor = 'goal'
   const goal = el('textarea')
   goal.id = 'goal'
+  goal.name = 'goal'
   goal.rows = 3
-  goal.placeholder = `What should an executor do in ${model.snapshot.focusedRepo?.label ?? 'this repo'}?`
+  goal.placeholder = `What should an executor do in ${repoLabel}?`
   goal.value = model.ui.goal
   goal.addEventListener('input', () => dispatch({ type: 'set-goal', goal: goal.value }))
-  const row = el('div')
-  row.style.display = 'flex'
-  row.style.alignItems = 'center'
-  row.style.gap = '8px'
+  const row = el('div', 'pc-delegate-compact')
   const nextName = model.next ? executorLabelFor(model.next.id, model.names) : 'an executor'
-  const caption = el('span', 'pc-caption', `Runs on ${nextName} · new worktree · `)
-  const options = el('a', undefined, 'Options')
-  options.href = '#'
-  options.addEventListener('click', (e) => {
-    e.preventDefault()
-    dispatch({ type: 'set-view', view: 'delegate' })
+  const caption = el('span', 'pc-caption')
+  caption.append(document.createTextNode(`Runs on ${nextName} · new worktree · `))
+  const options = button('Options', {
+    variant: 'ghost',
+    size: 'sm',
+    className: 'pc-link-btn',
+    onClick: () => dispatch({ type: 'set-view', view: 'delegate' }),
   })
   caption.append(options)
   const delegate = button('Delegate', {
     variant: 'primary',
     size: 'md',
-    disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending['delegate'],
+    disabled: !model.ui.goal.trim() || !model.snapshot.focusedRepo || !!model.ui.pending[DELEGATE_SUBMIT_KEY],
     onClick: () => {
       if (!model.snapshot.focusedRepo) return
       const params = buildDelegateParams({
@@ -593,7 +773,7 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
         requestId: `ui-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
       })
       void runRequest(
-        { kind: 'act', op: 'task.delegate', params, pendingKey: 'delegate' },
+        { kind: 'act', op: 'task.delegate', params, pendingKey: DELEGATE_SUBMIT_KEY },
         `Running on ${nextName}`,
       )
     },
@@ -609,44 +789,16 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   const snapshot = model.snapshot
 
   if (model.ui.view === 'delegate' || model.ui.view === 'delegate-done') {
-    const main = el('main', 'pc-main')
-    main.append(renderDelegate(model))
-    shell.append(main)
-    return shell
+    return renderDelegate(model, now)
   }
 
-  const header = el('header', 'pc-header')
-  header.append(markSvg(), el('span', 'pc-wordmark', 'pacer'))
-  const mode = modePillLabel(snapshot)
-  header.append(pill(mode.text, mode.tone))
-  header.append(el('span', 'pc-header-spacer'))
-  const live = el('span', 'pc-live')
-  live.append(el('span', 'pc-live-dot'), document.createTextNode('Live'))
-  header.append(live)
-  menuButton = button('', {
-    variant: 'ghost',
-    size: 'sm',
-    className: 'pc-btn--icon',
-    ariaLabel: 'More actions',
-    onClick: () => dispatch({ type: 'toggle-menu' }),
-  })
-  menuButton.innerHTML =
-    '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" aria-hidden="true"><circle cx="5" cy="12" r="1"></circle><circle cx="12" cy="12" r="1"></circle><circle cx="19" cy="12" r="1"></circle></svg>'
-  header.append(menuButton)
-  if (model.ui.menuOpen) header.append(renderMenu(snapshot))
-  shell.append(header)
-
+  shell.append(renderHeader(snapshot, true))
   const main = el('main', 'pc-main')
 
-  // Planner
   const plannerCard = el('div', 'pc-card pc-card--sunken')
   const planner = snapshot.planner
   const resetLabel = planner?.resetsAt ? absoluteTime(planner.resetsAt, now) : ''
-  const headRow = el('div')
-  headRow.style.display = 'flex'
-  headRow.style.alignItems = 'baseline'
-  headRow.style.justifyContent = 'space-between'
-  headRow.style.gap = '12px'
+  const headRow = el('div', 'pc-planner-head')
   headRow.append(el('h1', 'pc-headline', plannerHeadline(planner, resetLabel)))
   if (planner && typeof planner.usedPct === 'number') {
     headRow.append(el('span', 'pc-number', `${Math.round(planner.usedPct)}%`))
@@ -670,15 +822,9 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
       meter.append(tick)
     }
     plannerCard.append(meter)
-    const windowWord = planner.window ? `${planner.window}` : 'week'
-    const caption = planner.stale
-      ? `${planner.agent} · stale`
-      : `${planner.agent} · ${Math.round(planner.usedPct)}% of ${windowWord} used · pace ${Math.round(planner.pacePct ?? 0)}% · resets ${resetLabel || '—'}`
-    plannerCard.append(el('p', 'pc-caption', caption))
+    plannerCard.append(el('p', 'pc-caption', plannerCaption(planner, resetLabel)))
     if (planner.advice) {
-      const advice = el('p', undefined, planner.advice)
-      advice.style.margin = '0'
-      advice.style.color = 'var(--ink-secondary)'
+      const advice = el('p', 'pc-advice', planner.advice)
       plannerCard.append(advice)
     }
   } else {
@@ -686,7 +832,6 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
   main.append(plannerCard)
 
-  // Scope
   if (snapshot.focusedRepo) {
     const nav = el('nav', 'pc-scope')
     nav.setAttribute('aria-label', 'Scope')
@@ -706,12 +851,17 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     main.append(el('p', 'pc-caption', "This workspace isn't a repo pacer knows."))
   }
 
-  // Pause banner
   if (snapshot.pause) {
     const until = snapshot.pause.until ? absoluteTime(snapshot.pause.until, now) : 'later'
     const card = el('div', 'pc-card pc-card--warn')
-    card.append(el('div', 'pc-headline', `Delegation is paused until ${until}`))
-    card.append(el('p', 'pc-caption', 'New tasks wait in the queue; running ones finish.'))
+    const title = el('div', 'pc-headline')
+    title.append(el('span', 'pc-warn-glyph', '◐'), document.createTextNode(` Delegation is paused until ${until}`))
+    card.append(title)
+    const captionParts = ['New tasks wait in the queue; running ones finish.']
+    // Pause "at" is not on the wire; show by when known.
+    const extra = pauseBannerExtra(snapshot.pause, null)
+    if (extra) captionParts.push(extra)
+    card.append(el('p', 'pc-caption', captionParts.join(' ')))
     card.append(
       button('Resume now', {
         size: 'sm',
@@ -723,7 +873,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   if (model.scope === 'repo' && snapshot.focusedRepo) {
-    main.append(renderDelegate(model))
+    main.append(renderDelegate(model, now))
   }
 
   if (model.scope === 'global') {
@@ -733,26 +883,15 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     const list = el('div', 'pc-list')
     for (const repo of snapshot.repos) {
       const row = el('div', 'pc-list-row')
-      const mid = el('div')
-      mid.style.flex = '1'
-      mid.style.minWidth = '0'
+      const mid = el('div', 'pc-card-body')
       const title = el('div', 'pc-row-title ellipsis', repo.label)
       if (snapshot.focusedRepo?.key === repo.key) {
         title.textContent = `${repo.label} · this worktree`
       }
-      mid.append(title)
-      mid.append(
-        el(
-          'div',
-          'pc-caption',
-          repo.running > 0 || repo.doneToday > 0
-            ? `${repo.running} running · ${repo.doneToday} done today`
-            : 'Nothing running',
-        ),
-      )
+      mid.append(title, el('div', 'pc-caption', byRepoCaption(repo)))
       row.append(mid)
       if (repo.needsYou > 0) row.append(pill(String(repo.needsYou), 'bad'))
-      if (repo.orcaWorkspaceId) {
+      if (showOpenWorktree(repo.orcaWorkspaceId)) {
         row.append(
           button('Open in Orca', {
             size: 'sm',
@@ -772,7 +911,6 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     main.append(byRepo)
   }
 
-  // Needs you
   const needs = el('section', 'pc-section')
   needs.setAttribute('aria-label', 'Needs you')
   const needsHead = el('div', 'pc-section-head')
@@ -780,14 +918,13 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   if (model.attention.length > 0) needsHead.append(pill(String(model.attention.length), 'bad'))
   needs.append(needsHead)
   if (model.attention.length === 0) {
-    const empty = el('div', 'pc-empty', `Nothing needs you in ${model.scope === 'repo' ? snapshot.focusedRepo?.label ?? 'this repo' : 'any repo'}.`)
-    needs.append(empty)
+    needs.append(el('div', 'pc-empty', emptyNeedsYouCopy(model.scope, snapshot.focusedRepo?.label)))
     if (model.scope === 'repo' && model.otherNeedsYou > 0) {
-      const link = el('a', undefined, `${model.otherNeedsYou} in other repos`)
-      link.href = '#'
-      link.addEventListener('click', (e) => {
-        e.preventDefault()
-        dispatch({ type: 'set-scope', scope: 'global' })
+      const link = button(`${model.otherNeedsYou} in other repos`, {
+        variant: 'ghost',
+        size: 'sm',
+        className: 'pc-link-btn',
+        onClick: () => dispatch({ type: 'set-scope', scope: 'global' }),
       })
       needs.append(link)
     }
@@ -796,15 +933,14 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
   main.append(needs)
 
-  // Running
   const running = el('section', 'pc-section')
   running.setAttribute('aria-label', 'Running')
   const runHead = el('div', 'pc-section-head')
   runHead.append(el('h2', 'pc-label', 'Running'), pill(String(model.running.length)))
   running.append(runHead)
   if (model.running.length === 0) {
-    const nextName = model.next ? executorLabelFor(model.next.id, model.names) : 'An executor'
-    running.append(el('div', 'pc-empty', `Nothing running here. ${nextName} runs next.`))
+    const nextName = model.next ? executorLabelFor(model.next.id, model.names) : null
+    running.append(el('div', 'pc-empty', emptyRunningCopy(nextName)))
   } else {
     const list = el('div', 'pc-list')
     for (const task of model.running) list.append(renderRunningRow(task, model, now))
@@ -812,22 +948,19 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
   main.append(running)
 
-  // Who runs next
   const who = el('section', 'pc-section')
   who.setAttribute('aria-label', 'Who runs next')
-  const ready = snapshot.executors.filter((e) => e.enabled && (e.state === 'ready' || e.untested)).length
-  const out = snapshot.executors.filter((e) => e.state === 'exhausted' || e.state === 'down' || e.state === 'disabled').length
+  const counts = whoRunsCounts(snapshot.executors)
   const whoHead = el('div', 'pc-section-head')
-  whoHead.append(el('h2', 'pc-label', 'Who runs next'), el('span', 'pc-caption', `${ready} ready · ${out} out`))
+  whoHead.append(el('h2', 'pc-label', 'Who runs next'), el('span', 'pc-caption', `${counts.ready} ready · ${counts.out} out`))
   who.append(whoHead)
   const whoList = el('div', 'pc-list')
   for (const row of snapshot.executors) {
     const item = el('div', 'pc-list-row')
-    const rank = el('span', `pc-rank${row.next ? ' pc-rank--next' : ''}`, row.next || row.state === 'ready' ? String(row.rank) : '–')
+    const rank = el('span', `pc-rank${row.next ? ' pc-rank--next' : ''}`, rankChipText(row))
     item.append(rank)
-    const mid = el('div')
-    mid.style.flex = '1'
-    mid.append(el('div', 'pc-row-title ellipsis', executorLabelFor(row.id, model.names)))
+    const mid = el('div', 'pc-card-body')
+    mid.append(el('div', 'pc-row-title ellipsis', executorLabelFor(row.id, model.names) ?? row.id))
     mid.append(el('div', 'pc-caption', `${row.next ? 'Next · ' : ''}${row.sub}`))
     item.append(mid)
     const words = executorStateWords(row)
@@ -837,7 +970,6 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   who.append(whoList)
   main.append(who)
 
-  // Done today
   const done = el('section', 'pc-section')
   done.setAttribute('aria-label', 'Done today')
   const doneHead = el('div', 'pc-section-head')
@@ -845,35 +977,34 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   done.append(doneHead)
   const doneList = el('div', 'pc-list')
   for (const task of model.doneVisible) {
-    const row = el('div', 'pc-list-row')
+    const row = el('div', 'pc-list-row pc-list-row--done')
     const g = doneGlyph(task)
-    const glyph = el('span', undefined, g.glyph)
-    glyph.style.color = g.tone === 'good' ? 'var(--good-fg)' : g.tone === 'bad' ? 'var(--bad-fg)' : 'var(--ink-muted)'
+    const glyph = el('span', 'pc-done-glyph', g.glyph)
+    glyph.style.color =
+      g.tone === 'good' ? 'var(--good-fg)' : g.tone === 'bad' ? 'var(--bad-fg)' : g.tone === 'warn' ? 'var(--warn-fg)' : 'var(--ink-muted)'
     glyph.setAttribute('aria-label', g.label)
     row.append(glyph)
-    const mid = el('div')
-    mid.style.flex = '1'
-    mid.style.minWidth = '0'
-    mid.append(el('div', 'pc-row-title ellipsis', task.title))
-    mid.append(
+    row.append(el('span', 'pc-done-title', task.title))
+    row.append(
       el(
-        'div',
-        'pc-caption',
-        `${executorLabelFor(task.executor, model.names)} · ${absoluteTime(task.updatedAt, now)}`,
+        'span',
+        'pc-done-meta',
+        `${executorLabelFor(task.executor, model.names) ?? 'Automatic'} · ${absoluteTime(task.updatedAt, now)}`,
       ),
     )
-    row.append(mid)
     doneList.append(row)
   }
   done.append(doneList)
   if (model.doneMore > 0) {
-    const more = el('a', undefined, `${model.doneMore} more in the pacer app`)
-    more.href = '#'
-    more.addEventListener('click', (e) => {
-      e.preventDefault()
-      void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'tasks' }, pendingKey: 'done:more' })
-    })
-    done.append(more)
+    done.append(
+      button(`${model.doneMore} more in the pacer app`, {
+        variant: 'ghost',
+        size: 'sm',
+        className: 'pc-link-btn',
+        onClick: () =>
+          void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'tasks' }, pendingKey: 'done:more' }),
+      }),
+    )
   }
   main.append(done)
 
@@ -883,11 +1014,12 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   footer.append(
     button('Open the pacer app', {
       size: 'md',
+      fullWidth: true,
       onClick: () =>
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'footer:open' }),
     }),
   )
-  footer.append(el('p', 'pc-caption', 'Settings, accounts and routing live in the app.'))
+  footer.append(el('p', 'pc-caption pc-footer-caption', 'Settings, accounts and routing live in the app.'))
   shell.append(footer)
   return shell
 }
@@ -904,6 +1036,7 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
     }
     case 'not-connected': {
       const shell = el('div', 'pc-shell')
+      shell.append(renderHeader(model.snapshot, false))
       const main = el('main', 'pc-main')
       const card = el('div', 'pc-card pc-card--sunken')
       card.append(el('h1', 'pc-headline', "pacer isn't running."))
@@ -923,7 +1056,7 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         }),
       )
       card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
-      card.append(el('code', 'pc-selectable', 'pacer serve'))
+      card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)
       shell.append(main)
       return shell
@@ -933,19 +1066,47 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
   }
 }
 
+/** Stable selector for any focused text control (id, data-focus, or name). */
+function focusSelector(active: Element | null): string | null {
+  if (!(active instanceof HTMLElement) || !root?.contains(active)) return null
+  if (active.id) return `#${CSS.escape(active.id)}`
+  const dataFocus = active.getAttribute('data-focus')
+  if (dataFocus) return `[data-focus="${CSS.escape(dataFocus)}"]`
+  if (
+    (active instanceof HTMLInputElement ||
+      active instanceof HTMLTextAreaElement ||
+      active instanceof HTMLSelectElement) &&
+    active.name
+  ) {
+    return `${active.tagName.toLowerCase()}[name="${CSS.escape(active.name)}"]`
+  }
+  return null
+}
+
 function render(): void {
   if (root === null) return
   const active = document.activeElement
-  const focusId =
-    active instanceof HTMLElement && root.contains(active) ? active.id || active.getAttribute('data-focus') : null
+  const selector = focusSelector(active)
   const selection =
     active instanceof HTMLTextAreaElement || active instanceof HTMLInputElement
       ? { start: active.selectionStart, end: active.selectionEnd }
       : null
   const now = Date.now() / 1000
+  const openingMenu = state.ui.menuOpen && !prevMenuOpen
+  const closingMenu = !state.ui.menuOpen && prevMenuOpen
+  const openingDelegate = state.ui.view === 'delegate' && prevView !== 'delegate'
   root.replaceChildren(renderModel(panelModel(state, now), now))
-  if (focusId) {
-    const next = root.querySelector(`#${CSS.escape(focusId)}`) as HTMLInputElement | HTMLTextAreaElement | null
+
+  if (openingDelegate) {
+    const goal = root.querySelector('#delegate-goal') as HTMLTextAreaElement | null
+    goal?.focus()
+  } else if (openingMenu) {
+    const first = root.querySelector<HTMLButtonElement>('#pc-menu [role="menuitem"]')
+    first?.focus()
+  } else if (closingMenu) {
+    menuButton?.focus()
+  } else if (selector) {
+    const next = root.querySelector(selector) as HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement | null
     if (next) {
       next.focus()
       if (selection && 'setSelectionRange' in next && selection.start != null && selection.end != null) {
@@ -957,16 +1118,16 @@ function render(): void {
       }
     }
   }
-  if (state.ui.menuOpen && menuButton) {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        dispatch({ type: 'toggle-menu', open: false })
-        menuButton?.focus()
-        document.removeEventListener('keydown', onKey)
-      }
-    }
-    document.addEventListener('keydown', onKey)
+
+  if (state.ui.menuOpen) {
+    const menu = root.querySelector('#pc-menu') as HTMLElement | null
+    if (menu) attachMenuKeyHandler(menu)
+  } else {
+    detachMenuKeyHandler()
   }
+
+  prevMenuOpen = state.ui.menuOpen
+  prevView = state.ui.view
 }
 
 function loadSnapshot(): void {
@@ -981,13 +1142,12 @@ function loadSnapshot(): void {
 loadSnapshot()
 orca.plugin.on('pacer.changed', (payload) => dispatch({ type: 'snapshot', snapshot: payload.snapshot }))
 
-// Relative "No progress for N min" only: update text nodes in place.
 setInterval(() => {
   if (root === null || state.snapshot === null || !state.snapshot.connected) return
   const now = Date.now() / 1000
   for (const task of state.snapshot.running) {
     if (!task.liveness?.stalled) continue
-    const mins = Math.max(1, Math.floor((now - task.liveness.since) / 60))
+    const mins = stalledMinutes(task.liveness.since, now)
     const node = root.querySelector(`[data-id="${CSS.escape(task.id)}"] .pc-pill--warn`)
     if (node) node.textContent = `No progress for ${mins} min`
   }

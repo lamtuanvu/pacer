@@ -14,6 +14,7 @@ export type ConfirmSpec = {
   text: string
   confirmLabel: string
   cancelLabel: string
+  successText: string
   run: RunRequest
 }
 
@@ -31,7 +32,14 @@ export type UiState = {
   confirm: ConfirmSpec | null
   statusByKey: Record<string, { tone: 'good' | 'bad' | 'warn'; text: string }>
   delegateError: string | null
-  delegated: { taskId: string; executorLabel: string; orcaWorkspaceId?: string } | null
+  delegated: {
+    taskId: string
+    executorLabel: string
+    goal: string
+    worktree: 'new' | 'current'
+    startedAt: number
+    orcaWorkspaceId?: string
+  } | null
 }
 
 export type PanelState = {
@@ -63,6 +71,9 @@ export const initialPanelState = (): PanelState => ({
   ui: initialUiState(),
 })
 
+/** Exact pending key for the delegate submit (not Watch/Open on the confirmation). */
+export const DELEGATE_SUBMIT_KEY = 'delegate'
+
 export type PanelEvent =
   | { type: 'snapshot'; snapshot: PanelSnapshot }
   | { type: 'load-error' }
@@ -78,8 +89,22 @@ export type PanelEvent =
   | { type: 'ask-confirm'; confirm: ConfirmSpec }
   | { type: 'cancel-confirm' }
   | { type: 'begin'; pendingKey: string }
-  | { type: 'act-result'; pendingKey: string; ok: boolean; error?: string; conflict?: boolean; result?: unknown; successText?: string }
+  | {
+      type: 'act-result'
+      pendingKey: string
+      ok: boolean
+      error?: string
+      conflict?: boolean
+      result?: unknown
+      successText?: string
+      now?: number
+    }
   | { type: 'clear-status'; pendingKey: string }
+
+function answerItemIdFromPendingKey(pendingKey: string): string | null {
+  const match = /^att:([^:]+):(?:task|dispatch)\.answer$/.exec(pendingKey)
+  return match?.[1] ?? null
+}
 
 export function reducePanel(state: PanelState, event: PanelEvent): { state: PanelState; run: RunRequest | null } {
   switch (event.type) {
@@ -89,10 +114,7 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
           ...state,
           snapshot: event.snapshot,
           loadError: false,
-          ui: {
-            ...state.ui,
-            // Keep interactive UI across pushes; only clear nothing here.
-          },
+          ui: { ...state.ui },
         },
         run: null,
       }
@@ -158,22 +180,35 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
         statusByKey[event.pendingKey] = { tone: 'good', text: event.successText }
       }
       let ui = { ...state.ui, pending, statusByKey }
-      if (event.pendingKey.startsWith('delegate') && event.ok) {
+      // Exact submit key only — Watch/Open use delegate:watch / delegate:open.
+      if (event.pendingKey === DELEGATE_SUBMIT_KEY && event.ok) {
         const result = event.result as { task_id?: string; id?: string } | undefined
         const taskId = result?.task_id ?? result?.id ?? ''
+        const executorLabel = event.successText?.replace(/^Running on /, '') || 'executor'
         ui = {
           ...ui,
           view: 'delegate-done',
           delegated: {
             taskId,
-            executorLabel: event.successText?.replace(/^Running on /, '') || 'executor',
+            executorLabel,
+            goal: state.ui.goal,
+            worktree: state.ui.delegateWorktree,
+            startedAt: event.now ?? Date.now() / 1000,
             orcaWorkspaceId: undefined,
           },
           delegateError: null,
           goal: '',
         }
-      } else if (event.pendingKey.startsWith('delegate') && !event.ok) {
+      } else if (event.pendingKey === DELEGATE_SUBMIT_KEY && !event.ok) {
         ui = { ...ui, delegateError: event.error || 'Failed' }
+      }
+      if (event.ok) {
+        const answerId = answerItemIdFromPendingKey(event.pendingKey)
+        if (answerId) {
+          const answers = { ...ui.answers }
+          delete answers[answerId]
+          ui = { ...ui, answers }
+        }
       }
       return { state: { ...state, ui }, run: null }
     }
@@ -295,9 +330,18 @@ export function executorDisplayNames(executors: PanelExecutor[]): Map<string, st
   return out
 }
 
-export function executorLabelFor(id: string | null | undefined, names: Map<string, string>): string {
-  if (!id) return 'Automatic'
+export function executorLabelFor(id: string | null | undefined, names: Map<string, string>): string | null {
+  if (!id) return null
   return names.get(id) ?? id.split('@')[0]!.split('#')[0]!
+}
+
+/** Caption parts for an attention card; omit the executor when the item has none. */
+export function attentionCaption(parts: {
+  executorLabel: string | null
+  when: string
+  detail?: string
+}): string {
+  return [parts.executorLabel, parts.when, parts.detail].filter(Boolean).join(' · ')
 }
 
 export type MeterTone = 'good' | 'warn' | 'bad' | 'neutral'
@@ -321,29 +365,61 @@ export function plannerHeadline(planner: PanelSnapshot['planner'], resetLabel?: 
   return 'Usage unknown.'
 }
 
-export function modePillLabel(snapshot: PanelSnapshot): { text: string; tone: 'neutral' | 'warn' } {
+/** Map planner.window to the "of … used" phrase (weekly→week, …). Unknown → null (omit). */
+export function windowUsedWord(window: string | null | undefined): string | null {
+  if (!window) return null
+  const map: Record<string, string> = {
+    week: 'week',
+    weekly: 'week',
+    day: 'day',
+    daily: 'day',
+    month: 'month',
+    monthly: 'month',
+    '5h': '5-hour window',
+  }
+  return map[window] ?? (window.endsWith('h') ? `${window}-hour window` : null)
+}
+
+export function plannerCaption(planner: NonNullable<PanelSnapshot['planner']>, resetLabel: string): string {
+  if (planner.stale) return `${planner.agent} · stale`
+  const used = typeof planner.usedPct === 'number' ? Math.round(planner.usedPct) : null
+  const pace = typeof planner.pacePct === 'number' ? Math.round(planner.pacePct) : null
+  const ofWord = windowUsedWord(planner.window)
+  const usedPart =
+    used === null ? null : ofWord ? `${used}% of ${ofWord} used` : `${used}% used`
+  return [planner.agent, usedPart, pace === null ? null : `pace ${pace}%`, `resets ${resetLabel || '—'}`]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+export function modePillLabel(snapshot: PanelSnapshot): { text: string; tone: 'neutral' | 'warn' | 'bad' } {
   if (snapshot.pause) return { text: 'Paused', tone: 'warn' }
   const mode = snapshot.planner?.mode || 'normal'
-  const text = mode === 'emergency' ? 'Emergency mode' : `${mode[0]!.toUpperCase()}${mode.slice(1)} mode`
+  if (mode === 'emergency') return { text: 'Emergency mode', tone: 'bad' }
+  const text = `${mode[0]!.toUpperCase()}${mode.slice(1)} mode`
   return { text, tone: 'neutral' }
 }
 
+/** Port of src/view-model/words.ts executorStatus / executorRowStatus labels; tone from the row. */
 export function executorStateWords(row: PanelExecutor): { label: string; tone: string } {
   if (row.state === 'ready' && row.untested) return { label: 'Not tested', tone: 'neutral' }
-  const map: Record<string, { label: string; tone: string }> = {
-    ready: { label: 'Ready', tone: row.tone === 'muted' ? 'neutral' : row.tone },
-    busy: { label: 'Busy', tone: row.tone === 'muted' ? 'neutral' : row.tone },
-    full: { label: 'Full', tone: row.tone === 'muted' ? 'neutral' : row.tone },
-    failing: { label: 'Not working', tone: 'warn' },
-    down: { label: 'Down', tone: 'bad' },
-    blocked: { label: 'Blocked', tone: 'neutral' },
-    exhausted: { label: 'Out of quota', tone: 'bad' },
-    disabled: { label: 'Disabled', tone: 'neutral' },
-    checking: { label: 'Checking', tone: 'info' },
+  const labels: Record<string, string> = {
+    ready: 'Ready',
+    busy: 'Busy',
+    full: 'At capacity',
+    failing: 'Failing',
+    down: 'Unavailable',
+    blocked: 'Blocked',
+    exhausted: 'Out of quota',
+    disabled: 'Disabled',
+    checking: 'Checking',
   }
-  return map[row.state] ?? { label: row.state, tone: 'neutral' }
+  const label = labels[row.state] ?? row.state
+  const tone = row.tone === 'muted' ? 'neutral' : row.tone || 'neutral'
+  return { label, tone }
 }
 
+/** Phase words from words.ts; lower-cased for captions after the first segment. */
 export function phaseWords(phase?: string): string {
   const map: Record<string, string> = {
     driving: "You're driving",
@@ -354,13 +430,23 @@ export function phaseWords(phase?: string): string {
     'lost-contact': 'Lost contact',
     queued: 'Queued',
   }
-  return phase ? map[phase] ?? phase : 'Working'
+  const raw = phase ? map[phase] ?? phase : 'Working'
+  return phaseCaption(raw)
 }
 
-export function doneGlyph(task: PanelTask): { glyph: string; tone: 'good' | 'bad' | 'muted'; label: string } {
+/** Lower-case phase words for captions (match words.ts after the first segment). */
+export function phaseCaption(words: string): string {
+  if (!words) return words
+  // Keep "You're driving" natural; otherwise lower-case for caption consistency.
+  if (words.startsWith("You're ")) return words
+  return words.toLowerCase()
+}
+
+export function doneGlyph(task: PanelTask): { glyph: string; tone: 'good' | 'bad' | 'warn' | 'muted'; label: string } {
   if (task.review?.accepted === true) return { glyph: '✓', tone: 'good', label: 'Accepted' }
   if (task.review?.accepted === false) return { glyph: '✕', tone: 'bad', label: 'Rejected' }
   if (task.state === 'failed' || task.state === 'limit') return { glyph: '✕', tone: 'bad', label: 'Failed' }
+  if (task.state === 'partial') return { glyph: '◐', tone: 'warn', label: 'Incomplete' }
   return { glyph: '·', tone: 'muted', label: 'Done' }
 }
 
@@ -421,10 +507,253 @@ export function actionButtonLabel(action: AttentionAction, kind: string): string
   return action.label
 }
 
+/** Success text from the action/op, not by comparing display labels. */
+export function successTextForAction(action: AttentionAction, kind: string): string {
+  if (kind === 'question' && (action.op === 'task.answer' || action.op === 'dispatch.answer' || action.label === 'Answer')) {
+    return 'Answer sent'
+  }
+  if (action.op === 'task.review') {
+    const verdict = action.params.verdict
+    if (verdict === 'accept') return 'Accepted'
+    if (verdict === 'reject') return 'Rejected'
+  }
+  if (action.op === 'task.stop' || action.op === 'dispatch.stop') return 'Stopped'
+  if (action.op === 'task.retry' || action.op === 'dispatch.retry') return 'Retrying'
+  if (action.op === 'task.attach') return 'Watching'
+  return action.label
+}
+
+export function successTextForConfirm(confirm: ConfirmSpec): string {
+  return confirm.successText
+}
+
 export function reviewExpectRev(snapshot: PanelSnapshot, taskId?: string): number | undefined {
   if (!taskId) return undefined
   const row = [...snapshot.running, ...snapshot.doneToday].find((t) => t.id === taskId)
   return row?.rev
+}
+
+/** Merge answer text (+ expect_rev when known) into the service action params. */
+export function answerActionParams(
+  action: AttentionAction,
+  text: string,
+  expectRev?: number,
+): Record<string, unknown> {
+  return {
+    ...action.params,
+    text,
+    ...(expectRev != null ? { expect_rev: expectRev } : {}),
+  }
+}
+
+/** Whether Accept/Reject appear for this attention kind. */
+export function showsReviewVerdicts(kind: string): boolean {
+  return kind === 'review'
+}
+
+/** Whether the answer textarea + Send answer appear. */
+export function showsAnswerComposer(kind: string): boolean {
+  return kind === 'question'
+}
+
+export function isAnswerAction(action: AttentionAction): boolean {
+  return action.op === 'task.answer' || action.op === 'dispatch.answer' || action.label === 'Answer'
+}
+
+export function isReviewOpenAction(kind: string, action: AttentionAction): boolean {
+  return kind === 'review' && action.op === 'ui.open'
+}
+
+export function answerDisabled(answerText: string, busy: boolean): boolean {
+  return busy || !answerText.trim()
+}
+
+export function rejectConfirmText(executorLabel: string | null): string {
+  const who = executorLabel ?? 'The executor'
+  return `Reject this result? ${who} is told it was rejected.`
+}
+
+export function stalledMinutes(since: number, now: number): number {
+  return Math.max(1, Math.round((now - since) / 60))
+}
+
+export function runningCaption(parts: {
+  scope: Scope
+  repoLabel?: string
+  executorLabel: string | null
+  phase: string
+  started: string
+}): string {
+  return [
+    parts.scope === 'global' ? parts.repoLabel : null,
+    parts.executorLabel,
+    parts.phase,
+    `started ${parts.started}`,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
+export function showOpenWorktree(orcaWorkspaceId?: string | null): boolean {
+  return Boolean(orcaWorkspaceId)
+}
+
+export type MenuItem =
+  | { kind: 'action'; id: string; label: string; caption?: string; run: RunRequest; successText?: string }
+  | { kind: 'divider' }
+
+export function menuItems(snapshot: PanelSnapshot, now: number): MenuItem[] {
+  const items: MenuItem[] = []
+  if (snapshot.pause) {
+    const until = snapshot.pause.until ? absoluteTime(snapshot.pause.until, now) : 'later'
+    items.push({
+      kind: 'action',
+      id: 'resume',
+      label: 'Resume delegation',
+      caption: `Paused until ${until}`,
+      run: { kind: 'act', op: 'delegation.resume', params: {}, pendingKey: 'menu:resume' },
+      successText: 'Resumed',
+    })
+  } else {
+    items.push(
+      {
+        kind: 'action',
+        id: 'pause1h',
+        label: 'Pause for 1 hour',
+        run: { kind: 'act', op: 'delegation.pause', params: { for: '1h' }, pendingKey: 'menu:pause1h' },
+        successText: 'Paused',
+      },
+      {
+        kind: 'action',
+        id: 'pause4h',
+        label: 'Pause for 4 hours',
+        run: { kind: 'act', op: 'delegation.pause', params: { for: '4h' }, pendingKey: 'menu:pause4h' },
+        successText: 'Paused',
+      },
+      {
+        kind: 'action',
+        id: 'pause1d',
+        label: 'Pause until tomorrow',
+        run: { kind: 'act', op: 'delegation.pause', params: { for: '1d' }, pendingKey: 'menu:pause1d' },
+        successText: 'Paused',
+      },
+    )
+  }
+  if (snapshot.planner?.modeHeldUntil) {
+    items.push({
+      kind: 'action',
+      id: 'mode-release',
+      label: 'Release the held mode',
+      run: { kind: 'act', op: 'mode.release', params: {}, pendingKey: 'menu:mode-release' },
+      successText: 'Released',
+    })
+  } else {
+    items.push({
+      kind: 'action',
+      id: 'mode-hold',
+      label: 'Hold strict mode',
+      caption: 'Until the week resets',
+      run: { kind: 'act', op: 'mode.hold', params: { mode: 'strict' }, pendingKey: 'menu:mode-hold' },
+      successText: 'Held',
+    })
+  }
+  items.push({ kind: 'divider' })
+  items.push({
+    kind: 'action',
+    id: 'open',
+    label: 'Open the pacer app',
+    run: { kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'menu:open' },
+  })
+  return items
+}
+
+export function whoRunsCounts(executors: PanelExecutor[]): { ready: number; out: number } {
+  const ready = executors.filter((e) => e.enabled && (e.state === 'ready' || e.untested)).length
+  const out = executors.filter((e) => e.state === 'exhausted' || e.state === 'down' || e.state === 'disabled').length
+  return { ready, out }
+}
+
+/** Rank chip text: rank number for next/ready; en-dash when unavailable. */
+export function rankChipText(row: PanelExecutor): string {
+  if (row.next || row.state === 'ready') return String(row.rank)
+  return '–'
+}
+
+export function byRepoCaption(repo: { running: number; doneToday: number }): string {
+  if (repo.running > 0 || repo.doneToday > 0) {
+    return `${repo.running} running · ${repo.doneToday} done today`
+  }
+  return 'Nothing running'
+}
+
+export function emptyNeedsYouCopy(scope: Scope, label: string | undefined): string {
+  return `Nothing needs you in ${scope === 'repo' ? label ?? 'this repo' : 'any repo'}.`
+}
+
+export function emptyRunningCopy(nextLabel: string | null): string {
+  return `Nothing running here. ${nextLabel ?? 'An executor'} runs next.`
+}
+
+export function executorOptionDisabled(row: PanelExecutor): boolean {
+  return !row.enabled || row.state === 'disabled' || row.state === 'down' || row.state === 'exhausted'
+}
+
+export function delegateWhyCaption(
+  executorId: string,
+  next: PanelExecutor | undefined,
+  names: Map<string, string>,
+  executors: PanelExecutor[],
+): string {
+  if (executorId === 'auto') {
+    const nextName = next ? executorLabelFor(next.id, names) : 'An executor'
+    const sub = next?.sub
+    return sub ? `${nextName} runs next · ${sub}` : `${nextName} runs next`
+  }
+  const row = executors.find((e) => e.id === executorId)
+  if (!row) return ''
+  const words = executorStateWords(row)
+  return row.sub || words.label
+}
+
+export function worktreeRadioCaption(kind: 'new' | 'current', branch?: string | null): string {
+  if (kind === 'new') return 'Branches from the default branch; your worktree stays untouched.'
+  return `Works on ${branch || 'this worktree'}. Commit or stash first.`
+}
+
+export function delegatedCaption(worktree: 'new' | 'current', startedLabel: string): string {
+  const place = worktree === 'new' ? 'New worktree' : 'In this worktree'
+  return `${place} · started ${startedLabel}`
+}
+
+export function pauseBannerExtra(pause: { by: string | null; reason: string | null }, atLabel: string | null): string | null {
+  if (!pause.by && !atLabel) return null
+  const by = pause.by === 'you' || pause.by === 'ui' || pause.by === 'user' ? 'you' : pause.by
+  if (by && atLabel) return `Paused by ${by} at ${atLabel}.`
+  if (by) return `Paused by ${by}.`
+  if (atLabel) return `Paused at ${atLabel}.`
+  return null
+}
+
+export function headerStatusKeys(): string[] {
+  return [
+    'menu:resume',
+    'menu:pause1h',
+    'menu:pause4h',
+    'menu:pause1d',
+    'menu:mode-hold',
+    'menu:mode-release',
+    'pause:resume',
+  ]
+}
+
+export function headerStatus(
+  statusByKey: UiState['statusByKey'],
+): { tone: 'good' | 'bad' | 'warn'; text: string } | null {
+  for (const key of headerStatusKeys()) {
+    const status = statusByKey[key]
+    if (status) return status
+  }
+  return null
 }
 
 export type PanelModel =
