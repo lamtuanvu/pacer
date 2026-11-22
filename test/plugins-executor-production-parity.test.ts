@@ -112,21 +112,26 @@ test("a long interactive brief becomes a host-written prompt file after the empt
 
 /** Live P7: orchestrator replan wakes exceed EXECUTOR_ARGV_BYTES on headless claude argv. */
 test("a long headless brief spills to prompt.md so argv stays under the limit", async () => {
+  const grant = `prg_${"e".repeat(64)}`;
   const { ctx, repo, cleanup } = fixture(
     runners("claude-code", "headless"),
     { claude: CLAUDE });
+  const spillCtx = { ...ctx, env: { ...ctx.env, PACER_RUN_GRANT: grant } };
   try {
     const goal = `replan wake ${"y".repeat(40 * 1024)}`;
-    const task = selected(ctx, repo, "claude-code", goal);
-    const out = await runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers["claude-code"] as ProviderCfg, task);
+    const task = selected(spillCtx, repo, "claude-code", goal);
+    const out = await runOwnedDirectCurrent(spillCtx, loadStrategy(spillCtx).providers["claude-code"] as ProviderCfg, task);
     expect(out.exec.code).toBe(0);
-    const run = readTask(ctx, task.id)!.run!, file = join(run.dir, "prompt.md");
-    expect(readFileSync(file, "utf8")).toContain(goal);
+    const run = readTask(spillCtx, task.id)!.run!, file = join(run.dir, "prompt.md");
+    const prompt = readFileSync(file, "utf8");
+    expect(prompt).toContain(goal);
+    expect(prompt).not.toContain(grant);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     // Echo agent prints every argv entry; the last must be the short file instruction.
     const stdout = readFileSync(join(run.dir, "stdout"), "utf8");
     expect(stdout).toContain(`Read the complete task instructions in ${JSON.stringify(file)} and carry them out.`);
     expect(stdout).not.toContain(goal.slice(0, 80));
+    expect(stdout).not.toContain(grant);
   } finally { cleanup(); }
 });
 
@@ -148,6 +153,7 @@ test("a long headless codex brief stays on stdin without prompt.md", async () =>
 
 /** Resume puts the turn prompt on argv for claude; oversize turns must spill too. */
 test("a long headless resume turn spills to prompt.md", async () => {
+  const grant = `prg_${"f".repeat(64)}`;
   const { ctx, repo, cleanup } = fixture(runners("claude-code", "headless"), { claude: CLAUDE, codex: CODEX });
   try {
     const created = createTask(ctx, { brief: { goal: "first turn", repo }, kind: null,
@@ -162,15 +168,19 @@ test("a long headless resume turn spills to prompt.md", async () => {
     const sent = await sendMessage({ ...ctx, env: { ...ctx.env, CLAUDECODE: "1" }, now: Date.now() / 1000 }, {
       to: `task:${created.id}`, body, requestId: "turn-long" }, { spawnRunner: () => 1 });
     expect(sent.delivery).toBe("turn_started");
-    const second = await runTask({ ...ctx, now: Date.now() / 1000 }, created.id, deps(["codex", "claude-code"]));
+    // Grant is present in the run env (spill path) but must not land in prompt.md or argv.
+    const second = await runTask({ ...ctx, env: { ...ctx.env, PACER_RUN_GRANT: grant }, now: Date.now() / 1000 }, created.id, deps(["codex", "claude-code"]));
     expect(second.run?.attempt).toBe(2);
     const file = join(second.run!.dir, "prompt.md");
-    expect(readFileSync(file, "utf8")).toContain(body);
+    const prompt = readFileSync(file, "utf8");
+    expect(prompt).toContain(body);
+    expect(prompt).not.toContain(grant);
     expect(statSync(file).mode & 0o777).toBe(0o600);
     const turnArgv = readFileSync(join(second.run!.dir, "stdout"), "utf8");
     expect(turnArgv).toContain(`Read the complete task instructions in ${JSON.stringify(file)} and carry them out.`);
     expect(turnArgv).toContain(`--resume\n${session!.id}`);
     expect(turnArgv).not.toContain(body.slice(0, 80));
+    expect(turnArgv).not.toContain(grant);
   } finally { cleanup(); }
 });
 

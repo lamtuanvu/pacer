@@ -544,8 +544,21 @@ async fn headless_pipe_session_publishes_prompt_md() {
     );
 }
 
+/// Char-boundary-safe window after `start` (fixed byte slices can panic mid-UTF-8).
+fn char_window(s: &str, start: usize, max_chars: usize) -> &str {
+    let start = s.floor_char_boundary(start);
+    let end = s[start..]
+        .char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| start + i)
+        .unwrap_or(s.len());
+    &s[start..end]
+}
+
 #[test]
 fn prompt_md_interactive_flag_matches_typescript_launch_files() {
+    // Kept as the interactive-flag source parity guard; headless_pipe_session_publishes_prompt_md
+    // covers the runtime publish path but not TS↔Rust flag agreement.
     let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .unwrap()
@@ -557,7 +570,7 @@ fn prompt_md_interactive_flag_matches_typescript_launch_files() {
     let ts_flag = ts
         .find("\"prompt.md\":")
         .and_then(|i| {
-            let slice = &ts[i..i + 120];
+            let slice = char_window(&ts, i, 80);
             if slice.contains("interactive: false") {
                 Some("false")
             } else if slice.contains("interactive: true") {
@@ -570,7 +583,7 @@ fn prompt_md_interactive_flag_matches_typescript_launch_files() {
     let rust_flag = rust
         .find("\"prompt.md\" =>")
         .and_then(|i| {
-            let slice = &rust[i..i + 80];
+            let slice = char_window(&rust, i, 60);
             if slice.contains("false)") {
                 Some("false")
             } else if slice.contains("true)") {
