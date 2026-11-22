@@ -37,6 +37,7 @@ import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
 import { ensureRunBranch, isCodeStep } from "./branch";
+import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
 
@@ -147,6 +148,7 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
+    try { await settleRunGitOnTerminal(ctx, updated); } catch { /* git settle must not block terminal */ }
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
     await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);
@@ -1768,10 +1770,14 @@ function settleRootWorkNode(ctx: Ctx, run: RunRow, status: "done" | "stopped" | 
   } catch { /* */ }
 }
 
+/** Stop result: the run row plus optional `{ branch, ahead }` when a run branch exists. */
+export type StoppedRun = RunRow & { ahead?: number };
+
 /** Stops a run: every running or waiting step row is marked stopped, running step
  *  tasks are stopped through the task.stop op path, child runs are stopped, the
- *  root work node is settled, and the run itself is marked stopped. */
-export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<RunRow> {
+ *  root work node is settled, and the run itself is marked stopped. The run branch
+ *  and merged work stay; the integration worktree is removed on terminal settle. */
+export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<StoppedRun> {
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${runId} is ${run.status}`);
@@ -1792,5 +1798,6 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
   }
   const stopped = await patchRun(ctx, runId, { status: "stopped" });
   settleRootWorkNode(ctx, stopped, "stopped");
-  return stopped;
+  const report = await branchReportFor(ctx, stopped);
+  return report.ahead === undefined ? { ...stopped, ...report } : { ...stopped, ahead: report.ahead };
 }

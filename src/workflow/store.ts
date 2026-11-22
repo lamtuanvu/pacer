@@ -472,6 +472,13 @@ export function setPublishOptIn(ctx: Ctx, runId: string, optIn: "draft"): void {
   }
 }
 
+/** Clear local branch columns after `run.cleanup` deletes the branch. Does not bump `rev`. */
+export function clearRunBranch(ctx: Ctx, runId: string): void {
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_runs SET branch = NULL, base_ref = NULL, base_sha = NULL WHERE id = ?",
+  ).run(runId);
+}
+
 /** Store the PR URL after publish. Idempotent for the same URL; a different URL is a conflict. */
 export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
   const db = workflowDatabase(ctx);
