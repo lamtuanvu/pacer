@@ -495,14 +495,20 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       const linked = open[open.length - 1];
       if (linked && linked.answerer === "person") {
         const { validateQuestionAnswer } = await import("../workflow/question-schema");
-        validateQuestionAnswer(linked.answerType, text, linked.options);
-        answerQuestionRecord(ctx, linked.id, {
-          answer: text,
-          expectRev: linked.rev,
-          answeredBy: "person",
-        });
-        const { completeWakeupRef } = await import("../workflow/wakeups");
-        completeWakeupRef(ctx, linked.runId, "question", linked.id);
+        try {
+          // Only resolve when the text is a valid structured answer. question.answer may
+          // call us with note+answer combined; that path finishes the record itself.
+          validateQuestionAnswer(linked.answerType, text, linked.options);
+          answerQuestionRecord(ctx, linked.id, {
+            answer: text,
+            expectRev: linked.rev,
+            answeredBy: "person",
+          });
+          const { completeWakeupRef } = await import("../workflow/wakeups");
+          completeWakeupRef(ctx, linked.runId, "question", linked.id);
+        } catch {
+          /* leave the open record for question.answer */
+        }
       }
     }
   } catch (err) {

@@ -6353,7 +6353,8 @@ Params JSON Schema:
     },
     "answer": {
       "type": "string",
-      "minLength": 1
+      "minLength": 1,
+      "maxLength": 2000
     },
     "note": {
       "type": "string",
@@ -6388,7 +6389,7 @@ Params JSON Schema:
     "text": {
       "type": "string",
       "minLength": 1,
-      "maxLength": 4000
+      "maxLength": 1000
     },
     "answerType": {
       "type": "string",
