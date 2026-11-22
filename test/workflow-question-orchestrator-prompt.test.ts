@@ -170,16 +170,14 @@ test("orchestrator/run-grant CLI allows answer and question escalate (turn promp
   try {
     await Bun.sleep(20);
     const bearer = issueRunGrant(ctx, { runId, turnId, deadline: ctx.now + 600 });
-    const orchCtx = {
-      ...ctx,
-      env: {
-        ...ctx.env,
-        PACER_ROLE: "orchestrator",
-        PACER_RUN_GRANT: bearer,
-        PACER_PORT: String(server.port),
-      },
+    const orchEnv: Record<string, string | undefined> = {
+      ...ctx.env,
+      PACER_ROLE: "orchestrator",
+      PACER_RUN_GRANT: bearer,
+      PACER_PORT: String(server.port),
     };
-    delete orchCtx.env.PACER_API;
+    delete orchEnv.PACER_API;
+    const orchCtx = { ...ctx, env: orchEnv };
     cliDeps.spawnRunner = () => 1;
 
     const answered = await main(["answer", asked.id, "postgres", "--expect-rev", String(asked.rev)], orchCtx);

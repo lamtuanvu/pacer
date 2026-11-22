@@ -51,8 +51,8 @@ function budget(s: SnapshotV3): BudgetData | null {
  ranked:s.executors.filter(e=>e.rank!=='planner'&&e.enabled&&e.eligibility?.state!=='ineligible'&&['ready','busy'].includes(e.state)).sort((a,b)=>Number(a.rank)-Number(b.rank)).map(e=>({id:e.id,verdict:v2Verdict(s.accounts.find(a=>a.name===e.account)?.verdict??'UNKNOWN')}))};
 }
 /** Strip promptWait from snapshot tasks; additive fields (fullTitle/derived/work) stay on the frozen v2 snapshot surface. */
-function stripPromptWait(task: Record<string, unknown>): Record<string, unknown> {
- const { promptWait: _pw, ...rest } = task;
+function stripPromptWait<T extends object>(task: T): Omit<T, "promptWait"> {
+ const { promptWait: _pw, ...rest } = task as T & { promptWait?: unknown };
  return rest;
 }
 
@@ -60,7 +60,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const legacy=s[V2_STATE],setup=legacySetup(s.setup);
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const tasks=Array.isArray(compatible.tasks)?compatible.tasks.map(t =>
-  t && typeof t === "object" ? stripPromptWait(t as Record<string, unknown>) : t
+  t && typeof t === "object" ? stripPromptWait(t) : t
  ):compatible.tasks;
  const withVerdicts={...compatible,...(tasks!==undefined?{tasks}:{}),accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{

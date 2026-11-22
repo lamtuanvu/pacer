@@ -491,7 +491,7 @@ test('v2 task events strip promptWait on the real eventsSince path', async () =>
           title: 'wait',
           promptWait: { text: 'Proceed? (y/n)', at: ctx.now },
           fullTitle: 'full wait',
-        },
+        } as never,
       },
     },
   ]);
