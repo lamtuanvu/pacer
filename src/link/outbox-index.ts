@@ -9,7 +9,7 @@ export const isDiscoveryItemId = (id: unknown) => typeof id === "string" && (id.
 /** Workflow attention ids and the orchestrator_failed kind are v3-only (run.* ops). */
 const WORKFLOW_ATTENTION_PREFIXES = [
   "budget_warn:", "budget_spent:", "budget_msg_warn:", "budget_msg_spent:",
-  "orchestrator_failed:", "unresolved_wake:",
+  "orchestrator_failed:", "unresolved_wake:", "prompt_wait:",
 ] as const;
 
 export function isWorkflowAttentionId(id: unknown): boolean {

@@ -62,6 +62,27 @@ export function deriveItems(input: RuleInput): AttentionItem[] {
     } else if (t.state === "running" && t.progress?.phase === "idle") {
       add("stuck",t.id,t.goal,"Waiting for output",[open("Open task",{view:"task",id:t.id}),{label:"Stop it",op:"task.stop",params:{id:t.id},style:"danger"}],extra);
     }
+    if (t.state === "running" && t.promptWait) {
+      const raw = t.promptWait.text.slice(0, 200);
+      items.push({
+        id: `prompt_wait:${t.id}`,
+        kind: "stuck",
+        severity: "blocked",
+        repo: t.repo,
+        taskId: t.id,
+        title: t.goal,
+        detail: `May be waiting on you: ${raw}`,
+        raisedAt: t.promptWait.at,
+        since: t.promptWait.at,
+        notify: "important",
+        actions: [
+          open("Answer in terminal", { view: "task", id: t.id, tab: "terminal" }),
+          { label: "Convert to question", op: "question.convert_prompt", params: { id: t.id }, style: "primary" },
+        ],
+        ...(t.executor ? { executor: t.executor } : {}),
+        ...(t.host ? { host: t.host } : {}),
+      });
+    }
     if (t.liveness?.stalled) {
       const detail = t.liveness.reason === "no_progress"
         ? `No progress for ${Math.max(1, Math.floor((input.now - t.liveness.since) / 60))} min`

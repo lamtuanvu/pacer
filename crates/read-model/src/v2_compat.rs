@@ -134,6 +134,7 @@ pub fn is_workflow_attention_id(value: &Value) -> bool {
             || s.starts_with("budget_msg_spent:")
             || s.starts_with("orchestrator_failed:")
             || s.starts_with("unresolved_wake:")
+            || s.starts_with("prompt_wait:")
     })
 }
 
