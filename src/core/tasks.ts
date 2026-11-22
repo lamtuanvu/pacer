@@ -491,29 +491,28 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
-  // Step tasks with an open linked structured question: settle the record (I6)
-  // on the direct task.answer path. question.answer sets skipLinkedQuestionRecord
-  // so it can deliver then settle once (R2-BL1). Do not call answerQuestion
-  // (it would recurse). Ordinary tasks (no step row) are unchanged.
-  let linkedToSettle: { id: string; runId: string; rev: number; answerType: string; options?: unknown; answerer: string } | undefined;
+  // Step tasks with an open linked structured question: settle AFTER a successful
+  // delivery (R2-I4). question.answer sets skipLinkedQuestionRecord so it owns the
+  // CAS (R2-BL1). Gate on a read-only schema probe so ordinary homes never run DDL.
+  let linkedToSettle: { id: string; rev: number } | undefined;
   if (!deps.skipLinkedQuestionRecord) {
     try {
-      const { stepByTask, listQuestions } = await import("../workflow/store");
-      const step = stepByTask(ctx, id);
-      if (step) {
-        const open = listQuestions(ctx, step.runId, "open").filter(q =>
-          q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
-        );
-        const linked = open[open.length - 1];
-        if (linked && linked.answerer === "person") {
-          const { validateQuestionAnswer } = await import("../workflow/question-schema");
-          try {
-            // Only settle when the text is a valid structured answer. question.answer may
-            // call us with note+answer combined; that path finishes the record itself.
-            validateQuestionAnswer(linked.answerType, text, linked.options);
-            linkedToSettle = linked;
-          } catch {
-            /* leave the open record for question.answer */
+      const { stepByTaskIfPresent, listQuestions, workflowSchemaPresent } = await import("../workflow/store");
+      if (workflowSchemaPresent(ctx)) {
+        const step = stepByTaskIfPresent(ctx, id);
+        if (step) {
+          const open = listQuestions(ctx, step.runId, "open").filter(q =>
+            q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
+          );
+          const linked = open[open.length - 1];
+          if (linked && linked.answerer === "person") {
+            const { validateQuestionAnswer } = await import("../workflow/question-schema");
+            try {
+              validateQuestionAnswer(linked.answerType, text, linked.options);
+              linkedToSettle = { id: linked.id, rev: linked.rev };
+            } catch {
+              /* leave the open record for question.answer */
+            }
           }
         }
       }
@@ -521,19 +520,21 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       if (err instanceof CoreError) throw err;
     }
   }
-  if (linkedToSettle) {
-    // Resolve after a successful delivery is R2-I4; for BL1 settle here then
-    // still run the ordinary resume. I4 will reorder to deliver-first.
+  const settleLinked = async () => {
+    if (!linkedToSettle) return;
+    const pending = linkedToSettle;
+    linkedToSettle = undefined;
     const { settleAnsweredQuestion } = await import("../workflow/questions");
-    await settleAnsweredQuestion(ctx, linkedToSettle.id, {
+    await settleAnsweredQuestion(ctx, pending.id, {
       answer: text,
-      expectRev: linkedToSettle.rev,
+      expectRev: pending.rev,
       answeredBy: "person",
     });
-  }
+  };
   const current = readTask(ctx, id);
   if (current && directInputAvailable(current)) {
     const result = apiTask(ctx, await answerLiveTask(ctx, id, text, o.expectRev));
+    await settleLinked();
     return {task: result, retry: result};
   }
   let expectRev = o.expectRev;
@@ -552,12 +553,14 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       () => setAnswer(text), () => setAnswer());
     if (task) {
       if (question) readMessages(ctx, question.to, [question.id]);
+      await settleLinked();
       return { task, retry: task };
     }
     if (getWork(ctx, id)) throw new CoreError("conflict", "The work could not continue its session; use dispatch.answer with a requestId and revision");
     expectRev = readTask(ctx, id)?.rev;
   }
   const r = await retryTask(ctx, id, {...o, expectRev, answerText:text}, deps);
+  await settleLinked();
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 

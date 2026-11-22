@@ -790,6 +790,20 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   return row ? stepFromRow(row) : null;
 }
 
+/** True when workflow tables already exist — read-only, no DDL (R2-I4). */
+export function workflowSchemaPresent(ctx: Ctx): boolean {
+  return !!taskDatabase(ctx).query(
+    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+  ).get();
+}
+
+/** stepByTask without creating the workflow schema when the home has none. */
+export function stepByTaskIfPresent(ctx: Ctx, taskId: string): StepRow | null {
+  if (!workflowSchemaPresent(ctx)) return null;
+  const row = taskDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
+  return row ? stepFromRow(row) : null;
+}
+
 /** Running step rows without a task id, oldest first: the orphans (a crash between
  *  writing the row and attaching the delegated task) that every tick reconciles. */
 export function orphanSteps(ctx: Ctx): StepRow[] {
