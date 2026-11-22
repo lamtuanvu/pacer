@@ -94,9 +94,17 @@ fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
     if path != policy.takeover_cli() {
         return Ok(false);
     }
+    // Symlink shape first: the own-link stuck registration names this path as a
+    // symlink to the bundled CLI. Returning Identity here would run before
+    // fixture_own_link_program in check_with and refuse attach/observe.
+    if fixture_terminal_path_is_own_link_symlink(path, &policy.takeover_cli()) {
+        return Ok(false);
+    }
+    let Ok(metadata) = std::fs::symlink_metadata(path) else {
+        return Ok(false);
+    };
     policy.validate_live().map_err(|_| OtaError::Identity)?;
     ensure(policy.signing_cert_sha1.is_some())?;
-    let metadata = std::fs::symlink_metadata(path).map_err(|_| OtaError::Identity)?;
     ensure(
         metadata.is_file()
             && metadata.nlink() == 1
@@ -104,6 +112,16 @@ fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
     )?;
     ensure(trust.verify_static(path, CodeRole::Cli) == Err(OtaError::Identity))?;
     Ok(true)
+}
+
+/// Whether the lease terminal path is the own-link symlink shape (not a regular
+/// takeover CLI). Used so fixture_takeover_program defers without Identity.
+#[cfg(any(test, all(target_os = "macos", feature = "ota-fixture")))]
+fn fixture_terminal_path_is_own_link_symlink(path: &Path, takeover_cli: &Path) -> bool {
+    path == takeover_cli
+        && std::fs::symlink_metadata(path)
+            .map(|meta| meta.file_type().is_symlink())
+            .unwrap_or(false)
 }
 
 /// Stuck own-link shape: registration names the terminal symlink that resolves to
@@ -1368,6 +1386,31 @@ mod tests {
         assert!(!fixture_ledger_loaded_executable_ok(
             bundled, foreign, bundled, false
         ));
+    }
+
+    #[test]
+    fn fixture_takeover_defers_own_link_symlink_without_identity() {
+        use std::os::unix::fs::symlink;
+        let temp = tempfile::tempdir().unwrap();
+        let home = temp.path().join("home");
+        let bin = home.join(".local/bin");
+        let bundled = temp.path().join("current.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(bin.parent().unwrap()).unwrap();
+        std::fs::create_dir_all(bin.clone()).unwrap();
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"cli").unwrap();
+        let link = bin.join("pacer");
+        symlink(&bundled, &link).unwrap();
+        // Symlink at the takeover CLI path is the own-link shape: defer, do not
+        // treat as a missing/invalid regular takeover program (Identity).
+        assert!(fixture_terminal_path_is_own_link_symlink(&link, &link));
+        assert!(!fixture_terminal_path_is_own_link_symlink(
+            &bundled,
+            &link
+        ));
+        std::fs::remove_file(&link).unwrap();
+        std::fs::write(&link, b"takeover").unwrap();
+        assert!(!fixture_terminal_path_is_own_link_symlink(&link, &link));
     }
 
     #[cfg(target_os = "macos")]

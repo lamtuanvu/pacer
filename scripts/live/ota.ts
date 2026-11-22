@@ -239,6 +239,22 @@ function persist(session: Session, state: OtaRecord): void {
   try { writeFileSync(fd, JSON.stringify(schema.parse(state), null, 2) + "\n"); fsyncSync(fd); } finally { closeSync(fd); }
   renameSync(temporary, path); syncDirectory(state.root);
 }
+/**
+ * Lease-owned own-link shape: argv[0] is home/.local/bin/pacer as a symlink to
+ * this lease's bundled CLI. Cleanup must admit that ledger symlink without the
+ * generic "refuse all sandbox symlinks" check, while still refusing any other
+ * symlinked program path.
+ */
+export function isLeaseOwnLinkProgram(state: Pick<OtaRecord, "pacerHome" | "currentApp">, program: string): boolean {
+  const link = resolve(join(state.pacerHome, ".local/bin/pacer"));
+  if (resolve(program) !== link) return false;
+  try {
+    if (!lstatSync(link).isSymbolicLink()) return false;
+    return realpathSync(link) === resolve(join(state.currentApp, "Contents/Resources/pacer"));
+  } catch {
+    return false;
+  }
+}
 function registrationProgram(state: OtaRecord, label: string, text: string): string {
   if (Buffer.byteLength(text) > 131_072) throw Error("Fixture registration exceeds inspection limit");
   const value = parsePlistDictionary(text), args = value.ProgramArguments, env = value.EnvironmentVariables;
@@ -248,13 +264,22 @@ function registrationProgram(state: OtaRecord, label: string, text: string): str
       env.HOME !== state.pacerHome || env.PACER_HOME !== undefined && env.PACER_HOME !== state.pacerHome ||
       env.PACER_PORT !== undefined && env.PACER_PORT !== String(state.innerPort) || typeof value.KeepAlive !== "boolean" || typeof value.RunAtLoad !== "boolean" ||
       Object.keys(value).some(key => !["Label", "ProgramArguments", "EnvironmentVariables", "KeepAlive", "RunAtLoad", "ThrottleInterval", "ProcessType", "StandardOutPath", "StandardErrorPath"].includes(key))) throw Error("Fixture registration is not owned by this lease");
-  const program = canonical(args[0] as string);
+  const registered = resolve(args[0] as string);
+  const ownLink = isLeaseOwnLinkProgram(state, registered);
+  // Own-link keeps the registered symlink path; every other program must be canonical.
+  const program = ownLink ? registered : canonical(args[0] as string);
   const external = state.external.length && label === state.serviceLabel && (program === join(state.root, "external/pacer") || program === join(state.pacerHome, ".local/bin/pacer"));
   // A takeover's recovery job runs its helper copy from the takeover journal directory.
   const takeoverFamily = !!state.exercise?.scenario && (state.exercise.scenario.startsWith("takeover") || state.exercise.scenario.startsWith("consent-"));
   const takeoverRecovery = label === state.recoveryLabel && takeoverFamily && inside(join(state.pacerHome, "desktop-updates/native/takeover"), program);
-  if (!external && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
-  owned(program, "file");
+  if (!ownLink && !external && !takeoverRecovery && !inside(state.currentApp, program) && !inside(state.candidateApp, program) && !inside(join(state.pacerHome, "desktop-updates/native", state.exercise?.installationId ?? state.installationId), program)) throw Error("Fixture registration executable escapes the lease");
+  if (ownLink) {
+    const bundled = resolve(join(state.currentApp, "Contents/Resources/pacer"));
+    canonical(bundled);
+    owned(bundled, "file");
+  } else {
+    owned(program, "file");
+  }
   for (const key of ["StandardOutPath", "StandardErrorPath"]) if (value[key] !== undefined) throw Error("Fixture probes must use inherited null output");
   return program;
 }
