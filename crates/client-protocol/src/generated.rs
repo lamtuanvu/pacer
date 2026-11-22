@@ -5561,6 +5561,9 @@ impl<'de> ::serde::Deserialize<'de> for FilesSearchParamsRepo {
 ///    "previous": {
 ///      "type": "string"
 ///    },
+///    "previousRemovedIn": {
+///      "type": "string"
+///    },
 ///    "protocol": {
 ///      "type": "string"
 ///    }
@@ -5575,6 +5578,12 @@ pub struct Hello {
     pub pacer: ::std::option::Option<::std::string::String>,
     #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
     pub previous: ::std::option::Option<::std::string::String>,
+    #[serde(
+        rename = "previousRemovedIn",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub previous_removed_in: ::std::option::Option<::std::string::String>,
     pub protocol: ::std::string::String,
 }
 ///`HostAccountAddParams`
