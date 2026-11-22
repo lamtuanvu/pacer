@@ -18,7 +18,10 @@
 //! plugin consumers reach the owner over the bridge. A home has one owner
 //! lease, serve's live `host.sock`: stdio connections attach to it
 //! ([`probe_home_owner`]) or own children on a per-connection socket
-//! ([`NativeHostSession::start_connection`]) — ADR 0027. The owner detects
+//! ([`NativeHostSession::start_connection`]) — ADR 0027. For a deep home whose
+//! `run/host.sock` would not fit in `sockaddr_un`, serve's socket and the
+//! connection sockets share the private per-user directory
+//! ([`serve_socket_dir`], B0b). The owner detects
 //! crashed children, reports them to the owning door's Core and holds a
 //! restart floor ([`crash`]). A lane keeps the observation generation its
 //! plugin subscribed under, fed by the owning door's Core, and answers requests
@@ -58,6 +61,7 @@ pub use capability::{
     observation_bootstrap_from_value, orca_context_from_value, session_for_call,
     session_for_call_in, session_from_hello,
 };
+pub use connection_dir::serve_socket_dir;
 pub use crash::{CrashReport, StartFailure, crash_message, start_lane};
 pub use executor_attach::{ExecutorCallContext, executor_context_from_value};
 pub use host_attach::HostAttachSnapshot;

@@ -1,7 +1,8 @@
 //! Where a stdio connection binds its owner socket (ADR 0027).
 //!
-//! Normally `$PACER_HOME/run/`, beside `host.sock`. When `run/s<12-hex>.sock`
-//! would not fit in `sockaddr_un`, the socket goes to a private per-user
+//! Normally `$PACER_HOME/run/`, beside `host.sock`. When a socket path would
+//! not fit in `sockaddr_un` (a connection's `run/s<12-hex>.sock`, or serve's
+//! `run/host.sock` for a deep home, B0b), the socket goes to a private per-user
 //! directory outside the home, `<user dir>/pacer-<hash of the canonical home>/`,
 //! so deep homes keep native plugin ownership. The user directory is the OS's
 //! per-user private directory (`DARWIN_USER_TEMP_DIR` on macOS,
@@ -10,7 +11,7 @@
 //! current user with no group or other access.
 
 use crate::bridge_listener::BridgeError;
-use crate::host_bridge::{SOCKET_PATH_MAX, prepare_run_dir};
+use crate::host_bridge::{HOST_SOCKET_NAME, SOCKET_PATH_MAX, prepare_run_dir};
 use std::{
     fs, io,
     os::unix::fs::{DirBuilderExt, FileTypeExt, MetadataExt},
@@ -77,6 +78,36 @@ pub(crate) fn connection_socket_dir(
         return Ok(prepare_run_dir(pacer_home)?);
     }
     private_socket_dir(pacer_home, user_private_dir(), name, uid)
+}
+
+/// Where serve's reverse bridge binds `host.sock` (B0b): `run/` when the path
+/// fits in `sockaddr_un`, else the private per-user directory of this module, so
+/// a deep home still runs a flag-on serve. `create` ensures the directory
+/// exists (as `ReverseBridge::bind_serve` does); `false` only computes where
+/// the socket would be, without creating `run/` or the private directory, for
+/// lease probes and pid reads that must not mutate the filesystem.
+pub fn serve_socket_dir(pacer_home: &Path, uid: u32, create: bool) -> Result<PathBuf, BridgeError> {
+    let in_home = pacer_home.join("run").join(HOST_SOCKET_NAME);
+    if in_home.as_os_str().len() <= SOCKET_PATH_MAX {
+        return Ok(if create {
+            prepare_run_dir(pacer_home)?
+        } else {
+            pacer_home.join("run")
+        });
+    }
+    let base = user_private_dir().map_err(|reason| BridgeError::NoPrivateDir {
+        path: in_home.clone(),
+        reason,
+    })?;
+    if create {
+        private_socket_dir(pacer_home, Ok(base), HOST_SOCKET_NAME, uid)
+    } else {
+        let canonical = fs::canonicalize(pacer_home).unwrap_or_else(|_| pacer_home.to_path_buf());
+        Ok(base.join(format!(
+            "pacer-{:016x}",
+            fnv1a(canonical.as_os_str().as_encoded_bytes())
+        )))
+    }
 }
 
 /// `<base>/pacer-<hash>/` for a home whose `run/` path is too long. `base` is

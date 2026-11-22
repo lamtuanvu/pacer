@@ -1,6 +1,8 @@
 //! Reverse-bridge Unix listener (X1c / P4d-1 / P4d-2).
 //!
-//! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600), accepts line
+//! Binds `$PACER_HOME/run/host.sock` (dir 0700, socket 0600) — or, for a deep
+//! home whose `run/host.sock` would not fit in `sockaddr_un`, the private
+//! per-user directory of `connection_dir` (B0b) — accepts line
 //! JSON-RPC for `_host.plugin.call` / `_host.plugin.find` / `_host.plugin.stop`,
 //! and authorizes peers by Unix credentials and then by the owner's
 //! per-start credential ([`crate::bridge_auth`], #918): a same-user process
@@ -32,7 +34,8 @@ use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
 use crate::connection_dir::{
-    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+    Probe, check_private_dir, connection_socket_dir, probe_socket, serve_socket_dir,
+    sweep_stale_sockets,
 };
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
@@ -194,6 +197,17 @@ impl ReverseBridge {
         let dir = connection_socket_dir(pacer_home, name, uid)?;
         sweep_stale_sockets(&dir, uid);
         Self::bind_in(&dir, name, auth)
+    }
+
+    /// Bind serve's `host.sock` lease (B0b): in `run/` when the path fits,
+    /// otherwise in the private per-user directory of `connection_dir`, so a
+    /// deep home still runs a flag-on serve. Mirrors [`Self::bind_at`] except
+    /// that the socket may leave the home; the pid and key sidecars follow the
+    /// socket (their paths are derived from the bound socket's directory).
+    pub fn bind_serve(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = serve_socket_dir(pacer_home, uid, true)?;
+        Self::bind_in(&dir, HOST_SOCKET_NAME, auth)
     }
 
     fn bind_in(dir: &Path, name: &str, auth: PeerAuth) -> Result<Self, BridgeError> {

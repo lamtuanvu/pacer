@@ -1,7 +1,9 @@
-//! How a stdio connection finds and uses the home's live plugin owner (ADR 0027).
+//! How a stdio connection finds and uses the home's live plugin owner (ADR 0027,
+//! serve-socket fallback B0b).
 //!
-//! Only serve binds `run/host.sock`, so a live socket there is the home's owner
-//! lease. A stdio connection probes it once, before its Core child starts:
+//! Only serve binds the home's owner lease — `run/host.sock`, or for a deep
+//! home `host.sock` in the private per-user directory of `connection_dir`. A
+//! live socket there is the home's owner. A stdio connection probes it once, before its Core child starts:
 //! [`HomeOwner::Live`] means the connection attaches (its Core dials that socket
 //! and the door owns no children); anything else means the connection owns its
 //! children on its own connection socket ([`crate::ReverseBridge::bind_connection`]).
@@ -11,6 +13,7 @@
 
 use crate::bridge_auth::{OwnerKey, authenticate, read_owner_key};
 use crate::bridge_listener::{BRIDGE_MAX_LINE_BYTES, current_uid, peer_uid};
+use crate::connection_dir::serve_socket_dir;
 use crate::host_bridge::{HOST_SOCKET_NAME, METHOD_PLUGIN_STOP};
 use serde_json::{Value, json};
 use std::{
@@ -34,7 +37,7 @@ const STOP_DEADLINE: Duration = Duration::from_secs(10);
 const KEY_WAIT: Duration = Duration::from_secs(2);
 const KEY_POLL: Duration = Duration::from_millis(50);
 
-/// What a stdio connection found at `$PACER_HOME/run/host.sock`.
+/// What a stdio connection found at serve's owner socket.
 #[derive(Debug, PartialEq, Eq)]
 pub enum HomeOwner {
     /// A same-uid owner accepted the probe and published its credential:
@@ -50,7 +53,7 @@ pub enum HomeOwner {
 /// are the current user; tests vary one at a time to prove each check.
 #[derive(Clone, Copy, Debug)]
 pub struct OwnerTrust {
-    /// Owner of the `run/` directory.
+    /// Owner of the socket's directory (`run/`, or a deep home's private dir).
     pub run_dir: u32,
     /// Owner of the `host.sock` file.
     pub socket: u32,
@@ -68,28 +71,49 @@ impl OwnerTrust {
     }
 }
 
-/// Probe `run/host.sock` as the current user.
+/// Probe the home's serve owner socket as the current user.
 pub fn probe_home_owner(pacer_home: &Path) -> HomeOwner {
     probe_home_owner_as(pacer_home, OwnerTrust::user(current_uid()))
 }
 
-/// Probe `run/host.sock`, trusting only the given uids for the directory, the
-/// socket file, the peer that accepts the connection and `host.key`. Blocks up
-/// to two seconds while a just-started serve publishes its key.
+/// Probe the home's serve owner socket, which lives in `run/host.sock`, or for a
+/// deep home in the private per-user directory (B0b), trusting only the given
+/// uids for the socket's directory, the socket file, the peer that accepts the
+/// connection and `host.key`. Blocks up to two seconds while a just-started
+/// serve publishes its key.
 pub fn probe_home_owner_as(pacer_home: &Path, trust: OwnerTrust) -> HomeOwner {
-    let run = pacer_home.join("run");
-    let meta = match fs::symlink_metadata(&run) {
-        Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
-        Err(_) => return HomeOwner::Untrusted("run directory is unreadable"),
-        Ok(meta) => meta,
+    let dir = match serve_socket_dir(pacer_home, current_uid(), false) {
+        Ok(dir) => dir,
+        Err(_) => return HomeOwner::Absent,
     };
-    if meta.file_type().is_symlink() || !meta.is_dir() {
-        return HomeOwner::Untrusted("run is not a real directory");
+    let in_run = dir == pacer_home.join("run");
+    match fs::symlink_metadata(&dir) {
+        Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
+        Err(_) => {
+            return HomeOwner::Untrusted(if in_run {
+                "run directory is unreadable"
+            } else {
+                "host.sock directory is unreadable"
+            });
+        }
+        Ok(meta) => {
+            if meta.file_type().is_symlink() || !meta.is_dir() {
+                return HomeOwner::Untrusted(if in_run {
+                    "run is not a real directory"
+                } else {
+                    "host.sock directory is not a real directory"
+                });
+            }
+            if meta.uid() != trust.run_dir || meta.mode() & 0o077 != 0 {
+                return HomeOwner::Untrusted(if in_run {
+                    "run directory is not private to this user"
+                } else {
+                    "host.sock directory is not private to this user"
+                });
+            }
+        }
     }
-    if meta.uid() != trust.run_dir || meta.mode() & 0o077 != 0 {
-        return HomeOwner::Untrusted("run directory is not private to this user");
-    }
-    let socket = run.join(HOST_SOCKET_NAME);
+    let socket = dir.join(HOST_SOCKET_NAME);
     let meta = match fs::symlink_metadata(&socket) {
         Err(error) if error.kind() == io::ErrorKind::NotFound => return HomeOwner::Absent,
         Err(_) => return HomeOwner::Untrusted("host.sock is unreadable"),
@@ -108,7 +132,7 @@ pub fn probe_home_owner_as(pacer_home: &Path, trust: OwnerTrust) -> HomeOwner {
         return HomeOwner::Untrusted("host.sock is served by another user");
     }
     drop(stream);
-    match published_key(&run, &meta, trust.socket) {
+    match published_key(&dir, &meta, trust.socket) {
         Ok(key) => HomeOwner::Live(socket, key),
         Err(reason) => HomeOwner::Untrusted(reason),
     }

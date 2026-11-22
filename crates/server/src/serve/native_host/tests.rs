@@ -2,8 +2,31 @@
 use super::*;
 use pacer_plugin_runtime::{
     HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV, NATIVE_PLUGIN_HOST_ENABLE_ENV,
+    OwnerKey, PeerAuth, ReverseBridge, SOCKET_PATH_MAX,
 };
-use std::{fs, os::unix::fs::PermissionsExt};
+use std::{
+    fs,
+    os::unix::fs::{MetadataExt, PermissionsExt},
+};
+
+/// The OS per-user private directory, as the door finds it.
+fn user_private_dir() -> Option<PathBuf> {
+    if cfg!(target_os = "macos") {
+        let out = std::process::Command::new("/usr/bin/getconf")
+            .arg("DARWIN_USER_TEMP_DIR")
+            .output()
+            .ok()?;
+        let text = String::from_utf8(out.stdout).ok()?;
+        Some(text.trim_end_matches('\n').trim_end_matches('/').into())
+    } else {
+        std::env::var_os("XDG_RUNTIME_DIR").map(Into::into)
+    }
+}
+
+/// A home whose `run/host.sock` cannot fit in `sockaddr_un`.
+fn deep_home(root: &Path) -> PathBuf {
+    root.join("d".repeat(SOCKET_PATH_MAX))
+}
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn flag_off_leaves_env_and_socket_untouched() {
@@ -152,4 +175,110 @@ async fn a_stale_socket_is_replaced_without_waiting() {
         std::process::id().to_string()
     );
     guard.shutdown().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deep_home_serve_binds_in_the_private_user_directory() {
+    let root = tempfile::tempdir().unwrap();
+    let home = deep_home(root.path());
+    let mut env = HashMap::new();
+    env.insert(NATIVE_PLUGIN_HOST_ENABLE_ENV.into(), "1".into());
+    let Some(base) = user_private_dir() else {
+        // Linux without XDG_RUNTIME_DIR: serve refuses, never /tmp.
+        let error = match maybe_start(&home, &mut env).await {
+            Err(error) => error,
+            Ok(_) => panic!("serve started without a per-user directory"),
+        };
+        assert!(
+            error.to_string().contains("PACER_NATIVE_PLUGIN_HOST=0"),
+            "{error}"
+        );
+        return;
+    };
+    let guard = maybe_start(&home, &mut env).await.unwrap().unwrap();
+    let socket = Path::new(env.get(HOST_SOCKET_ENV).unwrap());
+    let dir = socket.parent().unwrap();
+    assert_eq!(dir.parent().unwrap(), base);
+    assert!(
+        dir.file_name()
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .starts_with("pacer-"),
+        "{}",
+        dir.display()
+    );
+    assert!(socket.as_os_str().len() <= SOCKET_PATH_MAX);
+    assert_eq!(fs::metadata(dir).unwrap().mode() & 0o777, 0o700);
+    assert_eq!(
+        fs::symlink_metadata(socket).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // The lease and its sidecars follow the socket into the private directory.
+    let pid = dir.join("host.sock.pid");
+    assert_eq!(
+        fs::read_to_string(&pid).unwrap().trim(),
+        std::process::id().to_string()
+    );
+    assert_eq!(
+        fs::symlink_metadata(&pid).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert_eq!(
+        fs::read_to_string(dir.join(HOST_KEY_NAME)).unwrap().trim(),
+        guard.owner_key()
+    );
+    // The deep home itself is never touched.
+    assert!(!home.join("run").exists());
+    guard.shutdown().await;
+    assert!(!socket.exists());
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn a_deep_home_second_serve_is_refused_with_the_private_lease() {
+    let root = tempfile::tempdir().unwrap();
+    let home = deep_home(root.path());
+    let first = maybe_start(&home, &mut flag_on(0)).await.unwrap().unwrap();
+    let error = match maybe_start(&home, &mut flag_on(600)).await {
+        Err(error) => error,
+        Ok(_) => panic!("a second deep-home owner started"),
+    };
+    assert_eq!(exit_code(&error), EXIT_HOME_OWNED);
+    // The refusal names the bound socket and the pid read from the private dir.
+    assert!(error.to_string().contains("host.sock"), "{error}");
+    assert!(
+        error
+            .to_string()
+            .contains(&format!("(pid {})", std::process::id())),
+        "{error}"
+    );
+    first.shutdown().await;
+}
+
+#[test]
+fn a_deep_home_serve_without_a_usable_private_dir_is_refused_with_the_escape_hatch() {
+    let root = tempfile::tempdir().unwrap();
+    let home = deep_home(root.path());
+    let auth = PeerAuth::same_uid(OwnerKey::generate().unwrap());
+    let result = ReverseBridge::bind_serve(&home, auth);
+    let Some(base) = user_private_dir() else {
+        // No per-user directory: the flag that runs a short home refuses here.
+        let message = result.err().unwrap().to_string();
+        assert!(message.contains("PACER_NATIVE_PLUGIN_HOST=0"), "{message}");
+        assert!(message.contains("shorter PACER_HOME"), "{message}");
+        return;
+    };
+    // A usable private directory lets the deep home bind there (0700 dir, 0600 socket).
+    let bridge = result.unwrap();
+    let socket = bridge.path().to_path_buf();
+    let dir = socket.parent().unwrap().to_path_buf();
+    assert_eq!(dir.parent().unwrap(), base);
+    assert!(socket.as_os_str().len() <= SOCKET_PATH_MAX);
+    assert_eq!(
+        fs::symlink_metadata(&socket).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    drop(bridge);
+    fs::remove_file(dir.join("host.sock")).ok();
+    fs::remove_dir(dir).ok();
 }

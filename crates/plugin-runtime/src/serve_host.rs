@@ -25,9 +25,11 @@
 //! to [`NativeHostSession::crash_reports`], observation requests to
 //! [`NativeHostSession::door_requests`].
 
+use crate::bridge_listener::current_uid;
 use crate::{
     BridgeError, BridgeHandle, DoorRequest, HOST_BRIDGE_ENABLE_ENV, HOST_KEY_NAME, HOST_SOCKET_ENV,
-    HOST_SOCKET_NAME, OwnerError, OwnerKey, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
+    OwnerError, OwnerKey, PeerAuth, ProcessOwner, ReverseBridge, SharedOwner,
+    connection_dir::serve_socket_dir,
     connection_socket_name,
     crash::{CrashBook, CrashReport},
     dark_bridge_disabled, dark_bridge_enabled,
@@ -47,9 +49,11 @@ use tokio::sync::{Mutex, mpsc};
 /// The serve owner's pid, beside `host.sock` in `run/`.
 pub const HOST_SOCKET_PID_NAME: &str = "host.sock.pid";
 
-/// The pid `run/host.sock.pid` names, when it holds one.
+/// The pid `run/host.sock.pid` names, when it holds one; for a deep home the
+/// sidecar sits in the same private per-user directory as `host.sock` (B0b).
 pub fn read_owner_pid(pacer_home: &Path) -> Option<u32> {
-    fs::read_to_string(pacer_home.join("run").join(HOST_SOCKET_PID_NAME))
+    let dir = serve_socket_dir(pacer_home, current_uid(), false).ok()?;
+    fs::read_to_string(dir.join(HOST_SOCKET_PID_NAME))
         .ok()?
         .trim()
         .parse()
@@ -149,8 +153,7 @@ impl NativeHostSession {
         let key = OwnerKey::generate().map_err(BridgeError::from)?;
         let key_text = key.to_hex();
         let (mut session, env) = Self::start_with(pacer_home, key.clone(), || {
-            let bridge =
-                ReverseBridge::bind_at(pacer_home, HOST_SOCKET_NAME, PeerAuth::same_uid(key))?;
+            let bridge = ReverseBridge::bind_serve(pacer_home, PeerAuth::same_uid(key))?;
             // The socket is the lease and is bound first, so a refused second
             // serve never overwrites the live owner's key.
             if let Err(error) =

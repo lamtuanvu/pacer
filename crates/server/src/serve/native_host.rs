@@ -147,9 +147,19 @@ pub(super) async fn maybe_start(
     for (key, value) in core_env {
         env.insert(key, value);
     }
+    let socket = session.socket_path();
+    let home_run = pacer_home.join("run");
+    if socket.parent() != Some(&home_run) {
+        eprintln!(
+            "pacer: serve: PACER_HOME ({}) is too deep for the plugin owner socket in run/, so \
+             it was bound in the private per-user directory at {}",
+            pacer_home.display(),
+            socket.display()
+        );
+    }
     eprintln!(
         "pacer: native plugin host enabled (socket={})",
-        session.socket_path().display()
+        socket.display()
     );
     Ok(Some(Guard { session }))
 }
