@@ -197,7 +197,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
 }
 
 function createConflictResolutionTask(
-  ctx: Ctx, run: RunRow, task: TaskRecord, taskBranch: string, files: string,
+  ctx: Ctx, run: RunRow, task: TaskRecord | { id: string; rev: number }, taskBranch: string, files: string,
 ): TaskRecord {
   const fileList = files.trim() || "(unknown)";
   const goal = [
@@ -228,4 +228,61 @@ function createConflictResolutionTask(
     }
   }
   return resolution;
+}
+
+/** The run branch tip a retry of this step task should start from, or null when not a run-branch task. */
+export function runBranchBaseForRetry(ctx: Ctx, taskId: string): string | null {
+  const step = stepByTask(ctx, taskId);
+  if (!step) return null;
+  const run = getRun(ctx, step.runId);
+  return run?.branch ?? null;
+}
+
+export type SyncBaseResult =
+  | { ok: true; run: RunRow }
+  | { ok: false; merge: "conflict"; resolution_task: string; run: RunRow };
+
+/**
+ * Merge the base branch's current tip into the run branch (same conflict path as accept).
+ * Library form of `run.sync_base`; the op arrives in a later task.
+ */
+export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Promise<SyncBaseResult> {
+  const run = getRun(ctx, runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
+  if (run.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+  if (!run.branch || !run.baseRef) throw new CoreError("invalid_input", `run ${runId} has no branch to sync`);
+
+  return withMergeLock(ctx, run.id, async () => {
+    const live = getRun(ctx, run.id) ?? run;
+    if (live.rev !== expectRev) throw new CoreError("conflict", `conflict: run ${runId} changed since rev ${expectRev}`);
+    const wt = await integrationWorktreeUnlocked(ctx, live);
+    const top = await resolveRepoTop(ctx, live.repo);
+    // Resolve the base tip without checking it out in the main worktree.
+    const tip = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `${live.baseRef}^{commit}`], 10_000);
+    const sha = tip.stdout.trim();
+    if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
+      throw new CoreError("unavailable", `cannot resolve base ${live.baseRef}: ${firstLine(tip.stderr)}`);
+    }
+    const signoff = mergeSignoffEnabled(top);
+    const argv = [
+      "git", "-C", wt,
+      "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
+      "merge", "--no-ff", "--no-edit",
+      ...(signoff ? ["--signoff"] : []),
+      "-m", `Sync base ${live.baseRef} into ${live.branch}`,
+      sha,
+    ];
+    const merged = await ctx.run(argv, 60_000);
+    if (merged.code === 0) return { ok: true, run: getRun(ctx, run.id) ?? live };
+
+    const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
+      || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
+    if (conflicted) {
+      const files = (await ctx.run(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"], 15_000)).stdout.trim();
+      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+      const resolution = createConflictResolutionTask(ctx, live, { id: `base:${live.baseRef}`, rev: live.rev }, live.baseRef!, files);
+      return { ok: false, merge: "conflict", resolution_task: resolution.id, run: live };
+    }
+    throw new CoreError("unavailable", `sync_base failed: ${firstLine(merged.stderr) || firstLine(merged.stdout) || `exit ${merged.code}`}`);
+  });
 }
