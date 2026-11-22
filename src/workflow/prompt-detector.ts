@@ -6,6 +6,8 @@ import { listTasksWhere, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import { insertQuestion, stepByTask, type QuestionRow } from "./store";
 import { enqueueWakeup } from "./wakeups";
+import { questionEntityValue } from "./questions";
+import { publish } from "../link/publish";
 
 export const PROMPT_WAIT_QUIET_S = 30;
 
@@ -137,5 +139,9 @@ export function convertPromptWaitToQuestion(
     createdAt: ctx.now,
   });
   clearPromptWait(ctx, taskId);
+  void publish(ctx, [{
+    type: "entity",
+    data: { kind: "question", id: q.id, value: questionEntityValue(q) },
+  }]).catch(() => {});
   return q;
 }

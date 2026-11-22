@@ -30,6 +30,7 @@ import {
 } from "./store";
 import { completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "./run-grant";
+import { publish } from "../link/publish";
 
 export type AskQuestionInput = QuestionInput & {
   /** Orchestrator ask: bind to a step of the grant's run. */
@@ -56,6 +57,25 @@ export type AnswerQuestionInput = {
 export type QuestionDeps = {
   spawnRunner?: SpawnRunner;
 };
+
+/** Redacted question entity for link/plugins: id, run, status, blocks only — no bodies. */
+export function questionEntityValue(q: QuestionRow): {
+  id: string;
+  runId: string;
+  status: QuestionRow["status"];
+  blocks: QuestionRow["blocks"];
+} {
+  return { id: q.id, runId: q.runId, status: q.status, blocks: q.blocks };
+}
+
+async function publishQuestionEntity(ctx: Ctx, q: QuestionRow): Promise<void> {
+  try {
+    await publish(ctx, [{
+      type: "entity",
+      data: { kind: "question", id: q.id, value: questionEntityValue(q) },
+    }]);
+  } catch { /* publish must not fail the mutation */ }
+}
 
 function personCaller(ctx: Ctx): boolean {
   return !ctx.env.PACER_RUN_GRANT && !isOrchestratorSession(ctx) && !isExecutorSession(ctx);
@@ -111,6 +131,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
       ...(input.artifact ? { artifact: input.artifact } : {}),
       answerer: "person",
     });
+    await publishQuestionEntity(ctx, q);
     return q;
   }
 
@@ -161,6 +182,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
       t.question = { text: input.text, at: ctx.now };
     });
   }
+  await publishQuestionEntity(ctx, q);
   return q;
 }
 
@@ -178,7 +200,7 @@ export function raiseHumanStepQuestion(
   const answerer = canAutoDecide(root, stepId, stepDef) ? "orchestrator" : "person";
   const answerType = stepDef.question.kind as QuestionAnswerType;
   const options = stepDef.question.options?.map(value => ({ value }));
-  return insertQuestion(ctx, {
+  const q = insertQuestion(ctx, {
     runId: run.id,
     stepId,
     attempt,
@@ -190,6 +212,8 @@ export function raiseHumanStepQuestion(
     blocks: "step",
     answerer,
   });
+  void publishQuestionEntity(ctx, q);
+  return q;
 }
 
 /** Mark the open human-step question answered (run.answer / run.decide path). */
@@ -215,6 +239,7 @@ export function resolveHumanStepQuestion(
   });
   completeWakeupRef(ctx, runId, "question", q.id);
   completeWakeupRef(ctx, runId, "question", stepWakeRef(runId, stepId, attempt));
+  void publishQuestionEntity(ctx, answered);
   return answered;
 }
 
@@ -265,6 +290,7 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
       stepWakeRef(current.runId, current.stepId, current.attempt, current.branch),
     );
   }
+  void publishQuestionEntity(ctx, escalated);
   return escalated;
 }
 
@@ -368,6 +394,7 @@ export async function answerQuestion(
       ref: current.id,
       createdAt: ctx.now,
     });
+    await publishQuestionEntity(ctx, answered);
     return answered;
   }
 
@@ -392,6 +419,7 @@ export async function answerQuestion(
         answeredBy,
       });
       completeWakeupRef(ctx, current.runId, "question", current.id);
+      await publishQuestionEntity(ctx, answered);
       return answered;
     }
   }
@@ -429,6 +457,7 @@ export async function answerQuestion(
     });
   }
 
+  await publishQuestionEntity(ctx, answered);
   return answered;
 }
 
