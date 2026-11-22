@@ -110,6 +110,26 @@ test("a long interactive brief becomes a host-written prompt file after the empt
   } finally { cleanup(); }
 });
 
+/** Live P7: orchestrator replan wakes exceed EXECUTOR_ARGV_BYTES on headless claude argv. */
+test("a long headless brief spills to prompt.md so argv stays under the limit", async () => {
+  const { ctx, repo, cleanup } = fixture(
+    runners("claude-code", "headless"),
+    { claude: CLAUDE });
+  try {
+    const goal = `replan wake ${"y".repeat(40 * 1024)}`;
+    const task = selected(ctx, repo, "claude-code", goal);
+    const out = await runOwnedDirectCurrent(ctx, loadStrategy(ctx).providers["claude-code"] as ProviderCfg, task);
+    expect(out.exec.code).toBe(0);
+    const run = readTask(ctx, task.id)!.run!, file = join(run.dir, "prompt.md");
+    expect(readFileSync(file, "utf8")).toContain(goal);
+    expect(statSync(file).mode & 0o777).toBe(0o600);
+    // Echo agent prints every argv entry; the last must be the short file instruction.
+    const stdout = readFileSync(join(run.dir, "stdout"), "utf8");
+    expect(stdout).toContain(`Read the complete task instructions in ${JSON.stringify(file)} and carry them out.`);
+    expect(stdout).not.toContain(goal.slice(0, 80));
+  } finally { cleanup(); }
+});
+
 test("the planned strict guard matches strictClaudeLaunch byte for byte", () => {
   const ctx = fakeCtx({ env: { PACER_BIN: "/opt/pacer" } }), dir = tmpDir();
   const argv = ["claude", "-p", "--dangerously-skip-permissions", "prompt"];

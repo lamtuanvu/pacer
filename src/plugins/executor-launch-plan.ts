@@ -91,7 +91,9 @@ export async function planOwnedLaunch(ctx: Ctx, input: { cfg: ProviderCfg; task:
   const files: ExecutorLaunchFile[] = [];
   if (!launch) {
     let text = turn ? [brief, renderReplayThread(ctx, task, turn.messages), prompt, instructions].filter(Boolean).join("\n\n") : prompt + instructions;
-    if (interactive && Buffer.byteLength(text, "utf8") > INTERACTIVE_PROMPT_BYTES) {
+    // Headless claude/cursor/agy put the prompt on argv (EXECUTOR_ARGV_BYTES).
+    // Replan wakes and long briefs exceed that; spill for every launch mode.
+    if (Buffer.byteLength(text, "utf8") > INTERACTIVE_PROMPT_BYTES) {
       files.push({ name: "prompt.md", content: text, mode: 0o600 });
       text = promptFileInstruction(join(dir, "prompt.md"));
     }
