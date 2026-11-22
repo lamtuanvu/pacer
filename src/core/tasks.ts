@@ -282,17 +282,21 @@ export async function review(
     return {task:apiTask(ctx,reviewed),retry:apiTask(ctx,readTask(ctx,result.retry.id)??result.retry)};
   }
   // Phase 5: for a run task whose run has a branch, merge into the run branch before the verdict.
+  // Cheap read-only gate first so ordinary accepts never open workflow DDL / write txns.
   if (verdict === "accept") {
     validateReview();
-    const { mergeTaskOnAccept } = await import("../workflow/branch");
-    const merge = await mergeTaskOnAccept(ctx, id);
-    if (merge && !merge.merged) {
-      return {
-        task: apiTask(ctx, readTask(ctx, id)!),
-        accepted: false,
-        merge: "conflict",
-        resolution_task: merge.resolution_task,
-      };
+    const { stepTaskNeedsRunBranchMerge } = await import("../workflow/store");
+    if (stepTaskNeedsRunBranchMerge(ctx, id)) {
+      const { mergeTaskOnAccept } = await import("../workflow/branch");
+      const merge = await mergeTaskOnAccept(ctx, id);
+      if (merge && !merge.merged) {
+        return {
+          task: apiTask(ctx, readTask(ctx, id)!),
+          accepted: false,
+          merge: "conflict",
+          resolution_task: merge.resolution_task,
+        };
+      }
     }
   }
   const task=withTaskLock(ctx,id,()=>{validateReview();return record(verdict,executor);});
