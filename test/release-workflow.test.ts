@@ -36,11 +36,11 @@ function run(script: string, cwd: string, env: Record<string, string>) {
 test("desktop release builds every OS and architecture from the matching CLI artifact", () => {
   const desktop = jobs.desktop;
   expect(desktop).toBeDefined();
-  expect(desktop.needs).toEqual(["verify", "build"]);
+  expect(desktop.needs).toEqual(["verify", "build-linux"]);
   expect(desktop.strategy?.matrix.include).toEqual([
     // macOS ships only the signed, auto-updating app from desktop-build.
-    { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
-    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
+    { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-linux-x64", bundles: "appimage,deb" },
+    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-linux-arm64", bundles: "appimage,deb" },
   ]);
   const download = desktop.steps.find(s => s.uses?.startsWith("actions/download-artifact@"));
   expect(download?.with).toMatchObject({ name: "${{ matrix.cli_artifact }}", path: "dist/release" });
@@ -168,26 +168,49 @@ test("Homebrew configuration reports missing credentials and permits credential-
 });
 
 test("the release builds and publishes; validation runs post-merge on main", () => {
-  const build = jobs.build;
-  expect(build.needs).toBe("verify");
-  expect((build as any).if).toBeUndefined();
-  expect((build as any).strategy["fail-fast"]).toBe(false);
-  expect((build as any)["continue-on-error"]).toBeUndefined();
-  expect(build.strategy?.matrix.include).toEqual([
-    { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
-    { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
+  expect(jobs.build).toBeUndefined();
+  const macos = jobs["build-macos"];
+  const linux = jobs["build-linux"];
+  for (const build of [macos, linux]) {
+    expect(build.needs).toBe("verify");
+    expect((build as any).if).toBeUndefined();
+    expect((build as any).strategy["fail-fast"]).toBe(false);
+    expect((build as any)["continue-on-error"]).toBeUndefined();
+    expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
+    expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
+    const cache = build.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
+    expect(cache?.with).toMatchObject({ key: "release-${{ matrix.target }}" });
+    const upload = build.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
+    expect(upload?.with).toMatchObject({ name: "binaries-${{ matrix.os }}-${{ matrix.arch }}", path: "dist/release/*/pacer-*" });
+    const smoke = build.steps.find(s => s.name === "Smoke test native binary")?.run ?? "";
+    expect(smoke).toContain('os="${{ matrix.os }}"');
+    expect(smoke).toContain('arch="${{ matrix.arch }}"');
+    expect(smoke).not.toContain("uname");
+  }
+  expect(macos.strategy?.matrix.include).toEqual([
+    { os: "darwin", arch: "arm64", target: "darwin-arm64", image: "macos-15", rust_target: "aarch64-apple-darwin" },
+    { os: "darwin", arch: "x64", target: "darwin-x64", image: "macos-15", rust_target: "x86_64-apple-darwin", smoke_prefix: "arch -x86_64" },
   ]);
+  expect(linux.strategy?.matrix.include).toEqual([
+    { os: "linux", arch: "x64", target: "linux-x64", image: "ubuntu-24.04", rust_target: "x86_64-unknown-linux-musl" },
+    { os: "linux", arch: "arm64", target: "linux-arm64", image: "ubuntu-24.04-arm", rust_target: "aarch64-unknown-linux-musl" },
+  ]);
+  expect(macos.steps.find(s => s.name === "Install Linux cross-build tools")).toBeUndefined();
+  expect(linux.steps.find(s => s.name === "Install Linux cross-build tools")?.run).toContain("cargo-zigbuild");
+  expect(macos.steps.find(s => s.name === "Smoke test native binary")?.run).toContain("${{ matrix.smoke_prefix }}");
   // Amendment 0.24.0 (proposed): the release only builds and publishes; no M1 gate, no CI-suite gate.
   expect(jobs["ci-suite"]).toBeUndefined();
-  expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
-  expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
   expect(workflow).not.toContain("gate:m1");
   expect(workflow).not.toContain("ci-evidence");
-  expect(jobs.publish.needs).toEqual(["verify", "build", "desktop"]);
+  expect(jobs.publish.needs).toEqual(["verify", "build-macos", "build-linux", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
     else expect((jobs[name] as any).if ?? "").not.toContain("always()");
+  }
+  for (const job of ["publish", "npm", "homebrew"]) {
+    const download = jobs[job].steps.find(s => s.with?.pattern === "binaries-*");
+    expect(download?.with).toMatchObject({ "merge-multiple": true, path: "dist/release" });
   }
   const verify = jobs.verify.steps.map(s => s.run ?? "").join("\n");
   expect(verify).toContain("bun run typecheck");
@@ -218,7 +241,7 @@ test("the M1 gate runs post-merge on main in CI instead of the release", () => {
     { runner: "macos-latest", targets: "darwin-arm64,darwin-x64" },
     { runner: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
   ]);
-  // Same build recipe as release.yml's build job, including the Rust cache key.
+  // Shared release-build recipe steps (matrix and cache stay paired; release.yml uses per-target jobs).
   const names = gate.steps.map(s => s.name ?? s.uses ?? s.run);
   for (const step of ["Install dependencies", "Install Rust release targets", "Install Linux cross-build tools", "Build runner targets", "Build the Rust fixture plugin", "M1 gate checks against built host release artifacts"]) {
     expect(names).toContain(step);
@@ -283,7 +306,7 @@ function stamp(root: string, version: string, extra = false): string {
 
 const outputs = (file: string) => Object.fromEntries(readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(line => line.split("=", 2) as [string, string]));
 
-test("verify classifies the channel and checks that a nightly stamp only changes version files", () => {
+test("verify classifies the channel and checks that a nightly stamp only changes version files", { timeout: 20_000 }, () => {
   const verify = jobs.verify;
   expect(verify.outputs).toMatchObject({ channel: "${{ steps.channel.outputs.channel }}", parent: "${{ steps.channel.outputs.parent }}" });
   // check-diff reads the stamp commit's parent.
