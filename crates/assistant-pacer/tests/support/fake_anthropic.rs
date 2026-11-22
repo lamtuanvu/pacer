@@ -17,14 +17,20 @@ pub struct RecordedAnthropicRequest {
 
 #[derive(Clone)]
 pub enum AnthropicScript {
-    Text { content: String, usage: (u64, u64) },
+    Text {
+        content: String,
+        usage: (u64, u64),
+    },
     ToolUse {
         id: String,
         name: String,
         input: Value,
         usage: (u64, u64),
     },
-    HttpError { status: u16, body: String },
+    HttpError {
+        status: u16,
+        body: String,
+    },
 }
 
 pub struct FakeAnthropic {

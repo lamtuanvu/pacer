@@ -22,7 +22,11 @@ pub fn remaining_output(max: u64, used: u64) -> Result<u64, CompletionError> {
 ///   `additional_params.max_tokens`, which we rewrite here.
 /// - Gemini: `additional_params` is `AdditionalParameters` with `generationConfig.maxOutputTokens`.
 /// - Anthropic: uses the request's `max_tokens` field only.
-pub fn apply_remaining(req: &mut CompletionRequest, max: u64, used: u64) -> Result<u64, CompletionError> {
+pub fn apply_remaining(
+    req: &mut CompletionRequest,
+    max: u64,
+    used: u64,
+) -> Result<u64, CompletionError> {
     let left = remaining_output(max, used)?;
     req.max_tokens = Some(left);
     if let Some(Value::Object(map)) = req.additional_params.as_mut() {

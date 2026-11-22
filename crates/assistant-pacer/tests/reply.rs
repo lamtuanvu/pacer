@@ -627,7 +627,10 @@ async fn remaining_output_budget_is_passed_per_call() {
         .collect();
     assert_eq!(maxes.len(), 2);
     assert_eq!(maxes[0], 100);
-    assert_eq!(maxes[1], 60, "second call must see remaining budget, got {maxes:?}");
+    assert_eq!(
+        maxes[1], 60,
+        "second call must see remaining budget, got {maxes:?}"
+    );
     assert_eq!(result["usage"]["output"], 45);
     h.close().await;
 }
@@ -670,11 +673,11 @@ async fn anthropic_plain_answer_and_tool_round() {
         .await
         .expect("anthropic reply");
     assert_eq!(result["message"], "From Anthropic.");
-    assert_eq!(fake.requests.lock().unwrap()[0].api_key.as_deref(), Some("test-key"));
     assert_eq!(
-        fake.requests.lock().unwrap()[0].body["max_tokens"],
-        1024
+        fake.requests.lock().unwrap()[0].api_key.as_deref(),
+        Some("test-key")
     );
+    assert_eq!(fake.requests.lock().unwrap()[0].body["max_tokens"], 1024);
     assert_eq!(fake.requests.lock().unwrap().len(), 2);
     h.close().await;
 }
@@ -747,8 +750,8 @@ async fn gemini_plain_answer() {
         fake.requests.lock().unwrap()[0].api_key.as_deref(),
         Some("test-key")
     );
-    let max_out = fake.requests.lock().unwrap()[0].body["generationConfig"]["maxOutputTokens"]
-        .as_u64();
+    let max_out =
+        fake.requests.lock().unwrap()[0].body["generationConfig"]["maxOutputTokens"].as_u64();
     assert_eq!(max_out, Some(1024));
     h.close().await;
 }
@@ -780,7 +783,13 @@ async fn gemini_tool_round() {
     let result = h
         .call(
             "assistant.reply",
-            provider_params("gemini", "hi", tools, limits(2, 30_000), Some(&fake.base_url)),
+            provider_params(
+                "gemini",
+                "hi",
+                tools,
+                limits(2, 30_000),
+                Some(&fake.base_url),
+            ),
         )
         .await
         .expect("gemini tool round");
@@ -800,7 +809,13 @@ async fn gemini_provider_error_class() {
     let err = h
         .call(
             "assistant.reply",
-            provider_params("gemini", "hi", json!([]), limits(0, 30_000), Some(&fake.base_url)),
+            provider_params(
+                "gemini",
+                "hi",
+                json!([]),
+                limits(0, 30_000),
+                Some(&fake.base_url),
+            ),
         )
         .await
         .expect_err("auth");

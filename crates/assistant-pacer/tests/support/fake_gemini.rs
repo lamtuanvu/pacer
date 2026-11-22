@@ -19,13 +19,19 @@ pub struct RecordedGeminiRequest {
 
 #[derive(Clone)]
 pub enum GeminiScript {
-    Text { content: String, usage: (u64, u64) },
+    Text {
+        content: String,
+        usage: (u64, u64),
+    },
     FunctionCall {
         name: String,
         args: Value,
         usage: (u64, u64),
     },
-    HttpError { status: u16, body: String },
+    HttpError {
+        status: u16,
+        body: String,
+    },
 }
 
 pub struct FakeGemini {
@@ -144,9 +150,7 @@ impl FakeGemini {
     }
 }
 
-async fn read_http_body(
-    stream: &mut tokio::net::TcpStream,
-) -> Option<(String, String, String)> {
+async fn read_http_body(stream: &mut tokio::net::TcpStream) -> Option<(String, String, String)> {
     let mut buf = vec![0u8; 65536];
     let mut collected = Vec::new();
     loop {

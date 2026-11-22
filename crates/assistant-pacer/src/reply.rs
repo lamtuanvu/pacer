@@ -123,10 +123,8 @@ async fn run_reply(
 
     match api {
         AssistantReplyParamsEndpointApi::OpenaiCompatible => {
-            let completion = BudgetedModel::new(
-                CompatChatModel::new(base_url, key, &model),
-                budget.clone(),
-            );
+            let completion =
+                BudgetedModel::new(CompatChatModel::new(base_url, key, &model), budget.clone());
             run_agent(
                 completion,
                 &params,
