@@ -22,6 +22,8 @@ export const RUN_GRANT_OPS = [
   "run.choose",
   "run.decide",
   "run.submit_graph",
+  "run.sync_base",
+  "run.publish",
 ] as const;
 
 export type RunGrantOp = (typeof RUN_GRANT_OPS)[number];

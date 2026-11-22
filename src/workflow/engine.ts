@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, recordDecision, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, recordDecision, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
@@ -827,7 +827,7 @@ async function seedFinishedAndResume(
  *  fails the run (never leaves it silently stuck) and rethrows. */
 export async function startRun(
   ctx: Ctx,
-  input: { workflow: string; repo: string; brief: string; title?: string },
+  input: { workflow: string; repo: string; brief: string; title?: string; publish?: "draft" },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
   child?: {
@@ -843,6 +843,9 @@ export async function startRun(
   if (!def) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
   if (typeof input.brief !== "string" || !input.brief.trim()) throw new CoreError("invalid_input", "brief is required");
   if (typeof input.repo !== "string" || !input.repo) throw new CoreError("invalid_input", "repo is required");
+  if (input.publish !== undefined && input.publish !== "draft") {
+    throw new CoreError("invalid_input", "publish must be 'draft' when set");
+  }
   const budget = child ? undefined : budgetForDefinition(def);
   // Generated/choose children inherit the parent's pinned step mode (plain vs work_node).
   const parentStepMode = child
@@ -867,7 +870,8 @@ export async function startRun(
       ...(parentStepMode ? { stepMode: parentStepMode } : {}),
     } : {}),
   });
-  await publishRunChange(ctx, run); // clients see the run even when its start then fails
+  if (input.publish === "draft" && !child) setPublishOptIn(ctx, run.id, "draft");
+  await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // clients see the run even when its start then fails
   try {
     const live = getRun(ctx, run.id)!;
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);

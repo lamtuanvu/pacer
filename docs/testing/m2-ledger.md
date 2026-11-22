@@ -784,6 +784,10 @@ mirrored in `pacer-read-model::v2_compat::surface`).
 | `run.decide` | TS-forwarded | Grant op: answer an `auto` human step when auto mode is on; never a `must` step. |
 | `run.choose` | TS-forwarded | Grant op: start a child run for a `choose_workflow` step. |
 | `run.submit_graph` | TS-forwarded | Grant op: submit a generated graph for a waiting `generate` step (`submitGraph`); validation errors count toward retries. |
+| `step.artifact` | TS-forwarded | Attach a file from the step task's worktree or evidence directory (`storeArtifact`); executor own-step or live run grant. |
+| `run.sync_base` | TS-forwarded | Merge the base tip into the run branch (`syncBase`); person or live run grant for this run. |
+| `run.publish` | TS-forwarded | Gated push + `gh pr create` (`publishRun`); person or live run grant for this run. |
+| `run.cleanup` | TS-forwarded | Person-only local cleanup (`cleanupRun`); never touches remotes. |
 
 
 `test/config-settings-parity.test.ts` regenerates and verifies the shared
@@ -798,7 +802,7 @@ evidence belongs with the fixed `native-config` live fixture and targeted parity
 
 ## Unregistered public ops (Forwarded by default)
 
-Pinned against `stdio_hello.json` v3 (`259` ops). The Rust registry lists
+Pinned against `stdio_hello.json` v3 (`263` ops). The Rust registry lists
 native names in the detailed table above; every other public op remains TypeScript-owned
 until a cutover PR registers it and updates this ledger. Rows already named in
 the table above are omitted here. Owner streams follow

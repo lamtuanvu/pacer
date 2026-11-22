@@ -357,3 +357,44 @@ test("run.retry_orchestrator clears a failure block and is person-only", async (
     { id: run.id, expect_rev: run.rev },
   )))?.code).toBe("not_allowed");
 });
+
+test("run.sync_base / publish / cleanup ops and grant scoping", async () => {
+  const ctx = fakeCtx();
+  await callOp(ctx, "workflow.add", { source: GOOD });
+  const run = await callOp(ctx, "run.start", {
+    workflow: "t/demo", repo: tmpDir(), brief: "Do X", publish: "draft",
+  }, stubDeps()) as RunRow;
+  expect(run.publishOptIn ?? (await callOp(ctx, "run.get", { id: run.id }) as { run: RunRow }).run.publishOptIn).toBe("draft");
+
+  // No branch yet → sync_base invalid_input (research step does not create a branch).
+  const sync = await fail(callOp(ctx, "run.sync_base", { id: run.id, expect_rev: run.rev }));
+  expect(["invalid_input", "not_found"]).toContain(sync?.code);
+
+  const { issueRunGrant } = await import("../src/workflow/run-grant");
+  const { insertTurn } = await import("../src/workflow/wakeups");
+  insertTurn(ctx, {
+    id: "turn_p5ops", runId: run.id, planner: "claude-code",
+    status: "running", startedAt: ctx.now, deadline: ctx.now + 600,
+  });
+  const bearer = issueRunGrant(ctx, { runId: run.id, turnId: "turn_p5ops", deadline: ctx.now + 600 });
+  const granted = { ...ctx, env: { ...ctx.env, PACER_RUN_GRANT: bearer, PACER_ROLE: "orchestrator" } };
+
+  // Person-only cleanup refused under grant (assertPersonCaller / assertCallerCanInvoke).
+  const cleanup = await fail(callOp(granted, "run.cleanup", {
+    id: run.id, delete_branch: false, expect_rev: run.rev,
+  }));
+  expect(cleanup?.code).toBe("not_allowed");
+
+  // Wrong run id under grant → unknown run (same text as unknown id).
+  const other = await callOp(ctx, "run.start", {
+    workflow: "t/demo", repo: tmpDir(), brief: "Other",
+  }, stubDeps()) as RunRow;
+  const wrong = await fail(callOp(granted, "run.sync_base", { id: other.id, expect_rev: other.rev }));
+  expect(wrong?.code).toBe("not_allowed");
+  expect(wrong?.message).toMatch(/unknown run|outside this run grant|not allowed by this run grant/i);
+
+  // Executor cannot publish.
+  expect((await fail(callOp(executorCtx(ctx), "run.publish", {
+    id: run.id, draft: true, title: "t", body: "b", expect_rev: run.rev,
+  })))?.code).toBe("not_allowed");
+});
