@@ -3,7 +3,7 @@
 // scan when a wake-up is lost (spec "Wake-ups and turns are durable").
 import type { Database } from "bun:sqlite";
 import type { Ctx } from "../types";
-import { canAutoDecide } from "./auto";
+import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import {
   getDefinition, getRun, liveRuns, rootRunId, stepsOfRun, updateStep, workflowDatabase,
   type StepRow,
@@ -232,6 +232,14 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
         if (step.status !== "waiting") return false;
         return !chooseStepChildRunId(step.result);
       }
+      if (stepDef.type === "generate") {
+        if (step.status !== "waiting") return false;
+        if (chooseStepChildRunId(step.result)) return false;
+        const pending = step.result != null && typeof step.result === "object"
+          && (step.result as { pendingApproval?: unknown }).pendingApproval === true;
+        // Pending approval waits on the person (question), not another orchestrator turn.
+        return !pending;
+      }
       if (stepDef.type === "agent" && stepDef.role === "orchestrator") {
         return step.status === "running" || step.status === "waiting";
       }
@@ -239,6 +247,16 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
     }
     if (cause === "question") {
       return step.status === "waiting";
+    }
+    if (cause === "replan") {
+      if (step.status !== "waiting") return false;
+      if (chooseStepChildRunId(step.result)) return false;
+      const prior = step.result != null && typeof step.result === "object"
+        ? step.result as { pendingApproval?: unknown; replanMode?: unknown }
+        : {};
+      // Open until a replacement graph is submitted (pendingApproval) or a child starts.
+      if (prior.pendingApproval === true) return false;
+      return prior.replanMode === "auto" || prior.replanMode === "ask";
     }
   }
   return false;
@@ -374,7 +392,7 @@ export function chooseStepChoosing(result: unknown): { choosingAt: number } | nu
   return { choosingAt: typeof at === "number" ? at : 0 };
 }
 
-/** Stale choose claims: stamp an existing child or clear the marker (H1). */
+/** Stale choose/generate claims: stamp an existing child or clear the marker (H1 / I4). */
 export function reconcileStaleChooseClaims(ctx: Ctx): number {
   let handled = 0;
   for (const run of liveRuns(ctx)) {
@@ -382,7 +400,8 @@ export function reconcileStaleChooseClaims(ctx: Ctx): number {
     if (!def) continue;
     for (const step of stepsOfRun(ctx, run.id)) {
       if (step.status !== "waiting") continue;
-      if (def.steps[step.stepId]?.type !== "choose_workflow") continue;
+      const stepType = def.steps[step.stepId]?.type;
+      if (stepType !== "choose_workflow" && stepType !== "generate") continue;
       const claim = chooseStepChoosing(step.result);
       if (!claim) continue;
       if (ctx.now - claim.choosingAt < CHOOSING_STALE_S) continue;
@@ -396,12 +415,31 @@ export function reconcileStaleChooseClaims(ctx: Ctx): number {
         ...(step.branch !== undefined ? { branch: step.branch } : {}),
       };
       if (child) {
-        const prior = step.result as { workflow?: string; reason?: string };
+        const prior = step.result != null && typeof step.result === "object"
+          ? { ...(step.result as Record<string, unknown>) }
+          : {};
         updateStep(ctx, key, {
           result: {
-            workflow: typeof prior.workflow === "string" ? prior.workflow : "",
-            reason: typeof prior.reason === "string" ? prior.reason : "",
+            ...prior,
             childRunId: child.id,
+            choosing: undefined,
+            choosingAt: undefined,
+            pendingApproval: undefined,
+          },
+        });
+      } else if (stepType === "generate") {
+        // Clear the stale generate claim; restore pendingApproval when the step needs it.
+        const prior = step.result != null && typeof step.result === "object"
+          ? { ...(step.result as Record<string, unknown>) }
+          : {};
+        const stepDef = def.steps[step.stepId];
+        const needsApproval = stepDef?.type === "generate" && !!stepDef.approval;
+        updateStep(ctx, key, {
+          result: {
+            ...prior,
+            choosing: undefined,
+            choosingAt: undefined,
+            pendingApproval: needsApproval || prior.replanMode === "ask" ? true : undefined,
           },
         });
       } else {
@@ -541,6 +579,33 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         // Already chose: result.childRunId is stamped until the child settles (N1).
         if (chooseStepChildRunId(step.result)) continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
+        push(root, "orchestrator_step", ref, step.startedAt);
+        continue;
+      }
+      if (step.status === "waiting" && stepDef.type === "generate") {
+        if (chooseStepChildRunId(step.result)) continue;
+        const prior = step.result != null && typeof step.result === "object"
+          ? step.result as { pendingApproval?: unknown; replanMode?: unknown; choosing?: unknown }
+          : {};
+        if (prior.choosing === true) continue;
+        const pending = prior.pendingApproval === true;
+        const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
+        if (pending) {
+          if (canAutoApproveGenerate(rootRun, step.stepId, stepDef)) {
+            if (!hasOpenWakeup(ctx, root, "question", ref)) {
+              push(root, "question", ref, step.startedAt);
+            }
+          }
+          continue;
+        }
+        // Lost replan wake: recreate so the orchestrator can submit a replacement.
+        if (prior.replanMode === "auto" || prior.replanMode === "ask") {
+          if (!hasOpenWakeup(ctx, root, "replan", ref)) {
+            push(root, "replan", ref, step.startedAt);
+          }
+          continue;
+        }
         if (hasOpenWakeup(ctx, root, "orchestrator_step", ref)) continue;
         push(root, "orchestrator_step", ref, step.startedAt);
         continue;

@@ -1,6 +1,6 @@
 import { makeCtx } from "../ctx";
 import type { Ctx } from "../types";
-import { pumpOnce, defaultPumpDeps } from "../link/pump";
+import { pumpOnce, pumpOnceOpts, defaultPumpDeps } from "../link/pump";
 import { brokerTick } from "../messaging/broker";
 import { callerWake } from "./caller-wake";
 import { autoCleanSweep } from "../core/tasks";
@@ -118,11 +118,16 @@ const statusMode = async () => {
 
 function runLoops(): void {
   if (!init) return;
+  if (!spawnRunner) throw new Error("missing service spawnRunner");
+  const spawn = spawnRunner;
   report({ type: "loops", names: MANAGED_LOOPS });
   // Poll changes/active tasks at 500ms; pumpOnce keeps status/entity/quota work at 15s.
   // A shorter pumpMs remains useful for tests; 0 disables both paths.
-  if (pumpMs > 0) loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, { poll: true }));
-  loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawnRunner ?? undefined, mode: statusMode, callerWake }));
+  if (pumpMs > 0) {
+    // Forward the service selfCommand unconditionally: drain must not use this Worker's argv.
+    loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, pumpOnceOpts(spawn)));
+  }
+  loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawn, mode: statusMode, callerWake }));
   loop("sweep", 60 * 60_000, 500, c => autoCleanSweep(c));
   loop("certification", 10 * 60_000, 2000, c => certificationTick(c));
   loop("usage", usageMs, 3000, c => refreshAllUsage({ ...c, now: Date.now() / 1000 }, true));
@@ -130,7 +135,7 @@ function runLoops(): void {
   // periodic pump means no observations loop either.
   if (pumpMs > 0) loop("observations", 60_000, 1000, c => refreshObservations(c));
   // Workflow runs advance from task changes on their own short cadence.
-  loop("workflow", 1000, 500, c => advanceRuns(c, spawnRunner ?? undefined));
+  loop("workflow", 1000, 500, c => advanceRuns(c, spawn));
 }
 
 type WorkerMessage = WorkerInit | { type: "stop" };
@@ -158,7 +163,13 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   armHeartbeat();
   // Start-up: revoke orphan prg_ grants and settle live turns with no process.
   void recoverOrphanTurns(fresh()).catch(() => { /* recovery is best-effort */ });
-  runLoops();
+  try {
+    runLoops();
+  } catch (error) {
+    // runLoops throws sync (e.g. missing spawnRunner) outside the init try/catch;
+    // route it into a failed report instead of an unhandled rejection on onmessage.
+    report({ type: "failed", reason: String(error) });
+  }
 };
 
 process.on("exit", () => { stopped = true; });

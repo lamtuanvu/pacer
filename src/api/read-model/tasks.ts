@@ -7,6 +7,7 @@ import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
 import { awaitsAnswer } from "../../tasks/types";
+import { isEngineOwnedKind } from "../../tasks/engine-owned";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
 import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
@@ -67,8 +68,8 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  });
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
- // Engine-owned orchestrator tasks stay out of ordinary task lists (D2.12).
- const rows=apiTasks(ctx,records.filter(t=>!t.archived && t.kind !== "orchestrate"));
+ // Engine-owned tasks (orchestrate, workflow-root) stay out of ordinary task lists (D2.12).
+ const rows=apiTasks(ctx,records.filter(t=>!t.archived && !isEngineOwnedKind(t.kind)));
  // `needs_input` (stored, and running with an open question via `visibleTaskState`)
  // is an active state: tasks requiring the user never age out of the snapshot window.
  // A needs_input that was answered, retried or dismissed is not retained by its state.

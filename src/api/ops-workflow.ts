@@ -9,21 +9,24 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { isExecutorSession, isOrchestratorSession } from "../install/role";
 import { WORKFLOW_OPS_REFUSAL } from "./caller-policy";
-import { parseWorkflow } from "../workflow/parse";
+import { normalizeWorkflowObject, parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
-  addDefinition, getDefinition, getRun, listDefinitions, listRuns, recordDecision,
+  addDefinition, getDefinition, getGraph, getRun, listDefinitions, listRuns, recordDecision,
   rootRunId, runEntityValue, stepByTask, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
 import {
-  answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
+  answerGenerateApproval, answerHumanStep, chooseWorkflow, defaultEngineDeps, recordStepResult, retryFailedStep,
   skipFailedStep, startRun, stopRun,
   type EngineDeps,
 } from "../workflow/engine";
-import { canAutoDecide } from "../workflow/auto";
+import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
-import type { HumanStep, WorkflowError, WorkflowDef } from "../workflow/schema";
+import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
+import {
+  checkWorkflowShape, isPlainObject, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef,
+} from "../workflow/schema";
 import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "../workflow/run-grant";
@@ -134,13 +137,48 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.get": op({
-    description: "One run with its step instances.",
+    description: "One run with its step instances and generated graph versions.",
     params: z.object({ id: runId }),
     handler: (ctx, p) => {
       assertPersonCaller(ctx);
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
-      return { run: runEntityValue(run), steps: stepsOfRun(ctx, p.id) };
+      const steps = stepsOfRun(ctx, p.id);
+      let pendingApproval: {
+        stepId: string;
+        attempt: number;
+        version: number;
+        graph?: WorkflowDef;
+        replanSummary?: string;
+        replanDiff?: { added: string[]; removed: string[]; changed: string[] };
+      } | undefined;
+      for (const step of steps) {
+        if (step.status !== "waiting") continue;
+        const result = step.result != null && typeof step.result === "object"
+          ? step.result as Record<string, unknown>
+          : null;
+        if (!result || result.pendingApproval !== true || typeof result.graphVersion !== "number") continue;
+        const graph = getGraph(ctx, {
+          runId: p.id, stepId: step.stepId, attempt: step.attempt, version: result.graphVersion,
+        });
+        pendingApproval = {
+          stepId: step.stepId,
+          attempt: step.attempt,
+          version: result.graphVersion,
+          ...(graph ? { graph: graph.def } : {}),
+          ...(typeof result.replanSummary === "string" ? { replanSummary: result.replanSummary } : {}),
+          ...(result.replanDiff != null && typeof result.replanDiff === "object"
+            ? { replanDiff: result.replanDiff as { added: string[]; removed: string[]; changed: string[] } }
+            : {}),
+        };
+        break;
+      }
+      return {
+        run: runEntityValue(run),
+        steps,
+        graphs: listGraphSummaries(ctx, p.id),
+        ...(pendingApproval ? { pendingApproval } : {}),
+      };
     },
   }),
   "run.list": op({
@@ -152,11 +190,20 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.answer": op({
-    description: "Answer a waiting human step; the answer advances the run. Requires the run's current rev.",
+    description: "Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.",
     params: z.object({ id: runId, step: z.string().min(1).max(128), answer: z.string().min(1).max(4000), expect_rev: z.number().int().positive() }),
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
+      const run = getRun(ctx, p.id);
+      if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+      const stepDef = def?.steps[p.step];
+      if (stepDef?.type === "generate") {
+        return answerGenerateApproval(ctx, {
+          runId: p.id, stepId: p.step, answer: p.answer, expectRev: p.expect_rev,
+        }, engine, spawn);
+      }
       return answerHumanStep(ctx, p.id, p.step, p.answer, p.expect_rev, engine, spawn);
     },
   }),
@@ -388,7 +435,7 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.decide": op({
-    description: "Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.",
+    description: "Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.",
     params: z.object({
       id: runId,
       step: z.string().min(1).max(128),
@@ -405,14 +452,33 @@ export const workflowOps: Record<string, OpDef> = {
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
       const stepDef = def?.steps[p.step];
-      if (!stepDef || stepDef.type !== "human") {
-        throw new CoreError("conflict", `conflict: step ${p.step} is not a human step`);
-      }
       const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
       const row = waiting[waiting.length - 1];
       const attempt = row?.attempt ?? 0;
       // Auto/strict live on the root run; child choose_workflow rows have auto=0 (I2).
       const root = getRun(ctx, rootRunId(ctx, p.id)) ?? run;
+      const { deps: engine, spawn } = engineDeps(deps);
+      if (stepDef?.type === "generate") {
+        if (!canAutoApproveGenerate(root, p.step, stepDef as GenerateStep)) {
+          recordDecision(ctx, {
+            runId: p.id, stepId: p.step, attempt, actor: "orchestrator",
+            kind: "refused", choice: p.choice, reason: p.reason,
+          });
+          throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+        }
+        if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
+        const updated = await answerGenerateApproval(ctx, {
+          runId: p.id, stepId: p.step, answer: p.choice, note: p.reason, expectRev: run.rev,
+        }, engine, spawn);
+        recordDecision(ctx, {
+          runId: p.id, stepId: p.step, attempt: row.attempt, actor: "orchestrator",
+          kind: "decide", choice: p.choice, reason: p.reason,
+        });
+        return updated;
+      }
+      if (!stepDef || stepDef.type !== "human") {
+        throw new CoreError("conflict", `conflict: step ${p.step} is not a human step`);
+      }
       if (!canAutoDecide(root, p.step, stepDef as HumanStep)) {
         recordDecision(ctx, {
           runId: p.id,
@@ -426,7 +492,6 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
       }
       if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
-      const { deps: engine, spawn } = engineDeps(deps);
       const updated = await answerHumanStep(ctx, p.id, p.step, p.choice, run.rev, engine, spawn);
       recordDecision(ctx, {
         runId: p.id,
@@ -438,6 +503,70 @@ export const workflowOps: Record<string, OpDef> = {
         reason: p.reason,
       });
       return updated;
+    },
+  }),
+  "run.submit_graph": op({
+    description: "Submit a generated sub-workflow for a waiting generate step under a live run grant.",
+    params: z.object({
+      id: runId,
+      step: z.string().min(1).max(128),
+      source: z.union([
+        z.string().min(1).max(256 * 1024),
+        z.record(z.string(), z.unknown()).superRefine((obj, ctx) => {
+          const bytes = Buffer.byteLength(JSON.stringify(obj), "utf8");
+          if (bytes > 256 * 1024) {
+            ctx.addIssue({
+              code: "custom",
+              message: `object-form source is ${bytes} bytes; max is ${256 * 1024}`,
+            });
+          }
+        }),
+      ]),
+    }),
+    handler: async (ctx, p, deps) => {
+      const grant = ctx.env.PACER_RUN_GRANT ? verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT) : null;
+      if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+        throw new CoreError("not_allowed", "run.submit_graph requires a live run grant for this run");
+      }
+      let def: WorkflowDef | undefined;
+      let shapeErrors: WorkflowError[] | undefined;
+      if (typeof p.source === "string") {
+        const parsed = parseWorkflow(p.source);
+        if (!parsed.def || parsed.errors.length > 0) {
+          shapeErrors = parsed.errors.length ? parsed.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = parsed.def;
+        }
+      } else if (isPlainObject(p.source)) {
+        const shaped = checkWorkflowShape(normalizeWorkflowObject(p.source));
+        if (!shaped.def || shaped.errors.length > 0) {
+          shapeErrors = shaped.errors.length ? shaped.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = shaped.def;
+        }
+      } else {
+        shapeErrors = [{ path: "source", message: "invalid workflow source" }];
+      }
+      if (shapeErrors) {
+        // Shape/parse errors count toward generate retries (same as validateGenerated).
+        return noteGenerateSubmitErrors(ctx, p.id, p.step, shapeErrors);
+      }
+      const { deps: engine, spawn } = engineDeps(deps);
+      const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
+      const attempt = waiting[waiting.length - 1]?.attempt ?? 0;
+      const result = await submitGraph(ctx, { runId: p.id, stepId: p.step, source: def! }, engine, spawn);
+      if (result.ok) {
+        recordDecision(ctx, {
+          runId: p.id,
+          stepId: p.step,
+          attempt,
+          actor: "orchestrator",
+          kind: "submit_graph",
+          choice: `v${result.version ?? "?"}`,
+          reason: "submit generated graph",
+        });
+      }
+      return result;
     },
   }),
 };

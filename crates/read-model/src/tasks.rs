@@ -785,18 +785,58 @@ pub fn task_list_page(
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<Value, Error> {
     let limit = options.limit.unwrap_or(20);
-    let fetch = TaskListOptions {
-        limit: Some(limit.saturating_add(1)),
-        ..options.clone()
-    };
-    let rows = select_task_list(ctx, store, &fetch)?;
-    let page = if rows.len() > limit {
-        &rows[..limit]
+    // Loop past hidden engine-owned rows until the page is full or the store ends
+    // (a single over-fetch of +20 is not enough when many roots/orchestrate sit
+    // ahead of ordinary tasks). Mirrors src/api/ops.ts task.list.
+    let mut collected: Vec<Value> = Vec::new();
+    let mut cursor: Option<String> = options.before.map(str::to_owned);
+    loop {
+        let fetch_limit = (limit + 1)
+            .saturating_sub(collected.len())
+            .saturating_add(20);
+        let fetch = TaskListOptions {
+            limit: Some(fetch_limit.max(21)),
+            before: cursor.as_deref(),
+            all: options.all,
+            repo: options.repo,
+            states: options.states,
+            executor: options.executor,
+            since: options.since,
+            query: options.query,
+        };
+        let batch = select_task_list(ctx, store, &fetch)?;
+        if batch.is_empty() {
+            break;
+        }
+        let batch_last = batch
+            .last()
+            .map(|t| text(&t["id"]).to_string())
+            .unwrap_or_default();
+        if cursor.as_deref() == Some(batch_last.as_str()) {
+            break;
+        }
+        for t in batch {
+            let kind = text(&t["kind"]);
+            if kind == "orchestrate" || kind == "workflow-root" {
+                continue;
+            }
+            collected.push(t);
+            if collected.len() > limit {
+                break;
+            }
+        }
+        cursor = Some(batch_last);
+        if collected.len() > limit {
+            break;
+        }
+    }
+    let page = if collected.len() > limit {
+        &collected[..limit]
     } else {
-        &rows[..]
+        &collected[..]
     };
     let tasks = api_task_page(ctx, active, page, store, alive)?;
-    let next = if rows.len() > limit {
+    let next = if collected.len() > limit {
         page.last().map(|t| t["id"].clone()).unwrap_or(Value::Null)
     } else {
         Value::Null
@@ -810,9 +850,14 @@ pub fn snapshot_tasks(
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<Vec<Value>, Error> {
+    // Engine-owned tasks stay out of ordinary task lists (D2.12), matching TS.
     let selected: Vec<_> = records
         .iter()
-        .filter(|t| !truth(&t["archived"]))
+        .filter(|t| {
+            !truth(&t["archived"])
+                && text(&t["kind"]) != "orchestrate"
+                && text(&t["kind"]) != "workflow-root"
+        })
         .cloned()
         .collect();
     let mut rows = api_tasks(ctx, active, &selected, store, alive)?;

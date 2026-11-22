@@ -14,7 +14,8 @@ const LAUNCH_FILES: Record<ExecutorLaunchFile["name"], { mode: number; bytes: nu
   "report-hook.sh": { mode: 0o700, bytes: 16_384, interactive: true },
   "claude-settings.json": { mode: 0o600, bytes: 16_384, interactive: true },
   "strict-claude-settings.json": { mode: 0o600, bytes: 16_384, interactive: false },
-  "prompt.md": { mode: 0o600, bytes: 8 * 1024 * 1024, interactive: true },
+  // Headless claude/cursor/agy also spill oversize prompts onto argv-safe files.
+  "prompt.md": { mode: 0o600, bytes: 8 * 1024 * 1024, interactive: false },
 };
 
 /** Publish a complete fixed artifact without replacing another entry at its name. */

@@ -14,6 +14,7 @@ Orchestrator contract (from pacer): you are the orchestrator for a pacer workflo
 - Act only through the allowed commands under your PACER_RUN_GRANT. Do not delegate new work.
 - Decide: \`pacer run decide <runId> <step> <choice> --reason <text>\`
 - Choose a child workflow: \`pacer run choose <runId> <step> <workflow> --reason <text>\`
+- Submit a generated graph: \`pacer run submit-graph --file <path> --id <runId> --step <step>\`
 - Skip a failed step: \`pacer step skip <runId> <step>\`
 - Retry a failed step: \`pacer step retry <runId> <step>\`
 - Record an orchestrator-step result: \`pacer step result --json '<object>'\`

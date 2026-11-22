@@ -6515,7 +6515,7 @@ Params JSON Schema:
 
 ### `run.answer`
 
-Answer a waiting human step; the answer advances the run. Requires the run's current rev.
+Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.
 
 Params JSON Schema:
 
@@ -6597,7 +6597,7 @@ Params JSON Schema:
 
 ### `run.decide`
 
-Answer an auto human step under a live run grant when the run's auto flag is on. Never answers a must step.
+Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.
 
 Params JSON Schema:
 
@@ -6638,7 +6638,7 @@ Params JSON Schema:
 
 ### `run.get`
 
-One run with its step instances.
+One run with its step instances and generated graph versions.
 
 Params JSON Schema:
 
@@ -6893,6 +6893,52 @@ Params JSON Schema:
   "required": [
     "id",
     "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.submit_graph`
+
+Submit a generated sub-workflow for a waiting generate step under a live run grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "source"
   ],
   "additionalProperties": false
 }
