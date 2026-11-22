@@ -62,10 +62,15 @@ const MERGE_LOCK_TIMEOUT_MS = 150_000;
 const MERGE_LOCK_STALE_MS = 420_000;
 
 /** Serialize merges (and branch creation) for one run. */
-export function withMergeLock<T>(ctx: Ctx, runId: string, fn: () => Promise<T> | T): Promise<T> {
+export function withMergeLock<T>(
+  ctx: Ctx,
+  runId: string,
+  fn: () => Promise<T> | T,
+  o: { timeoutMs?: number; staleMs?: number } = {},
+): Promise<T> {
   return withLock(ctx, lockName(runId), fn, {
-    timeoutMs: MERGE_LOCK_TIMEOUT_MS,
-    staleMs: MERGE_LOCK_STALE_MS,
+    timeoutMs: o.timeoutMs ?? MERGE_LOCK_TIMEOUT_MS,
+    staleMs: o.staleMs ?? MERGE_LOCK_STALE_MS,
   }).catch((error: unknown) => {
     if (error instanceof Error && /^timed out waiting for /.test(error.message)) {
       throw new CoreError("unavailable", `merge lock timed out for ${runId}`);

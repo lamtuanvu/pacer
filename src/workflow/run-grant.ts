@@ -19,6 +19,7 @@ export const RUN_GRANT_OPS = [
   "step.artifact",
   "step.skip",
   "step.retry",
+  "run.get",
   "run.choose",
   "run.decide",
   "run.submit_graph",

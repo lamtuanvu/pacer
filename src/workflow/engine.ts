@@ -1475,45 +1475,54 @@ export async function answerHumanStep(
       throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
     }
   }
+  // Publishing gate (D5/R2-F6): tip is read BEFORE the claim; grant callers refused
+  // before burning the step; decision is written inside claimStepAnswer's transaction.
+  const humanDef = def.steps[stepId];
+  const isPublishApproval = humanDef?.type === "human"
+    && humanDef.approves === "publish"
+    && (answer === "approve" || answer === "yes");
+  let publishDecision: {
+    runId: string; stepId: string; attempt: number; actor: string;
+    kind: string; choice: string; reason: string;
+  } | undefined;
+  if (isPublishApproval) {
+    if (ctx.env.PACER_RUN_GRANT) {
+      throw new CoreError("not_allowed", "publish approval requires a person");
+    }
+    if (!run.branch) {
+      throw new CoreError("unavailable", "cannot read branch tip for publish approval");
+    }
+    const tipResult = await ctx.run(
+      ["git", "-C", run.repo, "rev-parse", "--verify", `refs/heads/${run.branch}`],
+      10_000,
+    );
+    const tip = tipResult.stdout.trim();
+    if (tipResult.code !== 0 || !/^[0-9a-f]{40,64}$/i.test(tip)) {
+      throw new CoreError("unavailable", "cannot read branch tip for publish approval");
+    }
+    publishDecision = {
+      runId,
+      stepId,
+      attempt: row.attempt,
+      actor: "person",
+      kind: "publish_approved",
+      choice: answer,
+      reason: `approves: publish tip=${tip.toLowerCase()}`,
+    };
+  }
   // One yield before the claim: a concurrent answer (or a stopping run) can then
   // reach the same row, and it is claimStepAnswer below — not the luck of
   // synchronous execution — that makes the answer exclusive (round 4 review).
   await Promise.resolve();
   // Compare-and-set like claimStepSettlement: a second answer to the same waiting
   // step loses the race and is a conflict — it starts nothing.
-  const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
+  const claimed = claimStepAnswer(
+    ctx,
+    keyOf(row),
+    { answer },
+    publishDecision ? { decision: publishDecision } : undefined,
+  );
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
-  // Publishing gate (D5): person-only approving answer on approves: publish.
-  // Record tip SHA in the same DB transaction as the step claim (I7).
-  const humanDef = def.steps[stepId];
-  if (
-    humanDef?.type === "human"
-    && humanDef.approves === "publish"
-    && (answer === "approve" || answer === "yes")
-  ) {
-    if (ctx.env.PACER_RUN_GRANT) {
-      throw new CoreError("not_allowed", "publish approval requires a person");
-    }
-    const tip = run.branch
-      ? (await ctx.run(["git", "-C", run.repo, "rev-parse", run.branch], 10_000)).stdout.trim()
-      : "";
-    const tipReason = /^[0-9a-f]{40,64}$/i.test(tip)
-      ? `approves: publish tip=${tip.toLowerCase()}`
-      : "approves: publish";
-    workflowDatabase(ctx).transaction(() => {
-      // Claim already committed; record decision immediately after in one txn with a no-op
-      // re-check so crash mid-pair is rare. The durable tip SHA is what the gate trusts.
-      recordDecision(ctx, {
-        runId,
-        stepId,
-        attempt: claimed.attempt,
-        actor: "person",
-        kind: "publish_approved",
-        choice: answer,
-        reason: tipReason,
-      });
-    })();
-  }
   // The answer is recorded: a conflicting run patch (the run went terminal, or a
   // concurrent writer moved its rev) must not fail the answer — it took effect and
   // advances below, or via the tick's re-advance when this advance is lost

@@ -187,11 +187,19 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
         errors.push({ path: `steps.${id}`, message: `choose_workflow step ${id} must have exactly one outgoing edge` });
       }
     }
-    // Publishing approval is person-only: approves: publish requires decision: must (D5).
+    // Publishing approval is person-only: approves: publish requires decision: must (D5)
+    // and a yes_no / approve_revise question so answers are exactly approve/yes (R2-F6).
     if (value.type === "human" && value.approves === "publish") {
       const decision = value.decision === undefined ? "must" : value.decision;
       if (decision !== "must") {
         errors.push({ path: `steps.${id}.approves`, message: "approves: publish requires decision: must" });
+      }
+      const kind = value.question?.kind;
+      if (kind !== "yes_no" && kind !== "approve_revise") {
+        errors.push({
+          path: `steps.${id}.question.kind`,
+          message: "approves: publish requires question.kind yes_no or approve_revise",
+        });
       }
     }
   }

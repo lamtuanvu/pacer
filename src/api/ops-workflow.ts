@@ -648,6 +648,8 @@ export const workflowOps: Record<string, OpDef> = {
         run: runEntityValue(result.run),
         deleted_branch: result.deleted_branch,
         ...(result.ahead !== undefined ? { ahead: result.ahead } : {}),
+        ...(result.deleted_tip !== undefined ? { deleted_tip: result.deleted_tip } : {}),
+        ...(result.pr_url !== undefined ? { pr_url: result.pr_url } : {}),
       };
     },
   }),

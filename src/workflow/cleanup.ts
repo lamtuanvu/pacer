@@ -8,7 +8,7 @@ import { CoreError } from "../core/errors";
 import { gitInfo } from "../core/git";
 import { removeTaskWorktree } from "../supervisor/worktree";
 import {
-  clearRunBranch, getRun, stepsOfRun, type RunRow,
+  clearRunBranch, clearRunConflict, getRun, stepsOfRun, type RunRow,
 } from "./store";
 import {
   integrationWorktreePath, withMergeLock,
@@ -151,6 +151,8 @@ export async function cleanupRun(ctx: Ctx, runId: string, input: CleanupInput): 
       deleted = live.branch;
       clearRunBranch(ctx, live.id);
     }
+    // Terminal cleanup clears any leftover conflict markers.
+    clearRunConflict(ctx, live.id);
 
     const updated = getRun(ctx, live.id) ?? live;
     const ahead = await runBranchAhead(ctx, updated);

@@ -916,15 +916,41 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
 /** Atomically answers a waiting human step row: the compare-and-set write lands
  *  only while the row is still `waiting` (like claimStepSettlement), so of two
  *  concurrent answers exactly one wins and the loser gets a conflict. Returns null
- *  when the row is not waiting (already answered, stopped, …). */
-export function claimStepAnswer(ctx: Ctx, key: StepKey, result: unknown): StepRow | null {
+ *  when the row is not waiting (already answered, stopped, …).
+ *  Optional `decision` is inserted in the same immediate transaction (R2-F6). */
+export function claimStepAnswer(
+  ctx: Ctx,
+  key: StepKey,
+  result: unknown,
+  extras?: {
+    decision?: {
+      runId: string;
+      stepId: string;
+      attempt: number;
+      actor: string;
+      kind: string;
+      choice: string;
+      reason: string;
+    };
+  },
+): StepRow | null {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
-  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
-  if (!row || row.status !== "waiting") return null;
-  const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
-    .run(JSON.stringify(result), ctx.now, ...where.bindings);
-  return done.changes === 1 ? stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now }) : null;
+  return db.transaction(() => {
+    const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+    if (!row || row.status !== "waiting") return null;
+    const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+      .run(JSON.stringify(result), ctx.now, ...where.bindings);
+    if (done.changes !== 1) return null;
+    if (extras?.decision) {
+      const d = extras.decision;
+      const id = newDecisionId();
+      db.query(
+        "INSERT INTO workflow_decisions(id, run_id, step_id, attempt, actor, kind, choice, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, d.runId, d.stepId, d.attempt, d.actor, d.kind, d.choice, d.reason, ctx.now);
+    }
+    return stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now });
+  })();
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at

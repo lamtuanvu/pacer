@@ -8,11 +8,11 @@ import {
   getRun, insertRun, insertStep, workflowDatabase,
 } from "../src/workflow/store";
 import { ensureRunBranch, integrationWorktree, syncBase } from "../src/workflow/branch";
-import * as tasks from "../src/core/tasks";
 import { runCmd } from "../src/commands/run";
 import { callOp, type OpDeps } from "../src/api/ops";
+import { main } from "../src/cli";
 
-test("pacer review --accept returns non-zero on merge conflict and skips diagnostic recheck shape", async () => {
+test("pacer review --accept returns non-zero on merge conflict via real CLI entry", async () => {
   const ctx = fakeCtx({ run: realRun });
   const repo = gitRepo();
   workflowDatabase(ctx);
@@ -40,12 +40,19 @@ test("pacer review --accept returns non-zero on merge conflict and skips diagnos
   await ctx.run(["git", "-C", integ, "add", "."], 10_000);
   await ctx.run(["git", "-C", integ, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "run"], 10_000);
 
-  const result = await tasks.review(ctx, task.id, { verdict: "accept" });
-  expect(result.merge).toBe("conflict");
-  // CLI contract: conflict → exit 1, print resolution task, no diagnostic recheck.
-  const code = result.merge === "conflict" ? 1 : 0;
-  expect(code).toBe(1);
-  expect(result.resolution_task).toMatch(/^t-/);
+  const plain = await main(["review", task.id, "--accept"], ctx);
+  expect(plain.code).toBe(1);
+  expect(plain.out).toMatch(/merge conflict/);
+  expect(plain.out).toMatch(/t-/);
+
+  // Re-create conflict state is already set; --json shape for the same accept path.
+  // Second accept of the same conflicted task returns the (deduped) resolution again.
+  const json = await main(["review", task.id, "--accept", "--json"], ctx);
+  expect(json.code).toBe(1);
+  const parsed = JSON.parse(json.out) as { merge?: string; resolution_task?: string; accepted?: boolean };
+  expect(parsed.merge).toBe("conflict");
+  expect(parsed.resolution_task).toMatch(/^t-/);
+  expect(parsed.accepted).toBe(false);
 });
 
 test("run sync returns non-zero on conflict", async () => {

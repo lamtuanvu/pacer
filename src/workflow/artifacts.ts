@@ -1,8 +1,12 @@
 // Step artifacts for the workflow frame (Phase 5): copy a file from the asking
 // task's worktree or the run's evidence directory into PACER_HOME/runs/<run>/artifacts/
 // with size caps. Blobs are DATA (0600); paths are jail-checked with realpath.
+// R2-F9: open the source once with O_NOFOLLOW|O_NONBLOCK, fstat, read with a hard
+// byte cap, and write via an O_EXCL temp file so a FIFO swap cannot hang the daemon
+// and a growing file cannot bypass the caps.
 import {
-  chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, unlinkSync,
+  closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync,
+  readSync, realpathSync, renameSync, unlinkSync, writeSync,
 } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -15,6 +19,7 @@ export const ARTIFACT_FILE_LIMIT = 10 * 1024 * 1024;
 export const ARTIFACT_RUN_LIMIT = 200 * 1024 * 1024;
 
 const BASE32 = "abcdefghijklmnopqrstuvwxyz234567";
+const READ_CHUNK = 64 * 1024;
 
 export function newArtifactId(): string {
   const bytes = randomBytes(10);
@@ -129,7 +134,11 @@ function allowedRoots(ctx: Ctx, taskId: string, runId: string): string[] {
   return roots;
 }
 
-function resolveJaildPath(ctx: Ctx, taskId: string, runId: string, requested: string): string {
+/**
+ * Jail-check the requested path's parent directory, then open the leaf with
+ * O_NOFOLLOW|O_NONBLOCK so a symlink/FIFO swap after the check cannot hang us.
+ */
+function openJaildSource(ctx: Ctx, taskId: string, runId: string, requested: string): { fd: number; name: string } {
   if (typeof requested !== "string" || !requested.trim()) {
     throw new CoreError("invalid_input", "path is required");
   }
@@ -137,22 +146,44 @@ function resolveJaildPath(ctx: Ctx, taskId: string, runId: string, requested: st
     throw new CoreError("not_allowed", "path is outside the task worktree and evidence directory");
   }
   const abs = resolve(requested);
-  let realFile: string;
+  const parent = resolve(abs, "..");
+  let realParent: string;
   try {
-    // realpath follows symlinks: a link that escapes the jail is refused below.
-    realFile = realpathSync(abs);
+    realParent = realpathSync(parent);
   } catch {
     throw new CoreError("not_found", "artifact source file not found");
   }
-  const st = lstatSync(realFile);
-  if (!st.isFile()) {
-    throw new CoreError("not_allowed", "artifact source must be a regular file");
-  }
   const roots = allowedRoots(ctx, taskId, runId);
-  if (!roots.some(root => underRoot(realFile, root))) {
+  if (!roots.some(root => underRoot(realParent, root))) {
     throw new CoreError("not_allowed", "path is outside the task worktree and evidence directory");
   }
-  return realFile;
+  const name = basename(abs);
+  let fd: number;
+  try {
+    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+  } catch (error) {
+    const code = (error as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") throw new CoreError("not_found", "artifact source file not found");
+    if (code === "ELOOP" || code === "EOPNOTSUPP") {
+      throw new CoreError("not_allowed", "artifact source must be a regular file");
+    }
+    throw new CoreError("not_allowed", "artifact source must be a regular file");
+  }
+  try {
+    const st = fstatSync(fd);
+    if (!st.isFile()) {
+      closeSync(fd);
+      throw new CoreError("not_allowed", "artifact source must be a regular file");
+    }
+    if (st.size > ARTIFACT_FILE_LIMIT) {
+      closeSync(fd);
+      throw new CoreError("too_large", `artifact exceeds ${ARTIFACT_FILE_LIMIT} bytes`);
+    }
+  } catch (error) {
+    try { closeSync(fd); } catch { /* */ }
+    throw error instanceof CoreError ? error : new CoreError("unavailable", "failed to store artifact");
+  }
+  return { fd, name };
 }
 
 function runBytesUsed(ctx: Ctx, runId: string): number {
@@ -175,42 +206,62 @@ export function storeArtifact(ctx: Ctx, taskId: string, input: { path: string; l
   const run = getRun(ctx, step.runId);
   if (!run) throw new CoreError("not_found", `unknown run ${step.runId}`);
 
-  const source = resolveJaildPath(ctx, taskId, run.id, input.path);
-  const size = lstatSync(source).size;
-  if (size > ARTIFACT_FILE_LIMIT) {
-    throw new CoreError("too_large", `artifact exceeds ${ARTIFACT_FILE_LIMIT} bytes`);
-  }
-  const used = runBytesUsed(ctx, run.id);
-  if (used + size > ARTIFACT_RUN_LIMIT) {
-    throw new CoreError("too_large", `run artifacts would exceed ${ARTIFACT_RUN_LIMIT} bytes`);
-  }
-
+  const { fd, name } = openJaildSource(ctx, taskId, run.id, input.path);
   const id = newArtifactId();
-  const name = basename(source);
   const mime = mimeFor(name);
   const root = runArtifactsDir(ctx, run.id);
   mkdirSync(root, { recursive: true, mode: 0o700 });
   const dest = artifactBlobPath(ctx, run.id, id);
   assertUnderArtifacts(dest, root);
-  const tmp = join(root, `${id}.tmp-${process.pid}`);
+  const tmp = join(root, `${id}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
   assertUnderArtifacts(tmp, root);
+
+  let copied = 0;
+  let outFd = -1;
   try {
-    copyFileSync(source, tmp);
-    chmodSync(tmp, 0o600);
+    outFd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
+    const buf = Buffer.alloc(READ_CHUNK);
+    for (;;) {
+      let n: number;
+      try {
+        n = readSync(fd, buf, 0, buf.length, null);
+      } catch (error) {
+        const code = (error as NodeJS.ErrnoException).code;
+        if (code === "EAGAIN" || code === "EWOULDBLOCK") {
+          throw new CoreError("not_allowed", "artifact source must be a regular file");
+        }
+        throw error;
+      }
+      if (n === 0) break;
+      copied += n;
+      if (copied > ARTIFACT_FILE_LIMIT) {
+        throw new CoreError("too_large", `artifact exceeds ${ARTIFACT_FILE_LIMIT} bytes`);
+      }
+      writeSync(outFd, buf, 0, n);
+    }
+    const used = runBytesUsed(ctx, run.id);
+    if (used + copied > ARTIFACT_RUN_LIMIT) {
+      throw new CoreError("too_large", `run artifacts would exceed ${ARTIFACT_RUN_LIMIT} bytes`);
+    }
+    closeSync(outFd);
+    outFd = -1;
     renameSync(tmp, dest);
   } catch (error) {
+    if (outFd >= 0) try { closeSync(outFd); } catch { /* */ }
     try { unlinkSync(tmp); } catch { /* */ }
     throw error instanceof CoreError ? error : new CoreError("unavailable", "failed to store artifact");
+  } finally {
+    try { closeSync(fd); } catch { /* */ }
   }
 
   workflowDatabase(ctx).query(
     "INSERT INTO workflow_artifacts(id, run_id, step_id, attempt, label, name, mime, size, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
-  ).run(id, run.id, step.stepId, step.attempt, input.label.trim(), name, mime, size, ctx.now);
+  ).run(id, run.id, step.stepId, step.attempt, input.label.trim(), name, mime, copied, ctx.now);
 
   return {
     ...fromRow({
       id, run_id: run.id, step_id: step.stepId, attempt: step.attempt,
-      label: input.label.trim(), name, mime, size, created_at: ctx.now,
+      label: input.label.trim(), name, mime, size: copied, created_at: ctx.now,
     }),
     absPath: dest,
   };

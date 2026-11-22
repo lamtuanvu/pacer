@@ -3,12 +3,13 @@ import { chmodSync, mkdirSync, writeFileSync } from "node:fs";
 import { join, sep } from "node:path";
 import { fakeCtx, gitRepo, realRun, tmpDir } from "./helpers";
 import { CoreError } from "../src/core/errors";
+import { execProcess } from "../src/exec/process";
 import { createTask, updateTask } from "../src/tasks/store";
 import { checkWorkflowShape } from "../src/workflow/schema";
 import { validateWorkflow } from "../src/workflow/validate";
 import { canAutoDecide } from "../src/workflow/auto";
 import {
-  getRun, insertRun, insertStep, recordDecision, setPublishOptIn, workflowDatabase,
+  getRun, insertRun, insertStep, recordDecision, workflowDatabase,
 } from "../src/workflow/store";
 import { ensureRunBranch, integrationWorktree } from "../src/workflow/branch";
 import { publishChildEnv, publishRun } from "../src/workflow/publish";
@@ -47,11 +48,21 @@ process.exit(1);
 function withGhPath(ctx: ReturnType<typeof fakeCtx>, bin: string) {
   const path = `${bin}:${ctx.env.PATH ?? process.env.PATH ?? "/usr/bin"}`;
   ctx.env = { ...ctx.env, PATH: path };
+  // When callers pass an explicit env (publishChildEnv), use it as the full child
+  // env — do not re-merge process.env (T3).
   const baseRun = ctx.run;
-  ctx.run = (argv, timeoutMs, o) => baseRun(argv, timeoutMs, {
-    ...o,
-    env: { ...(o?.env ?? {}), PATH: (o?.env?.PATH ?? path) },
-  });
+  ctx.run = (argv, timeoutMs, o) => {
+    if (o?.env) {
+      return execProcess({
+        argv,
+        cwd: o.cwd ?? process.cwd(),
+        env: { ...o.env, PATH: o.env.PATH ?? path },
+        timeoutMs,
+        stdin: o.stdin,
+      });
+    }
+    return baseRun(argv, timeoutMs, o);
+  };
   ctx.which = (name: string) => (name === "gh" ? join(bin, "gh") : "/usr/bin/fake");
 }
 
@@ -141,6 +152,8 @@ test("I10: publish child env strips PACER_RUN_GRANT", () => {
       HOME: "/tmp",
       PATH: "/usr/bin",
       GIT_AUTHOR_NAME: "t",
+      GIT_DIR: "/leak",
+      GH_HOST: "github.example",
     },
   });
   const env = publishChildEnv(ctx);
@@ -148,6 +161,71 @@ test("I10: publish child env strips PACER_RUN_GRANT", () => {
   expect(env.PACER_ROLE).toBeUndefined();
   expect(env.HOME).toBe("/tmp");
   expect(env.GIT_AUTHOR_NAME).toBe("t");
+  expect(env.GIT_DIR).toBeUndefined();
+  expect(env.GH_HOST).toBe("github.example");
+  expect(env.GIT_TERMINAL_PROMPT).toBe("0");
+});
+
+test("T3: wire-level gh and pre-push see no PACER_* and use explicit refspec", async () => {
+  const { ctx, repo } = await repoWithBareOrigin();
+  workflowDatabase(ctx);
+  ctx.env = {
+    ...ctx.env,
+    PACER_RUN_GRANT: "prg_secret_token",
+    PACER_ROLE: "orchestrator",
+    HOME: ctx.home,
+  };
+  const run = insertRun(ctx, { workflow: "t/feat", version: 1, repo, brief: "b", stepMode: "plain" });
+  await ensureRunBranch(ctx, run);
+  const wt = await integrationWorktree(ctx, getRun(ctx, run.id)!);
+  await Bun.write(join(wt, "feat.txt"), "feat");
+  await ctx.run(["git", "-C", wt, "add", "."], 10_000);
+  await ctx.run(["git", "-C", wt, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "feat"], 10_000);
+  const tip = (await ctx.run(["git", "-C", repo, "rev-parse", getRun(ctx, run.id)!.branch!], 10_000)).stdout.trim().toLowerCase();
+
+  const hookDir = join(repo, ".git", "hooks");
+  mkdirSync(hookDir, { recursive: true });
+  const hookEnv = join(ctx.home, "pre-push-env.json");
+  writeFileSync(join(hookDir, "pre-push"), `#!/usr/bin/env bun
+const fs = require("node:fs");
+fs.writeFileSync(${JSON.stringify(hookEnv)}, JSON.stringify(process.env));
+process.exit(0);
+`);
+  chmodSync(join(hookDir, "pre-push"), 0o755);
+
+  const { bin, log } = installGhStub(ctx.home);
+  withGhPath(ctx, bin);
+  recordDecision(ctx, {
+    runId: run.id, stepId: "ask", attempt: 1, actor: "person",
+    kind: "publish_approved", choice: "approve",
+    reason: `approves: publish tip=${tip}`,
+  });
+  const ok = await publishRun(ctx, run.id, {
+    draft: false, title: "t", body: "b", expectRev: getRun(ctx, run.id)!.rev,
+  });
+  expect(ok.pr_url).toBe("https://example.test/pr/1");
+
+  const ghLines = (await Bun.file(log).text()).trim().split("\n").map(l => JSON.parse(l) as { argv: string[]; env: Record<string, string> });
+  expect(ghLines.length).toBeGreaterThan(0);
+  for (const line of ghLines) {
+    expect(line.env.PACER_RUN_GRANT).toBeUndefined();
+    expect(line.env.PACER_ROLE).toBeUndefined();
+    expect(line.env.HOME).toBeTruthy();
+    expect(line.env.PATH).toBeTruthy();
+  }
+  const create = ghLines.find(l => l.argv.includes("create"));
+  expect(create).toBeTruthy();
+  expect(ctx.which("gh")).toBe(join(bin, "gh"));
+
+  const hook = JSON.parse(await Bun.file(hookEnv).text()) as Record<string, string>;
+  expect(hook.PACER_RUN_GRANT).toBeUndefined();
+  expect(hook.PACER_ROLE).toBeUndefined();
+  expect(hook.HOME).toBeTruthy();
+
+  // Explicit refspec was used for the push (not a bare branch name).
+  const branch = getRun(ctx, run.id)!.branch!;
+  const show = await ctx.run(["git", "-C", repo, "ls-remote", "origin", `refs/heads/${branch}`], 10_000);
+  expect(show.stdout).toContain(branch);
 });
 
 test("canAutoDecide refuses approves: publish", () => {

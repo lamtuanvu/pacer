@@ -11,18 +11,33 @@ import {
   integrationWorktreeUnderLock, withMergeLock,
 } from "./branch";
 
-/** Child env for git push / gh: allowlist only; never PACER_* (I10). */
+/** Extra names beyond ghEnv that publish children may need. */
+const PUBLISH_EXTRA = new Set([
+  "GH_ENTERPRISE_TOKEN", "GH_HOST", "SSH_AUTH_SOCK",
+]);
+const PUBLISH_EXTRA_PREFIXES = ["GCM_", "SSH_"];
+/** GIT_* that must not leak a caller's checkout into engine-owned git. */
+const GIT_DROP = new Set(["GIT_DIR", "GIT_WORK_TREE", "GIT_INDEX_FILE"]);
+
+/**
+ * Child env for git push / gh: allowlist only; never PACER_* (I10).
+ * Engine-owned pushes still run repo pre-push hooks (GH_TOKEN / SSH_AUTH_SOCK
+ * available); they do not pass --no-verify so hooks can refuse a bad push.
+ */
 export function publishChildEnv(ctx: Ctx): Record<string, string | undefined> {
   const fromGh = ghEnv(ctx.env);
   const out: Record<string, string | undefined> = { ...fromGh };
   for (const [name, value] of Object.entries(ctx.env)) {
     if (value === undefined) continue;
     if (name.startsWith("PACER_")) continue;
-    if (name.startsWith("GIT_") || name.startsWith("SSH_") || name === "SSH_AUTH_SOCK") {
+    if (GIT_DROP.has(name)) continue;
+    if (name.startsWith("GIT_") || PUBLISH_EXTRA.has(name)
+      || PUBLISH_EXTRA_PREFIXES.some(p => name.startsWith(p))) {
       out[name] = value;
     }
   }
   out.PATH = ctx.env.PATH ?? process.env.PATH;
+  out.GIT_TERMINAL_PROMPT = "0";
   return out;
 }
 
