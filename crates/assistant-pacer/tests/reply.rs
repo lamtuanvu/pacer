@@ -84,6 +84,7 @@ async fn start_harness() -> Harness {
                 "net.http".into(),
                 "assistant.tool".into(),
             ],
+            ..HelloSpec::default()
         },
     )
     .await;
