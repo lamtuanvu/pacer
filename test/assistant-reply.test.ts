@@ -12,7 +12,8 @@ import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
   NOTIFICATIONS, PLUGIN_PROTOCOL_VERSION, assistantReplyParams, assistantReplyResult, capabilityOf, manifestSchema,
 } from "../src/plugins/protocol";
-import { admit, ask, cancel, candidates, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
+import { readActivity } from "../src/activity/log";
+import { admit, ask, cancel, candidates, noticeLegacyRespondFallback, replyProvider, runAssistantTool, subscribeTurn, type AssistantDeps, type StreamFrame } from "../src/assistant/service";
 import { DIGEST_MAX_CHARS, buildDigest } from "../src/assistant/digest";
 import { createRedactor } from "../src/assistant/redact";
 import { assistantDatabase, conversationTurns, getTurn, listConversations, readBackendSession, readSettings, writeBackendSession, writeSettings } from "../src/assistant/store";
@@ -94,6 +95,12 @@ describe("the turn-level plugin interface", () => {
     expect(answersTurn([answering], "turn-b")).toBe(false);
     close();
     expect(answersTurn([answering], "turn-a")).toBe(false);
+  });
+
+  test("assistant.respond is marked deprecated in the plugin protocol", () => {
+    expect(EXTENSION_METHODS["assistant.respond"]!.deprecated).toBe(true);
+    expect(EXTENSION_METHODS["assistant.respond"]!.description).toMatch(/Deprecated/);
+    expect(EXTENSION_METHODS["assistant.reply"]!.deprecated).toBeUndefined();
   });
 
   test("assistant.reply is strict, 1.11.0, and capped at the host's deadline ceiling", () => {
@@ -495,6 +502,33 @@ describe("assistant-pacer native host routing", () => {
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
     expect(turn.answer).toBe("respond fallback");
+    const notices = readActivity(ctx, { kinds: ["plugin_state"] }).entries.map(e => e.text);
+    expect(notices).toHaveLength(1);
+    expect(notices[0]).toContain("assistant.respond is deprecated");
+    expect(notices[0]).toContain(ASSISTANT_PACER_EXECUTABLE);
+    expect(notices[0]).toMatch(/missing|outdated/);
+    expect(notices[0]).toContain("newer pacer release will install it");
+    // A second turn must not repeat the notice.
+    const second = await ask(ctx, { text: "again", scope, requestId: req() }, {
+      ...deps,
+      respond: async () => ({ message: "respond fallback again", usage }),
+    });
+    await finished(ctx, second.turnId);
+    expect(readActivity(ctx, { kinds: ["plugin_state"] }).entries).toHaveLength(1);
+  });
+
+  test("legacy respond notice skips when the native binary is ready", () => {
+    const { ctx } = setup({ fake: false });
+    const bin = join(ctx.home, "bin");
+    mkdirSync(bin, { recursive: true });
+    const version = currentVersion();
+    writeFileSync(join(bin, "pacer-core"), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
+    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
+    chmodSync(join(bin, "pacer-core"), 0o755);
+    chmodSync(join(bin, ASSISTANT_PACER_EXECUTABLE), 0o755);
+    ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
+    noticeLegacyRespondFallback(ctx);
+    expect(readActivity(ctx, { kinds: ["plugin_state"] }).entries).toEqual([]);
   });
 
   test("routes backend:pacer to assistant.reply on assistant-pacer and runs tools through the capability", async () => {

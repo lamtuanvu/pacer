@@ -1,6 +1,7 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type z } from "zod";
+import { appendActivity } from "../activity/log";
 import { ENDPOINT_DEFAULT_BASE_URL, type EndpointApi } from "../config/accounts";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
@@ -9,6 +10,7 @@ import { computeStatus, type Status } from "../engine/status";
 import { configuredSecrets, readKey } from "../endpoints/keys";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
+import { ASSISTANT_PACER_EXECUTABLE, inspectBundledNativeExecutable } from "../plugins/native-bundled";
 import { assistantReplyResult, assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS, type AssistantBackend } from "../plugins/protocol";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
@@ -25,6 +27,28 @@ import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
+
+/** Homes that already logged the legacy `assistant.respond` fallback notice this process. */
+const legacyRespondNotices = new Set<string>();
+
+/**
+ * One-time (per home) activity notice when a `backend: pacer` turn falls back to the deprecated
+ * `assistant.respond` path because the native `pacer-assistant-pacer` binary is missing or outdated.
+ */
+export function noticeLegacyRespondFallback(ctx: Ctx): void {
+  if (legacyRespondNotices.has(ctx.pacerHome)) return;
+  const sibling = inspectBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, ctx.env);
+  if (sibling.status === "ready") return;
+  legacyRespondNotices.add(ctx.pacerHome);
+  const why = sibling.status === "missing"
+    ? `the native binary ${ASSISTANT_PACER_EXECUTABLE} is missing`
+    : `the native binary ${ASSISTANT_PACER_EXECUTABLE} is outdated (reports ${sibling.reported ?? "unknown"}, pacer is ${sibling.expected})`;
+  appendActivity(ctx, {
+    kind: "plugin_state",
+    level: "warn",
+    text: `assistant.respond is deprecated: falling back to the legacy pacer-assistant plugin because ${why}. A newer pacer release will install it.`,
+  });
+}
 
 
 
@@ -470,6 +494,8 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       if (entry.cancelled) state = "cancelled";
       else answer = redactor.text(result.message);
     } else {
+      // Deprecated host loop: only when no plugin provides assistant.reply for this backend.
+      if (settings.backend === "pacer") noticeLegacyRespondFallback(ctx);
       const messages: AssistantMessage[] = [...history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]), { role: "user", content: question }];
       // The input cap is the host's, enforced on the context it builds, before every call.
       const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(toolDefinitions())) + messages.reduce((n, m) => n + approxTokens(m.content) + (m.toolCalls ? approxTokens(JSON.stringify(m.toolCalls)) : 0), 0);

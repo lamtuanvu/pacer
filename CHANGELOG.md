@@ -8,6 +8,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 - **Anthropic and Gemini for `assistant-pacer`.** Endpoint `connection.api` accepts `anthropic` and `gemini` beside `openai-compatible`. The native assistant plugin selects the matching Rig client, passes the remaining output-token budget on each model call, and reports those accounts unavailable (never legacy-routed) when the native binary is absent. Keyless (`key: none`) stays openai-compatible only.
 
+### Changed
+
+- **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
+
 ### Fixed
 
 - **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
