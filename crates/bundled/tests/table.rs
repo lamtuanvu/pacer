@@ -1,5 +1,6 @@
 //! Table invariants for pacer-bundled (M3 C0a). The suite has no `pacer-bundled`
 //! crate yet, so it fails until step 4 lands.
+//! Table invariants for the pacer-bundled plugin registry (M3 phase C).
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 use pacer_bundled::{TABLE, find, native, serve_stdio};
 use serde_json::Value;
@@ -40,12 +41,19 @@ fn manifests_have_the_handshake_fields() {
 
 #[test]
 fn typescript_rows_are_not_native() {
-    // Every row is `run: None` until a port lands.
+    // pacer-notify is the ported (slice C1) native row; the rest are TypeScript
+    // until their slices land.
     for row in TABLE {
-        assert!(row.run.is_none(), "{} should still be TypeScript", row.id);
+        let is_notify = row.id == "pacer-notify";
+        let is_native = row.run.is_some();
+        if is_notify {
+            assert!(is_native, "pacer-notify should now be native");
+        } else {
+            assert!(!is_native, "{} should still be TypeScript", row.id);
+        }
     }
-    assert!(native("pacer-notify").is_none());
-    assert!(serve_stdio("pacer-notify").is_none());
+    assert!(native("pacer-notify").is_some());
+    assert!(serve_stdio("pacer-notify").is_some());
 }
 
 #[test]
