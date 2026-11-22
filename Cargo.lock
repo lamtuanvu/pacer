@@ -1818,7 +1818,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.3.0"
+version = "0.4.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",
@@ -1827,6 +1827,7 @@ dependencies = [
  "pacer-plugin-hosts-protocol",
  "pacer-plugin-install-protocol",
  "pacer-plugin-protocol",
+ "ryu-js",
  "serde",
  "serde_json",
  "tokio",
