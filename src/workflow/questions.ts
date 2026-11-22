@@ -130,6 +130,18 @@ async function publishQuestionEntity(ctx: Ctx, q: QuestionRow): Promise<void> {
   } catch { /* publish must not fail the mutation */ }
 }
 
+/** Record answer + complete wake + emit redacted entity. Shared by question.answer and task.answer. */
+export async function settleAnsweredQuestion(
+  ctx: Ctx,
+  id: string,
+  input: { answer: string; note?: string; expectRev: number; answeredBy: string },
+): Promise<QuestionRow> {
+  const answered = answerQuestionRecord(ctx, id, input);
+  completeWakeupRef(ctx, answered.runId, "question", answered.id);
+  await publishQuestionEntity(ctx, answered);
+  return answered;
+}
+
 function personCaller(ctx: Ctx): boolean {
   return !ctx.env.PACER_RUN_GRANT && !isOrchestratorSession(ctx) && !isExecutorSession(ctx);
 }
@@ -474,28 +486,26 @@ export async function answerQuestion(
           "asker is not waiting for an answer yet; retry when the task needs input",
         );
       }
+      // task.answer must not also CAS the record (R2-BL1); we settle after delivery.
       await answerTask(ctx, current.askerTaskId, deliveryBody, {}, {
+        skipLinkedQuestionRecord: true,
         ...(deps.spawnRunner ? { spawnRunner: deps.spawnRunner } : {}),
       });
-      const answered = answerQuestionRecord(ctx, current.id, {
+      return settleAnsweredQuestion(ctx, current.id, {
         answer: parsed.answer,
         ...(parsed.note !== undefined ? { note: parsed.note } : {}),
         expectRev: parsed.expectRev,
         answeredBy,
       });
-      completeWakeupRef(ctx, current.runId, "question", current.id);
-      await publishQuestionEntity(ctx, answered);
-      return answered;
     }
   }
 
-  const answered = answerQuestionRecord(ctx, current.id, {
+  const answered = await settleAnsweredQuestion(ctx, current.id, {
     answer: parsed.answer,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
     expectRev: parsed.expectRev,
     answeredBy,
   });
-  completeWakeupRef(ctx, current.runId, "question", current.id);
 
   if (current.askerTaskId && blocking) {
     // Prompt-convert (no task.question): deliver as a message.
@@ -522,7 +532,6 @@ export async function answerQuestion(
     });
   }
 
-  await publishQuestionEntity(ctx, answered);
   return answered;
 }
 

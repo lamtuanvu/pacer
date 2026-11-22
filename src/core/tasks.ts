@@ -183,7 +183,16 @@ export interface ReviewOptions {
   expect_state?: TaskState;
   expectRev?: number;
 }
-type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>; beforeCommit?:()=>void; afterCommit?:(parent:TaskRecord,retry:TaskRecord)=>void; spawnRunner?: SpawnRunner; appAuthenticated?: boolean; participant?: string };
+type RetryDeps = {
+  delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>;
+  beforeCommit?: () => void;
+  afterCommit?: (parent: TaskRecord, retry: TaskRecord) => void;
+  spawnRunner?: SpawnRunner;
+  appAuthenticated?: boolean;
+  participant?: string;
+  /** When question.answer already owns the record CAS, skip the I6 linked settle. */
+  skipLinkedQuestionRecord?: boolean;
+};
 
 /**
  * Deliver a follow-up (answer or review feedback) as a message that resumes the task's own session.
@@ -482,37 +491,45 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
-  // Step tasks with an open linked structured question: resolve the record (I6)
-  // before the ordinary resume path. Do not call answerQuestion (it would call
-  // answer again and recurse). Ordinary tasks (no step row) are unchanged.
-  try {
-    const { stepByTask, listQuestions, answerQuestionRecord } = await import("../workflow/store");
-    const step = stepByTask(ctx, id);
-    if (step) {
-      const open = listQuestions(ctx, step.runId, "open").filter(q =>
-        q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
-      );
-      const linked = open[open.length - 1];
-      if (linked && linked.answerer === "person") {
-        const { validateQuestionAnswer } = await import("../workflow/question-schema");
-        try {
-          // Only resolve when the text is a valid structured answer. question.answer may
-          // call us with note+answer combined; that path finishes the record itself.
-          validateQuestionAnswer(linked.answerType, text, linked.options);
-          answerQuestionRecord(ctx, linked.id, {
-            answer: text,
-            expectRev: linked.rev,
-            answeredBy: "person",
-          });
-          const { completeWakeupRef } = await import("../workflow/wakeups");
-          completeWakeupRef(ctx, linked.runId, "question", linked.id);
-        } catch {
-          /* leave the open record for question.answer */
+  // Step tasks with an open linked structured question: settle the record (I6)
+  // on the direct task.answer path. question.answer sets skipLinkedQuestionRecord
+  // so it can deliver then settle once (R2-BL1). Do not call answerQuestion
+  // (it would recurse). Ordinary tasks (no step row) are unchanged.
+  let linkedToSettle: { id: string; runId: string; rev: number; answerType: string; options?: unknown; answerer: string } | undefined;
+  if (!deps.skipLinkedQuestionRecord) {
+    try {
+      const { stepByTask, listQuestions } = await import("../workflow/store");
+      const step = stepByTask(ctx, id);
+      if (step) {
+        const open = listQuestions(ctx, step.runId, "open").filter(q =>
+          q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
+        );
+        const linked = open[open.length - 1];
+        if (linked && linked.answerer === "person") {
+          const { validateQuestionAnswer } = await import("../workflow/question-schema");
+          try {
+            // Only settle when the text is a valid structured answer. question.answer may
+            // call us with note+answer combined; that path finishes the record itself.
+            validateQuestionAnswer(linked.answerType, text, linked.options);
+            linkedToSettle = linked;
+          } catch {
+            /* leave the open record for question.answer */
+          }
         }
       }
+    } catch (err) {
+      if (err instanceof CoreError) throw err;
     }
-  } catch (err) {
-    if (err instanceof CoreError) throw err;
+  }
+  if (linkedToSettle) {
+    // Resolve after a successful delivery is R2-I4; for BL1 settle here then
+    // still run the ordinary resume. I4 will reorder to deliver-first.
+    const { settleAnsweredQuestion } = await import("../workflow/questions");
+    await settleAnsweredQuestion(ctx, linkedToSettle.id, {
+      answer: text,
+      expectRev: linkedToSettle.rev,
+      answeredBy: "person",
+    });
   }
   const current = readTask(ctx, id);
   if (current && directInputAvailable(current)) {
