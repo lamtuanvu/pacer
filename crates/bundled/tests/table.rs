@@ -41,19 +41,21 @@ fn manifests_have_the_handshake_fields() {
 
 #[test]
 fn typescript_rows_are_not_native() {
-    // pacer-notify is the ported (slice C1) native row; the rest are TypeScript
-    // until their slices land.
+    // pacer-notify (C1) and pacer-remote-caller (C2) are the ported native
+    // rows; the rest are TypeScript until their slices land.
     for row in TABLE {
-        let is_notify = row.id == "pacer-notify";
+        let is_native_ported = matches!(row.id, "pacer-notify" | "pacer-remote-caller");
         let is_native = row.run.is_some();
-        if is_notify {
-            assert!(is_native, "pacer-notify should now be native");
+        if is_native_ported {
+            assert!(is_native, "{} should now be native", row.id);
         } else {
             assert!(!is_native, "{} should still be TypeScript", row.id);
         }
     }
     assert!(native("pacer-notify").is_some());
     assert!(serve_stdio("pacer-notify").is_some());
+    assert!(native("pacer-remote-caller").is_some());
+    assert!(serve_stdio("pacer-remote-caller").is_some());
 }
 
 #[test]
