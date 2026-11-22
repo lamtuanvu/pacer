@@ -55,11 +55,12 @@ function lockName(runId: string): string {
 }
 
 /**
- * Longest merge/publish holder can reach ~360s (worktree 60 + push 120 + list 30
- * + create 120 + recovery list 30). Stale takeover must sit above that (R2-F7).
+ * Longest merge/publish holder can reach ~490s (integrationWorktreeUnlocked
+ * 60+30+60 plus push/list/create). Stale takeover must sit above that (R2-F7/M6).
+ * Heartbeat in withLock refreshes mtime every 30s while held.
  */
 const MERGE_LOCK_TIMEOUT_MS = 150_000;
-const MERGE_LOCK_STALE_MS = 420_000;
+const MERGE_LOCK_STALE_MS = 540_000;
 
 /** Serialize merges (and branch creation) for one run. */
 export function withMergeLock<T>(
@@ -273,20 +274,23 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       5_000,
     );
     if (hasBranch.code !== 0) {
+      // M4: exit 1 / "Needed a single revision" = absent branch → plain accept.
+      // Timeout or other failures must not be treated as "no branch".
+      const absent = hasBranch.code === 1
+        || /Needed a single revision|not a valid object|unknown revision/i.test(
+          `${hasBranch.stderr}\n${hasBranch.stdout}`,
+        );
+      if (!absent) {
+        throw new CoreError(
+          "unavailable",
+          `cannot resolve task branch ${taskBranch}: ${cleanLine(hasBranch.stderr) || `exit ${hasBranch.code}`}`,
+        );
+      }
       // Research / current-placement / cleaned worktree / resolution with no branch:
       // accept the verdict but only clear markers whose conflicting branch is already in.
       // Dirty check is skipped: there is nothing to merge (R2-F8).
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
-    }
-
-    // Dirty check only when we will merge a real pacer/<id> branch that is ahead (R2-F8).
-    const worktree = task.worktree ?? task.result?.worktree;
-    if (worktree) {
-      const dirty = await worktreeDirty(ctx, worktree);
-      if (dirty === true) {
-        throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
-      }
     }
 
     // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
@@ -298,8 +302,18 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       10_000,
     );
     if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
+      // M7: dirty check only when exists AND ahead — zero-ahead with untracked notes is plain accept.
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
+    }
+
+    // Dirty check only when we will merge a real pacer/<id> branch that is ahead (R2-F8/M7).
+    const worktree = task.worktree ?? task.result?.worktree;
+    if (worktree) {
+      const dirty = await worktreeDirty(ctx, worktree);
+      if (dirty === true) {
+        throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
+      }
     }
 
     const wt = await integrationWorktreeUnlocked(ctx, live);
@@ -452,13 +466,25 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     const baseRef = live.baseRef;
     const wt = await integrationWorktreeUnlocked(ctx, live);
     const top = await resolveRepoTop(ctx, live.repo);
-    // Non-interactive: never hang on a credential prompt while holding the merge lock (R2-F5).
+    // M9: allowlisted env (no PACER_*); GIT_ASKPASS is a no-op binary, not `echo`.
+    // Inline (do not import publish.ts — it imports this module).
     const gitQuietEnv: Record<string, string | undefined> = {
-      ...ctx.env,
       PATH: ctx.env.PATH ?? process.env.PATH,
+      HOME: ctx.env.HOME ?? process.env.HOME,
       GIT_TERMINAL_PROMPT: "0",
-      GIT_ASKPASS: "echo",
+      GIT_ASKPASS: "/usr/bin/true",
     };
+    for (const [name, value] of Object.entries(ctx.env)) {
+      if (value === undefined || name.startsWith("PACER_")) continue;
+      if (name === "GIT_DIR" || name === "GIT_WORK_TREE" || name === "GIT_INDEX_FILE") continue;
+      if (name.startsWith("GIT_") || name.startsWith("GH_") || name.startsWith("GCM_")
+        || name.startsWith("SSH_") || name === "SSH_AUTH_SOCK"
+        || name === "ALL_PROXY" || name.endsWith("_CA_BUNDLE") || name === "NODE_EXTRA_CA_CERTS"
+        || name === "http_proxy" || name === "https_proxy" || name === "HTTP_PROXY" || name === "HTTPS_PROXY"
+        || name === "no_proxy" || name === "NO_PROXY" || name === "LANG" || name === "LC_ALL") {
+        gitQuietEnv[name] = value;
+      }
+    }
     // Fetch only remote-tracking bases (origin/*); local feature/x must not hit the network (R2-F5).
     if (baseRef.startsWith("origin/")) {
       const fetched = await ctx.run(
@@ -483,6 +509,10 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
       throw new CoreError("unavailable", `cannot resolve base ${baseRef}: ${cleanLine(tip.stderr)}`);
     }
+    // R3-I5: abort a leftover MERGE_HEAD before merging (same as accept).
+    if ((await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0) {
+      await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
+    }
     const signoff = mergeSignoffEnabled(top);
     const argv = [
       "git", "-C", wt,
@@ -494,15 +524,22 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
       sha,
     ];
     const merged = await ctx.run(argv, 60_000, { env: gitQuietEnv });
-    if (merged.code === 0) return { ok: true, run: getRun(ctx, run.id) ?? live };
+    if (merged.code === 0) {
+      // R3-I5: clear sync_base entries whose conflicting base SHA is now an ancestor.
+      await clearResolvedConflicts(ctx, live, top, `base:${live.baseRef}`);
+      return { ok: true, run: getRun(ctx, run.id) ?? live };
+    }
 
     const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
       || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
     if (conflicted) {
       const files = (await ctx.run(["git", "-C", wt, "diff", "--name-only", "--diff-filter=U"], 15_000)).stdout.trim();
       await ctx.run(["git", "-C", wt, "merge", "--abort"], 30_000);
-      const resolution = createConflictResolutionTask(ctx, live, { id: `base:${live.baseRef}`, rev: live.rev }, live.baseRef!, files);
-      return { ok: false, merge: "conflict", resolution_task: resolution.id, run: live };
+      // Store the conflicting base SHA (not the moving ref name) so ancestor clear works (R3-I5).
+      const resolution = createConflictResolutionTask(
+        ctx, live, { id: `base:${live.baseRef}`, rev: live.rev }, sha, files,
+      );
+      return { ok: false, merge: "conflict", resolution_task: resolution.id, run: getRun(ctx, live.id) ?? live };
     }
     throw new CoreError("unavailable", `sync_base failed: ${cleanLine(merged.stderr) || cleanLine(merged.stdout) || `exit ${merged.code}`}`);
   });

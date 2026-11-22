@@ -151,10 +151,19 @@ export const workflowOps: Record<string, OpDef> = {
     },
   }),
   "run.get": op({
-    description: "One run with its step instances and generated graph versions.",
+    description: "One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).",
     params: z.object({ id: runId }),
     handler: (ctx, p) => {
-      assertPersonCaller(ctx);
+      // R3-I2: grants may read their own run (CLI sync/publish fetch expect_rev via run.get).
+      // Foreign/unknown ids refuse with the same text so a grant cannot probe other runs.
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_found", `unknown run ${p.id}`);
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const steps = stepsOfRun(ctx, p.id);
@@ -605,7 +614,16 @@ export const workflowOps: Record<string, OpDef> = {
       } else {
         assertPersonCaller(ctx);
       }
-      return syncBase(ctx, p.id, p.expect_rev);
+      const result = await syncBase(ctx, p.id, p.expect_rev);
+      // M8: always return runEntityValue of a re-read run (conflict path had a stale pre-marker row).
+      const live = getRun(ctx, p.id) ?? result.run;
+      if (result.ok) return { ok: true as const, run: runEntityValue(live) };
+      return {
+        ok: false as const,
+        merge: result.merge,
+        resolution_task: result.resolution_task,
+        run: runEntityValue(live),
+      };
     },
   }),
   "run.publish": op({

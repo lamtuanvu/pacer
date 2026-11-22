@@ -228,16 +228,32 @@ function isConflictEntry(value: unknown): value is RunConflict {
     && typeof e.resolutionTaskId === "string";
 }
 
-/** Parse stored conflict JSON: a list, or a legacy single object (pre R2-F3). */
+/**
+ * Parse stored conflict JSON: a list, or a legacy single object (pre R2-F3).
+ * M4 fail-closed: malformed / non-entry JSON is treated as one unresolved sentinel
+ * so the publish gate stays closed (never opens on garbage).
+ */
 export function parseRunConflicts(raw: string | null | undefined): RunConflict[] | undefined {
   if (!raw) return undefined;
   try {
     const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.length === 0) return undefined;
     const list = Array.isArray(parsed) ? parsed : [parsed];
     const entries = list.filter(isConflictEntry);
-    return entries.length > 0 ? entries : undefined;
+    if (entries.length > 0) return entries;
+    // Valid JSON but no recognizable entries (e.g. `{}`, `[null]`, `"x"`): still unresolved.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
   } catch {
-    return undefined;
+    // Unparseable: fail closed — publish must not proceed.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
   }
 }
 
@@ -936,6 +952,8 @@ export function claimStepAnswer(
 ): StepRow | null {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
+  // M3: immediate so a concurrent writer cannot interleave between the claim and the decision.
+  // A tip that moves between tip-read and claim makes publish refuse (fail-closed); the person re-approves.
   return db.transaction(() => {
     const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
     if (!row || row.status !== "waiting") return null;
@@ -950,7 +968,7 @@ export function claimStepAnswer(
       ).run(id, d.runId, d.stepId, d.attempt, d.actor, d.kind, d.choice, d.reason, ctx.now);
     }
     return stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now });
-  })();
+  }).immediate();
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
@@ -978,20 +996,25 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
  * Read-only: true when `taskId` is a workflow step of a run that already has a
  * branch. Uses sqlite_master only — never runs workflow DDL — so ordinary
  * accepts and the native review probe stay side-effect free on old DBs.
- * Missing tables / columns mean "no" (fail closed for the merge gate: skip).
+ * Missing tables / columns mean "no". Other errors propagate (M4: fail closed
+ * for the probe only means "table/column missing", not "swallow everything").
  */
 export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
-  // sqlite_master probes are inside the try so any error is "no" for this probe only (minor).
+  const db = taskDatabase(ctx);
+  let present: unknown;
+  let runsPresent: unknown;
   try {
-    const db = taskDatabase(ctx);
-    const present = db.query(
+    present = db.query(
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
     ).get();
-    if (!present) return false;
-    const runsPresent = db.query(
+    runsPresent = db.query(
       "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
     ).get();
-    if (!runsPresent) return false;
+  } catch {
+    return false;
+  }
+  if (!present || !runsPresent) return false;
+  try {
     const row = db.query<{ branch: string | null }, [string]>(
       `SELECT r.branch AS branch
        FROM workflow_steps s
@@ -1019,9 +1042,11 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
        LIMIT 1`,
     ).get(taskId, taskId);
     return typeof marker?.conflict === "string" && marker.conflict.length > 0;
-  } catch {
-    // Fail closed for the merge gate: treat probe errors as "no" (ordinary accept path).
-    return false;
+  } catch (error) {
+    const msg = `${error instanceof Error ? error.message : error}`;
+    // Only schema-absence is "no"; other errors must propagate so callers fail closed.
+    if (/no such (table|column)/i.test(msg)) return false;
+    throw error;
   }
 }
 

@@ -6,7 +6,7 @@
 // and a growing file cannot bypass the caps.
 import {
   closeSync, constants, existsSync, fstatSync, lstatSync, mkdirSync, openSync,
-  readSync, realpathSync, renameSync, unlinkSync, writeSync,
+  readdirSync, readSync, realpathSync, renameSync, unlinkSync, writeSync,
 } from "node:fs";
 import { basename, extname, join, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
@@ -135,8 +135,48 @@ function allowedRoots(ctx: Ctx, taskId: string, runId: string): string[] {
 }
 
 /**
+ * Byte-capped copy from an already-opened source fd into an output fd.
+ * Exported so tests can bypass the early fstat size gate and prove the read loop
+ * enforces the cap and refuses EAGAIN/blocking FIFOs without hanging (R3-I1).
+ */
+export function copyFdCapped(srcFd: number, outFd: number, cap: number): number {
+  const buf = Buffer.alloc(READ_CHUNK);
+  let copied = 0;
+  for (;;) {
+    let n: number;
+    try {
+      n = readSync(srcFd, buf, 0, buf.length, null);
+    } catch (error) {
+      const code = (error as NodeJS.ErrnoException).code;
+      if (code === "EAGAIN" || code === "EWOULDBLOCK") {
+        throw new CoreError("not_allowed", "artifact source must be a regular file");
+      }
+      throw error;
+    }
+    if (n === 0) break;
+    copied += n;
+    if (copied > cap) {
+      throw new CoreError("too_large", `artifact exceeds ${cap} bytes`);
+    }
+    writeSync(outFd, buf, 0, n);
+  }
+  return copied;
+}
+
+/** Remove leftover O_EXCL temp blobs under the run artifacts dir (M5). */
+function cleanOrphanTmp(root: string): void {
+  try {
+    for (const name of readdirSync(root)) {
+      if (!name.includes(".tmp-")) continue;
+      try { unlinkSync(join(root, name)); } catch { /* */ }
+    }
+  } catch { /* */ }
+}
+
+/**
  * Jail-check the requested path's parent directory, then open the leaf with
  * O_NOFOLLOW|O_NONBLOCK so a symlink/FIFO swap after the check cannot hang us.
+ * Opens via the realparent + basename so a symlink leaf cannot escape (M5).
  */
 function openJaildSource(ctx: Ctx, taskId: string, runId: string, requested: string): { fd: number; name: string } {
   if (typeof requested !== "string" || !requested.trim()) {
@@ -158,9 +198,11 @@ function openJaildSource(ctx: Ctx, taskId: string, runId: string, requested: str
     throw new CoreError("not_allowed", "path is outside the task worktree and evidence directory");
   }
   const name = basename(abs);
+  // Open the jailed path (real parent + leaf name), not the unresolved abs (M5).
+  const openPath = join(realParent, name);
   let fd: number;
   try {
-    fd = openSync(abs, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
+    fd = openSync(openPath, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
   } catch (error) {
     const code = (error as NodeJS.ErrnoException).code;
     if (code === "ENOENT") throw new CoreError("not_found", "artifact source file not found");
@@ -211,6 +253,7 @@ export function storeArtifact(ctx: Ctx, taskId: string, input: { path: string; l
   const mime = mimeFor(name);
   const root = runArtifactsDir(ctx, run.id);
   mkdirSync(root, { recursive: true, mode: 0o700 });
+  cleanOrphanTmp(root);
   const dest = artifactBlobPath(ctx, run.id, id);
   assertUnderArtifacts(dest, root);
   const tmp = join(root, `${id}.tmp-${process.pid}-${randomBytes(4).toString("hex")}`);
@@ -220,25 +263,7 @@ export function storeArtifact(ctx: Ctx, taskId: string, input: { path: string; l
   let outFd = -1;
   try {
     outFd = openSync(tmp, constants.O_WRONLY | constants.O_CREAT | constants.O_EXCL, 0o600);
-    const buf = Buffer.alloc(READ_CHUNK);
-    for (;;) {
-      let n: number;
-      try {
-        n = readSync(fd, buf, 0, buf.length, null);
-      } catch (error) {
-        const code = (error as NodeJS.ErrnoException).code;
-        if (code === "EAGAIN" || code === "EWOULDBLOCK") {
-          throw new CoreError("not_allowed", "artifact source must be a regular file");
-        }
-        throw error;
-      }
-      if (n === 0) break;
-      copied += n;
-      if (copied > ARTIFACT_FILE_LIMIT) {
-        throw new CoreError("too_large", `artifact exceeds ${ARTIFACT_FILE_LIMIT} bytes`);
-      }
-      writeSync(outFd, buf, 0, n);
-    }
+    copied = copyFdCapped(fd, outFd, ARTIFACT_FILE_LIMIT);
     const used = runBytesUsed(ctx, run.id);
     if (used + copied > ARTIFACT_RUN_LIMIT) {
       throw new CoreError("too_large", `run artifacts would exceed ${ARTIFACT_RUN_LIMIT} bytes`);

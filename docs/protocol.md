@@ -6671,7 +6671,7 @@ Params JSON Schema:
 
 ### `run.get`
 
-One run with its step instances and generated graph versions.
+One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).
 
 Params JSON Schema:
 
