@@ -200,7 +200,7 @@ fn native_line_reads_authenticated_http_snapshot() {
     assert_eq!(String::from_utf8(o.stdout).unwrap(), expected);
     let request = thread.join().unwrap();
     assert!(
-        request.starts_with("GET /v2/snapshot HTTP/1.1\r\n"),
+        request.starts_with("GET /v3/snapshot HTTP/1.1\r\n"),
         "{request}"
     );
     assert!(

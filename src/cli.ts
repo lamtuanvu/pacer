@@ -216,7 +216,7 @@ async function status(args: string[], ctx: Ctx): Promise<Result> {
       try {
         const token = readFileSync(join(ctx.pacerHome, "token"), "utf8").trim();
         if (!token) throw Error("token missing");
-        const response = await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT ?? DEFAULT_PORT}/v2/snapshot`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(300), redirect: "error" });
+        const response = await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT ?? DEFAULT_PORT}/v3/snapshot`, { headers: { authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(300), redirect: "error" });
         if (!response.ok) { await response.body?.cancel(); throw Error("service unavailable"); }
         const body = await response.json() as { snapshot?: ClientSnapshot };
         if (body.snapshot && lineFields(body.snapshot).online) return lineResult(body.snapshot);

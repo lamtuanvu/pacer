@@ -66,7 +66,7 @@ fn service_snapshot(ctx: &Ctx) -> Option<Value> {
         .build();
     let agent = ureq::Agent::new_with_config(config);
     let mut response = agent
-        .get(format!("http://127.0.0.1:{port}/v2/snapshot"))
+        .get(format!("http://127.0.0.1:{port}/v3/snapshot"))
         .header("authorization", format!("Bearer {token}"))
         .call()
         .ok()?;

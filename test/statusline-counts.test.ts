@@ -15,7 +15,7 @@ function local(ctx: ReturnType<typeof fakeCtx>, value: unknown) {
 test("status --line reads v2 counts with authentication and never recomputes usage", async () => {
   const ctx = fakeCtx(), token = ensureToken(ctx); // No strategy required.
   const request = spyOn(globalThis, "fetch").mockImplementation((async (input, options) => {
-    expect(String(input)).toEndWith("/v2/snapshot");
+    expect(String(input)).toEndWith("/v3/snapshot");
     expect(new Headers(options?.headers).get("authorization")).toBe(`Bearer ${token}`);
     return Response.json({ snapshot: snap() });
   }) as typeof fetch);

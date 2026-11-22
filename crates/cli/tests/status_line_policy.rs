@@ -114,7 +114,7 @@ fn native_status_line_route_reads_policy_from_the_authenticated_backend() {
                 bytes.extend_from_slice(&chunk[..n]);
             }
             let request = String::from_utf8_lossy(&bytes);
-            assert!(request.starts_with("GET /v2/snapshot "));
+            assert!(request.starts_with("GET /v3/snapshot "));
             assert!(
                 request
                     .to_lowercase()
