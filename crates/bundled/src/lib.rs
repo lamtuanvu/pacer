@@ -26,7 +26,7 @@ pub const TABLE: &[Bundled] = &[
     Bundled { id: "pacer-ssh", manifest: include_str!("../manifests/pacer-ssh.json"), run: None },
     Bundled { id: "pacer-remote-caller", manifest: pacer_bundled_remote_caller::MANIFEST, run: Some(pacer_bundled_remote_caller::plugin) },
     Bundled { id: "pacer-exec-direct", manifest: include_str!("../manifests/pacer-exec-direct.json"), run: None },
-    Bundled { id: "pacer-exec-orca", manifest: include_str!("../manifests/pacer-exec-orca.json"), run: None },
+    Bundled { id: "pacer-exec-orca", manifest: pacer_bundled_exec_orca::MANIFEST, run: Some(pacer_bundled_exec_orca::plugin) },
 ];
 
 pub fn find(id: &str) -> Option<&'static Bundled> {
