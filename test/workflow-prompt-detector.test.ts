@@ -199,8 +199,12 @@ test("attention item exposes answer-in-terminal and convert actions", () => {
   expect(item).toMatchObject({
     kind: "stuck",
     severity: "blocked",
-    detail: expect.stringMatching(/may be waiting on you/i),
   });
+  // UI-1: Convert sentence first, then the captured terminal text.
+  expect(item!.detail.startsWith(
+    "Convert hands the question to the workflow planner, who answers or asks you.",
+  )).toBe(true);
+  expect(item!.detail).toContain("Which option do you prefer?");
   expect(item!.actions.map(a => a.op).sort()).toEqual(["question.convert_prompt", "ui.open"]);
   expect(isWorkflowAttentionItem(item!)).toBe(true);
 });
