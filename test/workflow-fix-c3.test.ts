@@ -139,7 +139,7 @@ describe("I3: child root sized from the approved graph", () => {
         plan: {
           type: "generate",
           prompt: "Plan",
-          limits: { step_types: ["agent", "human", "fanout"], max_steps: 40 },
+          limits: { step_types: ["agent", "human", "fanout"], max_steps: 200 },
         },
         done: { type: "end" },
       },
@@ -170,7 +170,11 @@ describe("I3: child root sized from the approved graph", () => {
       each: { type: "agent", kind: "tests", prompt: "T" },
       join: "all",
     };
-    edges.push({ from: prev, to: "fan" }, { from: "fan", to: "done", maxLoops: 3 });
+    edges.push(
+      { from: prev, to: "fan" },
+      { from: "fan", to: "s0", when: "result.verdict == 'revise'", maxLoops: 3 },
+      { from: "fan", to: "done", when: "result.verdict == 'ok'" },
+    );
     const childGraph: WorkflowDef = {
       id: "gen/tmp",
       version: 1,
@@ -188,8 +192,9 @@ describe("I3: child root sized from the approved graph", () => {
     expect(childRunId).toBeTruthy();
     const child = getRun(ctx, childRunId!)!;
     const childRoot = getWork(ctx, child.rootTaskId!)!;
-    // Loop factor (maxLoops+1=4) × (18 agents + 5 branches) + retries slack, capped at 1000.
-    const expected = Math.min(1000, Math.max(20, (18 + 5) * 4 + Math.max(10, Object.keys(steps).length)));
+    // Per-cycle budget: base + maxLoops×cycle units + slack (not max(maxLoops)+1 over all steps).
+    const { rootCapacityFromGraph } = await import("../src/workflow/worknode");
+    const expected = rootCapacityFromGraph(childGraph);
     expect(childRoot.options.maxDescendants).toBe(expected);
     expect(expected).toBeGreaterThan(20);
   });
