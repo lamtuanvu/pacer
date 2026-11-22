@@ -1,16 +1,19 @@
 // Fallback detector: flag prompt-like terminal lines on step tasks without answering.
-import { existsSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, openSync, readSync } from "node:fs";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
-import { listTasksWhere, readTask, updateTask } from "../tasks/store";
+import { listTasksWhere, readTask, taskDatabase, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
-import { insertQuestion, stepByTask, workflowDatabase, type QuestionRow } from "./store";
+import {
+  insertQuestion, stepByTask, stepByTaskIfPresent, workflowSchemaPresent, type QuestionRow,
+} from "./store";
 import { enqueueWakeup } from "./wakeups";
 import { assertOpenQuestionCaps, questionEntityValue } from "./questions";
 import { publish } from "../link/publish";
 
 function hasOpenQuestionForTask(ctx: Ctx, taskId: string): boolean {
-  const row = workflowDatabase(ctx).query<{ n: number }, [string]>(
+  if (!workflowSchemaPresent(ctx)) return false;
+  const row = taskDatabase(ctx).query<{ n: number }, [string]>(
     "SELECT COUNT(*) AS n FROM workflow_questions WHERE asker_task_id = ? AND status = 'open'",
   ).get(taskId);
   return (row?.n ?? 0) > 0;
@@ -71,12 +74,24 @@ function logPath(task: TaskRecord): string | null {
   return null;
 }
 
-function readTail(path: string, maxBytes = 16_384): string {
+/** Read only the last maxBytes of a log (R2-I1): never load a multi-hundred-MB file. */
+export function readLogTail(path: string, maxBytes = 16_384): string {
+  let fd: number | undefined;
   try {
-    const raw = readFileSync(path);
-    return raw.subarray(Math.max(0, raw.length - maxBytes)).toString("utf8");
+    fd = openSync(path, "r");
+    const size = fstatSync(fd).size;
+    if (size <= 0) return "";
+    const start = Math.max(0, size - maxBytes);
+    const len = size - start;
+    const buf = Buffer.alloc(len);
+    const n = readSync(fd, buf, 0, len, start);
+    return buf.subarray(0, n).toString("utf8");
   } catch {
     return "";
+  } finally {
+    if (fd !== undefined) {
+      try { closeSync(fd); } catch { /* already closed */ }
+    }
   }
 }
 
@@ -89,7 +104,7 @@ export function refreshPromptWait(ctx: Ctx, taskId: string): PromptWaitMark | nu
     clearPromptWait(ctx, taskId);
     return null;
   }
-  if (!stepByTask(ctx, taskId)) {
+  if (!stepByTaskIfPresent(ctx, taskId)) {
     clearPromptWait(ctx, taskId);
     return null;
   }
@@ -108,7 +123,7 @@ export function refreshPromptWait(ctx: Ctx, taskId: string): PromptWaitMark | nu
     clearPromptWait(ctx, taskId);
     return null;
   }
-  const matched = findPromptLikeLine(readTail(path));
+  const matched = findPromptLikeLine(readLogTail(path));
   if (!matched) {
     clearPromptWait(ctx, taskId);
     return null;
@@ -126,9 +141,10 @@ function clearPromptWait(ctx: Ctx, taskId: string): void {
 
 /** Refresh marks for every running step task (broker / tick hook). */
 export function refreshAllPromptWaits(ctx: Ctx): void {
-  // Cheap pre-check: homes with no workflow tables skip the per-task work.
+  // Cheap pre-check: homes with no workflow tables skip without DDL (R2-I1/I4).
   try {
-    const n = workflowDatabase(ctx).query<{ n: number }, []>(
+    if (!workflowSchemaPresent(ctx)) return;
+    const n = taskDatabase(ctx).query<{ n: number }, []>(
       "SELECT COUNT(*) AS n FROM workflow_steps WHERE status = 'running' LIMIT 1",
     ).get()?.n ?? 0;
     if (n === 0) return;
@@ -137,17 +153,12 @@ export function refreshAllPromptWaits(ctx: Ctx): void {
   }
   for (const task of listTasksWhere(ctx, { states: ["running"] })) {
     try {
-      if (stepByTask(ctx, task.id)) refreshPromptWait(ctx, task.id);
+      if (stepByTaskIfPresent(ctx, task.id)) refreshPromptWait(ctx, task.id);
     } catch {
       // Isolate per task so one failure cannot abort the whole broker tick (I10).
     }
   }
 }
-
-export type ConvertPromptDeps = {
-  /** Optional spy: production never types into the terminal. */
-  typeIntoTerminal?: (text: string) => void;
-};
 
 /**
  * Convert a prompt-wait mark into a structured question. Never types into the terminal.
@@ -155,9 +166,7 @@ export type ConvertPromptDeps = {
 export function convertPromptWaitToQuestion(
   ctx: Ctx,
   taskId: string,
-  deps: ConvertPromptDeps = {},
 ): QuestionRow {
-  void deps.typeIntoTerminal; // intentionally unused — detector never answers
   const task = readTask(ctx, taskId);
   if (!task?.promptWait) throw new CoreError("not_found", `no prompt wait on task ${taskId}`);
   const step = stepByTask(ctx, taskId);

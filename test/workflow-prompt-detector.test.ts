@@ -1,5 +1,5 @@
-import { expect, test } from "bun:test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { expect, spyOn, test } from "bun:test";
+import { closeSync, mkdirSync, openSync, writeFileSync, writeSync } from "node:fs";
 import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
@@ -9,12 +9,18 @@ import {
 import {
   convertPromptWaitToQuestion,
   findPromptLikeLine,
+  readLogTail,
+  refreshAllPromptWaits,
   refreshPromptWait,
 } from "../src/workflow/prompt-detector";
+import { brokerTick } from "../src/messaging/broker";
+import * as sessionSend from "../src/session/send";
+import * as msgStore from "../src/messaging/store";
 import { deriveItems, type RuleInput } from "../src/attention/rules";
 import { apiTask } from "../src/api/read-model/tasks";
 import { isWorkflowAttentionItem } from "../src/api/v2-compat";
 import type { WorkflowDef } from "../src/workflow/schema";
+import * as fs from "node:fs";
 
 const NOW = 1_700_000_000;
 const QUIET = 30;
@@ -98,7 +104,6 @@ test("ordinary tasks without a step row are never marked", () => {
 
 test("step-row task with quiet prompt-like output is marked; conversion creates a question and types nothing", () => {
   const ctx = { ...fakeCtx(), now: NOW };
-  const typed: string[] = [];
   const { run, task } = seedStepTask(ctx, {
     logText: "Build done.\nOverwrite? [Y/n]\n",
     lastOutputAt: NOW - QUIET - 5,
@@ -108,14 +113,54 @@ test("step-row task with quiet prompt-like output is marked; conversion creates 
   expect(mark?.text).toMatch(/\[Y\/n\]/i);
   expect(readTask(ctx, task.id)?.promptWait?.text).toMatch(/\[Y\/n\]/i);
 
-  const q = convertPromptWaitToQuestion(ctx, task.id, { typeIntoTerminal: (s) => typed.push(s) });
+  const sendSpy = spyOn(sessionSend, "sendDirectInput").mockResolvedValue({ ok: true } as never);
+  const beforeMsgs = msgStore.thread(ctx, task.id).length;
+  const q = convertPromptWaitToQuestion(ctx, task.id);
   expect(q.text).toContain(mark!.text);
   expect(q.runId).toBe(run.id);
   expect(q.blocks).toBe("step");
   expect(q.answerer).toBe("orchestrator");
   expect(listQuestions(ctx, run.id, "open").some(row => row.id === q.id)).toBe(true);
   expect(readTask(ctx, task.id)?.promptWait).toBeUndefined();
-  expect(typed).toEqual([]);
+  expect(sendSpy).not.toHaveBeenCalled();
+  expect(msgStore.thread(ctx, task.id).length).toBe(beforeMsgs);
+  sendSpy.mockRestore();
+});
+
+test("R2-I1: readLogTail reads only the last 16 KiB of a large sparse log", () => {
+  const dir = tmpDir();
+  const path = join(dir, "huge.log");
+  // 50 MiB sparse file with a prompt only in the final bytes.
+  const fd = openSync(path, "w");
+  try {
+    writeSync(fd, Buffer.alloc(1, 0x20), 0, 1, 50 * 1024 * 1024 - 1);
+    writeSync(fd, Buffer.from("\nContinue? (y/n)\n"), 0, 17, 50 * 1024 * 1024);
+  } finally {
+    closeSync(fd);
+  }
+  const readSpy = spyOn(fs, "readSync");
+  const tail = readLogTail(path);
+  expect(tail).toContain("Continue? (y/n)");
+  expect(findPromptLikeLine(tail)).toMatch(/\(y\/n\)/i);
+  const bytesRead = readSpy.mock.calls.reduce((n, call) => n + (Number(call[3]) || 0), 0);
+  expect(bytesRead).toBeLessThanOrEqual(16_384);
+  expect(bytesRead).toBeGreaterThan(0);
+  readSpy.mockRestore();
+});
+
+test("R2-I1: brokerTick drives the detector and marks a quiet step task", async () => {
+  const ctx = { ...fakeCtx(), now: NOW };
+  const { task } = seedStepTask(ctx, {
+    logText: "Ready.\nContinue? (y/n)\n",
+    lastOutputAt: NOW - QUIET - 5,
+    withStep: true,
+  });
+  expect(readTask(ctx, task.id)?.promptWait).toBeUndefined();
+  await brokerTick(ctx, { mode: async () => "balanced" });
+  expect(readTask(ctx, task.id)?.promptWait?.text).toMatch(/\(y\/n\)/i);
+  // Also reachable via the all-tasks refresh used by the tick.
+  refreshAllPromptWaits(ctx);
+  expect(readTask(ctx, task.id)?.promptWait?.text).toMatch(/\(y\/n\)/i);
 });
 
 test("fresh output under 30s does not mark", () => {
