@@ -1,5 +1,5 @@
 import { manifest as plannerManifest } from "./pacer-planners/index";
-import { manifestSchema } from "../src/plugins/protocol";
+import { manifestSchema } from "@pacer/protocol-schema/plugin/protocol";
 import { manifest as endpointManifest } from "./pacer-endpoints/manifest";
 import { manifest as notifierManifest } from "./pacer-notify/manifest";
 import { manifest as classifierManifest } from "./pacer-classify/manifest";

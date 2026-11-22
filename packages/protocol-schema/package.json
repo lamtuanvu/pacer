@@ -1,0 +1,10 @@
+{
+  "name": "@pacer/protocol-schema",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "pacer client and plugin protocol schemas (zod), the source of docs/*.schema.json.",
+  "license": "Apache-2.0",
+  "dependencies": { "zod": "4.6.5" },
+  "exports": { ".": "./src/index.ts", "./*": "./src/*.ts" }
+}

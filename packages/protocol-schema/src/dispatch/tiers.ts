@@ -1,0 +1,1 @@
+export const TIERS = { unknown: -1, small: 0, medium: 1, frontier: 2 };

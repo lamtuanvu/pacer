@@ -14,11 +14,9 @@ import { parseHosts, type HostCfg } from "./hosts";
 import { validateRemoteRunner, allowedPair, legacyToAccounts, parseAccounts, parseSize, parseDuration, type AccountCfg, type RunnerCfg, type PlannerCfg } from "./accounts";
 
 export { parseSize, parseDuration } from "./accounts";
+import { KINDS } from "@pacer/protocol-schema/shared/kinds";
 
-export const KINDS = [
-  "boilerplate", "tests", "docs", "rename", "migration", "feature",
-  "debug", "refactor", "performance", "unfamiliar-code", "research",
-] as const;
+export { KINDS };
 export const NATIVE = ["claude-code", "codex", "cursor", "agy"] as const;
 export const PLANNERS = ["claude-code", "codex", "cursor", "opencode"] as const;
 export const POLICIES = ["priority", "even", "burn-before-reset", "cheapest-first"] as const;

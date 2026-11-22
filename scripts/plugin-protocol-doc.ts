@@ -2,7 +2,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { z } from "zod";
 import { bundleDefs } from "./schema-bundle";
-import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, DOC_LIMITS, NOTIFICATIONS, UI_ICONS, UI_LIMITS, UI_ROUTES, uiContributionSchema, viewNodeSchema, PLUGIN_PROTOCOL_VERSION, PLUGIN_HARDENING_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema, callMetadata, pluginMetadata, readOwnerMetadata, policyEvent, RESULT_CHUNK_METHOD, resultChunkParams, resultChunkAck, chunkedResult, STREAM_ACK_METHOD, STREAM_INPUT_METHOD, STREAM_INPUT_ACK_METHOD, streamProgressEvent, streamAckParams, streamAckResult, streamInputFrame, streamInputAckParams, streamInputAckResult } from "../src/plugins/protocol";
+import { CANCEL_METHOD, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS, EXTENSION_POINTS, HELLO_METHOD, DOC_LIMITS, NOTIFICATIONS, UI_ICONS, UI_LIMITS, UI_ROUTES, uiContributionSchema, viewNodeSchema, PLUGIN_PROTOCOL_VERSION, PLUGIN_HARDENING_PROTOCOL_VERSION, PLUGIN_STATES, helloParams, helloResult, manifestSchema, callMetadata, pluginMetadata, readOwnerMetadata, policyEvent, RESULT_CHUNK_METHOD, resultChunkParams, resultChunkAck, chunkedResult, STREAM_ACK_METHOD, STREAM_INPUT_METHOD, STREAM_INPUT_ACK_METHOD, streamProgressEvent, streamAckParams, streamAckResult, streamInputFrame, streamInputAckParams, streamInputAckResult } from "@pacer/protocol-schema/plugin/protocol";
 
 const json = (s: z.ZodTypeAny) => JSON.stringify(z.toJSONSchema(s), null, 2);
 const section = (name: string, description: string, params: z.ZodTypeAny, result: z.ZodTypeAny, deadline?: number) => [
