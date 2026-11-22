@@ -552,12 +552,14 @@ export const workflowOps: Record<string, OpDef> = {
         return noteGenerateSubmitErrors(ctx, p.id, p.step, shapeErrors);
       }
       const { deps: engine, spawn } = engineDeps(deps);
+      const waiting = stepsOfRun(ctx, p.id).filter(s => s.stepId === p.step && s.status === "waiting");
+      const attempt = waiting[waiting.length - 1]?.attempt ?? 0;
       const result = await submitGraph(ctx, { runId: p.id, stepId: p.step, source: def! }, engine, spawn);
       if (result.ok) {
         recordDecision(ctx, {
           runId: p.id,
           stepId: p.step,
-          attempt: 0,
+          attempt,
           actor: "orchestrator",
           kind: "submit_graph",
           choice: `v${result.version ?? "?"}`,

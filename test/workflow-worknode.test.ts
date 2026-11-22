@@ -1,4 +1,6 @@
 import { expect, test } from "bun:test";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
 import { getWork, pendingDependencies, registerWork, setWorkDependencies, workOptionsSchema } from "../src/dispatch/work";
@@ -91,12 +93,11 @@ test("a new run gets step_mode work_node and step tasks are children of its root
   expect(child!.rootId).toBe(run.rootTaskId!);
 });
 
-test("a dependency edge holds a step until its predecessor is accepted", async () => {
+test("successor step has no dispatcher dependency edge; engine advances on done", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, chain, "source");
   const { deps } = fakeDeps();
   const r = await startRun(ctx, { workflow: "t/wn-chain", repo: tmpDir(), brief: "B" }, undefined, deps);
-  const run = getRun(ctx, r.id)!;
   const one = stepsOfRun(ctx, r.id).find(s => s.stepId === "one")!;
   recordStepResult(ctx, one.taskId!, { ok: true });
   updateTask(ctx, one.taskId!, t => { t.state = "done"; });
@@ -105,24 +106,28 @@ test("a dependency edge holds a step until its predecessor is accepted", async (
   const two = stepsOfRun(ctx, r.id).find(s => s.stepId === "two")!;
   expect(two.taskId).toBeTruthy();
   const work = getWork(ctx, two.taskId!)!;
-  expect(work.dependencies).toContain(one.taskId!);
-  expect(pendingDependencies(ctx, two.taskId!)).toEqual([one.taskId!]);
-
-  // Accept the predecessor: the dependency clears.
-  updateTask(ctx, one.taskId!, t => { t.review = { accepted: true, kind: null, note: null, at: ctx.now }; });
-  // pendingDependencies re-reads review
+  expect(work.dependencies).toEqual([]);
   expect(pendingDependencies(ctx, two.taskId!)).toEqual([]);
 });
 
 test("the root's maxDescendants follows the concrete graph; ordinary dispatch roots stay at 20", async () => {
   const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(join(ctx.pacerHome, "strategy.yaml"), [
+    "planner: claude-code",
+    "providers:",
+    "  claude-code: {}",
+    "execution:",
+    "  local_max_tasks: 4",
+    "",
+  ].join("\n"));
   addDefinition(ctx, withGenerate, "source");
   const { deps } = fakeDeps();
   const r = await startRun(ctx, { workflow: "t/wn-gen", repo: tmpDir(), brief: "B" }, undefined, deps);
   const run = getRun(ctx, r.id)!;
   const root = getWork(ctx, run.rootTaskId!)!;
   // Parent generate graph is one generate step (+ end); child runs size their own roots.
-  expect(root.options.maxDescendants).toBe(20);
+  expect(root.options.maxDescendants).toBe(Math.max(20, 1 + 10));
   expect(root.options.maxConcurrent).toBe(4);
 
   const ordinary = createTask(ctx, { brief: { goal: "root", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });

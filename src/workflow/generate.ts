@@ -2,6 +2,8 @@
 // approval/child-run start (Phase 3). The grant op is Task 6.
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
+import { KINDS } from "../config/strategy";
+import { publish } from "../link/publish";
 import {
   addDefinition,
   getDefinition,
@@ -9,10 +11,12 @@ import {
   getRun,
   insertGraphVersion,
   listGraphs,
+  runEntityValue,
   setGraphStatus,
   stepsOfRun,
   updateRun,
   updateStep,
+  workflowDatabase,
   type RunRow,
   type StepKey,
   type StepRow,
@@ -27,6 +31,8 @@ import {
 import { backEdgeIndexes, validateWorkflow } from "./validate";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import type { SpawnRunner } from "../tasks/api";
+
+const KNOWN_KINDS = new Set<string>(KINDS);
 
 /** Cap validation errors returned/stored so a hostile graph cannot flood the step result. */
 const MAX_GENERATE_ERRORS = 32;
@@ -223,11 +229,20 @@ export function validateGenerated(
         });
       }
     }
-    if (limits.kinds) {
-      const kind = stepKindForLimits(step);
-      if (kind && !limits.kinds.includes(kind)) {
+    const kind = stepKindForLimits(step);
+    if (kind) {
+      if (limits.kinds) {
+        if (!limits.kinds.includes(kind)) {
+          const path = step.type === "fanout" ? `steps.${id}.each.kind` : `steps.${id}.kind`;
+          errors.push({ path, message: `kind '${kind}' is not allowed by limits.kinds` });
+        }
+      } else if (!KNOWN_KINDS.has(kind)) {
+        // M3: refuse unknown kinds at validate time (not only at delegate).
         const path = step.type === "fanout" ? `steps.${id}.each.kind` : `steps.${id}.kind`;
-        errors.push({ path, message: `kind '${kind}' is not allowed by limits.kinds` });
+        errors.push({
+          path,
+          message: `unknown kind '${kind}' (allowed: ${KINDS.join(", ")})`,
+        });
       }
     }
     if (step.type === "fanout" && step.branches.length > limits.max_steps) {
@@ -446,35 +461,67 @@ export async function submitGraph(
     : undefined;
   const replanAsk = prior.replanMode === "ask";
 
-  const stored = insertGraphVersion(ctx, {
-    runId: run.id,
-    stepId: input.stepId,
-    attempt: row.attempt,
-    def: source,
-    status: "proposed",
-  });
-
-  // Bump run rev so expect_rev on run.answer serializes against concurrent submit.
-  try { updateRun(ctx, run.id, run.rev, {}); } catch { /* */ }
-
-  const nextResult: Record<string, unknown> = {
-    ...prior,
-    graphVersion: stored.version,
-    submitFails: 0,
-    reviseNote: undefined,
-    replanDiff: prior.replanMode ? diff : prior.replanDiff,
-    ...(replanSummary !== undefined ? { replanSummary } : {}),
-  };
-
-  // Replan ask: person must approve the replacement (with diff) before the child starts.
-  if (replanAsk || stepDef.approval) {
-    updateStep(ctx, keyOf(row), {
-      result: {
-        ...nextResult,
-        pendingApproval: true,
-        approval: replanAsk ? (stepDef.approval ?? "must") : stepDef.approval,
-      },
+  // M2: re-check + insert + step update + rev bump in one immediate transaction so
+  // two concurrent submits cannot both pass the pre-checks above.
+  const stored = workflowDatabase(ctx).transaction(() => {
+    const freshRow = latestWaitingGenerate(ctx, input.runId, input.stepId);
+    if (!freshRow || freshRow.attempt !== row.attempt) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a graph`);
+    }
+    const freshPrior = stepResultObj(freshRow);
+    if (typeof freshPrior.childRunId === "string") {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} already has a child run`);
+    }
+    if (freshPrior.choosing === true) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} is already starting a child`);
+    }
+    if (freshPrior.pendingApproval === true) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} is waiting for approval`);
+    }
+    const graph = insertGraphVersion(ctx, {
+      runId: run.id,
+      stepId: input.stepId,
+      attempt: freshRow.attempt,
+      def: source,
+      status: "proposed",
     });
+    const nextResult: Record<string, unknown> = {
+      ...freshPrior,
+      graphVersion: graph.version,
+      submitFails: 0,
+      reviseNote: undefined,
+      replanDiff: freshPrior.replanMode ? diff : freshPrior.replanDiff,
+      ...(replanSummary !== undefined ? { replanSummary } : {}),
+    };
+    if (replanAsk || stepDef.approval) {
+      updateStep(ctx, keyOf(freshRow), {
+        result: {
+          ...nextResult,
+          pendingApproval: true,
+          approval: replanAsk ? (stepDef.approval ?? "must") : stepDef.approval,
+        },
+      });
+    } else {
+      updateStep(ctx, keyOf(freshRow), {
+        result: { ...nextResult, pendingApproval: undefined },
+      });
+    }
+    const live = getRun(ctx, run.id);
+    if (live) {
+      try { updateRun(ctx, run.id, live.rev, {}); } catch { /* */ }
+    }
+    return graph;
+  }).immediate();
+
+  const published = getRun(ctx, run.id);
+  if (published) {
+    try {
+      await publish(ctx, [{ type: "entity", data: { kind: "run", id: published.id, value: runEntityValue(published) } }]);
+    } catch { /* publishing must never throw into submit */ }
+  }
+
+  // Replan ask / approval: person or auto-wake before the child starts.
+  if (replanAsk || stepDef.approval) {
     if (stepDef.approval === "auto" && !replanAsk) {
       const { canAutoApproveGenerate } = await import("./auto");
       const { rootRunId } = await import("./store");
@@ -491,9 +538,6 @@ export async function submitGraph(
     return { ok: true, errors: [], version: stored.version };
   }
 
-  updateStep(ctx, keyOf(row), {
-    result: { ...nextResult, pendingApproval: undefined },
-  });
   const { startGeneratedChild } = await import("./engine");
   await startGeneratedChild(ctx, {
     runId: run.id,

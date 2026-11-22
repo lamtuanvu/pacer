@@ -48,7 +48,7 @@ const chain: WorkflowDef = {
 };
 
 describe("B3: step tasks are real dispatcher children before launch", () => {
-  test("real delegate creates step under root with workParent; dependency holds as queued", async () => {
+  test("real delegate creates step under root with workParent; successor launches on done without accept", async () => {
     const ctx = fakeCtx();
     writeStrategy(ctx);
     addDefinition(ctx, chain, "source");
@@ -75,14 +75,10 @@ describe("B3: step tasks are real dispatcher children before launch", () => {
     const two = stepsOfRun(ctx, run.id).find(s => s.stepId === "two")!;
     expect(two.taskId).toBeTruthy();
     expect(getWork(ctx, two.taskId!)!.parentId).toBe(rootId);
-    expect(getWork(ctx, two.taskId!)!.dependencies).toContain(one.taskId!);
-    // Predecessor is done but not accepted: dispatcher still holds the step.
-    expect(pendingDependencies(ctx, two.taskId!)).toEqual([one.taskId!]);
-    const held = readTask(ctx, two.taskId!)!;
-    expect(held.state).toBe("queued");
-    expect(held.queue).toBeTruthy();
-    // Real launch must not have started the held successor.
-    expect(launches).not.toContain(two.taskId!);
+    // Engine creates the successor after done; no dispatcher dependency edges.
+    expect(getWork(ctx, two.taskId!)!.dependencies).toEqual([]);
+    expect(pendingDependencies(ctx, two.taskId!)).toEqual([]);
+    expect(launches).toContain(two.taskId!);
   });
 
   test("registerWork rejection fails the step instead of swallowing", async () => {
@@ -120,23 +116,15 @@ describe("B3: step tasks are real dispatcher children before launch", () => {
 
     const a = stepsOfRun(ctx, run.id).find(s => s.stepId === "a")!;
     recordStepResult(ctx, a.taskId!, { ok: true });
-    updateTask(ctx, a.taskId!, t => { t.state = "done"; t.review = { accepted: true, kind: null, note: null, at: ctx.now }; });
+    updateTask(ctx, a.taskId!, t => { t.state = "done"; });
     await onTaskSettled(ctx, a.taskId!, spawn, defaultEngineDeps);
 
     const b = stepsOfRun(ctx, run.id).find(s => s.stepId === "b");
     const live = getRun(ctx, run.id)!;
-    // Either the step failed or the run failed — never a silently orphaned root child.
-    expect(
-      b?.status === "failed"
-      || live.status === "failed"
-      || (b?.taskId != null && getWork(ctx, b.taskId)?.parentId === rootId),
-    ).toBe(true);
-    if (b?.status !== "failed" && live.status !== "failed") {
-      // If capacity somehow still allowed registration, it must be under the root.
-      expect(getWork(ctx, b!.taskId!)!.parentId).toBe(rootId);
-    } else {
-      expect(b?.status === "failed" || live.status === "failed").toBe(true);
-    }
+    // M1: assert the run failed with the descendant limit (not a weak disjunction).
+    expect(live.status).toBe("failed");
+    expect(live.reason ?? "").toMatch(/Descendant limit reached/i);
+    expect(b?.status === "failed" || live.status === "failed").toBe(true);
   });
 });
 
@@ -164,7 +152,7 @@ describe("I3: child root sized from the approved graph", () => {
     const parentRoot = getWork(ctx, getRun(ctx, run.id)!.rootTaskId!)!;
     // Parent graph is tiny (generate + end); must not inherit max_steps+10.
     expect(parentRoot.options.maxDescendants).toBeLessThan(50);
-    expect(parentRoot.options.maxDescendants).toBe(Math.max(20, 1));
+    expect(parentRoot.options.maxDescendants).toBe(Math.max(20, 1 + 10)); // generate + retries slack
 
     const steps: WorkflowDef["steps"] = { done: { type: "end" } };
     const edges: WorkflowDef["edges"] = [];
@@ -200,8 +188,8 @@ describe("I3: child root sized from the approved graph", () => {
     expect(childRunId).toBeTruthy();
     const child = getRun(ctx, childRunId!)!;
     const childRoot = getWork(ctx, child.rootTaskId!)!;
-    // 18 agents + 5 fanout branches + 3 loop budget
-    const expected = Math.max(20, 18 + 5 + 3);
+    // Loop factor (maxLoops+1=4) × (18 agents + 5 branches) + retries slack, capped at 1000.
+    const expected = Math.min(1000, Math.max(20, (18 + 5) * 4 + Math.max(10, Object.keys(steps).length)));
     expect(childRoot.options.maxDescendants).toBe(expected);
     expect(expected).toBeGreaterThan(20);
   });

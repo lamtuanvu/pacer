@@ -153,6 +153,9 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
   return updated;
 }
 
+/** Runs whose failRun cascade is in progress — settleParentChooseStep skips wakes. */
+const failingRuns = new Set<string>();
+
 /** Fails a run with a reason (and optionally the loop counters that led there) and
  *  stops its in-flight step tasks; those rows are marked stopped too. Terminal runs
  *  stay terminal. */
@@ -160,20 +163,25 @@ export async function failRun(ctx: Ctx, runId: string, reason: string, loops?: R
   const current = getRun(ctx, runId);
   if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(current.status)) return;
-  // Fail live children first so their settlement sees a live parent with matching childRunId.
-  const children = workflowDatabase(ctx).query<{ id: string }, [string]>(
-    "SELECT id FROM workflow_runs WHERE parent_run_id = ? AND status IN ('running', 'waiting')",
-  ).all(runId);
-  for (const child of children) {
-    try { await failRun(ctx, child.id, reason, undefined, deps); } catch { /* */ }
-  }
-  await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) }, { deps, spawn: undefined });
-  for (const row of stepsOfRun(ctx, runId)) {
-    if (row.status !== "running") continue;
-    if (row.taskId) {
-      try { deps.stopTask(ctx, row.taskId); } catch { /* failing the run must not depend on one task */ }
+  failingRuns.add(runId);
+  try {
+    // Fail live children first so their settlement sees a live parent with matching childRunId.
+    const children = workflowDatabase(ctx).query<{ id: string }, [string]>(
+      "SELECT id FROM workflow_runs WHERE parent_run_id = ? AND status IN ('running', 'waiting')",
+    ).all(runId);
+    for (const child of children) {
+      try { await failRun(ctx, child.id, reason, undefined, deps); } catch { /* */ }
     }
-    try { updateStep(ctx, keyOf(row), { status: "stopped", error: "run failed", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
+    await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) }, { deps, spawn: undefined });
+    for (const row of stepsOfRun(ctx, runId)) {
+      if (row.status !== "running") continue;
+      if (row.taskId) {
+        try { deps.stopTask(ctx, row.taskId); } catch { /* failing the run must not depend on one task */ }
+      }
+      try { updateStep(ctx, keyOf(row), { status: "stopped", error: "run failed", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
+    }
+  } finally {
+    failingRuns.delete(runId);
   }
 }
 
@@ -633,6 +641,60 @@ export async function reconcileOrphanStep(
   return "redelegated";
 }
 
+export type SeedFinished = {
+  finishedIds: string[];
+  results: Record<string, unknown>;
+};
+
+/**
+ * Seed finished steps from a prior child (replan) as done with their results,
+ * mark intermediate ones advanced, and resume from the first unfinished successor.
+ */
+async function seedFinishedAndResume(
+  ctx: Ctx,
+  run: RunRow,
+  def: WorkflowDef,
+  seed: SeedFinished,
+  e: EngineOptions,
+): Promise<void> {
+  const finished = new Set(seed.finishedIds.filter(id => def.steps[id] && def.steps[id]!.type !== "end"));
+  if (finished.size === 0) {
+    await startStep(ctx, run, def, def.entry, undefined, e);
+    return;
+  }
+  for (const id of finished) {
+    const result = Object.prototype.hasOwnProperty.call(seed.results, id) ? seed.results[id] : {};
+    const row = insertStep(ctx, { runId: run.id, stepId: id, attempt: 1, status: "done" });
+    updateStep(ctx, keyOf(row), { status: "done", result, endedAt: ctx.now });
+  }
+  // Walk from entry along finished steps; advanceFrom the frontier into unfinished work.
+  let stepId = def.entry;
+  const seen = new Set<string>();
+  while (finished.has(stepId) && !seen.has(stepId)) {
+    seen.add(stepId);
+    const row = stepsOfRun(ctx, run.id).find(s => s.stepId === stepId && s.status === "done" && s.branch === undefined);
+    if (!row) break;
+    const result = row.result;
+    const matched = matchedEdges(def, getRun(ctx, run.id) ?? run, stepId, result);
+    const nextOrdinary = matched.find(m => def.steps[m.edge.to]?.type !== "end");
+    if (!nextOrdinary) {
+      await advanceFrom(ctx, run.id, def, row, result, e);
+      return;
+    }
+    const nextId = nextOrdinary.edge.to;
+    if (finished.has(nextId)) {
+      try { updateStep(ctx, keyOf(row), { advancedAt: ctx.now }); } catch { /* */ }
+      stepId = nextId;
+      continue;
+    }
+    await advanceFrom(ctx, run.id, def, row, result, e);
+    return;
+  }
+  if (!finished.has(def.entry)) {
+    await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, e);
+  }
+}
+
 /** Starts a run: creates the run record and starts its entry step. A failing start
  *  fails the run (never leaves it silently stuck) and rethrows. */
 export async function startRun(
@@ -640,7 +702,14 @@ export async function startRun(
   input: { workflow: string; repo: string; brief: string; title?: string },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
-  child?: { parentRunId: string; parentStep: string; planner?: string; orchestratorTaskId?: string; sessionId?: string },
+  child?: {
+    parentRunId: string;
+    parentStep: string;
+    planner?: string;
+    orchestratorTaskId?: string;
+    sessionId?: string;
+    seedFinished?: SeedFinished;
+  },
 ): Promise<RunRow> {
   const def = getDefinition(ctx, input.workflow);
   if (!def) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
@@ -675,7 +744,11 @@ export async function startRun(
     const live = getRun(ctx, run.id)!;
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
     if (def.steps[def.entry]?.type === "end") await patchRun(ctx, run.id, { status: "done" });
-    else await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, { deps, spawn });
+    else if (child?.seedFinished && child.seedFinished.finishedIds.length > 0) {
+      await seedFinishedAndResume(ctx, getRun(ctx, run.id)!, def, child.seedFinished, { deps, spawn });
+    } else {
+      await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, { deps, spawn });
+    }
   } catch (e) {
     await failRun(ctx, run.id, `start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, deps);
     throw e;
@@ -742,19 +815,23 @@ async function settleParentChooseStep(
     return;
   }
   if (child.status !== "done") {
-    // Mark the choose/generate step failed and wake the root orchestrator.
+    // Mark the choose/generate step failed and wake the root orchestrator —
+    // unless the parent is mid-failRun cascade (children fail before the parent
+    // patches), when a step_failed wake would only noise a dying run (M4).
     const failed = updateStep(ctx, keyOf(row), {
       status: "failed",
       error: child.reason ?? child.status,
       endedAt: ctx.now,
       result,
     });
-    enqueueWakeup(ctx, {
-      runId: parent.id,
-      cause: "step_failed",
-      ref: stepWakeRef(failed.runId, failed.stepId, failed.attempt, failed.branch),
-      createdAt: ctx.now,
-    });
+    if (!failingRuns.has(parent.id)) {
+      enqueueWakeup(ctx, {
+        runId: parent.id,
+        cause: "step_failed",
+        ref: stepWakeRef(failed.runId, failed.stepId, failed.attempt, failed.branch),
+        createdAt: ctx.now,
+      });
+    }
     return;
   }
   const claimed = claimStepAnswer(ctx, keyOf(row), result);
@@ -1265,8 +1342,8 @@ export async function startGeneratedChild(
   if (!stepDef || stepDef.type !== "generate") {
     throw new CoreError("conflict", `conflict: step ${input.stepId} is not a generate step`);
   }
-  // Validate version + claim choosing + mark approved in one transaction so a crash
-  // cannot leave choosing:true against a missing/invalid version (I4).
+  // Validate version + claim choosing + mark approved in one immediate transaction
+  // so a crash cannot leave choosing:true against a missing/invalid version (I4 / M2).
   const { latest, prior } = workflowDatabase(ctx).transaction(() => {
     const waiting = stepsOfRun(ctx, run.id).filter(s => s.stepId === input.stepId && s.status === "waiting");
     const row = waiting[waiting.length - 1];
@@ -1299,7 +1376,7 @@ export async function startGeneratedChild(
       runId: run.id, stepId: input.stepId, attempt: row.attempt, version: input.version,
     }, "approved");
     return { latest: row, prior: prev };
-  })();
+  }).immediate();
 
   let childDef: WorkflowDef;
   try {
@@ -1335,6 +1412,22 @@ export async function startGeneratedChild(
 
   const rootId = rootRunId(ctx, run.id);
   const root = getRun(ctx, rootId)!;
+  // Replan: seed finished steps from the prior child so they are not re-delegated (I-4).
+  const finishedIds = Array.isArray(prior.replanFinished)
+    ? (prior.replanFinished as unknown[]).filter((id): id is string => typeof id === "string")
+    : [];
+  const fromChildId = typeof prior.replanFromChildId === "string" ? prior.replanFromChildId : undefined;
+  let seedFinished: SeedFinished | undefined;
+  if (finishedIds.length > 0 && fromChildId) {
+    const results: Record<string, unknown> = {};
+    for (const s of stepsOfRun(ctx, fromChildId)) {
+      if (s.branch !== undefined) continue;
+      if (!finishedIds.includes(s.stepId)) continue;
+      if (s.status !== "done") continue;
+      if (s.result !== undefined) results[s.stepId] = s.result;
+    }
+    seedFinished = { finishedIds, results };
+  }
   let child: RunRow;
   try {
     child = await startRun(ctx, {
@@ -1348,6 +1441,7 @@ export async function startGeneratedChild(
       planner: root.planner,
       orchestratorTaskId: root.orchestratorTaskId,
       sessionId: root.sessionId,
+      ...(seedFinished ? { seedFinished } : {}),
     });
   } catch (err) {
     try {
