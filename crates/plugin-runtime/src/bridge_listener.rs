@@ -32,7 +32,7 @@ use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
 use crate::connection_dir::{
-    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+    Probe, check_private_dir, connection_socket_dir, probe_socket, socket_dir, sweep_stale_sockets,
 };
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
@@ -180,6 +180,17 @@ impl ReverseBridge {
         }
         let run = prepare_run_dir(pacer_home)?;
         Self::bind_in(&run, name, auth)
+    }
+
+    /// Bind the serve owner's socket for a home whose `run/host.sock` path is
+    /// too long: in `run/` when it fits, otherwise in the private per-user
+    /// directory of ADR 0027 item 5. Explicit-flag path ([`Self::bind_at`])
+    /// stays strict; this fallback is reached only through
+    /// [`crate::serve_starts_reverse_bridge_by_default`] wiring.
+    pub fn bind_owner(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = socket_dir(pacer_home, HOST_SOCKET_NAME, uid)?;
+        Self::bind_in(&dir, HOST_SOCKET_NAME, auth)
     }
 
     /// Bind a stdio connection's socket `name`: in `run/` when the path fits,

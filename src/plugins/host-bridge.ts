@@ -93,6 +93,8 @@ export interface NativeOwnerCall {
   coreMethods?: string[];
   /** Hello features the child must have negotiated; otherwise the owner refuses before sending the method. */
   requireFeatures?: string[];
+  /** Pin this handed-off call to the process currently serving the lane (its host-runner pid). */
+  expectPid?: number;
 }
 
 /** Whether a sealed call fits the bridge frame. */
@@ -108,6 +110,8 @@ const nativeOwnerReply = z.object({
     z.string(),
     z.object({ level: z.enum(["debug", "info", "warn", "error"]), message: z.string() }),
   ])).default([]),
+  // The pid of the process that actually served the call; null when the owner did not pin it.
+  pid: z.number().int().positive().nullable().optional(),
 });
 export type NativeOwnerReply = z.infer<typeof nativeOwnerReply>;
 /** The `{protocol, served}` hello summary an owner reply (or a failed call's error data) carries. */
