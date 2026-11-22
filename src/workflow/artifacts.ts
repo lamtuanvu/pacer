@@ -4,7 +4,7 @@
 import {
   chmodSync, copyFileSync, existsSync, lstatSync, mkdirSync, realpathSync, renameSync, unlinkSync,
 } from "node:fs";
-import { basename, dirname, extname, join, resolve, sep } from "node:path";
+import { basename, extname, join, resolve, sep } from "node:path";
 import { randomBytes } from "node:crypto";
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
