@@ -86,6 +86,46 @@ function tinyChild(): WorkflowDef {
   };
 }
 
+describe("M1: child admission excludes workflow-root like reserveDispatch", () => {
+  test("delegateChild under a maxConcurrent:1 workflow-root is not blocked by the root itself", async () => {
+    const { gitRepo, realRun } = await import("./helpers");
+    const { issueWorkGrant } = await import("../src/dispatch/work");
+    const { delegateChild } = await import("../src/core/work");
+    const { boundedJson, dispatchDatabase } = await import("../src/dispatch/store");
+
+    const ctx = fakeCtx({ now: Date.now() / 1000, run: realRun });
+    writeStrategy(ctx, 8);
+    const repo = gitRepo();
+    const root = createTask(ctx, {
+      brief: { goal: "workflow-root", repo },
+      kind: "workflow-root",
+      requestedExecutor: null,
+      timeoutS: 600,
+    });
+    registerWork(ctx, root.id, {
+      allowDelegation: true,
+      delegationEnforcement: "strict",
+      kind: "workflow-root",
+      maxConcurrent: 1,
+      maxDescendants: 1000,
+    });
+    updateTask(ctx, root.id, t => { t.state = "running"; });
+    // Pin maxConcurrent 1 after registerWork defaults.
+    const work = getWork(ctx, root.id)!;
+    dispatchDatabase(ctx).query("UPDATE work_nodes SET options=? WHERE task_id=?")
+      .run(boundedJson({ ...work.options, maxConcurrent: 1 }), root.id);
+    expect(getWork(ctx, root.id)!.options.maxConcurrent).toBe(1);
+    expect(readTask(ctx, root.id)!.kind).toBe("workflow-root");
+
+    const grant = issueWorkGrant(ctx, root.id, 1);
+    const scoped = { ...ctx, env: { ...ctx.env, PACER_ROLE: "executor", PACER_WORK_GRANT: grant } };
+    // Without the kind filter, the running root alone occupies maxConcurrent 1.
+    const child = await delegateChild(scoped, { goal: "first child", requestId: "m1-child" }, () => 1);
+    expect(child.id).toMatch(/^t-/);
+    expect(getWork(ctx, child.id)?.rootId).toBe(root.id);
+  });
+});
+
 describe("I2: replan seeding fires only entry-reachable finished steps", () => {
   test("unreachable seeded b->c stays inert while a->d starts", async () => {
     const ctx = fakeCtx();
