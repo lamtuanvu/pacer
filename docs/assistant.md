@@ -15,6 +15,12 @@ pauses in strict and emergency mode.
 Anthropic and Gemini accounts need pacer's native `assistant-pacer` binary. When that binary is absent they are reported
 unavailable and are never answered through the legacy TypeScript openai-compatible plugin.
 
+The legacy host loop (`assistant.respond` on the bundled TypeScript `pacer-assistant` plugin) is **deprecated**. It remains
+only as a fallback for openai-compatible accounts when the native `pacer-assistant-pacer` binary is missing or outdated
+(the CLI updater that installs it is merged but not yet in a released build). A newer pacer release will install the
+binary; one release after that ships, the legacy method, plugin and host loop are removed. When a turn still uses the
+fallback, Activity logs one warning naming the missing or outdated binary.
+
 Local openai-compatible endpoints with `connection.key: none` (LM Studio, Ollama, and similar) are called without an
 `Authorization` header. pacer's native assistant injects a default `created` timestamp when an openai-compatible server
 omits that field on chat-completion responses (Rig's OpenAI client requires it).
@@ -114,5 +120,6 @@ carries no text.
 
 ## For plugin authors
 
-`assistant` is a plugin extension point (`assistant.respond` / `assistant.reply`), served only by bundled plugins until installed plugins are
+`assistant` is a plugin extension point. Prefer `assistant.reply` (turn-level). `assistant.respond` is deprecated and
+removed one release after the native updater ships; served only by bundled plugins until installed plugins are
 sandboxed. See the [plugin protocol](plugin-protocol.md).
