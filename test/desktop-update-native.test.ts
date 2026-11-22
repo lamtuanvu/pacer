@@ -439,6 +439,7 @@ test("native coverage classifies service tree, lease tree, CLI client and foreig
     7: "foreign",
   });
   // Service/lease trees and same-path CLI clients do not refuse install; foreign path does.
+  // CLI role is short-lived same-bundle clients; delegated `_run`/`_session` are leases.
   expect(() =>
     assertNativeProcessCoverage(processes.filter((p) => p.process.pid !== 7), service, [leased], "/App/Contents/Resources/pacer"),
   ).not.toThrow();

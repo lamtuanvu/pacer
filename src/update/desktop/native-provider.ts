@@ -1798,8 +1798,11 @@ export function nativeProcessTreePids(
 
 /**
  * Classify every same-UID pacer-named process for install coverage.
- * Service and lease trees are covered; same-path CLI clients do not block forever
- * (atomic bundle replace restarts them); a foreign path still blocks install.
+ * Service and lease trees are covered. Same-path CLI clients (msg inbox, status,
+ * hooks) do not refuse install forever: reserveIdle drains enrolled leases, and
+ * short-lived CLI work is not an install blocker. A foreign path still blocks.
+ * Running macOS processes keep their old inode after a bundle replace; they are
+ * not restarted by the replace itself.
  */
 export function classifyNativeProcessCoverage(
   processes: readonly NativeProcess[],
@@ -1829,8 +1832,10 @@ export function classifyNativeProcessCoverage(
       continue;
     }
     // Same registered front door, or a sibling under the paired Resources dir
-    // (pacer-core / short-lived CLI clients). Atomic bundle replace restarts them;
-    // they must not refuse install forever. A different install path stays foreign.
+    // (pacer-core / short-lived CLI clients). Delegated `_run` / `_session` work
+    // is enrolled as leases and drained by reserveIdle; these CLI clients are
+    // not that work and must not refuse install forever. A different install
+    // path stays foreign.
     if (
       process.executable === registeredExecutable ||
       (process.executable !== null &&

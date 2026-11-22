@@ -104,6 +104,92 @@ describe("desktop work admission", () => {
     expect((await reserveIdle(ctx, "tx-stale")).reserved).toBe(true);
   });
 
+  test("old-boot lease with unfinished runDir is pruned", async () => {
+    const { localLeaseProcessDead } = await import("../src/update/desktop/admission");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const ctx = context();
+    const runDir = join(ctx.pacerHome, "runs", "old-boot", "1");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "pid"), "1");
+    const dead = { pid: 999998, bootId: "00000000-0000-0000-0000-000000000000", birth: "0:1" };
+    expect(localLeaseProcessDead({ process: dead, remote: undefined, orca: undefined, runDir })).toBe(true);
+  });
+
+  test("lease with missing runDir is pruned", async () => {
+    const { localLeaseProcessDead } = await import("../src/update/desktop/admission");
+    const ctx = context();
+    const dead = { pid: 999997, bootId: processIdentity(process.pid)!.bootId, birth: "0:1" };
+    expect(localLeaseProcessDead({
+      process: dead,
+      remote: undefined,
+      orca: undefined,
+      runDir: join(ctx.pacerHome, "runs", "gone", "1"),
+    })).toBe(true);
+  });
+
+  test("same-boot lease with dead owner and live child is kept", async () => {
+    const { withDesktopCoordinator } = await import("../src/update/desktop/coordinator");
+    const { ensureAdmission, localLeaseProcessDead } = await import("../src/update/desktop/admission");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const ctx = context();
+    const lease = beginWorkSync(ctx, blocker);
+    claimWorkSync(ctx, lease);
+    const runDir = join(ctx.pacerHome, "runs", "live-child", "1");
+    mkdirSync(runDir, { recursive: true });
+    writeFileSync(join(runDir, "child"), String(process.pid));
+    const bootId = processIdentity(process.pid)!.bootId;
+    const deadOwner = { pid: 999996, bootId, birth: "0:1" };
+    expect(localLeaseProcessDead({
+      process: deadOwner,
+      remote: undefined,
+      orca: undefined,
+      runDir,
+    })).toBe(false);
+    withDesktopCoordinator(ctx, (db) => {
+      const state = ensureAdmission(db, false);
+      const row = state.leases.find((item) => item.id === lease)!;
+      row.process = deadOwner;
+      row.runDir = runDir;
+      db.query("UPDATE admission SET state = ? WHERE id = 1").run(JSON.stringify(state));
+    });
+    await reconcileAdmission(ctx);
+    expect((await reserveIdle(ctx, "tx-live-child")).reserved).toBe(false);
+    finishWorkSync(ctx, lease);
+  });
+
+  test("same-boot lease with dead owner and dead child is pruned", async () => {
+    const { withDesktopCoordinator } = await import("../src/update/desktop/coordinator");
+    const { ensureAdmission, localLeaseProcessDead } = await import("../src/update/desktop/admission");
+    const { mkdirSync, writeFileSync } = await import("node:fs");
+    const ctx = context();
+    const lease = beginWorkSync(ctx, blocker);
+    claimWorkSync(ctx, lease);
+    const runDir = join(ctx.pacerHome, "runs", "dead-child", "1");
+    mkdirSync(runDir, { recursive: true });
+    // child only: unfinished pid/session.json would also create a stored session blocker.
+    writeFileSync(join(runDir, "child"), "999995");
+    const bootId = processIdentity(process.pid)!.bootId;
+    const deadOwner = { pid: 999993, bootId, birth: "0:1" };
+    expect(localLeaseProcessDead({
+      process: deadOwner,
+      remote: undefined,
+      orca: undefined,
+      runDir,
+    })).toBe(true);
+    withDesktopCoordinator(ctx, (db) => {
+      const state = ensureAdmission(db, false);
+      const row = state.leases.find((item) => item.id === lease)!;
+      row.process = deadOwner;
+      row.runDir = runDir;
+      db.query("UPDATE admission SET state = ? WHERE id = 1").run(JSON.stringify(state));
+    });
+    await reconcileAdmission(ctx);
+    withDesktopCoordinator(ctx, (db) => {
+      expect(ensureAdmission(db, false).leases.find((item) => item.id === lease)).toBeUndefined();
+    });
+    expect((await reserveIdle(ctx, "tx-dead-child")).reserved).toBe(true);
+  });
+
   test("install waits on live work then proceeds when the lease drains", async () => {
     const ctx = context();
     const lease = beginWorkSync(ctx, blocker);

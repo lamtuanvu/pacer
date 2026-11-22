@@ -18,11 +18,28 @@ and interface remain capability-gated until native adoption validation passes.
 ## Connection failures
 
 Connecting the desktop for updates does not require every pacer process to be
-idle. The service's own process tree, enrolled work, and short-lived same-path
-CLI clients are covered; only an unrecognized foreign pacer binary blocks an
+idle. The service's own process tree and enrolled lease trees (including
+delegated `_run` / `_session` work) are covered. Short-lived same-path CLI
+clients (status, hooks, `msg inbox`) do not refuse an install forever;
+`reserveIdle` drains enrolled leases before binaries are replaced. Running
+processes keep their old inode after a bundle replace and are not restarted by
+the replace itself. Only an unrecognized foreign-path pacer binary blocks an
 install. While an approved update waits for running tasks, Settings → Updates
 shows **Waiting for work to finish** (for example, "Update will install when N
 running tasks finish"), not that automatic updates are unavailable.
+
+### Stale local admission leases
+
+Admission prunes local leases whose process cannot still be that incarnation:
+
+- Not remote and not Orca, and the lease `bootId` differs from the current boot →
+  dead. Local processes, including detached children, never survive a reboot.
+- The lease `runDir` path no longer exists → dead (local leases).
+- Same boot, owner pid gone or reused, `runDir` unfinished → keep only when
+  `runDir/child` or `runDir/pid` names a process still alive on that boot
+  (identity via `pid+birth+bootId` from the live process). If no live child can
+  be identified, the lease is dead.
+- Remote and Orca leases still need positive completion evidence, as before.
 
 If the desktop cannot verify its connection to the service (identity, registration
 or signing), Settings → Updates reports **Automatic desktop updates are
@@ -228,7 +245,9 @@ The initial supported baseline must implement admission and recovery. Known old
 or conflicting pacer processes block maintenance when their work cannot be
 accounted for. Process enumeration cannot reliably identify an arbitrarily
 renamed legacy executable; do not run independent older binaries against the
-same data home during maintenance.
+same data home during maintenance. Stale local leases follow the prune rule in
+[Stale local admission leases](#stale-local-admission-leases) so an unfinished
+`runDir` from a previous boot cannot block install forever.
 
 The bundled CLI refuses standalone self-replacement, including direct execution
 from inside the app. Update the whole desktop package instead. Linux and Windows
