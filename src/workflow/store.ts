@@ -103,6 +103,21 @@ export function workflowDatabase(ctx: Ctx): Database {
     );
   `);
   db.exec("CREATE INDEX IF NOT EXISTS workflow_decisions_run ON workflow_decisions(run_id, at, id)");
+  // Phase 3: versioned generated graphs linked to the producing generate step.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS workflow_graphs(
+      run_id TEXT NOT NULL,
+      step_id TEXT NOT NULL,
+      attempt INTEGER NOT NULL,
+      version INTEGER NOT NULL,
+      def TEXT NOT NULL,
+      status TEXT NOT NULL,
+      reason TEXT,
+      created_at REAL NOT NULL,
+      PRIMARY KEY(run_id, step_id, attempt, version)
+    );
+  `);
+  db.exec("CREATE INDEX IF NOT EXISTS workflow_graphs_run ON workflow_graphs(run_id, step_id, attempt, version)");
   ready.add(db);
   return db;
 }
@@ -782,4 +797,89 @@ export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
   return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
     "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
   ).all(runId).map(decisionFromRow);
+}
+
+export type GraphStatus = "proposed" | "approved" | "rejected" | "superseded";
+
+export interface GraphRow {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  version: number;
+  def: WorkflowDef;
+  status: GraphStatus;
+  reason?: string;
+  createdAt: number;
+}
+
+interface GraphDbRow {
+  run_id: string;
+  step_id: string;
+  attempt: number;
+  version: number;
+  def: string;
+  status: string;
+  reason: string | null;
+  created_at: number;
+}
+
+function graphFromRow(row: GraphDbRow): GraphRow {
+  return {
+    runId: row.run_id,
+    stepId: row.step_id,
+    attempt: row.attempt,
+    version: row.version,
+    def: JSON.parse(row.def) as WorkflowDef,
+    status: row.status as GraphStatus,
+    reason: row.reason ?? undefined,
+    createdAt: row.created_at,
+  };
+}
+
+export function listGraphs(ctx: Ctx, runId: string, stepId?: string): GraphRow[] {
+  const db = workflowDatabase(ctx);
+  if (stepId === undefined) {
+    return db.query<GraphDbRow, [string]>(
+      "SELECT * FROM workflow_graphs WHERE run_id = ? ORDER BY step_id, attempt, version",
+    ).all(runId).map(graphFromRow);
+  }
+  return db.query<GraphDbRow, [string, string]>(
+    "SELECT * FROM workflow_graphs WHERE run_id = ? AND step_id = ? ORDER BY attempt, version",
+  ).all(runId, stepId).map(graphFromRow);
+}
+
+/** Insert a proposed graph version; any prior proposed/approved row for the same
+ *  (run, step, attempt) becomes superseded. */
+export function insertGraphVersion(ctx: Ctx, input: {
+  runId: string;
+  stepId: string;
+  attempt: number;
+  def: WorkflowDef;
+  status?: GraphStatus;
+  reason?: string;
+}): GraphRow {
+  const db = workflowDatabase(ctx);
+  return db.transaction(() => {
+    db.query(
+      "UPDATE workflow_graphs SET status = 'superseded' WHERE run_id = ? AND step_id = ? AND attempt = ? AND status IN ('proposed', 'approved')",
+    ).run(input.runId, input.stepId, input.attempt);
+    const prior = db.query<{ version: number }, [string, string, number]>(
+      "SELECT version FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? ORDER BY version DESC LIMIT 1",
+    ).get(input.runId, input.stepId, input.attempt);
+    const version = (prior?.version ?? 0) + 1;
+    const status = input.status ?? "proposed";
+    db.query(
+      "INSERT INTO workflow_graphs(run_id, step_id, attempt, version, def, status, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+    ).run(input.runId, input.stepId, input.attempt, version, JSON.stringify(input.def), status, input.reason ?? null, ctx.now);
+    return {
+      runId: input.runId,
+      stepId: input.stepId,
+      attempt: input.attempt,
+      version,
+      def: input.def,
+      status,
+      reason: input.reason,
+      createdAt: ctx.now,
+    };
+  })();
 }

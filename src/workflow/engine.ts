@@ -34,7 +34,7 @@ import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } f
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoDecide } from "./auto";
 import { stopLiveTurnsForRun } from "./orchestrator";
-import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
+import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
 
 /** Wake the root orchestrator for an auto-effective waiting human step. */
@@ -215,7 +215,10 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
     const active = stepsOfRun(ctx, run.id).find(s =>
       s.stepId === stepId && (s.branch ?? undefined) === (branch ?? undefined) && (s.status === "running" || s.status === "waiting"));
     if (active) {
-      if (active.taskId || stepDef.type === "human") return active; // An instance is already in flight.
+      // human / choose_workflow / generate wait without a task id by design.
+      if (active.taskId || stepDef.type === "human" || stepDef.type === "choose_workflow" || stepDef.type === "generate") {
+        return active;
+      }
       // A row written before a crash during delegation: reuse its attempt and
       // request id instead of delegating a duplicate.
       if (stepDef.type !== "agent") throw new CoreError("conflict", `step '${stepId}' is stuck without a task`);
@@ -236,6 +239,9 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
   if (stepDef.type === "fanout") return startFanout(ctx, run, stepId, stepDef, attempt, e);
   if (stepDef.type === "choose_workflow") {
     return startChooseWorkflowStep(ctx, run, stepId, stepDef, attempt);
+  }
+  if (stepDef.type === "generate") {
+    return startGenerateStep(ctx, run, stepId, stepDef, attempt);
   }
   if (stepDef.type === "agent" && stepDef.role === "orchestrator") {
     return startOrchestratorRoleStep(ctx, run, def, stepId, stepDef, attempt);
@@ -313,6 +319,33 @@ async function startChooseWorkflowStep(
   run: RunRow,
   stepId: string,
   _stepDef: ChooseWorkflowStep,
+  attempt: number,
+): Promise<StepRow> {
+  ensureOrchestratorTask(ctx, getRun(ctx, run.id)!);
+  const existing = stepsOfRun(ctx, run.id).find(s =>
+    s.stepId === stepId && s.attempt === attempt && s.branch === undefined);
+  const row = existing
+    ? updateStep(ctx, { runId: run.id, stepId, attempt }, { status: "waiting" })
+    : insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
+  enqueueWakeup(ctx, {
+    runId: run.id,
+    cause: "orchestrator_step",
+    ref: stepWakeRef(run.id, stepId, attempt),
+    createdAt: ctx.now,
+  });
+  if (!isTerminal(getRun(ctx, run.id))) {
+    try { await patchRun(ctx, run.id, { status: "waiting" }); }
+    catch { /* */ }
+  }
+  return row;
+}
+
+/** generate: wait for submitGraph (approval/child run are Task 4); wake a turn. */
+async function startGenerateStep(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  _stepDef: GenerateStep,
   attempt: number,
 ): Promise<StepRow> {
   ensureOrchestratorTask(ctx, getRun(ctx, run.id)!);

@@ -112,7 +112,7 @@ test("reports every structural error at once", () => {
     "edges[0].to: unknown step 'nowhere'",
     "edges[2]: back edge needs max_loops",
     "steps: no end step is reachable from 'start'",
-    "steps.start.type: step types allowed are agent, human, fanout, choose_workflow, end",
+    "steps.start.type: step types allowed are agent, human, fanout, choose_workflow, generate, end",
   ]));
 });
 
