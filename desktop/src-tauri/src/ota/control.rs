@@ -132,6 +132,89 @@ pub fn read_frame<T: serde::de::DeserializeOwned>(stream: &mut UnixStream) -> Re
     stream.read_exact(&mut bytes).map_err(|_| OtaError::Io)?;
     serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)
 }
+fn handshake_closed_or_io(error: std::io::Error) -> OtaError {
+    match error.kind() {
+        std::io::ErrorKind::UnexpectedEof
+        | std::io::ErrorKind::ConnectionReset
+        | std::io::ErrorKind::BrokenPipe => OtaError::HandshakeClosed,
+        _ => OtaError::Io,
+    }
+}
+/// Read the post-hello `registered` frame; EOF/reset means the service rejected the handshake.
+fn read_registered_frame<T: serde::de::DeserializeOwned>(
+    stream: &mut UnixStream,
+) -> Result<T, OtaError> {
+    let mut length = [0u8; 4];
+    stream
+        .read_exact(&mut length)
+        .map_err(handshake_closed_or_io)?;
+    let n = u32::from_be_bytes(length) as usize;
+    if n == 0 || n > MAX_FRAME {
+        return Err(OtaError::Invalid);
+    }
+    let mut bytes = vec![0; n];
+    stream
+        .read_exact(&mut bytes)
+        .map_err(handshake_closed_or_io)?;
+    serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)
+}
+fn read_registered_exact(
+    stream: &mut UnixStream,
+    mut bytes: &mut [u8],
+    until: std::time::Instant,
+) -> Result<(), OtaError> {
+    while !bytes.is_empty() {
+        stream
+            .set_read_timeout(Some(deadline::remaining(until)?))
+            .map_err(|_| OtaError::Io)?;
+        match stream.read(bytes) {
+            Ok(0) => return Err(OtaError::HandshakeClosed),
+            Ok(count) => bytes = &mut bytes[count..],
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::UnexpectedEof
+                        | std::io::ErrorKind::ConnectionReset
+                        | std::io::ErrorKind::BrokenPipe
+                ) =>
+            {
+                return Err(OtaError::HandshakeClosed);
+            }
+            Err(error)
+                if matches!(
+                    error.kind(),
+                    std::io::ErrorKind::WouldBlock
+                        | std::io::ErrorKind::TimedOut
+                        | std::io::ErrorKind::Interrupted
+                ) =>
+            {
+                deadline::remaining(until)?;
+            }
+            Err(_) => return Err(OtaError::Io),
+        }
+    }
+    deadline::remaining(until)?;
+    Ok(())
+}
+fn read_registered_frame_until<T: serde::de::DeserializeOwned>(
+    stream: &mut UnixStream,
+    until: Option<std::time::Instant>,
+) -> Result<T, OtaError> {
+    let Some(until) = until else {
+        return read_registered_frame(stream);
+    };
+    let mut length = [0u8; 4];
+    read_registered_exact(stream, &mut length, until)?;
+    let size = u32::from_be_bytes(length) as usize;
+    if size == 0 || size > MAX_FRAME {
+        return Err(OtaError::Invalid);
+    }
+    let mut bytes = vec![0; size];
+    read_registered_exact(stream, &mut bytes, until)?;
+    let value = serde_json::from_slice(&bytes).map_err(|_| OtaError::Invalid)?;
+    deadline::remaining(until)?;
+    Ok(value)
+}
 fn write_frame_until<T: Serialize>(
     stream: &mut UnixStream,
     value: &T,
@@ -363,6 +446,21 @@ mod tests {
         assert_eq!(&byte, b"x");
         drop(theirs);
         assert!(!channel_open(&ours));
+    }
+
+    #[test]
+    fn registered_frame_eof_is_handshake_closed_not_storage_io() {
+        let (mut reader, writer) = UnixStream::pair().unwrap();
+        drop(writer);
+        assert_eq!(
+            read_registered_frame::<serde_json::Value>(&mut reader),
+            Err(OtaError::HandshakeClosed)
+        );
+        assert_eq!(
+            OtaError::HandshakeClosed.to_string(),
+            "Native update handshake was closed by the service"
+        );
+        assert_eq!(OtaError::Io.to_string(), "Native update storage failed");
     }
 
     #[test]
@@ -1197,7 +1295,11 @@ fn retry_handshake<T>(
         let result = attempt();
         deadline::remaining(deadline)?;
         match result {
-            Err(OtaError::Io | OtaError::Unavailable) => pause(deadline::remaining(deadline)?.min(super::OBSERVATION_INTERVAL)),
+            // Hello refusals arrive as a closed registered frame; retry while the
+            // service may still be accounting for short-lived CLI processes.
+            Err(OtaError::Io | OtaError::Unavailable | OtaError::HandshakeClosed) => {
+                pause(deadline::remaining(deadline)?.min(super::OBSERVATION_INTERVAL))
+            }
             other => return other,
         }
     }
@@ -1277,7 +1379,7 @@ fn authenticate_service_adoption_until(
         hello["adoption"] = serde_json::to_value(plan).map_err(|_| OtaError::Invalid)?;
     }
     write_frame_until(&mut stream, &hello, until)?;
-    let session: ControlSession = read_frame_until(&mut stream, until)?;
+    let session: ControlSession = read_registered_frame_until(&mut stream, until)?;
     if session.schema != 1
         || session.kind != "registered"
         || session.nonce != nonce

@@ -1,6 +1,12 @@
 import { expect, test } from "bun:test";
-import { desktopUpdateView, desktopUpdateAction, updateIntent, desktopUpdateIndicator } from "../src/view-model/updates";
+import { desktopUpdateView, desktopUpdateAction, updateIntent, desktopUpdateIndicator, desktopConnectionView } from "../src/view-model/updates";
 import { desktopStatus } from "./fixtures/desktop-update/status";
+
+test("handshake connection failure is distinct from storage and identity copy", () => {
+  expect(desktopConnectionView({ state: "unavailable", reason: "handshake" }).detail).toContain("during handshake");
+  expect(desktopConnectionView({ state: "unavailable", reason: "connection" }).detail).toContain("verified desktop update connection");
+  expect(desktopConnectionView({ state: "unavailable", reason: "service-identity" }).detail).toContain("could not verify");
+});
 
 test("coordination retries describe the pause instead of promising a ready update", () => {
   const view = desktopUpdateView(desktopStatus({ phase: "ready", actions: [], error: {

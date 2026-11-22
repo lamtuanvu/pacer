@@ -36,9 +36,10 @@ test("a takeover page that cannot be opened is reported in plain copy", async ()
   expect(error?.message).toBe("The service replacement page couldn't be opened. The service may have changed; check again in a moment.");
   // Older shells without the command fail the same visible way.
   expect((await reviewServiceReplacement(() => openDesktopTakeover({}), view.takeoverError))?.message).toBe(view.takeoverError);
-  for (const reason of ["service-identity", "connection", null]) {
+  for (const reason of ["service-identity", "connection", "handshake", null]) {
     expect(desktopConnectionView({ state: "unavailable", reason }).takeoverAction).toBeNull();
   }
+  expect(desktopConnectionView({ state: "unavailable", reason: "handshake" }).detail).toContain("during handshake");
 });
 
 test("connection diagnostics reject malformed or unknown native payloads", async () => {

@@ -21,9 +21,43 @@ fn owns_socket_and_exact_owner_record() {
         serde_json::from_slice(&std::fs::read(path.with_extension("sock.owner")).unwrap()).unwrap();
     assert_eq!(record["process"]["pid"], std::process::id());
     assert_eq!(record["inode"], path.symlink_metadata().unwrap().ino());
+    assert!(listener.published_intact());
     drop(listener);
     assert!(!path.exists());
     assert!(!path.with_extension("sock.owner").exists());
+}
+
+#[test]
+fn detects_external_socket_and_owner_deletion() {
+    let directory = tempfile::tempdir().unwrap();
+    std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+    let path = directory.path().join("native.sock");
+    let listener = NativeListener::bind_at(path.clone(), &process()).unwrap();
+    assert!(listener.published_intact());
+    assert!(!listener.foreign_live_owner());
+    std::fs::remove_file(&path).unwrap();
+    std::fs::remove_file(path.with_extension("sock.owner")).unwrap();
+    assert!(!listener.published_intact());
+    assert!(!listener.foreign_live_owner());
+    assert_eq!(
+        socket_watch_action(false, false, false),
+        SocketWatchAction::Restart
+    );
+    assert_eq!(
+        socket_watch_action(false, true, false),
+        SocketWatchAction::BackOff
+    );
+    assert_eq!(
+        socket_watch_action(false, false, true),
+        SocketWatchAction::LeaveAlone
+    );
+    assert_eq!(
+        socket_watch_action(true, false, false),
+        SocketWatchAction::Intact
+    );
+    // Keep the listener fd alive until assertions finish; Drop must not unlink a
+    // replacement someone else may have published in the meantime.
+    drop(listener);
 }
 #[test]
 fn never_removes_replacement_socket_or_owner() {

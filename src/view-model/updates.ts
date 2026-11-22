@@ -141,6 +141,8 @@ export function desktopConnectionView(connection: { state: string; reason: strin
       ? "The pacer service was replaced by another build. Automatic updates are paused."
       : connection?.reason === "service-identity"
       ? "pacer could not verify the connected service for desktop updates. Your service continues running; no update has been installed."
+      : connection?.reason === "handshake"
+      ? "The desktop update service closed the connection during handshake. Your service continues running; pacer will retry."
       : connection?.state === "unsupported"
         ? "This desktop build does not support automatic updates. Your service continues running."
         : "pacer could not establish a verified desktop update connection. Your service continues running; no update has been installed.",

@@ -1,12 +1,18 @@
 //! Signed paired-app startup and generation-bound descriptor ownership.
 use super::{
-    native_bundle::NativeBundle, native_listener::NativeListener, native_trust::NativeTrust,
+    native_bundle::NativeBundle,
+    native_listener::{
+        NativeListener, SocketWatchAction, mark_rebind_attempt, recently_rebound,
+        socket_watch_action,
+    },
+    native_trust::NativeTrust,
 };
 use std::{
     io,
     os::{fd::OwnedFd, unix::net::UnixStream},
     path::Path,
     sync::Arc,
+    time::Duration,
 };
 use tokio::{
     process::{Child, Command},
@@ -58,6 +64,51 @@ impl NativeContext {
     }
     pub async fn shutdown_requested(&self) {
         self.stop.notified().await;
+    }
+    /// Periodically verify the published native control path still names this
+    /// listener. Core only holds a duplicate fd, so a deleted path leaves clients
+    /// with ENOENT forever; there is no safe live handoff of a rebound listener,
+    /// so recovery is a controlled restart (launchd KeepAlive) with backoff.
+    pub fn spawn_socket_watch(self: &Arc<Self>) -> JoinHandle<()> {
+        let this = self.clone();
+        tokio::spawn(async move {
+            let mut leave_alone_logged = false;
+            let mut backoff_logged = false;
+            loop {
+                tokio::time::sleep(Duration::from_secs(5)).await;
+                let intact = this.listener.published_intact();
+                let foreign = this.listener.foreign_live_owner();
+                let recent = recently_rebound(&this.home, std::time::SystemTime::now());
+                match socket_watch_action(intact, recent, foreign) {
+                    SocketWatchAction::Intact => {
+                        leave_alone_logged = false;
+                        backoff_logged = false;
+                    }
+                    SocketWatchAction::LeaveAlone => {
+                        if !leave_alone_logged {
+                            eprintln!(
+                                "pacer: native control socket replaced by another live process; leaving it alone"
+                            );
+                            leave_alone_logged = true;
+                        }
+                    }
+                    SocketWatchAction::BackOff => {
+                        if !backoff_logged {
+                            eprintln!(
+                                "pacer: native control socket missing; deferring restart (backoff)"
+                            );
+                            backoff_logged = true;
+                        }
+                    }
+                    SocketWatchAction::Restart => {
+                        let _ = mark_rebind_attempt(&this.home);
+                        eprintln!("pacer: native control socket missing; rebinding");
+                        this.stop.notify_one();
+                        return;
+                    }
+                }
+            }
+        })
     }
     /// `secrets` follows Core's acknowledgement of the `B` descriptor byte on
     /// the parent channel, so Core reads it only after authenticating the channel.
