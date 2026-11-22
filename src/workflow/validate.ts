@@ -37,7 +37,10 @@ function isEndStep(steps: Record<string, unknown>, id: string): boolean {
  * edge that closes a loop is classified, not every edge inside it (self-loops count).
  * The search starts at `entry` and continues from every step it did not visit, in
  * step order, so loops unreachable from the entry are classified too. */
-export function backEdgeIndexes(def: WorkflowDef): Set<number> {
+function adjacencyOf(def: WorkflowDef): {
+  names: Set<string>;
+  adjacency: Map<string, { to: string; index: number }[]>;
+} {
   const names = new Set(Object.keys(isPlainObject(def.steps) ? def.steps : {}));
   const adjacency = new Map<string, { to: string; index: number }[]>();
   (Array.isArray(def.edges) ? def.edges : []).forEach((edge, index) => {
@@ -47,23 +50,80 @@ export function backEdgeIndexes(def: WorkflowDef): Set<number> {
     list.push({ to: edge.to, index });
     adjacency.set(edge.from, list);
   });
+  return { names, adjacency };
+}
 
+export function backEdgeIndexes(def: WorkflowDef): Set<number> {
+  return new Set(backEdgeCycles(def).map(c => c.index));
+}
+
+/** Back edges with the nodes on the cycle each closes (DFS stack slice). */
+export function backEdgeCycles(def: WorkflowDef): { index: number; cycle: Set<string> }[] {
+  const { names, adjacency } = adjacencyOf(def);
+  const stack: string[] = [];
   const onStack = new Set<string>();
   const visited = new Set<string>();
-  const back = new Set<number>();
+  const out: { index: number; cycle: Set<string> }[] = [];
   const visit = (node: string): void => {
+    stack.push(node);
     onStack.add(node);
     for (const { to, index } of adjacency.get(node) ?? []) {
-      if (onStack.has(to)) back.add(index);
-      else if (!visited.has(to)) visit(to);
+      if (onStack.has(to)) {
+        const start = stack.indexOf(to);
+        out.push({ index, cycle: new Set(stack.slice(start)) });
+      } else if (!visited.has(to)) visit(to);
     }
+    stack.pop();
     onStack.delete(node);
     visited.add(node);
   };
   const entry = typeof def.entry === "string" && names.has(def.entry) ? def.entry : undefined;
   if (entry !== undefined) visit(entry);
   for (const name of names) if (!visited.has(name)) visit(name);
-  return back;
+  return out;
+}
+
+/** Work units for one step: fanout counts as its branch count; others (incl. generate) as 1. */
+function stepWorkUnits(def: WorkflowDef, id: string): number {
+  const step = def.steps[id];
+  if (!step || step.type === "end") return 0;
+  if (step.type === "fanout") return Math.max(1, step.branches?.length ?? 1);
+  return 1;
+}
+
+/**
+ * Uncapped descendant budget: every non-end step once, plus
+ * sum(maxLoops_e * |cycle_e work units|) for each back edge, plus retries slack.
+ * Callers clamp to the schema max (1000) when sizing a root.
+ */
+export function estimateDescendantBudget(def: WorkflowDef): number {
+  let base = 0;
+  for (const id of Object.keys(def.steps ?? {})) base += stepWorkUnits(def, id);
+  let loopExtra = 0;
+  for (const { index, cycle } of backEdgeCycles(def)) {
+    const edge = Array.isArray(def.edges) ? def.edges[index] : undefined;
+    const maxLoops = typeof edge?.maxLoops === "number" && Number.isFinite(edge.maxLoops) ? edge.maxLoops : 0;
+    let cycleUnits = 0;
+    for (const id of cycle) cycleUnits += stepWorkUnits(def, id);
+    loopExtra += maxLoops * cycleUnits;
+  }
+  const retriesSlack = Math.max(10, Object.keys(def.steps ?? {}).length);
+  return base + loopExtra + retriesSlack;
+}
+
+/** Work-unit estimate without retries slack (generated max_steps / limits checks). */
+export function estimateWorkUnits(def: WorkflowDef): number {
+  let base = 0;
+  for (const id of Object.keys(def.steps ?? {})) base += stepWorkUnits(def, id);
+  let loopExtra = 0;
+  for (const { index, cycle } of backEdgeCycles(def)) {
+    const edge = Array.isArray(def.edges) ? def.edges[index] : undefined;
+    const maxLoops = typeof edge?.maxLoops === "number" && Number.isFinite(edge.maxLoops) ? edge.maxLoops : 0;
+    let cycleUnits = 0;
+    for (const id of cycle) cycleUnits += stepWorkUnits(def, id);
+    loopExtra += maxLoops * cycleUnits;
+  }
+  return base + loopExtra;
 }
 
 export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
@@ -154,6 +214,14 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
     if (typeof edge.edge.maxLoops !== "number" || !Number.isInteger(edge.edge.maxLoops) || edge.edge.maxLoops < 1) {
       errors.push({ path: `edges[${index}]`, message: "back edge needs max_loops" });
     }
+  }
+
+  const descendantEstimate = estimateDescendantBudget(def);
+  if (descendantEstimate > 1000) {
+    errors.push({
+      path: "steps",
+      message: `descendant budget estimate ${descendantEstimate} exceeds cap 1000`,
+    });
   }
 
   return errors;

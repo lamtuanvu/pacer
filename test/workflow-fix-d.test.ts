@@ -191,7 +191,7 @@ describe("B-1: engine-created steps advance on done without accept", () => {
 });
 
 describe("I-1 / I-2: root capacity and concurrency", () => {
-  test("looped fanout root capacity covers iterations; maxConcurrent follows local_max_tasks", async () => {
+  test("looped fanout root capacity covers iterations; maxConcurrent is schema max", async () => {
     const ctx = fakeCtx();
     writeStrategy(ctx);
     const def: WorkflowDef = {
@@ -225,7 +225,7 @@ describe("I-1 / I-2: root capacity and concurrency", () => {
     const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
     const root = getWork(ctx, getRun(ctx, run.id)!.rootTaskId!)!;
     expect(root.options.maxDescendants).toBeGreaterThanOrEqual(28);
-    expect(root.options.maxConcurrent).toBe(8); // from strategy local_max_tasks
+    expect(root.options.maxConcurrent).toBe(64); // schema max; slots bind local width
 
     // Drive one full loop iteration of the fanout without hitting descendant limit.
     const build = stepsOfRun(ctx, run.id).find(s => s.stepId === "build")!;

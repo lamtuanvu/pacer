@@ -479,7 +479,7 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
   const task = isWorkNodeRun(live)
-    ? await startStepTask(ctx, live, { stepId: row.stepId, ...(row.branch !== undefined ? { branch: row.branch } : {}) }, {
+    ? await startStepTask(ctx, live, {
       brief: { goal: prompt, repo: live.repo },
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
@@ -537,7 +537,7 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   const live = getRun(ctx, run.id) ?? run;
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
   const task = isWorkNodeRun(live)
-    ? await startStepTask(ctx, live, { stepId: row.stepId, branch }, {
+    ? await startStepTask(ctx, live, {
       brief: { goal: prompt, repo: live.repo },
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),

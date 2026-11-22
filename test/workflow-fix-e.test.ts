@@ -2,6 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { getWork } from "../src/dispatch/work";
+import { boundedJson, dispatchDatabase } from "../src/dispatch/store";
 import { reserveDispatch } from "../src/dispatch/runtime";
 import { runDecision, ladderEngine } from "../src/dispatch/engines";
 import { candidate, request } from "./fixtures/dispatch";
@@ -9,8 +10,17 @@ import { readTask, updateTask } from "../src/tasks/store";
 import type { SpawnRunner } from "../src/tasks/api";
 import { defaultEngineDeps, startRun } from "../src/workflow/engine";
 import { addDefinition, getRun, stepsOfRun } from "../src/workflow/store";
+import { estimateDescendantBudget, estimateWorkUnits, validateWorkflow } from "../src/workflow/validate";
+import { rootCapacityFromGraph, rootMaxConcurrent } from "../src/workflow/worknode";
 import type { WorkflowDef } from "../src/workflow/schema";
 import { fakeCtx, tmpDir } from "./helpers";
+
+/** Pin root maxConcurrent for reserveDispatch width tests (roots no longer copy local_max_tasks). */
+function setRootMaxConcurrent(ctx: ReturnType<typeof fakeCtx>, rootId: string, n: number) {
+  const work = getWork(ctx, rootId)!;
+  dispatchDatabase(ctx).query("UPDATE work_nodes SET options=? WHERE task_id=?")
+    .run(boundedJson({ ...work.options, maxConcurrent: n }), rootId);
+}
 
 function writeStrategy(ctx: ReturnType<typeof fakeCtx>, localMaxTasks: number | "unlimited") {
   mkdirSync(ctx.pacerHome, { recursive: true });
@@ -45,6 +55,9 @@ describe("F1: reserveDispatch excludes workflow-root from concurrency", () => {
     const rootId = getRun(ctx, run.id)!.rootTaskId!;
     expect(readTask(ctx, rootId)!.state).toBe("running");
     expect(readTask(ctx, rootId)!.kind).toBe("workflow-root");
+    // Roots use schema max; pin to 1 so this exercises root exclusion under a tight cap.
+    expect(rootMaxConcurrent(ctx)).toBe(64);
+    setRootMaxConcurrent(ctx, rootId, 1);
     expect(getWork(ctx, rootId)!.options.maxConcurrent).toBe(1);
 
     const step = stepsOfRun(ctx, run.id).find(s => s.stepId === "a")!;
@@ -58,7 +71,7 @@ describe("F1: reserveDispatch excludes workflow-root from concurrency", () => {
     expect(reserveDispatch(ctx, taskId, c, preview)).toBe(true);
   });
 
-  test("real reserveDispatch admits fanout width equal to local_max_tasks (2 of 3)", async () => {
+  test("real reserveDispatch admits fanout width 2 of 3 when root maxConcurrent is 2", async () => {
     const ctx = fakeCtx();
     writeStrategy(ctx, 2);
     const def: WorkflowDef = {
@@ -80,6 +93,7 @@ describe("F1: reserveDispatch excludes workflow-root from concurrency", () => {
     const spawn: SpawnRunner = () => 1;
     const run = await startRun(ctx, { workflow: def.id, repo: tmpDir(), brief: "B" }, spawn, defaultEngineDeps);
     const rootId = getRun(ctx, run.id)!.rootTaskId!;
+    setRootMaxConcurrent(ctx, rootId, 2);
     expect(getWork(ctx, rootId)!.options.maxConcurrent).toBe(2);
 
     const branches = stepsOfRun(ctx, run.id).filter(s => s.stepId === "fan" && s.branch);
@@ -294,5 +308,64 @@ describe("F2: frontier-based replan seeding", () => {
     expect(c?.taskId).toBeTruthy();
     expect(launches).toContain(c!.taskId!);
     expect(stepsOfRun(ctx, child.id).find(s => s.stepId === "a")!.advancedAt).toBeDefined();
+  });
+});
+
+describe("F3: root maxConcurrent is schema max", () => {
+  test("rootMaxConcurrent ignores local_max_tasks", () => {
+    const ctx = fakeCtx();
+    writeStrategy(ctx, 1);
+    expect(rootMaxConcurrent(ctx)).toBe(64);
+    writeStrategy(ctx, "unlimited");
+    expect(rootMaxConcurrent(ctx)).toBe(64);
+  });
+});
+
+describe("F4 / F5: descendant budget estimate", () => {
+  test("validateWorkflow rejects when uncapped estimate exceeds 1000", () => {
+    const steps: WorkflowDef["steps"] = { done: { type: "end" } };
+    const edges: WorkflowDef["edges"] = [];
+    // Many parallel agents with a large loop covering them.
+    const ids: string[] = [];
+    for (let i = 0; i < 40; i++) {
+      const id = `s${i}`;
+      ids.push(id);
+      steps[id] = { type: "agent", kind: "feature", prompt: id };
+      edges.push({ from: id, to: i === 39 ? "s0" : `s${i + 1}`, ...(i === 39 ? { maxLoops: 30 } : {}) });
+    }
+    edges.push({ from: "s0", to: "done", when: "result.ok == true" });
+    const def: WorkflowDef = { id: "t/e-huge", version: 1, steps, edges, entry: "s0" };
+    expect(estimateDescendantBudget(def)).toBeGreaterThan(1000);
+    const errs = validateWorkflow(def);
+    expect(errs.some(e => /descendant budget|exceeds cap 1000/i.test(e.message))).toBe(true);
+  });
+
+  test("capacity uses sum(maxLoops × cycle) not max(maxLoops)+1 over all steps", () => {
+    // Two separate loops: each maxLoops 3 over 2 steps. Old formula used maxLoops=3 → factor 4 × 4 steps = 16.
+    // Per-cycle: each cycle contributes 3*2=6, base 4 → 4+12=16 work units (+slack).
+    const def: WorkflowDef = {
+      id: "t/e-twoloop",
+      version: 1,
+      steps: {
+        a: { type: "agent", kind: "feature", prompt: "A", result: { required: ["v"] } },
+        b: { type: "agent", kind: "feature", prompt: "B", result: { required: ["v"] } },
+        c: { type: "agent", kind: "feature", prompt: "C", result: { required: ["v"] } },
+        d: { type: "agent", kind: "feature", prompt: "D", result: { required: ["v"] } },
+        done: { type: "end" },
+      },
+      edges: [
+        { from: "a", to: "b" },
+        { from: "b", to: "a", when: "result.v == 'loop'", maxLoops: 3 },
+        { from: "b", to: "c", when: "result.v == 'next'" },
+        { from: "c", to: "d" },
+        { from: "d", to: "c", when: "result.v == 'loop'", maxLoops: 5 },
+        { from: "d", to: "done", when: "result.v == 'ok'" },
+      ],
+      entry: "a",
+    };
+    // base 4 + 3*2 + 5*2 = 4+6+10 = 20
+    expect(estimateWorkUnits(def)).toBe(20);
+    expect(rootCapacityFromGraph(def)).toBe(Math.max(20, estimateDescendantBudget(def)));
+    expect(rootCapacityFromGraph(def)).toBeLessThanOrEqual(1000);
   });
 });

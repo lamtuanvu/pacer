@@ -128,7 +128,7 @@ test("the root's maxDescendants follows the concrete graph; ordinary dispatch ro
   const root = getWork(ctx, run.rootTaskId!)!;
   // Parent generate graph is one generate step (+ end); child runs size their own roots.
   expect(root.options.maxDescendants).toBe(Math.max(20, 1 + 10));
-  expect(root.options.maxConcurrent).toBe(4);
+  expect(root.options.maxConcurrent).toBe(64);
 
   const ordinary = createTask(ctx, { brief: { goal: "root", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
   const defaults = registerWork(ctx, ordinary.id, { allowDelegation: true });

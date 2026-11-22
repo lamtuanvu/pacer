@@ -13,18 +13,16 @@ import { TERMINAL_STATES } from "../tasks/types";
 import { createTask, readTask, updateTask, taskDatabase } from "../tasks/store";
 import { getWork, registerWork, type WorkOptions } from "../dispatch/work";
 import { CoreError } from "../core/errors";
-import { validateExecution } from "../config/execution";
-import { loadStrategy } from "../config/strategy";
 import {
   getDefinition,
   getRun,
-  listRuns,
   replaceRootTaskId,
   setRootTaskId,
   workflowDatabase,
   type RunRow,
 } from "./store";
-import type { FanoutStep, GenerateStep, WorkflowDef } from "./schema";
+import type { WorkflowDef } from "./schema";
+import { estimateDescendantBudget } from "./validate";
 
 /** Schema cap for work options.maxDescendants. */
 const MAX_DESCENDANTS_CAP = 1000;
@@ -33,43 +31,22 @@ const MAX_CONCURRENT_CAP = 64;
 
 /**
  * Descendant budget from the concrete graph. Loop iterations re-create tasks for
- * every step in the cycle and fanout branches, so capacity scales by (maxLoops+1).
- * Retries add slack; the engine already bounds the graph by loops / max_steps.
+ * every step on each back-edge cycle; non-cycle steps count once. Capped at 1000.
  */
 export function rootCapacityFromGraph(def: WorkflowDef | null): number {
   if (!def) return 20;
-  let maxLoops = 0;
-  for (const edge of def.edges) {
-    if (typeof edge.maxLoops === "number") maxLoops = Math.max(maxLoops, edge.maxLoops);
-  }
-  const loopFactor = maxLoops > 0 ? maxLoops + 1 : 1;
-  let n = 0;
-  for (const step of Object.values(def.steps)) {
-    if (!step || step.type === "end") continue;
-    if (step.type === "fanout") {
-      const fan = step as FanoutStep;
-      n += Math.max(1, fan.branches.length) * loopFactor;
-    } else if (step.type === "generate") {
-      // One waiting generate step under this root; the child run has its own root.
-      n += 1;
-      void (step as GenerateStep);
-    } else {
-      n += loopFactor;
-    }
-  }
-  const retriesSlack = Math.max(10, Object.keys(def.steps).length);
-  return Math.min(MAX_DESCENDANTS_CAP, Math.max(20, n + retriesSlack));
+  return Math.min(MAX_DESCENDANTS_CAP, Math.max(20, estimateDescendantBudget(def)));
 }
 
-/** Root concurrency: prefer execution.local_max_tasks (no extra throttle); else schema max. */
-export function rootMaxConcurrent(ctx: Ctx): number {
-  try {
-    const cap = validateExecution(loadStrategy(ctx).execution).localMaxTasks;
-    if (cap == null || !Number.isFinite(cap)) return MAX_CONCURRENT_CAP;
-    return Math.min(MAX_CONCURRENT_CAP, Math.max(1, Math.floor(cap)));
-  } catch {
-    return MAX_CONCURRENT_CAP;
-  }
+/**
+ * Root concurrency is the schema max. Local width is already bounded by
+ * execution.local_max_tasks via slots (which also exclude workflow-root); tying
+ * maxConcurrent to local_max_tasks double-throttled locals and capped remote/host
+ * executors incorrectly. After reserveDispatch excludes the synthetic root, an
+ * extra root throttle is redundant.
+ */
+export function rootMaxConcurrent(_ctx: Ctx): number {
+  return MAX_CONCURRENT_CAP;
 }
 
 function rootIsUsable(ctx: Ctx, taskId: string): boolean {
@@ -193,12 +170,6 @@ export function reconcileOrphanWorkflowRoots(ctx: Ctx): string[] {
       "SELECT root_task_id FROM workflow_runs WHERE root_task_id IS NOT NULL",
     ).all().map(r => r.root_task_id).filter((id): id is string => typeof id === "string"),
   );
-  // Keep listRuns import used when the column is absent on very old fixtures — fall back.
-  if (liveRoots.size === 0) {
-    for (const id of listRuns(ctx).map(r => r.rootTaskId).filter((x): x is string => typeof x === "string")) {
-      liveRoots.add(id);
-    }
-  }
   const candidates = taskDatabase(ctx).query<{ id: string }, []>(
     `SELECT id FROM tasks
      WHERE state IN ('queued', 'running')
@@ -237,7 +208,6 @@ export interface StartStepTaskInput {
   difficulty?: DelegateInput["difficulty"];
   title: string;
   requestId: string;
-  dependencies?: string[];
 }
 
 type DelegateFn = (ctx: Ctx, input: DelegateInput, spawn?: SpawnRunner) => Promise<TaskRecord>;
@@ -245,13 +215,11 @@ type DelegateFn = (ctx: Ctx, input: DelegateInput, spawn?: SpawnRunner) => Promi
 /**
  * Delegate a step task as a child of the run's root work node. Engine-created
  * steps do not attach dispatcher dependency edges (the engine already waits for
- * the predecessor to settle before creating this step). Optional explicit
- * dependencies from the caller are still honoured.
+ * the predecessor to settle before creating this step).
  */
 export async function startStepTask(
   ctx: Ctx,
   run: RunRow,
-  step: { stepId: string; branch?: string },
   input: StartStepTaskInput,
   delegate: DelegateFn,
   spawn?: SpawnRunner,
@@ -260,8 +228,6 @@ export async function startStepTask(
   if (readTask(ctx, rootId)?.state !== "running") {
     updateTask(ctx, rootId, t => { t.state = "running"; });
   }
-  const deps = (input.dependencies ?? []).filter(id => id && getWork(ctx, id));
-  void step; // step id is carried in requestId / title by the caller
   // Errors from registerWork (capacity, parent closed, …) must fail the step.
   return delegate(ctx, {
     brief: input.brief,
@@ -270,7 +236,6 @@ export async function startStepTask(
     title: input.title,
     requestId: input.requestId,
     workParent: rootId,
-    ...(deps.length > 0 ? { dependencies: deps } : {}),
   }, spawn);
 }
 

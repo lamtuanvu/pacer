@@ -28,7 +28,7 @@ import {
   type WorkflowDef,
   type WorkflowError,
 } from "./schema";
-import { backEdgeIndexes, validateWorkflow } from "./validate";
+import { backEdgeIndexes, estimateWorkUnits, validateWorkflow } from "./validate";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import type { SpawnRunner } from "../tasks/api";
 
@@ -94,18 +94,9 @@ function stepKindForLimits(step: unknown): string | undefined {
   return undefined;
 }
 
-/** Count runnable work units: fanout counts as its branch count; other non-end steps count as 1. */
+/** Work-unit budget for limits.max_steps: base steps + sum(maxLoops × cycle units). */
 function effectiveStepBudget(def: WorkflowDef): number {
-  let n = 0;
-  for (const step of Object.values(def.steps ?? {})) {
-    if (!step || step.type === "end") continue;
-    if (step.type === "fanout") n += Math.max(1, step.branches?.length ?? 1);
-    else n += 1;
-  }
-  for (const edge of def.edges ?? []) {
-    if (typeof edge.maxLoops === "number" && Number.isFinite(edge.maxLoops)) n += edge.maxLoops;
-  }
-  return n;
+  return estimateWorkUnits(def);
 }
 
 /** Count runnable steps (everything except `end`) — used for graph summaries. */
