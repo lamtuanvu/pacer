@@ -10,7 +10,6 @@ import * as store from "./store";
 import { assertOpen, deliver, notifyMessage, readMessages, type Delivery, type TurnDelivery, type TurnHold } from "./turns";
 import type { TaskRecord } from "../tasks/types";
 import { participantSchema, type Message, type MsgKind } from "./types";
-
 export interface SendInput { to: string; kind?: MsgKind; body: string; replyTo?: string; requestId?: string }
 export interface SendDeps { appAuthenticated?: boolean; participant?: string; spawnRunner?: SpawnRunner }
 
@@ -35,7 +34,11 @@ export async function sendMessage(ctx: Ctx, input: SendInput, deps: SendDeps = {
     requestId: input.requestId ?? null, status: verdict.hold ? "held" : "pending" });
   if (r.duplicate) return duplicate(ctx, { ...r.message, fingerprint: store.byRequest(ctx, caller.id, input.requestId!)?.fingerprint ?? null }, store.fingerprint(input.to, kind, body), deps);
   void notifyMessage(ctx, r.message);
+  // Spent message budget must not short-circuit before deliverMessage: live
+  // answers into a waiting session still go through. Metered turn starts stay
+  // gated in startTurnIfIdle / deliver (design D3).
   // A turn the guardrail allowed still passes project policy; a policy hold says why (ADR 0015).
+  // Message-turn spend is counted in startTurnIfIdle when a turn actually starts (incl. drain).
   const { delivery, hold } = verdict.hold ? { delivery: "held" as const, hold: undefined } : await deliverMessage(ctx, r.message, deps);
   return { ...r, delivery, ...(hold ? { hold } : {}) };
 }

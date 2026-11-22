@@ -67,7 +67,8 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  });
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
- const rows=apiTasks(ctx,records.filter(t=>!t.archived));
+ // Engine-owned orchestrator tasks stay out of ordinary task lists (D2.12).
+ const rows=apiTasks(ctx,records.filter(t=>!t.archived && t.kind !== "orchestrate"));
  // `needs_input` (stored, and running with an open question via `visibleTaskState`)
  // is an active state: tasks requiring the user never age out of the snapshot window.
  // A needs_input that was answered, retried or dismissed is not retained by its state.

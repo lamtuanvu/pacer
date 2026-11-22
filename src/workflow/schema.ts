@@ -9,7 +9,10 @@ export interface JsonSchemaLite {
 
 export interface AgentStep {
   type: "agent";
-  kind: string;
+  /** Required for executor steps; optional when `role` is `orchestrator`. */
+  kind?: string;
+  role?: "orchestrator";
+  interactive?: boolean;
   difficulty?: "simple" | "standard" | "complex";
   prompt: string;
   result?: JsonSchemaLite;
@@ -17,6 +20,8 @@ export interface AgentStep {
 
 export interface HumanStep {
   type: "human";
+  /** Defaults to `must` when omitted (zod parse fills it; object literals may omit it). */
+  decision?: "must" | "auto";
   question: { text: string; kind: "single" | "text" | "yes_no" | "approve_revise"; options?: string[] };
 }
 
@@ -27,11 +32,16 @@ export interface FanoutStep {
   join: "all" | "any" | { quorum: number };
 }
 
+export interface ChooseWorkflowStep {
+  type: "choose_workflow";
+  from?: string[];
+}
+
 export interface EndStep {
   type: "end";
 }
 
-export type StepDef = AgentStep | HumanStep | FanoutStep | EndStep;
+export type StepDef = AgentStep | HumanStep | FanoutStep | ChooseWorkflowStep | EndStep;
 
 export interface EdgeDef {
   from: string;
@@ -40,11 +50,16 @@ export interface EdgeDef {
   maxLoops?: number;
 }
 
+export interface WorkflowPolicy {
+  budget?: { orchestrator_turns?: number; message_turns?: number };
+}
+
 export interface WorkflowDef {
   id: string;
   version: number;
   title?: string;
   inputs?: Record<string, "string">;
+  policy?: WorkflowPolicy;
   steps: Record<string, StepDef>;
   edges: EdgeDef[];
   entry: string;
@@ -55,21 +70,33 @@ export interface WorkflowError {
   message: string;
 }
 
-export const STEP_TYPES = ["agent", "human", "fanout", "end"] as const;
+export const STEP_TYPES = ["agent", "human", "fanout", "choose_workflow", "end"] as const;
 type StepType = (typeof STEP_TYPES)[number];
 
 const jsonSchemaLite = z.strictObject({ required: z.array(z.string()).optional() });
 
+/** Executor agent steps need `kind`; orchestrator steps may omit it. `interactive` is
+ *  only valid with `role: orchestrator` (checked in the refine below). */
 const agentStepSchema = z.strictObject({
   type: z.literal("agent"),
-  kind: z.string().min(1),
+  kind: z.string().min(1).optional(),
+  role: z.literal("orchestrator").optional(),
+  interactive: z.boolean().optional(),
   difficulty: z.enum(["simple", "standard", "complex"]).optional(),
   prompt: z.string().min(1),
   result: jsonSchemaLite.optional(),
+}).superRefine((value, ctx) => {
+  if (value.interactive === true && value.role !== "orchestrator") {
+    ctx.addIssue({ code: "custom", path: ["interactive"], message: "interactive is only valid with role: orchestrator" });
+  }
+  if (value.role !== "orchestrator" && (value.kind === undefined || value.kind.length === 0)) {
+    ctx.addIssue({ code: "custom", path: ["kind"], message: "kind is required for agent steps without role: orchestrator" });
+  }
 });
 
 const humanStepSchema = z.strictObject({
   type: z.literal("human"),
+  decision: z.enum(["must", "auto"]).default("must"),
   question: z.strictObject({
     text: z.string().min(1),
     kind: z.enum(["single", "text", "yes_no", "approve_revise"]),
@@ -77,11 +104,25 @@ const humanStepSchema = z.strictObject({
   }),
 });
 
+/** Fan-out branches always run as executor agent steps (kind required). */
+const fanoutEachSchema = z.strictObject({
+  type: z.literal("agent"),
+  kind: z.string().min(1),
+  difficulty: z.enum(["simple", "standard", "complex"]).optional(),
+  prompt: z.string().min(1),
+  result: jsonSchemaLite.optional(),
+});
+
 const fanoutStepSchema = z.strictObject({
   type: z.literal("fanout"),
   branches: z.array(z.string().min(1)).min(1),
-  each: agentStepSchema,
+  each: fanoutEachSchema,
   join: z.union([z.literal("all"), z.literal("any"), z.strictObject({ quorum: z.number().int().min(1) })]),
+});
+
+const chooseWorkflowStepSchema = z.strictObject({
+  type: z.literal("choose_workflow"),
+  from: z.array(z.string().min(1)).optional(),
 });
 
 const endStepSchema = z.strictObject({ type: z.literal("end") });
@@ -90,8 +131,16 @@ const stepSchemas: Record<StepType, z.ZodType> = {
   agent: agentStepSchema,
   human: humanStepSchema,
   fanout: fanoutStepSchema,
+  choose_workflow: chooseWorkflowStepSchema,
   end: endStepSchema,
 };
+
+const workflowPolicySchema = z.strictObject({
+  budget: z.strictObject({
+    orchestrator_turns: z.number().int().min(1).optional(),
+    message_turns: z.number().int().min(1).optional(),
+  }).optional(),
+});
 
 export const edgeDefSchema = z.strictObject({
   from: z.string().min(1),
@@ -105,6 +154,7 @@ export const workflowDefSchema = z.strictObject({
   version: z.number().int().min(1),
   title: z.string().min(1).optional(),
   inputs: z.record(z.string(), z.literal("string")).optional(),
+  policy: workflowPolicySchema.optional(),
   steps: z.record(z.string(), z.unknown()),
   edges: z.array(z.unknown()),
   entry: z.string().min(1).optional(),
@@ -185,5 +235,6 @@ export function checkWorkflowShape(data: unknown): { def?: WorkflowDef; errors: 
   };
   if (clean.title !== undefined) def.title = clean.title;
   if (clean.inputs !== undefined) def.inputs = clean.inputs;
+  if (clean.policy !== undefined) def.policy = clean.policy;
   return { def, errors: [] };
 }

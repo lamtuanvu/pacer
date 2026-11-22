@@ -51,3 +51,20 @@ test("review feedback appears after constraints and before acceptance", () => {
   expect(p.indexOf("## Done when")).toBeGreaterThan(p.indexOf("## Review feedback"));
   expect(buildPrompt({ goal: "g", repo: "/r", feedback: " " }, "t-x")).not.toContain("## Review feedback");
 });
+
+// N2: orchestrate tasks must not get the executor contract / pacer ask wording.
+test("orchestrate buildPrompt has no executor or pacer ask; names orchestrator commands", () => {
+  const p = buildPrompt(
+    { goal: "Decide the next step", repo: "/r" },
+    "t-orch-1",
+    false,
+    { kind: "orchestrate" },
+  );
+  expect(p.toLowerCase()).not.toMatch(/\bexecutor\b/);
+  expect(p).not.toContain("pacer ask");
+  expect(p).toMatch(/PACER_ROLE=orchestrator/);
+  expect(p).toContain("run choose");
+  expect(p).toContain("step skip");
+  expect(p).toContain("step retry");
+  expect(p).toContain("t-orch-1");
+});

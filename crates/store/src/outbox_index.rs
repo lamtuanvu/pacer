@@ -40,8 +40,29 @@ struct Index {
     last: Option<(u64, Vec<u8>)>,
     open: HashSet<String>,
     at: HashMap<i64, usize>,
+    /// Open workflow attention id → severity (problems: severity != "decide").
+    workflow_open: HashMap<String, String>,
+    workflow_at: HashMap<i64, usize>,
+    workflow_problems_at: HashMap<i64, usize>,
     complete: bool,
     nonmonotonic: bool,
+}
+
+fn is_discovery_id(id: &str) -> bool {
+    id.starts_with("discovery:") || id.starts_with("discovery-network:")
+}
+
+fn is_workflow_attention_id(id: &str) -> bool {
+    id.starts_with("budget_warn:")
+        || id.starts_with("budget_spent:")
+        || id.starts_with("budget_msg_warn:")
+        || id.starts_with("budget_msg_spent:")
+        || id.starts_with("orchestrator_failed:")
+        || id.starts_with("unresolved_wake:")
+}
+
+fn workflow_problem_count(open: &HashMap<String, String>) -> usize {
+    open.values().filter(|s| s.as_str() != "decide").count()
 }
 fn bytes(file: &mut File, start: u64, end: u64) -> io::Result<Vec<u8>> {
     file.seek(SeekFrom::Start(start))?;
@@ -102,16 +123,34 @@ impl Index {
                 if env["type"] == "entity" {
                     if d["kind"] == "attention"
                         && let Some(id) = d["id"].as_str()
-                        && (id.starts_with("discovery:") || id.starts_with("discovery-network:"))
                     {
-                        if d["removed"] == true {
-                            self.open.remove(id);
-                        } else {
-                            self.open.insert(id.to_owned());
+                        if is_discovery_id(id) {
+                            if d["removed"] == true {
+                                self.open.remove(id);
+                            } else {
+                                self.open.insert(id.to_owned());
+                            }
+                        }
+                        let kind = d["value"]["kind"].as_str();
+                        let is_workflow = is_workflow_attention_id(id)
+                            || kind == Some("orchestrator_failed")
+                            || (d["removed"] == true && self.workflow_open.contains_key(id));
+                        if is_workflow {
+                            if d["removed"] == true {
+                                self.workflow_open.remove(id);
+                            } else {
+                                let severity =
+                                    d["value"]["severity"].as_str().unwrap_or("").to_owned();
+                                self.workflow_open.insert(id.to_owned(), severity);
+                            }
                         }
                     }
                     if d["kind"] == "counts" {
                         self.at.insert(seq as i64, self.open.len());
+                        self.workflow_at
+                            .insert(seq as i64, self.workflow_open.len());
+                        self.workflow_problems_at
+                            .insert(seq as i64, workflow_problem_count(&self.workflow_open));
                     }
                 }
             }
@@ -141,6 +180,8 @@ pub struct OutboxReplay {
     pub entries: Vec<Value>,
     pub oldest: Option<f64>,
     pub discovery_at_counts: HashMap<i64, usize>,
+    pub workflow_at_counts: HashMap<i64, usize>,
+    pub workflow_problems_at_counts: HashMap<i64, usize>,
 }
 pub fn read_outbox_replay(ctx: &Ctx, since: f64) -> io::Result<OutboxReplay> {
     static CACHE: OnceLock<Mutex<HashMap<PathBuf, Index>>> = OnceLock::new();
@@ -157,11 +198,13 @@ pub fn read_outbox_replay(ctx: &Ctx, since: f64) -> io::Result<OutboxReplay> {
                 entries: vec![],
                 oldest: None,
                 discovery_at_counts: HashMap::new(),
+                workflow_at_counts: HashMap::new(),
+                workflow_problems_at_counts: HashMap::new(),
             });
         }
         Err(e) => return Err(e),
     };
-    let (start, end, oldest, at) = {
+    let (start, end, oldest, at, workflow_at, workflow_problems_at) = {
         let mut cache = CACHE
             .get_or_init(Default::default)
             .lock()
@@ -176,19 +219,26 @@ pub fn read_outbox_replay(ctx: &Ctx, since: f64) -> io::Result<OutboxReplay> {
             return Err(error);
         }
         let (start, end) = index.range(since);
-        let at = index
-            .rows
-            .iter()
-            .rev()
-            .take_while(|row| row.1 >= start)
-            .filter_map(|row| {
-                index
-                    .at
-                    .get(&(row.0 as i64))
-                    .map(|count| (row.0 as i64, *count))
-            })
-            .collect();
-        (start, end, index.oldest(), at)
+        let collect = |map: &HashMap<i64, usize>| {
+            index
+                .rows
+                .iter()
+                .rev()
+                .take_while(|row| row.1 >= start)
+                .filter_map(|row| map.get(&(row.0 as i64)).map(|count| (row.0 as i64, *count)))
+                .collect::<HashMap<_, _>>()
+        };
+        let at = collect(&index.at);
+        let workflow_at = collect(&index.workflow_at);
+        let workflow_problems_at = collect(&index.workflow_problems_at);
+        (
+            start,
+            end,
+            index.oldest(),
+            at,
+            workflow_at,
+            workflow_problems_at,
+        )
     };
     let data = bytes(&mut file, start, end)?;
     let entries = data
@@ -200,6 +250,8 @@ pub fn read_outbox_replay(ctx: &Ctx, since: f64) -> io::Result<OutboxReplay> {
         entries,
         oldest,
         discovery_at_counts: at,
+        workflow_at_counts: workflow_at,
+        workflow_problems_at_counts: workflow_problems_at,
     })
 }
 #[cfg(test)]

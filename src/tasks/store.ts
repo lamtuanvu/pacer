@@ -214,8 +214,11 @@ function schemaReady(db: Database): boolean {
     .every(name => objects.has(name));
 }
 
+/** Writer busy wait (ms) applied to every tasks.db connection. */
+export const TASK_DB_BUSY_TIMEOUT_MS = 5000;
+
 /** Retries `run` while SQLite reports SQLITE_BUSY, for up to `ms` (the store's busy timeout). */
-export function retryBusy<T>(run: () => T, ms = 5000, sleep: (ms: number) => void = Bun.sleepSync): T {
+export function retryBusy<T>(run: () => T, ms = TASK_DB_BUSY_TIMEOUT_MS, sleep: (ms: number) => void = Bun.sleepSync): T {
   const deadline = Date.now() + ms;
   for (;;) {
     try { return run(); }
@@ -253,7 +256,7 @@ function connection(ctx: Ctx) {
   chmodSync(path, 0o600);
   const db = new Database(path, { strict: true });
   try {
-    db.run("PRAGMA busy_timeout = 5000");
+    db.run(`PRAGMA busy_timeout = ${TASK_DB_BUSY_TIMEOUT_MS}`);
     // SQLite can answer a journal-mode change with SQLITE_BUSY without consulting the busy
     // handler (WAL recovery or another process's checkpoint on close), so retry it here.
     retryBusy(() => db.run("PRAGMA journal_mode = WAL"));

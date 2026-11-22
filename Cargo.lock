@@ -2196,6 +2196,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "pacer-workflow-protocol"
+version = "0.0.0"
+dependencies = [
+ "regress",
+ "serde",
+ "serde_json",
+ "uuid",
+]
+
+[[package]]
 name = "paste"
 version = "1.0.15"
 source = "registry+https://github.com/rust-lang/crates.io-index"

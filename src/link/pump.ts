@@ -42,7 +42,11 @@ import { type AlertData, type OutboxEvent, LIMITS, type TaskData, clip } from ".
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx, ids?: Set<string>):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[],beforeAppend?:Parameters<typeof publish>[2]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>(ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity)),publish};
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>{
+  const rows=ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity);
+  // Engine-owned orchestrate tasks stay out of link events (A-M4); machine.used still counts them elsewhere.
+  return rows.filter(t=>t.kind!=="orchestrate");
+},publish};
 export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
   return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
@@ -70,10 +74,13 @@ export function taskData(t:TaskRecord):TaskData & {title:string} {
   };
 }
 export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kind"];id:string;value:unknown}[]):{envelopes:OutboxEvent[];next:Record<string,string>} {
- const next:Record<string,string>={},envelopes:OutboxEvent[]=[];
- for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)envelopes.push({type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
- for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");envelopes.push({type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
- return {envelopes,next};
+ // Removals before upserts so counts (last among rows) stays last in the batch.
+ // Index builders snapshot open attention when they read the counts line; a removal
+ // after counts would leave the just-closed item open and double-subtract it for v2.
+ const next:Record<string,string>={},upserts:OutboxEvent[]=[],removals:OutboxEvent[]=[];
+ for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)upserts.push({type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
+ for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");removals.push({type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
+ return {envelopes:[...removals,...upserts],next};
 }
 const alert=(a:AlertData):OutboxEvent=>({type:"alert",data:a});
 /** Cooperative-yield batch size for the per-task loop below; see its comment. */

@@ -2,7 +2,7 @@
 import { sortItems } from "../attention/rules";
 import { legacySetup, legacyCheck } from "../setup/v2";
 import type { LinkSnapshot, BudgetData } from '../link/envelope';
-import { isDiscoveryItemId } from '../link/outbox-index';
+import { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem } from '../link/outbox-index';
 import type { SnapshotV2, SnapshotV3 } from './read-model/types';
 import { callOp, opJsonSchemas, LEGACY_TASK_LIST, type OpDeps } from './ops';
 import { CoreError } from '../core/errors';
@@ -39,7 +39,7 @@ for (const op of ["terminal.list", "terminal.create", "terminal.rename", "termin
 for (const op of ["assistant.status", "assistant.ask", "assistant.cancel", "assistant.conversations", "assistant.conversation", "assistant.turn", "assistant.delete", "assistant.settings.get", "assistant.settings.set", "assistant.candidates", "assistant.card.record", "assistant.card.refresh", "assistant.tool", "assistant.selftest"]) V3_ONLY_OPS.add(op);
 for (const op of ["msg.send", "msg.inbox", "msg.wait", "msg.log", "msg.read", "msg.confirm", "msg.close", "msg.policy", "tree.status", "liveness.status"]) V3_ONLY_OPS.add(op);
 for (const op of ["project.messaging.get", "project.messaging.set", "project.messaging.remove"]) V3_ONLY_OPS.add(op);
-for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result"]) V3_ONLY_OPS.add(op);
+for (const op of ["workflow.validate", "workflow.add", "workflow.list", "run.start", "run.get", "run.list", "run.answer", "run.stop", "step.result", "step.skip", "step.retry", "run.set_auto", "run.set_budget", "run.set_planner", "run.retry_orchestrator", "run.decide", "run.choose"]) V3_ONLY_OPS.add(op);
 
 // v2 is frozen: the UNMETERED verdict is a protocol 3 addition, so 2.x rows keep OK.
 const v2Verdict = (verdict: string) => verdict === 'UNMETERED' ? 'OK' : verdict;
@@ -55,7 +55,7 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  const {desktopUpdates: _desktopUpdates, ...compatible}=s;
  const withVerdicts={...compatible,accounts:compatible.accounts.map(a=>({...a,verdict:v2Verdict(a.verdict)}))};
  const attention=sortItems(s.attention.flatMap(a=>{
-  if(a.id==="setup:connect"||isDiscoveryItemId(a.id))return [];
+  if(a.id==="setup:connect"||isDiscoveryItemId(a.id)||isWorkflowAttentionItem(a))return [];
   const id=a.id==="setup:planner"?"setup:strategy":a.id;
   const item=setup.items.find(i=>`setup:${i.id}`===id);
   const compatibleAction = (action: typeof a.actions[number]) => action.op === "dispatch.retry" || action.op === "dispatch.answer"
@@ -69,24 +69,27 @@ export function toV2Snapshot(s: CompatSnapshot): SnapshotV2 {
  // 2.x clients read machine.max as a number. Without a fixed local cap, the effective
  // ceiling is the sum of the local executors' own limits.
  const machine=s.machine?.unlimited?{...s.machine,max:Math.max(1,s.executors.filter(e=>e.rank!=='planner'&&e.host===null&&e.enabled).reduce((n,e)=>n+e.slots.max,0))}:s.machine;
- return {...withVerdicts,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
+ return {...withVerdicts,machine,setup,attention,counts,seq:s.seq>=V3_CURSOR_BASE?s.seq-V3_CURSOR_BASE:s.seq,v:1,budget:legacy?legacy.budget:budget(s),alerts:legacy?legacy.alerts:s.attention.filter(a=>!isDiscoveryItemId(a.id)&&!isWorkflowAttentionItem(a)).map(a=>({key:a.id,level:a.severity==='blocked'?'error' as const:a.severity==='problem'?'warn' as const:'info' as const,title:a.title,body:a.detail,at:a.raisedAt})),
  console:legacy?.console??null,consoles:legacy?.consoles??[],serviceInstalled:legacy?.serviceInstalled??s.setup.items.some(i=>i.id==='service'&&i.status==='done'),service:{...s.service,protocol:V2_PROTOCOL}};
 }
 /**
  * LAN discovery is v3-only: its event, its config area, its attention items and their notifications never reach v2 clients.
+ * Workflow attention (budget / orchestrator_failed) is likewise v3-only — its actions call run.* ops.
  * v2 counts events leave the open discovery items out (see eventsSince).
  */
 export function v3OnlyEvent(e: {type: string; data: unknown}): boolean {
- const d=e.data as {area?:unknown;id?:unknown;key?:unknown}|null;
- return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'||e.type==='attention'&&isDiscoveryItemId(d?.id)||e.type==='notify'&&isDiscoveryItemId(d?.key);
+ const d=e.data as {area?:unknown;id?:unknown;key?:unknown;kind?:unknown}|null;
+ return e.type==='control'||e.type==='discovery.found'||e.type==='config'&&d?.area==='discovery'
+  ||e.type==='attention'&&(isDiscoveryItemId(d?.id)||isWorkflowAttentionId(d?.id)||d?.kind==='orchestrator_failed')
+  ||e.type==='notify'&&(isDiscoveryItemId(d?.key)||isWorkflowAttentionId(d?.key));
 }
-export { isDiscoveryItemId };
+export { isDiscoveryItemId, isWorkflowAttentionId, isWorkflowAttentionItem };
 export function toV2Event(e: CompatEvent): ApiEventV2 | null {
  if(e.type==='desktop.update')return null;
  if(V2_EVENT in e)return e[V2_EVENT]??null;
  // Messaging (msg.*) is v3-only, so v2 clients get no message events either.
  // Workflow runs are v3-only: their entity events never reach v2 clients.
- if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='discovery.found'||e.type==='control')return null;
+ if(e.type==='planner'||e.type==='assistant'||e.type==='machine'||e.type==='message'||e.type==='run'||e.type==='decision'||e.type==='discovery.found'||e.type==='control')return null;
  // The machine and discovery operations are v3-only, so v2 clients have no area to refetch.
  if(e.type==='config'&&['machine','discovery'].includes(String((e.data as {area?:unknown}|null)?.area)))return null;
  return {...e,type:e.type,seq:e.seq>=V3_CURSOR_BASE?e.seq-V3_CURSOR_BASE:e.seq};
