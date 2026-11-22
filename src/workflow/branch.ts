@@ -131,6 +131,16 @@ export async function integrationWorktree(ctx: Ctx, run: RunRow): Promise<string
   return withMergeLock(ctx, run.id, () => integrationWorktreeUnlocked(ctx, run));
 }
 
+/** Same as integrationWorktree but must be called while holding withMergeLock (no nested lock). */
+export async function integrationWorktreeUnderLock(ctx: Ctx, run: RunRow): Promise<string> {
+  return integrationWorktreeUnlocked(ctx, run);
+}
+
+/** Absolute path of the integration worktree directory (may not exist yet). */
+export function integrationWorktreePath(ctx: Ctx, repoTop: string, runId: string): string {
+  return integrationPath(ctx, repoTop, runId);
+}
+
 /** Repo setting `workflow.merge_signoff` from `<repo>/.pacer/workflow.json`. */
 export function mergeSignoffEnabled(repoTop: string): boolean {
   try {

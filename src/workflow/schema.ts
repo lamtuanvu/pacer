@@ -25,6 +25,8 @@ export interface HumanStep {
   type: "human";
   /** Defaults to `must` when omitted (zod parse fills it; object literals may omit it). */
   decision?: "must" | "auto";
+  /** When set, an approving answer records a `publish_approved` decision (validator requires `must`). */
+  approves?: "publish";
   question: { text: string; kind: "single" | "text" | "yes_no" | "approve_revise"; options?: string[] };
 }
 
@@ -126,6 +128,7 @@ const agentStepSchema = z.strictObject({
 const humanStepSchema = z.strictObject({
   type: z.literal("human"),
   decision: z.enum(["must", "auto"]).default("must"),
+  approves: z.literal("publish").optional(),
   question: z.strictObject({
     text: z.string().min(1),
     kind: z.enum(["single", "text", "yes_no", "approve_revise"]),

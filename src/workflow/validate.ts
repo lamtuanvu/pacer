@@ -184,6 +184,13 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
         errors.push({ path: `steps.${id}`, message: `choose_workflow step ${id} must have exactly one outgoing edge` });
       }
     }
+    // Publishing approval is person-only: approves: publish requires decision: must (D5).
+    if (value.type === "human" && value.approves === "publish") {
+      const decision = value.decision === undefined ? "must" : value.decision;
+      if (decision !== "must") {
+        errors.push({ path: `steps.${id}.approves`, message: "approves: publish requires decision: must" });
+      }
+    }
   }
 
   const adjacency = new Map<string, string[]>();

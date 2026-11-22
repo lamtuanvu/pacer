@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, recordDecision, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
@@ -1442,6 +1442,24 @@ export async function answerHumanStep(
   // step loses the race and is a conflict — it starts nothing.
   const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
+  // Publishing gate (D5): an approving answer on a must step with approves: publish
+  // records publish_approved so run.publish can check it later.
+  const humanDef = def.steps[stepId];
+  if (
+    humanDef?.type === "human"
+    && humanDef.approves === "publish"
+    && (answer === "approve" || answer === "yes")
+  ) {
+    recordDecision(ctx, {
+      runId,
+      stepId,
+      attempt: claimed.attempt,
+      actor: ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
+      kind: "publish_approved",
+      choice: answer,
+      reason: "approves: publish",
+    });
+  }
   // The answer is recorded: a conflicting run patch (the run went terminal, or a
   // concurrent writer moved its rev) must not fail the answer — it took effect and
   // advances below, or via the tick's re-advance when this advance is lost

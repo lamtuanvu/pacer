@@ -100,6 +100,9 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("branch")) db.exec("ALTER TABLE workflow_runs ADD COLUMN branch TEXT");
     if (!runColumns.includes("base_ref")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_ref TEXT");
     if (!runColumns.includes("base_sha")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_sha TEXT");
+    // Phase 5 publishing: optional draft opt-in at start, and the PR URL after publish.
+    if (!runColumns.includes("publish_opt_in")) db.exec("ALTER TABLE workflow_runs ADD COLUMN publish_opt_in TEXT");
+    if (!runColumns.includes("pr_url")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pr_url TEXT");
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -175,6 +178,10 @@ export interface RunRow {
   branch?: string;
   baseRef?: string;
   baseSha?: string;
+  /** Phase 5: `draft` when the person opted in at start for draft-only publish. */
+  publishOptIn?: "draft";
+  /** Phase 5: URL of the opened PR after a successful publish. */
+  prUrl?: string;
 }
 
 export interface DecisionRow {
@@ -262,6 +269,8 @@ interface RunDbRow {
   branch?: string | null;
   base_ref?: string | null;
   base_sha?: string | null;
+  publish_opt_in?: string | null;
+  pr_url?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -302,6 +311,8 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.branch) out.branch = row.branch;
   if (row.base_ref) out.baseRef = row.base_ref;
   if (row.base_sha) out.baseSha = row.base_sha;
+  if (row.publish_opt_in === "draft") out.publishOptIn = "draft";
+  if (row.pr_url) out.prUrl = row.pr_url;
   return out;
 }
 
@@ -442,6 +453,36 @@ export function setRunBranch(ctx: Ctx, runId: string, info: { branch: string; ba
     if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
     if (current.branch && current.branch !== info.branch) {
       throw new CoreError("conflict", `conflict: run ${runId} already has a branch`);
+    }
+  }
+}
+
+/** Person opt-in at start for draft-only publish (`publish: draft`). Does not bump `rev`. */
+export function setPublishOptIn(ctx: Ctx, runId: string, optIn: "draft"): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET publish_opt_in = ? WHERE id = ? AND (publish_opt_in IS NULL OR publish_opt_in = ?)",
+  ).run(optIn, runId, optIn);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.publishOptIn && current.publishOptIn !== optIn) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a publish opt-in`);
+    }
+  }
+}
+
+/** Store the PR URL after publish. Idempotent for the same URL; a different URL is a conflict. */
+export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET pr_url = ? WHERE id = ? AND (pr_url IS NULL OR pr_url = '' OR pr_url = ?)",
+  ).run(prUrl, runId, prUrl);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.prUrl && current.prUrl !== prUrl) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a different PR URL`);
     }
   }
 }
