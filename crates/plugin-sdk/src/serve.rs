@@ -1,4 +1,4 @@
-use crate::{Host, PluginError, js, wire};
+use crate::{Host, PluginError, chunk, wire};
 use serde::{Serialize, de::DeserializeOwned};
 use serde_json::{Value, json};
 use std::{
@@ -244,7 +244,7 @@ impl Plugin {
                     if method == "plugin.hello" {
                         started = Some(Instant::now());
                         let protocol = parse_protocol(params.get("protocol"));
-                        let offered: HashSet<String> = params
+                        let offered: Vec<String> = params
                             .get("features")
                             .and_then(Value::as_array)
                             .into_iter()
@@ -253,16 +253,26 @@ impl Plugin {
                             .map(str::to_owned)
                             .collect();
                         let mut fs = state.write().unwrap_or_else(|e| e.into_inner());
-                        fs.offered = offered.clone();
+                        fs.offered = offered.iter().cloned().collect();
                         fs.major = protocol.major;
                         fs.minor = protocol.minor;
                         fs.negotiated.clear();
-                        for f in &self.features {
-                            if offered.contains(f) && gate_minor(f, protocol.minor) {
-                                fs.negotiated.insert(f.clone());
+                        // Negotiate only what this plugin requested (.features) that the
+                        // host also offered and the protocol permits, echoing in the
+                        // host's offer order exactly as the TypeScript SDK filters
+                        // hello.features (index.ts:281-289): major 1 only, gated by the
+                        // protocol minor.
+                        let mut echoed: Vec<Value> = Vec::new();
+                        if protocol.major == 1 {
+                            for f in &offered {
+                                if self.features.iter().any(|w| w == f)
+                                    && gate_minor(f, protocol.minor)
+                                {
+                                    fs.negotiated.insert(f.clone());
+                                    echoed.push(json!(f));
+                                }
                             }
                         }
-                        let echoed: Vec<Value> = fs.negotiated.iter().map(|f| json!(f)).collect();
                         drop(fs);
                         let mut result = json!({
                             "protocol": pacer_plugin_protocol::VERSION,
@@ -310,10 +320,11 @@ impl Plugin {
                     };
                     let out = out.clone();
                     let inflight = inflight.clone();
-                    let chunk_host = call_host;
-                    let state_for_len = state.clone();
-                    let is_numeric_id = id.is_number();
+                    let policy_host = call_host;
+                    let state_for_policy = state.clone();
                     let method_for_chunk = method.clone();
+                    let id_for_chunk = id.clone();
+                    let cancel_for_chunk = cancel.clone();
                     tasks.spawn(async move {
                         let result = match handler {
                             Some(handler) => handler(params.clone(), ctx).await,
@@ -321,103 +332,34 @@ impl Plugin {
                                 Ok(json!({"ok":true, "uptimeS":started.elapsed().as_secs_f64()}))
                             }
                         };
+                        let policy = state_for_policy
+                            .read()
+                            .map(|g| chunk::ChunkPolicy {
+                                major: g.major,
+                                minor: g.minor,
+                                chunk_offered: g.offered.contains("chunkedResults"),
+                                planner_transactions: g
+                                    .negotiated
+                                    .contains("plannerInstallTransactions"),
+                            })
+                            .unwrap_or_default();
+                        let scoped = method_for_chunk == "usage.read"
+                            || meta
+                                .as_ref()
+                                .and_then(|m| m.get("capabilityCall"))
+                                .is_some();
                         let line = match result {
                             Ok(value) => {
-                                let scoped = method == "usage.read"
-                                    || meta.as_ref().and_then(|m| m.get("capabilityCall")).is_some();
-                                if scoped && cancel.is_cancelled() {
-                                    wire::error(
-                                        &id,
-                                        -32000,
-                                        "owning plugin call ended",
-                                        json!({"code":"plugin_unavailable"}),
-                                    )
-                                } else {
-                                    let fs = state_for_len
-                                        .read()
-                                        .map(|g| (g.major, g.minor,
-                                            g.offered.contains("chunkedResults"),
-                                            g.negotiated.contains("plannerInstallTransactions")))
-                                        .unwrap_or((0, 0, false, false));
-                                    let (major, minor, chunk_offered, planner) = fs;
-                                    let chunked = (method_for_chunk == "usage.read"
-                                        || (method_for_chunk == "planner.install"
-                                            || method_for_chunk == "planner.uninstall")
-                                            && planner)
-                                        && is_numeric_id
-                                        && major == 1
-                                        && minor >= 1
-                                        && chunk_offered;
-                                    let bytes = if chunked {
-                                        serde_json::to_vec(&value).unwrap_or_default()
-                                    } else {
-                                        Vec::new()
-                                    };
-                                    if chunked && bytes.len() > 768 * 1024 {
-                                        let mut offset = 0usize;
-                                        let mut failure: Option<(String, String)> = None;
-                                        while offset < bytes.len() {
-                                            if cancel.is_cancelled() {
-                                                failure = Some((
-                                                    "plugin_unavailable".into(),
-                                                    "owning plugin call ended".into(),
-                                                ));
-                                                break;
-                                            }
-                                            let end = (offset + 262144).min(bytes.len());
-                                            let ack = chunk_host
-                                                .call(
-                                                    "$/resultChunk",
-                                                    json!({"request": id, "offset": offset,
-                                                        "base64": js::base64::encode(&bytes[offset..end])}),
-                                                )
-                                                .await;
-                                            match ack {
-                                                Ok(a) if a.get("bytes")
-                                                    .and_then(Value::as_u64)
-                                                    .is_some_and(|b| b as usize == offset + (end - offset)) => {
-                                                    offset = end;
-                                                }
-                                                Ok(_) => {
-                                                    failure = Some((
-                                                        "plugin_refused".into(),
-                                                        "incomplete result chunk acknowledgement".into(),
-                                                    ));
-                                                    break;
-                                                }
-                                                Err(e) => {
-                                                    failure = Some((e.code.clone(), e.message.clone()));
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        match failure {
-                                            Some((code, message)) => wire::error(
-                                                &id,
-                                                -32000,
-                                                &message,
-                                                json!({"code": code}),
-                                            ),
-                                            None => {
-                                                if cancel.is_cancelled() {
-                                                    wire::error(
-                                                        &id,
-                                                        -32000,
-                                                        "owning plugin call ended",
-                                                        json!({"code":"plugin_unavailable"}),
-                                                    )
-                                                } else {
-                                                    wire::result(
-                                                        &id,
-                                                        json!({"_chunkedResult": {"bytes": bytes.len()}}),
-                                                    )
-                                                }
-                                            }
-                                        }
-                                    } else {
-                                        wire::result(&id, value)
-                                    }
-                                }
+                                chunk::finish(
+                                    value,
+                                    &id_for_chunk,
+                                    &method_for_chunk,
+                                    scoped,
+                                    policy,
+                                    &policy_host,
+                                    &cancel_for_chunk,
+                                )
+                                .await
                             }
                             Err(e) => wire::error(&id, -32000, &e.message, e.data()),
                         };

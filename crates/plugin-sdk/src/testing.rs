@@ -163,6 +163,10 @@ struct Inner {
     capability_calls: RwLock<Vec<(String, Value, Option<Value>)>>,
     /// `$/resultChunk` requests the plugin made (offset / base64), in order.
     chunks: RwLock<Vec<Value>>,
+    /// Every plugin → host response the harness observed, raw, whether or not a
+    /// [`Harness::call`] waiter was present. Includes the `_chunkedResult`
+    /// envelope and full `error.data`.
+    replies: RwLock<Vec<Value>>,
     /// The plugin's acknowledgement to `plugin.hello`.
     hello: RwLock<Option<Value>>,
     /// Token of the in-flight host→plugin call; scoped capabilities must echo it.
@@ -208,23 +212,31 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
                     params.clone(),
                     meta.clone(),
                 ));
-                let reply = if requires_capability_call(&method) {
-                    let expected = read_lock(&inner.active_token).clone();
-                    let got = wire::capability_call_token(meta.as_ref());
-                    if expected.is_none() || got.as_ref() != expected.as_ref() {
-                        wire::error(
-                            &id,
-                            -32000,
-                            "scoped capability requires an active owning call",
-                            json!({"code": "capability_denied"}),
-                        )
+                // Answer capability calls concurrently so a slow or never-resolving
+                // answer (for example a `capability.config.get` answer queued to
+                // stay pending) does not block the listen loop from reading the
+                // plugin's later messages (e.g. `$/progress` after cancellation).
+                let inner = inner.clone();
+                let out = inner.out.clone();
+                tokio::spawn(async move {
+                    let reply = if requires_capability_call(&method) {
+                        let expected = read_lock(&inner.active_token).clone();
+                        let got = wire::capability_call_token(meta.as_ref());
+                        if expected.is_none() || got.as_ref() != expected.as_ref() {
+                            wire::error(
+                                &id,
+                                -32000,
+                                "scoped capability requires an active owning call",
+                                json!({"code": "capability_denied"}),
+                            )
+                        } else {
+                            answer_capability(&inner, &id, &method, params).await
+                        }
                     } else {
                         answer_capability(&inner, &id, &method, params).await
-                    }
-                } else {
-                    answer_capability(&inner, &id, &method, params).await
-                };
-                let _ = inner.out.send(reply);
+                    };
+                    let _ = out.send(reply);
+                });
             }
             wire::Incoming::Notification { method, params } if method == "$/progress" => {
                 if let Some(data) = params.get("data").cloned() {
@@ -234,9 +246,23 @@ async fn listen(inner: Arc<Inner>, mut lines: Lines<BufReader<tokio::io::DuplexS
             wire::Incoming::Notification { method, params } => {
                 write_lock(&inner.notifications).push((method, params));
             }
-            wire::Incoming::Response { id, result } => {
+            wire::Incoming::Response {
+                id,
+                result: raw_result,
+            } => {
+                let envelope = json!({
+                    "id": id.clone(),
+                    "ok": raw_result.is_ok(),
+                    "result": raw_result.clone().ok().unwrap_or(Value::Null),
+                    "error": raw_result.clone().err().map(|e| {
+                        let mut err = e.data.clone();
+                        err["message"] = Value::from(e.message.clone());
+                        err
+                    }),
+                });
+                write_lock(&inner.replies).push(envelope);
                 if let Some(tx) = lock(&inner.pending).remove(&id) {
-                    let _ = tx.send(result.map_err(|e| PluginError {
+                    let _ = tx.send(raw_result.map_err(|e| PluginError {
                         code: e.code().to_owned(),
                         hint: e.hint().map(str::to_owned),
                         reason: e.reason().map(str::to_owned),
@@ -320,6 +346,7 @@ impl Harness {
             notifications: RwLock::new(Vec::new()),
             capability_calls: RwLock::new(Vec::new()),
             chunks: RwLock::new(Vec::new()),
+            replies: RwLock::new(Vec::new()),
             hello: RwLock::new(None),
             active_token: RwLock::new(None),
             pending: Mutex::new(HashMap::new()),
@@ -443,7 +470,7 @@ impl Harness {
         self.send_request(id, method, params, Some(&meta), tx)?;
         let result = rx.await.unwrap_or_else(|_| Err(unavailable()));
         *write_lock(&self.inner.active_token) = None;
-        result
+        result.map(|v| self.reassemble(v))
     }
 
     /// Invoke the plugin without an owning-call `_meta` (no `capabilityCall`,
@@ -456,7 +483,25 @@ impl Harness {
         let id = self.inner.next.fetch_add(1, Ordering::Relaxed);
         let (tx, rx) = oneshot::channel();
         self.send_request(id, method, params, None, tx)?;
-        rx.await.unwrap_or_else(|_| Err(unavailable()))
+        let result = rx.await.unwrap_or_else(|_| Err(unavailable()));
+        result.map(|v| self.reassemble(v))
+    }
+
+    /// Reassemble a chunked reply: when the plugin finishes a large result by
+    /// sending `{"_chunkedResult":…}`, stitch the recorded base64 chunks
+    /// together and parse them back into the original value (`call` returns
+    /// the reassembled value; [`Harness::raw_results`] has the raw chunks).
+    fn reassemble(&self, reply: Value) -> Value {
+        if reply.get("_chunkedResult").is_none() {
+            return reply;
+        }
+        let mut bytes = Vec::new();
+        for c in read_lock(&self.inner.chunks).iter() {
+            if let Some(b) = c.get("base64").and_then(Value::as_str) {
+                bytes.extend_from_slice(&js::base64::decode_lenient(b));
+            }
+        }
+        serde_json::from_slice(&bytes).unwrap_or(reply)
     }
 
     /// Start an owned call without waiting; returns the request id for [`Self::cancel`].
@@ -484,6 +529,23 @@ impl Harness {
             .send(wire::notification("$/cancel", json!({"id": id})));
     }
 
+    /// Start an owned call without an owning-call `_meta`, returning the
+    /// request id for [`Self::cancel`]; the reply (if any) is observable via
+    /// [`Self::replies`]. Mirrors [`Self::call_unowned`] for cancellation tests.
+    pub fn start_call_unowned(
+        &mut self,
+        method: &str,
+        params: Value,
+    ) -> Result<String, PluginError> {
+        let id = self.inner.next.fetch_add(1, Ordering::Relaxed);
+        let (tx, rx) = oneshot::channel();
+        self.send_request(id, method, params, None, tx)?;
+        tokio::spawn(async move {
+            let _ = rx.await;
+        });
+        Ok(id.to_string())
+    }
+
     /// The plugin's acknowledgement to `plugin.hello`.
     pub fn hello_result(&self) -> Option<Value> {
         read_lock(&self.inner.hello).clone()
@@ -493,6 +555,14 @@ impl Harness {
     /// in order, before any default reassembly.
     pub fn raw_results(&self) -> Vec<Value> {
         read_lock(&self.inner.chunks).clone()
+    }
+
+    /// Every plugin → host response observed, in order, raw. Each entry is a
+    /// `{"id", "ok", "result"?, "error"?}` record; `error` carries the full
+    /// `data` (`code`, `hint`, `reason`) plus `message`. Used to assert the
+    /// exact wire form of replies, including `_chunkedResult` envelopes.
+    pub fn replies(&self) -> Vec<Value> {
+        read_lock(&self.inner.replies).clone()
     }
 
     /// The `$/progress` data the plugin has emitted so far.

@@ -1,5 +1,6 @@
 //! Rust plugin SDK for pacer.
 
+mod chunk;
 mod error;
 mod host;
 pub mod js;
