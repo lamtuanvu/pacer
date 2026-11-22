@@ -20,7 +20,7 @@ pub const TABLE: &[Bundled] = &[
     Bundled { id: "pacer-notify", manifest: pacer_bundled_notify::MANIFEST, run: Some(pacer_bundled_notify::plugin) },
     Bundled { id: "pacer-classify", manifest: include_str!("../manifests/pacer-classify.json"), run: None },
     Bundled { id: "pacer-usage", manifest: include_str!("../manifests/pacer-usage.json"), run: None },
-    Bundled { id: "pacer-agent-session", manifest: include_str!("../manifests/pacer-agent-session.json"), run: None },
+    Bundled { id: "pacer-agent-session", manifest: pacer_bundled_agent_session::MANIFEST, run: Some(pacer_bundled_agent_session::plugin) },
     Bundled { id: "pacer-assistant", manifest: include_str!("../manifests/pacer-assistant.json"), run: None },
     Bundled { id: "assistant-executor", manifest: include_str!("../manifests/assistant-executor.json"), run: None },
     Bundled { id: "pacer-ssh", manifest: include_str!("../manifests/pacer-ssh.json"), run: None },
