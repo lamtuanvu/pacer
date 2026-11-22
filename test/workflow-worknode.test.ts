@@ -84,8 +84,8 @@ test("a new run gets step_mode work_node and step tasks are children of its root
   expect(step.taskId).toBeTruthy();
   const child = getWork(ctx, step.taskId!);
   expect(child).toBeTruthy();
-  expect(child!.parentId).toBe(run.rootTaskId);
-  expect(child!.rootId).toBe(run.rootTaskId);
+  expect(child!.parentId).toBe(run.rootTaskId!);
+  expect(child!.rootId).toBe(run.rootTaskId!);
 });
 
 test("a dependency edge holds a step until its predecessor is accepted", async () => {
@@ -147,8 +147,10 @@ test("ensureRootWorkNode is idempotent for an existing root_task_id", async () =
   const { deps } = fakeDeps();
   const r = await startRun(ctx, { workflow: "t/wn-chain", repo: tmpDir(), brief: "B" }, undefined, deps);
   const run = getRun(ctx, r.id)!;
+  const rootId = run.rootTaskId;
+  expect(rootId).toBeDefined();
   const first = ensureRootWorkNode(ctx, run);
   const second = ensureRootWorkNode(ctx, getRun(ctx, r.id)!);
-  expect(first).toBe(run.rootTaskId);
+  expect(first).toBe(rootId as string);
   expect(second).toBe(first);
 });

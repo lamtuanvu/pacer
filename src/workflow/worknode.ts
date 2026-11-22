@@ -123,7 +123,6 @@ export async function startStepTask(
     title: input.title,
     requestId: input.requestId,
     workParent: rootId,
-    dispatch: { allowDelegation: false },
   }, spawn);
   if (deps.length > 0 && getWork(ctx, task.id)) {
     try {
