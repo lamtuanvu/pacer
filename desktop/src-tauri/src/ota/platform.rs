@@ -85,7 +85,7 @@ pub(crate) enum ProgramCheck {
     Role(CodeRole),
     Pinned(LegacyExecutable),
 }
-#[cfg(all(target_os = "macos", feature = "ota-fixture"))]
+#[cfg(all(target_os = "macos", any(test, feature = "ota-fixture")))]
 fn fixture_takeover_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
     use std::os::unix::fs::MetadataExt;
     let Some(policy) = trust.fixture_policy() else {
@@ -124,11 +124,42 @@ fn fixture_terminal_path_is_own_link_symlink(path: &Path, takeover_cli: &Path) -
             .unwrap_or(false)
 }
 
+/// Parent directories of the own-link path (.local and .local/bin) must be owned,
+/// non-symlinked directories so the link cannot physically live outside the lease.
+#[cfg(any(test, feature = "ota-fixture"))]
+fn fixture_own_link_parents_ok(path: &Path) -> bool {
+    use std::os::unix::fs::MetadataExt;
+    let Some(bin) = path.parent() else {
+        return false;
+    };
+    let Some(local) = bin.parent() else {
+        return false;
+    };
+    for dir in [bin, local] {
+        let Ok(meta) = std::fs::symlink_metadata(dir) else {
+            return false;
+        };
+        if meta.file_type().is_symlink() || !meta.is_dir() {
+            return false;
+        }
+        if meta.uid() != unsafe { libc::geteuid() } {
+            return false;
+        }
+        let Ok(canonical) = dir.canonicalize() else {
+            return false;
+        };
+        if canonical != dir {
+            return false;
+        }
+    }
+    true
+}
+
 /// Stuck own-link shape: registration names the terminal symlink that resolves to
 /// this lease's bundled CLI. verify_static cannot take the symlink path (permits_path
 /// refuses non-canonical paths), so observe/bootstrap accept it only when the link
 /// target is the verified bundled CLI.
-#[cfg(feature = "ota-fixture")]
+#[cfg(any(test, feature = "ota-fixture"))]
 fn fixture_own_link_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, OtaError> {
     let Some(policy) = trust.fixture_policy() else {
         return Ok(false);
@@ -142,6 +173,9 @@ fn fixture_own_link_program(trust: &ReleaseTrust, path: &Path) -> Result<bool, O
         return Ok(false);
     };
     if !metadata.file_type().is_symlink() {
+        return Ok(false);
+    }
+    if !fixture_own_link_parents_ok(path) {
         return Ok(false);
     }
     policy.validate_live().map_err(|_| OtaError::Identity)?;
@@ -1411,6 +1445,137 @@ mod tests {
         std::fs::remove_file(&link).unwrap();
         std::fs::write(&link, b"takeover").unwrap();
         assert!(!fixture_terminal_path_is_own_link_symlink(&link, &link));
+    }
+
+    /// Lease-backed ordering for the live own-link path: takeover defers a
+    /// symlink without Identity; own-link admits only the lease's exact link.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn fixture_takeover_and_own_link_order_on_lease_symlink() {
+        use base64::Engine;
+        use std::os::unix::fs::{symlink, PermissionsExt};
+        let temp = tempfile::tempdir().unwrap();
+        let base = temp
+            .path()
+            .canonicalize()
+            .unwrap()
+            .join(".work/live/lease");
+        let root = base.join("ota");
+        let home = base.join("home");
+        for path in [&base, &root, &home] {
+            std::fs::create_dir_all(path).unwrap();
+            std::fs::set_permissions(path, std::fs::Permissions::from_mode(0o700)).unwrap();
+        }
+        let nonce = "c".repeat(32);
+        let mut policy = crate::ota::fixture_policy::FixturePolicy {
+            schema: 1,
+            root: root.clone(),
+            nonce: nonce.clone(),
+            home: home.clone(),
+            port: 7433,
+            current_app: root.join("current.app"),
+            service_label: format!("com.pacer.live.{nonce}.service"),
+            recovery_label: format!("com.pacer.live.{nonce}.recovery"),
+            uid: unsafe { libc::geteuid() },
+            signing_cert_sha1: Some("2C5405FB6D2906AE2049D59B9DF5D42661997922".into()),
+        };
+        std::fs::write(
+            root.join("record.json"),
+            serde_json::to_vec(&serde_json::json!({
+                "schema":1,"phase":"prepared","root":root,"nonce":nonce,"pacerHome":home,
+                "innerPort":7433,"currentApp":policy.current_app,"serviceLabel":policy.service_label,
+                "recoveryLabel":policy.recovery_label,"ownerUid":policy.uid
+            }))
+            .unwrap(),
+        )
+        .unwrap();
+        std::fs::set_permissions(
+            root.join("record.json"),
+            std::fs::Permissions::from_mode(0o600),
+        )
+        .unwrap();
+        let mut packet = vec![0u8; 42];
+        packet[..2].copy_from_slice(b"Ed");
+        packet[10..].fill(7);
+        let public_key = base64::engine::general_purpose::STANDARD.encode(format!(
+            "untrusted comment: disposable public key\n{}\n",
+            base64::engine::general_purpose::STANDARD.encode(&packet)
+        ));
+        let trust = ReleaseTrust::from_fixture(&public_key, &serde_json::to_string(&policy).unwrap())
+            .unwrap();
+        let link = policy.takeover_cli();
+        let bin = link.parent().unwrap();
+        let bundled = policy.current_app.join("Contents/Resources/pacer");
+        std::fs::create_dir_all(bin).unwrap();
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"fixture bundled cli").unwrap();
+
+        // Missing path: both defer / refuse without Identity from validate_live.
+        assert_eq!(fixture_takeover_program(&trust, &link).unwrap(), false);
+        assert_eq!(fixture_own_link_program(&trust, &link).unwrap(), false);
+
+        // Own-link symlink to the lease bundled CLI: takeover defers; own-link
+        // reaches the signed-target check (unsigned → Identity, not Ok(false)).
+        symlink(&bundled, &link).unwrap();
+        assert_eq!(fixture_takeover_program(&trust, &link).unwrap(), false);
+        assert!(matches!(
+            fixture_own_link_program(&trust, &link),
+            Err(OtaError::Identity)
+        ));
+
+        // Foreign symlink at the same path (wrong target) is not the lease shape.
+        std::fs::remove_file(&link).unwrap();
+        let foreign_target = root.join("other-cli");
+        std::fs::write(&foreign_target, b"foreign").unwrap();
+        symlink(&foreign_target, &link).unwrap();
+        assert_eq!(fixture_takeover_program(&trust, &link).unwrap(), false);
+        assert!(matches!(
+            fixture_own_link_program(&trust, &link),
+            Err(OtaError::Identity)
+        ));
+
+        // Symlinked .local/bin pointing outside the lease is not own-link.
+        std::fs::remove_file(&link).unwrap();
+        let outside = base.join("outside-bin");
+        std::fs::create_dir_all(&outside).unwrap();
+        symlink(&bundled, outside.join("pacer")).unwrap();
+        std::fs::remove_dir(bin).unwrap();
+        symlink(&outside, bin).unwrap();
+        assert_eq!(fixture_takeover_program(&trust, &link).unwrap(), false);
+        assert_eq!(fixture_own_link_program(&trust, &link).unwrap(), false);
+        std::fs::remove_file(bin).unwrap();
+        std::fs::create_dir_all(bin).unwrap();
+
+        // Regular unsigned file at takeover_cli is the takeover shape (not own-link).
+        std::fs::write(&link, b"unsigned takeover cli").unwrap();
+        assert_eq!(fixture_takeover_program(&trust, &link).unwrap(), true);
+        assert_eq!(fixture_own_link_program(&trust, &link).unwrap(), false);
+
+        // A non-takeover path never matches either gate.
+        assert_eq!(
+            fixture_takeover_program(&trust, &foreign_target).unwrap(),
+            false
+        );
+        assert_eq!(
+            fixture_own_link_program(&trust, &foreign_target).unwrap(),
+            false
+        );
+
+        // Without a cert pin, takeover still defers a symlink but refuses a
+        // regular file at validate/signing (ordering the live run depended on).
+        policy.signing_cert_sha1 = None;
+        let trust_no_cert =
+            ReleaseTrust::from_fixture(&public_key, &serde_json::to_string(&policy).unwrap())
+                .unwrap();
+        std::fs::remove_file(&link).unwrap();
+        symlink(&bundled, &link).unwrap();
+        assert_eq!(fixture_takeover_program(&trust_no_cert, &link).unwrap(), false);
+        std::fs::remove_file(&link).unwrap();
+        std::fs::write(&link, b"unsigned takeover cli").unwrap();
+        assert!(matches!(
+            fixture_takeover_program(&trust_no_cert, &link),
+            Err(OtaError::Identity)
+        ));
     }
 
     #[cfg(target_os = "macos")]

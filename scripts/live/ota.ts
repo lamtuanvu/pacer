@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { chmodSync, closeSync, constants, copyFileSync, cpSync, existsSync, fsyncSync, lstatSync, mkdirSync, openSync, readFileSync, readdirSync, readlinkSync, realpathSync, renameSync, rmSync, writeFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { isAbsolute, join, relative, resolve } from "node:path";
+import { dirname, isAbsolute, join, relative, resolve } from "node:path";
 import { z } from "zod";
 import { checkout, liveRoot, loadSession, record, type Session } from "./core";
 import { parsePlistDictionary } from "../../src/service";
@@ -249,6 +249,11 @@ export function isLeaseOwnLinkProgram(state: Pick<OtaRecord, "pacerHome" | "curr
   const link = resolve(join(state.pacerHome, ".local/bin/pacer"));
   if (resolve(program) !== link) return false;
   try {
+    // Parents (.local and .local/bin) must be owned, non-symlinked directories inside
+    // the lease. resolve/lstat alone would admit a symlinked .local/bin that points out.
+    const bin = dirname(link);
+    canonical(bin);
+    owned(bin, "directory");
     if (!lstatSync(link).isSymbolicLink()) return false;
     return realpathSync(link) === resolve(join(state.currentApp, "Contents/Resources/pacer"));
   } catch {

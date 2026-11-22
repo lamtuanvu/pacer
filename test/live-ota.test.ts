@@ -231,6 +231,16 @@ test("lease own-link symlink is admitted for cleanup; other sandbox symlinks sta
   symlinkSync(join(state.candidateApp, "Contents/MacOS/pacer"), link);
   expect(isLeaseOwnLinkProgram(state, link)).toBe(false);
   expect(() => recordOtaRegistrationIntent(f.session.id, label, make(link), f.options)).toThrow("symlinked sandbox paths");
+  // Symlinked .local/bin that points outside the lease must not be admitted even
+  // when the final link target is the lease's bundled CLI.
+  rmSync(link);
+  const outsideBin = join(f.session.root, "..", "outside-bin");
+  mkdirSync(outsideBin, { recursive: true, mode: 0o700 });
+  symlinkSync(bundled, join(outsideBin, "pacer"));
+  rmSync(dirname(link), { recursive: true });
+  symlinkSync(outsideBin, dirname(link));
+  expect(isLeaseOwnLinkProgram(state, link)).toBe(false);
+  expect(() => recordOtaRegistrationIntent(f.session.id, label, make(link), f.options)).toThrow("symlinked sandbox paths");
   expect(f.calls()).toBe(0);
 });
 
