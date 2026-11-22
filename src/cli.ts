@@ -580,12 +580,14 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         || a === "--option" || a.startsWith("--option=")
         || a === "--recommend" || a.startsWith("--recommend=")
         || a === "--blocks" || a.startsWith("--blocks=")
-        || a === "--artifact" || a.startsWith("--artifact="));
+        || a === "--artifact" || a.startsWith("--artifact=")
+        || a === "--step" || a.startsWith("--step=")
+        || a === "--attempt" || a.startsWith("--attempt="));
       if (structured) {
         try {
           const options: { value: string }[] = [];
           let type: string | undefined, recommend: string | undefined, blocks = "step", text: string | undefined;
-          let artifact: string | undefined;
+          let artifact: string | undefined, stepId: string | undefined, attempt: number | undefined;
           for (let i = 0; i < rest.length; i++) {
             const a = rest[i]!;
             if (a === "--type" || a.startsWith("--type=")) type = a.includes("=") ? a.slice(7) : rest[++i];
@@ -598,12 +600,20 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
               blocks = (a.includes("=") ? a.slice(9) : rest[++i]) ?? "step";
             } else if (a === "--artifact" || a.startsWith("--artifact=")) {
               artifact = a.includes("=") ? a.slice(11) : rest[++i];
+            } else if (a === "--step" || a.startsWith("--step=")) {
+              stepId = a.includes("=") ? a.slice(7) : rest[++i];
+            } else if (a === "--attempt" || a.startsWith("--attempt=")) {
+              const raw = a.includes("=") ? a.slice(10) : rest[++i];
+              attempt = Number(raw);
+              if (!Number.isInteger(attempt) || attempt < 1) {
+                throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+              }
             } else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
             else if (text === undefined) text = a;
-            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] "<text>"');
+            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
           }
           if (!type || !text?.trim()) {
-            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] "<text>"');
+            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
           }
           const result = await callOp(ctx, "question.ask", {
             text,
@@ -612,6 +622,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
             ...(options.length ? { options } : {}),
             ...(recommend ? { recommended: recommend } : {}),
             ...(artifact ? { artifact } : {}),
+            ...(stepId ? { stepId } : {}),
+            ...(attempt !== undefined ? { attempt } : {}),
           });
           return { code: 0, out: JSON.stringify(result), err: "" };
         } catch (e) { return { code: 2, out: "", err: e instanceof Error ? e.message : String(e) }; }

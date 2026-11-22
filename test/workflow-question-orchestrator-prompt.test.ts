@@ -198,3 +198,48 @@ test("orchestrator/run-grant CLI allows answer and question escalate (turn promp
   });
   expect(escalated.answerer).toBe("person");
 });
+
+test("orchestrator CLI ask requires --step and records a person-facing question", async () => {
+  // Live Q4: api call question.ask fails (prg_ cannot GET /v3/hello); structured ask must carry --step.
+  const ctx = fakeCtx({ now: NOW });
+  ctx.env.PACER_API = "inprocess";
+  withStrategy(ctx);
+  const { runId } = setup(ctx);
+  insertTurn(ctx, {
+    id: `turn_${runId.slice(-6)}ask`,
+    runId,
+    planner: "claude-code",
+    status: "running",
+    startedAt: ctx.now,
+    deadline: ctx.now + 1200,
+  });
+  const bearer = issueRunGrant(ctx, { runId, turnId: `turn_${runId.slice(-6)}ask`, deadline: ctx.now + 600 });
+  const orchCtx = {
+    ...ctx,
+    env: {
+      ...ctx.env,
+      PACER_ROLE: "orchestrator",
+      PACER_RUN_GRANT: bearer,
+      PACER_API: "inprocess",
+    },
+  };
+  delete orchCtx.env.PACER_PORT;
+
+  const missing = await main(
+    ["ask", "--type", "yes_no", "--blocks", "step", "Which approach?"],
+    orchCtx,
+  );
+  expect(missing.code).toBe(2);
+  expect(missing.err).toMatch(/stepId is required/i);
+
+  const asked = await main(
+    ["ask", "--type", "yes_no", "--blocks", "step", "--step", "ask", "--attempt", "1", "Which approach?"],
+    orchCtx,
+  );
+  expect(asked.code).toBe(0);
+  const body = JSON.parse(asked.out);
+  expect(body.askerKind).toBe("orchestrator");
+  expect(body.answerer).toBe("person");
+  expect(body.stepId).toBe("ask");
+  expect(body.text).toBe("Which approach?");
+});
