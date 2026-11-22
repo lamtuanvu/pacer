@@ -501,6 +501,26 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
       }
       if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
+      // Escalated human_step questions are person-owned even while canAutoDecide (I-2).
+      const openPerson = listQuestions(ctx, p.id, "open").some(q =>
+        q.askerKind === "human_step"
+        && q.stepId === p.step
+        && q.attempt === row.attempt
+        && (q.branch ?? undefined) === (row.branch ?? undefined)
+        && q.answerer === "person",
+      );
+      if (openPerson) {
+        recordDecision(ctx, {
+          runId: p.id,
+          stepId: p.step,
+          attempt: row.attempt,
+          actor: "orchestrator",
+          kind: "refused",
+          choice: p.choice,
+          reason: p.reason,
+        });
+        throw new CoreError("not_allowed", "Only the person can answer this question");
+      }
       const updated = await answerHumanStep(ctx, p.id, p.step, p.choice, run.rev, engine, spawn);
       recordDecision(ctx, {
         runId: p.id,

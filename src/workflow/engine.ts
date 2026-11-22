@@ -27,7 +27,7 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
@@ -1427,12 +1427,23 @@ export async function answerHumanStep(
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
   // Defence: a run-grant caller may only answer auto-effective steps (run.decide path).
   // must / strict / auto-off steps stay person-only via run.answer.
+  // Escalated (or sync-flipped) human_step questions stay person-owned even when canAutoDecide (I-2).
   if (ctx.env.PACER_RUN_GRANT) {
     const stepDef = def.steps[stepId];
     // Auto flag lives on the root (choose_workflow children inherit it) — I2.
     const root = getRun(ctx, rootRunId(ctx, runId)) ?? run;
     if (!stepDef || stepDef.type !== "human" || !canAutoDecide(root, stepId, stepDef)) {
       throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+    }
+    const openPerson = listQuestions(ctx, runId, "open").some(q =>
+      q.askerKind === "human_step"
+      && q.stepId === stepId
+      && q.attempt === row.attempt
+      && (q.branch ?? undefined) === (row.branch ?? undefined)
+      && q.answerer === "person",
+    );
+    if (openPerson) {
+      throw new CoreError("not_allowed", "Only the person can answer this question");
     }
   }
   // One yield before the claim: a concurrent answer (or a stopping run) can then
