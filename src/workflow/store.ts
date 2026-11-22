@@ -88,6 +88,9 @@ export function workflowDatabase(ctx: Ctx): Database {
   if (!runColumns.includes("parent_step")) db.exec("ALTER TABLE workflow_runs ADD COLUMN parent_step TEXT");
   if (!runColumns.includes("strict_steps")) db.exec("ALTER TABLE workflow_runs ADD COLUMN strict_steps TEXT");
   if (!runColumns.includes("pending_planner")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pending_planner TEXT");
+  // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
+  if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
+  if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
   // Decision log: every orchestrator (and refused) choice with its reason (G7).
   db.exec(`
     CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -154,6 +157,10 @@ export interface RunRow {
   strictSteps?: string[];
   /** Planner switch queued for the next turn (D2). */
   pendingPlanner?: string;
+  /** Phase 3: `plain` (Phase 1/2) or `work_node` (engine-owned root). Pinned for the run's life (D8). */
+  stepMode?: "plain" | "work_node";
+  /** Engine-owned dispatcher root for `work_node` runs. */
+  rootTaskId?: string;
 }
 
 export interface DecisionRow {
@@ -202,6 +209,8 @@ export type NewRun = {
   sessionId?: string;
   budget?: string;
   spent?: string;
+  stepMode?: "plain" | "work_node";
+  rootTaskId?: string;
 };
 
 export type StepKey = { runId: string; stepId: string; attempt: number; branch?: string };
@@ -234,6 +243,8 @@ interface RunDbRow {
   parent_step?: string | null;
   strict_steps?: string | null;
   pending_planner?: string | null;
+  step_mode?: string | null;
+  root_task_id?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -269,6 +280,8 @@ function runFromRow(row: RunDbRow): RunRow {
     try { out.strictSteps = JSON.parse(row.strict_steps) as string[]; } catch { /* ignore bad JSON */ }
   }
   if (row.pending_planner) out.pendingPlanner = row.pending_planner;
+  out.stepMode = row.step_mode === "work_node" ? "work_node" : "plain";
+  if (row.root_task_id) out.rootTaskId = row.root_task_id;
   return out;
 }
 
@@ -368,14 +381,17 @@ export function insertRun(ctx: Ctx, r: NewRun): RunRow {
   if (r.sessionId) row.sessionId = r.sessionId;
   if (r.budget) row.budget = r.budget;
   if (r.spent) row.spent = r.spent;
+  row.stepMode = r.stepMode ?? "work_node";
+  if (r.rootTaskId) row.rootTaskId = r.rootTaskId;
   db.query(
-    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+    "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at, parent_run_id, parent_step, planner, orchestrator_task_id, session_id, budget, spent, step_mode, root_task_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
   ).run(
     row.id, row.workflow, row.version, row.repo, row.brief, row.title, row.status, null,
     JSON.stringify(row.loops), row.rev, row.createdAt, row.updatedAt,
     row.parentRunId ?? null, row.parentStep ?? null,
     row.planner ?? null, row.orchestratorTaskId ?? null, row.sessionId ?? null,
     row.budget ?? null, row.spent ?? null,
+    row.stepMode, row.rootTaskId ?? null,
   );
   return row;
 }
@@ -410,7 +426,7 @@ export function liveRuns(ctx: Ctx): RunRow[] {
   return workflowDatabase(ctx).query<RunDbRow, []>("SELECT * FROM workflow_runs WHERE status IN ('running', 'waiting') ORDER BY created_at, id").all().map(runFromRow);
 }
 
-export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps">> & {
+export type RunPatch = Partial<Pick<RunRow, "status" | "title" | "loops" | "auto" | "planner" | "orchestratorTaskId" | "sessionId" | "budget" | "spent" | "strictSteps" | "stepMode" | "rootTaskId">> & {
   reason?: string | null;
   nextWakeAt?: number | null;
   orchestratorState?: string | null;
@@ -443,6 +459,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       pendingPlanner: patch.pendingPlanner === undefined ? current.pendingPlanner : (patch.pendingPlanner ?? undefined),
       nextWakeAt: patch.nextWakeAt === undefined ? current.nextWakeAt : (patch.nextWakeAt ?? undefined),
       orchestratorState: patch.orchestratorState === undefined ? current.orchestratorState : (patch.orchestratorState ?? undefined),
+      stepMode: patch.stepMode === undefined ? current.stepMode : patch.stepMode,
+      rootTaskId: patch.rootTaskId === undefined ? current.rootTaskId : patch.rootTaskId,
       rev: current.rev + 1,
       updatedAt: ctx.now,
     };
@@ -456,8 +474,10 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
     if (updated.pendingPlanner === undefined) delete updated.pendingPlanner;
     if (updated.nextWakeAt === undefined) delete updated.nextWakeAt;
     if (updated.orchestratorState === undefined) delete updated.orchestratorState;
+    if (updated.stepMode === undefined) delete updated.stepMode;
+    if (updated.rootTaskId === undefined) delete updated.rootTaskId;
     const result = db.query(
-      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ? WHERE id = ? AND rev = ?",
+      "UPDATE workflow_runs SET status = ?, reason = ?, title = ?, loops = ?, rev = ?, updated_at = ?, auto = ?, planner = ?, orchestrator_task_id = ?, session_id = ?, budget = ?, spent = ?, next_wake_at = ?, orchestrator_state = ?, strict_steps = ?, pending_planner = ?, step_mode = ?, root_task_id = ? WHERE id = ? AND rev = ?",
     ).run(
       updated.status,
       updated.reason ?? null,
@@ -475,6 +495,8 @@ export function updateRun(ctx: Ctx, id: string, expectRev: number, patch: RunPat
       updated.orchestratorState ?? null,
       updated.strictSteps ? JSON.stringify(updated.strictSteps) : null,
       updated.pendingPlanner ?? null,
+      updated.stepMode ?? "plain",
+      updated.rootTaskId ?? null,
       id,
       expectRev,
     );
