@@ -56,8 +56,6 @@ def select(paths):
 
 SOURCE_TESTS = {
     # These retired leaf modules have no non-test importers; include every test importer.
-    "src/console/cli.ts": ("test/autoconsole-worker.test.ts", "test/console-cli.test.ts"),
-    "src/console/console.ts": ("test/api-cmd.test.ts", "test/console-settings.test.ts"),
     "src/usage/cache.ts": ("test/cache.test.ts", "test/plugins-usage-readers.test.ts"),
     # metrics -> bench -> plan4 CLI; direct and transitive bench coverage.
     "src/classify/metrics.ts": ("test/bench-metrics.test.ts", "test/bench.test.ts"),
@@ -68,7 +66,6 @@ SOURCE_TESTS = {
     "src/plugins/lines.ts": ("test/plugins-lines.test.ts",),
     "src/update/manifest.ts": ("test/update-manifest.test.ts",),
     "src/update/check.ts": ("test/update-check.test.ts",),
-    "src/console/autoconsole.ts": ("test/autoconsole-worker.test.ts",),
     "src/plugins/http-broker.ts": ("test/plugins-http-broker.test.ts",),
     "src/plugins/ssh-provider.ts": ("test/plugins-ssh-provider.test.ts",),
     "src/plugins/capability.ts": ("test/plugins-capability-write.test.ts",),

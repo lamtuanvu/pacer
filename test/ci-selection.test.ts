@@ -55,8 +55,6 @@ test("audited source mapping includes direct and transitive tests and keeps inte
 
 test("audited leaf mappings select every direct test and union multiple changes", () => {
   const mappings: Record<string, string[]> = {
-    "src/console/cli.ts": ["test/autoconsole-worker.test.ts", "test/console-cli.test.ts"],
-    "src/console/console.ts": ["test/api-cmd.test.ts", "test/console-settings.test.ts"],
     "src/usage/cache.ts": ["test/cache.test.ts", "test/plugins-usage-readers.test.ts"],
   };
   for (const [path, tests] of Object.entries(mappings)) {

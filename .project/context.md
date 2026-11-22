@@ -23,7 +23,7 @@ pacer paces AI coding work across subscription budgets. A planner plans and revi
 | `plugins/` | Bundled reference plugins (`plugins/bundled.ts`), compiled into the binary |
 | `packages/plugin-sdk/` | `@pacer/plugin`, the plugin-side runtime (bun workspace) |
 | `conformance/` | Host-neutral plugin conformance suite and fixture plugins; run by `test/plugin-conformance.test.ts` |
-| `src/link/`, `src/console/` | Remnants of the transport retired in 3.0 (see open decisions) |
+| `src/link/` | Outbox, pump and event publication (deleted in M3 D3) |
 | `app/` | Preact web UI and tray popover served at `/app/`, with its design system in `app/src/ds/`. The bundle is embedded in `src/app/assets.generated.ts`. |
 | `desktop/` | Tauri v2 macOS shell that loads the service's `/app/` |
 | `npm/launcher/` | npm launcher that picks the platform package |

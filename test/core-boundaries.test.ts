@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join } from "node:path";
 
 function files(dir: string): string[] {
@@ -70,4 +70,9 @@ test("only the plugin host builds SSH argv and core keeps no direct-SSH fallback
   const allowed = new Set([join(src, "remote", "ssh.ts"), join(src, "remote", "hosts.ts")]);
   expect(files(src).filter(f => !allowed.has(f) && !f.startsWith(join(src, "plugins")) && spawnsSsh.test(readFileSync(f, "utf8")))).toEqual([]);
   expect(readFileSync(join(src, "remote", "ssh.ts"), "utf8")).not.toMatch(/\b(?:Bun\.spawn|spawn|ctx\.run)\s*\(/);
+});
+
+test("retired console transport is gone (OD-7)", () => {
+  expect(existsSync(join(import.meta.dir, "..", "src", "console"))).toBe(false);
+  expect(existsSync(join(import.meta.dir, "..", "src", "api", "cmd.ts"))).toBe(false);
 });
