@@ -82,10 +82,10 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         num(&e["seq"])
     });
     // promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface.
-    if e["type"] == "task" {
-        if let Some(map) = out["data"].as_object_mut() {
-            map.remove("promptWait");
-        }
+    if e["type"] == "task"
+        && let Some(map) = out["data"].as_object_mut()
+    {
+        map.remove("promptWait");
     }
     Some(out)
 }
@@ -210,10 +210,10 @@ pub fn events_since(
                     }
                 }
                 // promptWait is v3-only; strip it from task event payloads.
-                if e["type"] == "task" {
-                    if let Some(map) = v["data"].as_object_mut() {
-                        map.remove("promptWait");
-                    }
+                if e["type"] == "task"
+                    && let Some(map) = v["data"].as_object_mut()
+                {
+                    map.remove("promptWait");
                 }
                 converted.push(v);
             }
