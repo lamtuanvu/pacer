@@ -3,7 +3,6 @@
 // External side effects (push, gh) are argv/stdin only, never force-push, and recoverable after a crash.
 import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
-import { listTasksWhere } from "../tasks/store";
 import {
   getRun, listDecisions, setRunPrUrl, type RunRow,
 } from "./store";
@@ -42,17 +41,9 @@ function validatePublishInput(input: PublishInput): void {
   }
 }
 
-/** True when an open conflict-resolution task still blocks publishing. */
+/** True when the run still has a durable unresolved conflict marker (I1). */
 export function hasUnresolvedConflictTask(ctx: Ctx, runId: string): boolean {
-  const prefix = `wfconflict:${runId}:`;
-  for (const task of listTasksWhere(ctx, { limit: 500 })) {
-    if (!task.requestId?.startsWith(prefix)) continue;
-    if (task.archived) continue;
-    if (task.review?.accepted === true) continue;
-    if (task.state === "stopped" || task.state === "failed") continue;
-    return true;
-  }
-  return false;
+  return !!getRun(ctx, runId)?.conflict;
 }
 
 async function branchTipCommitTime(ctx: Ctx, repo: string, branch: string): Promise<number> {

@@ -7,7 +7,7 @@ import { createTask } from "../src/tasks/store";
 import { checkWorkflowShape } from "../src/workflow/schema";
 import { validateWorkflow } from "../src/workflow/validate";
 import {
-  getRun, insertRun, recordDecision, setPublishOptIn, setRunPrUrl, workflowDatabase,
+  getRun, insertRun, recordDecision, setPublishOptIn, setRunConflict, setRunPrUrl, workflowDatabase,
 } from "../src/workflow/store";
 import { ensureRunBranch, integrationWorktree } from "../src/workflow/branch";
 import { publishRun } from "../src/workflow/publish";
@@ -231,11 +231,14 @@ test("publish refuses when an unresolved conflict task exists", async () => {
   const { bin } = installGhStub(ctx.home);
   withGhPath(ctx, bin);
   await approveFresh(ctx, run);
-  createTask(ctx, {
+  const resolution = createTask(ctx, {
     brief: { goal: "resolve", repo: run.repo, base: run.branch },
     kind: "debug", requestedExecutor: null, timeoutS: 600,
     title: "Conflict · t-1",
     requestId: `wfconflict:${run.id}:t-1:1`,
+  });
+  setRunConflict(ctx, run.id, {
+    taskId: "t-1", branch: "pacer/t-1", resolutionTaskId: resolution.id,
   });
   await expect(publishRun(ctx, run.id, {
     draft: false, title: "t", body: "b", expectRev: getRun(ctx, run.id)!.rev,

@@ -103,6 +103,8 @@ export function workflowDatabase(ctx: Ctx): Database {
     // Phase 5 publishing: optional draft opt-in at start, and the PR URL after publish.
     if (!runColumns.includes("publish_opt_in")) db.exec("ALTER TABLE workflow_runs ADD COLUMN publish_opt_in TEXT");
     if (!runColumns.includes("pr_url")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pr_url TEXT");
+    // Phase 5 fix I1: durable unresolved conflict marker (JSON RunConflict).
+    if (!runColumns.includes("conflict")) db.exec("ALTER TABLE workflow_runs ADD COLUMN conflict TEXT");
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -197,7 +199,16 @@ export interface RunRow {
   publishOptIn?: "draft";
   /** Phase 5: URL of the opened PR after a successful publish. */
   prUrl?: string;
+  /** Phase 5: durable unresolved merge conflict (publish gate); cleared only after a clean merge. */
+  conflict?: RunConflict;
 }
+
+/** Durable run-level merge conflict marker (not derived from resolution-task state). */
+export type RunConflict = {
+  taskId: string;
+  branch: string;
+  resolutionTaskId: string;
+};
 
 export interface DecisionRow {
   id: string;
@@ -286,6 +297,7 @@ interface RunDbRow {
   base_sha?: string | null;
   publish_opt_in?: string | null;
   pr_url?: string | null;
+  conflict?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -328,6 +340,15 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.base_sha) out.baseSha = row.base_sha;
   if (row.publish_opt_in === "draft") out.publishOptIn = "draft";
   if (row.pr_url) out.prUrl = row.pr_url;
+  if (row.conflict) {
+    try {
+      const parsed = JSON.parse(row.conflict) as RunConflict;
+      if (parsed && typeof parsed.taskId === "string" && typeof parsed.branch === "string"
+        && typeof parsed.resolutionTaskId === "string") {
+        out.conflict = parsed;
+      }
+    } catch { /* ignore bad JSON */ }
+  }
   return out;
 }
 
@@ -507,6 +528,22 @@ export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
       throw new CoreError("conflict", `conflict: run ${runId} already has a different PR URL`);
     }
   }
+}
+
+/** Record an unresolved merge conflict on the run (publish gate). Does not bump `rev`. */
+export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(JSON.stringify(conflict), runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Clear the durable conflict marker after a clean merge of the conflicting work. */
+export function clearRunConflict(ctx: Ctx, runId: string): void {
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_runs SET conflict = NULL WHERE id = ?",
+  ).run(runId);
 }
 
 /** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
@@ -877,7 +914,19 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
        WHERE s.task_id = ?
        LIMIT 1`,
     ).get(taskId);
-    return typeof row?.branch === "string" && row.branch.length > 0;
+    if (typeof row?.branch === "string" && row.branch.length > 0) return true;
+    // Conflict-resolution tasks are not step-attached; they still merge into the run branch.
+    const conflictCol = db.query(
+      "SELECT 1 AS ok FROM pragma_table_info('workflow_runs') WHERE name = 'conflict'",
+    ).get();
+    if (!conflictCol) return false;
+    const marker = db.query<{ conflict: string | null }, [string]>(
+      `SELECT conflict FROM workflow_runs
+       WHERE conflict IS NOT NULL
+         AND json_extract(conflict, '$.resolutionTaskId') = ?
+       LIMIT 1`,
+    ).get(taskId);
+    return typeof marker?.conflict === "string" && marker.conflict.length > 0;
   } catch (error) {
     const msg = String(error);
     if (/no such table/i.test(msg) || /no such column/i.test(msg)) return false;

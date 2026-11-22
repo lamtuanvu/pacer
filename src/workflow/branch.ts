@@ -2,7 +2,7 @@
 // Lazily creates `pacer/run-<10 base32>` from the base tip; all merges into one
 // run go through one integration worktree under the task worktrees directory,
 // serialized by withMergeLock. Spec: "Run branch beyond the happy path".
-import { createHash } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
 import { basename, join } from "node:path";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import type { Ctx } from "../types";
@@ -10,11 +10,15 @@ import { CoreError } from "../core/errors";
 import { withLock } from "../core/lock";
 import { gitInfo, realpathSafe } from "../core/git";
 import { resolveWorktreeBase, taskWorktreesDir, worktreeDirty } from "../supervisor/worktree";
-import { createTask, readTask } from "../tasks/store";
+import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { AgentStep } from "./schema";
-import { getRun, setRunBranch, stepByTask, type RunRow } from "./store";
+import {
+  clearRunConflict, getRun, setRunBranch, setRunConflict, stepByTask, taskByRequestId,
+  workflowDatabase, type RunRow,
+} from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { dataPreamble } from "./template";
 
 /** Kinds that edit the tree by default. Research/review stay off unless
  *  `code: true`. Docs and unfamiliar-code write files so they count as code. */
@@ -164,8 +168,21 @@ export type AcceptMergeResult =
  */
 export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<AcceptMergeResult | null> {
   const step = stepByTask(ctx, taskId);
-  if (!step) return null;
-  const run = getRun(ctx, step.runId);
+  let run = step ? getRun(ctx, step.runId) : null;
+  // Conflict-resolution tasks are not step-attached; find them via the run marker.
+  if (!run?.branch) {
+    try {
+      const row = workflowDatabase(ctx).query<{ id: string }, [string]>(
+        `SELECT id FROM workflow_runs
+         WHERE conflict IS NOT NULL
+           AND json_extract(conflict, '$.resolutionTaskId') = ?
+         LIMIT 1`,
+      ).get(taskId);
+      if (row) run = getRun(ctx, row.id);
+    } catch {
+      run = null;
+    }
+  }
   if (!run?.branch) return null;
   const task = readTask(ctx, taskId);
   if (!task) return null;
@@ -188,6 +205,9 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     );
     if (hasBranch.code !== 0) {
       // Research / current-placement / cleaned worktree: nothing to merge.
+      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId) {
+        clearRunConflict(ctx, live.id);
+      }
       return { merged: true };
     }
     const ahead = await ctx.run(
@@ -195,6 +215,9 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       10_000,
     );
     if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
+      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId) {
+        clearRunConflict(ctx, live.id);
+      }
       return { merged: true };
     }
 
@@ -209,7 +232,13 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       taskBranch,
     ];
     const merged = await ctx.run(argv, 60_000);
-    if (merged.code === 0) return { merged: true };
+    if (merged.code === 0) {
+      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId
+        || live.conflict?.branch === taskBranch) {
+        clearRunConflict(ctx, live.id);
+      }
+      return { merged: true };
+    }
 
     const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
       || (await ctx.run(["git", "-C", wt, "rev-parse", "--verify", "MERGE_HEAD"], 5_000)).code === 0;
@@ -223,15 +252,37 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   });
 }
 
+const CONFLICT_FILES_CAP = 4 * 1024;
+
 function createConflictResolutionTask(
   ctx: Ctx, run: RunRow, task: TaskRecord | { id: string; rev: number }, taskBranch: string, files: string,
 ): TaskRecord {
-  const fileList = files.trim() || "(unknown)";
+  const requestId = `wfconflict:${run.id}:${task.id}:${task.rev}`;
+  const prior = taskByRequestId(ctx, requestId);
+  if (prior) {
+    if (!run.conflict || run.conflict.resolutionTaskId !== prior.id) {
+      setRunConflict(ctx, run.id, {
+        taskId: task.id,
+        branch: taskBranch,
+        resolutionTaskId: prior.id,
+      });
+    }
+    return prior;
+  }
+
+  const rawFiles = files.trim() || "(unknown)";
+  const capped = rawFiles.length > CONFLICT_FILES_CAP
+    ? `${rawFiles.slice(0, CONFLICT_FILES_CAP)}\n…(truncated)`
+    : rawFiles;
+  const nonce = randomBytes(4).toString("hex");
   const goal = [
-    `Resolve merge conflict for run ${run.id}.`,
-    `Run branch: ${run.branch}. Task branch: ${taskBranch}.`,
-    `Conflicting paths:\n${fileList}`,
-    `Merge the fix into ${run.branch} and report when the conflict is clear.`,
+    `Manual conflict resolution for run ${run.id} (person or orchestrator; not auto-started).`,
+    `Run branch: ${run.branch}. Conflicting task branch: ${taskBranch}.`,
+    dataPreamble(nonce),
+    `--- data ${nonce} conflicting-paths ---`,
+    capped,
+    `--- end data ${nonce} ---`,
+    `Merge the fix into ${run.branch} on a pacer/<this-task> branch, then accept this task.`,
   ].join("\n");
   const resolution = createTask(ctx, {
     brief: { goal, repo: run.repo, base: run.branch },
@@ -239,22 +290,39 @@ function createConflictResolutionTask(
     requestedExecutor: null,
     timeoutS: 3600,
     title: `Conflict · ${task.id}`.slice(0, 60),
-    requestId: `wfconflict:${run.id}:${task.id}:${task.rev}`,
+    requestId,
   });
-  // Phase 2: wake the orchestrator when the run has one (reuse step_failed; no dedicated conflict cause yet).
+  // Manual task: needs_input so the 600s never-started sweep cannot mark it failed.
+  updateTask(ctx, resolution.id, t => {
+    t.state = "needs_input";
+    t.question = {
+      text: `Resolve merge conflict for ${task.id} into ${run.branch}, then accept this task.`,
+      at: ctx.now,
+    };
+  });
+  setRunConflict(ctx, run.id, {
+    taskId: task.id,
+    branch: taskBranch,
+    resolutionTaskId: resolution.id,
+  });
+
+  // Wake the orchestrator on the real conflicting step when known; else the run id.
+  const owning = stepByTask(ctx, task.id);
   if (run.orchestratorTaskId || run.planner) {
     try {
       enqueueWakeup(ctx, {
         runId: run.id,
         cause: "step_failed",
-        ref: stepWakeRef(run.id, `conflict:${task.id}`, 1),
+        ref: owning
+          ? stepWakeRef(run.id, owning.stepId, owning.attempt, owning.branch)
+          : stepWakeRef(run.id, "conflict", 1),
         createdAt: ctx.now,
       });
     } catch {
-      // Wakeup is best-effort; the resolution task is the durable record.
+      // Wakeup is best-effort; the durable run.conflict marker is authoritative.
     }
   }
-  return resolution;
+  return readTask(ctx, resolution.id) ?? resolution;
 }
 
 /** The run branch tip a retry of this step task should start from, or null when not a run-branch task. */
