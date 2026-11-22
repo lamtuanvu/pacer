@@ -279,7 +279,11 @@ to serve's Core.
   grant is therefore consumed once and bound to its task, attempt, run directory and wrapper pid
   exactly as flag-off, with the same refusal codes and texts. The owner forwards an unsealed
   request to none of them, so a plugin cannot stop or inspect a run its call was not issued.
-  The flag-on remote stop then needs the SSH host runner, which the owner does not serve yet.
+  The flag-on remote stop's SSH legs run through the owner's host-runner lane, which the bridge
+  now serves for the host-issued legs (configured STOP, REPORT and host checks, and the remote
+  stop): those `hostRunner` calls are pinned with `expectPid` to the child serving the lane,
+  matching the flag-off local-process guarantee. Staged-input legs remain refused flag-on, as the
+  owner bridge does not carry staged command input.
 - `run/host.sock` and the plugin installation owner in [ADR 0021](0021-single-installation-owner.md)
   are different things: ADR 0021 decides which pacer installation runs the service; this
   record decides which process inside it owns plugin children.
@@ -301,10 +305,11 @@ to serve's Core.
 - **Stdio leaves ownership to TypeScript when serve is live.** The stdio Core would start its
   own TypeScript children beside serve's native owner: the two-owner problem this record
   exists to avoid.
-- **Sealing the detached stop and inspection grants for the owner's native process broker.**
-  The grants would cross the socket as new `call_authority` resources, the native broker would
-  need a second one-use implementation with its own refusal texts, and a remote stop would
-  still need Core's host runner, which the bridge refuses.
+- **Moving the detached stop and inspection grants onto the bridge.** The grants would cross
+  the socket as new `call_authority` resources and the native broker would need a second
+  one-use implementation with its own refusal texts. This was not taken up; instead the
+  grants stay in Core (above), with the stop's SSH legs served through the owner's host-runner
+  lane once B0a pinned those legs to the serving child.
 
 ## Addendum: observation generations under the owner (2026-11-13)
 
