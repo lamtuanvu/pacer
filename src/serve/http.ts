@@ -86,6 +86,7 @@ export function startServer(
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
   // Start-up: revoke orphan prg_ grants and settle live turns with no process (API-5b).
+  // recoverOrphanTurns yields before any writer so this never blocks listener bind.
   void recoverOrphanTurns(initialCtx).catch(() => { /* recovery is best-effort */ });
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));

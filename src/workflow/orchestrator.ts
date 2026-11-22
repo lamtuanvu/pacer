@@ -5,7 +5,7 @@ import { randomBytes } from "node:crypto";
 import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import { launchTaskRunner, spawnRunner } from "../tasks/api";
-import { createTask, readTask, updateTask } from "../tasks/store";
+import { createTask, readTask, taskDatabase, updateTask } from "../tasks/store";
 import { TERMINAL_STATES } from "../tasks/types";
 import { stop as stopTaskCore } from "../core/tasks";
 import { appendActivity } from "../activity/log";
@@ -1011,29 +1011,69 @@ export async function settleTurn(ctx: Ctx, turnId: string, outcome: TurnOutcome)
   return updated;
 }
 
-/** At start-up: revoke orphan grants and fail live turns with no live process. */
-export async function recoverOrphanTurns(ctx: Ctx, deps: OrchestratorDeps = {}): Promise<number> {
-  revokeOrphanRunGrants(ctx);
-  let handled = 0;
-  const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, []>(
-    "SELECT id, task_id FROM workflow_turns WHERE status IN ('starting', 'running')",
-  ).all();
-  for (const row of live) {
-    const task = row.task_id ? readTask(ctx, row.task_id) : null;
-    // No task: the process is gone.
-    if (!task) {
-      await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
-      handled++;
-      continue;
+/** True once start-up orphan recovery has finished (success or permanent failure).
+ *  orchestrateRuns refuses to start new turns until this is set (API-5b). */
+let orphanStartupRecovered = false;
+
+function isSqliteBusy(err: unknown): boolean {
+  const code = (err as { code?: string } | null)?.code;
+  if (typeof code === "string" && code.startsWith("SQLITE_BUSY")) return true;
+  const text = `${err instanceof Error ? err.message : String(err)}`.toLowerCase();
+  return text.includes("sqlite_busy") || text.includes("database is locked")
+    || text.includes("database table is locked") || text.includes("database is busy")
+    || text.includes("database schema is locked");
+}
+
+/** One attempt: fail fast on lock contention so the listener stays responsive. */
+async function recoverOrphanTurnsOnce(ctx: Ctx): Promise<number> {
+  const db = taskDatabase(ctx);
+  db.run("PRAGMA busy_timeout = 0");
+  try {
+    revokeOrphanRunGrants(ctx);
+    let handled = 0;
+    const live = workflowDatabase(ctx).query<{ id: string; task_id: string | null }, []>(
+      "SELECT id, task_id FROM workflow_turns WHERE status IN ('starting', 'running')",
+    ).all();
+    for (const row of live) {
+      const task = row.task_id ? readTask(ctx, row.task_id) : null;
+      // No task: the process is gone.
+      if (!task) {
+        await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
+        handled++;
+        continue;
+      }
+      // queued / done are still live or settleable — do not fail them as orphans.
+      if (task.state === "queued" || task.state === "done") continue;
+      if (task.state !== "running") {
+        await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
+        handled++;
+      }
     }
-    // queued / done are still live or settleable — do not fail them as orphans.
-    if (task.state === "queued" || task.state === "done") continue;
-    if (task.state !== "running") {
-      await settleTurn(ctx, row.id, { outcome: "failed", reason: "orphan turn on restart" });
-      handled++;
+    return handled;
+  } finally {
+    try { db.run("PRAGMA busy_timeout = 5000"); } catch { /* leave fail-fast if restore cannot run */ }
+  }
+}
+
+/** At start-up: revoke orphan grants and fail live turns with no live process.
+ *  Yields before any SQLite write so fire-and-forget callers never block listener bind,
+ *  and retries SQLITE_BUSY with async backoff instead of the connection's sync busy wait. */
+export async function recoverOrphanTurns(ctx: Ctx, _deps: OrchestratorDeps = {}): Promise<number> {
+  await new Promise<void>(resolve => setImmediate(resolve));
+  for (let attempt = 0; ; attempt++) {
+    try {
+      const handled = await recoverOrphanTurnsOnce(ctx);
+      orphanStartupRecovered = true;
+      return handled;
+    } catch (err) {
+      if (!isSqliteBusy(err)) {
+        orphanStartupRecovered = true;
+        throw err;
+      }
+      // Cap backoff so a held writer unlocks recovery within about a second of release.
+      await Bun.sleep(Math.min(1000, 25 * 2 ** Math.min(attempt, 5)));
     }
   }
-  return handled;
 }
 
 /** Stop an overdue turn through the real task.stop path and count it as a failure. */
@@ -1181,6 +1221,15 @@ export async function orchestrateRuns(ctx: Ctx, deps: OrchestratorDeps = {}): Pr
     // Eligible again: clear the limit / user-block hold so startTurn can proceed.
     if (isPlannerHoldReason(run.reason)) {
       patchRunBestEffort(ctx, run.id, { orchestratorState: "idle", nextWakeAt: null, reason: null });
+    }
+  }
+
+  // API-5b: orphan grants revoked and dead live turns failed before any new turn starts.
+  if (!orphanStartupRecovered) {
+    try {
+      await recoverOrphanTurns(ctx, deps);
+    } catch {
+      return handled;
     }
   }
 

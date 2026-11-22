@@ -6,8 +6,11 @@ import { createTask, readTask, reconcileTaskJson, tasksDir, updateTask } from ".
 import { dispatchDatabase } from "../src/dispatch/store";
 import { startServer } from "../src/serve/http";
 import { backfillTaskHistory, maintainTaskHistory, startTaskHistory } from "../src/tasks/history";
-import { fakeCtx } from "./helpers";
+import { fakeCtx, tmpDir } from "./helpers";
 import { backfillFirstSettled } from "../src/insights/summary";
+import { insertRun } from "../src/workflow/store";
+import { getTurn, insertTurn } from "../src/workflow/wakeups";
+import { issueRunGrant, verifyRunGrant } from "../src/workflow/run-grant";
 
 const input = { brief: { goal: "contention fixture", repo: "/tmp/repo" }, kind: null, requestedExecutor: null, timeoutS: 60 };
 
@@ -86,9 +89,31 @@ test("history backfill contention cannot delay listener startup or session excha
   const ctx = fakeCtx({ now: Date.now() / 1000 });
   createTask(ctx, input);
   dispatchDatabase(ctx);
+  // Orphan recovery (API-5b) must not join the startServer critical path: seed a
+  // live turn + prg_ grant that recoverOrphanTurns will revoke/fail once the lock is free.
+  const run = insertRun(ctx, { workflow: "t/startup-contention", version: 1, repo: tmpDir(), brief: "b" });
+  const orch = createTask(ctx, {
+    brief: { goal: "orch", repo: run.repo },
+    kind: "orchestrate",
+    requestedExecutor: null,
+    timeoutS: 600,
+  });
+  updateTask(ctx, orch.id, t => { t.state = "failed"; });
+  const turn = insertTurn(ctx, {
+    id: "turn_startup_orphan",
+    runId: run.id,
+    planner: "claude-code",
+    status: "running",
+    startedAt: ctx.now,
+    deadline: ctx.now + 1200,
+    taskId: orch.id,
+  });
+  const bearer = issueRunGrant(ctx, { runId: run.id, turnId: turn.id, deadline: ctx.now + 1200 });
+  expect(verifyRunGrant(ctx, bearer)).not.toBeNull();
   const writer = new Database(join(ctx.pacerHome, "state/tasks.db"));
   writer.exec("BEGIN IMMEDIATE");
   let service: ReturnType<typeof startServer> | undefined;
+  let released = false;
   try {
     const started = performance.now();
     service = startServer(() => ctx, { port: 0, pumpMs: 0 });
@@ -99,11 +124,23 @@ test("history backfill contention cannot delay listener startup or session excha
     });
     expect(response.status).toBe(204);
     expect(response.headers.get("set-cookie")).toContain("HttpOnly");
+    // Under the writer lock, deferred recovery must not have settled yet.
+    expect(getTurn(ctx, turn.id)!.status).toBe("running");
+    writer.exec("ROLLBACK");
+    released = true;
+    writer.close();
+    const deadline = Date.now() + 8000;
+    while (Date.now() < deadline) {
+      if (getTurn(ctx, turn.id)?.status === "failed" && verifyRunGrant(ctx, bearer) === null) break;
+      await Bun.sleep(20);
+    }
+    expect(getTurn(ctx, turn.id)!.status).toBe("failed");
+    expect(verifyRunGrant(ctx, bearer)).toBeNull();
   } finally {
-    writer.exec("ROLLBACK"); writer.close();
+    if (!released) { writer.exec("ROLLBACK"); writer.close(); }
     await service?.stop();
   }
-}, 15000);
+}, 20000);
 
 test("history retries a temporary writer lock and completes after release", async () => {
   const ctx = fakeCtx();
