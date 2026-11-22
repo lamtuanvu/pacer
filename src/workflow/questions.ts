@@ -453,6 +453,10 @@ export async function answerQuestion(
 
   // Yield so a concurrent answer can race the compare-and-set (same pattern as answerHumanStep).
   await Promise.resolve();
+  // Rev must win before any delivery so a stale expect_rev cannot resume then conflict (R2-I2).
+  if (current.rev !== parsed.expectRev) {
+    throw new CoreError("conflict", `conflict: question ${current.id} changed since rev ${parsed.expectRev}`);
+  }
   const deliveryBody = parsed.note !== undefined
     ? `${parsed.answer}\n\n${parsed.note}`
     : parsed.answer;
@@ -498,6 +502,15 @@ export async function answerQuestion(
         answeredBy,
       });
     }
+    if (asker?.question && asker.question.answer !== undefined) {
+      // Already delivered (e.g. via task.answer); record only — no second message.
+      return settleAnsweredQuestion(ctx, current.id, {
+        answer: parsed.answer,
+        ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+        expectRev: parsed.expectRev,
+        answeredBy,
+      });
+    }
   }
 
   const answered = await settleAnsweredQuestion(ctx, current.id, {
@@ -507,8 +520,7 @@ export async function answerQuestion(
     answeredBy,
   });
 
-  if (current.askerTaskId && blocking) {
-    // Prompt-convert (no task.question): deliver as a message.
+  if (current.askerTaskId && current.blocks === "nothing") {
     insertMessage(ctx, {
       taskId: current.askerTaskId,
       rootId: rootOf(ctx, `task:${current.askerTaskId}`),
@@ -519,17 +531,21 @@ export async function answerQuestion(
       replyTo: null,
       requestId: `question.answer:${current.id}:${answered.rev}`,
     });
-  } else if (current.askerTaskId && current.blocks === "nothing") {
-    insertMessage(ctx, {
-      taskId: current.askerTaskId,
-      rootId: rootOf(ctx, `task:${current.askerTaskId}`),
-      from: "human",
-      to: `task:${current.askerTaskId}`,
-      kind: "message",
-      body: deliveryBody,
-      replyTo: null,
-      requestId: `question.answer:${current.id}:${answered.rev}`,
-    });
+  } else if (current.askerTaskId && blocking) {
+    const asker = readTask(ctx, current.askerTaskId);
+    // Prompt-convert only (no task.question): deliver as a message.
+    if (!asker?.question) {
+      insertMessage(ctx, {
+        taskId: current.askerTaskId,
+        rootId: rootOf(ctx, `task:${current.askerTaskId}`),
+        from: "human",
+        to: `task:${current.askerTaskId}`,
+        kind: "message",
+        body: deliveryBody,
+        replyTo: null,
+        requestId: `question.answer:${current.id}:${answered.rev}`,
+      });
+    }
   }
 
   return answered;
