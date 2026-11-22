@@ -85,6 +85,7 @@ test.skipIf(!canInspect)("runner takes over in the same worktree, user exit veri
   expect(before.agentSession).toEqual({id,source:"header"});
   const reply=await takeoverTask(ctx,task.id);
   expect(reply.state).toBe("driving");
+  expect(reply.attach?.ws ?? "").toStartWith("/v3/tasks/");
   const now=readTask(ctx,task.id)!;
   expect(now.state).toBe("running");
   expect(now.run?.takeover).toBe(true);

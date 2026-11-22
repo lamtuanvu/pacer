@@ -56,7 +56,7 @@ export async function setupCheckFacts(ctx:Ctx, options:CheckOptions={}):Promise<
   await r.body?.cancel();
   if(healthy){
    const token=readFileSync(join(ctx.pacerHome,"token"),"utf8").trim();
-   const linked=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/v2/snapshot`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(2000)});
+   const linked=await fetch(`http://127.0.0.1:${ctx.env.PACER_PORT||4317}/v3/snapshot`,{headers:{Authorization:`Bearer ${token}`},signal:AbortSignal.timeout(2000)});
    link=linked.ok&&linked.headers.get("x-pacer")==="1";
    await linked.body?.cancel();
   }

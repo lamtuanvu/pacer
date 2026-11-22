@@ -8,10 +8,10 @@ import { emptySnapshot } from "../link/envelope";
 import { localHuman } from "../messaging/participants";
 import type { Ctx } from "../types";
 
-/** The dashboard consumes v3; the shared legacy clients retain their v2 contract. */
+/** The dashboard consumes v3; the shared client is protocol-3. */
 export async function dashboardClient(ctx:Ctx, local=false):Promise<ApiClient> {
- const legacy=await connectClient({...ctx,env:{...ctx.env,...(local?{PACER_API:"inprocess"}:{})}});
- const remote=legacy.kind==="http",controller=new AbortController();
+ const client=await connectClient({...ctx,env:{...ctx.env,...(local?{PACER_API:"inprocess"}:{})}},{protocol:3});
+ const remote=client.kind==="http",controller=new AbortController();
  const base=`http://127.0.0.1:${ctx.env.PACER_PORT??4317}/v3`;
  const token=remote?readFileSync(join(ctx.pacerHome,"token"),"utf8").trim():"";
  const fresh=()=>({...ctx,now:Date.now()/1000});
@@ -32,12 +32,12 @@ export async function dashboardClient(ctx:Ctx, local=false):Promise<ApiClient> {
   return response.json();
  }
  return {
-  kind:legacy.kind,
+  kind:client.kind,
   hello:()=>remote?request("hello"):Promise.resolve(helloBody()),
   snapshot:async()=>{const result=remote?await request("snapshot"):await liveSnapshot(fresh());return {...result,snapshot:{...emptySnapshot(),...result.snapshot}};},
   call:async<T>(op:string,params?:unknown):Promise<T>=>remote?(await request(`ops/${encodeURIComponent(op)}`,params??{})).result:callOp(fresh(),op,params??{},{participant:localHuman(ctx)}) as Promise<T>,
-  // Refreshes are also polled; legacy events remain useful wake-ups during the overlap.
-  subscribe:(_since,onEvent)=>legacy.subscribe(0,onEvent),
-  close(){controller.abort();legacy.close();}
+  // Refreshes are also polled; shared events remain useful wake-ups during the overlap.
+  subscribe:(_since,onEvent)=>client.subscribe(0,onEvent),
+  close(){controller.abort();client.close();}
  };
 }

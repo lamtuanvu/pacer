@@ -113,5 +113,5 @@ async function takeoverTaskAdmitted(ctx: Ctx, id: string, by?: string) {
     }
     await Bun.sleep(50);
   }
-  return {id, state:readTask(ctx,id)?.takeover?.state === "ended" ? "ended" : live ? "driving" : "starting", attach:{cli:`pacer attach ${id} --control`,ws:`/v2/tasks/${id}/session`}};
+  return {id, state:readTask(ctx,id)?.takeover?.state === "ended" ? "ended" : live ? "driving" : "starting", attach:{cli:`pacer attach ${id} --control`,ws:`/v3/tasks/${id}/session`}};
 }

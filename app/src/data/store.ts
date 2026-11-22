@@ -217,7 +217,7 @@ export function createStore(injectedApi?: BrowserApi, Events?: typeof EventSourc
       // Register before subscribing so a notify cannot be committed before this client id exists.
       await ensureServiceNotifier(hello.pacer);
       if (stopped || current !== generation) return;
-      const eventPath = `${hello.protocol.split(".")[0] === "3" ? "/v3/events?since=" : "/v2/events?since="}${result.seq}`;
+      const eventPath = `/v3/events?since=${result.seq}`;
       const source = stream = (Events ? new Events(eventPath) : platform.subscribeEvents(eventPath));
       const active = () => !stopped && stream === source && !state.sessionEnded;
       source.addEventListener("open", () => {

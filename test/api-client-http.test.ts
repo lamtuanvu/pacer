@@ -58,6 +58,30 @@ test("connectClient falls back when nothing or something else answers", async ()
   expect((await connectClient({ ...c2, env: { PACER_PORT: String(s.port), PACER_API: "inprocess" } })).kind).toBe("inprocess");
 });
 
+test("connectClient protocol 3 speaks only /v3 over HTTP", async () => {
+  const ctx = fakeCtx();
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  await Bun.write(join(ctx.pacerHome, "token"), "secret\n");
+  const requests: string[] = [];
+  const server = Bun.serve({ port: 0, fetch(req) {
+    const pathname = new URL(req.url).pathname;
+    requests.push(pathname);
+    if (pathname === "/health") return new Response("ok", { headers: { "x-pacer": "1" } });
+    return Response.json({ protocol: "3.0.0", previousRemovedIn: "0.19.0" });
+  } });
+  stops.push(() => server.stop(true));
+  const fetcher = spyOn(globalThis, "fetch");
+  try {
+    const client = await connectClient({ ...ctx, env: { PACER_PORT: String(server.port) } }, { protocol: 3 });
+    stops.push(() => client.close());
+    expect(client.kind).toBe("http");
+    await client.hello();
+    expect(requests).toContain("/health");
+    expect(requests).toContain("/v3/hello");
+    expect(requests.some(p => p.startsWith("/v2"))).toBe(false);
+  } finally { fetcher.mockRestore(); }
+});
+
 test("HTTP snapshots read task states without supervision and report the server budget", async () => {
   const { ctx, client } = await serve();
   const t = createTask(ctx, { brief: { goal: "g", repo: ctx.home }, kind: null, requestedExecutor: null, timeoutS: 60 });
