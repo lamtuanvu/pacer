@@ -76,7 +76,8 @@ jobs:
 
   # REL-2 (amendment 0.24.0, proposed): the release only builds and publishes.
   # Validation of the built release artifacts runs post-merge on main in ci.yml.
-  build:
+  # One job per OS, one matrix leg per target, so desktop can start after Linux alone.
+  build-macos:
     needs: verify
     env:
       VERSION: ${{ needs.verify.outputs.version }}
@@ -87,13 +88,17 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # matrix.runner stays a label: it names the binaries artifact.
-          - runner: macos-latest
-            image: macos-latest
-            targets: darwin-arm64,darwin-x64
-          - runner: ubuntu-latest
-            image: ubuntu-24.04
-            targets: linux-x64,linux-arm64
+          - os: darwin
+            arch: arm64
+            target: darwin-arm64
+            image: macos-15
+            rust_target: aarch64-apple-darwin
+          - os: darwin
+            arch: x64
+            target: darwin-x64
+            image: macos-15
+            rust_target: x86_64-apple-darwin
+            smoke_prefix: arch -x86_64
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -107,29 +112,92 @@ jobs:
       - name: Install Rust release targets
         run: |
           rustup show active-toolchain
-          case "$RUNNER_OS" in
-            macOS) rustup target add aarch64-apple-darwin x86_64-apple-darwin ;;
-            Linux) rustup target add x86_64-unknown-linux-musl aarch64-unknown-linux-musl ;;
-            *) exit 1 ;;
-          esac
+          rustup target add ${{ matrix.rust_target }}
       - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
         with:
-          key: release-pair-${{ matrix.runner }}
+          key: release-${{ matrix.target }}
+      - name: Build runner targets
+        env:
+          TARGETS: ${{ matrix.target }}
+        run: bun scripts/release/build.ts --targets "$TARGETS"
+      - name: Smoke test native binary
+        run: |
+          version="$VERSION"
+          os="${{ matrix.os }}"
+          arch="${{ matrix.arch }}"
+          # matrix.smoke_prefix is empty for native legs; darwin-x64 runs under Rosetta.
+          run_bin() { ${{ matrix.smoke_prefix }} "$@"; }
+          test "$(run_bin "./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
+          test "$(run_bin "./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
+          # Native assistant plugin is built with pacer-core when crates/assistant-pacer is present.
+          # When the crate is in tree the release asset is required (not optional).
+          assistant="./dist/release/$version/pacer-assistant-pacer-$os-$arch"
+          if [ -f crates/assistant-pacer/Cargo.toml ]; then
+            test -x "$assistant"
+            # Handshake smoke: prove the binary speaks plugin.hello with the bundled id/version.
+            hello=$(printf '%s\n' '{"jsonrpc":"2.0","id":1,"method":"plugin.hello","params":{"protocol":"1.11.0","config":{},"grants":[]}}' | run_bin "$assistant" | head -n 1)
+            echo "$hello" | grep -q '"id":"assistant-pacer"'
+            echo "$hello" | grep -q '"version":"1.0.0"'
+          fi
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
+          path: dist/release/*/pacer-*
+          retention-days: 1
+          if-no-files-found: error
+
+  build-linux:
+    needs: verify
+    env:
+      VERSION: ${{ needs.verify.outputs.version }}
+    runs-on: ${{ matrix.image }}
+    permissions:
+      contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: linux
+            arch: x64
+            target: linux-x64
+            image: ubuntu-24.04
+            rust_target: x86_64-unknown-linux-musl
+          - os: linux
+            arch: arm64
+            target: linux-arm64
+            image: ubuntu-24.04-arm
+            rust_target: aarch64-unknown-linux-musl
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          persist-credentials: false
+      - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.4.2
+      - run: bun install --frozen-lockfile
+      - name: Install Rust release targets
+        run: |
+          rustup show active-toolchain
+          rustup target add ${{ matrix.rust_target }}
+      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        with:
+          key: release-${{ matrix.target }}
       - name: Install Linux cross-build tools
-        if: runner.os == 'Linux'
         run: |
           python3 -m venv "$RUNNER_TEMP/pacer-cross"
           "$RUNNER_TEMP/pacer-cross/bin/pip" install --only-binary=:all: cargo-zigbuild==0.24.0 ziglang==0.14.1
           echo "$RUNNER_TEMP/pacer-cross/bin" >> "$GITHUB_PATH"
       - name: Build runner targets
         env:
-          TARGETS: ${{ matrix.targets }}
+          TARGETS: ${{ matrix.target }}
         run: bun scripts/release/build.ts --targets "$TARGETS"
       - name: Smoke test native binary
         run: |
           version="$VERSION"
-          case "$(uname -s)" in Darwin) os=darwin ;; Linux) os=linux ;; *) exit 1 ;; esac
-          case "$(uname -m)" in arm64|aarch64) arch=arm64 ;; x86_64) arch=x64 ;; *) exit 1 ;; esac
+          os="${{ matrix.os }}"
+          arch="${{ matrix.arch }}"
           test "$("./dist/release/$version/pacer-$os-$arch" --version)" = "pacer $version"
           test "$("./dist/release/$version/pacer-core-$os-$arch" --version)" = "pacer $version"
           # Native assistant plugin is built with pacer-core when crates/assistant-pacer is present.
@@ -144,13 +212,13 @@ jobs:
           fi
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: binaries-${{ matrix.runner }}
+          name: binaries-${{ matrix.os }}-${{ matrix.arch }}
           path: dist/release/*/pacer-*
           retention-days: 1
           if-no-files-found: error
 
   desktop:
-    needs: [verify, build]
+    needs: [verify, build-linux]
     runs-on: ${{ matrix.runner }}
     timeout-minutes: 60
     permissions:
@@ -167,12 +235,12 @@ jobs:
           - runner: ubuntu-24.04
             target: x86_64-unknown-linux-gnu
             platform: linux-x64
-            cli_artifact: binaries-ubuntu-latest
+            cli_artifact: binaries-linux-x64
             bundles: appimage,deb
           - runner: ubuntu-24.04-arm
             target: aarch64-unknown-linux-gnu
             platform: linux-arm64
-            cli_artifact: binaries-ubuntu-latest
+            cli_artifact: binaries-linux-arm64
             bundles: appimage,deb
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -255,7 +323,7 @@ jobs:
           if-no-files-found: error
 
   publish:
-    needs: [verify, build, desktop]
+    needs: [verify, build-macos, build-linux, desktop]
     env:
       VERSION: ${{ needs.verify.outputs.version }}
       TAG: v${{ needs.verify.outputs.version }}
@@ -688,7 +756,7 @@ jobs:
 
   # A nightly tag whose release fails reports to the same issue as nightly.yml; the next published nightly closes it.
   nightly-failure:
-    needs: [verify, build, desktop, publish, npm, homebrew, desktop-build, desktop-publish, crates, cli-feed]
+    needs: [verify, build-macos, build-linux, desktop, publish, npm, homebrew, desktop-build, desktop-publish, crates, cli-feed]
     # verify can fail before it classifies the channel, so the tag name also identifies a nightly.
     if: always() && github.event_name == 'push' && (needs.verify.outputs.channel == 'nightly' || contains(github.ref_name, '-nightly.')) && contains(needs.*.result, 'failure')
     runs-on: ubuntu-24.04
