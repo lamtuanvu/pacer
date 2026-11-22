@@ -11,7 +11,10 @@ import {
   actionableItems,
   filterAttention,
   paceStatus,
+  resetGitCommonDir,
   resetOpenDesktop,
+  resolveFocusedRepo,
+  setGitCommonDir,
   setOpenDesktop,
   uiOpenRoute,
 } from './worker'
@@ -84,7 +87,15 @@ const snapshotWith = (
   today: over.today ?? { since: 1_699_900_000 },
 })
 
-function hostWithFocusedWorkspace(path: string | null, storage: { seq?: number } = {}, extraWorkspaces: { id: string; path: string }[] = []) {
+function hostWithFocusedWorkspace(
+  path: string | null,
+  storage: { seq?: number } = {},
+  extraWorkspaces: { id: string; path: string; projectId?: string | null }[] = [],
+  options: {
+    focusedProjectId?: string | null
+    projects?: { id: string; name: string; kind: 'git' | 'folder'; hostId: string | null; path: string }[]
+  } = {},
+) {
   const workspaces =
     path === null
       ? extraWorkspaces.map((w) => ({
@@ -92,16 +103,26 @@ function hostWithFocusedWorkspace(path: string | null, storage: { seq?: number }
           kind: 'worktree' as const,
           name: w.id,
           path: w.path,
+          projectId: w.projectId ?? null,
           branch: 'main',
           hostId: 'local',
         }))
       : [
-          { id: 'ws1', kind: 'worktree' as const, name: 'repo', path, branch: 'main', hostId: 'local' },
+          {
+            id: 'ws1',
+            kind: 'worktree' as const,
+            name: 'repo',
+            path,
+            projectId: options.focusedProjectId ?? null,
+            branch: 'main',
+            hostId: 'local',
+          },
           ...extraWorkspaces.map((w) => ({
             id: w.id,
             kind: 'worktree' as const,
             name: w.id,
             path: w.path,
+            projectId: w.projectId ?? null,
             branch: 'main',
             hostId: 'local',
           })),
@@ -112,6 +133,7 @@ function hostWithFocusedWorkspace(path: string | null, storage: { seq?: number }
     results: {
       'workspace.readContext': path === null ? null : { workspaceId: 'ws1', branch: 'main', displayName: 'repo', terminals: [] },
       'workspace.list': { workspaces, truncated: false },
+      'project.list': { projects: options.projects ?? [], truncated: false },
       'workspace.open': { opened: true },
       'statusBar.update': { ok: true },
     },
@@ -738,6 +760,102 @@ test("a not-connected refresh sets the status bar to 'pacer off'", async () => {
     }, 'the not-connected status bar update')
     await worker.deactivate()
   } finally {
+    await pacer.dispose()
+  }
+})
+
+test('L1: resolveFocusedRepo matches via projectId and git common dir', async () => {
+  const repos = [{ key: 'k1', label: 'pacer', path: '/main/checkout' }]
+  const worktree = '/orca-ws/model-routing/jawfish'
+  const viaProject = await resolveFocusedRepo(
+    repos,
+    worktree,
+    [{ id: 'ws-wt', path: worktree, projectId: 'proj-1' }],
+    [{ id: 'proj-1', path: '/main/checkout' }],
+    async () => {
+      throw new Error('git should not run when projectId matches')
+    },
+  )
+  assert.equal(viaProject?.key, 'k1')
+
+  const viaGit = await resolveFocusedRepo(
+    repos,
+    worktree,
+    [{ id: 'ws-wt', path: worktree, projectId: null }],
+    [],
+    async () => '/main/checkout',
+  )
+  assert.equal(viaGit?.key, 'k1')
+
+  const none = await resolveFocusedRepo(
+    repos,
+    worktree,
+    [{ id: 'ws-wt', path: worktree, projectId: null }],
+    [],
+    async () => null,
+  )
+  assert.equal(none, null)
+
+  const gitFails = await resolveFocusedRepo(
+    repos,
+    worktree,
+    [],
+    [],
+    async () => {
+      throw new Error('boom')
+    },
+  )
+  assert.equal(gitFails, null)
+
+  const exact = await resolveFocusedRepo(repos, '/main/checkout', [], [], async () => '/should-not-matter')
+  assert.equal(exact?.key, 'k1')
+})
+
+test('L1: focused worktree resolves via project.list in pacer.snapshot', async () => {
+  setGitCommonDir(async () => {
+    throw new Error('git should not run when projectId matches')
+  })
+  const pacer = await startPacer({
+    snapshot: () =>
+      snapshotWith({
+        repos: [{ key: 'k1', label: 'pacer', path: '/main/checkout' }],
+      }),
+  })
+  try {
+    const host = hostWithFocusedWorkspace('/orca-ws/jawfish', {}, [], {
+      focusedProjectId: 'proj-1',
+      projects: [{ id: 'proj-1', name: 'pacer', kind: 'git', hostId: 'local', path: '/main/checkout' }],
+    })
+    const worker = await mountWorker(main, { host })
+    const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
+    assert.equal(snapshot.focusedRepo?.key, 'k1')
+    assert.equal(snapshot.focusedRepo?.path, '/main/checkout')
+    await worker.deactivate()
+  } finally {
+    resetGitCommonDir()
+    await pacer.dispose()
+  }
+})
+
+test('L1: focused worktree resolves via injected git common dir when projectId absent', async () => {
+  setGitCommonDir(async (path) => {
+    assert.equal(path, '/orca-ws/jawfish')
+    return '/main/checkout'
+  })
+  const pacer = await startPacer({
+    snapshot: () =>
+      snapshotWith({
+        repos: [{ key: 'k1', label: 'pacer', path: '/main/checkout' }],
+      }),
+  })
+  try {
+    const host = hostWithFocusedWorkspace('/orca-ws/jawfish')
+    const worker = await mountWorker(main, { host })
+    const snapshot = (await worker.request('pacer.snapshot')) as PanelSnapshot
+    assert.equal(snapshot.focusedRepo?.key, 'k1')
+    await worker.deactivate()
+  } finally {
+    resetGitCommonDir()
     await pacer.dispose()
   }
 })

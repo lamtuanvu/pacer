@@ -354,10 +354,30 @@ export function meterTone(verdict: string, stale?: boolean): MeterTone {
   return 'neutral'
 }
 
+/**
+ * Display name for the planner meter agent. Maps known runner/agent ids to board names;
+ * falls back to the raw agent string when unknown (L3).
+ */
+export function plannerAgentDisplay(agent: string | null | undefined): string {
+  if (!agent) return 'Planner'
+  const key = agent.toLowerCase()
+  const map: Record<string, string> = {
+    'claude-code': 'Claude',
+    claude: 'Claude',
+    codex: 'Codex',
+    cursor: 'Cursor',
+    opencode: 'OpenCode',
+    agy: 'Antigravity',
+    antigravity: 'Antigravity',
+    local: 'Local model',
+  }
+  return map[key] ?? agent
+}
+
 export function plannerHeadline(planner: PanelSnapshot['planner'], resetLabel?: string): string {
   if (!planner) return 'Usage unknown.'
   if (planner.verdict === 'out') {
-    return `${planner.agent} is out until ${resetLabel || 'reset'}.`
+    return `${plannerAgentDisplay(planner.agent)} is out until ${resetLabel || 'reset'}.`
   }
   if (planner.verdict === 'behind') return 'Plenty left this week.'
   if (planner.verdict === 'ahead') return "You're ahead of pace."
@@ -381,15 +401,48 @@ export function windowUsedWord(window: string | null | undefined): string | null
 }
 
 export function plannerCaption(planner: NonNullable<PanelSnapshot['planner']>, resetLabel: string): string {
-  if (planner.stale) return `${planner.agent} · stale`
+  const agent = plannerAgentDisplay(planner.agent)
+  if (planner.stale) return `${agent} · stale`
   const used = typeof planner.usedPct === 'number' ? Math.round(planner.usedPct) : null
   const pace = typeof planner.pacePct === 'number' ? Math.round(planner.pacePct) : null
   const ofWord = windowUsedWord(planner.window)
   const usedPart =
     used === null ? null : ofWord ? `${used}% of ${ofWord} used` : `${used}% used`
-  return [planner.agent, usedPart, pace === null ? null : `pace ${pace}%`, `resets ${resetLabel || '—'}`]
+  return [agent, usedPart, pace === null ? null : `pace ${pace}%`, `resets ${resetLabel || '—'}`]
     .filter(Boolean)
     .join(' · ')
+}
+
+/** words.ts verdict words for the pace keys the panel uses (L4). */
+const VERDICT_WORDS: Record<string, string> = {
+  behind: 'Behind pace',
+  on_pace: 'On pace',
+  ahead: 'Ahead of pace',
+  out: 'Out of quota',
+  unknown: 'Usage unknown',
+}
+
+function normalizeAdviceText(text: string): string {
+  return text
+    .toLowerCase()
+    .replace(/[^\p{L}\p{N}\s]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+}
+
+/**
+ * Show the service advice line unless it is exactly the verdict words (case/punctuation-insensitive).
+ * Live example: headline "You're on pace…" + advice "On pace." → omit advice.
+ */
+export function shouldShowAdvice(advice: string | null | undefined, verdict: string): boolean {
+  if (!advice || !advice.trim()) return false
+  const adviceNorm = normalizeAdviceText(advice)
+  const expected = VERDICT_WORDS[verdict]
+  if (expected && normalizeAdviceText(expected) === adviceNorm) return false
+  for (const words of Object.values(VERDICT_WORDS)) {
+    if (normalizeAdviceText(words) === adviceNorm) return false
+  }
+  return true
 }
 
 export function modePillLabel(snapshot: PanelSnapshot): { text: string; tone: 'neutral' | 'warn' | 'bad' } {
@@ -684,6 +737,39 @@ export function byRepoCaption(repo: { running: number; doneToday: number }): str
     return `${repo.running} running · ${repo.doneToday} done today`
   }
   return 'Nothing running'
+}
+
+export type PanelRepoRow = {
+  key: string
+  label: string
+  path: string
+  needsYou: number
+  running: number
+  doneToday: number
+  orcaWorkspaceId?: string
+}
+
+/**
+ * By-repo list: only repos with needsYou or running, sorted needsYou desc → running desc → label,
+ * capped at `limit` with a "N more" count (L2). Hide the section when rows is empty.
+ */
+export function visibleByRepos(
+  repos: PanelRepoRow[],
+  limit = 5,
+): { rows: PanelRepoRow[]; more: number } {
+  const qualified = repos
+    .filter((r) => r.needsYou > 0 || r.running > 0)
+    .slice()
+    .sort(
+      (a, b) =>
+        b.needsYou - a.needsYou ||
+        b.running - a.running ||
+        a.label.localeCompare(b.label),
+    )
+  return {
+    rows: qualified.slice(0, limit),
+    more: Math.max(0, qualified.length - limit),
+  }
 }
 
 export function emptyNeedsYouCopy(scope: Scope, label: string | undefined): string {

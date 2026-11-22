@@ -33,6 +33,7 @@ import {
   panelModel,
   phaseCaption,
   phaseWords,
+  plannerAgentDisplay,
   plannerCaption,
   plannerHeadline,
   rankChipText,
@@ -41,10 +42,12 @@ import {
   reviewExpectRev,
   runningCaption,
   scopedAttention,
+  shouldShowAdvice,
   showOpenWorktree,
   showsAnswerComposer,
   showsReviewVerdicts,
   successTextForAction,
+  visibleByRepos,
   whoRunsCounts,
   windowUsedWord,
   worktreeRadioCaption,
@@ -638,4 +641,74 @@ test('success text derives from op not display label', () => {
     successTextForAction({ label: 'Retry', op: 'dispatch.retry', params: {} }, 'failed'),
     'Retrying',
   )
+})
+
+test('L2: visibleByRepos filters, sorts, caps and hides empty', () => {
+  const repos = [
+    { key: 'a', label: 'alpha', path: '/a', needsYou: 0, running: 0, doneToday: 3 },
+    { key: 'b', label: 'bravo', path: '/b', needsYou: 2, running: 1, doneToday: 0 },
+    { key: 'c', label: 'charlie', path: '/c', needsYou: 2, running: 0, doneToday: 0 },
+    { key: 'd', label: 'delta', path: '/d', needsYou: 0, running: 4, doneToday: 0 },
+    { key: 'e', label: 'echo', path: '/e', needsYou: 1, running: 0, doneToday: 0 },
+    { key: 'f', label: 'foxtrot', path: '/f', needsYou: 0, running: 1, doneToday: 0 },
+    { key: 'g', label: 'golf', path: '/g', needsYou: 0, running: 1, doneToday: 0 },
+  ]
+  const { rows, more } = visibleByRepos(repos, 5)
+  assert.deepEqual(
+    rows.map((r) => r.key),
+    ['b', 'c', 'e', 'd', 'f'],
+  )
+  assert.equal(more, 1)
+  assert.deepEqual(visibleByRepos(repos.filter((r) => r.needsYou === 0 && r.running === 0)), {
+    rows: [],
+    more: 0,
+  })
+})
+
+test('L3: plannerAgentDisplay maps runner ids; caption and out headline use display names', () => {
+  assert.equal(plannerAgentDisplay('claude-code'), 'Claude')
+  assert.equal(plannerAgentDisplay('codex'), 'Codex')
+  assert.equal(plannerAgentDisplay('mystery-runner'), 'mystery-runner')
+  assert.equal(
+    plannerHeadline(
+      {
+        agent: 'claude-code',
+        usedPct: 100,
+        pacePct: 20,
+        verdict: 'out',
+        advice: '',
+        mode: 'normal',
+        resetsAt: null,
+        window: 'week',
+        stale: false,
+      },
+      'Mon 09:00',
+    ),
+    'Claude is out until Mon 09:00.',
+  )
+  const caption = plannerCaption(
+    {
+      agent: 'claude-code',
+      usedPct: 16,
+      pacePct: 12,
+      verdict: 'on_pace',
+      advice: '',
+      mode: 'normal',
+      resetsAt: null,
+      window: 'week',
+      stale: false,
+    },
+    'Mon 09:00',
+  )
+  assert.match(caption, /^Claude ·/)
+  assert.doesNotMatch(caption, /claude-code/)
+})
+
+test('L4: shouldShowAdvice omits verdict-word duplicates', () => {
+  assert.equal(shouldShowAdvice('On pace.', 'on_pace'), false)
+  assert.equal(shouldShowAdvice('on pace', 'on_pace'), false)
+  assert.equal(shouldShowAdvice('Ahead of pace!', 'ahead'), false)
+  assert.equal(shouldShowAdvice('Delegate multi-file edits.', 'on_pace'), true)
+  assert.equal(shouldShowAdvice('', 'on_pace'), false)
+  assert.equal(shouldShowAdvice(null, 'on_pace'), false)
 })

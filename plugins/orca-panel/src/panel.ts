@@ -32,6 +32,7 @@ import {
   panelModel,
   pauseBannerExtra,
   phaseWords,
+  plannerAgentDisplay,
   plannerCaption,
   plannerHeadline,
   rankChipText,
@@ -39,12 +40,14 @@ import {
   rejectConfirmText,
   reviewExpectRev,
   runningCaption,
+  shouldShowAdvice,
   showOpenWorktree,
   showsAnswerComposer,
   showsReviewVerdicts,
   stalledMinutes,
   successTextForAction,
   successTextForConfirm,
+  visibleByRepos,
   whoRunsCounts,
   worktreeRadioCaption,
   type ConfirmSpec,
@@ -809,9 +812,10 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     const meter = el('div', 'pc-meter')
     meter.setAttribute('role', 'progressbar')
     meter.setAttribute('aria-valuenow', String(Math.round(planner.usedPct)))
+    const agentLabel = plannerAgentDisplay(planner.agent)
     meter.setAttribute(
       'aria-label',
-      `${planner.agent} weekly usage ${Math.round(planner.usedPct)} percent, pace ${Math.round(planner.pacePct ?? 0)} percent`,
+      `${agentLabel} weekly usage ${Math.round(planner.usedPct)} percent, pace ${Math.round(planner.pacePct ?? 0)} percent`,
     )
     const fill = el('div', `pc-meter-fill pc-meter-fill--${tone}`)
     fill.style.width = `${Math.min(100, Math.max(0, planner.usedPct))}%`
@@ -823,7 +827,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     }
     plannerCard.append(meter)
     plannerCard.append(el('p', 'pc-caption', plannerCaption(planner, resetLabel)))
-    if (planner.advice) {
+    if (shouldShowAdvice(planner.advice, planner.verdict)) {
       const advice = el('p', 'pc-advice', planner.advice)
       plannerCard.append(advice)
     }
@@ -877,38 +881,57 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
   }
 
   if (model.scope === 'global') {
-    const byRepo = el('section', 'pc-section')
-    byRepo.setAttribute('aria-label', 'By repo')
-    byRepo.append(el('h2', 'pc-label', 'By repo'))
-    const list = el('div', 'pc-list')
-    for (const repo of snapshot.repos) {
-      const row = el('div', 'pc-list-row')
-      const mid = el('div', 'pc-card-body')
-      const title = el('div', 'pc-row-title ellipsis', repo.label)
-      if (snapshot.focusedRepo?.key === repo.key) {
-        title.textContent = `${repo.label} · this worktree`
+    const { rows: byRepoRows, more: byRepoMore } = visibleByRepos(snapshot.repos)
+    if (byRepoRows.length > 0) {
+      const byRepo = el('section', 'pc-section')
+      byRepo.setAttribute('aria-label', 'By repo')
+      byRepo.append(el('h2', 'pc-label', 'By repo'))
+      const list = el('div', 'pc-list')
+      for (const repo of byRepoRows) {
+        const row = el('div', 'pc-list-row')
+        const mid = el('div', 'pc-card-body')
+        const title = el('div', 'pc-row-title ellipsis', repo.label)
+        if (snapshot.focusedRepo?.key === repo.key) {
+          title.textContent = `${repo.label} · this worktree`
+        }
+        mid.append(title, el('div', 'pc-caption', byRepoCaption(repo)))
+        row.append(mid)
+        if (repo.needsYou > 0) row.append(pill(String(repo.needsYou), 'bad'))
+        if (showOpenWorktree(repo.orcaWorkspaceId)) {
+          row.append(
+            button('Open in Orca', {
+              size: 'sm',
+              variant: 'ghost',
+              onClick: () =>
+                void runRequest({
+                  kind: 'openWorkspace',
+                  workspaceId: repo.orcaWorkspaceId!,
+                  pendingKey: `repo:${repo.key}:open`,
+                }),
+            }),
+          )
+        }
+        list.append(row)
       }
-      mid.append(title, el('div', 'pc-caption', byRepoCaption(repo)))
-      row.append(mid)
-      if (repo.needsYou > 0) row.append(pill(String(repo.needsYou), 'bad'))
-      if (showOpenWorktree(repo.orcaWorkspaceId)) {
-        row.append(
-          button('Open in Orca', {
-            size: 'sm',
+      byRepo.append(list)
+      if (byRepoMore > 0) {
+        byRepo.append(
+          button(`${byRepoMore} more in the pacer app`, {
             variant: 'ghost',
+            size: 'sm',
+            className: 'pc-link-btn',
             onClick: () =>
               void runRequest({
-                kind: 'openWorkspace',
-                workspaceId: repo.orcaWorkspaceId!,
-                pendingKey: `repo:${repo.key}:open`,
+                kind: 'act',
+                op: 'ui.open',
+                params: { view: 'overview' },
+                pendingKey: 'by-repo:more',
               }),
           }),
         )
       }
-      list.append(row)
+      main.append(byRepo)
     }
-    byRepo.append(list)
-    main.append(byRepo)
   }
 
   const needs = el('section', 'pc-section')
