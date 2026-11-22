@@ -90,7 +90,9 @@ fn has_table(db: &Connection, name: &str) -> bool {
     .unwrap_or(false)
 }
 
-/// Asker task ids with an open structured question — suppress ordinary `question:<taskId>` (I6 / R2-I3).
+/// Asker task ids with an open person-answerer blocking (step/branch) question —
+/// suppress ordinary `question:<taskId>` (I6 / R2-I3 / I-4). `blocks:nothing` and
+/// `answerer:orchestrator` do not suppress.
 fn open_question_asker_ids(ctx: &Ctx) -> std::collections::HashSet<String> {
     let path = ctx.pacer_home.join("state/tasks.db");
     let db = match Connection::open_with_flags(&path, OpenFlags::SQLITE_OPEN_READ_ONLY) {
@@ -102,7 +104,9 @@ fn open_question_asker_ids(ctx: &Ctx) -> std::collections::HashSet<String> {
     }
     let mut out = std::collections::HashSet::new();
     let Ok(mut stmt) = db.prepare(
-        "SELECT asker_task_id FROM workflow_questions WHERE status = 'open' AND asker_task_id IS NOT NULL",
+        "SELECT asker_task_id FROM workflow_questions
+         WHERE status = 'open' AND answerer = 'person' AND blocks IN ('step', 'branch')
+           AND asker_task_id IS NOT NULL",
     ) else {
         return out;
     };

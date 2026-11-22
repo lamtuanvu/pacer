@@ -12,11 +12,39 @@ import {
   getRun,
   listOpenPersonQuestions,
   liveRuns,
+  workflowDatabase,
   type QuestionBlocks,
   type QuestionRow,
   type RunRow,
 } from "./store";
 import { isBudgetBlocked, parseBudget, parseSpent } from "./budget";
+
+/**
+ * Asker task ids whose open person-answerer blocking (step/branch) question raises
+ * a `question:q_` item — suppress the ordinary `question:<taskId>` twin (I6 / I-1 / I-4).
+ * `blocks:nothing` and `answerer:orchestrator` questions do not suppress.
+ */
+export function openBlockingPersonQuestionAskerIds(ctx: Ctx): Set<string> {
+  try {
+    const rows = workflowDatabase(ctx).query<{ asker_task_id: string | null }, []>(
+      `SELECT asker_task_id FROM workflow_questions
+       WHERE status = 'open' AND answerer = 'person' AND blocks IN ('step', 'branch')
+         AND asker_task_id IS NOT NULL`,
+    ).all();
+    return new Set(rows.map(r => r.asker_task_id!).filter(Boolean));
+  } catch {
+    return new Set();
+  }
+}
+
+/** Drop ordinary task.answer attention items for askers covered by openBlockingPersonQuestionAskerIds. */
+export function suppressOrdinaryQuestionItems<T extends { kind: string; taskId?: string }>(
+  items: T[],
+  askers: Set<string>,
+): T[] {
+  if (askers.size === 0) return items;
+  return items.filter(i => !(i.kind === "question" && i.taskId && askers.has(i.taskId)));
+}
 
 /** Stable A–Z letter from a run id until Phase 6 assigns fixed letters. */
 export function runAttentionLetter(runId: string): string {

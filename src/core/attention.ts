@@ -12,29 +12,19 @@ import { deriveTaskItems as deriveItems } from "./task-attention";
 import { dismissItem, snoozeItem } from "../attention/store";
 import { dismiss as dismissTasks } from "./tasks";
 import { discoveryRuleInput } from "../discovery/prompts";
-import { deriveWorkflowAttention } from "../workflow/attention";
-import { workflowDatabase } from "../workflow/store";
+import {
+  deriveWorkflowAttention,
+  openBlockingPersonQuestionAskerIds,
+  suppressOrdinaryQuestionItems,
+} from "../workflow/attention";
 
 /** Ordinary attention never surfaces engine-owned tasks (D2.12). */
 function attentionTasks(ctx: Ctx) {
   return listActiveAndRecentTasks(ctx).filter(t => !isEngineOwnedKind(t.kind));
 }
 
-/** Asker task ids with an open structured question — suppress the ordinary question item (I6). */
-function openQuestionAskerIds(ctx: Ctx): Set<string> {
-  try {
-    const rows = workflowDatabase(ctx).query<{ asker_task_id: string | null }, []>(
-      "SELECT asker_task_id FROM workflow_questions WHERE status = 'open' AND asker_task_id IS NOT NULL",
-    ).all();
-    return new Set(rows.map(r => r.asker_task_id!).filter(Boolean));
-  } catch {
-    return new Set();
-  }
-}
-
 function mergeAttention(ctx: Ctx, ordinary: ReturnType<typeof deriveItems>) {
-  const askers = openQuestionAskerIds(ctx);
-  const filtered = ordinary.filter(i => !(i.kind === "question" && i.taskId && askers.has(i.taskId)));
+  const filtered = suppressOrdinaryQuestionItems(ordinary, openBlockingPersonQuestionAskerIds(ctx));
   return [...filtered, ...deriveWorkflowAttention(ctx)];
 }
 

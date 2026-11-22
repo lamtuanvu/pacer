@@ -240,6 +240,65 @@ fn r2_i3_suppresses_ordinary_question_item_for_open_structured_asker() {
 }
 
 #[test]
+fn i4_blocks_nothing_orchestrator_does_not_suppress_ordinary_item() {
+    let (_dir, ctx) = ctx();
+    let path = ctx.pacer_home.join("state/tasks.db");
+    let db = rusqlite::Connection::open(&path).expect("open db");
+    db.execute_batch(
+        "CREATE TABLE IF NOT EXISTS workflow_runs(
+           id TEXT PRIMARY KEY, workflow TEXT, version INTEGER, repo TEXT, brief TEXT, title TEXT,
+           status TEXT, reason TEXT, loops TEXT, rev INTEGER, created_at REAL, updated_at REAL
+         );
+         CREATE TABLE IF NOT EXISTS workflow_questions(
+           id TEXT PRIMARY KEY, run_id TEXT, step_id TEXT, attempt INTEGER, branch TEXT,
+           asker_task_id TEXT, asker_kind TEXT, text TEXT, answer_type TEXT, options TEXT,
+           recommended TEXT, blocks TEXT, artifact TEXT, answerer TEXT, chain TEXT,
+           suggested TEXT, answer TEXT, answered_by TEXT, status TEXT, rev INTEGER,
+           created_at REAL, answered_at REAL
+         );",
+    )
+    .expect("ddl");
+    db.execute(
+        "INSERT INTO workflow_runs(id, workflow, version, repo, brief, title, status, reason, loops, rev, created_at, updated_at)
+         VALUES ('run_nothingxx', 't/attn', 1, '/tmp', 'B', 'Info', 'running', NULL, '{}', 1, 1.0, 1.0)",
+        [],
+    )
+    .expect("run");
+    db.execute(
+        "INSERT INTO workflow_questions(
+           id, run_id, step_id, attempt, branch, asker_task_id, asker_kind, text, answer_type,
+           options, recommended, blocks, artifact, answerer, chain, suggested, answer, answered_by,
+           status, rev, created_at, answered_at
+         ) VALUES ('q_nothingxxx', 'run_nothingxx', 'info', 1, NULL, 't-ask', 'executor', 'FYI', 'text',
+           NULL, NULL, 'nothing', NULL, 'orchestrator', '[]', NULL, NULL, NULL, 'open', 1, 1.0, NULL)",
+        [],
+    )
+    .expect("question");
+    let asker = json!({
+        "id":"t-ask","title":"Asker","state":"needs_input","rev":1,"updatedAt":1_700_000_000.0,
+        "executor":"codex","question":{"text":"which db?","at":1_700_000_000.0 - 5.0}
+    });
+    let items = attention::raised(
+        &ctx,
+        &[asker],
+        &[],
+        &[],
+        &json!({"items":[]}),
+        &Value::Null,
+        false,
+    );
+    let ids: Vec<&str> = items.iter().map(|i| text(&i["id"])).collect();
+    assert!(
+        ids.contains(&"question:t-ask"),
+        "ordinary item kept when only blocks:nothing orchestrator question: {ids:?}"
+    );
+    assert!(
+        !ids.iter().any(|id| id.starts_with("question:q_")),
+        "orchestrator question must not raise a person attention item: {ids:?}"
+    );
+}
+
+#[test]
 fn r2_i3_mixed_run_branch_ordinary_sort_is_total_order() {
     let mut items = vec![
         json!({

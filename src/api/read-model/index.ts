@@ -14,7 +14,11 @@ import { readPause } from "../../core/pause";
 import { deliveryPresenters } from "../../clients/registry";
 import { applyStore } from "../../attention/store";
 import { deriveTaskItems } from "../../core/task-attention";
-import { deriveWorkflowAttention } from "../../workflow/attention";
+import {
+  deriveWorkflowAttention,
+  openBlockingPersonQuestionAskerIds,
+  suppressOrdinaryQuestionItems,
+} from "../../workflow/attention";
 import { discoveryRuleInput } from "../../discovery/prompts";
 import { executorsFor } from "../../engine/rank";
 import { listTasksWhere } from "../../tasks/store";
@@ -54,8 +58,12 @@ export function buildReadModel(ctx:Ctx,input:{status:Status;strategy:Strategy;ta
  try { policies = readProjectStrategies(ctx); } catch (error) { policyError = error instanceof Error ? error.message : String(error); }
  // Engine-owned tasks stay out of ordinary attention (D2.12).
  const attentionTasks = tasks.filter(t => !isEngineOwnedKind(t.kind)).map(task => ({ ...task, title: task.fullTitle ?? task.title }));
+ const ordinary = suppressOrdinaryQuestionItems(
+  deriveTaskItems({now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies),discovery:discoveryRuleInput(ctx,ctx.now)}),
+  openBlockingPersonQuestionAskerIds(ctx),
+ );
  const attention=applyStore(ctx,[
-  ...deriveTaskItems({now:ctx.now,tasks:attentionTasks,executors,accounts,planner,hosts,setup,update:null,retryTarget:t=>policyError ? null : retryTargetFor(t,strategy,executors,policies),discovery:discoveryRuleInput(ctx,ctx.now)}),
+  ...ordinary,
   ...deriveWorkflowAttention(ctx),
  ]);
  const paused=readPause(ctx),secrets=Object.entries(ctx.env).filter(([key])=>/key|token|secret|password/i.test(key)).map(([,value])=>value??"").filter(Boolean);
