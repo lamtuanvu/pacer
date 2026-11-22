@@ -1,10 +1,10 @@
-use crate::{PluginError, js, wire};
+use crate::{PluginError, js, serve, wire};
 use serde_json::{Map, Value, json};
 use std::{
     collections::HashMap,
     sync::{
-        Arc,
-        atomic::{AtomicBool, AtomicU64, Ordering},
+        Arc, RwLock,
+        atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
     },
 };
 use tokio::sync::{Mutex, mpsc, oneshot};
@@ -28,22 +28,33 @@ pub struct Host {
     next: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
     /// Token from the owning host call's `_meta.capabilityCall`, echoed on capability requests.
-    capability_call: Option<String>,
+    pub(crate) capability_call: Option<String>,
     /// The owning host call's cancellation token. When it fires, every call made
     /// by this owner rejects with "owning plugin call ended" (index.ts:131-158).
-    cancel: Option<CancellationToken>,
+    pub(crate) cancel: Option<CancellationToken>,
+    /// Serialises `capability.net.http` transactions so only one runs at a time
+    /// per caller (index.ts: http latch).
+    pub(crate) queue: Arc<Mutex<()>>,
+    /// Negotiated features and protocol of the owning plugin, so `Host::http`
+    /// can test whether `httpBodyChunks` was negotiated.
+    pub(crate) state: Arc<RwLock<serve::FeatureState>>,
+    /// The per-frame limit in bytes for `Host::fits`, overridable for tests.
+    pub(crate) frame_limit: Arc<AtomicUsize>,
 }
 
 fn unavailable() -> PluginError {
     PluginError::new("plugin_unavailable", "host closed the connection")
 }
 
-fn owning_ended() -> PluginError {
+pub(crate) fn owning_ended() -> PluginError {
     PluginError::new("plugin_unavailable", "owning plugin call ended")
 }
 
 impl Host {
-    pub(crate) fn new(out: mpsc::UnboundedSender<String>) -> Self {
+    pub(crate) fn new(
+        out: mpsc::UnboundedSender<String>,
+        state: Arc<RwLock<serve::FeatureState>>,
+    ) -> Self {
         Self {
             out,
             pending: Arc::new(Mutex::new(HashMap::new())),
@@ -51,6 +62,9 @@ impl Host {
             closed: Arc::new(AtomicBool::new(false)),
             capability_call: None,
             cancel: None,
+            queue: Arc::new(Mutex::new(())),
+            state,
+            frame_limit: Arc::new(AtomicUsize::new(1048576)),
         }
     }
 
@@ -68,6 +82,9 @@ impl Host {
             closed: self.closed.clone(),
             capability_call,
             cancel: Some(cancel),
+            queue: self.queue.clone(),
+            state: self.state.clone(),
+            frame_limit: self.frame_limit.clone(),
         }
     }
 
@@ -188,6 +205,10 @@ impl Host {
             signature,
             machine_id,
         })
+    }
+
+    pub(crate) fn next_id(&self) -> u64 {
+        self.next.load(Ordering::Relaxed)
     }
 
     pub(crate) async fn respond(&self, id: String, result: Result<Value, wire::WireError>) {

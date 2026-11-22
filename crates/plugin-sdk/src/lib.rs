@@ -3,6 +3,7 @@
 mod chunk;
 mod error;
 mod host;
+mod http;
 pub mod js;
 mod serve;
 #[cfg(feature = "testing")]
@@ -71,6 +72,7 @@ pub mod types {
 
 pub use error::PluginError;
 pub use host::{Host, MachineSignature};
+pub use http::HttpResponse;
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};
 pub use tokio_util::sync::CancellationToken;
 
