@@ -527,7 +527,10 @@ pub fn raised(
             row.insert(
                 "actions".into(),
                 json!([
-                    open("Answer in terminal", json!({"view":"task","id":id,"tab":"terminal"})),
+                    open(
+                        "Answer in terminal",
+                        json!({"view":"task","id":id,"tab":"terminal"})
+                    ),
                     convert,
                 ]),
             );
