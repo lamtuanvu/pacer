@@ -459,6 +459,10 @@ test("release Rust caches restore shared keys warmed on main; PR CI does not sav
   });
   expect(String(desktopRelease[0]?.workspaces ?? "")).toContain("desktop/src-tauri -> target");
   expect(warmerCaches("desktop")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
+  // tauri-build refuses to compile until the Linux externalBin sidecars exist.
+  const linuxWarm = warmer.jobs.desktop.steps.find(s => s.name === "Warm desktop Linux Rust compilation")?.run ?? "";
+  for (const name of ["pacer", "pacer-core", "pacer-assistant-pacer"]) expect(linuxWarm).toContain(name);
+  expect(linuxWarm).toContain('"binaries/$name-$TARGET"');
 
   const desktopBuildRelease = releaseCaches("desktop-build");
   expect(desktopBuildRelease).toHaveLength(1);
