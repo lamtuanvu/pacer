@@ -18,7 +18,7 @@ import type { Ctx } from "../types";
 import type { SpawnRunner } from "../tasks/api";
 import { delegate as delegateTask, stop as stopTaskCore } from "../core/tasks";
 import { stopWork } from "../core/work";
-import { getWork, registerWork, setWorkDependencies } from "../dispatch/work";
+import { getWork } from "../dispatch/work";
 import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskState } from "../tasks/types";
 import { CoreError } from "../core/errors";
@@ -34,7 +34,7 @@ import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } f
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
 import { stopLiveTurnsForRun } from "./orchestrator";
-import { ensureRootWorkNode, isWorkNodeRun, predecessorTaskIds } from "./worknode";
+import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
 import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
@@ -460,26 +460,6 @@ export async function chooseWorkflow(
  *  start path and by the trigger-transaction advancement, which inserts the row
  *  first and delegates after the transaction, so a crash before the delegation is
  *  an ordinary orphan the reconciliation recovers. */
-/** After a plain delegate, attach the task under the run's root work node when pinned. */
-function attachUnderRoot(ctx: Ctx, run: RunRow, taskId: string, stepId: string): void {
-  if (!isWorkNodeRun(run)) return;
-  const rootId = ensureRootWorkNode(ctx, getRun(ctx, run.id) ?? run);
-  if (readTask(ctx, rootId)?.state !== "running") {
-    try { updateTask(ctx, rootId, t => { t.state = "running"; }); } catch { /* */ }
-  }
-  if (!getWork(ctx, taskId)) {
-    try { registerWork(ctx, taskId, {}, rootId); } catch { /* already registered or parent closed */ }
-  }
-  const def = loadDefinition(ctx, getRun(ctx, run.id) ?? run);
-  if (!def || !getWork(ctx, taskId)) return;
-  const deps = predecessorTaskIds(ctx, getRun(ctx, run.id) ?? run, stepId, def)
-    .filter(id => id !== taskId && getWork(ctx, id));
-  if (deps.length === 0) return;
-  try {
-    setWorkDependencies(ctx, taskId, deps, readTask(ctx, taskId)!.rev);
-  } catch { /* race or cycle guard */ }
-}
-
 async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
   const prompt = renderPrompt(stepDef.prompt, {
     brief: run.brief,
@@ -489,13 +469,22 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
   });
   const key = keyOf(row);
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
-  const task = await e.deps.delegate(ctx, {
-    brief: { goal: prompt, repo: run.repo },
-    kind: stepDef.kind,
-    ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
-    title: stepTitle(run, row.stepId, row.branch),
-    requestId,
-  }, e.spawn);
+  const live = getRun(ctx, run.id) ?? run;
+  const task = isWorkNodeRun(live)
+    ? await startStepTask(ctx, live, { stepId: row.stepId, ...(row.branch !== undefined ? { branch: row.branch } : {}) }, {
+      brief: { goal: prompt, repo: live.repo },
+      kind: stepDef.kind,
+      ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
+      title: stepTitle(live, row.stepId, row.branch),
+      requestId,
+    }, e.deps.delegate, e.spawn)
+    : await e.deps.delegate(ctx, {
+      brief: { goal: prompt, repo: live.repo },
+      kind: stepDef.kind,
+      ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
+      title: stepTitle(live, row.stepId, row.branch),
+      requestId,
+    }, e.spawn);
   // Re-read after the await: the run may have gone terminal while the delegation was
   // pending; then the task is stopped and nothing else happens.
   if (isTerminal(getRun(ctx, run.id))) {
@@ -503,7 +492,6 @@ async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: Ag
     try { updateStep(ctx, key, { status: "stopped", error: "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
     return updateStep(ctx, key, {});
   }
-  attachUnderRoot(ctx, getRun(ctx, run.id) ?? run, task.id, row.stepId);
   return attachAndSettle(ctx, key, task.id, e);
 }
 
@@ -538,19 +526,28 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
     run: { id: run.id, stepId: row.stepId },
   });
   const key = keyOf(row);
-  const task = await e.deps.delegate(ctx, {
-    brief: { goal: prompt, repo: run.repo },
-    kind: stepDef.each.kind,
-    ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
-    title: stepTitle(run, row.stepId, branch),
-    requestId: stepRequestId(run.id, row.stepId, row.attempt, branch),
-  }, e.spawn);
+  const live = getRun(ctx, run.id) ?? run;
+  const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
+  const task = isWorkNodeRun(live)
+    ? await startStepTask(ctx, live, { stepId: row.stepId, branch }, {
+      brief: { goal: prompt, repo: live.repo },
+      kind: stepDef.each.kind,
+      ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
+      title: stepTitle(live, row.stepId, branch),
+      requestId,
+    }, e.deps.delegate, e.spawn)
+    : await e.deps.delegate(ctx, {
+      brief: { goal: prompt, repo: live.repo },
+      kind: stepDef.each.kind,
+      ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
+      title: stepTitle(live, row.stepId, branch),
+      requestId,
+    }, e.spawn);
   if (isTerminal(getRun(ctx, run.id))) {
     try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }
     try { updateStep(ctx, key, { status: "stopped", error: "run stopped while delegating", endedAt: ctx.now }); } catch { /* the row may have settled meanwhile */ }
     return updateStep(ctx, key, {});
   }
-  attachUnderRoot(ctx, getRun(ctx, run.id) ?? run, task.id, row.stepId);
   return attachAndSettle(ctx, key, task.id, e);
 }
 

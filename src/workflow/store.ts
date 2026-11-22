@@ -426,6 +426,20 @@ export function setRootTaskId(ctx: Ctx, runId: string, rootTaskId: string): void
   }
 }
 
+/** Compare-and-set replacement when the previous root is dead (deleted/archived/lost work row). */
+export function replaceRootTaskId(ctx: Ctx, runId: string, oldRootTaskId: string, newRootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND root_task_id = ?",
+  ).run(newRootTaskId, runId, oldRootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId === newRootTaskId) return;
+    throw new CoreError("conflict", `conflict: run ${runId} root task changed`);
+  }
+}
+
 export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
   const db = workflowDatabase(ctx);
   const rows = status === undefined

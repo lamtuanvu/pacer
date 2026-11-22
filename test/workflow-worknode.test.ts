@@ -26,6 +26,9 @@ function fakeDeps() {
     });
     if (input.workParent) {
       registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+      if (input.dependencies?.length) {
+        setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+      }
     }
     if (input.requestId) byRequest.set(input.requestId, task);
     return task;
@@ -111,14 +114,15 @@ test("a dependency edge holds a step until its predecessor is accepted", async (
   expect(pendingDependencies(ctx, two.taskId!)).toEqual([]);
 });
 
-test("the root's maxDescendants rises for a generate plan; ordinary dispatch roots stay at 20", async () => {
+test("the root's maxDescendants follows the concrete graph; ordinary dispatch roots stay at 20", async () => {
   const ctx = fakeCtx();
   addDefinition(ctx, withGenerate, "source");
   const { deps } = fakeDeps();
   const r = await startRun(ctx, { workflow: "t/wn-gen", repo: tmpDir(), brief: "B" }, undefined, deps);
   const run = getRun(ctx, r.id)!;
   const root = getWork(ctx, run.rootTaskId!)!;
-  expect(root.options.maxDescendants).toBe(Math.max(20, 40 + 10));
+  // Parent generate graph is one generate step (+ end); child runs size their own roots.
+  expect(root.options.maxDescendants).toBe(20);
   expect(root.options.maxConcurrent).toBe(4);
 
   const ordinary = createTask(ctx, { brief: { goal: "root", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });

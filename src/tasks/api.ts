@@ -9,7 +9,7 @@ import { readTask as currentTask } from "./store";
 import { buildModelInventory } from "../dispatch/inventory";
 import { meetsRequirements } from "../dispatch/candidates";
 import { MissingStrategyError } from "../config/strategy";
-import { authorizeWorkGrant, getWork, registerWork, revokeWorkGrants, workOptionsSchema, type WorkOptions } from "../dispatch/work";
+import { authorizeWorkGrant, getWork, pendingDependencies, registerWork, revokeWorkGrants, setWorkDependencies, syncDependencyWait, workOptionsSchema, type WorkOptions } from "../dispatch/work";
 import { workspaceBusy } from '../session/agents-state';
 import { withLockSync } from '../core/lock';
 import { agentChecksPending, superviseAgentSessionChecks, stopAgentSessionChecks } from "../session/agents-checks";
@@ -133,7 +133,7 @@ export class DelegateError extends Error {
 
 export const difficultyWarning = () => ({code: "difficulty_missing", field: "difficulty", values: ["simple", "standard", "complex"]});
 
-export interface DelegateInput { difficulty?: Difficulty; difficultySource?: "brief" | "unspecified"; model?: string; /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; callerReach?: import("../messaging/caller-reach").CallerReach; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
+export interface DelegateInput { difficulty?: Difficulty; difficultySource?: "brief" | "unspecified"; model?: string; /** Trusted operation lifetime, never parsed from client/plugin input. */ admissionSignal?:AbortSignal; admissionDeadline?:number; admissionTaskLock?:string; admissionPaths?:readonly string[]; admissionPrepare?:()=>Promise<void>; admissionValidate?:(candidate:Readonly<DelegateInput>)=>void; /** Trusted commit discipline; never parsed from client/plugin input. */ commitWith?: (commit:()=>TaskRecord)=>TaskRecord; admissionContext?:()=>string; dispatch?: WorkOptions; workParent?: string; workGrant?: string; /** Same-root dependency task ids, applied before launch so the runner can be held. */ dependencies?: string[]; workRequest?: {scope:string;key:string;fingerprint:string}; /** Internal pre-admitted launch, never parsed from API input. */ admissionLease?: string; title?: string; requestId?: string; source?: TaskRecord["source"]; repoRef?: RepoRef; client?: string; repoValidated?: boolean; reuseWorktree?: string; baseBranch?: string; baseSha?: string; brief: Brief; kind?: string | null; executor?: string | null; timeoutMin?: number; retryOf?: string; force?: boolean; worktree?: WorktreeRequest; worktree_reason?: string; /** `pacer delegate --interactive`: routed and reviewed like any delegated task, but a `conversation` task with a live terminal. */ interactive?: boolean; /** `pacer delegate --group <name>`: lanes sharing a named Orca parent worktree. */ group?: string; origin?: string; callerReach?: import("../messaging/caller-reach").CallerReach; messaging?: import("../messaging/types").MessagingOverride; grant?: boolean }
 export type SpawnRunner = (ctx: Ctx, taskId: string) => number | undefined;
 
 /** How to re-invoke this pacer: `bun src/cli.ts` in development, the compiled binary otherwise. */
@@ -399,7 +399,31 @@ function commitDelegate(
     ...(input.interactive === false ? {interactive: false} : {}),
     ...(input.interactive ? {interactionMode: "conversation" as const, conversation: {activity: "starting" as const}, interactive: true} : {}),
     ...(input.group ? {group: input.group} : {}),
-  }, created => {if(input.dispatch || managedDispatchConfigured(s))registerWork(ctx,created.id,{...input.dispatch, ...(input.difficulty ? {difficulty:input.difficulty} : {}), ...(input.model ? {model:input.model} : {})},input.workParent,input.workGrant);else if(userStartedWork(ctx,s,input,created,origin)){managedSkip=strictCandidateSkip(ctx,s,input,selection,repo?.path??realpathSafe(input.brief.repo));if(!managedSkip)registerWork(ctx,created.id,{allowDelegation:true,delegationEnforcement:"strict",difficulty:input.difficulty??"standard",model:input.model});}if(input.workRequest){const db=taskDatabase(ctx);db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)").run(input.workRequest.scope,input.workRequest.key,input.workRequest.fingerprint,created.id);}});
+  }, created => {
+    // workParent alone must register under the parent before launch (workflow step tasks).
+    if (input.workParent || input.dispatch || managedDispatchConfigured(s)) {
+      registerWork(ctx, created.id, {
+        ...input.dispatch,
+        ...(input.difficulty ? { difficulty: input.difficulty } : {}),
+        ...(input.model ? { model: input.model } : {}),
+      }, input.workParent, input.workGrant);
+    } else if (userStartedWork(ctx, s, input, created, origin)) {
+      managedSkip = strictCandidateSkip(ctx, s, input, selection, repo?.path ?? realpathSafe(input.brief.repo));
+      if (!managedSkip) {
+        registerWork(ctx, created.id, {
+          allowDelegation: true,
+          delegationEnforcement: "strict",
+          difficulty: input.difficulty ?? "standard",
+          model: input.model,
+        });
+      }
+    }
+    if (input.workRequest) {
+      const db = taskDatabase(ctx);
+      db.query("INSERT INTO work_requests(scope,key,fingerprint,task_id) VALUES(?,?,?,?)")
+        .run(input.workRequest.scope, input.workRequest.key, input.workRequest.fingerprint, created.id);
+    }
+  });
   updateTask(ctx,task.id,t=>{t.difficulty=input.difficulty??input.dispatch?.difficulty??"standard"; t.difficultySource=input.difficultySource??(input.difficulty||input.dispatch?.difficulty?"brief":"unspecified"); if(input.model)t.model=input.model; t.source=input.source ?? "planner"; if(input.requestId)t.requestId=input.requestId; t.placement={requested:input.worktree??"auto",...(input.worktree_reason!==undefined?{reason:input.worktree_reason}:{})};
     if(origin)t.origin=origin;
     // A reach is accepted only for the caller's own participant, like the origin it travels with.
@@ -412,9 +436,25 @@ function commitDelegate(
   if (input.reuseWorktree) updateTask(ctx, task.id, t => {
     t.worktree = input.reuseWorktree; t.baseBranch = input.baseBranch; t.baseSha = input.baseSha;
   });
+  if (input.dependencies?.length && getWork(ctx, task.id)) {
+    setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+  }
+  const heldForDeps = !!getWork(ctx, task.id) && pendingDependencies(ctx, task.id).length > 0;
   if (paused) updateTask(ctx, task.id, t => {
     t.queue = {reason: "paused", since: ctx.now, position: 1 + listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== t.id && x.queue).length};
   });
+  else if (heldForDeps) {
+    updateTask(ctx, task.id, t => {
+      t.state = "queued";
+      t.queue = {
+        reason: "waiting_retry",
+        detail: "Waiting for dispatch capacity or dependencies",
+        since: ctx.now,
+        position: 1 + listTasksWhere(ctx, { states: ["queued"] }).filter(x => x.id !== t.id && x.queue).length,
+      };
+    });
+    syncDependencyWait(ctx, task.id);
+  }
   else { handed = true; launchTaskRunner(ctx, task.id, spawnFn, lease); }
   return readTask(ctx,task.id)!;
   },{timeoutMs:0,staleMs:600000,conflict:true});

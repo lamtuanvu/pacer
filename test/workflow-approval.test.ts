@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask } from "../src/tasks/store";
-import { registerWork } from "../src/dispatch/work";
+import { registerWork, setWorkDependencies } from "../src/dispatch/work";
 import { addDefinition, getRun, listGraphs, stepsOfRun } from "../src/workflow/store";
 import { submitGraph } from "../src/workflow/generate";
 import {
@@ -76,6 +76,9 @@ function fakeDeps() {
     });
     if (input.workParent) {
       registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+      if (input.dependencies?.length) {
+        setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+      }
     }
     if (input.requestId) byRequest.set(input.requestId, task);
     return task;

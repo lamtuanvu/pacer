@@ -7,11 +7,11 @@ import { snapshotTasks } from "../src/api/read-model/tasks";
 import { loadStrategy } from "../src/config/strategy";
 import { computeStatus } from "../src/engine/status";
 import { slotUse } from "../src/engine/slots";
-import { createTask, listActiveAndRecentTasks, listTasksWhere, updateTask } from "../src/tasks/store";
+import { createTask, listActiveAndRecentTasks, listTasksWhere, readTask, updateTask } from "../src/tasks/store";
 import { superviseTask } from "../src/tasks/api";
 import { addDefinition, getRun } from "../src/workflow/store";
 import { startRun, stopRun, type EngineDeps } from "../src/workflow/engine";
-import { registerWork } from "../src/dispatch/work";
+import { registerWork, setWorkDependencies } from "../src/dispatch/work";
 import { fakeCtx, tmpDir } from "./helpers";
 import type { DelegateInput } from "../src/tasks/api";
 import type { TaskRecord } from "../src/tasks/types";
@@ -43,7 +43,12 @@ function fakeDeps() {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
     });
-    if (input.workParent) registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+    if (input.workParent) {
+      registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+      if (input.dependencies?.length) {
+        setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+      }
+    }
     if (input.requestId) byRequest.set(input.requestId, task);
     return task;
   };

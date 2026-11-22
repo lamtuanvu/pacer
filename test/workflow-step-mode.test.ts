@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { fakeCtx, tmpDir } from "./helpers";
 import { createTask, readTask, updateTask, taskDatabase } from "../src/tasks/store";
-import { getWork, registerWork } from "../src/dispatch/work";
+import { getWork, registerWork, setWorkDependencies } from "../src/dispatch/work";
 import {
   addDefinition, getRun, stepsOfRun, workflowDatabase,
 } from "../src/workflow/store";
@@ -24,7 +24,12 @@ function fakeDeps() {
       ...(input.title !== undefined ? { title: input.title } : {}),
       ...(input.requestId !== undefined ? { requestId: input.requestId } : {}),
     });
-    if (input.workParent) registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+    if (input.workParent) {
+      registerWork(ctx, task.id, input.dispatch ?? {}, input.workParent, input.workGrant);
+      if (input.dependencies?.length) {
+        setWorkDependencies(ctx, task.id, input.dependencies, readTask(ctx, task.id)!.rev);
+      }
+    }
     if (input.requestId) byRequest.set(input.requestId, task);
     return task;
   };
