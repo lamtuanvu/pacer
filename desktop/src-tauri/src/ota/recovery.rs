@@ -473,7 +473,9 @@ async fn verify_ready(
         // while the sign-in CLI is still exiting). Absence of a response proves
         // nothing: retry within the original awake deadline, never renew it.
         let observation = match platform.poll_readiness(expected).await {
-            Err(OtaError::Io | OtaError::Unavailable) => ReadinessObservation::Pending,
+            Err(OtaError::Io | OtaError::Unavailable | OtaError::HandshakeClosed) => {
+                ReadinessObservation::Pending
+            }
             other => other?,
         };
         match observation {
@@ -1156,6 +1158,11 @@ mod tests {
         for (errors, outcome, waits) in [
             (
                 vec![OtaError::Io, OtaError::Unavailable],
+                RecoveryOutcome::Committed,
+                2,
+            ),
+            (
+                vec![OtaError::HandshakeClosed, OtaError::Unavailable],
                 RecoveryOutcome::Committed,
                 2,
             ),

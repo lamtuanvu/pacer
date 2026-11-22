@@ -22,7 +22,7 @@ pub(super) fn retry<T>(
             return Err(OtaError::Timeout);
         }
         match result {
-            Err(OtaError::Io | OtaError::Unavailable) => {
+            Err(OtaError::Io | OtaError::Unavailable | OtaError::HandshakeClosed) => {
                 pause((deadline - observed).min(super::super::OBSERVATION_INTERVAL));
             }
             other => return other,
@@ -119,7 +119,48 @@ mod tests {
                 |_| panic!("no pause"),
                 |_| {
                     calls.set(calls.get() + 1);
-                    Err(error.clone())
+                    Err(error)
+                },
+            );
+            assert_eq!(result, Err(error));
+            assert_eq!(calls.get(), 1);
+        }
+    }
+    #[test]
+    fn handshake_closed_is_retried_like_io_without_ignoring_identity_failures() {
+        for error in [
+            OtaError::Io,
+            OtaError::Unavailable,
+            OtaError::HandshakeClosed,
+        ] {
+            let start = Instant::now();
+            let clock = Cell::new(start);
+            let calls = Cell::new(0);
+            let result = retry(
+                start + Duration::from_secs(10),
+                || clock.get(),
+                |d| clock.set(clock.get() + d),
+                |_| {
+                    calls.set(calls.get() + 1);
+                    if calls.get() == 1 {
+                        Err(error)
+                    } else {
+                        Ok(())
+                    }
+                },
+            );
+            assert_eq!(result, Ok(()));
+            assert_eq!(calls.get(), 2);
+        }
+        for error in [OtaError::Identity, OtaError::Invalid] {
+            let calls = Cell::new(0);
+            let result: Result<(), _> = retry(
+                Instant::now() + Duration::from_secs(1),
+                Instant::now,
+                |_| panic!("no pause"),
+                |_| {
+                    calls.set(calls.get() + 1);
+                    Err(error)
                 },
             );
             assert_eq!(result, Err(error));

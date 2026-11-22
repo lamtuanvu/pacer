@@ -324,7 +324,9 @@ async fn readiness(
         // yet. Absence of a response proves nothing: retry within the original
         // awake deadline, never renew it.
         let observation = match p.poll_readiness(m, branch, launch).await {
-            Err(OtaError::Io | OtaError::Unavailable) => AdoptionReadiness::Pending,
+            Err(OtaError::Io | OtaError::Unavailable | OtaError::HandshakeClosed) => {
+                AdoptionReadiness::Pending
+            }
             other => other?,
         };
         match observation {
@@ -948,10 +950,10 @@ mod tests {
                     return Ok(AdoptionReadiness::Failed);
                 }
                 if w.clock < w.unreachable_until {
-                    return Err(if w.clock % 2 == 0 {
-                        OtaError::Io
-                    } else {
-                        OtaError::Unavailable
+                    return Err(match w.clock % 3 {
+                        0 => OtaError::Io,
+                        1 => OtaError::Unavailable,
+                        _ => OtaError::HandshakeClosed,
                     });
                 }
                 if w.clock < w.ready_at {
@@ -1102,6 +1104,18 @@ mod tests {
             RecoveryOutcome::Committed
         );
         assert!(p.world.borrow().clock >= 5);
+    }
+    #[tokio::test]
+    async fn handshake_closed_readiness_stays_pending_like_io() {
+        let (_t, store, p) = authorized().await;
+        // clock 2 → HandshakeClosed under the % 3 rotation above.
+        p.world.borrow_mut().unreachable_until = 3;
+        p.world.borrow_mut().clock = 2;
+        assert_eq!(
+            execute_adoption(&store, &p).await.unwrap(),
+            RecoveryOutcome::Committed
+        );
+        assert!(p.world.borrow().clock >= 3);
     }
     #[tokio::test]
     async fn readiness_accepts_119999_but_refuses_exact_120000_awake_ms() {
