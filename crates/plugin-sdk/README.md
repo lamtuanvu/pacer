@@ -2,7 +2,7 @@
 
 The Rust plugin SDK for pacer, implementing the `@pacer/plugin` wire contract.
 
-Version 0.1 supports plugin protocol 1.x. SDK and protocol crate versions are independent of the pacer application version.
+Version 0.4 supports plugin protocol 1.x. SDK and protocol crate versions are independent of the pacer application version.
 
 ## Install
 
@@ -66,6 +66,85 @@ capability calls (plugin → host); `ctx.progress` sends `$/progress`
 notifications. For typed params/results, use `handle_typed` together with the
 generated types and enable the `testing` feature.
 
+## Features
+
+The SDK negotiates optional protocol features with the host on `plugin.hello`,
+mirroring the feature gate in `@pacer/plugin`. Call `Plugin::features(...)` with
+the feature names from `pacer_plugin::TS_SDK_FEATURES` (or a subset) to opt in:
+
+```rust
+use pacer_plugin::{TS_SDK_FEATURES, FEATURE_CHUNKED_RESULTS};
+
+let plugin = Plugin::new(manifest)
+    .features(TS_SDK_FEATURES)
+    .handle("usage.read", |_params, ctx| async move {
+        // Negotiated features read back through the request context.
+        if ctx.negotiated(FEATURE_CHUNKED_RESULTS) {
+            // ...
+        }
+        Ok(json!({}))
+    });
+```
+
+The negotiated set is the plugin's requested features intersected with the
+features the host offered and the minimum protocol version each feature requires.
+`Ctx::negotiated(feature)` reports whether a feature is active for a call.
+Features are echoed back in the `hello` response only when the plugin requested
+them, so plugins that never call `.features(...)` keep the pre-negotiation
+hello shape.
+
+Chunked results are enabled automatically when `chunkedResults` is negotiated:
+a `usage.read` result larger than 768 KiB is delivered as `$/resultChunk`
+messages and reassembled by the host, so large results are not bounded by a
+single JSON-RPC frame.
+
+## Capability calls and cancellation
+
+`ctx.host.call(method, params)` makes a capability call and returns the result.
+The owning call's cancellation token is honoured:
+
+- a call made after the owning call has been cancelled is refused before a
+  round trip (`plugin_unavailable` "owning plugin call ended");
+- a call that is pending when the owning call is cancelled is rejected with the
+  same error;
+- a call whose reply is in flight but unsent reports the plugin's result
+  (matching the TypeScript SDK's scoped-abort behaviour).
+
+`ctx.host.call_cleanup(method, params)` is the cleanup variant
+(`cleanupCall`): it performs the call even when the owning call has been
+cancelled, which lets a plugin tear down resources after cancellation.
+
+`ctx.host.secrets_present(reference)` checks whether a secret reference
+(`secrets:...`) is present (`capability.secrets.check`).
+
+## Error reasons
+
+`PluginError` carries an optional `reason` (`with_reason`). The `reason` is
+propagated to the host on the wire only for `capability_denied` with reason
+`credential_reflection`; for every other combination it is dropped, matching
+`@pacer/plugin`. The host maps a `capability_denied`/`credential_reflection`
+reason back into the plugin as `PluginError.reason`. The testing `Harness`
+simulates host-side errors with `HostError`
+(`HostError::new(code, message).reason("credential_reflection")`); the SDK maps
+a `HostError.reason` onto the handler's `PluginError` for the same
+`capability_denied` + `credential_reflection` combination.
+
+## JavaScript helpers
+
+`pacer_plugin::js` ports the small text and number helpers the bundled
+TypeScript entry points rely on, so Rust rewrites of those plugins behave
+identically:
+
+- `js::trim` — ECMAScript `trim` (WhiteSpace + LineTerminator, incl. U+FEFF);
+- `js::utf16_len` / `js::slice_utf16` — UTF-16 code-unit counting and
+  `String.prototype.slice`, mostly (`slice` splits a surrogate pair into
+  `U+FFFD`, a documented, deliberate deviation);
+- `js::number_string` — `Number.prototype.toString` (via `ryu-js`);
+- `js::safe_integer` / `js::finite_number` — `Number.isSafeInteger` and
+  `Number.isFinite` over JSON values;
+- `js::base64` — strict (`encode`/`decode`) and lenient (`decode_lenient`,
+  like `Buffer.from(s, "base64")`) base64.
+
 ## Manifest example
 
 `pacer-plugin.json` next to the binary (or in the plugin folder under
@@ -127,6 +206,16 @@ async fn usage_read_via_harness() {
 
 A capability with no `on_capability` answer is denied with `capability_denied`.
 `Harness.start` requires the `testing` feature (`--features pacer-plugin/testing`).
+
+The harness sends numeric request ids (as the bundled `process.ts` does) and
+answers `$/resultChunk` itself unless the test registers its own handler. Use
+`on_capability_async` to answer with an async future that returns
+`Result<Value, HostError>`, and `call_unowned` to send a request with no
+owning-call `_meta`. `raw_results()` returns replies exactly as received
+(including `{_chunkedResult:{bytes}}`), while `call` always returns the
+reassembled value; `hello_result()` exposes the raw `plugin.hello` reply. An
+error response with only `code`/`message` maps to `HostError` so tests can also
+use `on_capability` unchanged.
 
 ## Protocol reference
 
