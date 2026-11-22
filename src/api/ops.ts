@@ -11,6 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
@@ -460,8 +461,8 @@ export const OPS: Record<string, OpDef> = {
     q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
     const limit=p.limit??20, {q,...rest}=p;
-    // Over-fetch so filtering engine-owned orchestrate tasks still fills the page (D2.12).
-    const rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+20}).filter(t=>t.kind!=="orchestrate");
+    // Over-fetch so filtering engine-owned tasks still fills the page (D2.12).
+    const rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+20}).filter(t=>!isEngineOwnedKind(t.kind));
     const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
     if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
     return page;

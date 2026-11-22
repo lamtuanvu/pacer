@@ -785,11 +785,18 @@ pub fn task_list_page(
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<Value, Error> {
     let limit = options.limit.unwrap_or(20);
+    // Over-fetch so filtering engine-owned kinds still fills the page (D2.12).
     let fetch = TaskListOptions {
-        limit: Some(limit.saturating_add(1)),
+        limit: Some(limit.saturating_add(20)),
         ..options.clone()
     };
-    let rows = select_task_list(ctx, store, &fetch)?;
+    let rows: Vec<_> = select_task_list(ctx, store, &fetch)?
+        .into_iter()
+        .filter(|t| {
+            let kind = text(&t["kind"]);
+            kind != "orchestrate" && kind != "workflow-root"
+        })
+        .collect();
     let page = if rows.len() > limit {
         &rows[..limit]
     } else {
@@ -810,9 +817,14 @@ pub fn snapshot_tasks(
     store: &mut TaskStore,
     alive: &dyn Fn(i64) -> bool,
 ) -> Result<Vec<Value>, Error> {
+    // Engine-owned tasks stay out of ordinary task lists (D2.12), matching TS.
     let selected: Vec<_> = records
         .iter()
-        .filter(|t| !truth(&t["archived"]))
+        .filter(|t| {
+            !truth(&t["archived"])
+                && text(&t["kind"]) != "orchestrate"
+                && text(&t["kind"]) != "workflow-root"
+        })
         .cloned()
         .collect();
     let mut rows = api_tasks(ctx, active, &selected, store, alive)?;

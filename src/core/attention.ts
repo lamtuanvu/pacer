@@ -2,6 +2,7 @@ import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import { listActiveAndRecentTasks } from "../tasks/store";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { taskRecordStatus } from "../tasks/api";
 import { snapshotTasks } from "../api/read-model/tasks";
 import { buildExecutors, buildAccounts, buildPlanner } from "../api/read-model/capacity";
@@ -13,9 +14,9 @@ import { dismiss as dismissTasks } from "./tasks";
 import { discoveryRuleInput } from "../discovery/prompts";
 import { deriveWorkflowAttention } from "../workflow/attention";
 
-/** Ordinary attention never surfaces the engine-owned orchestrator task (D2.12). */
+/** Ordinary attention never surfaces engine-owned tasks (D2.12). */
 function attentionTasks(ctx: Ctx) {
-  return listActiveAndRecentTasks(ctx).filter(t => t.kind !== "orchestrate");
+  return listActiveAndRecentTasks(ctx).filter(t => !isEngineOwnedKind(t.kind));
 }
 
 async function raisedItems(ctx: Ctx) {

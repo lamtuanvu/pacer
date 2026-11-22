@@ -319,7 +319,7 @@ describe("orchestrator grant end-to-end (executorEnv → connectClient → HTTP)
     expect(RUN_GRANT_OPS).toContain("step.retry");
     expect(RUN_GRANT_OPS as readonly string[]).not.toContain("run.answer");
     expect(RUN_GRANT_OPS as readonly string[]).not.toContain("question.answer");
-    expect(RUN_GRANT_OPS as readonly string[]).not.toContain("run.submit_graph");
+    expect(RUN_GRANT_OPS as readonly string[]).toContain("run.submit_graph");
   });
 
   test("child-run targets are inside the root grant via rootRunId", () => {

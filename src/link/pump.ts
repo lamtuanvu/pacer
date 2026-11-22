@@ -1,5 +1,6 @@
 import { preparePumpPublish, recoverPumpPublish, finishPumpPublish, pendingPumpNotifications, finishPumpNotifications } from "./pump-recovery";
 import { visibleTaskState } from "../tasks/types";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { agentSessionsRevision } from '../session/agents-state';
 import { taskAccountModel } from "../tasks/account-model";
 import { readProjectStrategies, type ProjectStrategyFile } from "../config/project-strategies";
@@ -44,8 +45,8 @@ import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx, ids?: Set<string>):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[],beforeAppend?:Parameters<typeof publish>[2]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
 export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>{
   const rows=ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity);
-  // Engine-owned orchestrate tasks stay out of link events (A-M4); machine.used still counts them elsewhere.
-  return rows.filter(t=>t.kind!=="orchestrate");
+  // Engine-owned tasks stay out of link events (A-M4); orchestrate still counts in machine.used elsewhere.
+  return rows.filter(t=>!isEngineOwnedKind(t.kind));
 },publish};
 export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
   return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"

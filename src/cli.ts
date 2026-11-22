@@ -20,6 +20,7 @@ import { callOp } from "./api/ops";
 import { recheckDiagnostic } from "./core/doctor-fix";
 import { doctor as setupDoctor } from "./core/setup";
 import { readTask } from "./tasks/store";
+import { isEngineOwnedKind } from "./tasks/engine-owned";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -392,7 +393,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
   const list = core.tasks.list(ctx, { all: opts.all === true, ...(opts.all === true ? { limit: Infinity } : {}) })
-    .filter(t => t.kind !== "orchestrate");
+    .filter(t => !isEngineOwnedKind(t.kind));
   if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {

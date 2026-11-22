@@ -1847,6 +1847,268 @@ impl<'de> ::serde::Deserialize<'de> for RunStopParamsId {
             })
     }
 }
+///`RunSubmitGraphParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id",
+///    "source",
+///    "step"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    },
+///    "source": {
+///      "anyOf": [
+///        {
+///          "type": "string",
+///          "maxLength": 262144,
+///          "minLength": 1
+///        },
+///        {
+///          "type": "object",
+///          "additionalProperties": {},
+///          "propertyNames": {
+///            "type": "string"
+///          }
+///        }
+///      ]
+///    },
+///    "step": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct RunSubmitGraphParams {
+    pub id: RunSubmitGraphParamsId,
+    pub source: RunSubmitGraphParamsSource,
+    pub step: RunSubmitGraphParamsStep,
+}
+///`RunSubmitGraphParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunSubmitGraphParamsId(::std::string::String);
+impl ::std::ops::Deref for RunSubmitGraphParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunSubmitGraphParamsId> for ::std::string::String {
+    fn from(value: RunSubmitGraphParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunSubmitGraphParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSubmitGraphParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunSubmitGraphParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunSubmitGraphParamsSource`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "anyOf": [
+///    {
+///      "type": "string",
+///      "maxLength": 262144,
+///      "minLength": 1
+///    },
+///    {
+///      "type": "object",
+///      "additionalProperties": {},
+///      "propertyNames": {
+///        "type": "string"
+///      }
+///    }
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(untagged)]
+pub enum RunSubmitGraphParamsSource {
+    Variant0(RunSubmitGraphParamsSourceVariant0),
+    Variant1(::serde_json::Map<::std::string::String, ::serde_json::Value>),
+}
+impl ::std::convert::From<&Self> for RunSubmitGraphParamsSource {
+    fn from(value: &RunSubmitGraphParamsSource) -> Self {
+        value.clone()
+    }
+}
+impl ::std::convert::From<RunSubmitGraphParamsSourceVariant0> for RunSubmitGraphParamsSource {
+    fn from(value: RunSubmitGraphParamsSourceVariant0) -> Self {
+        Self::Variant0(value)
+    }
+}
+impl ::std::convert::From<::serde_json::Map<::std::string::String, ::serde_json::Value>>
+    for RunSubmitGraphParamsSource
+{
+    fn from(value: ::serde_json::Map<::std::string::String, ::serde_json::Value>) -> Self {
+        Self::Variant1(value)
+    }
+}
+///`RunSubmitGraphParamsSourceVariant0`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 262144,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunSubmitGraphParamsSourceVariant0(::std::string::String);
+impl ::std::ops::Deref for RunSubmitGraphParamsSourceVariant0 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunSubmitGraphParamsSourceVariant0> for ::std::string::String {
+    fn from(value: RunSubmitGraphParamsSourceVariant0) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunSubmitGraphParamsSourceVariant0 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 262144usize {
+            return Err("longer than 262144 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSubmitGraphParamsSourceVariant0 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunSubmitGraphParamsSourceVariant0 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`RunSubmitGraphParamsStep`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct RunSubmitGraphParamsStep(::std::string::String);
+impl ::std::ops::Deref for RunSubmitGraphParamsStep {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<RunSubmitGraphParamsStep> for ::std::string::String {
+    fn from(value: RunSubmitGraphParamsStep) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for RunSubmitGraphParamsStep {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for RunSubmitGraphParamsStep {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for RunSubmitGraphParamsStep {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
 ///`StepResultParams`
 ///
 /// <details><summary>JSON schema</summary>

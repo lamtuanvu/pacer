@@ -696,6 +696,8 @@ async function superviseTaskRecord(ctx: Ctx, t: TaskRecord, spawn: SpawnRunner, 
       return readTask(ctx, id)!;
     }
     if (latest.stopPending && latest.executorProvider && deadRun) return latest;
+    // Engine-owned workflow-root stays running without a process for the run's life.
+    if (t.kind === "workflow-root") return t;
     const neverStarted = !t.queue && ["queued", "running"].includes(t.state) && !t.attemptStartedAt && !t.attempts.length && !alive(t.runnerPid) && ctx.now - t.createdAt > 600;
     if (neverStarted || (t.state === "running" && (t.attempts.length > 0 || t.attemptStartedAt !== undefined || ctx.now - t.createdAt > 600) && !alive(t.runnerPid))) {
       return updateTask(ctx, id, (x) => {
@@ -716,6 +718,7 @@ export async function superviseTasks(ctx: Ctx, spawn: SpawnRunner = spawnRunner,
   const active = listTasksWhere(ctx, { states: ["queued", "running"] });
   const gaps = listTasksWhere(ctx, { states: ["stopped"], updatedSince: ctx.now - 86400 }).filter(t => t.handover?.state === "handed-over");
   const needsSupervision = [...active, ...gaps].filter(t => {
+    if (t.kind === "workflow-root") return false;     // engine-owned synthetic root
     if (t.run?.host) return false;                    // remote
     // A healthy local runner still needs supervision when stop is pending: owned
     // attempts block inside executor.run and only settle after executor.stop
