@@ -100,9 +100,18 @@ test("paired owner revalidation checks both process signatures, sealed bundle an
   expect(f.checked).toEqual(expect.arrayContaining([
     `process:cli:${f.root.pid}`, `process:cli:${f.own.pid}`, `static:desktop:${f.app}`, `static:cli:${f.front}`, `static:cli:${f.core}`,
   ]));
-  expect(() => assertNativeProcessCoverage(f.processes, f.root, [], f.front)).toThrow();
+  // Core is a service-tree child of Root; install coverage no longer requires an explicit verified list for it.
+  expect(() => assertNativeProcessCoverage(f.processes, f.root, [], f.front)).not.toThrow();
   expect(() => assertNativeProcessCoverage(f.processes, f.root, [], f.front, [verified.process])).not.toThrow();
-  expect(() => assertNativeProcessCoverage(f.processes, f.root, [], f.front, [{ ...verified.process, birth: "reused" }])).toThrow();
+  const foreign = {
+    process: { pid: verified.process.pid + 1000, bootId: verified.process.bootId, birth: "foreign:1" },
+    uid: process.getuid!(),
+    parentPid: 1,
+    name: "pacer",
+    executable: "/opt/foreign-pacer",
+  };
+  expect(() => assertNativeProcessCoverage([...f.processes, foreign], f.root, [], f.front)).toThrow();
+  expect(() => assertNativeProcessCoverage([...f.processes, foreign], f.root, [], f.front, [foreign.process])).not.toThrow();
   for (const rejected of [f.root.pid, f.own.pid]) {
     expect(() => verifyPairedNativeServiceOwner({ ...f.authority, verifyProcess: (identity, role) => {
       if (identity.pid === rejected) throw Error("signature refused");

@@ -133,6 +133,16 @@ pub fn view(u: &V) -> UpdateView {
             )
         ));
     }
+    if u["phase"] == "waiting" {
+        let n = arr(&u["blockers"]).len();
+        if n > 0 {
+            owned_detail = Some(format!(
+                "Update will install when {n} running task{} finish{}. You can cancel while it waits.",
+                if n == 1 { "" } else { "s" },
+                if n == 1 { "es" } else { "" },
+            ));
+        }
+    }
     let actions = arr(&u["actions"]);
     let has = |a: &str| actions.iter().any(|v| text(v) == a);
     let adoption = &u["adoption"];
