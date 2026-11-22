@@ -15,6 +15,7 @@ import { exerciseRepair } from "./core-repair";
 import { exerciseNativePluginStdio, exerciseNativeStdio } from "./native-stdio";
 import { exerciseNativeHostEffects } from "./native-host-effects";
 import { exerciseNativePluginOwner } from "./native-plugin-owner";
+import { exerciseDeepServe } from "./deep-serve";
 import { CONTROL_COMMANDS, controlMain } from "./control/cli";
 import { buildUpgradeFixtures, cleanupUpgrade, forceUpgradeHandoverFailure, kickstartUpgradeService, startUpgradeService, upgradeIdentity, upgradeInstall, upgradeLogin, upgradePacer, UPGRADE_BUILDS, type UpgradeBuild } from "./upgrade";
 import { armSessionStreamFault, type StreamFaultMode } from "./session-stream-fault";
@@ -54,6 +55,10 @@ const usage = `usage: bun run live <command> [--id <id>]
                                   --stop-service stops an attached sandbox service mid-session
   native-plugin-owner --id <id>   crash, backoff, second-serve refusal and restart cycle of the
                                   service's plugin owner (--native-plugin-host sandbox)
+  deep-serve --id <id>            deep-home serve: the plugin owner socket binds in the private
+                                  per-user directory, the fallback is logged once, a second serve
+                                  is refused, and stop cleans it up (--native-plugin-host sandbox
+                                  whose run/host.sock exceeds the socket path limit)
   upgrade build|start --from prefeature|baseline|candidate|pacer -- <args...>|login [--screen <screen>]|fail-handover|install|kickstart|identity --task <id>|--terminal <id>|cleanup --id <id>
                                   service-upgrade fixtures on an unseeded sandbox stopped with down --keep (macOS)
   stream-fault arm --id <id> --mode lost-input-ack|read-response-timeout
@@ -220,6 +225,11 @@ export async function main(argv: string[], outer: NodeJS.ProcessEnv = process.en
   if (command === "native-plugin-owner") {
     if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live native-plugin-owner --id <id>");
     await exerciseNativePluginOwner(loadSession(id));
+    return 0;
+  }
+  if (command === "deep-serve") {
+    if (!id || options.size !== 1 || positionals.length || separator >= 0 || flags.size) throw Error("usage: live deep-serve --id <id>");
+    await exerciseDeepServe(loadSession(id));
     return 0;
   }
   if (command === "updater") {

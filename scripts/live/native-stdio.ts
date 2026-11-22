@@ -124,8 +124,9 @@ export function verifyPluginStdio(replies: Map<number, PluginReply>, stderr: str
     if (count !== (id === 1 ? 0 : 1)) throw Error(`native trace for ${method} ${id} appeared ${count} times`);
   }
   const owner = lines.filter(line => line.startsWith("native plugin owner "));
-  // An owning connection binds in run/, or in the private per-user pacer-<hash>/ directory for a deep home.
-  const expected = ownership === "own" ? /^native plugin owner own (\/.*\/(?:run|pacer-[0-9a-f]{16})\/s[0-9a-f]{12}\.sock)$/ : /^native plugin owner attach (\/.*\/run\/host\.sock)$/;
+  // An owning connection binds in run/, or in the private per-user pacer-<hash>/ directory for a deep home;
+  // an attached connection follows the service's host.sock to wherever that was bound.
+  const expected = ownership === "own" ? /^native plugin owner own (\/.*\/(?:run|pacer-[0-9a-f]{16})\/s[0-9a-f]{12}\.sock)$/ : /^native plugin owner attach (\/.*\/(?:run|pacer-[0-9a-f]{16})\/host\.sock)$/;
   const match = owner.length === 1 ? expected.exec(owner[0]) : null;
   if (ownership === "core" ? owner.length !== 0 : !match) {
     throw Error(`plugin ownership trace differed from ${ownership}: ${owner.join(" | ") || "none"}`);
