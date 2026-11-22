@@ -148,8 +148,13 @@ export async function settleAnsweredQuestion(
   id: string,
   input: { answer: string; note?: string; expectRev: number; answeredBy: string },
 ): Promise<QuestionRow> {
-  const answered = answerQuestionRecord(ctx, id, input);
-  completeWakeupRef(ctx, answered.runId, "question", answered.id);
+  // Record + wake completion are one immediate transaction (M-b): a crash between
+  // them must not leave an open wake for an answered question.
+  const answered = workflowDatabase(ctx).transaction(() => {
+    const row = answerQuestionRecord(ctx, id, input);
+    completeWakeupRef(ctx, row.runId, "question", row.id);
+    return row;
+  })();
   await publishQuestionEntity(ctx, answered);
   return answered;
 }
@@ -359,22 +364,26 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
   if (current.answerer !== "orchestrator") {
     throw new CoreError("not_allowed", "Only the current orchestrator answerer can escalate");
   }
-  const escalated = escalateQuestionRecord(ctx, input.id, {
-    suggested: input.suggested,
-    expectRev: input.expectRev,
-    by: "orchestrator",
-  });
-  // Person now owns the question: complete both the q_ wake (executor asks) and the
-  // human-step stepWakeRef so needsOrchestrator / turn settle cannot re-wake forever.
-  completeWakeupRef(ctx, current.runId, "question", current.id);
-  if (current.askerKind === "human_step") {
-    completeWakeupRef(
-      ctx,
-      current.runId,
-      "question",
-      stepWakeRef(current.runId, current.stepId, current.attempt, current.branch),
-    );
-  }
+  // Escalate record + wake completion share one transaction (M-b).
+  const escalated = workflowDatabase(ctx).transaction(() => {
+    const row = escalateQuestionRecord(ctx, input.id, {
+      suggested: input.suggested,
+      expectRev: input.expectRev,
+      by: "orchestrator",
+    });
+    // Person now owns the question: complete both the q_ wake (executor asks) and the
+    // human-step stepWakeRef so needsOrchestrator / turn settle cannot re-wake forever.
+    completeWakeupRef(ctx, current.runId, "question", current.id);
+    if (current.askerKind === "human_step") {
+      completeWakeupRef(
+        ctx,
+        current.runId,
+        "question",
+        stepWakeRef(current.runId, current.stepId, current.attempt, current.branch),
+      );
+    }
+    return row;
+  })();
   void publishQuestionEntity(ctx, escalated);
   return escalated;
 }
@@ -398,8 +407,9 @@ export async function answerQuestion(
       ? "answer must contain 1–2000 characters"
       : msg);
   }
+  const unknownMsg = `unknown question ${raw.id}`;
   const current = getQuestion(ctx, raw.id);
-  if (!current) throw new CoreError("not_found", `unknown question ${raw.id}`);
+  if (!current) throw new CoreError("not_found", unknownMsg);
   if (current.status !== "open") {
     throw new CoreError("conflict", `conflict: question ${raw.id} is ${current.status}`);
   }
@@ -444,6 +454,8 @@ export async function answerQuestion(
     }
     answeredBy = orchestratorTaskIdForGrant(ctx, grant) ?? "orchestrator";
   } else {
+    // Executor existence oracle: same not_found text as an unknown id (M-h).
+    if (isExecutorSession(ctx)) throw new CoreError("not_found", unknownMsg);
     if (!personCaller(ctx)) {
       throw new CoreError("not_allowed", "Only the person can answer this question");
     }
@@ -469,35 +481,55 @@ export async function answerQuestion(
 
   // Yield so a concurrent answer can race the compare-and-set (same pattern as answerHumanStep).
   await Promise.resolve();
-  // Rev must win before any delivery so a stale expect_rev cannot resume then conflict (R2-I2).
-  if (current.rev !== parsed.expectRev) {
+  // Re-read after the yield (M-c): a withdraw/escalate during the gap must not use a stale rev.
+  const afterYield = getQuestion(ctx, current.id);
+  if (!afterYield) throw new CoreError("not_found", `unknown question ${current.id}`);
+  if (afterYield.status !== "open") {
+    // Record-only retry: if the asker was already resumed, do not fail the caller (M-c).
+    if (afterYield.status === "answered" && current.askerTaskId) {
+      const asker = readTask(ctx, current.askerTaskId);
+      if (asker?.question?.answer !== undefined) return afterYield;
+    }
+    throw new CoreError("conflict", `conflict: question ${current.id} is ${afterYield.status}`);
+  }
+  if (afterYield.rev !== parsed.expectRev) {
     throw new CoreError("conflict", `conflict: question ${current.id} changed since rev ${parsed.expectRev}`);
   }
   const deliveryBody = parsed.note !== undefined
     ? `${parsed.answer}\n\n${parsed.note}`
     : parsed.answer;
+  // task.answer delivery is capped at 2000 chars; refuse the combined body up front (M-e).
+  if (deliveryBody.length > 2000) {
+    throw new CoreError(
+      "invalid_input",
+      "answer and note together must be at most 2000 characters (task.answer delivery limit)",
+    );
+  }
 
-  if (current.askerKind === "orchestrator") {
-    const answered = answerQuestionRecord(ctx, current.id, {
-      answer: parsed.answer,
-      ...(parsed.note !== undefined ? { note: parsed.note } : {}),
-      expectRev: parsed.expectRev,
-      answeredBy,
-    });
-    // Person answered an orchestrator ask: wake the orchestrator with the answer in the turn prompt.
-    enqueueWakeup(ctx, {
-      runId: current.runId,
-      cause: "question",
-      ref: current.id,
-      createdAt: ctx.now,
-    });
+  if (afterYield.askerKind === "orchestrator") {
+    // Answer record + wake enqueue share one transaction (M-b).
+    const answered = workflowDatabase(ctx).transaction(() => {
+      const row = answerQuestionRecord(ctx, afterYield.id, {
+        answer: parsed.answer,
+        ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+        expectRev: parsed.expectRev,
+        answeredBy,
+      });
+      enqueueWakeup(ctx, {
+        runId: afterYield.runId,
+        cause: "question",
+        ref: afterYield.id,
+        createdAt: ctx.now,
+      });
+      return row;
+    })();
     await publishQuestionEntity(ctx, answered);
     return answered;
   }
 
-  const blocking = current.blocks === "step" || current.blocks === "branch";
-  if (blocking && current.askerTaskId) {
-    const asker = readTask(ctx, current.askerTaskId);
+  const blocking = afterYield.blocks === "step" || afterYield.blocks === "branch";
+  if (blocking && afterYield.askerTaskId) {
+    const asker = readTask(ctx, afterYield.askerTaskId);
     if (asker?.question && asker.question.answer === undefined) {
       // Deliver first so a not-yet-needs_input / stopped asker leaves the record open (retryable).
       if (asker.state !== "needs_input" && !directInputAvailable(asker)) {
@@ -507,11 +539,11 @@ export async function answerQuestion(
         );
       }
       // task.answer must not also CAS the record (R2-BL1); we settle after delivery.
-      await answerTask(ctx, current.askerTaskId, deliveryBody, {}, {
+      await answerTask(ctx, afterYield.askerTaskId, deliveryBody, {}, {
         skipLinkedQuestionRecord: true,
         ...(deps.spawnRunner ? { spawnRunner: deps.spawnRunner } : {}),
       });
-      return settleAnsweredQuestion(ctx, current.id, {
+      return settleAnsweredQuestion(ctx, afterYield.id, {
         answer: parsed.answer,
         ...(parsed.note !== undefined ? { note: parsed.note } : {}),
         expectRev: parsed.expectRev,
@@ -519,8 +551,49 @@ export async function answerQuestion(
       });
     }
     if (asker?.question && asker.question.answer !== undefined) {
-      // Already delivered (e.g. via task.answer); record only — no second message.
-      return settleAnsweredQuestion(ctx, current.id, {
+      // Already delivered (e.g. via task.answer); record the delivered text (M-f).
+      return settleAnsweredQuestion(ctx, afterYield.id, {
+        answer: asker.question.answer,
+        expectRev: parsed.expectRev,
+        answeredBy,
+      });
+    }
+  }
+
+  // blocks:nothing and prompt-convert: deliver first, then settle (M-d).
+  if (afterYield.askerTaskId && afterYield.blocks === "nothing") {
+    insertMessage(ctx, {
+      taskId: afterYield.askerTaskId,
+      rootId: rootOf(ctx, `task:${afterYield.askerTaskId}`),
+      from: "human",
+      to: `task:${afterYield.askerTaskId}`,
+      kind: "message",
+      body: deliveryBody,
+      replyTo: null,
+      requestId: `question.answer:${afterYield.id}:${afterYield.rev + 1}`,
+    });
+    return settleAnsweredQuestion(ctx, afterYield.id, {
+      answer: parsed.answer,
+      ...(parsed.note !== undefined ? { note: parsed.note } : {}),
+      expectRev: parsed.expectRev,
+      answeredBy,
+    });
+  }
+  if (afterYield.askerTaskId && blocking) {
+    const asker = readTask(ctx, afterYield.askerTaskId);
+    // Prompt-convert only (no task.question): deliver as a message first (M-d).
+    if (!asker?.question) {
+      insertMessage(ctx, {
+        taskId: afterYield.askerTaskId,
+        rootId: rootOf(ctx, `task:${afterYield.askerTaskId}`),
+        from: "human",
+        to: `task:${afterYield.askerTaskId}`,
+        kind: "message",
+        body: deliveryBody,
+        replyTo: null,
+        requestId: `question.answer:${afterYield.id}:${afterYield.rev + 1}`,
+      });
+      return settleAnsweredQuestion(ctx, afterYield.id, {
         answer: parsed.answer,
         ...(parsed.note !== undefined ? { note: parsed.note } : {}),
         expectRev: parsed.expectRev,
@@ -529,42 +602,12 @@ export async function answerQuestion(
     }
   }
 
-  const answered = await settleAnsweredQuestion(ctx, current.id, {
+  return settleAnsweredQuestion(ctx, afterYield.id, {
     answer: parsed.answer,
     ...(parsed.note !== undefined ? { note: parsed.note } : {}),
     expectRev: parsed.expectRev,
     answeredBy,
   });
-
-  if (current.askerTaskId && current.blocks === "nothing") {
-    insertMessage(ctx, {
-      taskId: current.askerTaskId,
-      rootId: rootOf(ctx, `task:${current.askerTaskId}`),
-      from: "human",
-      to: `task:${current.askerTaskId}`,
-      kind: "message",
-      body: deliveryBody,
-      replyTo: null,
-      requestId: `question.answer:${current.id}:${answered.rev}`,
-    });
-  } else if (current.askerTaskId && blocking) {
-    const asker = readTask(ctx, current.askerTaskId);
-    // Prompt-convert only (no task.question): deliver as a message.
-    if (!asker?.question) {
-      insertMessage(ctx, {
-        taskId: current.askerTaskId,
-        rootId: rootOf(ctx, `task:${current.askerTaskId}`),
-        from: "human",
-        to: `task:${current.askerTaskId}`,
-        kind: "message",
-        body: deliveryBody,
-        replyTo: null,
-        requestId: `question.answer:${current.id}:${answered.rev}`,
-      });
-    }
-  }
-
-  return answered;
 }
 
 function RUN_TERMINAL(status: string): boolean {

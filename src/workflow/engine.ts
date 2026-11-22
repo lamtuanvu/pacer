@@ -152,7 +152,16 @@ function liveRun(ctx: Ctx, runId: string): RunRow {
  *  stopped run). */
 async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOptions): Promise<RunRow> {
   const run = liveRun(ctx, runId);
-  const updated = updateRun(ctx, runId, run.rev, patch);
+  // Terminal status + question withdrawal share one transaction (M-j): a crash
+  // between updateRun and withdraw must not leave open questions on a terminal run.
+  let withdrawn: ReturnType<typeof withdrawOpenQuestionsForRun> = [];
+  const updated = workflowDatabase(ctx).transaction(() => {
+    const next = updateRun(ctx, runId, run.rev, patch);
+    if (patch.status && RUN_TERMINAL.includes(patch.status)) {
+      withdrawn = withdrawOpenQuestionsForRun(ctx, runId);
+    }
+    return next;
+  })();
   await publishRunChange(ctx, updated);
   // Only a root run terminal stops the shared orchestrator turn (round-2 I1).
   // A choose_workflow child ending must leave the root's live turn alone.
@@ -160,7 +169,7 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
     stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
-    for (const q of withdrawOpenQuestionsForRun(ctx, runId)) {
+    for (const q of withdrawn) {
       void publish(ctx, [{
         type: "entity",
         data: { kind: "question", id: q.id, value: questionEntityValue(q) },
