@@ -4,6 +4,18 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **Anthropic and Gemini for `assistant-pacer`.** Endpoint `connection.api` accepts `anthropic` and `gemini` beside `openai-compatible`. The native assistant plugin selects the matching Rig client, passes the remaining output-token budget on each model call, and reports those accounts unavailable (never legacy-routed) when the native binary is absent. Keyless (`key: none`) stays openai-compatible only.
+
+### Fixed
+
+- **Choosing Use the app's service no longer loops forever when a CLI service is already installed.** In release builds the app now moves that service to its own bundled command once your tasks and terminals are idle, and plain Consent still shows the Existing page so you can keep yours. A stuck install that still names the app's own terminal link is repaired once without asking, and a failed automatic move is not retried for the rest of that launch.
+
+## [0.17.7] - 2026-11-20
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP and Codex app-server after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
+- **`liveTools` on assistant candidates and status.** Each assistant candidate row and `assistant.status` say whether that backend currently gets live pacer tools (pacer's agent always; opencode ACP, Codex app-server, and Claude Code control-protocol after a self-test that proved a pacer tool call). Settings › Assistant and the sheet setup rows list the same reads when tools are live, and keep the summary-only wording when they are not.
+
 ### Fixed
 
 - **Release 0.17.6 was tagged but not published.** Its Linux desktop builds could not find the native assistant plugin, which the CLI download had lost the executable bit for. This release ships everything listed under 0.17.6, plus a Linux desktop build that stages the assistant plugin.

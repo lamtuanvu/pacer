@@ -165,20 +165,26 @@ export async function runUpdate(o: UpdateOptions, d: UpdateDeps): Promise<Result
     const sums = parseSha256Sums(await fetchText(d.fetch, releaseUrl(base, target, "SHA256SUMS")));
     const downloads: { target: string; bytes: Uint8Array }[] = [];
     const realTarget = realpathSync(d.execPath);
-    for (const item of [asset, ...(asset.companions ?? [])]) {
+    const installDir = dirname(realTarget);
+    type ManifestBinary = { file: string; sha256: string; size: number; installAs: string };
+    const extras: ManifestBinary[] = [
+      ...(asset.companions ?? []).map(c => ({ file: c.file, sha256: c.sha256, size: c.size, installAs: "pacer-core" })),
+      ...(asset.nativePlugins ?? []).map(p => ({ file: p.file, sha256: p.sha256, size: p.size, installAs: p.name })),
+    ];
+    for (const item of [{ file: asset.file, sha256: asset.sha256, size: asset.size, installAs: "" }, ...extras]) {
       if (sums.get(item.file) !== item.sha256) throw new ReleaseError(`SHA256SUMS and manifest.json disagree about ${item.file}; refusing to install`);
       const bytes = await fetchBytes(d.fetch, releaseUrl(base, target, item.file), item.size);
       const got = sha256Hex(bytes);
       if (got !== item.sha256 || bytes.length !== item.size) {
         throw new ReleaseError(`checksum mismatch for ${item.file} (expected ${item.sha256}, got ${got}); nothing was changed`);
       }
-      downloads.push({ target: item === asset ? realTarget : join(dirname(realTarget), "pacer-core"), bytes });
+      downloads.push({ target: item.installAs ? join(installDir, item.installAs) : realTarget, bytes });
     }
     d.progress?.("Download","passed");
     d.progress?.("Verify","running");
     d.progress?.("Verify","passed");
     d.progress?.("Replace","running");
-    const r = asset.companions?.length
+    const r = extras.length
       ? await replacePair({ target: realTarget, bytes: downloads[0].bytes, companions: downloads.slice(1), version: target, smoke: d.smoke ?? runVersion })
       : await replaceBinary(d.execPath, downloads[0].bytes, target, d.smoke ?? runVersion);
     d.progress?.("Replace","passed");

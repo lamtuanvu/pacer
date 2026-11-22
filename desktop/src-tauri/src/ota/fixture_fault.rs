@@ -19,6 +19,7 @@ pub enum Point {
     AdoptionStartup,
     TakeoverStartup,
     TakeoverSwitch,
+    OwnLinkBootstrap,
 }
 #[derive(Clone, Copy, Debug, Deserialize, Serialize)]
 #[serde(rename_all = "kebab-case")]
@@ -36,6 +37,13 @@ enum Scenario {
     TakeoverDismiss,
     TakeoverFailure,
     TakeoverCrash,
+    ConsentUseApp,
+    ConsentPlainExisting,
+    ConsentUseAppBusy,
+    ConsentUseAppDismiss,
+    ConsentUseAppRestart,
+    OwnLinkRepair,
+    OwnLinkRepairFailure,
 }
 impl Scenario {
     fn points(self) -> &'static [Point] {
@@ -47,9 +55,18 @@ impl Scenario {
             Self::RestoreFailure => &[Point::CandidateStartup, Point::Restore],
             Self::Adopt | Self::Attached => &[],
             Self::AdoptFailure => &[Point::AdoptionStartup],
-            Self::Takeover | Self::TakeoverRelink | Self::TakeoverDismiss => &[],
+            Self::Takeover
+            | Self::TakeoverRelink
+            | Self::TakeoverDismiss
+            | Self::ConsentUseApp
+            | Self::ConsentPlainExisting
+            | Self::ConsentUseAppBusy
+            | Self::ConsentUseAppDismiss
+            | Self::ConsentUseAppRestart
+            | Self::OwnLinkRepair => &[],
             Self::TakeoverFailure => &[Point::TakeoverStartup],
             Self::TakeoverCrash => &[Point::TakeoverSwitch],
+            Self::OwnLinkRepairFailure => &[Point::OwnLinkBootstrap],
         }
     }
 }
@@ -115,7 +132,7 @@ pub fn consume(
         .ok_or(OtaError::Identity)?;
     trust.verify_process(
         &own.identity,
-        if point == Point::CandidateStartup {
+        if matches!(point, Point::CandidateStartup | Point::OwnLinkBootstrap) {
             CodeRole::Desktop
         } else {
             CodeRole::Helper
@@ -146,6 +163,45 @@ pub fn consume_takeover(point: Point, transaction_id: &str) -> Result<bool, OtaE
     ).map_err(|_| OtaError::Invalid)?;
     let installation = record["exercise"]["installationId"].as_str().ok_or(OtaError::Identity)?;
     consume(point, installation, transaction_id)
+}
+
+/// Own-link repair runs in the desktop process and has no takeover journal.
+/// The fixed transaction id binds the one compiled bootstrap fault for the launch.
+/// No armed exercise (or an exercise bound to another transaction) means "no fault".
+#[cfg(feature = "ota-fixture")]
+pub fn consume_own_link(point: Point) -> Result<bool, OtaError> {
+    let trust = ReleaseTrust::configured().ok_or(OtaError::Unavailable)?;
+    let policy = trust.fixture_policy().ok_or(OtaError::Unavailable)?;
+    policy.validate_live().map_err(|_| OtaError::Identity)?;
+    let record: serde_json::Value = serde_json::from_slice(
+        &PrivateDir::open(&policy.root)?.read("record.json", 65_536)?,
+    )
+    .map_err(|_| OtaError::Invalid)?;
+    let Some(installation) = own_link_armed_installation(&record)? else {
+        return Ok(false);
+    };
+    consume(point, installation, "own-link")
+}
+
+/// Installation id when an own-link fault may fire; `None` means "no fault".
+fn own_link_armed_installation(record: &serde_json::Value) -> Result<Option<&str>, OtaError> {
+    if record
+        .get("exercise")
+        .is_none_or(serde_json::Value::is_null)
+    {
+        return Ok(None);
+    }
+    if record["exercise"]["transactionId"]
+        .as_str()
+        .is_some_and(|tx| tx != "own-link")
+    {
+        return Ok(None);
+    }
+    Ok(Some(
+        record["exercise"]["installationId"]
+            .as_str()
+            .ok_or(OtaError::Identity)?,
+    ))
 }
 fn consume_bound(
     policy: &FixturePolicy,
@@ -426,6 +482,47 @@ mod tests {
         std::fs::rename(&path, &moved).unwrap();
         symlink(&moved, &path).unwrap();
         assert!(f.consume(Point::Authorized, "0.2.3", true).is_err());
+    }
+    #[test]
+    fn own_link_repair_failure_fires_the_bootstrap_checkpoint_once() {
+        let f = Fixture::new("own-link-repair-failure", &["own-link-bootstrap"]);
+        assert_eq!(f.consume(Point::OwnLinkBootstrap, "0.2.4", true), Ok(true));
+        let after = f.read();
+        assert_eq!(after["exercise"]["transactionId"], "transaction-1");
+        assert_eq!(f.consume(Point::OwnLinkBootstrap, "0.2.4", true), Ok(false));
+        assert_eq!(f.read(), after);
+        let f = Fixture::new("own-link-repair", &[]);
+        assert_eq!(f.consume(Point::OwnLinkBootstrap, "0.2.4", true), Ok(false));
+        assert_eq!(f.read()["exercise"]["transactionId"], "transaction-1");
+    }
+    #[test]
+    fn own_link_armed_installation_is_none_without_exercise_or_other_transaction() {
+        assert_eq!(own_link_armed_installation(&serde_json::json!({})), Ok(None));
+        assert_eq!(
+            own_link_armed_installation(&serde_json::json!({"exercise": null})),
+            Ok(None)
+        );
+        let f = Fixture::new("own-link-repair-failure", &["own-link-bootstrap"]);
+        let mut record = f.read();
+        assert_eq!(
+            own_link_armed_installation(&record),
+            Ok(Some(record["exercise"]["installationId"].as_str().unwrap()))
+        );
+        record["exercise"]["transactionId"] = serde_json::json!("takeover-tx");
+        assert_eq!(own_link_armed_installation(&record), Ok(None));
+        record["exercise"]["transactionId"] = serde_json::json!("own-link");
+        assert_eq!(
+            own_link_armed_installation(&record),
+            Ok(Some(record["exercise"]["installationId"].as_str().unwrap()))
+        );
+        record["exercise"]
+            .as_object_mut()
+            .unwrap()
+            .remove("installationId");
+        assert_eq!(
+            own_link_armed_installation(&record),
+            Err(crate::ota::OtaError::Identity)
+        );
     }
     #[test]
     fn missing_explicit_null_markers_are_not_armed_faults() {

@@ -9,7 +9,7 @@ import { pluginRegistry } from "../plugins/index";
 import { assistantReplyResult, ASSISTANT_MAX_DEADLINE_MS } from "../plugins/protocol";
 import type { Ctx } from "../types";
 import {
-  ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, claudeNeedsGrant, type AskAdapter,
+  ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeCliVersion, codexCliVersion, claudeNeedsGrant, type AskAdapter,
 } from "./ask-mode";
 
 const askSystemForSelfTest = (adapter: AskAdapter) =>
@@ -30,7 +30,15 @@ const askSystemForSelfTest = (adapter: AskAdapter) =>
  * by the CLI version of that adapter.
  */
 
-export interface SelfTestRecord { account: string; version: string | null; passed: boolean; reason?: string; at: number }
+export interface SelfTestRecord {
+  account: string;
+  version: string | null;
+  passed: boolean;
+  reason?: string;
+  at: number;
+  /** When passed: whether the check proved a live pacer tool call for this CLI version. */
+  liveTools?: boolean;
+}
 type Tools = { tool: string; status: string }[];
 
 /** Normalized names the canary asks for; Claude stream-json uses Bash/Read/WebFetch. */
@@ -66,13 +74,14 @@ export function recordSelfTest(ctx: Ctx, record: SelfTestRecord): void {
 }
 
 /** Whether ask mode may run on this account now: a passing check for the adapter CLI installed today. */
-export function selfTestStatus(ctx: Ctx, account: string, adapter: AskAdapter = "opencode"): { ok: boolean; reason?: string } {
+export function selfTestStatus(ctx: Ctx, account: string, adapter: AskAdapter = "opencode"): { ok: boolean; reason?: string; liveTools: boolean } {
   const record = readAll(ctx)[account];
   const cli = binaryFor(adapter);
-  if (!record) return { ok: false, reason: `${account} has not passed the ask-mode check yet.` };
-  if (!record.passed) return { ok: false, reason: `${account} failed the ask-mode check: ${record.reason ?? "no reason recorded"}` };
-  if (record.version !== cliVersion(ctx, adapter)) return { ok: false, reason: `${cli} changed since ${account} passed the ask-mode check.` };
-  return { ok: true };
+  if (!record) return { ok: false, liveTools: false, reason: `${account} has not passed the ask-mode check yet.` };
+  if (!record.passed) return { ok: false, liveTools: false, reason: `${account} failed the ask-mode check: ${record.reason ?? "no reason recorded"}` };
+  if (record.version !== cliVersion(ctx, adapter)) return { ok: false, liveTools: false, reason: `${cli} changed since ${account} passed the ask-mode check.` };
+  const liveTools = typeof record.liveTools === "boolean" ? record.liveTools : askAdapterLiveTools(adapter);
+  return { ok: true, liveTools };
 }
 
 function normalizeTool(name: string): string {
@@ -159,8 +168,12 @@ export function judge(tools: Tools, message: string, o: {
 
 export async function runSelfTest(ctx: Ctx, account: string, o: { model: string | null; plugin: string; accountCfg: AccountCfg }): Promise<SelfTestRecord> {
   const adapter = askAdapterFor(ctx, o.accountCfg);
-  const record = (passed: boolean, reason?: string): SelfTestRecord => {
-    const r: SelfTestRecord = { account, version: adapter ? cliVersion(ctx, adapter) : null, passed, ...(reason ? { reason } : {}), at: ctx.now };
+  const record = (passed: boolean, reason?: string, liveTools?: boolean): SelfTestRecord => {
+    const r: SelfTestRecord = {
+      account, version: adapter ? cliVersion(ctx, adapter) : null, passed, at: ctx.now,
+      ...(reason ? { reason } : {}),
+      ...(passed && typeof liveTools === "boolean" ? { liveTools } : {}),
+    };
     recordSelfTest(ctx, r);
     return r;
   };
@@ -246,11 +259,12 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
     } finally { ask.cleanup(); }
   };
   try {
+    const requirePacer = adapter === "opencode" || adapter === "codex";
     const evidence = {
       planted, pwned,
       ...(claude ? { pacerTools: true } : {}),
       ...(agentsCanary ? { agentsCanary } : {}),
-      requirePacer: adapter === "opencode" || adapter === "codex",
+      requirePacer,
       // Codex surfaces command/file approvals; require denied records. Web/read may be absent
       // when features are off / sandbox-blocked without an approval method (refuseOrAbsent).
       ...(adapter === "codex" ? { requireDenied: ["shell", "write"] as const, refuseOrAbsent: true } : {}),
@@ -262,7 +276,9 @@ export async function runSelfTest(ctx: Ctx, account: string, o: { model: string 
     // Restrictions must hold on a resumed turn too.
     const resumed = await turn(direct, first.session);
     const again = judge(resumed.tools ?? [], resumed.message, evidence);
-    return again.verdict === "pass" ? record(true) : record(false, `on a resumed turn, ${again.reason}`);
+    // Proven live tools only when this adapter's check required a pacer call (not Claude digest-only).
+    // Claude's pacerTools path and opencode/codex requirePacer both prove a live pacer call.
+    return again.verdict === "pass" ? record(true, undefined, claude || requirePacer) : record(false, `on a resumed turn, ${again.reason}`);
   } catch (error) {
     return record(false, error instanceof Error ? error.message : String(error));
   } finally {

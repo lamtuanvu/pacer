@@ -20,6 +20,7 @@ fn main() {
         | Some("--ota-fixture-attach")
         | Some("--ota-fixture-attach-standard")
         | Some("--ota-fixture-attach-takeover")
+        | Some("--ota-fixture-attach-own-link")
         | Some("--ota-fixture-refresh-takeover") => {
             let result = (|| {
                 if std::env::args().len() != 2 {
@@ -38,6 +39,9 @@ fn main() {
                             mode.as_deref() == Some("--ota-fixture-attach-takeover"),
                             mode.as_deref() == Some("--ota-fixture-attach-standard"),
                         ))
+                    }
+                    Some("--ota-fixture-attach-own-link") => {
+                        runtime.block_on(pacer_desktop::ota::helper::fixture_attach_own_link())
                     }
                     Some("--ota-fixture-refresh-takeover") => {
                         runtime.block_on(pacer_desktop::ota::helper::fixture_refresh_takeover())

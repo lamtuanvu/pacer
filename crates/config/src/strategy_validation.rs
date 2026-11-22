@@ -200,15 +200,31 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
         }
         let before = problems.len();
         if let Some(conn) = connection.as_object() {
-            if conn.get("api") != Some(&json!("openai-compatible")) {
-                problems.push(format!("{at}.connection.api must be openai-compatible"));
+            // Mirror src/config/accounts.ts parseConnection: openai-compatible, anthropic or
+            // gemini; anthropic/gemini may omit base_url and keep the provider default.
+            let api = conn.get("api").and_then(Value::as_str);
+            if !matches!(api, Some("openai-compatible" | "anthropic" | "gemini")) {
+                problems.push(format!(
+                    "{at}.connection.api must be openai-compatible, anthropic or gemini"
+                ));
             }
-            let url = conn.get("base_url").and_then(Value::as_str).unwrap_or("");
-            if !url::Url::parse(url).is_ok_and(|parsed| {
-                matches!(parsed.scheme(), "http" | "https")
-                    && parsed.username().is_empty()
-                    && parsed.password().is_none()
-            }) {
+            let default_base = match api {
+                Some("anthropic") => Some("https://api.anthropic.com"),
+                Some("gemini") => Some("https://generativelanguage.googleapis.com"),
+                _ => None,
+            };
+            let raw_base = match conn.get("base_url") {
+                None => default_base.map(str::to_owned),
+                Some(v) => Some(v.as_str().unwrap_or("").to_owned()),
+            };
+            let url = raw_base.as_deref().unwrap_or("");
+            if raw_base.is_none()
+                || !url::Url::parse(url).is_ok_and(|parsed| {
+                    matches!(parsed.scheme(), "http" | "https")
+                        && parsed.username().is_empty()
+                        && parsed.password().is_none()
+                })
+            {
                 problems.push(format!(
                     "{at}.connection.base_url must be an http(s) URL without credentials"
                 ));
@@ -264,7 +280,12 @@ fn validate_account(name: &str, value: &Value, cfg: &mut Value, problems: &mut V
                 }
             }
             if problems.len() == before {
-                cfg["connection"] = json!({"api":"openai-compatible","base_url":url,"key":key,"models":normalized_models});
+                cfg["connection"] = json!({
+                    "api": api.unwrap_or("openai-compatible"),
+                    "base_url": url,
+                    "key": key,
+                    "models": normalized_models
+                });
             }
         } else {
             problems.push(format!("{at}.connection must be a mapping"));

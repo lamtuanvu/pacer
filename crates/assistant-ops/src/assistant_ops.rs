@@ -255,7 +255,7 @@ fn candidates(strategy: &Value) -> Vec<Value> {
             let planner = strategy.pointer("/planner/account").and_then(Value::as_str);
             // Phase 1 offers endpoint accounts on the `pacer` backend only; `reason` appears with a
             // row that is not available (spec §5).
-            json!({"account":name,"backend":"pacer","available":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
+            json!({"account":name,"backend":"pacer","available":true,"liveTools":true,"models":models,"runners":runners,"isPlanner":planner == Some(name)})
         })
         .collect()
 }
@@ -319,6 +319,8 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
     };
     let account = settings.account.as_deref().filter(|a| !a.is_empty());
     let turns_per_day = settings.limit("turnsPerDay");
+    // Match TypeScript: liveTools follows the chosen pacer candidate (always true for endpoint rows).
+    let mut live_tools = false;
     let refusal = match account {
         None => (NOT_SET_UP.0.to_owned(), NOT_SET_UP.1),
         Some(account) => {
@@ -326,7 +328,9 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
                 return Ok(None);
             };
             // Native status only answers the pacer backend; an executor backend's status is forwarded.
-            if !endpoint_ok(&strategy, account, settings.runner.as_deref(), false) {
+            let pacer_ok = endpoint_ok(&strategy, account, settings.runner.as_deref(), false);
+            live_tools = pacer_ok;
+            if !pacer_ok {
                 (
                     "The account chosen for the assistant is no longer available.".to_owned(),
                     "Choose another account in Settings › Assistant.",
@@ -354,6 +358,8 @@ fn status(ctx: &Ctx) -> Result<Option<Value>, CoreError> {
         "runner",
         settings.runner.as_ref().map(|r| json!(r)).as_ref(),
     );
+    // Match TypeScript key order: liveTools after account/runner.
+    out.insert("liveTools".into(), json!(live_tools));
     out.insert("reason".into(), json!(refusal.0));
     out.insert("hint".into(), json!(refusal.1));
     out.insert("limits".into(), settings.limits_json());

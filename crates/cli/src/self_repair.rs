@@ -62,15 +62,147 @@ fn stage(dir: &Path, prefix: &str, mode: u32) -> Result<(Stage, File), RepairErr
     Err(RepairError::Invalid("cannot allocate staged core".into()))
 }
 
-fn target_ok(core: &Path) -> Result<(), RepairError> {
-    match fs::symlink_metadata(core) {
-        Ok(meta) if !meta.file_type().is_file() => Err(RepairError::Invalid(
-            "pacer-core must be a regular file".into(),
-        )),
+fn target_ok(path: &Path, label: &str) -> Result<(), RepairError> {
+    match fs::symlink_metadata(path) {
+        Ok(meta) if !meta.file_type().is_file() => Err(RepairError::Invalid(format!(
+            "{label} must be a regular file"
+        ))),
         Ok(_) => Ok(()),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
         Err(e) => Err(e.into()),
     }
+}
+
+fn host_os_arch() -> (&'static str, &'static str) {
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
+    (os, arch)
+}
+
+fn hex_sha256(value: &serde_json::Value) -> Result<&str, RepairError> {
+    value
+        .as_str()
+        .filter(|h| {
+            h.len() == 64
+                && h.bytes()
+                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+        })
+        .ok_or_else(|| RepairError::Invalid("invalid checksum".into()))
+}
+
+/// Same grammar as `parseSha256Sums` in `src/update/manifest.ts`: `"<hex>  <file>"` or `"<hex> *<file>"`.
+fn parse_sha256_sums(text: &str) -> Result<HashMap<String, String>, RepairError> {
+    let mut out = HashMap::new();
+    for line in text.lines() {
+        let line = line.trim();
+        let Some((hash, rest)) = line.split_once(' ') else {
+            continue;
+        };
+        if hash.len() != 64 || !hash.bytes().all(|b| b.is_ascii_hexdigit()) {
+            continue;
+        }
+        // After the required single space: text mode is another space, binary mode is '*'.
+        let file = if let Some(name) = rest.strip_prefix(' ') {
+            name
+        } else if let Some(name) = rest.strip_prefix('*') {
+            name
+        } else {
+            continue;
+        };
+        if file.is_empty() {
+            continue;
+        }
+        let hash = hash.to_ascii_lowercase();
+        if let Some(previous) = out.get(file)
+            && previous != &hash
+        {
+            return Err(RepairError::Invalid(format!(
+                "SHA256SUMS has conflicting hashes for {file}"
+            )));
+        }
+        out.insert(file.to_owned(), hash);
+    }
+    Ok(out)
+}
+
+fn require_sums_agree(
+    sums: &HashMap<String, String>,
+    file: &str,
+    hash: &str,
+) -> Result<(), RepairError> {
+    match sums.get(file) {
+        Some(listed) if listed == hash => Ok(()),
+        _ => Err(RepairError::Invalid(format!(
+            "SHA256SUMS and manifest.json disagree about {file}"
+        ))),
+    }
+}
+
+fn load_sha256_sums(
+    base: &str,
+    version: &str,
+    deadline: Instant,
+) -> Result<HashMap<String, String>, RepairError> {
+    let bytes = download::fetch(
+        download::release_url(base, version, "SHA256SUMS")?,
+        256 * 1024,
+        deadline,
+    )?;
+    let text = std::str::from_utf8(&bytes)
+        .map_err(|_| RepairError::Invalid("SHA256SUMS is not UTF-8".into()))?;
+    parse_sha256_sums(text)
+}
+
+struct ReleaseBinary<'a> {
+    dir: &'a Path,
+    prefix: &'a str,
+    dest: &'a Path,
+    base: &'a str,
+    version: &'a str,
+    file: &'a str,
+    size: u64,
+    hash: &'a str,
+    deadline: Instant,
+    smoke_label: &'a str,
+}
+
+fn install_release_binary(bin: ReleaseBinary<'_>) -> Result<(), RepairError> {
+    target_ok(bin.dest, bin.prefix)?;
+    let (staged, mut out) = stage(bin.dir, bin.prefix, 0o700)?;
+    let bytes = download::fetch(
+        download::release_url(bin.base, bin.version, bin.file)?,
+        bin.size,
+        bin.deadline,
+    )?;
+    if bytes.len() as u64 != bin.size || format!("{:x}", Sha256::digest(&bytes)) != bin.hash {
+        return Err(RepairError::Invalid(format!(
+            "{} size or checksum mismatch",
+            bin.smoke_label
+        )));
+    }
+    out.write_all(&bytes)?;
+    out.sync_all()?;
+    drop(out);
+    process::sign(&staged.0)?;
+    fs::set_permissions(&staged.0, fs::Permissions::from_mode(0o755))?;
+    if core_version(&staged.0).as_deref() != Some(bin.version) {
+        return Err(RepairError::Invalid(format!(
+            "{} version smoke failed",
+            bin.smoke_label
+        )));
+    }
+    target_ok(bin.dest, bin.prefix)?;
+    fs::rename(&staged.0, bin.dest)?;
+    File::open(bin.dir)?.sync_all()?;
+    Ok(())
 }
 
 pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairError> {
@@ -81,7 +213,9 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
         .parent()
         .ok_or_else(|| RepairError::Invalid("executable has no parent".into()))?;
     let core = dir.join("pacer-core");
-    target_ok(&core)?;
+    let assistant = dir.join("pacer-assistant-pacer");
+    target_ok(&core, "pacer-core")?;
+    target_ok(&assistant, "pacer-assistant-pacer")?;
     // The descriptor lock releases even on process failure. Never remove its inode while locked.
     let lock_path = dir.join(".pacer-core-repair.lock");
     if fs::symlink_metadata(&lock_path).is_ok_and(|m| !m.file_type().is_file()) {
@@ -98,11 +232,12 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
         .open(lock_path)?;
     lock.try_lock()
         .map_err(|e| RepairError::Invalid(format!("another core repair is running: {e}")))?;
-    if core_version(&core).as_deref() == Some(version) {
+    let core_ok = core_version(&core).as_deref() == Some(version);
+    let assistant_ok = core_version(&assistant).as_deref() == Some(version);
+    // Both present and current: no network. A missing assistant still needs the manifest.
+    if core_ok && assistant_ok {
         return Ok(core);
     }
-    // Probe/stage before contacting the network, so unwritable installs fail locally.
-    let (staged, mut file) = stage(dir, "pacer-core", 0o700)?;
     let deadline = Instant::now() + Duration::from_secs(60);
     let manifest = download::fetch(
         download::release_url(base, version, "manifest.json")?,
@@ -116,16 +251,7 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
             "manifest version differs from front door".into(),
         ));
     }
-    let os = if cfg!(target_os = "macos") {
-        "darwin"
-    } else {
-        "linux"
-    };
-    let arch = if cfg!(target_arch = "aarch64") {
-        "arm64"
-    } else {
-        "x64"
-    };
+    let (os, arch) = host_os_arch();
     let assets = value["assets"]
         .as_array()
         .ok_or_else(|| RepairError::Invalid("manifest has no assets".into()))?;
@@ -138,52 +264,88 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
             "manifest must contain exactly one host asset".into(),
         ));
     }
-    let companions = matching[0]["companions"]
-        .as_array()
-        .ok_or_else(|| RepairError::Invalid("manifest has no core companion".into()))?;
-    let expected_file = format!("pacer-core-{os}-{arch}");
-    if companions.len() != 1
-        || companions[0]["name"] != "pacer-core"
-        || companions[0]["file"] != expected_file
-    {
-        return Err(RepairError::Invalid(
-            "manifest core companion has an invalid name or file".into(),
-        ));
+    let asset = matching[0];
+    // Loaded lazily before the first binary install; mirrors update.apply's dual-digest check.
+    let mut sums: Option<HashMap<String, String>> = None;
+    let mut sums_for = |file: &str, hash: &str| -> Result<(), RepairError> {
+        if sums.is_none() {
+            sums = Some(load_sha256_sums(base, version, deadline)?);
+        }
+        let Some(loaded) = sums.as_ref() else {
+            return Err(RepairError::Invalid("SHA256SUMS unavailable".into()));
+        };
+        require_sums_agree(loaded, file, hash)
+    };
+    if !core_ok {
+        let companions = asset["companions"]
+            .as_array()
+            .ok_or_else(|| RepairError::Invalid("manifest has no core companion".into()))?;
+        let expected_file = format!("pacer-core-{os}-{arch}");
+        if companions.len() != 1
+            || companions[0]["name"] != "pacer-core"
+            || companions[0]["file"] != expected_file
+        {
+            return Err(RepairError::Invalid(
+                "manifest core companion has an invalid name or file".into(),
+            ));
+        }
+        let companion = &companions[0];
+        let size = companion["size"]
+            .as_u64()
+            .filter(|n| *n > 0 && *n <= 200 * 1024 * 1024)
+            .ok_or_else(|| RepairError::Invalid("invalid core size (maximum 200 MB)".into()))?;
+        let hash = hex_sha256(&companion["sha256"])
+            .map_err(|_| RepairError::Invalid("invalid core checksum".into()))?;
+        sums_for(&expected_file, hash)?;
+        install_release_binary(ReleaseBinary {
+            dir,
+            prefix: "pacer-core",
+            dest: &core,
+            base,
+            version,
+            file: &expected_file,
+            size,
+            hash,
+            deadline,
+            smoke_label: "core",
+        })?;
     }
-    let companion = &companions[0];
-    let size = companion["size"]
-        .as_u64()
-        .filter(|n| *n > 0 && *n <= 200 * 1024 * 1024)
-        .ok_or_else(|| RepairError::Invalid("invalid core size (maximum 200 MB)".into()))?;
-    let hash = companion["sha256"]
-        .as_str()
-        .filter(|h| {
-            h.len() == 64
-                && h.bytes()
-                    .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
-        })
-        .ok_or_else(|| RepairError::Invalid("invalid core checksum".into()))?;
-    let bytes = download::fetch(
-        download::release_url(base, version, &expected_file)?,
-        size,
-        deadline,
-    )?;
-    if bytes.len() as u64 != size || format!("{:x}", Sha256::digest(&bytes)) != hash {
-        return Err(RepairError::Invalid(
-            "core size or checksum mismatch".into(),
-        ));
+    if !assistant_ok && let Some(plugins) = asset["nativePlugins"].as_array() {
+        let expected_file = format!("pacer-assistant-pacer-{os}-{arch}");
+        let plugin = plugins
+            .iter()
+            .find(|p| p["name"] == "pacer-assistant-pacer" && p["file"] == expected_file);
+        if let Some(plugin) = plugin {
+            let size = plugin["size"]
+                .as_u64()
+                .filter(|n| *n > 0 && *n <= 200 * 1024 * 1024)
+                .ok_or_else(|| {
+                    RepairError::Invalid("invalid assistant size (maximum 200 MB)".into())
+                })?;
+            let hash = hex_sha256(&plugin["sha256"])
+                .map_err(|_| RepairError::Invalid("invalid assistant checksum".into()))?;
+            sums_for(&expected_file, hash)?;
+            install_release_binary(ReleaseBinary {
+                dir,
+                prefix: "pacer-assistant-pacer",
+                dest: &assistant,
+                base,
+                version,
+                file: &expected_file,
+                size,
+                hash,
+                deadline,
+                smoke_label: "assistant",
+            })?;
+        } else if plugins.is_empty() {
+            // Release lists the field but no matching host entry: leave the sibling alone.
+        } else {
+            return Err(RepairError::Invalid(
+                "manifest native plugin has an invalid name or file".into(),
+            ));
+        }
     }
-    file.write_all(&bytes)?;
-    file.sync_all()?;
-    drop(file);
-    process::sign(&staged.0)?;
-    fs::set_permissions(&staged.0, fs::Permissions::from_mode(0o755))?;
-    if core_version(&staged.0).as_deref() != Some(version) {
-        return Err(RepairError::Invalid("core version smoke failed".into()));
-    }
-    target_ok(&core)?;
-    fs::rename(&staged.0, &core)?;
-    File::open(dir)?.sync_all()?;
+    // No nativePlugins / assistant already current: older release leaves a missing/stale sibling alone.
     Ok(core)
 }
 

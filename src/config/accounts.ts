@@ -26,9 +26,17 @@ export function parseDuration(v: unknown): number | null {
 export { AGENTS, type AgentId } from "./agent-id";
 export type AccountKind = "claude" | "codex" | "cursor" | "agy" | "endpoint";
 export type KeySource = "keychain" | "file" | `env:${string}` | "none";
+/** Endpoint wire formats pacer's assistant (and OpenCode for openai-compatible) can speak. */
+export type EndpointApi = "openai-compatible" | "anthropic" | "gemini";
+export const ENDPOINT_APIS: readonly EndpointApi[] = ["openai-compatible", "anthropic", "gemini"];
+/** Default base URLs when `connection.base_url` is omitted for providers that have one (assistant-pacer). */
+export const ENDPOINT_DEFAULT_BASE_URL: Readonly<Partial<Record<EndpointApi, string>>> = {
+  anthropic: "https://api.anthropic.com",
+  gemini: "https://generativelanguage.googleapis.com",
+};
 export interface EndpointModel { id: string; name?: string; context: number; output: number; tools: boolean }
 export interface EndpointConnection {
-  api: "openai-compatible";
+  api: EndpointApi;
   base_url: string;
   key: KeySource;
   models: EndpointModel[];
@@ -64,11 +72,20 @@ export interface AccountsModel {
 function parseConnection(value: unknown, at: string, problems: string[]): EndpointConnection | undefined {
   const start = problems.length;
   if (!isObj(value)) { problems.push(`${at}.connection must be a mapping`); return; }
-  if (value.api !== "openai-compatible") problems.push(`${at}.connection.api must be openai-compatible`);
-  try {
-    const url = new URL(typeof value.base_url === "string" ? value.base_url : "");
-    if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw Error();
-  } catch { problems.push(`${at}.connection.base_url must be an http(s) URL without credentials`); }
+  const api = value.api;
+  if (typeof api !== "string" || !(ENDPOINT_APIS as readonly string[]).includes(api)) {
+    problems.push(`${at}.connection.api must be openai-compatible, anthropic or gemini`);
+  }
+  const defaultBase = typeof api === "string" ? ENDPOINT_DEFAULT_BASE_URL[api as EndpointApi] : undefined;
+  const rawBase = value.base_url === undefined ? defaultBase : value.base_url;
+  if (rawBase === undefined) {
+    problems.push(`${at}.connection.base_url must be an http(s) URL without credentials`);
+  } else {
+    try {
+      const url = new URL(typeof rawBase === "string" ? rawBase : "");
+      if (!["http:", "https:"].includes(url.protocol) || url.username || url.password) throw Error();
+    } catch { problems.push(`${at}.connection.base_url must be an http(s) URL without credentials`); }
+  }
   if (typeof value.key !== "string" || !/^(keychain|file|none|env:[A-Za-z_][A-Za-z0-9_]*)$/.test(value.key)) problems.push(`${at}.connection.key must be keychain, file, env:VAR or none`);
   if (!Array.isArray(value.models) || !value.models.length) problems.push(`${at}.connection.models must be a non-empty list`);
   const models: EndpointModel[] = [];
@@ -87,7 +104,7 @@ function parseConnection(value: unknown, at: string, problems: string[]): Endpoi
     models.push({id: model.id as string, ...(model.name !== undefined ? {name: model.name as string} : {}), context: model.context as number, output: model.output as number, tools: model.tools as boolean});
   }
   if (problems.length !== start) return;
-  return {api: "openai-compatible", base_url: value.base_url as string, key: value.key as KeySource, models};
+  return {api: api as EndpointApi, base_url: rawBase as string, key: value.key as KeySource, models};
 }
 
 /** OpenCode provider IDs backed by the Ark Coding Plan quota reader. */

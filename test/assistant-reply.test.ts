@@ -6,6 +6,7 @@ import { createCallAuthority } from "../src/plugins/authority";
 import { answerCapability, pluginLogPath } from "../src/plugins/host";
 import { bundledPluginSpawn, pluginRegistry } from "../src/plugins/index";
 import { ASSISTANT_PACER_BIN_ENV, ASSISTANT_PACER_EXECUTABLE, resolveBundledNativeExecutable } from "../src/plugins/native-bundled";
+import { currentVersion } from "../src/update/version";
 import type { BundledPlugin } from "../src/plugins/types";
 import {
   ASSISTANT_BACKENDS, ASSISTANT_MAX_DEADLINE_MS, CAPABILITIES, CAPABILITY_METHODS, EXTENSION_METHODS,
@@ -455,7 +456,7 @@ describe("backend choice", () => {
     const { ctx, deps } = setup({ respond: noLoop });
     const rows = candidates(ctx, deps);
     expect(rows).toHaveLength(1);
-    expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false });
+    expect(rows[0]).toMatchObject({ account: "ep", backend: "pacer", available: true, isPlanner: false, liveTools: true });
     expect(rows[0]).not.toHaveProperty("reason");
   });
 });
@@ -464,12 +465,13 @@ describe("assistant-pacer native host routing", () => {
   const peer = join(import.meta.dir, "fixtures", "assistant-pacer", "peer.ts");
   const pacerStubUsage = { input: 7, output: 2, coverage: "measured" as const };
 
-  /** Place a sibling marker next to a fake core so refresh enables the bundled native plugin. */
+  /** Place a version-matched sibling next to a fake core so refresh enables the bundled native plugin. */
   function enableNativeSibling(ctx: Ctx) {
     const bin = join(ctx.home, "bin");
     mkdirSync(bin, { recursive: true });
-    writeFileSync(join(bin, "pacer-core"), "#!/bin/sh\n", { mode: 0o755 });
-    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), "#!/bin/sh\nexit 1\n", { mode: 0o755 });
+    const version = currentVersion();
+    writeFileSync(join(bin, "pacer-core"), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
+    writeFileSync(join(bin, ASSISTANT_PACER_EXECUTABLE), `#!/bin/sh\necho "pacer ${version}"\n`, { mode: 0o755 });
     chmodSync(join(bin, "pacer-core"), 0o755);
     chmodSync(join(bin, ASSISTANT_PACER_EXECUTABLE), 0o755);
     ctx.env.PACER_CORE_ARGV = JSON.stringify([join(bin, "pacer-core")]);
@@ -536,7 +538,7 @@ describe("assistant-pacer native host routing", () => {
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
     // strategy() uses connection.key: "none" → host must set keyless.
-    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=true");
+    expect(turn.answer).toBe("api=openai-compatible;baseUrl=http://x/v1;keyless=true");
     expect(turn.usage).toEqual(pacerStubUsage);
   });
 
@@ -566,7 +568,63 @@ describe("assistant-pacer native host routing", () => {
     const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
     const turn = await finished(ctx, started.turnId);
     expect(turn.state).toBe("done");
-    expect(turn.answer).toBe("baseUrl=http://x/v1;keyless=false");
+    expect(turn.answer).toBe("api=openai-compatible;baseUrl=http://x/v1;keyless=false");
+  });
+
+  test("anthropic accounts are unavailable for backend:pacer when the native binary is absent", async () => {
+    const { ctx, deps } = setup({ fake: false });
+    expect(replyProvider(ctx, "pacer")).toBeNull();
+    const anthropicStrategy = () => ({
+      ...strategy(),
+      accounts: {
+        ep: {
+          kind: "endpoint", model: null,
+          connection: { api: "anthropic", base_url: "https://api.anthropic.com", key: "env:ANTHROPIC_KEY", models: [{ id: "claude-sonnet-4-0", context: 200000, output: 8000, tools: true }] },
+        },
+      },
+    }) as unknown as Strategy;
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const admission = await admit(ctx, { ...deps, strategy: anthropicStrategy });
+    expect(admission.ok).toBe(false);
+    expect(admission.reason).toContain("native binary");
+    expect(admission.reason).toContain("anthropic");
+    const rows = candidates(ctx, { ...deps, strategy: anthropicStrategy });
+    expect(rows.find(r => r.account === "ep" && r.backend === "pacer")).toMatchObject({ available: false });
+    // Admission refuses before a turn starts, so the legacy respond path never runs.
+    await expect(ask(ctx, { text: "hi", scope, requestId: req() }, {
+      ...deps,
+      strategy: anthropicStrategy,
+      respond: async () => ({ message: "must not run", usage }),
+    })).rejects.toThrow(/native binary/);
+  });
+
+  test("backend:pacer turns pass endpoint.api and omit default anthropic baseUrl", async () => {
+    const ctx = fakeCtx();
+    enableNativeSibling(ctx);
+    pluginRegistry(ctx, {
+      bundled: BUNDLED.filter(p => p.manifest.id !== "assistant-executor" && p.manifest.id !== "fx-reply"),
+      spawnBundled: (c, id) => id === "assistant-pacer"
+        ? { argv: [process.execPath, peer], cwd: c.home, env: {} }
+        : bundledPluginSpawn(c, id),
+    });
+    writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
+    const anthropicStrategy = () => ({
+      ...strategy(),
+      accounts: {
+        ep: {
+          kind: "endpoint", model: null,
+          connection: { api: "anthropic", base_url: "https://api.anthropic.com", key: "env:ANTHROPIC_KEY", models: [{ id: "claude-sonnet-4-0" }] },
+        },
+      },
+    }) as unknown as Strategy;
+    const deps: AssistantDeps = {
+      strategy: anthropicStrategy, status, keys: async () => [KEY], read, cards: { task: () => null },
+      respond: noLoop,
+    };
+    const started = await ask(ctx, { text: "endpoint", scope, requestId: req() }, deps);
+    const turn = await finished(ctx, started.turnId);
+    expect(turn.state).toBe("done");
+    expect(turn.answer).toBe("api=anthropic;baseUrl=;keyless=false");
   });
 
   test("assistant-pacer contributes reply for the pacer backend", () => {
@@ -615,10 +673,13 @@ describe("assistant-pacer native host routing", () => {
     mkdirSync(bunDir, { recursive: true });
     mkdirSync(localBin, { recursive: true });
     mkdirSync(coreDir, { recursive: true });
+    const version = currentVersion();
+    const script = `#!/bin/sh\necho "pacer ${version}"\n`;
     writeFileSync(join(bunDir, ASSISTANT_PACER_EXECUTABLE), "bad", { mode: 0o755 });
     writeFileSync(join(localBin, ASSISTANT_PACER_EXECUTABLE), "bad-local", { mode: 0o755 });
     writeFileSync(join(coreDir, "pacer-core"), "core", { mode: 0o755 });
-    writeFileSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), "good", { mode: 0o755 });
+    writeFileSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), script, { mode: 0o755 });
+    chmodSync(join(coreDir, ASSISTANT_PACER_EXECUTABLE), 0o755);
     const bun = join(bunDir, "bun");
     writeFileSync(bun, "#!/bin/sh\n", { mode: 0o755 });
 
