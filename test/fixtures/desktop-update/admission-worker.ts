@@ -13,6 +13,15 @@ if (mode === "hold") {
 else if (mode === "reserve") console.log(JSON.stringify(await reserveIdle(ctx, "worker-tx")));
 else if (mode === "claim") {
   claimWorkSync(ctx, lease!); console.log(JSON.stringify({ claimed: true }));
+} else if (mode === "launch-hold") {
+  try {
+    beginWorkSync(ctx, { kind: "launch", id: "worker", label: "Worker" });
+    console.log(JSON.stringify({ started: true }));
+    Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0);
+  } catch (error) {
+    if (!(error instanceof Error) || !error.message.includes("maintenance")) throw error;
+    console.log(JSON.stringify({ started: false }));
+  }
 } else {
   try {
     beginWorkSync(ctx, { kind: "launch", id: "worker", label: "Worker" });

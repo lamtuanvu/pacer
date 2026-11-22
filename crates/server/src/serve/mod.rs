@@ -940,6 +940,8 @@ pub async fn run_serve(
     #[cfg(target_os = "macos")]
     let native =
         native_context::NativeContext::prepare(&ctx.pacer_home, port, &core, _version, &_argv)?;
+    #[cfg(target_os = "macos")]
+    let _native_socket_watch = native.as_ref().map(|native| native.spawn_socket_watch());
     if std::env::var("PACER_SERVE_ANNOUNCE").as_deref() == Ok("1") {
         println!("{}", serde_json::json!({"port":port}));
     }
