@@ -24,10 +24,38 @@ import {
   listQuestions,
   rootRunId,
   stepByTask,
+  workflowDatabase,
   type QuestionAnswerType,
   type QuestionRow,
   type RunRow,
 } from "./store";
+
+/** Soft caps so unbounded blocks:nothing asks cannot flood wakes/attention. */
+export const MAX_OPEN_QUESTIONS_PER_ASKER = 5;
+export const MAX_OPEN_QUESTIONS_PER_RUN = 20;
+
+function countOpenQuestionsForRun(ctx: Ctx, runId: string): number {
+  const row = workflowDatabase(ctx).query<{ n: number }, [string]>(
+    "SELECT COUNT(*) AS n FROM workflow_questions WHERE run_id = ? AND status = 'open'",
+  ).get(runId);
+  return row?.n ?? 0;
+}
+
+function countOpenQuestionsForAsker(ctx: Ctx, askerTaskId: string): number {
+  const row = workflowDatabase(ctx).query<{ n: number }, [string]>(
+    "SELECT COUNT(*) AS n FROM workflow_questions WHERE asker_task_id = ? AND status = 'open'",
+  ).get(askerTaskId);
+  return row?.n ?? 0;
+}
+
+export function assertOpenQuestionCaps(ctx: Ctx, runId: string, askerTaskId?: string): void {
+  if (countOpenQuestionsForRun(ctx, runId) >= MAX_OPEN_QUESTIONS_PER_RUN) {
+    throw new CoreError("conflict", `conflict: run ${runId} already has ${MAX_OPEN_QUESTIONS_PER_RUN} open questions`);
+  }
+  if (askerTaskId && countOpenQuestionsForAsker(ctx, askerTaskId) >= MAX_OPEN_QUESTIONS_PER_ASKER) {
+    throw new CoreError("conflict", `conflict: asker ${askerTaskId} already has ${MAX_OPEN_QUESTIONS_PER_ASKER} open questions`);
+  }
+}
 import { completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { orchestratorTaskIdForGrant, verifyRunGrant } from "./run-grant";
 import { publish } from "../link/publish";
@@ -116,6 +144,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
     }
     const attempt = raw.attempt ?? 1;
     const orchTask = orchestratorTaskIdForGrant(ctx, grant) ?? ctx.env.PACER_TASK_ID;
+    assertOpenQuestionCaps(ctx, runId, typeof orchTask === "string" ? orchTask : undefined);
     const q = insertQuestion(ctx, {
       runId,
       stepId,
@@ -153,6 +182,7 @@ export async function askQuestion(ctx: Ctx, raw: AskQuestionInput): Promise<Ques
       throw new CoreError("conflict", "already asked; stop and wait for the answer");
     }
   }
+  assertOpenQuestionCaps(ctx, step.runId, taskId);
 
   const q = insertQuestion(ctx, {
     runId: step.runId,

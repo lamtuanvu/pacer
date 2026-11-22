@@ -4,10 +4,17 @@ import type { Ctx } from "../types";
 import { CoreError } from "../core/errors";
 import { listTasksWhere, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
-import { insertQuestion, stepByTask, type QuestionRow } from "./store";
+import { insertQuestion, stepByTask, workflowDatabase, type QuestionRow } from "./store";
 import { enqueueWakeup } from "./wakeups";
-import { questionEntityValue } from "./questions";
+import { assertOpenQuestionCaps, questionEntityValue } from "./questions";
 import { publish } from "../link/publish";
+
+function hasOpenQuestionForTask(ctx: Ctx, taskId: string): boolean {
+  const row = workflowDatabase(ctx).query<{ n: number }, [string]>(
+    "SELECT COUNT(*) AS n FROM workflow_questions WHERE asker_task_id = ? AND status = 'open'",
+  ).get(taskId);
+  return (row?.n ?? 0) > 0;
+}
 
 export const PROMPT_WAIT_QUIET_S = 30;
 
@@ -68,6 +75,11 @@ export function refreshPromptWait(ctx: Ctx, taskId: string): PromptWaitMark | nu
     clearPromptWait(ctx, taskId);
     return null;
   }
+  // Skip while an open structured question already exists for this asker (I8).
+  if (hasOpenQuestionForTask(ctx, taskId)) {
+    clearPromptWait(ctx, taskId);
+    return null;
+  }
   const lastOut = task.progress?.lastOutputAt ?? task.run?.startedAt ?? task.createdAt;
   if (ctx.now - lastOut < PROMPT_WAIT_QUIET_S) {
     clearPromptWait(ctx, taskId);
@@ -119,6 +131,10 @@ export function convertPromptWaitToQuestion(
   if (!task?.promptWait) throw new CoreError("not_found", `no prompt wait on task ${taskId}`);
   const step = stepByTask(ctx, taskId);
   if (!step) throw new CoreError("not_found", `task ${taskId} has no step row`);
+  if (hasOpenQuestionForTask(ctx, taskId)) {
+    throw new CoreError("conflict", "an open question already exists for this task");
+  }
+  assertOpenQuestionCaps(ctx, step.runId, taskId);
   const text = task.promptWait.text;
   const q = insertQuestion(ctx, {
     runId: step.runId,
