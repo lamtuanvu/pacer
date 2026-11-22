@@ -279,11 +279,13 @@ export function resolveHumanStepQuestion(
   attempt: number,
   answer: string,
   answeredBy: string,
+  branch?: string,
 ): QuestionRow | null {
   const open = listQuestions(ctx, runId, "open").filter(q =>
     q.askerKind === "human_step"
     && q.stepId === stepId
-    && q.attempt === attempt,
+    && q.attempt === attempt
+    && (q.branch ?? undefined) === branch,
   );
   const q = open[open.length - 1];
   if (!q) return null;

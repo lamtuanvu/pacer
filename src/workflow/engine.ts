@@ -1453,6 +1453,7 @@ export async function answerHumanStep(
       row.attempt,
       answer,
       ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
+      row.branch,
     );
   } catch (err) {
     if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
