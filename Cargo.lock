@@ -1586,6 +1586,7 @@ dependencies = [
 name = "pacer-desktop-update"
 version = "0.0.0"
 dependencies = [
+ "getrandom 0.2.17",
  "nix",
  "pacer-desktop-admission",
  "pacer-foundation",
@@ -1595,6 +1596,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "tokio",
  "uuid",
 ]
 
