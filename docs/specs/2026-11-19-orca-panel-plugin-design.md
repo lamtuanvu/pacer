@@ -26,11 +26,18 @@ tray for the common cases.
 
 ## Goals
 
-- A small Orca panel — one `status` bar item and one sidebar `panelTab` — that shows pacer's
-  attention queue and budget/pace, and lets the user act on it (accept/reject a review, retry a
-  failed task, dismiss/snooze an item) without leaving Orca.
-- Scoped to the Orca workspace currently focused: the queue and counts shown match the repo that
-  workspace is in, not pacer's full cross-repo backlog.
+- A small Orca panel — one `status` bar item and one sidebar `panelTab` — that carries the part
+  of pacer you need while working in an Orca worktree, and lets you act on it without leaving
+  Orca. Revised 2026-11-22 after the maintainer approved the panel design (the "Pacer Orca Panel"
+  design canvas): the panel shows, in order, the planner's pace (usage meter, mode, advice); what
+  needs you (attention items, answering a question in place, accepting or rejecting a requested
+  review); delegating from the focused worktree; what is running, with stop, watch in Orca and
+  open its worktree as an Orca workspace; who runs next; and what finished today. A menu pauses
+  or resumes delegation and holds a mode. The status bar item states pace and how many items need
+  you.
+- Scoped to the Orca workspace currently focused by default: the lists and counts match the repo
+  that workspace is in, with an All repos view one tap away (counts per repo and every repo's
+  items, each labelled with its repo).
 - The worker is an ordinary pacer v3 client: HTTP to a running `pacer serve`, the same bearer-token
   auth every other client (CLI, TUI, app) already uses. No pacer-side plugin registration, no
   special-cased backend.
@@ -41,8 +48,9 @@ tray for the common cases.
 
 ## Non-goals
 
-- Not a replacement for the pacer app, web UI, or tray. Settings, strategy management, and
-  anything outside the attention queue and budget glance stay in those surfaces.
+- Not a replacement for the pacer app, web UI, or tray. Settings, accounts, executor setup,
+  routing and strategy management, insights, the session viewer, setup and anything else outside
+  the scope listed under Goals stay in those surfaces; the panel opens the pacer app for them.
 - Not rendered through pacer's `plugin.ui.render`/`plugin.ui.action` (`contributes.ui`). That
   protocol is scoped to letting *pacer plugins* (e.g. executor backends) contribute small bits of
   UI into *pacer's own first-party app shell* ([ADR 0010](../decisions/0010-plugin-ui-contributions.md)),
@@ -128,7 +136,8 @@ Would count as failure even if it technically runs:
 
 - **Template and surfaces:** `orca plugin create --template worker-panel`. One `status` bar item
   (planner pace % and tone, from the snapshot's `planner`/`counts`) and one sidebar `panelTab`
-  (the attention queue, from `snapshot.attention`).
+  (the sections listed under Goals, from the snapshot's `planner`, `attention`, `tasks`,
+  `executors`, `today`, `pause` and `repos`).
 - **Transport:** confirmed against `src/serve/http.ts`: the token lives at `$PACER_HOME/token`
   (default `~/.pacer/token`, mode `0600`) and the service listens on `127.0.0.1:<port>`, where
   `port` is `$PACER_PORT` or the built-in default — no separate discovery file to read. The worker
@@ -141,7 +150,18 @@ Would count as failure even if it technically runs:
 - **Action model:** render each attention item's server-supplied `actions: [{label, op, params,
   style?, confirm?}]` as buttons. A press shows the supplied `confirm` (if any) via the panel's own
   confirm affordance, then calls the named `op` with `params` through the worker — never a
-  hardcoded mapping of "what reviewing means."
+  hardcoded mapping of "what reviewing means." `confirm` is the service's own string (the
+  `Action` type in `src/attention/types.ts`). An action whose `op` is `ui.open` is the one
+  client-side action: the worker opens that screen in the pacer app. Besides the service's actions,
+  the panel offers only the direct task controls the pacer app also offers, each an op the
+  service validates and may refuse: Answer adds the typed `text` to the service's own Answer
+  action; Accept and Reject (`task.review`) appear only on an item the service raised as a
+  `review`; Stop (`task.stop`, confirmed in the panel) and Watch (`task.attach`, target `orca`) on
+  a running task; Delegate (`task.delegate`, repo = the focused workspace's repo); pause/resume
+  delegation and holding a mode. Each sends the task's `expect_rev` where the op takes one, and a
+  conflict reads "Already handled elsewhere". Which tasks count as running or done today follows
+  the shared selectors in `src/view-model/selectors.ts` (they filter and order what the service
+  derived; they decide nothing).
 - **Reload/install story:** develop with `orca plugin dev watch --check`; ship via `orca plugin
   install <folder-or-repo>`, updated with `orca plugin update`. No manual dev-folder-only install.
 - **Governance path:** a new ADR (e.g. `docs/decisions/2026-11-19-revive-orca-panel.md`) that

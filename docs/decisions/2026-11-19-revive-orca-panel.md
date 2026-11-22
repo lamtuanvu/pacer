@@ -32,7 +32,9 @@ model) stand.
   app and tray) already uses — and the panel renders as a pacer-owned `"ui":"html"` page (pacer's own design
   tokens, not Orca's generic component styling or theme variables), because `orca plugin check`'s mount() kit
   only supports `"ui":"components"` panels and this panel needed its own branded look. It acts through the pacer
-  API and reloads itself: the two things the retired plugin could not do.
+  API and reloads itself: the two things the retired plugin could not do. Its scope is what you need while
+  working in an Orca worktree: pace, what needs you, delegating from that worktree, what is running, who runs
+  next and what finished today. Settings and everything else stay in the pacer app.
 - **D2. `pacer plugin install`/`update`/`status`/`uninstall` are revived** (verbs retired in amendment 0.5.0).
   This narrows D3 of the 2026-10-20 ADR to: pacer may invoke the `orca` CLI to manage this plugin's own
   install/update/uninstall only; it still never edits Orca's settings directly and never writes to or replaces
