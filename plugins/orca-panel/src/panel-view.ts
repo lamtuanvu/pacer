@@ -28,6 +28,10 @@ export type UiState = {
   delegateWorktree: 'new' | 'current'
   acceptance: string
   answers: Record<string, string>
+  /** All-repos question row expanded for answering (S9). */
+  expandedAnswerId: string | null
+  /** Last connected snapshot.at this session (S14 last-seen caption). */
+  lastSeenAt: number | null
   pending: Record<string, true>
   confirm: ConfirmSpec | null
   statusByKey: Record<string, { tone: 'good' | 'bad' | 'warn'; text: string }>
@@ -58,6 +62,8 @@ export const initialUiState = (): UiState => ({
   delegateWorktree: 'new',
   acceptance: '',
   answers: {},
+  expandedAnswerId: null,
+  lastSeenAt: null,
   pending: {},
   confirm: null,
   statusByKey: {},
@@ -86,6 +92,7 @@ export type PanelEvent =
   | { type: 'set-delegate-worktree'; worktree: 'new' | 'current' }
   | { type: 'set-acceptance'; acceptance: string }
   | { type: 'set-answer'; id: string; text: string }
+  | { type: 'expand-answer'; id: string | null }
   | { type: 'ask-confirm'; confirm: ConfirmSpec }
   | { type: 'cancel-confirm' }
   | { type: 'begin'; pendingKey: string }
@@ -114,7 +121,10 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
           ...state,
           snapshot: event.snapshot,
           loadError: false,
-          ui: { ...state.ui },
+          ui: {
+            ...state.ui,
+            lastSeenAt: event.snapshot.connected ? event.snapshot.at : state.ui.lastSeenAt,
+          },
         },
         run: null,
       }
@@ -158,6 +168,8 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
         state: { ...state, ui: { ...state.ui, answers: { ...state.ui.answers, [event.id]: event.text } } },
         run: null,
       }
+    case 'expand-answer':
+      return { state: { ...state, ui: { ...state.ui, expandedAnswerId: event.id, menuOpen: false } }, run: null }
     case 'ask-confirm':
       return { state: { ...state, ui: { ...state.ui, confirm: event.confirm, menuOpen: false } }, run: null }
     case 'cancel-confirm':
@@ -207,7 +219,11 @@ export function reducePanel(state: PanelState, event: PanelEvent): { state: Pane
         if (answerId) {
           const answers = { ...ui.answers }
           delete answers[answerId]
-          ui = { ...ui, answers }
+          ui = {
+            ...ui,
+            answers,
+            expandedAnswerId: ui.expandedAnswerId === answerId ? null : ui.expandedAnswerId,
+          }
         }
       }
       return { state: { ...state, ui }, run: null }
@@ -250,6 +266,13 @@ export function scopedRunning(snapshot: PanelSnapshot, scope: Scope): PanelTask[
   const key = snapshot.focusedRepo?.key
   if (!key) return snapshot.running
   return snapshot.running.filter((t) => t.repo?.key === key)
+}
+
+export function scopedQueued(snapshot: PanelSnapshot, scope: Scope): PanelTask[] {
+  if (scope === 'global') return snapshot.queued
+  const key = snapshot.focusedRepo?.key
+  if (!key) return snapshot.queued
+  return snapshot.queued.filter((t) => t.repo?.key === key)
 }
 
 export function scopedDoneToday(snapshot: PanelSnapshot, scope: Scope): PanelTask[] {
@@ -342,6 +365,174 @@ export function attentionCaption(parts: {
   detail?: string
 }): string {
   return [parts.executorLabel, parts.when, parts.detail].filter(Boolean).join(' · ')
+}
+
+/**
+ * Board captions per attention kind (S3):
+ * review — "<Executor> · finished HH:MM · <detail>"
+ * question — "<task title> · asked HH:MM"
+ * failed/limit — "<detail> · HH:MM"
+ * else — "<Executor> · HH:MM · <detail>" (omit executor when none)
+ */
+export function attentionCaptionFor(
+  kind: string,
+  parts: {
+    executorLabel: string | null
+    when: string
+    detail?: string
+    taskTitle?: string
+  },
+): string {
+  if (kind === 'question') {
+    return [parts.taskTitle, `asked ${parts.when}`].filter(Boolean).join(' · ')
+  }
+  if (kind === 'review') {
+    return [parts.executorLabel, `finished ${parts.when}`, parts.detail].filter(Boolean).join(' · ')
+  }
+  if (kind === 'failed' || kind === 'limit') {
+    return [parts.detail, parts.when].filter(Boolean).join(' · ')
+  }
+  return attentionCaption({
+    executorLabel: parts.executorLabel,
+    when: parts.when,
+    detail: parts.detail,
+  })
+}
+
+/** Question card title line (S1): "<Executor|pacer> is waiting on you". */
+export function questionWaitingTitle(executorLabel: string | null): string {
+  return `${executorLabel ?? 'pacer'} is waiting on you`
+}
+
+/** All-repos list glyph (S9). */
+export function attentionListGlyph(kind: string): { glyph: string; colorVar: string; label: string } {
+  if (kind === 'review') return { glyph: '●', colorVar: 'var(--info-fg)', label: 'Waiting for review' }
+  if (kind === 'failed' || kind === 'limit') return { glyph: '✕', colorVar: 'var(--bad-fg)', label: 'Failed' }
+  if (kind === 'question' || kind === 'stuck' || kind === 'stalled') {
+    return { glyph: '◐', colorVar: 'var(--warn-fg)', label: 'Needs attention' }
+  }
+  return { glyph: '·', colorVar: 'var(--ink-muted)', label: 'Needs you' }
+}
+
+export type AttentionBtnRole = 'secondary' | 'ghost'
+
+export type AttentionBtn =
+  | { kind: 'spacer' }
+  | {
+      kind: 'button'
+      id: string
+      label: string
+      role: AttentionBtnRole
+      /** Built-in Accept/Reject or service action. */
+      source: 'accept' | 'reject' | 'answer' | 'expand-answer' | 'action'
+      action?: AttentionAction
+    }
+
+/**
+ * Button roles matching the boards (S2 / S9).
+ * This-repo: direct controls + first non-ui.open = secondary; other non-ui.open = ghost;
+ * ui.open actions after a flex spacer as ghost.
+ * All-repos: at most two buttons (first secondary, second ghost); question's first is "Answer".
+ */
+export function attentionButtons(item: AttentionRow, scope: Scope): AttentionBtn[] {
+  if (scope === 'global') {
+    const out: AttentionBtn[] = []
+    if (showsReviewVerdicts(item.kind)) {
+      out.push({ kind: 'button', id: 'accept', label: 'Accept', role: 'secondary', source: 'accept' })
+      const reviewAction = item.actions.find((a) => a.op === 'ui.open') ?? item.actions[0]
+      if (reviewAction) {
+        out.push({
+          kind: 'button',
+          id: `action:${reviewAction.op}:${reviewAction.label}`,
+          label: reviewAction.label,
+          role: 'ghost',
+          source: 'action',
+          action: reviewAction,
+        })
+      }
+      return out.slice(0, 2)
+    }
+    if (showsAnswerComposer(item.kind)) {
+      out.push({ kind: 'button', id: 'expand-answer', label: 'Answer', role: 'secondary', source: 'expand-answer' })
+      const other = item.actions.find((a) => !isAnswerAction(a))
+      if (other) {
+        out.push({
+          kind: 'button',
+          id: `action:${other.op}:${other.label}`,
+          label: other.label,
+          role: 'ghost',
+          source: 'action',
+          action: other,
+        })
+      }
+      return out.slice(0, 2)
+    }
+    const nonOpen = item.actions.filter((a) => a.op !== 'ui.open')
+    const open = item.actions.filter((a) => a.op === 'ui.open')
+    const ordered = [...nonOpen, ...open]
+    for (let i = 0; i < Math.min(2, ordered.length); i++) {
+      const action = ordered[i]!
+      out.push({
+        kind: 'button',
+        id: `action:${action.op}:${action.label}`,
+        label: action.label,
+        role: i === 0 ? 'secondary' : 'ghost',
+        source: 'action',
+        action,
+      })
+    }
+    return out
+  }
+
+  const out: AttentionBtn[] = []
+  if (showsReviewVerdicts(item.kind)) {
+    out.push({ kind: 'button', id: 'accept', label: 'Accept', role: 'secondary', source: 'accept' })
+    out.push({ kind: 'button', id: 'reject', label: 'Reject', role: 'secondary', source: 'reject' })
+  }
+
+  const nonOpen = item.actions.filter((a) => a.op !== 'ui.open')
+  const open = item.actions.filter((a) => a.op === 'ui.open')
+  let firstSecondaryUsed = showsReviewVerdicts(item.kind)
+
+  for (const action of nonOpen) {
+    if (showsAnswerComposer(item.kind) && isAnswerAction(action)) {
+      out.push({
+        kind: 'button',
+        id: `action:${action.op}`,
+        label: actionButtonLabel(action, item.kind),
+        role: 'secondary',
+        source: 'answer',
+        action,
+      })
+      firstSecondaryUsed = true
+      continue
+    }
+    const role: AttentionBtnRole = firstSecondaryUsed ? 'ghost' : 'secondary'
+    firstSecondaryUsed = true
+    out.push({
+      kind: 'button',
+      id: `action:${action.op}:${action.label}`,
+      label: action.label,
+      role,
+      source: 'action',
+      action,
+    })
+  }
+
+  if (open.length > 0) {
+    out.push({ kind: 'spacer' })
+    for (const action of open) {
+      out.push({
+        kind: 'button',
+        id: `action:${action.op}:${action.label}`,
+        label: action.label,
+        role: 'ghost',
+        source: 'action',
+        action,
+      })
+    }
+  }
+  return out
 }
 
 export type MeterTone = 'good' | 'warn' | 'bad' | 'neutral'
@@ -630,6 +821,45 @@ export function stalledMinutes(since: number, now: number): number {
   return Math.max(1, Math.round((now - since) / 60))
 }
 
+/** Board stalled pill copy (S5). */
+export function stalledPillText(mins: number): string {
+  return `No output for ${mins} min`
+}
+
+/** Short agent display name for Done today meta (S6) — never the account suffix. */
+export function executorShortLabel(
+  id: string | null | undefined,
+  executors: PanelExecutor[],
+): string | null {
+  if (!id) return null
+  const row = executors.find((e) => e.id === id)
+  if (row) return plannerAgentDisplay(row.agent)
+  const agent = id.split('@')[0]!.split('#')[0]!
+  return plannerAgentDisplay(agent)
+}
+
+/** Sum enabled executor slots for All-repos Running header (S10). */
+export function slotsInUse(executors: PanelExecutor[]): { used: number; max: number } | null {
+  let used = 0
+  let max = 0
+  let any = false
+  for (const row of executors) {
+    if (!row.enabled) continue
+    if (!row.slots || typeof row.slots.used !== 'number' || typeof row.slots.max !== 'number') continue
+    any = true
+    used += row.slots.used
+    max += row.slots.max
+  }
+  if (!any || max <= 0) return null
+  return { used, max }
+}
+
+/** Queued row caption (S16). */
+export function queuedCaption(paused: boolean, nextLabel: string | null, queuedAt: string): string {
+  if (paused) return `Waits for resume · queued ${queuedAt}`
+  return `${nextLabel ?? 'An executor'} runs it next · queued ${queuedAt}`
+}
+
 export function runningCaption(parts: {
   scope: Scope
   repoLabel?: string
@@ -811,13 +1041,28 @@ export function delegatedCaption(worktree: 'new' | 'current', startedLabel: stri
   return `${place} · started ${startedLabel}`
 }
 
+/** Local client ids map to "by you" (S15); unknown/remote clients omit the by-clause. */
+function isLocalPauseClient(by: string): boolean {
+  const key = by.toLowerCase()
+  return (
+    key === 'you' ||
+    key === 'ui' ||
+    key === 'user' ||
+    key === 'desktop' ||
+    key === 'web' ||
+    key === 'tui' ||
+    key === 'orca' ||
+    key === 'panel' ||
+    key.startsWith('ui-') ||
+    key.startsWith('desktop') ||
+    key.startsWith('web')
+  )
+}
+
 export function pauseBannerExtra(pause: { by: string | null; reason: string | null }, atLabel: string | null): string | null {
-  if (!pause.by && !atLabel) return null
-  const by = pause.by === 'you' || pause.by === 'ui' || pause.by === 'user' ? 'you' : pause.by
-  if (by && atLabel) return `Paused by ${by} at ${atLabel}.`
-  if (by) return `Paused by ${by}.`
-  if (atLabel) return `Paused at ${atLabel}.`
-  return null
+  if (!pause.by || !isLocalPauseClient(pause.by)) return null
+  if (atLabel) return `Paused by you at ${atLabel}.`
+  return `Paused by you.`
 }
 
 export function headerStatusKeys(): string[] {
@@ -845,13 +1090,14 @@ export function headerStatus(
 export type PanelModel =
   | { kind: 'loading' }
   | { kind: 'load-error' }
-  | { kind: 'not-connected'; snapshot: PanelSnapshot }
+  | { kind: 'not-connected'; snapshot: PanelSnapshot; lastSeenAt: number | null }
   | {
       kind: 'ready'
       snapshot: PanelSnapshot
       scope: Scope
       attention: AttentionRow[]
       running: PanelTask[]
+      queued: PanelTask[]
       doneToday: PanelTask[]
       doneVisible: PanelTask[]
       doneMore: number
@@ -859,16 +1105,20 @@ export type PanelModel =
       globalNeedsYou: number
       names: Map<string, string>
       next: PanelExecutor | undefined
+      slots: { used: number; max: number } | null
       ui: UiState
     }
 
 export function panelModel(state: PanelState, _now: number): PanelModel {
   if (state.snapshot === null) return state.loadError ? { kind: 'load-error' } : { kind: 'loading' }
   const snapshot = state.snapshot
-  if (!snapshot.connected) return { kind: 'not-connected', snapshot }
+  if (!snapshot.connected) {
+    return { kind: 'not-connected', snapshot, lastSeenAt: state.ui.lastSeenAt }
+  }
   const scope = effectiveScope(snapshot, state.ui.scope)
   const attention = scopedAttention(snapshot, scope)
   const running = scopedRunning(snapshot, scope)
+  const queued = scopedQueued(snapshot, scope)
   const doneToday = scopedDoneToday(snapshot, scope)
   const doneVisible = doneToday.slice(0, 8)
   const doneMore = Math.max(0, doneToday.length - 8)
@@ -878,6 +1128,7 @@ export function panelModel(state: PanelState, _now: number): PanelModel {
     scope,
     attention,
     running,
+    queued,
     doneToday,
     doneVisible,
     doneMore,
@@ -885,6 +1136,7 @@ export function panelModel(state: PanelState, _now: number): PanelModel {
     globalNeedsYou: globalNeedsYouCount(snapshot),
     names: executorDisplayNames(snapshot.executors),
     next: nextExecutor(snapshot.executors),
+    slots: slotsInUse(snapshot.executors),
     ui: state.ui,
   }
 }

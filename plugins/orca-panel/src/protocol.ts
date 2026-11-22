@@ -58,6 +58,8 @@ export type PanelSnapshot = {
   repos: PanelRepo[]
   attention: AttentionRow[]
   running: PanelTask[]
+  /** Queued tasks (state queued); shown in their own section, not inside Running. */
+  queued: PanelTask[]
   doneToday: PanelTask[]
   executors: PanelExecutor[]
 }

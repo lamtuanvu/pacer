@@ -30,6 +30,7 @@ const NOT_CONNECTED: PanelSnapshot = {
   repos: [],
   attention: [],
   running: [],
+  queued: [],
   doneToday: [],
   executors: [],
 }
@@ -161,8 +162,6 @@ export function attentionOrder(a: AttentionItem, b: AttentionItem): number {
   return (SEVERITY[a.severity] ?? 3) - (SEVERITY[b.severity] ?? 3) || a.raisedAt - b.raisedAt
 }
 
-const active = (state: string) => state === 'running' || state === 'queued'
-
 /**
  * Compatibility for old services that raised a review for every completion.
  * Port of src/view-model/selectors.ts actionableItems.
@@ -207,10 +206,20 @@ function inScope(repoKey: string | null, repo: RepoRef | null | undefined): bool
   return repoKey === null || !repo || repo.key === repoKey
 }
 
+/** In-flight running work only (queued is a separate section). */
 export function selectRunning(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
   return tasks.filter(
-    (t) => (active(t.state) || !!t.activeAgentSessions) && !t.dismissed && inScope(repoKey, t.repo),
+    (t) =>
+      t.state !== 'queued' &&
+      (t.state === 'running' || !!t.activeAgentSessions) &&
+      !t.dismissed &&
+      inScope(repoKey, t.repo),
   )
+}
+
+/** Queued tasks waiting for a slot or for resume. */
+export function selectQueued(tasks: PacerTask[], repoKey: string | null): PacerTask[] {
+  return tasks.filter((t) => t.state === 'queued' && !t.dismissed && inScope(repoKey, t.repo))
 }
 
 export function selectDoneToday(tasks: PacerTask[], since: number | undefined, repoKey: string | null): PacerTask[] {
@@ -219,7 +228,8 @@ export function selectDoneToday(tasks: PacerTask[], since: number | undefined, r
     .filter(
       (t) =>
         t.source !== 'onboarding' &&
-        !active(t.state) &&
+        t.state !== 'running' &&
+        t.state !== 'queued' &&
         !t.activeAgentSessions &&
         t.updatedAt >= since &&
         inScope(repoKey, t.repo),
@@ -340,6 +350,7 @@ async function buildPanelSnapshot(
     (item): AttentionRow => ({ ...item, repoLabel: item.repo?.label }),
   )
   const runningAll = selectRunning(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
+  const queuedAll = selectQueued(snapshot.tasks, null).map((t) => trimTask(t, orcaByPath))
   const doneAll = selectDoneToday(snapshot.tasks, snapshot.today?.since, null).map((t) =>
     trimTask(t, orcaByPath),
   )
@@ -397,6 +408,7 @@ async function buildPanelSnapshot(
     repos,
     attention,
     running: runningAll,
+    queued: queuedAll,
     doneToday: doneAll,
     executors,
   }

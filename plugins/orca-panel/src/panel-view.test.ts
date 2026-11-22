@@ -7,9 +7,12 @@ import {
   actionButtonLabel,
   answerActionParams,
   answerDisabled,
+  attentionButtons,
   attentionCaption,
+  attentionCaptionFor,
   attentionCardTone,
   attentionGlyph,
+  attentionListGlyph,
   buildDelegateParams,
   byRepoCaption,
   confirmTextFor,
@@ -22,6 +25,7 @@ import {
   executorLabelFor,
   executorMonogram,
   executorOptionDisabled,
+  executorShortLabel,
   executorStateWords,
   globalNeedsYouCount,
   headerStatus,
@@ -31,21 +35,27 @@ import {
   modePillLabel,
   otherReposNeedsYou,
   panelModel,
+  pauseBannerExtra,
   phaseCaption,
   phaseWords,
   plannerAgentDisplay,
   plannerCaption,
   plannerHeadline,
+  questionWaitingTitle,
+  queuedCaption,
   rankChipText,
   reducePanel,
   rejectConfirmText,
   reviewExpectRev,
   runningCaption,
   scopedAttention,
+  scopedQueued,
   shouldShowAdvice,
   showOpenWorktree,
   showsAnswerComposer,
   showsReviewVerdicts,
+  slotsInUse,
+  stalledPillText,
   successTextForAction,
   visibleByRepos,
   whoRunsCounts,
@@ -78,6 +88,7 @@ function snap(over: Partial<PanelSnapshot> = {}): PanelSnapshot {
       { ...repo, needsYou: 1, running: 0, doneToday: 0 },
       { ...other, needsYou: 1, running: 0, doneToday: 0 },
     ],
+    queued: [],
     attention: [
       {
         id: 'r1',
@@ -711,4 +722,142 @@ test('L4: shouldShowAdvice omits verdict-word duplicates', () => {
   assert.equal(shouldShowAdvice('Delegate multi-file edits.', 'on_pace'), true)
   assert.equal(shouldShowAdvice('', 'on_pace'), false)
   assert.equal(shouldShowAdvice(null, 'on_pace'), false)
+})
+
+test('S1/S3: question waiting title and captions per kind', () => {
+  assert.equal(questionWaitingTitle('OpenCode'), 'OpenCode is waiting on you')
+  assert.equal(questionWaitingTitle(null), 'pacer is waiting on you')
+  assert.equal(
+    attentionCaptionFor('question', { executorLabel: 'OpenCode', when: '15:02', taskTitle: 'Harden SSE' }),
+    'Harden SSE · asked 15:02',
+  )
+  assert.equal(
+    attentionCaptionFor('review', { executorLabel: 'Cursor', when: '15:21', detail: '7 files' }),
+    'Cursor · finished 15:21 · 7 files',
+  )
+  assert.equal(
+    attentionCaptionFor('failed', { executorLabel: 'OpenCode', when: '14:10', detail: 'Failed twice' }),
+    'Failed twice · 14:10',
+  )
+  assert.equal(
+    attentionCaptionFor('stuck', { executorLabel: null, when: '09:41', detail: 'quota' }),
+    '09:41 · quota',
+  )
+  assert.equal(
+    attentionCaptionFor('stuck', { executorLabel: 'Cursor', when: '09:41', detail: 'quota' }),
+    'Cursor · 09:41 · quota',
+  )
+})
+
+test('S2/S9: attention button roles for this-repo and all-repos', () => {
+  const review = snap().attention.find((a) => a.id === 'r1')!
+  const repoBtns = attentionButtons(review, 'repo')
+  assert.deepEqual(
+    repoBtns.map((b) => (b.kind === 'button' ? `${b.source}:${b.role}:${b.label}` : 'spacer')),
+    ['accept:secondary:Accept', 'reject:secondary:Reject', 'spacer', 'action:ghost:Review changes'],
+  )
+  const globalReview = attentionButtons(review, 'global')
+  assert.deepEqual(
+    globalReview.map((b) => (b.kind === 'button' ? `${b.source}:${b.role}:${b.label}` : 'spacer')),
+    ['accept:secondary:Accept', 'action:ghost:Review changes'],
+  )
+
+  const question = snap().attention.find((a) => a.id === 'q1')!
+  const qRepo = attentionButtons(question, 'repo')
+  assert.equal(qRepo[0]?.kind === 'button' && qRepo[0].source === 'answer' && qRepo[0].label === 'Send answer', true)
+  const qGlobal = attentionButtons(question, 'global')
+  assert.equal(qGlobal[0]?.kind === 'button' && qGlobal[0].source === 'expand-answer' && qGlobal[0].label === 'Answer', true)
+
+  const failed = {
+    ...snap().attention.find((a) => a.id === 'f1')!,
+    actions: [
+      { label: 'Retry on Cursor', op: 'dispatch.retry', params: { id: 't' } },
+      { label: 'Dismiss', op: 'attention.dismiss', params: { id: 'f1' } },
+      { label: 'Log', op: 'ui.open', params: { view: 'task', id: 't' } },
+    ],
+  }
+  assert.deepEqual(
+    attentionButtons(failed, 'repo').map((b) =>
+      b.kind === 'button' ? `${b.role}:${b.label}` : 'spacer',
+    ),
+    ['secondary:Retry on Cursor', 'ghost:Dismiss', 'spacer', 'ghost:Log'],
+  )
+  assert.deepEqual(
+    attentionButtons(failed, 'global').map((b) =>
+      b.kind === 'button' ? `${b.role}:${b.label}` : 'spacer',
+    ),
+    ['secondary:Retry on Cursor', 'ghost:Dismiss'],
+  )
+})
+
+test('S5/S6/S9/S10/S15/S16: stalled copy, short names, glyphs, slots, pause, queued', () => {
+  assert.equal(stalledPillText(12), 'No output for 12 min')
+  const s = snap()
+  const dual = snap({
+    executors: [
+      ...s.executors,
+      {
+        id: 'opencode@oc-glm',
+        agent: 'opencode',
+        account: 'oc-glm',
+        rank: 4,
+        state: 'ready',
+        tone: 'good',
+        sub: 'Ready',
+        next: false,
+        slots: { used: 1, max: 2 },
+        enabled: true,
+      },
+      {
+        id: 'opencode@oc-main',
+        agent: 'opencode',
+        account: 'oc-main',
+        rank: 5,
+        state: 'ready',
+        tone: 'good',
+        sub: 'Ready',
+        next: false,
+        slots: { used: 0, max: 2 },
+        enabled: true,
+      },
+    ],
+  })
+  assert.equal(executorShortLabel('opencode@oc-glm', dual.executors), 'OpenCode')
+  assert.equal(attentionListGlyph('review').glyph, '●')
+  assert.equal(attentionListGlyph('question').glyph, '◐')
+  assert.equal(attentionListGlyph('failed').glyph, '✕')
+  assert.deepEqual(slotsInUse(s.executors), { used: 1, max: 4 })
+  assert.equal(pauseBannerExtra({ by: 'ui', reason: null }, '12:10'), 'Paused by you at 12:10.')
+  assert.equal(pauseBannerExtra({ by: 'remote-host', reason: null }, '12:10'), null)
+  assert.equal(queuedCaption(true, 'Cursor', '12:31'), 'Waits for resume · queued 12:31')
+  assert.equal(queuedCaption(false, 'Cursor', '12:31'), 'Cursor runs it next · queued 12:31')
+
+  const withQueued = snap({
+    queued: [
+      {
+        id: 'tq',
+        rev: 1,
+        title: 'Waiting',
+        repo,
+        state: 'queued',
+        updatedAt: 1_700_000_000,
+      },
+    ],
+  })
+  assert.equal(scopedQueued(withQueued, 'repo').length, 1)
+  const queuedModel = panelModel({ ...initialPanelState(), snapshot: withQueued }, 1)
+  assert.equal(queuedModel.kind, 'ready')
+  if (queuedModel.kind === 'ready') assert.equal(queuedModel.queued.length, 1)
+
+  let panel = reducePanel(initialPanelState(), { type: 'snapshot', snapshot: snap() }).state
+  assert.equal(panel.ui.lastSeenAt, snap().at)
+  panel = reducePanel(panel, { type: 'snapshot', snapshot: snap({ connected: false, at: 0 }) }).state
+  const offline = panelModel(panel, 1)
+  assert.equal(offline.kind, 'not-connected')
+  if (offline.kind === 'not-connected') assert.equal(offline.lastSeenAt, snap().at)
+
+  panel = reducePanel(panel, { type: 'expand-answer', id: 'q1' }).state
+  assert.equal(panel.ui.expandedAnswerId, 'q1')
+  panel = reducePanel(panel, { type: 'expand-answer', id: null }).state
+  assert.equal(panel.ui.expandedAnswerId, null)
 })

@@ -14,6 +14,8 @@ import {
   resetGitCommonDir,
   resetOpenDesktop,
   resolveFocusedRepo,
+  selectQueued,
+  selectRunning,
   setGitCommonDir,
   setOpenDesktop,
   uiOpenRoute,
@@ -304,6 +306,15 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
             updatedAt: at - 5,
             review: { accepted: true },
           },
+          {
+            id: 'tq',
+            rev: 1,
+            title: 'Queued task',
+            state: 'queued',
+            repo: { key: 'k1', label: 'jawfish', path: '/repo' },
+            executor: null,
+            updatedAt: at - 20,
+          },
         ],
         executors: [
           {
@@ -355,6 +366,9 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
     assert.equal(snapshot.focusedRepo?.key, 'k1')
     assert.deepEqual(snapshot.attention.map((a) => a.id).sort(), ['global', 'live'])
     assert.equal(snapshot.running[0]?.orcaWorkspaceId, 'ws-wt')
+    assert.equal(snapshot.running.every((t) => t.state !== 'queued'), true)
+    assert.equal(snapshot.queued.length, 1)
+    assert.equal(snapshot.queued[0]?.id, 'tq')
     assert.equal(snapshot.repos.find((r) => r.key === 'k2')?.orcaWorkspaceId, 'ws-other')
     assert.equal(snapshot.executors.length, 1)
     assert.equal(snapshot.executors[0]?.id, 'cursor')
@@ -363,6 +377,43 @@ test('pacer.snapshot trims a realistic snapshot, hides snoozed items, matches or
   } finally {
     await pacer.dispose()
   }
+})
+
+test('S16: selectRunning excludes queued; selectQueued returns only queued', () => {
+  const tasks = [
+    {
+      id: 'r',
+      rev: 1,
+      title: 'R',
+      state: 'running',
+      repo: { key: 'k', label: 'k', path: '/k' },
+      updatedAt: 1,
+    },
+    {
+      id: 'q',
+      rev: 1,
+      title: 'Q',
+      state: 'queued',
+      repo: { key: 'k', label: 'k', path: '/k' },
+      updatedAt: 2,
+    },
+    {
+      id: 'd',
+      rev: 1,
+      title: 'D',
+      state: 'done',
+      repo: { key: 'k', label: 'k', path: '/k' },
+      updatedAt: 3,
+    },
+  ]
+  assert.deepEqual(
+    selectRunning(tasks, null).map((t) => t.id),
+    ['r'],
+  )
+  assert.deepEqual(
+    selectQueued(tasks, null).map((t) => t.id),
+    ['q'],
+  )
 })
 
 test('pacer.act returns result and conflict', async () => {
@@ -446,6 +497,7 @@ test('status bar text/tone for each verdict including ahead/behind fix', () => {
     repos: [],
     attention: [attentionItem('a'), attentionItem('b'), attentionItem('c')],
     running: [],
+    queued: [],
     doneToday: [],
     executors: [],
   }
@@ -704,6 +756,7 @@ test('paceStatus: unknown usage, global count, ahead/on_pace tooltips', () => {
     repos: [],
     attention: [attentionItem('a'), attentionItem('b')],
     running: [],
+    queued: [],
     doneToday: [],
     executors: [],
   }
