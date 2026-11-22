@@ -57,11 +57,11 @@ test("conflict sets a durable run marker; publish reads the marker not task stat
   const result = await tasks.review(ctx, task.id, { verdict: "accept" });
   expect(result.merge).toBe("conflict");
   const live = getRun(ctx, run.id)!;
-  expect(live.conflict).toMatchObject({
+  expect(live.conflict).toEqual([{
     taskId: task.id,
     branch: `pacer/${task.id}`,
     resolutionTaskId: result.resolution_task,
-  });
+  }]);
   expect(hasUnresolvedConflictTask(ctx, run.id)).toBe(true);
 
   // Even if the resolution task is marked failed (old 600s sweep), the marker still blocks.
@@ -89,9 +89,10 @@ test("accepting the resolution task merges its branch and clears the marker", as
   const resId = conflicted.resolution_task!;
   const info = await gitInfo(ctx.run, repo);
   if ("error" in info) throw new Error(info.error);
-  // Resolution work: branch from run tip, fix clash.txt.
+  // Resolution must bring the conflicting branch in (ancestor check) then fix the file.
   const resWt = await createTaskWorktree(ctx, info, resId, run.branch!);
   if ("error" in resWt) throw new Error(resWt.error);
+  expect((await ctx.run(["git", "-C", resWt.path, "merge", "--no-edit", `pacer/${task.id}`], 30_000)).code).not.toBe(0);
   await Bun.write(join(resWt.path, "clash.txt"), "resolved\n");
   await ctx.run(["git", "-C", resWt.path, "add", "."], 10_000);
   await ctx.run(["git", "-C", resWt.path, "-c", "user.email=t@t", "-c", "user.name=t", "commit", "-q", "-m", "resolve"], 10_000);

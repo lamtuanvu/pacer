@@ -60,9 +60,9 @@ function validatePublishInput(input: PublishInput): void {
   }
 }
 
-/** True when the run still has a durable unresolved conflict marker (I1). */
+/** True when the run still has at least one durable unresolved conflict entry (I1/R2-F3). */
 export function hasUnresolvedConflictTask(ctx: Ctx, runId: string): boolean {
-  return !!getRun(ctx, runId)?.conflict;
+  return (getRun(ctx, runId)?.conflict?.length ?? 0) > 0;
 }
 
 async function branchTipSha(ctx: Ctx, repo: string, branch: string): Promise<string> {

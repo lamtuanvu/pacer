@@ -14,8 +14,8 @@ import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { AgentStep } from "./schema";
 import {
-  clearRunConflict, getRun, setRunBranch, setRunConflict, stepByTask, taskByRequestId,
-  workflowDatabase, type RunRow,
+  getRun, replaceRunConflicts, setRunBranch, setRunConflict,
+  stepByTask, taskByRequestId, workflowDatabase, type RunConflict, type RunRow,
 } from "./store";
 import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import { dataPreamble } from "./template";
@@ -28,6 +28,11 @@ const CODE_KINDS = new Set([
 ]);
 
 const firstLine = (s: string) => s.trim().split("\n")[0] ?? "";
+
+/** Scrub absolute machine paths from git error text before surfacing. */
+function cleanLine(s: string): string {
+  return firstLine(s).replace(/\/(?:Users|Volumes|home|tmp)\/[^\s:]+/g, "<path>");
+}
 
 /** `run_<10 base32>` → `pacer/run-<10 base32>`. */
 export function runBranchName(runId: string): string {
@@ -49,9 +54,12 @@ function lockName(runId: string): string {
   return `run-merge-${runId.replace(/[^A-Za-z0-9._-]/g, "_")}`;
 }
 
-/** Longest merge/publish holder: push 120s + gh 120s + merge 60s → stale above that. */
+/**
+ * Longest merge/publish holder can reach ~360s (worktree 60 + push 120 + list 30
+ * + create 120 + recovery list 30). Stale takeover must sit above that (R2-F7).
+ */
 const MERGE_LOCK_TIMEOUT_MS = 150_000;
-const MERGE_LOCK_STALE_MS = 300_000;
+const MERGE_LOCK_STALE_MS = 420_000;
 
 /** Serialize merges (and branch creation) for one run. */
 export function withMergeLock<T>(ctx: Ctx, runId: string, fn: () => Promise<T> | T): Promise<T> {
@@ -140,9 +148,46 @@ async function integrationWorktreeUnlocked(ctx: Ctx, run: RunRow): Promise<strin
   }
   if (added.code !== 0) {
     if (existsSync(path)) return path;
-    throw new CoreError("unavailable", `cannot create integration worktree: ${firstLine(added.stderr) || `exit ${added.code}`}`);
+    throw new CoreError("unavailable", `cannot create integration worktree: ${cleanLine(added.stderr) || `exit ${added.code}`}`);
   }
   return path;
+}
+
+/** True when `branch` is already an ancestor of `runBranch` (conflicting work is in). */
+async function isAncestorOfRun(
+  ctx: Ctx, top: string, branch: string, runBranch: string,
+): Promise<boolean> {
+  const check = await ctx.run(
+    ["git", "-C", top, "merge-base", "--is-ancestor", branch, runBranch],
+    10_000,
+  );
+  return check.code === 0;
+}
+
+/**
+ * After a successful accept merge (or plain accept), clear only conflict entries
+ * whose conflicting branch is now an ancestor of the run branch (R2-F1).
+ */
+async function clearResolvedConflicts(
+  ctx: Ctx, run: RunRow, top: string, taskId: string,
+): Promise<void> {
+  const live = getRun(ctx, run.id) ?? run;
+  if (!live.branch || !live.conflict?.length) return;
+  const remaining: RunConflict[] = [];
+  for (const entry of live.conflict) {
+    const related = entry.resolutionTaskId === taskId || entry.taskId === taskId
+      || entry.branch === `pacer/${taskId}`;
+    if (!related) {
+      remaining.push(entry);
+      continue;
+    }
+    // Only clear when the conflicting work is actually on the run branch.
+    if (await isAncestorOfRun(ctx, top, entry.branch, live.branch)) continue;
+    remaining.push(entry);
+  }
+  if (remaining.length !== live.conflict.length) {
+    replaceRunConflicts(ctx, live.id, remaining);
+  }
 }
 
 /** One integration worktree per run, checked out on the run branch. */
@@ -190,14 +235,21 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   const step = stepByTask(ctx, taskId);
   let run = step ? getRun(ctx, step.runId) : null;
   // Conflict-resolution tasks are not step-attached; find them via the run marker.
+  // Swallow all lookup errors (fail-safe: fall through to ordinary accept). Documented.
   if (!run?.branch) {
     try {
       const row = workflowDatabase(ctx).query<{ id: string }, [string]>(
         `SELECT id FROM workflow_runs
          WHERE conflict IS NOT NULL
-           AND json_extract(conflict, '$.resolutionTaskId') = ?
+           AND (
+             json_extract(conflict, '$.resolutionTaskId') = ?
+             OR EXISTS (
+               SELECT 1 FROM json_each(conflict) AS j
+               WHERE json_extract(j.value, '$.resolutionTaskId') = ?
+             )
+           )
          LIMIT 1`,
-      ).get(taskId);
+      ).get(taskId, taskId);
       if (row) run = getRun(ctx, row.id);
     } catch {
       run = null;
@@ -206,14 +258,6 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
   if (!run?.branch) return null;
   const task = readTask(ctx, taskId);
   if (!task) return null;
-
-  const worktree = task.worktree ?? task.result?.worktree;
-  if (worktree) {
-    const dirty = await worktreeDirty(ctx, worktree);
-    if (dirty === true) {
-      throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
-    }
-  }
 
   const taskBranch = `pacer/${taskId}`;
   return withMergeLock(ctx, run.id, async () => {
@@ -224,20 +268,32 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       5_000,
     );
     if (hasBranch.code !== 0) {
-      // Research / current-placement / cleaned worktree: nothing to merge.
-      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId) {
-        clearRunConflict(ctx, live.id);
-      }
+      // Research / current-placement / cleaned worktree / resolution with no branch:
+      // accept the verdict but only clear markers whose conflicting branch is already in.
+      // Dirty check is skipped: there is nothing to merge (R2-F8).
+      await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
+
+    // Dirty check only when we will merge a real pacer/<id> branch that is ahead (R2-F8).
+    const worktree = task.worktree ?? task.result?.worktree;
+    if (worktree) {
+      const dirty = await worktreeDirty(ctx, worktree);
+      if (dirty === true) {
+        throw new CoreError("invalid_input", "uncommitted changes in the task worktree");
+      }
+    }
+
+    // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
+    const baseRange = task.baseSha
+      ? `${task.baseSha}..${taskBranch}`
+      : `${live.branch}..${taskBranch}`;
     const ahead = await ctx.run(
-      ["git", "-C", top, "rev-list", "--count", `${live.branch}..${taskBranch}`],
+      ["git", "-C", top, "rev-list", "--count", baseRange],
       10_000,
     );
     if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
-      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId) {
-        clearRunConflict(ctx, live.id);
-      }
+      await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
 
@@ -258,10 +314,7 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     ];
     const merged = await ctx.run(argv, 60_000);
     if (merged.code === 0) {
-      if (live.conflict?.resolutionTaskId === taskId || live.conflict?.taskId === taskId
-        || live.conflict?.branch === taskBranch) {
-        clearRunConflict(ctx, live.id);
-      }
+      await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
     }
 
@@ -273,25 +326,40 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       const resolution = createConflictResolutionTask(ctx, live, task, taskBranch, files);
       return { merged: false, merge: "conflict", resolution_task: resolution.id };
     }
-    throw new CoreError("unavailable", `merge failed: ${firstLine(merged.stderr) || firstLine(merged.stdout) || `exit ${merged.code}`}`);
+    throw new CoreError("unavailable", `merge failed: ${cleanLine(merged.stderr) || cleanLine(merged.stdout) || `exit ${merged.code}`}`);
   });
 }
 
 const CONFLICT_FILES_CAP = 4 * 1024;
 
+function resolutionStillOpen(task: TaskRecord): boolean {
+  // Dedupe only against a prior resolution that has not been reviewed yet (R2-F2).
+  return !task.review;
+}
+
 function createConflictResolutionTask(
   ctx: Ctx, run: RunRow, task: TaskRecord | { id: string; rev: number }, taskBranch: string, files: string,
 ): TaskRecord {
-  const requestId = `wfconflict:${run.id}:${task.id}:${task.rev}`;
-  const prior = taskByRequestId(ctx, requestId);
-  if (prior) {
-    if (!run.conflict || run.conflict.resolutionTaskId !== prior.id) {
-      setRunConflict(ctx, run.id, {
-        taskId: task.id,
-        branch: taskBranch,
-        resolutionTaskId: prior.id,
-      });
-    }
+  // Include an attempt counter so a reviewed/closed prior does not block a fresh resolution (R2-F2).
+  let attempt = 1;
+  let requestId = `wfconflict:${run.id}:${task.id}:${task.rev}:${attempt}`;
+  let prior = taskByRequestId(ctx, requestId);
+  // Also recognize the pre-R2-F2 requestId shape for in-flight open tasks.
+  if (!prior) {
+    const legacy = taskByRequestId(ctx, `wfconflict:${run.id}:${task.id}:${task.rev}`);
+    if (legacy && resolutionStillOpen(legacy)) prior = legacy;
+  }
+  while (prior && !resolutionStillOpen(prior)) {
+    attempt += 1;
+    requestId = `wfconflict:${run.id}:${task.id}:${task.rev}:${attempt}`;
+    prior = taskByRequestId(ctx, requestId);
+  }
+  if (prior && resolutionStillOpen(prior)) {
+    setRunConflict(ctx, run.id, {
+      taskId: task.id,
+      branch: taskBranch,
+      resolutionTaskId: prior.id,
+    });
     return prior;
   }
 
@@ -379,26 +447,48 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     const baseRef = live.baseRef;
     const wt = await integrationWorktreeUnlocked(ctx, live);
     const top = await resolveRepoTop(ctx, live.repo);
-    // Fetch remote-tracking bases before resolving so "base moves on" sees origin.
-    if (baseRef.startsWith("origin/") || baseRef.includes("/")) {
-      await ctx.run(["git", "-C", top, "fetch", "--quiet", "origin"], 120_000);
+    // Non-interactive: never hang on a credential prompt while holding the merge lock (R2-F5).
+    const gitQuietEnv: Record<string, string | undefined> = {
+      ...ctx.env,
+      PATH: ctx.env.PATH ?? process.env.PATH,
+      GIT_TERMINAL_PROMPT: "0",
+      GIT_ASKPASS: "echo",
+    };
+    // Fetch only remote-tracking bases (origin/*); local feature/x must not hit the network (R2-F5).
+    if (baseRef.startsWith("origin/")) {
+      const fetched = await ctx.run(
+        ["git", "-C", top, "fetch", "--quiet", "origin"],
+        120_000,
+        { env: gitQuietEnv },
+      );
+      if (fetched.code !== 0) {
+        throw new CoreError(
+          "unavailable",
+          `sync_base fetch failed: ${cleanLine(fetched.stderr) || cleanLine(fetched.stdout) || `exit ${fetched.code}`}`,
+        );
+      }
     }
     // Resolve the base tip without checking it out in the main worktree.
-    const tip = await ctx.run(["git", "-C", top, "rev-parse", "--verify", `${baseRef}^{commit}`], 10_000);
+    const tip = await ctx.run(
+      ["git", "-C", top, "rev-parse", "--verify", `${baseRef}^{commit}`],
+      10_000,
+      { env: gitQuietEnv },
+    );
     const sha = tip.stdout.trim();
     if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
-      throw new CoreError("unavailable", `cannot resolve base ${baseRef}: ${firstLine(tip.stderr)}`);
+      throw new CoreError("unavailable", `cannot resolve base ${baseRef}: ${cleanLine(tip.stderr)}`);
     }
     const signoff = mergeSignoffEnabled(top);
     const argv = [
       "git", "-C", wt,
       "-c", "user.email=pacer@localhost", "-c", "user.name=pacer",
+      "-c", "core.hooksPath=/dev/null",
       "merge", "--no-ff", "--no-edit",
       ...(signoff ? ["--signoff"] : []),
       "-m", `Sync base ${live.baseRef} into ${live.branch}`,
       sha,
     ];
-    const merged = await ctx.run(argv, 60_000);
+    const merged = await ctx.run(argv, 60_000, { env: gitQuietEnv });
     if (merged.code === 0) return { ok: true, run: getRun(ctx, run.id) ?? live };
 
     const conflicted = /CONFLICT/i.test(merged.stdout + merged.stderr)
@@ -409,6 +499,6 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
       const resolution = createConflictResolutionTask(ctx, live, { id: `base:${live.baseRef}`, rev: live.rev }, live.baseRef!, files);
       return { ok: false, merge: "conflict", resolution_task: resolution.id, run: live };
     }
-    throw new CoreError("unavailable", `sync_base failed: ${firstLine(merged.stderr) || firstLine(merged.stdout) || `exit ${merged.code}`}`);
+    throw new CoreError("unavailable", `sync_base failed: ${cleanLine(merged.stderr) || cleanLine(merged.stdout) || `exit ${merged.code}`}`);
   });
 }

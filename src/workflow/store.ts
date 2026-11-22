@@ -103,8 +103,16 @@ export function workflowDatabase(ctx: Ctx): Database {
     // Phase 5 publishing: optional draft opt-in at start, and the PR URL after publish.
     if (!runColumns.includes("publish_opt_in")) db.exec("ALTER TABLE workflow_runs ADD COLUMN publish_opt_in TEXT");
     if (!runColumns.includes("pr_url")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pr_url TEXT");
-    // Phase 5 fix I1: durable unresolved conflict marker (JSON RunConflict).
+    // Phase 5 fix I1/R2-F3: durable unresolved conflict marker(s) as a JSON list.
     if (!runColumns.includes("conflict")) db.exec("ALTER TABLE workflow_runs ADD COLUMN conflict TEXT");
+    // Idempotent object→list migration for rows written before R2-F3.
+    db.exec(`
+      UPDATE workflow_runs
+      SET conflict = json_array(json(conflict))
+      WHERE conflict IS NOT NULL
+        AND json_valid(conflict)
+        AND json_type(conflict) = 'object'
+    `);
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -199,16 +207,39 @@ export interface RunRow {
   publishOptIn?: "draft";
   /** Phase 5: URL of the opened PR after a successful publish. */
   prUrl?: string;
-  /** Phase 5: durable unresolved merge conflict (publish gate); cleared only after a clean merge. */
-  conflict?: RunConflict;
+  /**
+   * Phase 5: durable unresolved merge conflict entries (publish gate).
+   * Cleared per entry only after the conflicting branch is an ancestor of the run branch.
+   */
+  conflict?: RunConflict[];
 }
 
-/** Durable run-level merge conflict marker (not derived from resolution-task state). */
+/** One durable run-level merge conflict entry (not derived from resolution-task state). */
 export type RunConflict = {
   taskId: string;
   branch: string;
   resolutionTaskId: string;
 };
+
+function isConflictEntry(value: unknown): value is RunConflict {
+  if (!value || typeof value !== "object") return false;
+  const e = value as Record<string, unknown>;
+  return typeof e.taskId === "string" && typeof e.branch === "string"
+    && typeof e.resolutionTaskId === "string";
+}
+
+/** Parse stored conflict JSON: a list, or a legacy single object (pre R2-F3). */
+export function parseRunConflicts(raw: string | null | undefined): RunConflict[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    const list = Array.isArray(parsed) ? parsed : [parsed];
+    const entries = list.filter(isConflictEntry);
+    return entries.length > 0 ? entries : undefined;
+  } catch {
+    return undefined;
+  }
+}
 
 export interface DecisionRow {
   id: string;
@@ -340,15 +371,8 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.base_sha) out.baseSha = row.base_sha;
   if (row.publish_opt_in === "draft") out.publishOptIn = "draft";
   if (row.pr_url) out.prUrl = row.pr_url;
-  if (row.conflict) {
-    try {
-      const parsed = JSON.parse(row.conflict) as RunConflict;
-      if (parsed && typeof parsed.taskId === "string" && typeof parsed.branch === "string"
-        && typeof parsed.resolutionTaskId === "string") {
-        out.conflict = parsed;
-      }
-    } catch { /* ignore bad JSON */ }
-  }
+  const conflicts = parseRunConflicts(row.conflict);
+  if (conflicts) out.conflict = conflicts;
   return out;
 }
 
@@ -530,20 +554,54 @@ export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
   }
 }
 
-/** Record an unresolved merge conflict on the run (publish gate). Does not bump `rev`. */
+/**
+ * Upsert one unresolved merge conflict entry on the run (publish gate).
+ * Keyed by taskId+branch so a second conflict does not erase the first (R2-F3).
+ * Does not bump `rev`.
+ */
 export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
   const db = workflowDatabase(ctx);
+  const current = getRun(ctx, runId);
+  if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+  const list = [...(current.conflict ?? [])];
+  const idx = list.findIndex(e => e.taskId === conflict.taskId && e.branch === conflict.branch);
+  if (idx >= 0) list[idx] = conflict;
+  else list.push(conflict);
   const result = db.query(
     "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
-  ).run(JSON.stringify(conflict), runId);
+  ).run(JSON.stringify(list), runId);
   if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
 }
 
-/** Clear the durable conflict marker after a clean merge of the conflicting work. */
+/** Replace the full conflict list (or clear when empty). Does not bump `rev`. */
+export function replaceRunConflicts(ctx: Ctx, runId: string, conflicts: RunConflict[]): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(conflicts.length > 0 ? JSON.stringify(conflicts) : null, runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Clear every durable conflict marker on the run. Prefer clearRunConflictEntry. */
 export function clearRunConflict(ctx: Ctx, runId: string): void {
-  workflowDatabase(ctx).query(
-    "UPDATE workflow_runs SET conflict = NULL WHERE id = ?",
-  ).run(runId);
+  replaceRunConflicts(ctx, runId, []);
+}
+
+/** Remove conflict entries matching the predicate. */
+export function clearRunConflictEntry(
+  ctx: Ctx,
+  runId: string,
+  match: (entry: RunConflict) => boolean,
+): void {
+  const current = getRun(ctx, runId);
+  if (!current?.conflict?.length) return;
+  const next = current.conflict.filter(e => !match(e));
+  if (next.length !== current.conflict.length) replaceRunConflicts(ctx, runId, next);
+}
+
+/** Find a conflict entry that names this resolution task (or the conflicting task). */
+export function conflictEntryForTask(run: { conflict?: RunConflict[] }, taskId: string): RunConflict | undefined {
+  return run.conflict?.find(e => e.resolutionTaskId === taskId || e.taskId === taskId);
 }
 
 /** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
@@ -897,16 +955,17 @@ export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
  * Missing tables / columns mean "no" (fail closed for the merge gate: skip).
  */
 export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
-  const db = taskDatabase(ctx);
-  const present = db.query(
-    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
-  ).get();
-  if (!present) return false;
-  const runsPresent = db.query(
-    "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
-  ).get();
-  if (!runsPresent) return false;
+  // sqlite_master probes are inside the try so any error is "no" for this probe only (minor).
   try {
+    const db = taskDatabase(ctx);
+    const present = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+    ).get();
+    if (!present) return false;
+    const runsPresent = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+    ).get();
+    if (!runsPresent) return false;
     const row = db.query<{ branch: string | null }, [string]>(
       `SELECT r.branch AS branch
        FROM workflow_steps s
@@ -920,17 +979,23 @@ export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
       "SELECT 1 AS ok FROM pragma_table_info('workflow_runs') WHERE name = 'conflict'",
     ).get();
     if (!conflictCol) return false;
+    // Support both legacy object markers and the R2-F3 list form.
     const marker = db.query<{ conflict: string | null }, [string]>(
       `SELECT conflict FROM workflow_runs
        WHERE conflict IS NOT NULL
-         AND json_extract(conflict, '$.resolutionTaskId') = ?
+         AND (
+           json_extract(conflict, '$.resolutionTaskId') = ?
+           OR EXISTS (
+             SELECT 1 FROM json_each(conflict) AS j
+             WHERE json_extract(j.value, '$.resolutionTaskId') = ?
+           )
+         )
        LIMIT 1`,
-    ).get(taskId);
+    ).get(taskId, taskId);
     return typeof marker?.conflict === "string" && marker.conflict.length > 0;
-  } catch (error) {
-    const msg = String(error);
-    if (/no such table/i.test(msg) || /no such column/i.test(msg)) return false;
-    throw error;
+  } catch {
+    // Fail closed for the merge gate: treat probe errors as "no" (ordinary accept path).
+    return false;
   }
 }
 
