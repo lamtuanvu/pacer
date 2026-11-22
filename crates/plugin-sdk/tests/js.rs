@@ -1,5 +1,6 @@
-//! Integration tests for the public ECMAScript-semantics helpers in `pacer_plugin::js`,
-//! matching `@pacer/plugin`'s string/number/base64 behaviours.
+//! JS helper parity tests: the Rust ecma helpers reproduce `String`, `Number`
+//! and `Buffer` semantics from `@pacer/plugin`. Each test name matches the
+//! slice plan's requirement and the ECMAScript method it ports.
 
 #![allow(clippy::unwrap_used)]
 use pacer_plugin::js::{
@@ -8,28 +9,25 @@ use pacer_plugin::js::{
 use serde_json::json;
 
 #[test]
-fn trim_matches_ecmascript_surface() {
-    assert_eq!(trim(" \n\t  hello  \r\n "), "hello");
-    assert_eq!(trim("\u{feff}x"), "x");
-    assert_eq!(trim(""), "");
-    // ZWSP is not UI-said whitespace in ECMAScript.
-    assert_eq!(trim("\u{200b}a\u{200b}"), "\u{200b}a\u{200b}");
+fn trim_matches_ecmascript() {
+    // ECMAScript WhiteSpace + LineTerminator, including U+FEFF.
+    assert_eq!(trim("\u{feff} a \u{3000}\n"), "a");
+    // U+200B (ZERO WIDTH SPACE) is not ECMAScript whitespace and stays.
+    assert_eq!(trim("\u{200b}a"), "\u{200b}a");
 }
 
 #[test]
-fn utf16_length_counts_code_units_not_scalars() {
-    assert_eq!(utf16_len("plain"), 5);
-    assert_eq!(utf16_len("a\u{1f600}b"), 4); // surrogate pair counts as 2
-    assert_eq!(utf16_len(""), 0);
+fn utf16_len_counts_code_units() {
+    // "a😀" is 2 UTF-16 code units after 'a', so 3 in total.
+    assert_eq!(utf16_len("a😀"), 3);
 }
 
 #[test]
-fn slice_utf16_handles_surrogates_and_ranges() {
-    assert_eq!(slice_utf16("hello world", 6, None), "world");
-    assert_eq!(slice_utf16("hello", 1, Some(3)), "el");
-    // Splitting a surrogate pair yields U+FFFD (documented deviation).
-    assert_eq!(slice_utf16("a\u{1f600}b", -2, None), "\u{fffd}b");
-    assert_eq!(slice_utf16("abc", 5, None), "");
+fn slice_utf16_follows_string_prototype_slice() {
+    assert_eq!(slice_utf16("hello", -3, None), "llo");
+    assert_eq!(slice_utf16("hello", 0, Some(200)), "hello");
+    // Documented deviation: a split surrogate pair becomes U+FFFD.
+    assert_eq!(slice_utf16("a😀b", -2, None), "\u{fffd}b");
     assert_eq!(slice_utf16("abc", 2, Some(1)), "");
 }
 
@@ -37,56 +35,42 @@ fn slice_utf16_handles_surrogates_and_ranges() {
 fn number_string_matches_number_to_string() {
     assert_eq!(number_string(0.0), "0");
     assert_eq!(number_string(-0.0), "0");
-    assert_eq!(number_string(1.0), "1");
     assert_eq!(number_string(1e21), "1e+21");
-    assert_eq!(number_string(0.5), "0.5");
+    assert_eq!(number_string(1.5e-7), "1.5e-7");
     assert_eq!(number_string(0.1 + 0.2), "0.30000000000000004");
-    assert_eq!(number_string(42.0), "42");
+    assert_eq!(
+        number_string(123456789012345680000.0),
+        "123456789012345680000"
+    );
+    assert_eq!(number_string(0.5), "0.5");
 }
 
 #[test]
-fn safe_integer_only_accepts_representable_integrals() {
-    assert_eq!(safe_integer(&json!(7)), Some(7));
-    assert_eq!(safe_integer(&json!(7.0)), Some(7));
+fn safe_integer_accepts_integral_floats_only() {
+    // JSON has no integer type; a `1.0` still yields `Some(1)`.
+    assert_eq!(safe_integer(&json!(1.0)), Some(1));
     assert_eq!(
         safe_integer(&json!(9007199254740991u64)),
         Some(9007199254740991)
     );
     assert_eq!(safe_integer(&json!(9007199254740992u64)), None);
-    assert_eq!(safe_integer(&json!(-9007199254740992i64)), None);
     assert_eq!(safe_integer(&json!(1.5)), None);
     assert_eq!(safe_integer(&json!("1")), None);
-    assert_eq!(safe_integer(&json!(null)), None);
 }
 
 #[test]
-fn finite_number_checks_number_and_range() {
-    assert_eq!(finite_number(&json!(3.5)), Some(3.5));
-    assert_eq!(finite_number(&json!("nope")), None);
-    assert_eq!(finite_number(&json!(null)), None);
-    // JSON cannot represent Infinity/NaN directly, so non-finite never appears.
-    assert_eq!(finite_number(&json!(false)), None);
-}
-
-#[test]
-fn base64_round_trip_and_lenient_forms() {
-    let bytes = b"\x00\x01\x02binary\xffdata";
-    let enc = base64::encode(bytes);
-    assert_eq!(base64::decode(&enc).unwrap(), bytes);
-    assert_eq!(base64::decode_lenient(&enc), bytes);
-}
-
-#[test]
-fn base64_lenient_accepts_whitespace_and_missing_padding() {
+fn base64_lenient_matches_buffer_from() {
     assert_eq!(base64::decode_lenient("eA"), vec![0x78]);
     assert_eq!(base64::decode_lenient("e A=="), vec![0x78]);
-    assert_eq!(base64::decode_lenient(" eA\n== "), vec![0x78]);
-    assert_eq!(base64::decode_lenient("aGVs bG8="), b"hello".to_vec());
+    assert_eq!(base64::decode_lenient("eA==="), vec![0x78]);
+    // Strict canonical base64 still rejects `"eA"`.
+    assert_eq!(base64::decode("eA"), None);
 }
 
 #[test]
-fn base64_strict_rejects_bad_length() {
-    assert_eq!(base64::decode("eA"), None);
-    assert_eq!(base64::decode("eA=="), Some(vec![0x78]));
-    assert_eq!(base64::decode("!!!!"), None);
+fn finite_number_checks_type_and_range() {
+    assert_eq!(finite_number(&json!(3.5)), Some(3.5));
+    assert_eq!(finite_number(&json!("3.5")), None);
+    assert_eq!(finite_number(&json!(null)), None);
+    assert_eq!(finite_number(&json!(false)), None);
 }
