@@ -5,6 +5,8 @@ import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant, authorizeAssistantGrant } from "../dispatch/work";
 import { RUN_GRANT_OPS, verifyRunGrant } from "../workflow/run-grant";
 import { recoverOrphanTurns } from "../workflow/orchestrator";
+import { dispatchDatabase } from "../dispatch/store";
+import { workflowDatabase } from "../workflow/store";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
@@ -85,6 +87,11 @@ export function startServer(
   } catch { /* A missing strategy on a brand-new home is fine; the first edit seeds accounts. */ }
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
+  // Ensure dispatch + workflow schemas before core-ready / listeners: recoverOrphanTurns
+  // is fire-and-forget and yields first, so a concurrent snapshot of tasks.db otherwise
+  // races partial/missing schemas (native/forwarded host-check parity).
+  dispatchDatabase(initialCtx);
+  workflowDatabase(initialCtx);
   // Start-up: revoke orphan prg_ grants and settle live turns with no process (API-5b).
   // recoverOrphanTurns yields before any writer so this never blocks listener bind.
   void recoverOrphanTurns(initialCtx).catch(() => { /* recovery is best-effort */ });
