@@ -8,6 +8,8 @@ import { getTurn, readSettings, writeSettings } from "../src/assistant/store";
 import { askCommand, equivalentCommand } from "../src/commands/ask";
 import type { Strategy } from "../src/config/strategy";
 import type { Status } from "../src/engine/status";
+import { mkdirSync, writeFileSync } from "node:fs";
+import { join } from "node:path";
 import { fakeCtx } from "./helpers";
 
 const strategy = () => ({ planner: { agent: "claude-code", account: "claude" }, accounts: { ep: { kind: "endpoint", model: null, connection: { api: "openai-compatible", base_url: "http://x/v1", key: "none", models: [{ id: "m1" }] } } }, runners: {}, dispatch: { reservePct: 0 } }) as unknown as Strategy;
@@ -16,6 +18,14 @@ const usage = { input: 10, output: 5, coverage: "measured" as const };
 const ID = "t-20261028-101010-ab12";
 function setup(over: AssistantDeps = {}) {
   const ctx = fakeCtx();
+  // The ops run with the server's own strategy when reached over callOp (no injected deps), so a
+  // real strategy file must exist for assistant.status to resolve the account (as on a live home).
+  mkdirSync(ctx.pacerHome, { recursive: true });
+  writeFileSync(
+    join(ctx.pacerHome, "strategy.yaml"),
+    "accounts:\n  claude: {kind: claude}\n  ep: {kind: endpoint, usage: unmetered, connection: {api: openai-compatible, base_url: \"http://x/v1\", key: none, models: [{id: m1, context: 128000, output: 16000, tools: true}]}}\nplanner: claude-code#claude\nrouting: []\n",
+    { mode: 0o600 },
+  );
   writeSettings(ctx, { runner: null, account: "ep", expect_rev: readSettings(ctx).rev });
   let rev = 3;
   const deps: AssistantDeps = { strategy, status, keys: async () => [], read: async () => ({ tasks: [] }), cards: { task: (_c, id) => id === ID ? { rev, title: "ota: stale plan", state: "failed" } : null, managed: () => true }, respond: async () => ({ message: "ok", usage }), ...over };

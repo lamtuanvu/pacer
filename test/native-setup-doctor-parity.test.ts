@@ -89,7 +89,7 @@ function normalize(value: unknown, dir: string) {
     .replace(/"checkedAt":\d+(\.\d+)?/g, '"checkedAt":"<now>"')
     .replace(/"durationSeconds":\d+(\.\d+)?(e-?\d+)?/g, '"durationSeconds":"<elapsed>"')
     .replace(/owner pid \d+/g, "owner pid <pid>"), (_key, item) => {
-    if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v2\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
+    if (!(item && typeof item === "object" && item.name === "Link latency" && /^\/v3\/snapshot max [\d.]+ ms /.test(item.detail))) return item;
     const { remedy: _remedy, ...check } = item;
     return { ...check, level: "<measured>", detail: item.detail.replace(/max [\d.]+ ms/, "max <ms> ms") };
   });

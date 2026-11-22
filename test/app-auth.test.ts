@@ -60,7 +60,7 @@ test("open prints a working single-use URL and serves the protected app and hell
   const appJs = await (await fetch(url + "/app/app.js", { headers })).text();
   const chunks = [...appJs.matchAll(/from"\.\/(chunk-[\w-]+\.js)"/g)].map(m => m[1]);
   const served = [appJs, ...await Promise.all(chunks.map(async c => (await fetch(url + "/app/" + c, { headers })).text()))].join("\n");
-  expect(served).toContain("/v2/hello");
+  expect(served).toContain("/v3/hello");
   expect((await fetch(url + "/state", { headers })).status).toBe(401);
   const reused = await fetch(link, { redirect: "manual" });
   expect(reused.status).toBe(403);
