@@ -32,7 +32,7 @@ use crate::bridge_auth::{AUTH_DEADLINE, OwnerKey, accept};
 use crate::bridge_call::{SealedCall, call_sealed};
 use crate::capability::{CoreForward, CoreRequest};
 use crate::connection_dir::{
-    Probe, check_private_dir, connection_socket_dir, probe_socket, sweep_stale_sockets,
+    Probe, check_private_dir, connection_socket_dir, probe_socket, socket_dir, sweep_stale_sockets,
 };
 use crate::host_bridge::{
     HOST_BRIDGE_ENABLE_ENV, HOST_SOCKET_ENV, HOST_SOCKET_NAME, METHOD_PLUGIN_CALL,
@@ -180,6 +180,17 @@ impl ReverseBridge {
         }
         let run = prepare_run_dir(pacer_home)?;
         Self::bind_in(&run, name, auth)
+    }
+
+    /// Bind the serve owner's socket for a home whose `run/host.sock` path is
+    /// too long: in `run/` when it fits, otherwise in the private per-user
+    /// directory of ADR 0027 item 5. Explicit-flag path ([`Self::bind_at`])
+    /// stays strict; this fallback is reached only through
+    /// [`crate::serve_starts_reverse_bridge_by_default`] wiring.
+    pub fn bind_owner(pacer_home: &Path, auth: PeerAuth) -> Result<Self, BridgeError> {
+        let uid = current_uid();
+        let dir = socket_dir(pacer_home, HOST_SOCKET_NAME, uid)?;
+        Self::bind_in(&dir, HOST_SOCKET_NAME, auth)
     }
 
     /// Bind a stdio connection's socket `name`: in `run/` when the path fits,
@@ -809,17 +820,19 @@ async fn write_raw(stream: &mut UnixStream, value: &Value) -> Result<(), BridgeE
     Ok(())
 }
 
-/// When true, unset env enables the native plugin host; set
-/// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape.
+/// When true, the native plugin owner runs by default on serve; set
+/// `PACER_NATIVE_PLUGIN_HOST=0` (or `false`/`no`) to escape back to the
+/// TypeScript owner.
 ///
-/// Kept `false`: with the host on, Core refuses to spawn plugin children, and
-/// only native HTTP `plugin.*` operations start them through the owner. Every
-/// TypeScript plugin consumer (usage refresh, doctor, setup.health, planners)
-/// must reach the owner over the bridge, with Core's spawn spec, call authority
-/// and per-call resources, before this can flip. P4d-13 flipped it without
-/// that and was reverted.
+/// Default-on since B0b: Core refuses to spawn plugin children and only native
+/// HTTP `plugin.*` operations start them through the owner. The TypeScript
+/// plugin consumers (usage refresh, doctor, setup.health, planners) reach the
+/// owner over the bridge with Core's spawn spec, call authority and per-call
+/// resources (established by #1192 for the keyless classifier and #1203 for
+/// per-user socket fallback on deep homes). P4d-13 flipped it without those
+/// paths and was reverted.
 pub const fn serve_starts_reverse_bridge_by_default() -> bool {
-    false
+    true
 }
 
 /// Public client/TCP surfaces must never advertise private bridge methods.
