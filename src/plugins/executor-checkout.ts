@@ -14,18 +14,28 @@ import { stepByTask } from "../workflow/store";
  * A writer (any non-research task) still owns exclusively against everyone.
  */
 function sameRunResearchSteps(ctx: Ctx, selfId: string, otherId: string): boolean {
-  const self = readTask(ctx, selfId), other = readTask(ctx, otherId);
-  if (self?.kind !== "research" || other?.kind !== "research") return false;
-  const selfStep = stepByTask(ctx, selfId), otherStep = stepByTask(ctx, otherId);
-  return !!selfStep && !!otherStep && selfStep.runId === otherStep.runId;
+  try {
+    const self = readTask(ctx, selfId), other = readTask(ctx, otherId);
+    if (self?.kind !== "research" || other?.kind !== "research") return false;
+    const selfStep = stepByTask(ctx, selfId), otherStep = stepByTask(ctx, otherId);
+    return !!selfStep && !!otherStep && selfStep.runId === otherStep.runId;
+  } catch {
+    // SQLITE_BUSY or a missing/corrupt workflow DB must not abort admission:
+    // treat the pair as not same-run so checkoutOccupied fails CLOSED (occupied).
+    return false;
+  }
 }
 
 export function checkoutOccupied(ctx: Ctx, taskId: string, top: string): boolean {
   const root = realpathSafe(top);
   const overlaps = (path: string) => path === root || path.startsWith(`${root}/`) || root.startsWith(`${path}/`);
-  return listTasksWhere(ctx, { states: ["queued", "running"] }).some(other => other.id !== taskId &&
-    !sameRunResearchSteps(ctx, taskId, other.id) &&
-    overlaps(realpathSafe(other.worktree ?? other.result?.worktree ?? other.brief.repo)) &&
-    (other.interactionMode === "conversation" && other.placement?.requested === "current" ||
-      other.state === "running" && other.placement?.mode === "current" && !!other.runnerPid && pidAlive(other.runnerPid)));
+  return listTasksWhere(ctx, { states: ["queued", "running"] }).some(other => {
+    if (other.id === taskId) return false;
+    if (!overlaps(realpathSafe(other.worktree ?? other.result?.worktree ?? other.brief.repo))) return false;
+    const holds =
+      other.interactionMode === "conversation" && other.placement?.requested === "current" ||
+      other.state === "running" && other.placement?.mode === "current" && !!other.runnerPid && pidAlive(other.runnerPid);
+    if (!holds) return false;
+    return !sameRunResearchSteps(ctx, taskId, other.id);
+  });
 }
