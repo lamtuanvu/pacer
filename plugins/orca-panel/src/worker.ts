@@ -123,9 +123,10 @@ async function defaultOpenDesktop(url: string): Promise<boolean> {
  * Map ui.open params to a `pacer://` route the desktop deep-link handler accepts
  * (desktop/src-tauri/src/logic.rs::route + app/src/data/actions.ts::uiHref).
  *
- * Answer intents: logic.rs validates `/needs-you?answer=<id>` and `#/needs-you?answer=<id>`,
- * but rejects any `pacer://…?…` URL (early `?` guard before the pacer:// branch). The spawn
- * path can only emit `pacer://…`, so tab:"answer" falls back to `tasks/<id>` (documented in README).
+ * Answer intents (`tab:"answer"`): logic.rs accepts the 3-segment form
+ * `sessions/<id>/answer` (logic.rs ~1424–1427; test ~2349–2360). Query forms like
+ * `needs-you?answer=` are rejected on `pacer://` (early `?` guard), so we use the
+ * path form instead of falling back to `tasks/<id>`.
  */
 export function uiOpenRoute(params: Record<string, unknown>): string {
   const view = typeof params.view === 'string' ? params.view : 'overview'
@@ -141,8 +142,7 @@ export function uiOpenRoute(params: Record<string, unknown>): string {
     case 'tasks':
       return id ? `tasks/${id}` : 'tasks'
     case 'task':
-      // tab:"answer" cannot become needs-you?answer= via pacer:// (see comment above).
-      void tab
+      if (tab === 'answer' && id) return `sessions/${id}/answer`
       return id ? `tasks/${id}` : 'tasks'
     case 'review':
       return id ? `tasks/${id}` : 'needs-you'

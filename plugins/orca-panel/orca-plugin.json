@@ -5,7 +5,7 @@
   "version": "0.1.0",
   "description": "A sidebar panel and the worker that answers it.",
   "engines": {
-    "orca": ">=1.4.248"
+    "orca": ">=1.4.259"
   },
   "execution": "trusted-worker",
   "pluginApi": 1,

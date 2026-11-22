@@ -733,16 +733,17 @@ test('R8: review-compat rewrite hides settled reviews and rewrites partials', ()
   assert.equal(filterAttention([attentionItem('snoozed', null, { snoozedUntil: 200 })], 100, []).length, 0)
 })
 
-test('uiOpenRoute covers review/session/settings/needs-you and documents answer tab fallback', () => {
+test('uiOpenRoute covers review/session/settings/needs-you and answer tab', () => {
   assert.equal(uiOpenRoute({ view: 'overview' }), 'overview')
   assert.equal(uiOpenRoute({ view: 'needs-you' }), 'needs-you')
   assert.equal(uiOpenRoute({ view: 'review', id: 't-1' }), 'tasks/t-1')
   assert.equal(uiOpenRoute({ view: 'session', id: 't-1' }), 'sessions/t-1')
   assert.equal(uiOpenRoute({ view: 'settings', section: 'executors' }), 'settings/executors')
   assert.equal(uiOpenRoute({ view: 'settings' }), 'settings')
-  // tab:answer cannot become needs-you?answer= via pacer:// (logic.rs rejects ? on pacer://).
-  assert.equal(uiOpenRoute({ view: 'task', id: 't-1', tab: 'answer' }), 'tasks/t-1')
+  // N1: tab:answer → sessions/<id>/answer (logic.rs 3-segment form).
+  assert.equal(uiOpenRoute({ view: 'task', id: 't-1', tab: 'answer' }), 'sessions/t-1/answer')
   assert.equal(uiOpenRoute({ view: 'task', id: 't-1', tab: 'messages' }), 'tasks/t-1')
+  assert.equal(uiOpenRoute({ view: 'task', tab: 'answer' }), 'tasks')
   assert.equal(uiOpenRoute({ view: 'unknown' }), 'overview')
 })
 

@@ -25,6 +25,7 @@ import {
   executorOptionDisabled,
   executorShortLabel,
   executorStateWords,
+  controlBusy,
   headerStatus,
   initialPanelState,
   isAnswerAction,
@@ -44,11 +45,13 @@ import {
   rejectConfirmText,
   reviewExpectRev,
   runningCaption,
+  runningRowBusy,
   shouldShowAdvice,
   showOpenWorktree,
   showsAnswerComposer,
   stalledMinutes,
   stalledPillText,
+  statusForTarget,
   successTextForAction,
   successTextForConfirm,
   visibleByRepos,
@@ -180,10 +183,21 @@ function button(label: string, opts: {
 function statusLine(key: string): HTMLElement | null {
   const status = state.ui.statusByKey[key]
   if (!status) return null
+  return statusNode(status)
+}
+
+function statusNode(status: { tone: 'good' | 'bad' | 'warn'; text: string }): HTMLElement {
   const node = el('p', `pc-status pc-status--${status.tone}`, status.text)
   node.setAttribute('role', 'status')
   node.setAttribute('aria-live', 'polite')
   return node
+}
+
+function statusForPlace(
+  target: Parameters<typeof statusForTarget>[1],
+): HTMLElement | null {
+  const status = statusForTarget(state.ui.statusByKey, target)
+  return status ? statusNode(status) : null
 }
 
 function renderConfirm(confirm: ConfirmSpec): HTMLElement {
@@ -319,8 +333,9 @@ function renderMenu(snapshot: PanelSnapshot): HTMLElement {
     const b = el('button', 'pc-menu-item')
     b.type = 'button'
     b.setAttribute('role', 'menuitem')
+    if (controlBusy(state.ui.pending, item.run.pendingKey)) b.disabled = true
     b.append(el('span', undefined, item.label))
-    if (item.caption) b.append(el('span', 'pc-caption', item.caption))
+    if (item.caption) b.append(el('span', 'pc-menu-caption', item.caption))
     b.addEventListener('click', () => {
       dispatch({ type: 'toggle-menu', open: false })
       void runRequest(item.run, item.successText)
@@ -624,7 +639,7 @@ function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof pane
     return row
   }
   const actions = el('div', 'pc-running-actions')
-  const busy = !!state.ui.pending[`run:${task.id}`] || !!state.ui.pending[`run:${task.id}:stop`]
+  const busy = runningRowBusy(state.ui.pending, task.id)
   if (showOpenWorktree(task.orcaWorkspaceId)) {
     const openBtn = button('Open worktree', {
       size: 'sm',
@@ -675,6 +690,8 @@ function renderRunningRow(task: PanelTask, model: Extract<ReturnType<typeof pane
     }),
   )
   mid.append(actions)
+  const runStatus = statusForPlace({ place: 'running', taskId: task.id })
+  if (runStatus) mid.append(runStatus)
   row.append(mid)
   return row
 }
@@ -715,9 +732,12 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
     card.append(el('code', 'pc-task-id', model.ui.delegated.taskId))
     main.append(card)
     const actions = el('div', 'pc-delegate-done-actions')
+    const watchPending = controlBusy(state.ui.pending, 'delegate:watch')
+    const openPending = controlBusy(state.ui.pending, 'delegate:open')
     actions.append(
       button('Watch', {
         size: 'md',
+        disabled: watchPending,
         onClick: () =>
           void runRequest(
             {
@@ -733,7 +753,7 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
     const hasWorktree = showOpenWorktree(model.ui.delegated.orcaWorkspaceId)
     const openBtn = button('Open worktree', {
       size: 'md',
-      disabled: !hasWorktree,
+      disabled: !hasWorktree || openPending,
       onClick: () => {
         if (!model.ui.delegated?.orcaWorkspaceId) return
         void runRequest({
@@ -746,6 +766,8 @@ function renderDelegate(model: Extract<ReturnType<typeof panelModel>, { kind: 'r
     if (!hasWorktree) openBtn.title = 'No Orca workspace matches this worktree yet'
     actions.append(openBtn)
     main.append(actions)
+    const doneStatus = statusForPlace({ place: 'delegate-done' })
+    if (doneStatus) main.append(doneStatus)
     const backLink = button('Back to the panel', {
       size: 'sm',
       variant: 'ghost',
@@ -1057,19 +1079,23 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
         row.append(mid)
         if (repo.needsYou > 0) row.append(pill(String(repo.needsYou), 'bad'))
         if (showOpenWorktree(repo.orcaWorkspaceId)) {
+          const openKey = `repo:${repo.key}:open`
           row.append(
             button('Open in Orca', {
               size: 'sm',
               variant: 'ghost',
+              disabled: controlBusy(state.ui.pending, openKey),
               onClick: () =>
                 void runRequest({
                   kind: 'openWorkspace',
                   workspaceId: repo.orcaWorkspaceId!,
-                  pendingKey: `repo:${repo.key}:open`,
+                  pendingKey: openKey,
                 }),
             }),
           )
         }
+        const repoStatus = statusForPlace({ place: 'repo', repoKey: repo.key })
+        if (repoStatus) row.append(repoStatus)
         list.append(row)
       }
       byRepo.append(list)
@@ -1079,6 +1105,7 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
             variant: 'ghost',
             size: 'sm',
             className: 'pc-link-btn',
+            disabled: controlBusy(state.ui.pending, 'by-repo:more'),
             onClick: () =>
               void runRequest({
                 kind: 'act',
@@ -1088,6 +1115,8 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
               }),
           }),
         )
+        const moreStatus = statusForPlace({ place: 'by-repo-more' })
+        if (moreStatus) byRepo.append(moreStatus)
       }
       main.append(byRepo)
     }
@@ -1231,10 +1260,13 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
           variant: 'ghost',
           size: 'sm',
           className: 'pc-link-btn',
+          disabled: controlBusy(state.ui.pending, 'done:more'),
           onClick: () =>
             void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'tasks' }, pendingKey: 'done:more' }),
         }),
       )
+      const doneStatus = statusForPlace({ place: 'done-more' })
+      if (doneStatus) done.append(doneStatus)
     }
     main.append(done)
   }
@@ -1246,10 +1278,13 @@ function renderReady(model: Extract<ReturnType<typeof panelModel>, { kind: 'read
     button('Open the pacer app', {
       size: 'md',
       fullWidth: true,
+      disabled: controlBusy(state.ui.pending, 'footer:open'),
       onClick: () =>
         void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'footer:open' }),
     }),
   )
+  const footerStatus = statusForPlace({ place: 'footer' })
+  if (footerStatus) footer.append(footerStatus)
   // S8: All repos footer has the button only (no caption).
   if (!allRepos) {
     footer.append(el('p', 'pc-caption pc-footer-caption', 'Settings, accounts and routing live in the app.'))
@@ -1294,10 +1329,13 @@ function renderModel(model: ReturnType<typeof panelModel>, now: number): HTMLEle
         button('Open the pacer app', {
           variant: 'primary',
           size: 'md',
+          disabled: controlBusy(state.ui.pending, 'offline:open'),
           onClick: () =>
             void runRequest({ kind: 'act', op: 'ui.open', params: { view: 'overview' }, pendingKey: 'offline:open' }),
         }),
       )
+      const offlineStatus = statusForPlace({ place: 'offline' })
+      if (offlineStatus) card.append(offlineStatus)
       card.append(el('p', 'pc-caption', 'No app on this machine? Start it from a terminal:'))
       card.append(el('code', 'pc-code-box', 'pacer serve'))
       main.append(card)

@@ -1095,6 +1095,7 @@ export function headerStatusKeys(): string[] {
     'menu:pause1d',
     'menu:mode-hold',
     'menu:mode-release',
+    'menu:open',
     'pause:resume',
   ]
 }
@@ -1107,6 +1108,76 @@ export function headerStatus(
     if (status) return status
   }
   return null
+}
+
+/** Where a pendingKey's status line should render (N3). */
+export type StatusTarget =
+  | { place: 'header' }
+  | { place: 'footer' }
+  | { place: 'delegate-done' }
+  | { place: 'by-repo-more' }
+  | { place: 'done-more' }
+  | { place: 'offline' }
+  | { place: 'running'; taskId: string }
+  | { place: 'repo'; repoKey: string }
+  | { place: 'attention'; itemId: string }
+
+export function statusTargetForKey(key: string): StatusTarget | null {
+  if (headerStatusKeys().includes(key)) return { place: 'header' }
+  if (key === 'footer:open') return { place: 'footer' }
+  if (key === 'delegate:open' || key === 'delegate:watch') return { place: 'delegate-done' }
+  if (key === 'by-repo:more') return { place: 'by-repo-more' }
+  if (key === 'done:more') return { place: 'done-more' }
+  if (key === 'offline:open') return { place: 'offline' }
+  const run = /^run:([^:]+):(?:open|watch|stop)$/.exec(key)
+  if (run?.[1]) return { place: 'running', taskId: run[1] }
+  if (/^run:[^:]+$/.test(key)) {
+    const taskId = key.slice('run:'.length)
+    return taskId ? { place: 'running', taskId } : null
+  }
+  const repo = /^repo:([^:]+):open$/.exec(key)
+  if (repo?.[1]) return { place: 'repo', repoKey: repo[1] }
+  const att = /^att:([^:]+):/.exec(key)
+  if (att?.[1]) return { place: 'attention', itemId: att[1] }
+  return null
+}
+
+/** First status for keys that render at `place` (N3). */
+export function statusForTarget(
+  statusByKey: UiState['statusByKey'],
+  target: StatusTarget,
+): { tone: 'good' | 'bad' | 'warn'; text: string } | null {
+  for (const [key, status] of Object.entries(statusByKey)) {
+    const mapped = statusTargetForKey(key)
+    if (!mapped) continue
+    if (mapped.place !== target.place) continue
+    if (mapped.place === 'running' && target.place === 'running' && mapped.taskId !== target.taskId) {
+      continue
+    }
+    if (mapped.place === 'repo' && target.place === 'repo' && mapped.repoKey !== target.repoKey) {
+      continue
+    }
+    if (
+      mapped.place === 'attention' &&
+      target.place === 'attention' &&
+      mapped.itemId !== target.itemId
+    ) {
+      continue
+    }
+    return status
+  }
+  return null
+}
+
+/** Disable Watch / Open / Stop on a running row while any of its actions are in flight (N4). */
+export function runningRowBusy(pending: Record<string, true>, taskId: string): boolean {
+  const prefix = `run:${taskId}`
+  return Object.keys(pending).some((k) => k === prefix || k.startsWith(`${prefix}:`))
+}
+
+/** Disable a single control while its own pendingKey is in flight (N4). */
+export function controlBusy(pending: Record<string, true>, pendingKey: string): boolean {
+  return !!pending[pendingKey]
 }
 
 export type PanelModel =

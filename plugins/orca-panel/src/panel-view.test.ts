@@ -17,6 +17,7 @@ import {
   buildDelegateParams,
   byRepoCaption,
   confirmTextFor,
+  controlBusy,
   DELEGATE_SUBMIT_KEY,
   delegatedCaption,
   doneGlyph,
@@ -49,6 +50,7 @@ import {
   rejectConfirmText,
   reviewExpectRev,
   runningCaption,
+  runningRowBusy,
   scopedAttention,
   scopedQueued,
   shouldShowAdvice,
@@ -57,6 +59,8 @@ import {
   showsReviewVerdicts,
   slotsInUse,
   stalledPillText,
+  statusForTarget,
+  statusTargetForKey,
   successTextForAction,
   visibleByRepos,
   whoRunsCounts,
@@ -928,4 +932,57 @@ test('S5/S6/S9/S10/S15/S16: stalled copy, short names, glyphs, slots, pause, que
   assert.equal(panel.ui.expandedAnswerId, 'q1')
   panel = reducePanel(panel, { type: 'expand-answer', id: null }).state
   assert.equal(panel.ui.expandedAnswerId, null)
+})
+
+test('N3: statusTargetForKey maps every silent action key to a render place', () => {
+  assert.deepEqual(statusTargetForKey('run:t-1:open'), { place: 'running', taskId: 't-1' })
+  assert.deepEqual(statusTargetForKey('run:t-1:watch'), { place: 'running', taskId: 't-1' })
+  assert.deepEqual(statusTargetForKey('repo:k1:open'), { place: 'repo', repoKey: 'k1' })
+  assert.deepEqual(statusTargetForKey('delegate:open'), { place: 'delegate-done' })
+  assert.deepEqual(statusTargetForKey('delegate:watch'), { place: 'delegate-done' })
+  assert.deepEqual(statusTargetForKey('footer:open'), { place: 'footer' })
+  assert.deepEqual(statusTargetForKey('menu:open'), { place: 'header' })
+  assert.deepEqual(statusTargetForKey('by-repo:more'), { place: 'by-repo-more' })
+  assert.deepEqual(statusTargetForKey('done:more'), { place: 'done-more' })
+  assert.deepEqual(statusTargetForKey('offline:open'), { place: 'offline' })
+  assert.deepEqual(statusTargetForKey('att:q1:task.answer'), { place: 'attention', itemId: 'q1' })
+  assert.equal(statusTargetForKey('unknown-key'), null)
+
+  const statusByKey = {
+    'footer:open': { tone: 'bad' as const, text: 'Open the pacer app to see this.' },
+    'run:t-1:watch': { tone: 'bad' as const, text: 'Failed' },
+    'run:t-2:open': { tone: 'good' as const, text: 'Opened' },
+  }
+  assert.deepEqual(statusForTarget(statusByKey, { place: 'footer' }), {
+    tone: 'bad',
+    text: 'Open the pacer app to see this.',
+  })
+  assert.deepEqual(statusForTarget(statusByKey, { place: 'running', taskId: 't-1' }), {
+    tone: 'bad',
+    text: 'Failed',
+  })
+  assert.deepEqual(statusForTarget(statusByKey, { place: 'running', taskId: 't-2' }), {
+    tone: 'good',
+    text: 'Opened',
+  })
+  assert.equal(statusForTarget(statusByKey, { place: 'offline' }), null)
+
+  // menu:open surfaces via headerStatus with the other menu keys
+  assert.deepEqual(headerStatus({ 'menu:open': { tone: 'bad', text: 'Open failed' } }), {
+    tone: 'bad',
+    text: 'Open failed',
+  })
+})
+
+test('N4: runningRowBusy and controlBusy disable in-flight open/watch controls', () => {
+  assert.equal(runningRowBusy({}, 't-1'), false)
+  assert.equal(runningRowBusy({ 'run:t-1:watch': true }, 't-1'), true)
+  assert.equal(runningRowBusy({ 'run:t-1:open': true }, 't-1'), true)
+  assert.equal(runningRowBusy({ 'run:t-1:stop': true }, 't-1'), true)
+  assert.equal(runningRowBusy({ 'run:t-2:watch': true }, 't-1'), false)
+  assert.equal(controlBusy({ 'delegate:watch': true }, 'delegate:watch'), true)
+  assert.equal(controlBusy({ 'delegate:watch': true }, 'delegate:open'), false)
+  assert.equal(controlBusy({ 'footer:open': true }, 'footer:open'), true)
+  assert.equal(controlBusy({ 'repo:k1:open': true }, 'repo:k1:open'), true)
+  assert.equal(controlBusy({ 'offline:open': true }, 'offline:open'), true)
 })

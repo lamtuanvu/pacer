@@ -22,9 +22,9 @@ Node, not Bun). Opening an Orca worktree uses host `workspace.open` and needs th
 - **Accept/Reject `expect_rev`:** when the reviewed task is no longer in `running` or `doneToday`
   (for example finished before `today.since`), Accept/Reject omit `expect_rev`. The service treats
   it as optional; a conflict surfaces as "Already handled elsewhere".
-- **`tab:"answer"` deep links:** `desktop/.../logic.rs` validates `/needs-you?answer=<id>` and
-  `#/needs-you?answer=<id>`, but rejects any `pacer://…?…` URL (early `?` guard). The worker can
-  only spawn `pacer://…`, so answer intents open `tasks/<id>` instead of the answer composer.
+- **`tab:"answer"` deep links:** query forms (`needs-you?answer=<id>`) are rejected on
+  `pacer://` (early `?` guard in `logic.rs`). Answer intents map to
+  `pacer://sessions/<id>/answer`, which the desktop deep-link handler accepts.
 
 `orca plugin test .` runs `src/pacer-client.test.ts`, `src/panel-view.test.ts` and
 `src/worker.test.ts` in Node with `orca/testing`. `bun x tsc -p .` type-checks against the
