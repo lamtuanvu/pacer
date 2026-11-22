@@ -196,6 +196,15 @@ export function completeWakeups(ctx: Ctx, turnId: string): void {
 
 /** Whether the underlying decision for a wake key is still open after a done turn. */
 export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
+  // Phase 4 executor/orchestrator questions use the question id as the wake ref.
+  if (cause === "question" && ref.startsWith("q_")) {
+    const row = workflowDatabase(ctx).query<{ status: string; answerer: string; run_id: string }, [string]>(
+      "SELECT status, answerer, run_id FROM workflow_questions WHERE id = ?",
+    ).get(ref);
+    if (!row) return false;
+    if (rootRunId(ctx, row.run_id) !== rootRunId(ctx, runId) && row.run_id !== runId) return false;
+    return row.status === "open" && row.answerer === "orchestrator";
+  }
   const parsed = parseWakeRef(ref);
   if (!parsed) return false;
   const { stepId, attempt, branch, runId: owningRunId } = parsed;
@@ -616,6 +625,22 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         push(root, "orchestrator_step", ref, step.startedAt);
       }
     }
+  }
+
+  // Phase 4: open questions waiting on the orchestrator (ref = question id).
+  const openQs = db.query<{ id: string; run_id: string; created_at: number }, []>(`
+    SELECT q.id, q.run_id, q.created_at
+    FROM workflow_questions q
+    JOIN workflow_runs r ON r.id = q.run_id
+    WHERE q.status = 'open' AND q.answerer = 'orchestrator'
+      AND r.status IN ('running', 'waiting')
+    ORDER BY q.created_at, q.id
+  `).all();
+  for (const q of openQs) {
+    const root = rootRunId(ctx, q.run_id);
+    if (liveTurn(ctx, root)) continue;
+    if (hasOpenWakeup(ctx, root, "question", q.id)) continue;
+    push(root, "question", q.id, q.created_at);
   }
   return out;
 }
