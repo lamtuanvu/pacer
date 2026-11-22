@@ -111,7 +111,7 @@ describe("per-run orchestrator and message budgets", () => {
     expect(blocked.reason).toMatch(/turn budget spent/i);
     const ask = getBudgetAttention(ctx, run.id);
     expect(ask?.severity).toBe("decide");
-    expect(ask?.detail).toMatch(/add more planning, or stop the run/i);
+    expect(ask?.detail).toMatch(/add 20 planning steps/i);
 
     // Wake-up present but startTurn returns null.
     addWakeup(workflowDatabase(ctx), {
