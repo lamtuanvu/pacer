@@ -11,7 +11,9 @@ use std::sync::{
     atomic::{AtomicUsize, Ordering},
 };
 use std::time::Duration;
-use support::{FakeOpenAi, ScriptedReply};
+use support::{
+    AnthropicScript, FakeAnthropic, FakeGemini, FakeOpenAi, GeminiScript, ScriptedReply,
+};
 
 fn limits(max_tool_rounds: i64, deadline_ms: i64) -> Value {
     json!({
@@ -34,7 +36,34 @@ fn base_params(message: &str, tools: Value, limits: Value, base_url: &str) -> Va
         "tools": tools,
         "history": [],
         "message": message,
-        "endpoint": { "baseUrl": base_url },
+        "endpoint": { "api": "openai-compatible", "baseUrl": base_url },
+        "limits": limits
+    })
+}
+
+fn provider_params(
+    api: &str,
+    message: &str,
+    tools: Value,
+    limits: Value,
+    base_url: Option<&str>,
+) -> Value {
+    let mut endpoint = json!({ "api": api });
+    if let Some(url) = base_url {
+        endpoint["baseUrl"] = json!(url);
+    }
+    json!({
+        "conversationId": "c1",
+        "turnId": "t1",
+        "account": "ep",
+        "backend": "pacer",
+        "model": "test-model",
+        "system": "You are the pacer assistant.",
+        "digest": "digest: quiet.",
+        "tools": tools,
+        "history": [],
+        "message": message,
+        "endpoint": endpoint,
         "limits": limits
     })
 }
@@ -549,5 +578,273 @@ async fn provider_error_hides_key_material() {
         err.message
     );
     assert!(err.message.contains("model call failed"));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn remaining_output_budget_is_passed_per_call() {
+    // R3: each call gets the unused remainder of maxOutputTokens, not the full turn budget.
+    let fake = FakeOpenAi::start(VecDeque::from([
+        ScriptedReply::ToolCalls {
+            calls: vec![("call-1".into(), "snapshot".into(), json!({}))],
+            usage: (10, 40),
+        },
+        ScriptedReply::Text {
+            content: "done".into(),
+            usage: (20, 5),
+        },
+    ]))
+    .await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.assistant.tool", |_| {
+        Ok(json!({ "name": "snapshot", "content": "ok", "ok": true }))
+    });
+    let tools = json!([{
+        "name": "snapshot",
+        "description": "Read",
+        "parameters": { "type": "object" }
+    }]);
+    let tight = json!({
+        "maxInputTokens": 8000,
+        "maxOutputTokens": 100,
+        "maxToolRounds": 2,
+        "deadlineMs": 30_000
+    });
+    let result = h
+        .call(
+            "assistant.reply",
+            base_params("budget", tools, tight, &fake.base_url),
+        )
+        .await
+        .expect("reply");
+    assert_eq!(result["message"], "done");
+    let maxes: Vec<u64> = fake
+        .requests
+        .lock()
+        .unwrap()
+        .iter()
+        .map(|r| r.body["max_tokens"].as_u64().unwrap())
+        .collect();
+    assert_eq!(maxes.len(), 2);
+    assert_eq!(maxes[0], 100);
+    assert_eq!(
+        maxes[1], 60,
+        "second call must see remaining budget, got {maxes:?}"
+    );
+    assert_eq!(result["usage"]["output"], 45);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn anthropic_plain_answer_and_tool_round() {
+    let fake = FakeAnthropic::start(VecDeque::from([
+        AnthropicScript::ToolUse {
+            id: "tu1".into(),
+            name: "snapshot".into(),
+            input: json!({}),
+            usage: (12, 4),
+        },
+        AnthropicScript::Text {
+            content: "From Anthropic.".into(),
+            usage: (20, 6),
+        },
+    ]))
+    .await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.assistant.tool", |_| {
+        Ok(json!({ "name": "snapshot", "content": "ok", "ok": true }))
+    });
+    let tools = json!([{
+        "name": "snapshot",
+        "description": "Read",
+        "parameters": { "type": "object" }
+    }]);
+    let result = h
+        .call(
+            "assistant.reply",
+            provider_params(
+                "anthropic",
+                "hi",
+                tools,
+                limits(2, 30_000),
+                Some(&fake.base_url),
+            ),
+        )
+        .await
+        .expect("anthropic reply");
+    assert_eq!(result["message"], "From Anthropic.");
+    assert_eq!(
+        fake.requests.lock().unwrap()[0].api_key.as_deref(),
+        Some("test-key")
+    );
+    assert_eq!(fake.requests.lock().unwrap()[0].body["max_tokens"], 1024);
+    assert_eq!(fake.requests.lock().unwrap().len(), 2);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn anthropic_default_base_url_when_omitted() {
+    // Without a fake on the real Anthropic host this fails closed as a transport/provider error —
+    // proving the plugin accepts a missing baseUrl for anthropic (does not require endpoint.baseUrl).
+    let mut h = start_harness().await;
+    let err = h
+        .call(
+            "assistant.reply",
+            provider_params("anthropic", "hi", json!([]), limits(0, 2_000), None),
+        )
+        .await
+        .expect_err("real anthropic unreachable");
+    assert_eq!(err.code, "plugin_unavailable");
+    h.close().await;
+}
+
+#[tokio::test]
+async fn anthropic_provider_error_class() {
+    let fake = FakeAnthropic::start(VecDeque::from([AnthropicScript::HttpError {
+        status: 429,
+        body: "rate limited".into(),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let err = h
+        .call(
+            "assistant.reply",
+            provider_params(
+                "anthropic",
+                "hi",
+                json!([]),
+                limits(0, 30_000),
+                Some(&fake.base_url),
+            ),
+        )
+        .await
+        .expect_err("rate limit");
+    assert_eq!(err.code, "plugin_unavailable");
+    assert!(err.message.contains("rate limited") || err.message.contains("model call failed"));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn gemini_plain_answer() {
+    let fake = FakeGemini::start(VecDeque::from([GeminiScript::Text {
+        content: "From Gemini.".into(),
+        usage: (8, 3),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let result = h
+        .call(
+            "assistant.reply",
+            provider_params(
+                "gemini",
+                "hi",
+                json!([]),
+                limits(0, 30_000),
+                Some(&fake.base_url),
+            ),
+        )
+        .await
+        .expect("gemini reply");
+    assert_eq!(result["message"], "From Gemini.");
+    assert_eq!(
+        fake.requests.lock().unwrap()[0].api_key.as_deref(),
+        Some("test-key")
+    );
+    let max_out =
+        fake.requests.lock().unwrap()[0].body["generationConfig"]["maxOutputTokens"].as_u64();
+    assert_eq!(max_out, Some(1024));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn gemini_tool_round() {
+    let fake = FakeGemini::start(VecDeque::from([
+        GeminiScript::FunctionCall {
+            name: "snapshot".into(),
+            args: json!({}),
+            usage: (8, 3),
+        },
+        GeminiScript::Text {
+            content: "From Gemini.".into(),
+            usage: (15, 4),
+        },
+    ]))
+    .await;
+    let mut h = start_harness().await;
+    h.on_capability("capability.assistant.tool", |_| {
+        Ok(json!({ "name": "snapshot", "content": "ok", "ok": true }))
+    });
+    // Empty properties: Rig's Gemini Schema conversion rejects bare `{type:object}`.
+    let tools = json!([{
+        "name": "snapshot",
+        "description": "Read",
+        "parameters": { "type": "object", "properties": {} }
+    }]);
+    let result = h
+        .call(
+            "assistant.reply",
+            provider_params(
+                "gemini",
+                "hi",
+                tools,
+                limits(2, 30_000),
+                Some(&fake.base_url),
+            ),
+        )
+        .await
+        .expect("gemini tool round");
+    assert_eq!(result["message"], "From Gemini.");
+    assert_eq!(fake.requests.lock().unwrap().len(), 2);
+    h.close().await;
+}
+
+#[tokio::test]
+async fn gemini_provider_error_class() {
+    let fake = FakeGemini::start(VecDeque::from([GeminiScript::HttpError {
+        status: 401,
+        body: "bad key".into(),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let err = h
+        .call(
+            "assistant.reply",
+            provider_params(
+                "gemini",
+                "hi",
+                json!([]),
+                limits(0, 30_000),
+                Some(&fake.base_url),
+            ),
+        )
+        .await
+        .expect_err("auth");
+    assert_eq!(err.code, "plugin_unavailable");
+    assert!(err.message.contains("auth") || err.message.contains("model call failed"));
+    h.close().await;
+}
+
+#[tokio::test]
+async fn keyless_rejected_for_anthropic() {
+    let fake = FakeAnthropic::start(VecDeque::from([AnthropicScript::Text {
+        content: "no".into(),
+        usage: (1, 1),
+    }]))
+    .await;
+    let mut h = start_harness().await;
+    let mut params = provider_params(
+        "anthropic",
+        "hi",
+        json!([]),
+        limits(0, 30_000),
+        Some(&fake.base_url),
+    );
+    params["endpoint"]["keyless"] = json!(true);
+    let err = h
+        .call("assistant.reply", params)
+        .await
+        .expect_err("keyless anthropic");
+    assert_eq!(err.code, "invalid_input");
+    assert!(fake.requests.lock().unwrap().is_empty());
     h.close().await;
 }

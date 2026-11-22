@@ -9741,6 +9741,14 @@ Params:
     "endpoint": {
       "type": "object",
       "properties": {
+        "api": {
+          "type": "string",
+          "enum": [
+            "openai-compatible",
+            "anthropic",
+            "gemini"
+          ]
+        },
         "baseUrl": {
           "type": "string",
           "minLength": 1,
@@ -9750,9 +9758,6 @@ Params:
           "type": "boolean"
         }
       },
-      "required": [
-        "baseUrl"
-      ],
       "additionalProperties": false
     },
     "executor": {
