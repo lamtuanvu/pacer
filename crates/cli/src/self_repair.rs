@@ -161,24 +161,31 @@ fn load_sha256_sums(
     parse_sha256_sums(text)
 }
 
-fn install_release_binary(
-    dir: &Path,
-    prefix: &str,
-    dest: &Path,
-    base: &str,
-    version: &str,
-    file: &str,
+struct ReleaseBinary<'a> {
+    dir: &'a Path,
+    prefix: &'a str,
+    dest: &'a Path,
+    base: &'a str,
+    version: &'a str,
+    file: &'a str,
     size: u64,
-    hash: &str,
+    hash: &'a str,
     deadline: Instant,
-    smoke_label: &str,
-) -> Result<(), RepairError> {
-    target_ok(dest, prefix)?;
-    let (staged, mut out) = stage(dir, prefix, 0o700)?;
-    let bytes = download::fetch(download::release_url(base, version, file)?, size, deadline)?;
-    if bytes.len() as u64 != size || format!("{:x}", Sha256::digest(&bytes)) != hash {
+    smoke_label: &'a str,
+}
+
+fn install_release_binary(bin: ReleaseBinary<'_>) -> Result<(), RepairError> {
+    target_ok(bin.dest, bin.prefix)?;
+    let (staged, mut out) = stage(bin.dir, bin.prefix, 0o700)?;
+    let bytes = download::fetch(
+        download::release_url(bin.base, bin.version, bin.file)?,
+        bin.size,
+        bin.deadline,
+    )?;
+    if bytes.len() as u64 != bin.size || format!("{:x}", Sha256::digest(&bytes)) != bin.hash {
         return Err(RepairError::Invalid(format!(
-            "{smoke_label} size or checksum mismatch"
+            "{} size or checksum mismatch",
+            bin.smoke_label
         )));
     }
     out.write_all(&bytes)?;
@@ -186,14 +193,15 @@ fn install_release_binary(
     drop(out);
     process::sign(&staged.0)?;
     fs::set_permissions(&staged.0, fs::Permissions::from_mode(0o755))?;
-    if core_version(&staged.0).as_deref() != Some(version) {
+    if core_version(&staged.0).as_deref() != Some(bin.version) {
         return Err(RepairError::Invalid(format!(
-            "{smoke_label} version smoke failed"
+            "{} version smoke failed",
+            bin.smoke_label
         )));
     }
-    target_ok(dest, prefix)?;
-    fs::rename(&staged.0, dest)?;
-    File::open(dir)?.sync_all()?;
+    target_ok(bin.dest, bin.prefix)?;
+    fs::rename(&staged.0, bin.dest)?;
+    File::open(bin.dir)?.sync_all()?;
     Ok(())
 }
 
@@ -263,7 +271,10 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
         if sums.is_none() {
             sums = Some(load_sha256_sums(base, version, deadline)?);
         }
-        require_sums_agree(sums.as_ref().expect("sums loaded"), file, hash)
+        let Some(loaded) = sums.as_ref() else {
+            return Err(RepairError::Invalid("SHA256SUMS unavailable".into()));
+        };
+        require_sums_agree(loaded, file, hash)
     };
     if !core_ok {
         let companions = asset["companions"]
@@ -286,57 +297,55 @@ pub fn repair(exe: &Path, version: &str, base: &str) -> Result<PathBuf, RepairEr
         let hash = hex_sha256(&companion["sha256"])
             .map_err(|_| RepairError::Invalid("invalid core checksum".into()))?;
         sums_for(&expected_file, hash)?;
-        install_release_binary(
+        install_release_binary(ReleaseBinary {
             dir,
-            "pacer-core",
-            &core,
+            prefix: "pacer-core",
+            dest: &core,
             base,
             version,
-            &expected_file,
+            file: &expected_file,
             size,
             hash,
             deadline,
-            "core",
-        )?;
+            smoke_label: "core",
+        })?;
     }
-    if !assistant_ok {
-        if let Some(plugins) = asset["nativePlugins"].as_array() {
-            let expected_file = format!("pacer-assistant-pacer-{os}-{arch}");
-            let plugin = plugins.iter().find(|p| {
-                p["name"] == "pacer-assistant-pacer" && p["file"] == expected_file
-            });
-            if let Some(plugin) = plugin {
-                let size = plugin["size"]
-                    .as_u64()
-                    .filter(|n| *n > 0 && *n <= 200 * 1024 * 1024)
-                    .ok_or_else(|| {
-                        RepairError::Invalid("invalid assistant size (maximum 200 MB)".into())
-                    })?;
-                let hash = hex_sha256(&plugin["sha256"])
-                    .map_err(|_| RepairError::Invalid("invalid assistant checksum".into()))?;
-                sums_for(&expected_file, hash)?;
-                install_release_binary(
-                    dir,
-                    "pacer-assistant-pacer",
-                    &assistant,
-                    base,
-                    version,
-                    &expected_file,
-                    size,
-                    hash,
-                    deadline,
-                    "assistant",
-                )?;
-            } else if plugins.is_empty() {
-                // Release lists the field but no matching host entry: leave the sibling alone.
-            } else {
-                return Err(RepairError::Invalid(
-                    "manifest native plugin has an invalid name or file".into(),
-                ));
-            }
+    if !assistant_ok && let Some(plugins) = asset["nativePlugins"].as_array() {
+        let expected_file = format!("pacer-assistant-pacer-{os}-{arch}");
+        let plugin = plugins
+            .iter()
+            .find(|p| p["name"] == "pacer-assistant-pacer" && p["file"] == expected_file);
+        if let Some(plugin) = plugin {
+            let size = plugin["size"]
+                .as_u64()
+                .filter(|n| *n > 0 && *n <= 200 * 1024 * 1024)
+                .ok_or_else(|| {
+                    RepairError::Invalid("invalid assistant size (maximum 200 MB)".into())
+                })?;
+            let hash = hex_sha256(&plugin["sha256"])
+                .map_err(|_| RepairError::Invalid("invalid assistant checksum".into()))?;
+            sums_for(&expected_file, hash)?;
+            install_release_binary(ReleaseBinary {
+                dir,
+                prefix: "pacer-assistant-pacer",
+                dest: &assistant,
+                base,
+                version,
+                file: &expected_file,
+                size,
+                hash,
+                deadline,
+                smoke_label: "assistant",
+            })?;
+        } else if plugins.is_empty() {
+            // Release lists the field but no matching host entry: leave the sibling alone.
+        } else {
+            return Err(RepairError::Invalid(
+                "manifest native plugin has an invalid name or file".into(),
+            ));
         }
-        // No nativePlugins: older release; a missing/stale assistant is left alone.
     }
+    // No nativePlugins / assistant already current: older release leaves a missing/stale sibling alone.
     Ok(core)
 }
 

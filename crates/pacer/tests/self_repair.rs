@@ -121,8 +121,21 @@ impl Feed {
     fn new(version: &str, core: &[u8], hash: &str) -> Self {
         Self::altered(version, core, hash, None, |_| {}, None)
     }
-    fn with_assistant(version: &str, core: &[u8], hash: &str, assistant: &[u8], assistant_hash: &str) -> Self {
-        Self::altered(version, core, hash, Some((assistant, assistant_hash)), |_| {}, None)
+    fn with_assistant(
+        version: &str,
+        core: &[u8],
+        hash: &str,
+        assistant: &[u8],
+        assistant_hash: &str,
+    ) -> Self {
+        Self::altered(
+            version,
+            core,
+            hash,
+            Some((assistant, assistant_hash)),
+            |_| {},
+            None,
+        )
     }
     fn altered(
         version: &str,
@@ -239,17 +252,24 @@ fn invalid_manifest_identity_and_sizes_never_download_the_core() {
     for case in ["version", "duplicate", "name", "file", "oversize", "zero"] {
         let install = Install::new();
         let script = install.script();
-        let feed = Feed::altered(&install.version, &script, &hash(&script), None, |v| match case {
-            "version" => v["version"] = "0.0.1".into(),
-            "duplicate" => {
-                let asset = v["assets"][0].clone();
-                v["assets"].as_array_mut().unwrap().push(asset);
-            }
-            "name" => v["assets"][0]["companions"][0]["name"] = "unknown".into(),
-            "file" => v["assets"][0]["companions"][0]["file"] = "../pacer".into(),
-            "oversize" => v["assets"][0]["companions"][0]["size"] = (201 * 1024 * 1024).into(),
-            _ => v["assets"][0]["companions"][0]["size"] = 0.into(),
-        }, None);
+        let feed = Feed::altered(
+            &install.version,
+            &script,
+            &hash(&script),
+            None,
+            |v| match case {
+                "version" => v["version"] = "0.0.1".into(),
+                "duplicate" => {
+                    let asset = v["assets"][0].clone();
+                    v["assets"].as_array_mut().unwrap().push(asset);
+                }
+                "name" => v["assets"][0]["companions"][0]["name"] = "unknown".into(),
+                "file" => v["assets"][0]["companions"][0]["file"] = "../pacer".into(),
+                "oversize" => v["assets"][0]["companions"][0]["size"] = (201 * 1024 * 1024).into(),
+                _ => v["assets"][0]["companions"][0]["size"] = 0.into(),
+            },
+            None,
+        );
         let output = install.run(&["self-repair"], &feed.base, false);
         assert!(!output.status.success(), "{case}");
         assert!(!install.core().exists());
@@ -421,8 +441,16 @@ fn checksum_and_smoke_failures_preserve_the_previous_core() {
         };
         // Keep SHA256SUMS aligned with the (possibly poisoned) manifest so we exercise the
         // post-download checksum / version-smoke path rather than the sums cross-check.
-        let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
-        let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
+        let os = if cfg!(target_os = "macos") {
+            "darwin"
+        } else {
+            "linux"
+        };
+        let arch = if cfg!(target_arch = "aarch64") {
+            "arm64"
+        } else {
+            "x64"
+        };
         let file = format!("pacer-core-{os}-{arch}");
         let feed = Feed::altered(
             &install.version,
@@ -441,8 +469,16 @@ fn checksum_and_smoke_failures_preserve_the_previous_core() {
 
 #[test]
 fn sha256sums_disagree_or_missing_refuses_before_install() {
-    let os = if cfg!(target_os = "macos") { "darwin" } else { "linux" };
-    let arch = if cfg!(target_arch = "aarch64") { "arm64" } else { "x64" };
+    let os = if cfg!(target_os = "macos") {
+        "darwin"
+    } else {
+        "linux"
+    };
+    let arch = if cfg!(target_arch = "aarch64") {
+        "arm64"
+    } else {
+        "x64"
+    };
     let core_file = format!("pacer-core-{os}-{arch}");
     let assistant_file = format!("pacer-assistant-pacer-{os}-{arch}");
 
@@ -495,8 +531,7 @@ fn sha256sums_disagree_or_missing_refuses_before_install() {
         assert!(!output.status.success());
         let err = String::from_utf8_lossy(&output.stderr);
         assert!(
-            err.contains("SHA256SUMS and manifest.json disagree")
-                && err.contains(&assistant_file),
+            err.contains("SHA256SUMS and manifest.json disagree") && err.contains(&assistant_file),
             "{err}"
         );
         assert!(!assistant.exists());
@@ -525,8 +560,7 @@ fn sha256sums_disagree_or_missing_refuses_before_install() {
         assert!(!output.status.success());
         let err = String::from_utf8_lossy(&output.stderr);
         assert!(
-            err.contains("SHA256SUMS and manifest.json disagree")
-                && err.contains(&assistant_file),
+            err.contains("SHA256SUMS and manifest.json disagree") && err.contains(&assistant_file),
             "{err}"
         );
         assert!(!assistant.exists());
