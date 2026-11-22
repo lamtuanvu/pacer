@@ -1208,17 +1208,39 @@ export function listQuestions(ctx: Ctx, runId: string, status?: QuestionStatus):
   ).all(runId).map(questionFromRow);
 }
 
-/** Open questions whose current answerer is the person (attention queue). Missing table → []. */
+/** Open questions whose current answerer is the person (attention queue). Missing table → [].
+ *  Only questions on live (running/waiting) runs are returned. */
 export function listOpenPersonQuestions(ctx: Ctx): QuestionRow[] {
   try {
     return workflowDatabase(ctx).query<QuestionDbRow, []>(
-      `SELECT * FROM workflow_questions
-       WHERE status = 'open' AND answerer = 'person'
-       ORDER BY created_at, id`,
+      `SELECT q.* FROM workflow_questions q
+       JOIN workflow_runs r ON r.id = q.run_id
+       WHERE q.status = 'open' AND q.answerer = 'person'
+         AND r.status IN ('running', 'waiting')
+       ORDER BY q.created_at, q.id`,
     ).all().map(questionFromRow);
   } catch {
     return [];
   }
+}
+
+/** Mark every open question on a run (and optionally its tree) withdrawn. */
+export function withdrawOpenQuestionsForRun(ctx: Ctx, runId: string): QuestionRow[] {
+  const db = workflowDatabase(ctx);
+  const open = db.query<QuestionDbRow, [string]>(
+    "SELECT * FROM workflow_questions WHERE run_id = ? AND status = 'open'",
+  ).all(runId);
+  const out: QuestionRow[] = [];
+  for (const row of open) {
+    db.query(
+      `UPDATE workflow_questions SET status = 'withdrawn', rev = rev + 1 WHERE id = ? AND status = 'open'`,
+    ).run(row.id);
+    const updated = db.query<QuestionDbRow, [string]>(
+      "SELECT * FROM workflow_questions WHERE id = ?",
+    ).get(row.id);
+    if (updated) out.push(questionFromRow(updated));
+  }
+  return out;
 }
 
 /** Compare-and-set answer: requires the current rev and an open status. */

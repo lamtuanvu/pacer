@@ -260,6 +260,10 @@ export function escalateQuestion(ctx: Ctx, input: EscalateQuestionInput): Questi
   if (current.status !== "open") {
     throw new CoreError("conflict", `conflict: question ${input.id} is ${current.status}`);
   }
+  const escalateRun = getRun(ctx, current.runId);
+  if (!escalateRun || RUN_TERMINAL(escalateRun.status)) {
+    throw new CoreError("conflict", `conflict: run ${current.runId} is ${escalateRun?.status ?? "missing"}`);
+  }
   if (current.askerKind === "human_step") {
     const run = getRun(ctx, current.runId);
     const root = run ? (getRun(ctx, rootRunId(ctx, run.id)) ?? run) : null;
@@ -319,6 +323,10 @@ export async function answerQuestion(
     throw new CoreError("conflict", `conflict: question ${raw.id} is ${current.status}`);
   }
   validateQuestionAnswer(current.answerType, parsed.answer, current.options);
+  const answerRun = getRun(ctx, current.runId);
+  if (!answerRun || RUN_TERMINAL(answerRun.status)) {
+    throw new CoreError("conflict", `conflict: run ${current.runId} is ${answerRun?.status ?? "missing"}`);
+  }
 
   let answeredBy: string;
   if (current.askerKind === "human_step") {

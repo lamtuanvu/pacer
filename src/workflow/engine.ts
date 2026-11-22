@@ -28,12 +28,12 @@ import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
   attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
-  updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
+  updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
-import { raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
+import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
@@ -160,6 +160,12 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
     stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
+    for (const q of withdrawOpenQuestionsForRun(ctx, runId)) {
+      void publish(ctx, [{
+        type: "entity",
+        data: { kind: "question", id: q.id, value: questionEntityValue(q) },
+      }]).catch(() => {});
+    }
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
