@@ -10,8 +10,8 @@ import { CoreError } from "../core/errors";
 import {
   getDefinition,
   getRun,
+  setRootTaskId,
   stepsOfRun,
-  updateRun,
   type RunRow,
 } from "./store";
 import type { GenerateStep, WorkflowDef } from "./schema";
@@ -54,20 +54,16 @@ export function ensureRootWorkNode(ctx: Ctx, run: RunRow): string {
     maxDescendants,
     maxConcurrent: 4,
   } satisfies Partial<WorkOptions>);
-  const fresh = getRun(ctx, run.id);
-  if (fresh) {
-    try {
-      updateRun(ctx, run.id, fresh.rev, { rootTaskId: task.id, stepMode: fresh.stepMode ?? "work_node" });
-    } catch {
-      /* concurrent writer; re-read below */
+  try {
+    setRootTaskId(ctx, run.id, task.id);
+  } catch {
+    const after = getRun(ctx, run.id);
+    if (after?.rootTaskId && after.rootTaskId !== task.id) {
+      try { updateTask(ctx, task.id, t => { t.state = "stopped"; }); } catch { /* */ }
+      return after.rootTaskId;
     }
   }
-  const after = getRun(ctx, run.id);
-  if (after?.rootTaskId && after.rootTaskId !== task.id) {
-    try { updateTask(ctx, task.id, t => { t.state = "stopped"; }); } catch { /* */ }
-    return after.rootTaskId;
-  }
-  return task.id;
+  return getRun(ctx, run.id)?.rootTaskId ?? task.id;
 }
 
 /** Predecessor step task ids for dispatcher dependency edges (same run). */

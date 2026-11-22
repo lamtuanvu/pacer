@@ -411,6 +411,21 @@ export function getRun(ctx: Ctx, id: string): RunRow | null {
   return row ? runFromRow(row) : null;
 }
 
+/** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
+export function setRootTaskId(ctx: Ctx, runId: string, rootTaskId: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET root_task_id = ?, step_mode = COALESCE(NULLIF(step_mode, ''), 'work_node') WHERE id = ? AND (root_task_id IS NULL OR root_task_id = ?)",
+  ).run(rootTaskId, runId, rootTaskId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.rootTaskId && current.rootTaskId !== rootTaskId) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a root task`);
+    }
+  }
+}
+
 export function listRuns(ctx: Ctx, status?: RunStatus): RunRow[] {
   const db = workflowDatabase(ctx);
   const rows = status === undefined

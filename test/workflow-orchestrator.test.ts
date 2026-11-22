@@ -1134,7 +1134,8 @@ describe("Task 6: orchestrator steps and choose_workflow", () => {
     expect(steps[0]!.stepId).toBe("plan");
     expect(steps[0]!.taskId).toBe(getRun(ctx, r.id)!.orchestratorTaskId);
     const all = listTasksWhere(ctx, { all: true });
-    expect(all.filter(t => t.kind !== "orchestrate")).toHaveLength(0);
+    // Engine-owned kinds (orchestrate + workflow-root) are not executor step tasks.
+    expect(all.filter(t => t.kind !== "orchestrate" && t.kind !== "workflow-root")).toHaveLength(0);
     expect(all.filter(t => t.kind === "orchestrate")).toHaveLength(1);
     // Ordinary snapshot / task.list paths hide the engine-owned orchestrate task (D2.12).
     const { snapshotTasks } = await import("../src/api/read-model/tasks");
