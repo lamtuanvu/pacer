@@ -18,7 +18,9 @@ pub const MANIFEST: &str = include_str!("../manifest.json");
 pub fn manifest() -> Manifest {
     match serde_json::from_str(MANIFEST) {
         Ok(value) => Manifest(value),
-        Err(error) => panic!("plugins-rs/pacer-remote-caller/manifest.json must be valid JSON: {error}"),
+        Err(error) => {
+            panic!("plugins-rs/pacer-remote-caller/manifest.json must be valid JSON: {error}")
+        }
     }
 }
 

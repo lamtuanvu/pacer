@@ -77,7 +77,10 @@ async fn reachability_runs_probe_and_reports_reachable() {
             "timeoutMs": 15000, "maxBytes": 65536
         })
     );
-    assert_eq!(first_call(&h, "capability.hosts.close"), json!({ "session": "s1" }));
+    assert_eq!(
+        first_call(&h, "capability.hosts.close"),
+        json!({ "session": "s1" })
+    );
     h.close().await;
 }
 
@@ -115,7 +118,10 @@ async fn fetch_echoes_request_timeouts_and_returns_fetch_result() {
         first_call(&h, "capability.hosts.fetch"),
         json!({ "session": "s1", "timeoutMs": 5000, "maxBytes": 2048 })
     );
-    assert_eq!(first_call(&h, "capability.hosts.close"), json!({ "session": "s1" }));
+    assert_eq!(
+        first_call(&h, "capability.hosts.close"),
+        json!({ "session": "s1" })
+    );
     h.close().await;
 }
 
@@ -205,7 +211,10 @@ async fn identity_sets_identity_with_three_args() {
         )
         .await
         .unwrap();
-    assert_eq!(r, json!({ "code": 0, "timedOut": false, "stdout": "", "stderr": "" }));
+    assert_eq!(
+        r,
+        json!({ "code": 0, "timedOut": false, "stdout": "", "stderr": "" })
+    );
     assert_eq!(
         first_call(&h, "capability.hosts.run"),
         json!({
@@ -214,7 +223,10 @@ async fn identity_sets_identity_with_three_args() {
             "timeoutMs": 50000, "maxBytes": 65536
         })
     );
-    assert_eq!(first_call(&h, "capability.hosts.close"), json!({ "session": "s1" }));
+    assert_eq!(
+        first_call(&h, "capability.hosts.close"),
+        json!({ "session": "s1" })
+    );
     h.close().await;
 }
 
@@ -226,7 +238,10 @@ async fn question_read_passes_path_arg() {
         Ok(json!({ "code": 0, "timedOut": false, "output": "yes" }))
     });
     let r = h
-        .call("remoteCaller.questionRead", json!({ "alias": "r1", "path": "/q" }))
+        .call(
+            "remoteCaller.questionRead",
+            json!({ "alias": "r1", "path": "/q" }),
+        )
         .await
         .unwrap();
     assert_eq!(r, json!({ "code": 0, "timedOut": false, "output": "yes" }));
@@ -237,7 +252,10 @@ async fn question_read_passes_path_arg() {
             "timeoutMs": 20000, "maxBytes": 8192
         })
     );
-    assert_eq!(first_call(&h, "capability.hosts.close"), json!({ "session": "s1" }));
+    assert_eq!(
+        first_call(&h, "capability.hosts.close"),
+        json!({ "session": "s1" })
+    );
     h.close().await;
 }
 
@@ -247,18 +265,21 @@ async fn usage_read_home_follows_js_truthiness() {
     // Unset home -> args [].
     {
         let mut h = harness().await;
-        let _ = h.call("remoteCaller.usageRead", json!({ "alias": "r1" })).await.unwrap();
-        assert_eq!(
-            first_call(&h, "capability.hosts.run")["args"],
-            json!([])
-        );
+        let _ = h
+            .call("remoteCaller.usageRead", json!({ "alias": "r1" }))
+            .await
+            .unwrap();
+        assert_eq!(first_call(&h, "capability.hosts.run")["args"], json!([]));
         h.close().await;
     }
     // Empty string home -> args [].
     {
         let mut h = harness().await;
         let _ = h
-            .call("remoteCaller.usageRead", json!({ "alias": "r1", "home": "" }))
+            .call(
+                "remoteCaller.usageRead",
+                json!({ "alias": "r1", "home": "" }),
+            )
             .await
             .unwrap();
         assert_eq!(first_call(&h, "capability.hosts.run")["args"], json!([]));
@@ -271,7 +292,10 @@ async fn usage_read_home_follows_js_truthiness() {
             Ok(json!({ "code": 0, "timedOut": false, "usage": "u" }))
         });
         let _ = h
-            .call("remoteCaller.usageRead", json!({ "alias": "r1", "home": "/home/me" }))
+            .call(
+                "remoteCaller.usageRead",
+                json!({ "alias": "r1", "home": "/home/me" }),
+            )
             .await
             .unwrap();
         assert_eq!(
@@ -311,9 +335,7 @@ async fn every_hosts_call_is_scoped_to_the_owning_call() {
         .capability_calls_with_meta()
         .into_iter()
         .filter(|(m, _, _)| m.starts_with("capability.hosts."))
-        .map(|(_, _, meta)| {
-            meta.and_then(|m| m.get("capabilityCall").cloned()).unwrap()
-        })
+        .map(|(_, _, meta)| meta.and_then(|m| m.get("capabilityCall").cloned()).unwrap())
         .collect::<Vec<_>>();
     assert_eq!(tokens.len(), 3); // open, run, close
     assert!(tokens.iter().all(|t| t == &tokens[0]));

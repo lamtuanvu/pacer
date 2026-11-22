@@ -218,3 +218,70 @@ fn pacer_remote_caller_answers_hello_natively_without_core() {
         ])
     );
 }
+
+/// The native front door answers `plugin.hello` for `pacer-agent-session`
+/// with no pacer-core argv: it is served by the bundled Rust plugin. (M3 C3)
+#[test]
+fn pacer_agent_session_answers_hello_natively_without_core() {
+    let manifest: serde_json::Value = serde_json::from_str(include_str!(
+        "../../../plugins-rs/pacer-agent-session/manifest.json"
+    ))
+    .unwrap();
+    let dir = tempfile::tempdir().unwrap();
+    let offer = serde_json::json!({
+        "jsonrpc": "2.0",
+        "id": 1,
+        "method": "plugin.hello",
+        "params": {
+            "protocol": "1.11.0",
+            "features": [
+                "chunkedResults", "httpBodyChunks", "fileWriteChunks",
+                "plannerInstallTransactions", "policyObservations", "policyRedactionMetadata"
+            ],
+            "pacer": "0.0.0-test",
+            "manifest": manifest,
+            "config": {},
+            "grants": []
+        }
+    });
+    let mut child = Command::new(env!("CARGO_BIN_EXE_pacer"))
+        .env_clear()
+        .env("HOME", dir.path())
+        .env("PACER_HOME", dir.path().join(".pacer"))
+        .env("PATH", "/usr/bin:/bin")
+        .args(["plugin", "run", "pacer-agent-session"])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .spawn()
+        .unwrap();
+    {
+        use std::io::Write;
+        let mut stdin = child.stdin.take().unwrap();
+        stdin.write_all(offer.to_string().as_bytes()).unwrap();
+        stdin.write_all(b"\n").unwrap();
+        drop(stdin); // close stdin → the plugin serves hello and exits 0.
+    }
+    let output = child.wait_with_output().unwrap();
+    assert_eq!(output.status.code(), Some(0));
+    let stdout = String::from_utf8(output.stdout).unwrap();
+    let line = stdout
+        .lines()
+        .find(|l| l.contains("\"id\":\"pacer-agent-session\""))
+        .unwrap_or_else(|| panic!("hello reply missing; stdout:\n{stdout}"));
+    let reply: serde_json::Value = serde_json::from_str(line).unwrap();
+    let result = &reply["result"];
+    assert_eq!(result["id"], "pacer-agent-session");
+    assert_eq!(result["version"], "1.0.0");
+    assert_eq!(result["contributes"], serde_json::json!(["agentSession"]));
+    assert_eq!(
+        result["features"],
+        serde_json::json!([
+            "chunkedResults",
+            "httpBodyChunks",
+            "fileWriteChunks",
+            "plannerInstallTransactions",
+            "policyObservations",
+            "policyRedactionMetadata"
+        ])
+    );
+}
