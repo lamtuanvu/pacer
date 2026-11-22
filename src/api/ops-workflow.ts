@@ -14,7 +14,7 @@ import { validateWorkflow } from "../workflow/validate";
 import {
   addDefinition, getDefinition, getGraph, getQuestion, getRun, listDefinitions, listOpenPersonQuestions,
   listQuestions, listRuns, recordDecision,
-  rootRunId, runEntityValue, stepByTask, stepsOfRun, updateRun, workflowDatabase,
+  rootRunId, runEntityValue, stepByTask, stepByTaskIfPresent, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
 import {
@@ -501,15 +501,16 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
       }
       if (!row) throw new CoreError("conflict", `conflict: step ${p.step} of ${p.id} is not waiting for an answer`);
-      // Escalated human_step questions are person-owned even while canAutoDecide (I-2).
-      const openPerson = listQuestions(ctx, p.id, "open").some(q =>
+      // Escalated human_step questions stay person-owned even while canAutoDecide (I-2).
+      const escalatedPerson = listQuestions(ctx, p.id, "open").some(q =>
         q.askerKind === "human_step"
         && q.stepId === p.step
         && q.attempt === row.attempt
         && (q.branch ?? undefined) === (row.branch ?? undefined)
-        && q.answerer === "person",
+        && q.answerer === "person"
+        && q.chain.includes("orchestrator"),
       );
-      if (openPerson) {
+      if (escalatedPerson) {
         recordDecision(ctx, {
           runId: p.id,
           stepId: p.step,
@@ -663,9 +664,10 @@ export const workflowOps: Record<string, OpDef> = {
         }
       } else if (isExecutorSession(ctx)) {
         // Executors may only read questions on their own run (M-h).
+        // stepByTaskIfPresent: never create the workflow schema for ordinary executors.
         const taskId = ctx.env.PACER_TASK_ID;
         if (!taskId) throw new CoreError("not_found", unknownMsg);
-        const step = stepByTask(ctx, taskId);
+        const step = stepByTaskIfPresent(ctx, taskId);
         if (!step || rootRunId(ctx, step.runId) !== rootRunId(ctx, q.runId)) {
           throw new CoreError("not_found", unknownMsg);
         }

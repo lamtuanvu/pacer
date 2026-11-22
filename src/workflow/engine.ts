@@ -1444,14 +1444,16 @@ export async function answerHumanStep(
     if (!stepDef || stepDef.type !== "human" || !canAutoDecide(root, stepId, stepDef)) {
       throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
     }
-    const openPerson = listQuestions(ctx, runId, "open").some(q =>
+    // Escalated human_step questions stay person-owned even when canAutoDecide (I-2).
+    // chain includes "orchestrator" after escalate; plain person + !canAutoDecide is must/strict/auto-off.
+    const openQs = listQuestions(ctx, runId, "open").filter(q =>
       q.askerKind === "human_step"
       && q.stepId === stepId
       && q.attempt === row.attempt
       && (q.branch ?? undefined) === (row.branch ?? undefined)
       && q.answerer === "person",
     );
-    if (openPerson) {
+    if (openQs.some(q => q.chain.includes("orchestrator"))) {
       throw new CoreError("not_allowed", "Only the person can answer this question");
     }
   }
