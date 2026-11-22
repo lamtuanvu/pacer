@@ -160,6 +160,13 @@ export async function failRun(ctx: Ctx, runId: string, reason: string, loops?: R
   const current = getRun(ctx, runId);
   if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(current.status)) return;
+  // Fail live children first so their settlement sees a live parent with matching childRunId.
+  const children = workflowDatabase(ctx).query<{ id: string }, [string]>(
+    "SELECT id FROM workflow_runs WHERE parent_run_id = ? AND status IN ('running', 'waiting')",
+  ).all(runId);
+  for (const child of children) {
+    try { await failRun(ctx, child.id, reason, undefined, deps); } catch { /* */ }
+  }
   await patchRun(ctx, runId, { status: "failed", reason, ...(loops ? { loops } : {}) }, { deps, spawn: undefined });
   for (const row of stepsOfRun(ctx, runId)) {
     if (row.status !== "running") continue;
@@ -643,6 +650,10 @@ export async function startRun(
   if (typeof input.brief !== "string" || !input.brief.trim()) throw new CoreError("invalid_input", "brief is required");
   if (typeof input.repo !== "string" || !input.repo) throw new CoreError("invalid_input", "repo is required");
   const budget = child ? undefined : budgetForDefinition(def);
+  // Generated/choose children inherit the parent's pinned step mode (plain vs work_node).
+  const parentStepMode = child
+    ? getRun(ctx, child.parentRunId)?.stepMode
+    : undefined;
   const run = insertRun(ctx, {
     workflow: def.id,
     version: def.version,
@@ -659,6 +670,7 @@ export async function startRun(
       planner: child.planner,
       orchestratorTaskId: child.orchestratorTaskId,
       sessionId: child.sessionId,
+      ...(parentStepMode ? { stepMode: parentStepMode } : {}),
     } : {}),
   });
   await publishRunChange(ctx, run); // clients see the run even when its start then fails
@@ -678,7 +690,18 @@ export async function startRun(
   return finished;
 }
 
-/** When a child run of choose_workflow ends, finish the parent step with the child's result. */
+/** Child step results keyed as `steps.<id>.result` for the parent generate/choose step. */
+function childStepResults(ctx: Ctx, childId: string): Record<string, unknown> {
+  const steps: Record<string, unknown> = {};
+  for (const s of stepsOfRun(ctx, childId)) {
+    if (s.branch !== undefined) continue;
+    if (s.result === undefined) continue;
+    steps[s.stepId] = s.result;
+  }
+  return steps;
+}
+
+/** When a child run of choose_workflow/generate ends, finish the parent step with the child's result. */
 async function settleParentChooseStep(
   ctx: Ctx,
   child: RunRow,
@@ -693,13 +716,36 @@ async function settleParentChooseStep(
   const waiting = stepsOfRun(ctx, parent.id).filter(s => s.stepId === child.parentStep && s.status === "waiting");
   const row = waiting[waiting.length - 1];
   if (!row) return;
+  // Ignore children that are not the live stamped child (replan cleared childRunId, or stale).
+  // During startRun a child may finish before childRunId is stamped; choosing:true covers that window.
+  const stamped = chooseStepChildRunId(row.result);
+  if (stamped !== undefined && stamped !== child.id) return;
+  if (stamped === undefined) {
+    const choosing = row.result != null && typeof row.result === "object"
+      && (row.result as { choosing?: unknown }).choosing === true;
+    if (!choosing) return;
+  }
+  const prior = row.result != null && typeof row.result === "object"
+    ? { ...(row.result as Record<string, unknown>) }
+    : {};
   const result = {
+    ...prior,
     workflow: child.workflow,
-    reason: (row.result as { reason?: string } | undefined)?.reason ?? "",
+    reason: typeof prior.reason === "string" ? prior.reason : "",
     child: { id: child.id, status: child.status, reason: child.reason },
+    steps: childStepResults(ctx, child.id),
   };
+  if (child.status === "stopped") {
+    updateStep(ctx, keyOf(row), {
+      status: "stopped",
+      error: child.reason ?? "stopped",
+      endedAt: ctx.now,
+      result,
+    });
+    return;
+  }
   if (child.status !== "done") {
-    // Mark the choose step failed and wake the root orchestrator.
+    // Mark the choose/generate step failed and wake the root orchestrator.
     const failed = updateStep(ctx, keyOf(row), {
       status: "failed",
       error: child.reason ?? child.status,
@@ -786,7 +832,18 @@ export async function onTaskSettled(ctx: Ctx, taskId: string, spawn?: SpawnRunne
     if (run.parentRunId && run.parentStep) {
       const { noteChildStepFailureForReplan } = await import("./replan");
       const noted = noteChildStepFailureForReplan(ctx, run.id, step.stepId);
-      if (noted) return;
+      if (noted) {
+        if (noted.opened) {
+          // Park the failed child after childRunId was cleared so settlement is a no-op.
+          try {
+            const live = getRun(ctx, run.id);
+            if (live && !RUN_TERMINAL.includes(live.status)) {
+              await stopRun(ctx, run.id, live.rev, deps);
+            }
+          } catch { /* child may already be terminal */ }
+        }
+        return;
+      }
     }
     // Decision point: wake the orchestrator instead of ending the run (Phase 2).
     // Mechanical failures (no edge, loop limit, start failure) still use failRun.
@@ -1211,26 +1268,74 @@ export async function startGeneratedChild(
   if (!stepDef || stepDef.type !== "generate") {
     throw new CoreError("conflict", `conflict: step ${input.stepId} is not a generate step`);
   }
-  const waiting = stepsOfRun(ctx, run.id).filter(s => s.stepId === input.stepId && s.status === "waiting");
-  const latest = waiting[waiting.length - 1];
-  if (!latest) throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a graph`);
-  const priorChild = chooseStepChildRunId(latest.result);
-  if (priorChild) {
-    throw new CoreError("conflict", `conflict: step ${input.stepId} already has child ${priorChild}`);
+  // Validate version + claim choosing + mark approved in one transaction so a crash
+  // cannot leave choosing:true against a missing/invalid version (I4).
+  const { latest, prior } = workflowDatabase(ctx).transaction(() => {
+    const waiting = stepsOfRun(ctx, run.id).filter(s => s.stepId === input.stepId && s.status === "waiting");
+    const row = waiting[waiting.length - 1];
+    if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for a graph`);
+    const priorChild = chooseStepChildRunId(row.result);
+    if (priorChild) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} already has child ${priorChild}`);
+    }
+    const prev = row.result != null && typeof row.result === "object"
+      ? { ...(row.result as Record<string, unknown>) }
+      : {};
+    if (prev.choosing === true) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} is already starting a child`);
+    }
+    const graph = workflowDatabase(ctx).query<{ status: string }, [string, string, number, number]>(
+      "SELECT status FROM workflow_graphs WHERE run_id = ? AND step_id = ? AND attempt = ? AND version = ?",
+    ).get(run.id, input.stepId, row.attempt, input.version);
+    if (!graph) throw new CoreError("not_found", `unknown graph version ${input.version}`);
+    if (graph.status !== "proposed" && graph.status !== "approved") {
+      throw new CoreError("conflict", `conflict: graph version ${input.version} is ${graph.status}`);
+    }
+    // Compare-and-set: approval must still point at this version.
+    if (typeof prev.graphVersion === "number" && prev.graphVersion !== input.version) {
+      throw new CoreError("conflict", `conflict: step ${input.stepId} graph version changed`);
+    }
+    updateStep(ctx, keyOf(row), {
+      result: { ...prev, graphVersion: input.version, choosing: true, choosingAt: ctx.now, pendingApproval: undefined },
+    });
+    setGraphStatus(ctx, {
+      runId: run.id, stepId: input.stepId, attempt: row.attempt, version: input.version,
+    }, "approved");
+    return { latest: row, prior: prev };
+  })();
+
+  let childDef: WorkflowDef;
+  try {
+    childDef = installGeneratedDefinition(ctx, run, input.stepId, input.version);
+  } catch (err) {
+    try {
+      const fresh = stepsOfRun(ctx, latest.runId).find(s =>
+        s.stepId === latest.stepId && s.attempt === latest.attempt
+        && (latest.branch !== undefined ? s.branch === latest.branch : !s.branch),
+      );
+      const choosing = fresh?.result != null && typeof fresh.result === "object"
+        && (fresh.result as { choosing?: unknown }).choosing === true;
+      if (fresh?.status === "waiting" && choosing) {
+        const restoreApproval = !!(stepDef.approval || prior.replanMode === "ask");
+        updateStep(ctx, keyOf(latest), {
+          result: {
+            ...prior,
+            graphVersion: input.version,
+            pendingApproval: restoreApproval ? true : undefined,
+            choosing: undefined,
+            choosingAt: undefined,
+          },
+        });
+        if (restoreApproval) {
+          setGraphStatus(ctx, {
+            runId: run.id, stepId: input.stepId, attempt: latest.attempt, version: input.version,
+          }, "proposed");
+        }
+      }
+    } catch { /* */ }
+    throw err;
   }
-  const prior = latest.result != null && typeof latest.result === "object"
-    ? { ...(latest.result as Record<string, unknown>) }
-    : {};
-  if (prior.choosing === true) {
-    throw new CoreError("conflict", `conflict: step ${input.stepId} is already starting a child`);
-  }
-  updateStep(ctx, keyOf(latest), {
-    result: { ...prior, graphVersion: input.version, choosing: true, choosingAt: ctx.now, pendingApproval: undefined },
-  });
-  setGraphStatus(ctx, {
-    runId: run.id, stepId: input.stepId, attempt: latest.attempt, version: input.version,
-  }, "approved");
-  const childDef = installGeneratedDefinition(ctx, run, input.stepId, input.version);
+
   const rootId = rootRunId(ctx, run.id);
   const root = getRun(ctx, rootId)!;
   let child: RunRow;
@@ -1256,10 +1361,17 @@ export async function startGeneratedChild(
       const choosing = fresh?.result != null && typeof fresh.result === "object"
         && (fresh.result as { choosing?: unknown }).choosing === true;
       if (fresh?.status === "waiting" && choosing) {
+        const restoreApproval = !!(stepDef.approval || prior.replanMode === "ask");
         updateStep(ctx, keyOf(latest), {
-          result: { ...prior, graphVersion: input.version, pendingApproval: stepDef.approval ? true : undefined },
+          result: {
+            ...prior,
+            graphVersion: input.version,
+            pendingApproval: restoreApproval ? true : undefined,
+            choosing: undefined,
+            choosingAt: undefined,
+          },
         });
-        if (stepDef.approval) {
+        if (restoreApproval) {
           setGraphStatus(ctx, {
             runId: run.id, stepId: input.stepId, attempt: latest.attempt, version: input.version,
           }, "proposed");
@@ -1268,18 +1380,28 @@ export async function startGeneratedChild(
     } catch { /* */ }
     throw err;
   }
-  updateStep(ctx, keyOf(latest), {
-    result: {
-      ...prior,
-      graphVersion: input.version,
-      childRunId: child.id,
-      pendingApproval: undefined,
-      choosing: undefined,
-      choosingAt: undefined,
-    },
-  });
+  // Parent may already be advanced when the child finished inside startRun.
+  const stillWaiting = stepsOfRun(ctx, latest.runId).find(s =>
+    s.stepId === latest.stepId && s.attempt === latest.attempt
+    && (latest.branch !== undefined ? s.branch === latest.branch : !s.branch)
+    && s.status === "waiting",
+  );
+  if (stillWaiting) {
+    updateStep(ctx, keyOf(latest), {
+      result: {
+        ...prior,
+        graphVersion: input.version,
+        childRunId: child.id,
+        pendingApproval: undefined,
+        choosing: undefined,
+        choosingAt: undefined,
+        replanMode: undefined,
+      },
+    });
+  }
   completeWakeupRef(ctx, run.id, "orchestrator_step", stepWakeRef(run.id, input.stepId, latest.attempt));
   completeWakeupRef(ctx, run.id, "question", stepWakeRef(run.id, input.stepId, latest.attempt));
+  completeWakeupRef(ctx, run.id, "replan", stepWakeRef(run.id, input.stepId, latest.attempt));
   return child;
 }
 
@@ -1307,9 +1429,6 @@ export async function answerGenerateApproval(
   if (!stepDef || stepDef.type !== "generate") {
     throw new CoreError("conflict", `conflict: step ${input.stepId} is not a generate step`);
   }
-  if (!stepDef.approval) {
-    throw new CoreError("conflict", `conflict: step ${input.stepId} does not require approval`);
-  }
   const waiting = stepsOfRun(ctx, input.runId).filter(s => s.stepId === input.stepId && s.status === "waiting");
   const row = waiting[waiting.length - 1];
   if (!row) throw new CoreError("conflict", `conflict: step ${input.stepId} of ${input.runId} is not waiting`);
@@ -1319,6 +1438,10 @@ export async function answerGenerateApproval(
   if (prior.pendingApproval !== true || typeof prior.graphVersion !== "number") {
     throw new CoreError("conflict", `conflict: step ${input.stepId} is not waiting for approval`);
   }
+  // Pending approval may come from generate.approval or from replan ask.
+  if (!stepDef.approval && prior.replanMode !== "ask") {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} does not require approval`);
+  }
   const root = getRun(ctx, rootRunId(ctx, input.runId)) ?? run;
   if (ctx.env.PACER_RUN_GRANT) {
     if (!canAutoApproveGenerate(root, input.stepId, stepDef)) {
@@ -1327,7 +1450,8 @@ export async function answerGenerateApproval(
   }
   const answer = input.answer.trim().toLowerCase();
   const isApprove = answer === "approve";
-  const isRevise = answer === "revise" || answer.startsWith("revise");
+  // Exact "revise", or "revise:" / "revise " with a note — not prefixes like "reviser".
+  const isRevise = answer === "revise" || answer.startsWith("revise:") || answer.startsWith("revise ");
   if (!isApprove && !isRevise) {
     throw new CoreError("invalid_input", "answer must be approve or revise");
   }
@@ -1354,6 +1478,12 @@ export async function answerGenerateApproval(
       error: `generate revise failed after ${retries} retries`,
       endedAt: ctx.now,
       result: { ...prior, reviseCount, reviseNote: note || undefined, pendingApproval: undefined },
+    });
+    enqueueWakeup(ctx, {
+      runId: run.id,
+      cause: "step_failed",
+      ref: stepWakeRef(run.id, input.stepId, row.attempt),
+      createdAt: ctx.now,
     });
     return getRun(ctx, input.runId)!;
   }

@@ -4,14 +4,16 @@ import type { Ctx } from "../types";
 import {
   getDefinition,
   getRun,
+  listGraphs,
   rootRunId,
+  setGraphStatus,
   stepsOfRun,
   updateStep,
   type StepKey,
   type StepRow,
 } from "./store";
 import type { ReplanPolicy, WorkflowDef, WorkflowError } from "./schema";
-import { enqueueWakeup, stepWakeRef } from "./wakeups";
+import { completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 
 export interface GraphDiff {
   added: string[];
@@ -23,6 +25,8 @@ export interface ReplanNote {
   mode: "auto" | "ask";
   autosUsed: number;
   maxAuto: number;
+  /** True when this call opened a new replan event (caller should park the child). */
+  opened: boolean;
   summary: {
     failedStep: string;
     added: string[];
@@ -133,9 +137,10 @@ export function replanMode(ctx: Ctx, parentRunId: string, stepId: string): "auto
 }
 
 /**
- * Record a generated-child step failure for replan: increment auto usage when
- * still inside auto:N, enqueue a replan wake-up, and return the mode + empty
- * diff summary (the person/orchestrator fills the next graph).
+ * Hand a generated-child step failure to replan: supersede the approved graph,
+ * clear childRunId so a replacement can be submitted, mark the failed child step
+ * advanced (no duplicate step_failed wake), enqueue a replan wake-up, and count
+ * at most one auto replan per event.
  */
 export function noteChildStepFailureForReplan(
   ctx: Ctx,
@@ -146,8 +151,29 @@ export function noteChildStepFailureForReplan(
   if (!found) return null;
   const { parentId, row, policy } = found;
   const prior = resultObj(row);
-  const used = typeof prior.replanAutosUsed === "number" ? prior.replanAutosUsed : 0;
   const max = maxAuto(policy);
+
+  // Already handed this child to replan: do not double-count (retry attempts).
+  if (prior.replanFromChildId === childRunId && prior.childRunId !== childRunId) {
+    const mode = prior.replanMode === "ask" ? "ask" : "auto";
+    return {
+      mode,
+      autosUsed: typeof prior.replanAutosUsed === "number" ? prior.replanAutosUsed : 0,
+      maxAuto: max,
+      opened: false,
+      summary: {
+        failedStep: typeof prior.replanFailedStep === "string" ? prior.replanFailedStep : failedStep,
+        added: [],
+        removed: [],
+        changed: [],
+      },
+    };
+  }
+
+  // Only the live child stamped on the generate row can open a replan event.
+  if (prior.childRunId !== childRunId) return null;
+
+  const used = typeof prior.replanAutosUsed === "number" ? prior.replanAutosUsed : 0;
   let mode: "auto" | "ask";
   let autosUsed = used;
   if (policy === "ask") {
@@ -159,6 +185,28 @@ export function noteChildStepFailureForReplan(
     mode = "ask";
   }
   const finished = finishedStepIds(ctx, childRunId);
+
+  // Supersede the graph that produced this child before clearing childRunId.
+  if (typeof prior.graphVersion === "number") {
+    try {
+      setGraphStatus(ctx, {
+        runId: parentId,
+        stepId: row.stepId,
+        attempt: row.attempt,
+        version: prior.graphVersion,
+      }, "superseded");
+    } catch { /* already superseded / missing */ }
+  } else {
+    for (const g of listGraphs(ctx, parentId, row.stepId)) {
+      if (g.attempt === row.attempt && g.status === "approved") {
+        try { setGraphStatus(ctx, { runId: g.runId, stepId: g.stepId, attempt: g.attempt, version: g.version }, "superseded"); }
+        catch { /* */ }
+      }
+    }
+  }
+
+  // Clear childRunId before the caller parks the child so settleParentChooseStep
+  // (childRunId CAS) does not fail/stop the parent generate step.
   updateStep(ctx, keyOf(row), {
     result: {
       ...prior,
@@ -166,21 +214,38 @@ export function noteChildStepFailureForReplan(
       replanMode: mode,
       replanFinished: finished,
       replanFailedStep: failedStep,
-      pendingApproval: mode === "ask" ? true : prior.pendingApproval,
+      replanFromChildId: childRunId,
+      childRunId: undefined,
+      choosing: undefined,
+      choosingAt: undefined,
+      // Ask approval happens after the replacement graph is submitted (with a diff).
+      pendingApproval: undefined,
     },
   });
+
+  // Hand the failed child step to replan so needsOrchestrator does not recreate step_failed.
+  const childFailed = stepsOfRun(ctx, childRunId).find(s =>
+    s.stepId === failedStep && s.status === "failed" && !s.advancedAt,
+  );
+  if (childFailed) {
+    updateStep(ctx, keyOf(childFailed), { advancedAt: ctx.now, result: { ...(resultObj(childFailed)), replanHanded: true } });
+    completeWakeupRef(ctx, childRunId, "step_failed", stepWakeRef(childRunId, childFailed.stepId, childFailed.attempt, childFailed.branch));
+    completeWakeupRef(ctx, childRunId, "step_invalid", stepWakeRef(childRunId, childFailed.stepId, childFailed.attempt, childFailed.branch));
+  }
+
   const root = rootRunId(ctx, parentId);
   enqueueWakeup(ctx, {
     runId: root,
     cause: "replan",
     ref: stepWakeRef(parentId, row.stepId, row.attempt),
     createdAt: ctx.now,
-    ...(mode === "ask" ? { byPerson: true } : {}),
+    ...(mode === "ask" ? { byPerson: false } : {}),
   });
   return {
     mode,
     autosUsed,
     maxAuto: max,
+    opened: true,
     summary: {
       failedStep,
       added: [],

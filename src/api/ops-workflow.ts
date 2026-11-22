@@ -12,7 +12,7 @@ import { WORKFLOW_OPS_REFUSAL } from "./caller-policy";
 import { parseWorkflow } from "../workflow/parse";
 import { validateWorkflow } from "../workflow/validate";
 import {
-  addDefinition, getDefinition, getRun, listDefinitions, listRuns, recordDecision,
+  addDefinition, getDefinition, getGraph, getRun, listDefinitions, listRuns, recordDecision,
   rootRunId, runEntityValue, stepByTask, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type RunStatus,
 } from "../workflow/store";
@@ -23,7 +23,7 @@ import {
 } from "../workflow/engine";
 import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
-import { listGraphSummaries, submitGraph } from "../workflow/generate";
+import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
 import { checkWorkflowShape, type GenerateStep, type HumanStep, type WorkflowError, type WorkflowDef } from "../workflow/schema";
 import { requireAskingExecutor } from "../core/tasks";
 import { spawnRunner, type SpawnRunner } from "../tasks/api";
@@ -141,10 +141,41 @@ export const workflowOps: Record<string, OpDef> = {
       assertPersonCaller(ctx);
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
+      const steps = stepsOfRun(ctx, p.id);
+      let pendingApproval: {
+        stepId: string;
+        attempt: number;
+        version: number;
+        graph?: WorkflowDef;
+        replanSummary?: string;
+        replanDiff?: { added: string[]; removed: string[]; changed: string[] };
+      } | undefined;
+      for (const step of steps) {
+        if (step.status !== "waiting") continue;
+        const result = step.result != null && typeof step.result === "object"
+          ? step.result as Record<string, unknown>
+          : null;
+        if (!result || result.pendingApproval !== true || typeof result.graphVersion !== "number") continue;
+        const graph = getGraph(ctx, {
+          runId: p.id, stepId: step.stepId, attempt: step.attempt, version: result.graphVersion,
+        });
+        pendingApproval = {
+          stepId: step.stepId,
+          attempt: step.attempt,
+          version: result.graphVersion,
+          ...(graph ? { graph: graph.def } : {}),
+          ...(typeof result.replanSummary === "string" ? { replanSummary: result.replanSummary } : {}),
+          ...(result.replanDiff != null && typeof result.replanDiff === "object"
+            ? { replanDiff: result.replanDiff as { added: string[]; removed: string[]; changed: string[] } }
+            : {}),
+        };
+        break;
+      }
       return {
         run: runEntityValue(run),
-        steps: stepsOfRun(ctx, p.id),
+        steps,
         graphs: listGraphSummaries(ctx, p.id),
+        ...(pendingApproval ? { pendingApproval } : {}),
       };
     },
   }),
@@ -485,21 +516,28 @@ export const workflowOps: Record<string, OpDef> = {
         throw new CoreError("not_allowed", "run.submit_graph requires a live run grant for this run");
       }
       let def: WorkflowDef | undefined;
+      let shapeErrors: WorkflowError[] | undefined;
       if (typeof p.source === "string") {
         const parsed = parseWorkflow(p.source);
         if (!parsed.def || parsed.errors.length > 0) {
-          return { ok: false, errors: parsed.errors.length ? parsed.errors : [{ path: "", message: "invalid workflow source" }], version: undefined };
+          shapeErrors = parsed.errors.length ? parsed.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = parsed.def;
         }
-        def = parsed.def;
       } else {
         const shaped = checkWorkflowShape(p.source);
         if (!shaped.def || shaped.errors.length > 0) {
-          return { ok: false, errors: shaped.errors.length ? shaped.errors : [{ path: "", message: "invalid workflow source" }], version: undefined };
+          shapeErrors = shaped.errors.length ? shaped.errors : [{ path: "", message: "invalid workflow source" }];
+        } else {
+          def = shaped.def;
         }
-        def = shaped.def;
+      }
+      if (shapeErrors) {
+        // Shape/parse errors count toward generate retries (same as validateGenerated).
+        return noteGenerateSubmitErrors(ctx, p.id, p.step, shapeErrors);
       }
       const { deps: engine, spawn } = engineDeps(deps);
-      const result = await submitGraph(ctx, { runId: p.id, stepId: p.step, source: def }, engine, spawn);
+      const result = await submitGraph(ctx, { runId: p.id, stepId: p.step, source: def! }, engine, spawn);
       if (result.ok) {
         recordDecision(ctx, {
           runId: p.id,

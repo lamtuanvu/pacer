@@ -11,6 +11,7 @@ import {
   listGraphs,
   setGraphStatus,
   stepsOfRun,
+  updateRun,
   updateStep,
   type RunRow,
   type StepKey,
@@ -24,6 +25,7 @@ import {
   type WorkflowError,
 } from "./schema";
 import { validateWorkflow } from "./validate";
+import { enqueueWakeup, stepWakeRef } from "./wakeups";
 import type { SpawnRunner } from "../tasks/api";
 
 /** Narrow deps shape so generate.ts does not import engine (cycle). */
@@ -217,11 +219,59 @@ export function installGeneratedDefinition(
   if (!row) throw new CoreError("conflict", `conflict: step ${stepId} is not waiting`);
   const graph = getGraph(ctx, { runId: run.id, stepId, attempt: row.attempt, version });
   if (!graph) throw new CoreError("not_found", `unknown graph version ${version}`);
-  const childId = `gen/${run.id}/${stepId}/v${version}`;
+  // Attempt-scoped so a later generate attempt can reuse v1 without colliding.
+  const childId = `gen/${run.id}/${stepId}/a${row.attempt}/v${version}`;
   const childDef: WorkflowDef = { ...graph.def, id: childId, version: 1 };
   const source = JSON.stringify(childDef);
   addDefinition(ctx, childDef, source);
   return childDef;
+}
+
+/**
+ * Count shape/parse or validation errors toward generate retries. Used by the
+ * submit_graph op when parse/shape fails before submitGraph, and by submitGraph
+ * itself for validateGenerated failures.
+ */
+export function noteGenerateSubmitErrors(
+  ctx: Ctx,
+  runId: string,
+  stepId: string,
+  errors: WorkflowError[],
+): SubmitGraphResult {
+  const run = getRun(ctx, runId);
+  if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
+  const def = getDefinition(ctx, `${run.workflow}@${run.version}`) ?? getDefinition(ctx, run.workflow);
+  const stepDef = def?.steps[stepId];
+  if (!stepDef || stepDef.type !== "generate") {
+    throw new CoreError("conflict", `conflict: step ${stepId} is not a generate step`);
+  }
+  const row = latestWaitingGenerate(ctx, runId, stepId);
+  if (!row) throw new CoreError("conflict", `conflict: step ${stepId} is not waiting for a graph`);
+  const prior = stepResultObj(row);
+  if (prior.choosing === true) {
+    throw new CoreError("conflict", `conflict: step ${stepId} is already starting a child`);
+  }
+  const priorFails = typeof prior.submitFails === "number" ? prior.submitFails : 0;
+  const submitFails = priorFails + 1;
+  const retries = stepDef.retries ?? 2;
+  if (submitFails > retries) {
+    updateStep(ctx, keyOf(row), {
+      status: "failed",
+      error: `generate validation failed after ${retries} retries`,
+      endedAt: ctx.now,
+      result: { ...prior, submitFails, errors, pendingApproval: undefined, reviseNote: undefined },
+    });
+    enqueueWakeup(ctx, {
+      runId: run.id,
+      cause: "step_failed",
+      ref: stepWakeRef(run.id, stepId, row.attempt),
+      createdAt: ctx.now,
+    });
+  } else {
+    updateStep(ctx, keyOf(row), { result: { ...prior, submitFails, errors } });
+  }
+  try { updateRun(ctx, run.id, run.rev, {}); } catch { /* best-effort rev bump */ }
+  return { ok: false, errors };
 }
 
 /**
@@ -248,6 +298,9 @@ export async function submitGraph(
   if (typeof prior.childRunId === "string") {
     throw new CoreError("conflict", `conflict: step ${input.stepId} already has a child run`);
   }
+  if (prior.choosing === true) {
+    throw new CoreError("conflict", `conflict: step ${input.stepId} is already starting a child`);
+  }
   if (prior.pendingApproval === true) {
     throw new CoreError("conflict", `conflict: step ${input.stepId} is waiting for approval`);
   }
@@ -258,32 +311,25 @@ export async function submitGraph(
   const finished = Array.isArray(prior.replanFinished)
     ? (prior.replanFinished as unknown[]).filter((id): id is string => typeof id === "string")
     : [];
-  if (finished.length > 0) {
+  const priorGraphs = listGraphs(ctx, run.id, input.stepId);
+  const baseline = [...priorGraphs].reverse().find(g =>
+    g.status === "approved" || g.status === "superseded" || g.status === "rejected" || g.status === "proposed",
+  );
+  if (finished.length > 0 && baseline) {
     const { validateReplanKeepFinished } = await import("./replan");
-    const priorGraphs = listGraphs(ctx, run.id, input.stepId);
-    const baseline = [...priorGraphs].reverse().find(g =>
-      g.status === "approved" || g.status === "superseded" || g.status === "rejected" || g.status === "proposed",
-    );
-    if (baseline) {
-      errors.push(...validateReplanKeepFinished(baseline.def, input.source, finished));
-    }
+    errors.push(...validateReplanKeepFinished(baseline.def, input.source, finished));
   }
   if (errors.length > 0) {
-    const priorFails = typeof prior.submitFails === "number" ? prior.submitFails : 0;
-    const submitFails = priorFails + 1;
-    const retries = stepDef.retries ?? 2;
-    if (submitFails > retries) {
-      updateStep(ctx, keyOf(row), {
-        status: "failed",
-        error: `generate validation failed after ${retries} retries`,
-        endedAt: ctx.now,
-        result: { ...prior, submitFails, errors, pendingApproval: undefined, reviseNote: undefined },
-      });
-    } else {
-      updateStep(ctx, keyOf(row), { result: { ...prior, submitFails, errors } });
-    }
-    return { ok: false, errors };
+    return noteGenerateSubmitErrors(ctx, input.runId, input.stepId, errors);
   }
+
+  const { graphDiff, formatReplanSummary } = await import("./replan");
+  const diff = baseline ? graphDiff(baseline.def, input.source) : { added: [] as string[], removed: [] as string[], changed: [] as string[] };
+  const failedStep = typeof prior.replanFailedStep === "string" ? prior.replanFailedStep : "";
+  const replanSummary = prior.replanMode
+    ? formatReplanSummary(diff, failedStep || "(unknown)")
+    : undefined;
+  const replanAsk = prior.replanMode === "ask";
 
   const stored = insertGraphVersion(ctx, {
     runId: run.id,
@@ -293,50 +339,52 @@ export async function submitGraph(
     status: "proposed",
   });
 
-  if (!stepDef.approval) {
+  // Bump run rev so expect_rev on run.answer serializes against concurrent submit.
+  try { updateRun(ctx, run.id, run.rev, {}); } catch { /* */ }
+
+  const nextResult: Record<string, unknown> = {
+    ...prior,
+    graphVersion: stored.version,
+    submitFails: 0,
+    reviseNote: undefined,
+    replanDiff: prior.replanMode ? diff : prior.replanDiff,
+    ...(replanSummary !== undefined ? { replanSummary } : {}),
+  };
+
+  // Replan ask: person must approve the replacement (with diff) before the child starts.
+  if (replanAsk || stepDef.approval) {
     updateStep(ctx, keyOf(row), {
       result: {
-        ...prior,
-        graphVersion: stored.version,
-        submitFails: 0,
-        pendingApproval: undefined,
-        reviseNote: undefined,
+        ...nextResult,
+        pendingApproval: true,
+        approval: replanAsk ? (stepDef.approval ?? "must") : stepDef.approval,
       },
     });
-    const { startGeneratedChild } = await import("./engine");
-    await startGeneratedChild(ctx, {
-      runId: run.id,
-      stepId: input.stepId,
-      version: stored.version,
-    }, spawn, deps);
+    if (stepDef.approval === "auto" && !replanAsk) {
+      const { canAutoApproveGenerate } = await import("./auto");
+      const { rootRunId } = await import("./store");
+      const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
+      if (canAutoApproveGenerate(root, input.stepId, stepDef)) {
+        enqueueWakeup(ctx, {
+          runId: run.id,
+          cause: "question",
+          ref: stepWakeRef(run.id, input.stepId, row.attempt),
+          createdAt: ctx.now,
+        });
+      }
+    }
     return { ok: true, errors: [], version: stored.version };
   }
 
   updateStep(ctx, keyOf(row), {
-    result: {
-      ...prior,
-      graphVersion: stored.version,
-      submitFails: 0,
-      pendingApproval: true,
-      approval: stepDef.approval,
-      reviseNote: undefined,
-    },
+    result: { ...nextResult, pendingApproval: undefined },
   });
-  // Auto approval: wake the orchestrator like an auto human question.
-  if (stepDef.approval === "auto") {
-    const { enqueueWakeup, stepWakeRef } = await import("./wakeups");
-    const { canAutoApproveGenerate } = await import("./auto");
-    const { rootRunId } = await import("./store");
-    const root = getRun(ctx, rootRunId(ctx, run.id)) ?? run;
-    if (canAutoApproveGenerate(root, input.stepId, stepDef)) {
-      enqueueWakeup(ctx, {
-        runId: run.id,
-        cause: "question",
-        ref: stepWakeRef(run.id, input.stepId, row.attempt),
-        createdAt: ctx.now,
-      });
-    }
-  }
+  const { startGeneratedChild } = await import("./engine");
+  await startGeneratedChild(ctx, {
+    runId: run.id,
+    stepId: input.stepId,
+    version: stored.version,
+  }, spawn, deps);
   return { ok: true, errors: [], version: stored.version };
 }
 
