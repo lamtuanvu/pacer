@@ -1,4 +1,4 @@
-#![allow(clippy::unwrap_used)]
+#![allow(clippy::unwrap_used, clippy::expect_used)]
 //! A sealed call may pin the child it runs on (`expectPid`), as Core's flag-off
 //! `expectedProcess` does: the owner never starts or substitutes a child for it.
 
