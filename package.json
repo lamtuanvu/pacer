@@ -33,6 +33,7 @@
     "ui:ready": "bun scripts/ui-ready.ts",
     "typecheck": "tsc --noEmit && tsc -p app",
     "gate:m1": "bun scripts/gate/m1.ts",
+    "test:triage": "bun scripts/test-triage.ts",
     "build": "bun scripts/build.ts",
     "release": "bun scripts/release/build.ts",
     "release:prepare": "bun scripts/release/prepare.ts",

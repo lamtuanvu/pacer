@@ -14,6 +14,7 @@ pacer delegates coding work according to subscription usage and pace. Start with
 - [Protocol 2.x overlap](protocol-v2.md): compatibility API, served for one more pacer minor release.
 - [Desktop app](../desktop/README.md): the recommended way to install and set up pacer.
 - [Live validation](testing/live-validation.md): sandbox service, real executors, surface checks and CT-11 evidence.
+- [M3 test triage](testing/m3-test-triage.md): bucket map of the Bun test tree for the Rust migration.
 
 `pacer --help` lists commands. `pacer doctor` checks local setup. The [design spec](specs/2026-10-11-pacer-design.md) records architecture and historical design intent; use these user docs and CLI help for current behavior.
 - [Distribution channels](distribution.md): GitHub Releases, install.sh, npm and Homebrew
