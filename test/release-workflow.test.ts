@@ -179,7 +179,7 @@ test("the release builds and publishes; validation runs post-merge on main", () 
     expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
     expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
     const cache = build.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
-    expect(cache?.with).toMatchObject({ key: "release-${{ matrix.target }}" });
+    expect(cache?.with).toMatchObject({ "shared-key": "release-${{ matrix.target }}", "save-if": false });
     const upload = build.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
     expect(upload?.with).toMatchObject({ name: "binaries-${{ matrix.os }}-${{ matrix.arch }}", path: "dist/release/*/pacer-*" });
     const smoke = build.steps.find(s => s.name === "Smoke test native binary")?.run ?? "";
@@ -247,7 +247,10 @@ test("the M1 gate runs post-merge on main in CI instead of the release", () => {
     expect(names).toContain(step);
   }
   const cache = gate.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
-  expect(cache?.with).toMatchObject({ key: "release-pair-${{ matrix.runner }}" });
+  expect(cache?.with).toMatchObject({
+    "shared-key": "release-pair-${{ matrix.runner }}",
+    "save-if": "${{ github.ref == 'refs/heads/main' }}",
+  });
   // Every install/download step is bounded at 10 minutes.
   const installs = gate.steps.filter(s => s.run && /bun install|rustup target add|pip" install|cargo build --locked -p pacer-fixtures/.test(s.run));
   expect(installs).toHaveLength(4);
@@ -421,6 +424,71 @@ test("a published nightly closes every open nightly-failure issue", () => {
   const calls = readFileSync(log, "utf8").trim().split("\n");
   expect(calls[0]).toContain("issue list --repo fixture/repo --label nightly-failure --state open");
   expect(calls.slice(1)).toEqual([7, 9].map(n => `issue close ${n} --repo fixture/repo --comment Nightly 0.16.0-nightly.202611171700 published: https://github.example/fixture/repo/actions/runs/42`));
+});
+
+test("release Rust caches restore shared keys warmed on main; PR CI does not save Rust caches", () => {
+  const warmerRaw = readFileSync(resolve(".github/workflows/release-cache.yml"), "utf8");
+  expect(warmerRaw).not.toMatch(/secrets\./);
+  const warmer = Bun.YAML.parse(warmerRaw) as {
+    on: { push?: { branches?: string[]; paths?: string[] }; schedule?: unknown[]; workflow_dispatch?: unknown };
+    permissions: Record<string, string>;
+    jobs: Record<string, WorkflowJob & { "runs-on"?: string }>;
+  };
+  expect(warmer.permissions).toEqual({ contents: "read" });
+  expect(warmer.on.push?.branches).toEqual(["main"]);
+  expect(warmer.on.schedule).toBeDefined();
+  expect(warmer.on.workflow_dispatch).toBeDefined();
+  expect(Object.keys(warmer.on).sort()).toEqual(["push", "schedule", "workflow_dispatch"]);
+
+  const warmerCaches = (jobName: string) =>
+    (warmer.jobs[jobName].steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@")).map(s => s.with) ?? []);
+  const releaseCaches = (jobName: string) =>
+    (jobs[jobName].steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@")).map(s => s.with) ?? []);
+
+  for (const job of ["build-macos", "build-linux"] as const) {
+    for (const cache of releaseCaches(job)) {
+      expect(cache).toMatchObject({ "shared-key": "release-${{ matrix.target }}", "save-if": false });
+    }
+    expect(warmerCaches(job)).toEqual([{ "shared-key": "release-${{ matrix.target }}" }]);
+    expect(warmer.jobs[job].strategy?.matrix.include).toEqual(jobs[job].strategy?.matrix.include?.map(({ smoke_prefix: _, ...rest }) => rest) ?? jobs[job].strategy?.matrix.include);
+  }
+
+  const desktopRelease = releaseCaches("desktop");
+  expect(desktopRelease).toHaveLength(1);
+  expect(desktopRelease[0]).toMatchObject({
+    "shared-key": "release-desktop-${{ matrix.target }}",
+    "save-if": false,
+  });
+  expect(String(desktopRelease[0]?.workspaces ?? "")).toContain("desktop/src-tauri -> target");
+  expect(warmerCaches("desktop")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
+
+  const desktopBuildRelease = releaseCaches("desktop-build");
+  expect(desktopBuildRelease).toHaveLength(1);
+  expect(desktopBuildRelease[0]).toMatchObject({
+    "shared-key": "release-desktop-${{ matrix.target }}",
+    "save-if": false,
+  });
+  expect(String(desktopBuildRelease[0]?.workspaces ?? "")).toContain(". -> target");
+  expect(String(desktopBuildRelease[0]?.workspaces ?? "")).toContain("desktop/src-tauri -> target");
+  expect(warmerCaches("desktop-build")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
+
+  // Each release shared-key matches a warmer job that uses the same runner image and target.
+  for (const [job, warmerJob] of [["build-macos", "build-macos"], ["build-linux", "build-linux"], ["desktop", "desktop"], ["desktop-build", "desktop-build"]] as const) {
+    const key = releaseCaches(job)[0]?.["shared-key"];
+    expect(warmerCaches(warmerJob).some(c => c?.["shared-key"] === key)).toBe(true);
+    expect(jobs[job].strategy?.matrix.include?.map(e => e.image ?? e.runner)).toEqual(
+      warmer.jobs[warmerJob].strategy?.matrix.include?.map(e => e.image ?? e.runner),
+    );
+  }
+
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
+    jobs: Record<string, WorkflowJob>;
+  };
+  for (const job of Object.values(ci.jobs)) {
+    for (const step of job.steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@"))) {
+      expect(step.with?.["save-if"]).toBe("${{ github.ref == 'refs/heads/main' }}");
+    }
+  }
 });
 
 test("a failed required job of a nightly tag opens or comments on the nightly-failure issue", () => {
