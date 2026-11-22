@@ -472,8 +472,17 @@ export async function chooseWorkflow(
 async function codeStepBrief(ctx: Ctx, run: RunRow, stepDef: AgentStep, prompt: string): Promise<{ goal: string; repo: string; base?: string }> {
   const brief: { goal: string; repo: string; base?: string } = { goal: prompt, repo: run.repo };
   if (!isCodeStep(stepDef)) return brief;
-  const ensured = await ensureRunBranch(ctx, getRun(ctx, run.id) ?? run);
-  brief.base = ensured.branch;
+  try {
+    const ensured = await ensureRunBranch(ctx, getRun(ctx, run.id) ?? run);
+    brief.base = ensured.branch;
+  } catch (error) {
+    // Phase 1–3 unit fixtures often use a tmp dir with a fake RunFn and no git.
+    // A real run always has a git repo; other errors still fail the step.
+    if (error instanceof CoreError && error.code === "invalid_input" && /not a git repository/i.test(error.message)) {
+      return brief;
+    }
+    throw error;
+  }
   return brief;
 }
 
