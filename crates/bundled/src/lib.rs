@@ -16,7 +16,7 @@ pub struct Bundled {
 #[rustfmt::skip]
 pub const TABLE: &[Bundled] = &[
     Bundled { id: "pacer-planners", manifest: include_str!("../manifests/pacer-planners.json"), run: None },
-    Bundled { id: "pacer-endpoints", manifest: include_str!("../manifests/pacer-endpoints.json"), run: None },
+    Bundled { id: "pacer-endpoints", manifest: pacer_bundled_endpoints::MANIFEST, run: Some(pacer_bundled_endpoints::plugin) },
     Bundled { id: "pacer-notify", manifest: pacer_bundled_notify::MANIFEST, run: Some(pacer_bundled_notify::plugin) },
     Bundled { id: "pacer-classify", manifest: pacer_bundled_classify::MANIFEST, run: Some(pacer_bundled_classify::plugin) },
     Bundled { id: "pacer-usage", manifest: pacer_bundled_usage::MANIFEST, run: Some(pacer_bundled_usage::plugin) },

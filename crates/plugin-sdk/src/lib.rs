@@ -2,6 +2,7 @@
 
 mod chunk;
 mod error;
+mod fs;
 mod host;
 mod http;
 pub mod js;
@@ -73,6 +74,7 @@ pub mod types {
 }
 
 pub use error::PluginError;
+pub use fs::FileSystem;
 pub use host::{Host, MachineSignature};
 pub use http::HttpResponse;
 pub use serve::{Ctx, HandlerResult, Manifest, Plugin, Progress};

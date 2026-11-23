@@ -11,7 +11,56 @@
 //! a lone surrogate. This is documented in the SDK README (mirrors the plugin
 //! plan's UTF-16 text rule).
 
-use serde_json::Value;
+use serde_json::{Map, Value};
+
+/// Re-order a JSON object's keys the way ECMAScript enumerates own property
+/// keys: integer-index keys (canonical numeric strings in `0..2^32-1`)
+/// ascending first, then every other key in insertion order. Several plugins
+/// build `provider`/`models` records with `Object.fromEntries`, whose key
+/// order this reproduces so JSON output is byte-stable for parity.
+pub fn object_key_order(map: Map<String, Value>) -> Map<String, Value> {
+    // Partition the keys: integer-index keys ascending first, then every other
+    // key in original insertion order (ECMAScript own-property enumeration).
+    let mut indices: Vec<u32> = Vec::new();
+    let mut others: Vec<String> = Vec::new();
+    for key in map.keys() {
+        if let Some(i) = array_index(key) {
+            indices.push(i);
+        } else {
+            others.push(key.clone());
+        }
+    }
+    indices.sort_unstable();
+    let mut out = Map::new();
+    for i in indices {
+        let key = i.to_string();
+        if let Some(v) = map.get(&key) {
+            out.insert(key, v.clone());
+        }
+    }
+    for key in others {
+        if let Some(v) = map.get(&key) {
+            out.insert(key, v.clone());
+        }
+    }
+    out
+}
+
+/// Whether `key` is an ECMAScript array index: a string of ASCII digits that,
+/// parsed, is in `0..2^32-1`, with no leading zeros (except "0" itself).
+fn array_index(key: &str) -> Option<u32> {
+    if key.is_empty() {
+        return None;
+    }
+    if key.len() > 1 && key.starts_with('0') {
+        return None;
+    }
+    if !key.bytes().all(|b| b.is_ascii_digit()) {
+        return None;
+    }
+    let n = key.parse::<u64>().ok()?;
+    (n < 2u64.pow(32) - 1).then_some(n as u32)
+}
 
 /// ECMAScript `String.prototype.trim`: strip WhiteSpace and LineTerminator
 /// from both ends. Includes U+FEFF (ZWNBSP); does NOT strip U+200B.
@@ -242,5 +291,32 @@ mod tests {
         assert_eq!(base64::decode_lenient("e A=="), vec![0x78]);
         assert_eq!(base64::decode_lenient("eA==="), vec![0x78]);
         assert_eq!(base64::decode("eA"), None);
+    }
+
+    #[test]
+    fn object_key_order_puts_array_indices_first_ascending() {
+        use serde_json::json;
+        let mut map = Map::new();
+        map.insert("b".into(), json!(1));
+        map.insert("2".into(), json!(2));
+        map.insert("a".into(), json!(3));
+        map.insert("10".into(), json!(4));
+        map.insert("x".into(), json!(5));
+        map.insert("1".into(), json!(6));
+        let out = object_key_order(map);
+        let keys: Vec<&str> = out.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["1", "2", "10", "b", "a", "x"]);
+    }
+
+    #[test]
+    fn object_key_order_ignores_noncanonical_integer_keys() {
+        use serde_json::json;
+        let mut map = Map::new();
+        map.insert("01".into(), json!(1));
+        map.insert("z".into(), json!(2));
+        map.insert("4294967295".into(), json!(3)); // == 2^32-1, not an array index
+        let out = object_key_order(map);
+        let keys: Vec<&str> = out.keys().map(String::as_str).collect();
+        assert_eq!(keys, vec!["01", "z", "4294967295"]);
     }
 }

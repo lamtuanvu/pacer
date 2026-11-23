@@ -35,6 +35,11 @@ pub struct Host {
     /// Serialises `capability.net.http` transactions so only one runs at a time
     /// per caller (index.ts: http latch).
     pub(crate) queue: Arc<Mutex<()>>,
+    /// Serialises `capability.fs.*` transactions so only one runs at a time
+    /// per caller (index.ts: createFileSystem tail). Created fresh per call so
+    /// concurrent owning calls each have their own queue, as the TS `hostFor`
+    /// builds a fresh `createFileSystem` per request.
+    pub(crate) fs_queue: Arc<Mutex<()>>,
     /// Negotiated features and protocol of the owning plugin, so `Host::http`
     /// can test whether `httpBodyChunks` was negotiated.
     pub(crate) state: Arc<RwLock<serve::FeatureState>>,
@@ -63,6 +68,7 @@ impl Host {
             capability_call: None,
             cancel: None,
             queue: Arc::new(Mutex::new(())),
+            fs_queue: Arc::new(Mutex::new(())),
             state,
             frame_limit: Arc::new(AtomicUsize::new(1048576)),
         }
@@ -83,6 +89,7 @@ impl Host {
             capability_call,
             cancel: Some(cancel),
             queue: self.queue.clone(),
+            fs_queue: Arc::new(Mutex::new(())),
             state: self.state.clone(),
             frame_limit: self.frame_limit.clone(),
         }

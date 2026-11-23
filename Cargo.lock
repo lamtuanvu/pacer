@@ -1467,6 +1467,7 @@ dependencies = [
  "pacer-bundled-agent-session",
  "pacer-bundled-assistant",
  "pacer-bundled-classify",
+ "pacer-bundled-endpoints",
  "pacer-bundled-exec-orca",
  "pacer-bundled-notify",
  "pacer-bundled-remote-caller",
@@ -1502,6 +1503,17 @@ version = "0.0.0"
 dependencies = [
  "pacer-plugin",
  "regex",
+ "serde_json",
+ "tokio",
+ "url",
+]
+
+[[package]]
+name = "pacer-bundled-endpoints"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde",
  "serde_json",
  "tokio",
  "url",
@@ -1896,7 +1908,7 @@ dependencies = [
 
 [[package]]
 name = "pacer-plugin"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "pacer-plugin-agent-session-protocol",
  "pacer-plugin-assistant-protocol",

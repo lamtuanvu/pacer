@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.6.0"
+version = "0.7.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -38,6 +38,10 @@ required-features = ["testing"]
 
 [[test]]
 name = "http"
+required-features = ["testing"]
+
+[[test]]
+name = "fs"
 required-features = ["testing"]
 
 [[test]]
