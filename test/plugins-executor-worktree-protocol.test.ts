@@ -216,13 +216,15 @@ test("bindOwnedWorktreeIntent rewrites baseSha on ordinary-task rebind (main beh
 });
 
 test("bindOwnedWorktreeIntent preserves original baseSha for workflow step rebind", async () => {
-  // REAL-PATH: workflow ask/answer resume must keep the merge base so accept still merges.
-  const { insertRun, insertStep, workflowDatabase } = await import("../src/workflow/store");
-  const { ensureRunBranch } = await import("../src/workflow/branch");
+  // REAL-PATH (B11): ask/answer resume keeps the merge base; accept merges real commits
+  // without any run..task drift fallback.
+  const { insertRun, insertStep, getRun, workflowDatabase } = await import("../src/workflow/store");
+  const { ensureRunBranch, mergeTaskOnAccept } = await import("../src/workflow/branch");
   const repo = gitRepo(), ctx = fakeCtx({ run: realRun, home: tmpDir() });
   workflowDatabase(ctx);
   const run = insertRun(ctx, { workflow: "t/feat", version: 1, repo, brief: "b", stepMode: "plain" });
   await ensureRunBranch(ctx, run);
+  const live = getRun(ctx, run.id)!;
   const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
     requestedExecutor: "codex", timeoutS: 60 });
   insertStep(ctx, { runId: run.id, stepId: "impl", attempt: 1, taskId: task.id, status: "running" });
@@ -246,8 +248,10 @@ test("bindOwnedWorktreeIntent preserves original baseSha for workflow step rebin
   await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
   expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
 
+  await Bun.write(join(grant.path, "from-task.txt"), "task-work\n");
+  expect((await realRun(["git", "-C", grant.path, "add", "."], 10_000)).code).toBe(0);
   expect((await realRun(["git", "-C", grant.path, "-c", "user.email=t@t", "-c", "user.name=t",
-    "commit", "-q", "--allow-empty", "-m", "pre-ask edit"], 10_000)).code).toBe(0);
+    "commit", "-q", "-m", "pre-ask edit"], 10_000)).code).toBe(0);
   const tip = (await realRun(["git", "-C", grant.path, "rev-parse", "HEAD"], 10_000)).stdout.trim();
   expect(tip).not.toBe(originalBase);
 
@@ -261,6 +265,21 @@ test("bindOwnedWorktreeIntent preserves original baseSha for workflow step rebin
   await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
   expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
   expect(readTask(ctx, task.id)?.worktreeIntent).toBeUndefined();
+
+  updateTask(ctx, task.id, current => {
+    current.state = "done";
+    current.result = {
+      status: "done", executor: "codex", model: null, files: "from-task.txt",
+      report: "ok", backend: "direct", worktree: grant.workdir,
+    };
+  });
+  const before = (await realRun(["git", "-C", repo, "rev-parse", live.branch!], 10_000)).stdout.trim();
+  const merge = await mergeTaskOnAccept(ctx, task.id);
+  expect(merge).toEqual({ merged: true });
+  const after = (await realRun(["git", "-C", repo, "rev-parse", live.branch!], 10_000)).stdout.trim();
+  expect(after).not.toBe(before);
+  const show = await realRun(["git", "-C", repo, "show", `${live.branch!}:from-task.txt`], 10_000);
+  expect(show.stdout).toBe("task-work\n");
 });
 
 test("ordinary rebind keeps fast-fail unchanged check eligible for brokenReason", async () => {
