@@ -22,6 +22,9 @@ pub mod input;
 /// Terminal theme detection and styling (`src/dashboard/theme.ts`).
 pub mod theme;
 
+/// Navigation, selection and overlay state (`src/dashboard/state.ts`).
+pub mod state;
+
 /// Render an explicit wire snapshot and UI state through a ratatui TestBackend.
 /// The returned rows preserve the TS renderer's deliberate trailing spaces.
 pub fn render_frame(
