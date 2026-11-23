@@ -58,7 +58,9 @@ export interface AccountCfg {
   cooldownS: number;
   allowPaid: boolean;
 }
-export interface RunnerCfg { models?: z.infer<typeof modelDeclarationSchema>[]; session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
+/** Evidence tools a runner advertises for agent-driven tests (workflow D9). */
+export type RunnerEvidenceTool = "browser" | "desktop" | "tui";
+export interface RunnerCfg { models?: z.infer<typeof modelDeclarationSchema>[]; session?: "headless" | "interactive"; enabled?: boolean; maxTasks?: number; test?: boolean; /** D9: tools list matched by step `needs`. */ tools?: RunnerEvidenceTool[]; id: string; host: string | null; name: string; agent: AgentId; account: string; model: string | null }
 export interface PlannerCfg { agent: AgentId; account: string }
 export interface AccountsModel {
   accounts: Record<string, AccountCfg>;
@@ -255,6 +257,15 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
     if (c.enabled !== undefined && typeof c.enabled !== "boolean") problems.push(`${at}: enabled must be a boolean`);
     if (c.max_tasks !== undefined && (typeof c.max_tasks !== "number" || !Number.isInteger(c.max_tasks) || c.max_tasks < 1 || c.max_tasks > 16)) problems.push(`runners.${reference}.max_tasks must be 1..16`);
     if (c.test !== undefined && typeof c.test !== "boolean") problems.push(`${at}: test must be a boolean`);
+    let tools: RunnerCfg["tools"];
+    if (c.tools !== undefined) {
+      const allowed = new Set(["browser", "desktop", "tui"]);
+      if (!Array.isArray(c.tools) || c.tools.length === 0 || !c.tools.every(t => typeof t === "string" && allowed.has(t))) {
+        problems.push(`${at}: tools must be a non-empty list of browser, desktop and/or tui`);
+      } else {
+        tools = [...new Set(c.tools as RunnerEvidenceTool[])];
+      }
+    }
     let models: RunnerCfg["models"];
     if (c.models !== undefined) {
       const parsedModels = modelDeclarationSchema.array().min(1).max(256).safeParse(c.models);
@@ -263,7 +274,7 @@ export function parseAccounts(raw: Record<string, unknown>, problems: string[], 
       else models = parsedModels.data;
       if (cfg.connection && models?.some(m => !cfg.connection!.models.some(x => m.id === `pacer-${account}/${x.id}`))) problems.push(`${at}: models must be selected from connection.models`);
     }
-    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), id, name: id, host: parsed.host, agent: parsed.agent, account, model, ...(models ? {models} : {})};
+    const runner: RunnerCfg = {...(c.session !== undefined ? {session: c.session as RunnerCfg["session"]} : {}), ...(typeof c.enabled === "boolean" ? {enabled:c.enabled}:{}), ...(typeof c.max_tasks === "number" ? {maxTasks:c.max_tasks}:{}), ...(typeof c.test === "boolean" ? {test:c.test}:{}), ...(tools ? {tools} : {}), id, name: id, host: parsed.host, agent: parsed.agent, account, model, ...(models ? {models} : {})};
     if (!runners[id] || Object.keys(c).length) runners[id] = runner;
     runnerAliases[reference] = id;
     return runners[id];

@@ -158,6 +158,9 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
   // must be able to leave.
   for (const [id, value] of Object.entries(steps)) {
     if (id.length > 48) errors.push({ path: `steps.${id}`, message: `step id '${id}' is longer than 48 characters` });
+    if (!/^[A-Za-z0-9_-]+$/.test(id)) {
+      errors.push({ path: `steps.${id}`, message: `step id '${id}' must match ^[A-Za-z0-9_-]+$` });
+    }
     if (!isPlainObject(value)) continue;
     const rawBranches = Array.isArray(value.branches) ? value.branches : [];
     if (value.type === "fanout") {
@@ -182,6 +185,22 @@ export function validateWorkflow(def: WorkflowDef): WorkflowError[] {
       const outgoing = candidates.filter(c => c.edge.from === id).length;
       if (outgoing !== 1) {
         errors.push({ path: `steps.${id}`, message: `choose_workflow step ${id} must have exactly one outgoing edge` });
+      }
+    }
+    // Publishing approval is person-only: approves: publish requires decision: must (D5)
+    // and a yes_no / approve_revise question so answers are exactly approve/yes (R2-F6).
+    if (value.type === "human" && value.approves === "publish") {
+      const decision = value.decision === undefined ? "must" : value.decision;
+      if (decision !== "must") {
+        errors.push({ path: `steps.${id}.approves`, message: "approves: publish requires decision: must" });
+      }
+      const q = value.question as { kind?: string } | undefined;
+      const kind = q?.kind;
+      if (kind !== "yes_no" && kind !== "approve_revise") {
+        errors.push({
+          path: `steps.${id}.question.kind`,
+          message: "approves: publish requires question.kind yes_no or approve_revise",
+        });
       }
     }
   }

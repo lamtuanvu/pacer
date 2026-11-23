@@ -9,6 +9,7 @@ import { taskActivity } from "../tasks/activity";
 import { autoCleanTask } from "../tasks/cleanup";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
+import { stepTaskNeedsRunBranchMerge } from "../workflow/store";
 
 export type TaskReviewProbeParams = {
   verdict?: unknown;
@@ -26,6 +27,11 @@ export function taskReviewProbe(ctx: Ctx, id: string, params: TaskReviewProbePar
   }
   const summary = policySummary(ctx);
   if (summary.mode === "closed" && summary.plugins > 0) return { forward: true as const, reason: "policy" };
+  // Phase 5: accept of a run-branch step must merge via TypeScript `review`.
+  // Lookup is read-only (no workflow DDL) and never fails ordinary tasks.
+  if (verdict === "accept" && stepTaskNeedsRunBranchMerge(ctx, id)) {
+    return { forward: true as const, reason: "run branch" };
+  }
   return { forward: false as const };
 }
 

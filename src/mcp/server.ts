@@ -108,6 +108,14 @@ export function createMcpServer(getCtx: () => Ctx, opts: { spawnRunner?: SpawnRu
       async ({ task_id, expect_rev }) => scoped("task.stop", { id: task_id, expect_rev }));
     server.registerTool("step_result", { description: "Record this orchestrator step's structured result.", inputSchema: { result: z.record(z.string(), z.unknown()) } },
       async ({ result }) => scoped("step.result", { result }));
+    server.registerTool("step_artifact", { description: "Attach a file from this step's worktree or evidence directory to the run.", inputSchema: { path: z.string(), label: z.string() } },
+      async (p) => scoped("step.artifact", p));
+    server.registerTool("run_get", { description: "Read this run (rev, steps) so sync/publish can pass expect_rev.", inputSchema: { id: z.string() } },
+      async (p) => scoped("run.get", p));
+    server.registerTool("run_sync_base", { description: "Merge the base branch tip into this run's branch.", inputSchema: { id: z.string(), expect_rev: z.number().int().positive() } },
+      async (p) => scoped("run.sync_base", p));
+    server.registerTool("run_publish", { description: "Push the run branch and open a PR when the publishing gate allows it.", inputSchema: { id: z.string(), draft: z.boolean(), title: z.string(), body: z.string(), expect_rev: z.number().int().positive() } },
+      async (p) => scoped("run.publish", p));
     server.registerTool("run_decide", { description: "Answer an auto human step under this run grant.", inputSchema: { id: z.string(), step: z.string(), choice: z.string(), reason: z.string() } },
       async (p) => scoped("run.decide", p));
     server.registerTool("run_choose", { description: "Choose a child workflow for a choose_workflow step.", inputSchema: { id: z.string(), step: z.string(), workflow: z.string(), reason: z.string() } },

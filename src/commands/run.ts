@@ -3,6 +3,7 @@
 // dispatch's rev-reading commands; `step result` reports through `step.result`
 // in-process, because a delegated executor holds no service client.
 import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
 import { connectClient } from "../api/client";
 import { assertCallerCanInvoke } from "../api/caller-policy";
 import { callOp, type OpDeps } from "../api/ops";
@@ -10,8 +11,8 @@ import { commandArgs } from "./accounts";
 import type { Command, Result } from "./types";
 import type { Ctx } from "../types";
 
-const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | decide <id> <step> <choice> --reason <text> | choose <id> <step> <workflow> --reason <text> [--json]";
-const STEP_USAGE = "usage: pacer step result --json '<JSON object>' | --file <path> | skip <id> <step> | retry <id> <step>";
+const USAGE = "usage: pacer run start <workflow> --brief <text> [--repo <path>] [--title <t>] [--publish draft] | list [--status <s>] | show <id> | graph <id> [--version N] | submit-graph --file <path> --id <run> --step <step> | answer <id> <step> <answer> | stop <id> | sync <id> | publish <id> --title <t> --body-file <path> [--draft] | cleanup <id> [--delete-branch] [--yes] | auto <id> on|off | planner <id> <agent> | budget <id> [--turns N] [--messages N] | decide <id> <step> <choice> --reason <text> | choose <id> <step> <workflow> --reason <text> [--json]";
+const STEP_USAGE = "usage: pacer step result --json '<JSON object>' | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>";
 
 async function call(ctx: Ctx, op: string, params: Record<string, unknown>, deps: OpDeps): Promise<unknown> {
   assertCallerCanInvoke(ctx, op, params);
@@ -50,11 +51,16 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
   const json = rest.includes("--json");
   try {
     if (sub === "start") {
-      const { pos, flags } = commandArgs(rest, ["brief", "repo", "title"], ["json"]);
+      const { pos, flags } = commandArgs(rest, ["brief", "repo", "title", "publish"], ["json"]);
       if (pos.length !== 1 || !flags.brief) throw Error(USAGE);
+      if (flags.publish !== undefined && flags.publish !== "draft") throw Error("--publish accepts only draft");
       const repo = String(flags.repo ?? await gitTopLevel(ctx) ?? "");
       if (!repo) throw Error("no --repo given and the current directory is not a git repository");
-      const params = { workflow: pos[0], repo, brief: String(flags.brief), ...(flags.title ? { title: String(flags.title) } : {}) };
+      const params = {
+        workflow: pos[0], repo, brief: String(flags.brief),
+        ...(flags.title ? { title: String(flags.title) } : {}),
+        ...(flags.publish === "draft" ? { publish: "draft" as const } : {}),
+      };
       const run = await call(ctx, "run.start", params, deps) as RunLike;
       if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  ${run.status}`, err: "" };
@@ -83,6 +89,56 @@ export async function runCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Promi
       const run = await call(ctx, sub === "answer" ? "run.answer" : "run.stop", params, deps) as RunLike;
       if (json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  ${run.status}${run.reason ? `  ${run.reason}` : ""}`, err: "" };
+    }
+    if (sub === "sync") {
+      const { pos, flags } = commandArgs(rest, [], ["json"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const result = await call(ctx, "run.sync_base", { id: pos[0], expect_rev: got.run.rev }, deps);
+      const r = result as { ok: boolean; merge?: string; resolution_task?: string; run: RunLike };
+      if (!r.ok) {
+        if (flags.json || json) return { code: 1, out: JSON.stringify(result, null, 2), err: "" };
+        return { code: 1, out: `${pos[0]}  sync conflict  ${r.resolution_task}`, err: "" };
+      }
+      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      return { code: 0, out: `${pos[0]}  synced`, err: "" };
+    }
+    if (sub === "publish") {
+      const { pos, flags } = commandArgs(rest, ["title", "body-file"], ["json", "draft"]);
+      if (pos.length !== 1 || !flags.title || !flags["body-file"]) throw Error(USAGE);
+      const body = readFileSync(String(flags["body-file"]), "utf8");
+      if (Buffer.byteLength(body, "utf8") > 60 * 1024) throw Error("body exceeds 60 KiB");
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const result = await call(ctx, "run.publish", {
+        id: pos[0],
+        draft: !!flags.draft,
+        title: String(flags.title),
+        body,
+        expect_rev: got.run.rev,
+      }, deps) as { pr_url: string; run: RunLike };
+      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      return { code: 0, out: `${pos[0]}  ${result.pr_url}`, err: "" };
+    }
+    if (sub === "cleanup") {
+      const { pos, flags } = commandArgs(rest, [], ["json", "delete-branch", "yes"]);
+      if (pos.length !== 1) throw Error(USAGE);
+      if (flags["delete-branch"] && !flags.yes) {
+        throw Error("deleting the local run branch needs --yes");
+      }
+      const got = await call(ctx, "run.get", { id: pos[0] }, deps) as { run: RunLike };
+      const result = await call(ctx, "run.cleanup", {
+        id: pos[0],
+        delete_branch: !!flags["delete-branch"],
+        expect_rev: got.run.rev,
+      }, deps) as { run: RunLike; deleted_branch: string | null };
+      if (flags.json || json) return { code: 0, out: JSON.stringify(result, null, 2), err: "" };
+      return {
+        code: 0,
+        out: result.deleted_branch
+          ? `${pos[0]}  cleaned; deleted ${result.deleted_branch}`
+          : `${pos[0]}  cleaned`,
+        err: "",
+      };
     }
     if (sub === "auto") {
       const { pos } = commandArgs(rest, [], ["json"]);
@@ -188,6 +244,17 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
       if (flags.json) return { code: 0, out: JSON.stringify(run, null, 2), err: "" };
       return { code: 0, out: `${run.id}  ${sub} ${pos[1]}`, err: "" };
     }
+    if (sub === "artifact") {
+      const { pos, flags } = commandArgs(rest, ["label"], ["json"]);
+      if (pos.length !== 1 || !flags.label) throw Error(STEP_USAGE);
+      assertCallerCanInvoke(ctx, "step.artifact", { path: pos[0], label: String(flags.label) });
+      const row = await callOp(ctx, "step.artifact", {
+        path: resolve(pos[0]!), label: String(flags.label),
+      }, deps);
+      if (flags.json) return { code: 0, out: JSON.stringify(row, null, 2), err: "" };
+      const art = row as { id: string; label: string };
+      return { code: 0, out: `${art.id}  ${art.label}`, err: "" };
+    }
     if (sub !== "result") throw Error(STEP_USAGE);
     const { pos, flags } = commandArgs(rest, ["json", "file"], []);
     if (pos.length || (flags.json ? 1 : 0) + (flags.file ? 1 : 0) !== 1) throw Error(STEP_USAGE);
@@ -207,6 +274,6 @@ export async function stepCmd(args: string[], ctx: Ctx, deps: OpDeps = {}): Prom
 }
 
 export const COMMANDS: Command[] = [
-  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|auto|planner|budget|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
-  { name: "step", usage: "step result --json <object> | --file <path> | skip <id> <step> | retry <id> <step>    report or resolve a workflow step", run: (args, ctx) => stepCmd(args, ctx) },
+  { name: "run", usage: "run start|list|show|graph|submit-graph|answer|stop|sync|publish|cleanup|auto|planner|budget|decide|choose    start and follow runs", run: (args, ctx) => runCmd(args, ctx) },
+  { name: "step", usage: "step result --json <object> | --file <path> | artifact <path> --label <text> | skip <id> <step> | retry <id> <step>    report or resolve a workflow step", run: (args, ctx) => stepCmd(args, ctx) },
 ];

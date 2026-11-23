@@ -27,6 +27,10 @@ import {
   skipFailedStep, startRun, stopRun,
   type EngineDeps,
 } from "../workflow/engine";
+import { listArtifacts, storeArtifact } from "../workflow/artifacts";
+import { syncBase } from "../workflow/branch";
+import { publishRun } from "../workflow/publish";
+import { cleanupRun } from "../workflow/cleanup";
 import { canAutoApproveGenerate, canAutoDecide } from "../workflow/auto";
 import { applyBudgetRaise, isBudgetBlocked, parseSpent, serializeSpent } from "../workflow/budget";
 import { listGraphSummaries, noteGenerateSubmitErrors, submitGraph } from "../workflow/generate";
@@ -134,20 +138,39 @@ export const workflowOps: Record<string, OpDef> = {
   }),
   "run.start": op({
     description: "Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.",
-    params: z.object({ workflow: workflowRef, repo: z.string().min(1).max(4096), brief: z.string().min(1).max(8000), title: z.string().min(1).max(120).optional() }),
+    params: z.object({
+      workflow: workflowRef,
+      repo: z.string().min(1).max(4096),
+      brief: z.string().min(1).max(8000),
+      title: z.string().min(1).max(120).optional(),
+      publish: z.literal("draft").optional(),
+    }),
     handler: async (ctx, p, deps) => {
       assertPersonCaller(ctx);
       const { deps: engine, spawn } = engineDeps(deps);
       // The engine publishes the run entity: on creation, on a failed start and on
       // every status change it makes.
-      return startRun(ctx, { workflow: p.workflow, repo: p.repo, brief: p.brief, ...(p.title ? { title: p.title } : {}) }, spawn, engine);
+      return startRun(ctx, {
+        workflow: p.workflow, repo: p.repo, brief: p.brief,
+        ...(p.title ? { title: p.title } : {}),
+        ...(p.publish ? { publish: p.publish } : {}),
+      }, spawn, engine);
     },
   }),
   "run.get": op({
-    description: "One run with its step instances and generated graph versions.",
+    description: "One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).",
     params: z.object({ id: runId }),
     handler: (ctx, p) => {
-      assertPersonCaller(ctx);
+      // R3-I2: grants may read their own run (CLI sync/publish fetch expect_rev via run.get).
+      // Foreign/unknown ids refuse with the same text so a grant cannot probe other runs.
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_found", `unknown run ${p.id}`);
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
       const run = getRun(ctx, p.id);
       if (!run) throw new CoreError("not_found", `unknown run ${p.id}`);
       const steps = stepsOfRun(ctx, p.id);
@@ -184,6 +207,7 @@ export const workflowOps: Record<string, OpDef> = {
         run: runEntityValue(run),
         steps,
         graphs: listGraphSummaries(ctx, p.id),
+        artifacts: listArtifacts(ctx, p.id),
         ...(pendingApproval ? { pendingApproval } : {}),
       };
     },
@@ -227,6 +251,15 @@ export const workflowOps: Record<string, OpDef> = {
     description: "Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.",
     params: z.object({ result: z.record(z.string(), z.json()) }),
     handler: (ctx, p) => recordStepResult(ctx, requireStepResultCaller(ctx), p.result),
+  }),
+  "step.artifact": op({
+    description: "Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.",
+    params: z.object({ path: z.string().min(1).max(4096), label: z.string().min(1).max(256) }),
+    handler: (ctx, p) => {
+      const row = storeArtifact(ctx, requireStepResultCaller(ctx), { path: p.path, label: p.label });
+      // Never return filesystem paths to clients (DATA / no secrets in logs).
+      return { id: row.id, label: row.label, name: row.name, mime: row.mime, size: row.size, stepId: row.stepId };
+    },
   }),
   "step.skip": op({
     description: "Skip a failed step under a live run grant: mark it done as skipped and advance the run.",
@@ -597,6 +630,75 @@ export const workflowOps: Record<string, OpDef> = {
         });
       }
       return result;
+    },
+  }),
+  "run.sync_base": op({
+    description: "Merge the base branch tip into the run branch under the merge lock. Person or a live run grant for this run.",
+    params: z.object({ id: runId, expect_rev: z.number().int().positive() }),
+    handler: async (ctx, p) => {
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_allowed", "unknown run");
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
+      const result = await syncBase(ctx, p.id, p.expect_rev);
+      // M8: always return runEntityValue of a re-read run (conflict path had a stale pre-marker row).
+      const live = getRun(ctx, p.id) ?? result.run;
+      if (result.ok) return { ok: true as const, run: runEntityValue(live) };
+      return {
+        ok: false as const,
+        merge: result.merge,
+        resolution_task: result.resolution_task,
+        run: runEntityValue(live),
+      };
+    },
+  }),
+  "run.publish": op({
+    description: "Push the run branch and open a PR when the publishing gate allows it. Person or a live run grant for this run; executors refused.",
+    params: z.object({
+      id: runId,
+      draft: z.boolean(),
+      title: z.string().min(1).max(256),
+      body: z.string().max(60 * 1024),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p) => {
+      if (ctx.env.PACER_RUN_GRANT) {
+        const grant = verifyRunGrant(ctx, ctx.env.PACER_RUN_GRANT);
+        if (!grant || rootRunId(ctx, p.id) !== grant.runId) {
+          throw new CoreError("not_allowed", "unknown run");
+        }
+      } else {
+        assertPersonCaller(ctx);
+      }
+      const result = await publishRun(ctx, p.id, {
+        draft: p.draft, title: p.title, body: p.body, expectRev: p.expect_rev,
+      });
+      return { pr_url: result.pr_url, run: runEntityValue(result.run) };
+    },
+  }),
+  "run.cleanup": op({
+    description: "Person-only: remove leftover integration worktree and optionally delete the local run branch. Never touches remotes.",
+    params: z.object({
+      id: runId,
+      delete_branch: z.boolean(),
+      expect_rev: z.number().int().positive(),
+    }),
+    handler: async (ctx, p) => {
+      assertPersonCaller(ctx);
+      const result = await cleanupRun(ctx, p.id, {
+        deleteBranch: p.delete_branch, expectRev: p.expect_rev,
+      });
+      return {
+        run: runEntityValue(result.run),
+        deleted_branch: result.deleted_branch,
+        ...(result.ahead !== undefined ? { ahead: result.ahead } : {}),
+        ...(result.deleted_tip !== undefined ? { deleted_tip: result.deleted_tip } : {}),
+        ...(result.pr_url !== undefined ? { pr_url: result.pr_url } : {}),
+      };
     },
   }),
   "question.ask": op({
