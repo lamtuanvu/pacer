@@ -1,8 +1,6 @@
 // Phase 6 batch G: atomic entry lease (B1), durable seed (B2), bound transient (I1),
 // clearLease retries (I2), no-rev clear (I3), pause tree txn (I5), parent pause race (M3).
 import { describe, expect, spyOn, test } from "bun:test";
-import { Database } from "bun:sqlite";
-import { join } from "node:path";
 import { fakeCtx, tmpDir } from "./helpers";
 import type { Ctx } from "../src/types";
 import { createTask, readTask } from "../src/tasks/store";
@@ -11,9 +9,8 @@ import type { DelegateInput } from "../src/tasks/api";
 import { registerWork } from "../src/dispatch/work";
 import * as store from "../src/workflow/store";
 import {
-  addDefinition, claimEntryLease, clearEntryLease, getRun, insertRun, insertStep,
-  liveRunsNeedingEntry, newEntryOwner,
-  stepsOfRun, updateRun, workflowDatabase, ENTRY_LEASE_S, ENTRY_START_TRANSIENT_MAX,
+  addDefinition, claimEntryLease, clearEntryLease, getRun, insertRun, newEntryOwner,
+  stepsOfRun, updateRun, workflowDatabase, ENTRY_LEASE_S, ENTRY_START_TRANSIENT_MIN_S,
 } from "../src/workflow/store";
 import {
   defaultEngineDeps, startEntryIfNeeded, startPendingEntries, startRun, type EngineDeps,
@@ -66,17 +63,6 @@ function stubDeps(): { deps: EngineDeps; opDeps: OpDeps } {
 
 function addChain(ctx: Ctx): void {
   addDefinition(ctx, CHAIN, "source");
-}
-
-/** Second SQLite connection on the same tasks.db (WAL) for real concurrency. */
-function secondCtx(primary: Ctx, now = NOW): Ctx {
-  const home = primary.pacerHome;
-  // Force a fresh Database handle: clone ctx with same home so taskDatabase opens again
-  // after we open a raw writer. Use a distinct Ctx object; schema already migrated.
-  const ctx = fakeCtx({ now, pacerHome: home, home: primary.home });
-  // Warm schema via primary first; second handle shares the file.
-  workflowDatabase(primary);
-  return ctx;
 }
 
 describe("B1: atomic entry lease claim", () => {
@@ -159,76 +145,7 @@ describe("B1: atomic entry lease claim", () => {
     }
   });
 
-  test("ENTRY step PRIMARY KEY collision is treated as already started, not failRun", async () => {
-    const ctx = fakeCtx({ now: NOW });
-    addChain(ctx);
-    const { deps } = stubDeps();
-    const run = insertRun(ctx, {
-      workflow: CHAIN.id, version: 1, repo: tmpDir(), brief: "pk",
-    });
-    insertStep(ctx, { runId: run.id, stepId: "one", attempt: 1, status: "running" });
-    // Force a second insert of the same key via startStep path by clearing the
-    // "active row" short-circuit: mark the existing row done so nextAttempt=2 —
-    // instead, exercise the helper that maps UNIQUE on entry key.
-    workflowDatabase(ctx).query("DELETE FROM workflow_steps WHERE run_id = ?").run(run.id);
-    // Pre-insert entry key, then startEntryIfNeeded's startStep will collide on attempt 1.
-    insertStep(ctx, { runId: run.id, stepId: "one", attempt: 1, status: "running" });
-    // With steps present, startEntryIfNeeded returns false (already started).
-    expect(await startEntryIfNeeded(ctx, run.id, { deps })).toBe(false);
-    expect(getRun(ctx, run.id)!.status).toBe("running");
-    expect(getRun(ctx, run.id)!.reason).toBeUndefined();
-  });
-
-  test("two Database connections: only one claim wins under contention", () => {
-    const ctx1 = fakeCtx({ now: NOW });
-    addChain(ctx1);
-    const run = insertRun(ctx1, {
-      workflow: CHAIN.id, version: 1, repo: tmpDir(), brief: "conn",
-    });
-    const dbPath = join(ctx1.pacerHome, "state/tasks.db");
-    // Raw second connection claims via SQL the same way claimEntryLease does.
-    const db2 = new Database(dbPath);
-    db2.exec("PRAGMA busy_timeout = 5000");
-    const owner1 = newEntryOwner();
-    const owner2 = newEntryOwner();
-    const until = NOW + 30;
-    const r1 = claimEntryLease(ctx1, run.id, owner1, until, NOW);
-    const r2 = db2.query(
-      `UPDATE workflow_runs SET entry_lease_until = ?, entry_owner = ?
-       WHERE id = ? AND status IN ('running','waiting')
-         AND (entry_owner = ? OR entry_lease_until IS NULL OR entry_lease_until <= ?)`,
-    ).run(until, owner2, run.id, owner2, NOW);
-    expect(r1).toBe(true);
-    expect(r2.changes).toBe(0);
-    db2.close();
-  });
-
-  test("startRun renews its own owner lease across a slow start longer than ENTRY_LEASE_S", async () => {
-    const ctx = fakeCtx({ now: NOW });
-    addChain(ctx);
-    const { deps } = stubDeps();
-    const mode = spyOn(pacing, "readPacingMode").mockImplementation(async (c) => {
-      // Advance clock past the initial lease while startRun is mid-flight; a tick
-      // would try to claim — startRun must renew so the tick loses.
-      (c as { now: number }).now = NOW + ENTRY_LEASE_S + 5;
-      const tickOwner = newEntryOwner();
-      const claimed = claimEntryLease(c, liveRunsNeedingEntry(c, { now: c.now })[0]?.id ?? "", tickOwner, c.now + 30, c.now);
-      // Either no candidate yet (seed/lease still held by startRun after renew) or claim lost.
-      void claimed;
-      await startPendingEntries(c, { deps });
-      return "normal";
-    });
-    try {
-      const run = await startRun(ctx, {
-        workflow: CHAIN.id, repo: tmpDir(), brief: "slow-lease",
-      }, undefined, deps);
-      expect(run.status).toBe("running");
-      expect(run.reason).toBeUndefined();
-      expect(stepsOfRun(ctx, run.id).filter(s => s.stepId === "one")).toHaveLength(1);
-    } finally {
-      mode.mockRestore();
-    }
-  });
+  // PK-collision / two-connection / slow-lease races moved to workflow-fix-batch-h.test.ts
 });
 
 describe("B2: durable seedFinished", () => {
@@ -284,14 +201,15 @@ describe("I1: bounded transient entry start", () => {
     workflowDatabase(ctx).exec(
       `CREATE TRIGGER wf_g_lock BEFORE INSERT ON workflow_steps WHEN NEW.run_id = '${run.id}' BEGIN SELECT RAISE(ABORT, 'database is locked'); END`,
     );
-    for (let i = 0; i < ENTRY_START_TRANSIENT_MAX; i++) {
-      await startPendingEntries(ctx, { deps });
-      if (getRun(ctx, run.id)!.status === "failed") break;
-    }
+    await startPendingEntries(ctx, { deps });
+    expect(getRun(ctx, run.id)!.status).toBe("running");
+    (ctx as { now: number }).now = NOW + ENTRY_START_TRANSIENT_MIN_S + 1;
+    await startPendingEntries(ctx, { deps });
     const failed = getRun(ctx, run.id)!;
     expect(failed.status).toBe("failed");
     expect(failed.reason).toMatch(/entry start failed/i);
     expect(failed.reason).toMatch(/transient|locked|after/i);
+    expect(failed.reason).toMatch(/s \(/); // elapsed seconds in the diagnostic
   });
 });
 
@@ -410,6 +328,4 @@ describe("ensureRootWorkNode idempotent", () => {
   });
 });
 
-// secondCtx kept for multi-connection claim tests above.
-void secondCtx;
 void resumeRunByPerson;
