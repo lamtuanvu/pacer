@@ -2,6 +2,7 @@ import { refusedOp } from "./proxy";
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 import { pacerArgv, sandboxEnv, type Session } from "./core";
+import { runSessionStreamFaultProxy } from "./session-stream-fault";
 
 /** D3 applies before dispatch, including calls made by the TUI or task runner. */
 export function refusal(args: string[]): string | undefined {
@@ -32,6 +33,9 @@ if (import.meta.main) {
       process.exit(3);
     }
     const session = JSON.parse(readFileSync(sessionFile, "utf8")) as Session;
+    if (args.length === 3 && args[0] === "plugin" && args[1] === "run" && args[2] === "pacer-ssh") {
+      process.exit(await runSessionStreamFaultProxy(session, args));
+    }
     const child = Bun.spawn([...pacerArgv(session), ...args], {
       cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });

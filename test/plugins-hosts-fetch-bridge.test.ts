@@ -19,7 +19,7 @@ function fixture(sshBody = "printf '__PACER_BEGIN__\\nabc'",
   const providerDir = join(pacerHome, "plugins", "pacer-ssh");
   mkdirSync(providerDir, { recursive: true }); mkdirSync(bin, { recursive: true });
   symlinkSync(join(import.meta.dir, "..", "node_modules"), join(home, "node_modules"), "dir");
-  for (const file of ["index.ts", "manifest.ts", "probe.ts", "pacer-plugin.json"])
+  for (const file of ["index.ts", "manifest.ts", "probe.ts", "session-stream.ts", "pacer-plugin.json"])
     copyFileSync(join(import.meta.dir, "..", "plugins", "pacer-ssh", file), join(providerDir, file));
   chmodSync(join(providerDir, "index.ts"), 0o755);
   writeFileSync(fakeSsh, `#!/bin/sh\nprintf '%s\\n' "$*" >> '${join(home, "ssh-argv.log")}'\ncase "$*" in

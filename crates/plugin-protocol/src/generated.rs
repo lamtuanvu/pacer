@@ -3167,7 +3167,7 @@ impl ::std::convert::From<CapabilityNetHttpParamsAuthorizationSecretRef> for ::s
 impl ::std::str::FromStr for CapabilityNetHttpParamsAuthorizationSecretRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilityNetHttpParamsAuthorizationSecretRef {
@@ -3921,939 +3921,6 @@ pub struct CapabilityPlannerRunResultVariant1Output {
     pub stderr: ::std::string::String,
     pub stdout: ::std::string::String,
 }
-///`CapabilityProcessOutputChunkParams`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "handle",
-///    "length",
-///    "offset"
-///  ],
-///  "properties": {
-///    "handle": {
-///      "type": "string",
-///      "maxLength": 256,
-///      "minLength": 1
-///    },
-///    "length": {
-///      "type": "integer",
-///      "maximum": 262144.0,
-///      "minimum": 0.0
-///    },
-///    "offset": {
-///      "type": "integer",
-///      "maximum": 9007199254740991.0,
-///      "minimum": 0.0
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessOutputChunkParams {
-    pub handle: CapabilityProcessOutputChunkParamsHandle,
-    pub length: i64,
-    pub offset: i64,
-}
-///`CapabilityProcessOutputChunkParamsHandle`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 256,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessOutputChunkParamsHandle(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessOutputChunkParamsHandle {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessOutputChunkParamsHandle> for ::std::string::String {
-    fn from(value: CapabilityProcessOutputChunkParamsHandle) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessOutputChunkParamsHandle {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkParamsHandle {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkParamsHandle {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessOutputChunkResult`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "base64"
-///  ],
-///  "properties": {
-///    "base64": {
-///      "type": "string",
-///      "maxLength": 349528,
-///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessOutputChunkResult {
-    pub base64: CapabilityProcessOutputChunkResultBase64,
-}
-///`CapabilityProcessOutputChunkResultBase64`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 349528,
-///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessOutputChunkResultBase64(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessOutputChunkResultBase64 {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessOutputChunkResultBase64> for ::std::string::String {
-    fn from(value: CapabilityProcessOutputChunkResultBase64) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessOutputChunkResultBase64 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_5(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessOutputChunkResultBase64 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessOutputChunkResultBase64 {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnParams`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "argv",
-///    "timeoutMs"
-///  ],
-///  "properties": {
-///    "argv": {
-///      "type": "array",
-///      "items": {
-///        "type": "string",
-///        "maxLength": 4096
-///      },
-///      "maxItems": 32,
-///      "minItems": 1
-///    },
-///    "cwd": {
-///      "type": "string",
-///      "maxLength": 4096,
-///      "minLength": 1
-///    },
-///    "env": {
-///      "type": "object",
-///      "additionalProperties": {
-///        "anyOf": [
-///          {
-///            "type": "string"
-///          },
-///          {
-///            "type": "object",
-///            "required": [
-///              "secretRef"
-///            ],
-///            "properties": {
-///              "secretRef": {
-///                "type": "string",
-///                "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
-///              }
-///            },
-///            "additionalProperties": false
-///          }
-///        ]
-///      },
-///      "propertyNames": {
-///        "type": "string",
-///        "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-///      }
-///    },
-///    "timeoutMs": {
-///      "type": "integer",
-///      "maximum": 600000.0,
-///      "exclusiveMinimum": 0.0
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessSpawnParams {
-    pub argv: ::std::vec::Vec<CapabilityProcessSpawnParamsArgvItem>,
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub cwd: ::std::option::Option<CapabilityProcessSpawnParamsCwd>,
-    #[serde(
-        default,
-        skip_serializing_if = ":: std :: collections :: HashMap::is_empty"
-    )]
-    pub env: ::std::collections::HashMap<
-        CapabilityProcessSpawnParamsEnvKey,
-        CapabilityProcessSpawnParamsEnvValue,
-    >,
-    #[serde(rename = "timeoutMs")]
-    pub timeout_ms: ::std::num::NonZeroU64,
-}
-///`CapabilityProcessSpawnParamsArgvItem`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 4096
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnParamsArgvItem(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnParamsArgvItem {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnParamsArgvItem> for ::std::string::String {
-    fn from(value: CapabilityProcessSpawnParamsArgvItem) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnParamsArgvItem {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsArgvItem {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsArgvItem {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnParamsCwd`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 4096,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnParamsCwd(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnParamsCwd {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnParamsCwd> for ::std::string::String {
-    fn from(value: CapabilityProcessSpawnParamsCwd) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnParamsCwd {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_7(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsCwd {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsCwd {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnParamsEnvKey`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "pattern": "^[A-Za-z_][A-Za-z0-9_]*$"
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnParamsEnvKey(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnParamsEnvKey {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnParamsEnvKey> for ::std::string::String {
-    fn from(value: CapabilityProcessSpawnParamsEnvKey) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvKey {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new("^[A-Za-z_][A-Za-z0-9_]*$").unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[A-Za-z_][A-Za-z0-9_]*$\"".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvKey {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsEnvKey {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnParamsEnvValue`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "anyOf": [
-///    {
-///      "type": "string"
-///    },
-///    {
-///      "type": "object",
-///      "required": [
-///        "secretRef"
-///      ],
-///      "properties": {
-///        "secretRef": {
-///          "type": "string",
-///          "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
-///        }
-///      },
-///      "additionalProperties": false
-///    }
-///  ]
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum CapabilityProcessSpawnParamsEnvValue {
-    Variant0(::std::string::String),
-    Variant1 {
-        #[serde(rename = "secretRef")]
-        secret_ref: CapabilityProcessSpawnParamsEnvValueVariant1SecretRef,
-    },
-}
-impl ::std::convert::From<&Self> for CapabilityProcessSpawnParamsEnvValue {
-    fn from(value: &CapabilityProcessSpawnParamsEnvValue) -> Self {
-        value.clone()
-    }
-}
-///`CapabilityProcessSpawnParamsEnvValueVariant1SecretRef`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "pattern": "^(env|secrets|endpoint):[A-Za-z0-9_][A-Za-z0-9_.-]*$"
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnParamsEnvValueVariant1SecretRef(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnParamsEnvValueVariant1SecretRef>
-    for ::std::string::String
-{
-    fn from(value: CapabilityProcessSpawnParamsEnvValueVariant1SecretRef) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnParamsEnvValueVariant1SecretRef {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnResult`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "anyOf": [
-///    {
-///      "type": "object",
-///      "required": [
-///        "code",
-///        "stderr",
-///        "stdout",
-///        "timedOut"
-///      ],
-///      "properties": {
-///        "code": {
-///          "type": "integer",
-///          "maximum": 9007199254740991.0,
-///          "minimum": -9007199254740991.0
-///        },
-///        "stderr": {
-///          "type": "string"
-///        },
-///        "stdout": {
-///          "type": "string"
-///        },
-///        "timedOut": {
-///          "type": "boolean"
-///        }
-///      },
-///      "additionalProperties": false
-///    },
-///    {
-///      "type": "object",
-///      "required": [
-///        "code",
-///        "output",
-///        "timedOut"
-///      ],
-///      "properties": {
-///        "code": {
-///          "type": "integer",
-///          "maximum": 9007199254740991.0,
-///          "minimum": -9007199254740991.0
-///        },
-///        "output": {
-///          "type": "object",
-///          "required": [
-///            "stderr",
-///            "stdout"
-///          ],
-///          "properties": {
-///            "stderr": {
-///              "type": "string",
-///              "maxLength": 256,
-///              "minLength": 1
-///            },
-///            "stdout": {
-///              "type": "string",
-///              "maxLength": 256,
-///              "minLength": 1
-///            }
-///          },
-///          "additionalProperties": false
-///        },
-///        "timedOut": {
-///          "type": "boolean"
-///        }
-///      },
-///      "additionalProperties": false
-///    }
-///  ]
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(untagged, deny_unknown_fields)]
-pub enum CapabilityProcessSpawnResult {
-    Variant0 {
-        code: i64,
-        stderr: ::std::string::String,
-        stdout: ::std::string::String,
-        #[serde(rename = "timedOut")]
-        timed_out: bool,
-    },
-    Variant1 {
-        code: i64,
-        output: CapabilityProcessSpawnResultVariant1Output,
-        #[serde(rename = "timedOut")]
-        timed_out: bool,
-    },
-}
-impl ::std::convert::From<&Self> for CapabilityProcessSpawnResult {
-    fn from(value: &CapabilityProcessSpawnResult) -> Self {
-        value.clone()
-    }
-}
-///`CapabilityProcessSpawnResultVariant1Output`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "stderr",
-///    "stdout"
-///  ],
-///  "properties": {
-///    "stderr": {
-///      "type": "string",
-///      "maxLength": 256,
-///      "minLength": 1
-///    },
-///    "stdout": {
-///      "type": "string",
-///      "maxLength": 256,
-///      "minLength": 1
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessSpawnResultVariant1Output {
-    pub stderr: CapabilityProcessSpawnResultVariant1OutputStderr,
-    pub stdout: CapabilityProcessSpawnResultVariant1OutputStdout,
-}
-///`CapabilityProcessSpawnResultVariant1OutputStderr`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 256,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnResultVariant1OutputStderr(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnResultVariant1OutputStderr {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStderr>
-    for ::std::string::String
-{
-    fn from(value: CapabilityProcessSpawnResultVariant1OutputStderr) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStderr {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStderr {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1OutputStderr {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessSpawnResultVariant1OutputStdout`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 256,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessSpawnResultVariant1OutputStdout(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessSpawnResultVariant1OutputStdout {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessSpawnResultVariant1OutputStdout>
-    for ::std::string::String
-{
-    fn from(value: CapabilityProcessSpawnResultVariant1OutputStdout) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessSpawnResultVariant1OutputStdout {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_3(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessSpawnResultVariant1OutputStdout {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessSpawnResultVariant1OutputStdout {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessStageBundleParams`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "argv",
-///    "maxBytes",
-///    "timeoutMs"
-///  ],
-///  "properties": {
-///    "argv": {
-///      "type": "array",
-///      "items": {
-///        "type": "string",
-///        "maxLength": 4096
-///      },
-///      "maxItems": 32,
-///      "minItems": 1
-///    },
-///    "maxBytes": {
-///      "type": "integer",
-///      "maximum": 52428800.0,
-///      "exclusiveMinimum": 0.0
-///    },
-///    "timeoutMs": {
-///      "type": "integer",
-///      "maximum": 60000.0,
-///      "exclusiveMinimum": 0.0
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessStageBundleParams {
-    pub argv: ::std::vec::Vec<CapabilityProcessStageBundleParamsArgvItem>,
-    #[serde(rename = "maxBytes")]
-    pub max_bytes: ::std::num::NonZeroU64,
-    #[serde(rename = "timeoutMs")]
-    pub timeout_ms: ::std::num::NonZeroU64,
-}
-///`CapabilityProcessStageBundleParamsArgvItem`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 4096
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessStageBundleParamsArgvItem(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessStageBundleParamsArgvItem {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessStageBundleParamsArgvItem> for ::std::string::String {
-    fn from(value: CapabilityProcessStageBundleParamsArgvItem) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessStageBundleParamsArgvItem {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_6(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleParamsArgvItem {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleParamsArgvItem {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessStageBundleResult`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "bytes",
-///    "handle",
-///    "sha256"
-///  ],
-///  "properties": {
-///    "bytes": {
-///      "type": "integer",
-///      "maximum": 52428800.0,
-///      "minimum": 0.0
-///    },
-///    "handle": {
-///      "type": "string",
-///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
-///    },
-///    "sha256": {
-///      "type": "string",
-///      "pattern": "^[a-f0-9]{64}$"
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct CapabilityProcessStageBundleResult {
-    pub bytes: i64,
-    pub handle: CapabilityProcessStageBundleResultHandle,
-    pub sha256: CapabilityProcessStageBundleResultSha256,
-}
-///`CapabilityProcessStageBundleResultHandle`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessStageBundleResultHandle(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessStageBundleResultHandle {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessStageBundleResultHandle> for ::std::string::String {
-    fn from(value: CapabilityProcessStageBundleResultHandle) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessStageBundleResultHandle {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| {
-                ::regress::Regex::new(
-                    "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
-                )
-                .unwrap()
-            });
-        if PATTERN.find(value).is_none() {
-            return Err(
-                "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
-                    .into(),
-            );
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultHandle {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleResultHandle {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`CapabilityProcessStageBundleResultSha256`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "pattern": "^[a-f0-9]{64}$"
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct CapabilityProcessStageBundleResultSha256(::std::string::String);
-impl ::std::ops::Deref for CapabilityProcessStageBundleResultSha256 {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<CapabilityProcessStageBundleResultSha256> for ::std::string::String {
-    fn from(value: CapabilityProcessStageBundleResultSha256) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for CapabilityProcessStageBundleResultSha256 {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
-            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^[a-f0-9]{64}$").unwrap());
-        if PATTERN.find(value).is_none() {
-            return Err("doesn't match pattern \"^[a-f0-9]{64}$\"".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for CapabilityProcessStageBundleResultSha256 {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for CapabilityProcessStageBundleResultSha256 {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
 ///`CapabilitySecretsResolveParams`
 ///
 /// <details><summary>JSON schema</summary>
@@ -4908,7 +3975,7 @@ impl ::std::convert::From<CapabilitySecretsResolveParamsRef> for ::std::string::
 impl ::std::str::FromStr for CapabilitySecretsResolveParamsRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for CapabilitySecretsResolveParamsRef {
@@ -6603,7 +5670,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountKeyRef {
@@ -6823,7 +5890,7 @@ impl ::std::convert::From<EndpointLaunchEnvParamsAccountsItemKeyRef> for ::std::
 impl ::std::str::FromStr for EndpointLaunchEnvParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvParamsAccountsItemKeyRef {
@@ -7050,7 +6117,7 @@ impl ::std::convert::From<EndpointLaunchEnvResultSecretEnvValue> for ::std::stri
 impl ::std::str::FromStr for EndpointLaunchEnvResultSecretEnvValue {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointLaunchEnvResultSecretEnvValue {
@@ -7146,7 +6213,7 @@ impl ::std::convert::From<EndpointModelsParamsKeyRef> for ::std::string::String 
 impl ::std::str::FromStr for EndpointModelsParamsKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointModelsParamsKeyRef {
@@ -7630,7 +6697,7 @@ impl ::std::convert::From<EndpointTestParamsAccountKeyRef> for ::std::string::St
 impl ::std::str::FromStr for EndpointTestParamsAccountKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountKeyRef {
@@ -7850,7 +6917,7 @@ impl ::std::convert::From<EndpointTestParamsAccountsItemKeyRef> for ::std::strin
 impl ::std::str::FromStr for EndpointTestParamsAccountsItemKeyRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsAccountsItemKeyRef {
@@ -7988,7 +7055,7 @@ impl ::std::convert::From<EndpointTestParamsConfigRef> for ::std::string::String
 impl ::std::str::FromStr for EndpointTestParamsConfigRef {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_11(value, Self)
+        validate_string_12(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for EndpointTestParamsConfigRef {
@@ -8233,196 +7300,6 @@ impl ::std::convert::TryFrom<&str> for EndpointTestResultState {
     type Error = self::error::ConversionError;
     fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
         value.parse()
-    }
-}
-///`ExecutorAvailableParams`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "strategy"
-///  ],
-///  "properties": {
-///    "strategy": {
-///      "type": "object",
-///      "required": [
-///        "name"
-///      ],
-///      "properties": {
-///        "name": {
-///          "type": "string",
-///          "maxLength": 128,
-///          "minLength": 1
-///        }
-///      },
-///      "additionalProperties": false
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct ExecutorAvailableParams {
-    pub strategy: ExecutorAvailableParamsStrategy,
-}
-///`ExecutorAvailableParamsStrategy`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "name"
-///  ],
-///  "properties": {
-///    "name": {
-///      "type": "string",
-///      "maxLength": 128,
-///      "minLength": 1
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct ExecutorAvailableParamsStrategy {
-    pub name: ExecutorAvailableParamsStrategyName,
-}
-///`ExecutorAvailableParamsStrategyName`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 128,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct ExecutorAvailableParamsStrategyName(::std::string::String);
-impl ::std::ops::Deref for ExecutorAvailableParamsStrategyName {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<ExecutorAvailableParamsStrategyName> for ::std::string::String {
-    fn from(value: ExecutorAvailableParamsStrategyName) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for ExecutorAvailableParamsStrategyName {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_1(value, Self)
-    }
-}
-impl ::std::convert::TryFrom<&str> for ExecutorAvailableParamsStrategyName {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableParamsStrategyName {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
-    }
-}
-///`ExecutorAvailableResult`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "object",
-///  "required": [
-///    "available"
-///  ],
-///  "properties": {
-///    "available": {
-///      "type": "boolean"
-///    },
-///    "reason": {
-///      "type": "string",
-///      "maxLength": 1024,
-///      "minLength": 1
-///    }
-///  },
-///  "additionalProperties": false
-///}
-/// ```
-/// </details>
-#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
-#[serde(deny_unknown_fields)]
-pub struct ExecutorAvailableResult {
-    pub available: bool,
-    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
-    pub reason: ::std::option::Option<ExecutorAvailableResultReason>,
-}
-///`ExecutorAvailableResultReason`
-///
-/// <details><summary>JSON schema</summary>
-///
-/// ```json
-///{
-///  "type": "string",
-///  "maxLength": 1024,
-///  "minLength": 1
-///}
-/// ```
-/// </details>
-#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
-#[serde(transparent)]
-pub struct ExecutorAvailableResultReason(::std::string::String);
-impl ::std::ops::Deref for ExecutorAvailableResultReason {
-    type Target = ::std::string::String;
-    fn deref(&self) -> &::std::string::String {
-        &self.0
-    }
-}
-impl ::std::convert::From<ExecutorAvailableResultReason> for ::std::string::String {
-    fn from(value: ExecutorAvailableResultReason) -> Self {
-        value.0
-    }
-}
-impl ::std::str::FromStr for ExecutorAvailableResultReason {
-    type Err = self::error::ConversionError;
-    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        if value.chars().count() > 1024usize {
-            return Err("longer than 1024 characters".into());
-        }
-        if value.chars().count() < 1usize {
-            return Err("shorter than 1 characters".into());
-        }
-        Ok(Self(value.to_string()))
-    }
-}
-impl ::std::convert::TryFrom<&str> for ExecutorAvailableResultReason {
-    type Error = self::error::ConversionError;
-    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        value.parse()
-    }
-}
-impl<'de> ::serde::Deserialize<'de> for ExecutorAvailableResultReason {
-    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
-    where
-        D: ::serde::Deserializer<'de>,
-    {
-        deserialize_validated_string(deserializer)
     }
 }
 ///`HelloParams`
@@ -9783,7 +8660,7 @@ impl ::std::convert::From<HelloParamsManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestHost {
@@ -9828,7 +8705,7 @@ impl ::std::convert::From<HelloParamsManifestId> for ::std::string::String {
 impl ::std::str::FromStr for HelloParamsManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for HelloParamsManifestId {
@@ -11100,7 +9977,7 @@ impl ::std::convert::From<ManifestHost> for ::std::string::String {
 impl ::std::str::FromStr for ManifestHost {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_10(value, Self)
+        validate_string_11(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestHost {
@@ -11145,7 +10022,7 @@ impl ::std::convert::From<ManifestId> for ::std::string::String {
 impl ::std::str::FromStr for ManifestId {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_13(value, Self)
+        validate_string_15(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for ManifestId {
@@ -17387,7 +16264,7 @@ impl ::std::convert::From<RemoteCallerFetchParamsAlias> for ::std::string::Strin
 impl ::std::str::FromStr for RemoteCallerFetchParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerFetchParamsAlias {
@@ -17503,7 +16380,7 @@ impl ::std::convert::From<RemoteCallerIdentityParamsAlias> for ::std::string::St
 impl ::std::str::FromStr for RemoteCallerIdentityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerIdentityParamsAlias {
@@ -17852,7 +16729,7 @@ impl ::std::convert::From<RemoteCallerQuestionReadParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerQuestionReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerQuestionReadParamsAlias {
@@ -18102,7 +16979,7 @@ impl ::std::convert::From<RemoteCallerReachabilityParamsAlias> for ::std::string
 impl ::std::str::FromStr for RemoteCallerReachabilityParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerReachabilityParamsAlias {
@@ -18203,7 +17080,7 @@ impl ::std::convert::From<RemoteCallerUsageReadParamsAlias> for ::std::string::S
 impl ::std::str::FromStr for RemoteCallerUsageReadParamsAlias {
     type Err = self::error::ConversionError;
     fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
-        validate_string_12(value, Self)
+        validate_string_14(value, Self)
     }
 }
 impl ::std::convert::TryFrom<&str> for RemoteCallerUsageReadParamsAlias {
@@ -18505,6 +17382,501 @@ impl ::std::convert::TryFrom<&str> for ResultChunkParamsBase64 {
     }
 }
 impl<'de> ::serde::Deserialize<'de> for ResultChunkParamsBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamAckParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamAckParams {
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamAckParamsStreamId,
+}
+///`StreamAckParamsStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamAckParamsStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamAckParamsStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamAckParamsStreamId> for ::std::string::String {
+    fn from(value: StreamAckParamsStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamAckParamsStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamAckParamsStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamAckParamsStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamAckResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "seq"
+///  ],
+///  "properties": {
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamAckResult {
+    pub seq: i64,
+}
+///`StreamInputAckParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputAckParams {
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamInputAckParamsStreamId,
+}
+///`StreamInputAckParamsStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputAckParamsStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamInputAckParamsStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputAckParamsStreamId> for ::std::string::String {
+    fn from(value: StreamInputAckParamsStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputAckParamsStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputAckParamsStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputAckParamsStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamInputAckResult`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "seq"
+///  ],
+///  "properties": {
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputAckResult {
+    pub seq: i64,
+}
+///`StreamInputFrame`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "request",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384,
+///      "minLength": 4,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "request": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamInputFrame {
+    pub base64: StreamInputFrameBase64,
+    pub request: ::std::num::NonZeroU64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamInputFrameStreamId,
+}
+///`StreamInputFrameBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384,
+///  "minLength": 4,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputFrameBase64(::std::string::String);
+impl ::std::ops::Deref for StreamInputFrameBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputFrameBase64> for ::std::string::String {
+    fn from(value: StreamInputFrameBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputFrameBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_10(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputFrameBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputFrameBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamInputFrameStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamInputFrameStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamInputFrameStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamInputFrameStreamId> for ::std::string::String {
+    fn from(value: StreamInputFrameStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamInputFrameStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamInputFrameStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamInputFrameStreamId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamProgressEvent`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "base64",
+///    "seq",
+///    "streamId"
+///  ],
+///  "properties": {
+///    "base64": {
+///      "type": "string",
+///      "maxLength": 87384,
+///      "minLength": 4,
+///      "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///    },
+///    "seq": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "minimum": 0.0
+///    },
+///    "streamId": {
+///      "type": "string",
+///      "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct StreamProgressEvent {
+    pub base64: StreamProgressEventBase64,
+    pub seq: i64,
+    #[serde(rename = "streamId")]
+    pub stream_id: StreamProgressEventStreamId,
+}
+///`StreamProgressEventBase64`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 87384,
+///  "minLength": 4,
+///  "pattern": "^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamProgressEventBase64(::std::string::String);
+impl ::std::ops::Deref for StreamProgressEventBase64 {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamProgressEventBase64> for ::std::string::String {
+    fn from(value: StreamProgressEventBase64) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamProgressEventBase64 {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_10(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamProgressEventBase64 {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamProgressEventBase64 {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        deserialize_validated_string(deserializer)
+    }
+}
+///`StreamProgressEventStreamId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct StreamProgressEventStreamId(::std::string::String);
+impl ::std::ops::Deref for StreamProgressEventStreamId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<StreamProgressEventStreamId> for ::std::string::String {
+    fn from(value: StreamProgressEventStreamId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for StreamProgressEventStreamId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        validate_string_13(value, Self)
+    }
+}
+impl ::std::convert::TryFrom<&str> for StreamProgressEventStreamId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for StreamProgressEventStreamId {
     fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
     where
         D: ::serde::Deserializer<'de>,
@@ -21488,6 +20860,28 @@ fn validate_string_10<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
+    if value.chars().count() > 87384usize {
+        return Err("longer than 87384 characters".into());
+    }
+    if value.chars().count() < 4usize {
+        return Err("shorter than 4 characters".into());
+    }
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new("^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$")
+            .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_11<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
     static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
         ::regress::Regex::new("^(\\^|~|>=)?\\d+(\\.\\d+){0,2}$|^\\*$").unwrap()
     });
@@ -21496,7 +20890,7 @@ fn validate_string_10<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_11<T>(
+fn validate_string_12<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -21510,7 +20904,25 @@ fn validate_string_11<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_12<T>(
+fn validate_string_13<T>(
+    value: &str,
+    construct: impl FnOnce(::std::string::String) -> T,
+) -> ::std::result::Result<T, self::error::ConversionError> {
+    static PATTERN: ::std::sync::LazyLock<::regress::Regex> = ::std::sync::LazyLock::new(|| {
+        ::regress::Regex::new(
+            "^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$",
+        )
+        .unwrap()
+    });
+    if PATTERN.find(value).is_none() {
+        return Err(
+            "doesn't match pattern \"^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$\""
+                .into(),
+        );
+    }
+    Ok(construct(value.to_string()))
+}
+fn validate_string_14<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {
@@ -21521,7 +20933,7 @@ fn validate_string_12<T>(
     }
     Ok(construct(value.to_string()))
 }
-fn validate_string_13<T>(
+fn validate_string_15<T>(
     value: &str,
     construct: impl FnOnce(::std::string::String) -> T,
 ) -> ::std::result::Result<T, self::error::ConversionError> {

@@ -10,6 +10,7 @@ import { CallAuthority } from "./authority";
 import { answerUsageState } from "./usage-state";
 import { answerFilesystem } from "./capability-fs";
 import { answerSpawn, readSpawnOutput } from "./capability-spawn";
+import { answerDuplex } from "./capability-duplex";
 import { stageBundle } from "./bundle-stage";
 import { appendFileSync, mkdirSync } from "node:fs";
 import { join } from "node:path";
@@ -54,6 +55,9 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     } finally { clearTimeout(timer); }
   });
   const scopes = plugin.manifest.capabilities.find(capability => capability.name === name)?.scopes ?? [];
+  if (authority && name === "process.spawn" &&
+    (method === "capability.process.duplex.read" || method === "capability.process.duplex.write"))
+    return answerDuplex(authority, scopes, method, parsed.data as Record<string, unknown>);
   if (name === "hosts") {
     if (!authority || !hostBroker) throw new CoreError("capability_denied", "hosts require an active registry broker");
     return scoped(() => hostBroker(method, parsed.data, authority));
@@ -101,6 +105,7 @@ export async function answerCapability(ctx: Ctx, plugin: { id: string; manifest:
     ? readSpawnOutput(authority, parsed.data as Record<string, unknown>) : method === "capability.process.stageBundle"
       ? scopes.includes("ssh") ? stageBundle(authority, parsed.data as { argv: string[]; timeoutMs: number; maxBytes: number })
         : Promise.reject(new CoreError("capability_denied", "bundle staging requires declared SSH process scope"))
+      : method.startsWith("capability.process.duplex.") ? answerDuplex(authority, scopes, method, parsed.data as Record<string, unknown>)
       : answerSpawn(authority, scopes, parsed.data as Record<string, unknown>));
   if (authority && name === "usage.state") return scoped(() => answerUsageState(authority,
     method.slice("capability.usage.state.".length) as Parameters<typeof answerUsageState>[1], parsed.data as Record<string, unknown>));

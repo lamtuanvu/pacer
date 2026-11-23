@@ -122,6 +122,13 @@ same bundled SSH provider. After an empty read it waits about 200 ms before
 checking again, in addition to SSH round-trip time. Detaching cancels the
 pending read; reconnecting resumes from the committed recording cursor. A
 disabled or failing provider does not trigger a direct SSH tail.
+For an interactive full-session viewer, pacer connects the local viewer socket
+through the bundled SSH plugin's host-issued stream. Each viewer has its own
+grant for the persisted run; output and input move in bounded acknowledged
+chunks. Detaching or losing the provider closes that viewer connection, and
+reconnecting opens a fresh stream. An idle viewer stays connected through
+short empty polls. No direct SSH forwarding or exec fallback follows a plugin
+refusal.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 After a nonzero agent exit, pacer checks for committed work through the bundled
 SSH host runner before attempting a result transfer. A refused or timed-out

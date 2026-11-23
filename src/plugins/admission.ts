@@ -7,9 +7,11 @@ export class CallAdmission {
   private active = 0;
   private readonly queued: Job[] = [];
   run<T>(deadlineAt: number, task: (signal: AbortSignal) => Promise<T>, parent?: AbortSignal): Promise<T> {
+    const parentFailure = () => parent?.reason instanceof CoreError && parent.reason.code === "plugin_timeout"
+      ? parent.reason : new CoreError("plugin_unavailable", "owning plugin call ended");
     if (this.active >= 8 && this.queued.length >= 32) return Promise.reject(new CoreError("plugin_unavailable", "plugin registry call capacity exhausted"));
     if (Date.now() >= deadlineAt) return Promise.reject(new CoreError("plugin_timeout", "plugin call expired before admission"));
-    if (parent?.aborted) return Promise.reject(new CoreError("plugin_unavailable", "owning plugin call ended"));
+    if (parent?.aborted) return Promise.reject(parentFailure());
     return new Promise<T>((resolve, reject) => {
       const controller = new AbortController();
       let started = false, over = false, reason: CoreError | undefined;
@@ -39,7 +41,7 @@ export class CallAdmission {
           ).finally(() => { this.active--; this.queued.shift()?.start(); });
         },
       };
-      const abort = () => job.cancel(new CoreError("plugin_unavailable", "owning plugin call ended"));
+      const abort = () => job.cancel(parentFailure());
       const cancelDeadline = scheduleDeadline(deadlineAt, () => job.cancel(new CoreError("plugin_timeout", "plugin call passed its absolute deadline")), true); parent?.addEventListener("abort", abort, { once: true });
       if (this.active < 8) job.start(); else this.queued.push(job);
     });

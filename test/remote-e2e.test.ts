@@ -1,5 +1,5 @@
 import { expect, test } from "bun:test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, writeFileSync } from "node:fs";
+import { closeSync, existsSync, fstatSync, mkdirSync, openSync, readFileSync, readSync, readdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import * as tasks from "../src/core/tasks";
 import { clean as hostClean } from "../src/remote/hosts";
@@ -11,8 +11,70 @@ import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import type { TaskRecord, TaskState } from "../src/tasks/types";
 import { pluginRegistry, shutdownPlugins } from "../src/plugins";
 import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
+
+function safeDiagnostic(text: string): string {
+  return text.replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\bBearer\s+[^\s,;"']+/gi, "Bearer [redacted]")
+    .replace(/\bsk-[A-Za-z0-9_-]+\b/g, "[redacted]")
+    .replace(/\b[A-Za-z0-9_]*(?:TOKEN|PASSWORD|SECRET|PACER_KEY)[A-Za-z0-9_]*=[^\s]+/gi, "[redacted]")
+    .replace(/(?:[a-z][a-z0-9+.-]*:\/\/|(?:[A-Za-z]:)?[/\\]|~\/)[^\s"'`]+/gi, "[location]")
+    .replace(/[A-Za-z0-9+/_=-]{32,}/g, "[redacted]")
+    .slice(0, 300);
+}
+
+function sshLogTail(path: string): string {
+  if (!existsSync(path)) return "[missing]";
+  const fd = openSync(path, "r");
+  try {
+    const size = fstatSync(fd).size, bytes = Math.min(size, 512);
+    const buffer = Buffer.alloc(bytes);
+    const read = readSync(fd, buffer, 0, bytes, size - bytes);
+    return safeDiagnostic(buffer.subarray(0, read).toString("utf8"));
+  } finally { closeSync(fd); }
+}
+
+function expectTaskState(task: TaskRecord, expected: TaskState, sshLog: string): void {
+  if (task.state === expected) return;
+  const attempt = task.attempts.at(-1);
+  const evidence = {
+    state: task.state,
+    resultStatus: task.result?.status ?? null,
+    report: safeDiagnostic(task.result?.report ?? ""),
+    exitCode: attempt?.exitCode ?? null,
+    timedOut: attempt?.timedOut ?? null,
+    attemptError: safeDiagnostic(attempt?.brokenReason ?? ""),
+    sshLogTail: sshLogTail(sshLog),
+  };
+  throw Error(`expected remote task state ${expected}; ${JSON.stringify(evidence)}`);
+}
+
+test("remote failure diagnostics redact paths and secrets within a fixed bound", () => {
+  const fixturePath = join(tmpDir(), "repo");
+  const text = `Bearer abc123 sk-exampletoken PACER_KEY_TEST=hidden ${fixturePath} https://example.invalid/private ${"z".repeat(600)}`;
+  const sanitized = safeDiagnostic(text);
+  expect(sanitized).not.toContain("abc123");
+  expect(sanitized).not.toContain("exampletoken");
+  expect(sanitized).not.toContain("hidden");
+  expect(sanitized).not.toContain(fixturePath);
+  expect(sanitized).not.toContain("example.invalid");
+  expect(sanitized.length).toBeLessThanOrEqual(300);
+  const task = {
+    state: "failed",
+    result: { status: "failed", report: `host fetch expired at ${fixturePath} with Bearer abc123` },
+    attempts: [{ exitCode: 127, timedOut: true, brokenReason: "sk-exampletoken" }],
+  } as TaskRecord;
+  let message = "";
+  try { expectTaskState(task, "done", join(tmpDir(), "missing")); }
+  catch (error) { message = String(error); }
+  expect(message).toContain('"exitCode":127');
+  expect(message).toContain("host fetch expired");
+  expect(message).not.toContain(fixturePath);
+  expect(message).not.toContain("abc123");
+  expect(message).not.toContain("exampletoken");
+});
 
 test("remote E2E fixture cleanup reaps its bundled SSH provider", async () => {
   const { ctx } = await setup();
@@ -82,7 +144,7 @@ async function until(check: () => boolean, ms = 10000) {
 test("a remote task runs end to end", async () => {
   const f = await setup();
   const t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   expect(t.result?.report).toStartWith(`ran on box; fetched pacer/${t.id}`);
   expect(await f.git("-C", f.repo, "log", "-1", "--format=%s", `pacer/${t.id}`)).toBe("result");
   expect(tasks.log(f.ctx, t.id).stdout).toContain("agent-done");
@@ -109,7 +171,7 @@ test("a remote attempt resumes after the runner dies", async () => {
     expect(resumed).toBeDefined();
   } finally { writeFileSync(join(f.hostHome, "release"), ""); }
   const t = await resumed!;
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   expect(t.result?.report).toStartWith(`ran on box; fetched pacer/${id}`);
   expect(readdirSync(join(f.hostHome, ".pacer-remote/runs", id))).toEqual(["1"]);
   expect(t.run?.remoteDir).toBe(remoteDir);
@@ -134,7 +196,7 @@ test("stopping a remote task kills it on the host", async () => {
 
 test("clean removes the remote worktree and run dir after review", async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: true });
   expect((await tasks.clean(f.ctx, { dryRun: true })).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(true);
@@ -150,7 +212,7 @@ test("clean keeps the remote branch when transfer was refused", async () => {
   const f = await setup();
   await f.git("-C", f.checkout, "config", "user.email", "foreign@example.invalid");
   const t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("partial");
+  expectTaskState(t, "partial", f.sshLog);
   await tasks.review(f.ctx, t.id, { accepted: false });
   expect((await tasks.clean(f.ctx)).removed).toContain(t.id);
   expect(existsSync(t.run!.remoteWorktree!)).toBe(false);
@@ -161,7 +223,7 @@ test("clean keeps the remote branch when transfer was refused", async () => {
 
 for (const hostOnly of [false, true]) test(`clean ${hostOnly ? "host" : "core"} preserves a remote branch when the local head differs`, async () => {
   const f = await setup(), t = await runTask(f.ctx, f.task.id, f.deps);
-  expect(t.state).toBe("done");
+  expectTaskState(t, "done", f.sshLog);
   const head = await f.git("-C", f.repo, "rev-parse", `pacer/${t.id}`);
   expect(t.run).toHaveProperty("transferredHead", head);
   await f.git("-C", f.repo, "update-ref", `refs/heads/pacer/${t.id}`, t.run!.baseSha!);

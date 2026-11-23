@@ -6,6 +6,7 @@ const path = z.string().min(1).max(4096), handle = z.string().min(1).max(256);
 const bytes = z.number().int().nonnegative().safe();
 const chunk = bytes.max(262144);
 const base64 = z.string().max(349528).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/);
+const duplexHandle = z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/);
 export const fileInfo = z.object({ path, size: bytes, mtimeMs: z.number(), inode: bytes, device: bytes, mode: bytes.optional() });
 const identity = fileInfo.omit({ path: true });
 const missing = z.object({ missing: z.literal(true) });
@@ -33,6 +34,21 @@ export const SCOPED_CAPABILITY_METHODS: Record<string, MethodDef> = {
       maxBytes: z.number().int().positive().max(50 * 1024 * 1024) }).strict(),
     z.object({ handle: z.string().regex(/^[a-f0-9]{8}-[a-f0-9]{4}-4[a-f0-9]{3}-[89ab][a-f0-9]{3}-[a-f0-9]{12}$/),
       bytes: bytes.max(50 * 1024 * 1024), sha256: z.string().regex(/^[a-f0-9]{64}$/) }).strict(), 70_000),
+  "capability.process.duplex.open": method("Open one host-issued fixed SSH session child with private duplex pipes.",
+    z.object({ argv: z.array(z.string().max(4096)).min(1).max(32), timeoutMs: z.number().int().positive().max(60_000) }).strict(),
+    z.object({ handle: duplexHandle }).strict(), 10_000),
+  "capability.process.duplex.read": method("Read one bounded chunk from the call-owned SSH session stdout.",
+    z.object({ handle: duplexHandle, length: z.number().int().positive().max(65_536),
+      timeoutMs: z.number().int().positive().max(60_000), pollMs: z.number().int().positive().max(1000).optional() }).strict(),
+    z.object({ base64: z.string().max(87_384), eof: z.boolean() }).strict(), 65_000),
+  "capability.process.duplex.write": method("Write one bounded chunk to the call-owned SSH session stdin.",
+    z.object({ handle: duplexHandle, base64: z.string().min(4).max(87_384).regex(/^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/),
+      timeoutMs: z.number().int().positive().max(60_000) }).strict(),
+    z.object({ bytes: z.number().int().positive().max(65_536) }).strict(), 65_000),
+  "capability.process.duplex.close": method("Terminate and reap this call's SSH session child.",
+    z.object({ handle: duplexHandle, graceful: z.boolean().optional() }).strict(),
+    z.object({ ok: z.literal(true), code: z.number().int().min(0).max(255).nullable(),
+      signal: z.string().max(32).nullable(), terminated: z.boolean() }).strict(), 5_000),
   "capability.usage.state.begin": method("Lease an opaque host-fixed provider cache or account-projected cursor store.",
     z.object({ store: handle }).strict(), z.object({ lease: handle, bytes, version: z.number().int().positive().optional(), dirty: z.boolean().optional() })),
   "capability.usage.state.readChunk": method("Read at most 256 KiB from this call's projected state snapshot.",

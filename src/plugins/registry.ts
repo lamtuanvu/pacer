@@ -55,6 +55,7 @@ import { consumeConfiguredHostSessionFiles, validateConfiguredHostSessionFiles, 
 import { consumeConfiguredHostAttemptPreflight, validateConfiguredHostAttemptPreflight, type ConfiguredHostAttemptPreflightGrant } from "./host-attempt-preflight-issuer";
 import { consumeConfiguredHostReadFrom, validateConfiguredHostReadFrom, type ConfiguredHostReadFromGrant } from "./host-read-from-issuer";
 import { consumeConfiguredHostSessionSocket, validateConfiguredHostSessionSocket, type ConfiguredHostSessionSocketGrant } from "./host-session-socket-issuer";
+import { consumeConfiguredHostSessionStream, validateConfiguredHostSessionStream, type ConfiguredHostSessionStreamGrant } from "./host-session-stream-issuer";
 import { consumeConfiguredHostBinaryCheck, validateConfiguredHostBinaryCheck, type ConfiguredHostBinaryCheckGrant } from "./host-binary-check-issuer";
 import { consumeConfiguredHostRuntimeProbe, validateConfiguredHostRuntimeProbe, type ConfiguredHostRuntimeProbeGrant } from "./host-runtime-probe-issuer";
 import { consumeConfiguredHostBinaryUpload, validateConfiguredHostBinaryUpload, validateConfiguredHostBinaryUploadState, type ConfiguredHostBinaryUploadGrant } from "./host-binary-upload-issuer";
@@ -76,6 +77,7 @@ const HOST_ATTEMPT_PREFLIGHT_ISSUER = Symbol("host-attempt-preflight-issuer");
 const HOST_CALL_PREFLIGHT_ISSUER = Symbol("host-call-preflight-issuer");
 const HOST_READ_FROM_ISSUER = Symbol("host-read-from-issuer");
 const HOST_SESSION_SOCKET_ISSUER = Symbol("host-session-socket-issuer");
+const HOST_SESSION_STREAM_ISSUER = Symbol("host-session-stream-issuer");
 const HOST_BINARY_CHECK_ISSUER = Symbol("host-binary-check-issuer");
 const HOST_RUNTIME_PROBE_ISSUER = Symbol("host-runtime-probe-issuer");
 const HOST_CALL_PROBE_ISSUER = Symbol("host-call-probe-issuer");
@@ -87,7 +89,7 @@ interface HostFetchAdmission { grant: PersistedFetchGrant; process: PluginProces
   claim: (authority: CallAuthority, staged: StagedFetchResult) => void | Promise<void> }
 interface HostCallerFetchAdmission { grant: PersistedFetchGrant;
   claim: (caller: CallAuthority, ticket: ClaimedBundleTicket) => void | Promise<void> }
-export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
+export interface PluginCallOptions { plannerResources?: PlannerResources; credentialBindings?: readonly CredentialBinding[]; classifierConfig?: ClassifierConfig; resources?: CallResources; accountHome?: string | null; deadlineMs?: number; signal?: AbortSignal; onProgress?: (event: unknown) => void; onStreamProgress?: (bytes: Buffer) => Promise<void>; onStreamReady?: () => void; /** Internal host-lease binding: never restart or substitute this provider. */ expectedProcess?: PluginProcess; [HOST_CHECK_ISSUER]?: true; [HOST_FETCH_ISSUER]?: HostFetchAdmission; [HOST_CALL_FETCH_ISSUER]?: HostCallerFetchAdmission; [HOST_CALL_IDENTITY_ISSUER]?: ConfiguredHostIdentityGrant; [HOST_CALL_QUESTION_ISSUER]?: PersistedQuestionGrant; [HOST_CALL_USAGE_ISSUER]?: ConfiguredRemoteUsageGrant; [HOST_CALL_PROBE_ISSUER]?: true; [HOST_PROVIDER_MUTATION_ISSUER]?: true; [HOST_REPORT_ISSUER]?: true; [HOST_SESSION_FILES_ISSUER]?: true; [HOST_ATTEMPT_PREFLIGHT_ISSUER]?: true; [HOST_CALL_PREFLIGHT_ISSUER]?: true; [HOST_READ_FROM_ISSUER]?: true; [HOST_SESSION_SOCKET_ISSUER]?: true; [HOST_SESSION_STREAM_ISSUER]?: true; [HOST_BINARY_CHECK_ISSUER]?: true; [HOST_RUNTIME_PROBE_ISSUER]?: true; [HOST_BINARY_UPLOAD_ISSUER]?: true }
 export interface RegistryDeps { bundled: BundledPlugin[]; spawnBundled: (ctx: Ctx, id: string) => SpawnSpec; spawn?: typeof nodeSpawn; sleep?: (ms: number) => Promise<void>; eventPumpMs?:number }
 export interface PluginInfo { id: string; version: string; publisher: string; tier: "free" | "commercial"; bundled: boolean; enabled: boolean; state: PluginState; contributes: string[]; capabilities: { name: string; scopes?: string[] }[]; grant: PluginGrant | null; error: string | null; pid: number | null }
 export interface DoctorReport { id: string; ok: boolean; state: PluginState; served: string[]; protocol: { host: string; plugin: string | null }; pid: number | null; restarts: number; error: string | null; needs: string | null }
@@ -882,6 +884,88 @@ export class PluginRegistry {
       if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
         { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
     }
+  }
+
+  /** Bind one full-session viewer to one persisted run and one bundled SSH child. */
+  async streamConfiguredHost(ctx: Ctx, grant: ConfiguredHostSessionStreamGrant,
+    onBytes: (bytes: Buffer) => Promise<void>, signal: AbortSignal): Promise<{
+      sendInput: (bytes: Buffer) => Promise<void>;
+      done: Promise<{ code: number; bytes: number }>;
+    }> {
+    consumeConfiguredHostSessionStream(ctx, grant);
+    const { alias, args, hostFingerprint, timeoutMs, maxBytes } = grant.resource;
+    const host = loadStrategy(ctx).hosts[alias];
+    if (!host || JSON.stringify(host) !== hostFingerprint)
+      throw new CoreError("capability_denied", "configured session host changed");
+    const providers = this.findAll(ctx, "hostRunner", contribution =>
+      Array.isArray(contribution.kinds) && contribution.kinds.length === 1 && contribution.kinds[0] === "ssh");
+    if (providers.length !== 1 || providers[0] !== "pacer-ssh")
+      throw new CoreError("plugin_unavailable", "bundled SSH host runner provider is required");
+    const provider = this.entries.get(providers[0]!)!;
+    await this.call(ctx, provider.id, "diagnostic.ping", {}, { deadlineMs: 5000, signal });
+    const process = provider.process, generation = this.hostGeneration(ctx, provider);
+    if (!process?.alive || !provider.served.includes("hostRunner"))
+      throw new CoreError("plugin_unavailable", "SSH host runner provider is not ready");
+    const directory = controlDir(ctx), original = lstatSync(directory);
+    if (!original.isDirectory() || (original.mode & 0o077) !== 0 ||
+      (globalThis.process.getuid && original.uid !== globalThis.process.getuid()))
+      throw new CoreError("capability_denied", "SSH control directory is not private");
+    const controlPath = join(directory, "cm-%C"), streamId = randomUUID();
+    const active = () => {
+      validateConfiguredHostSessionStream(ctx, grant);
+      const current = loadStrategy(ctx).hosts[alias], now = lstatSync(directory);
+      return current && JSON.stringify(current) === hostFingerprint &&
+        provider.process === process && process.alive && this.hostGeneration(ctx, provider) === generation &&
+        now.isDirectory() && now.dev === original.dev && now.ino === original.ino &&
+        now.uid === original.uid && (now.mode & 0o7777) === (original.mode & 0o7777);
+    };
+    if (!active()) throw new CoreError("capability_denied", "configured session snapshot changed");
+    const controller = new AbortController();
+    const cancel = () => controller.abort(new CoreError("capability_denied", "configured session viewer retired"));
+    signal.addEventListener("abort", cancel, { once: true });
+    if (signal.aborted) cancel();
+    const watch = setInterval(() => { try { if (!active()) cancel(); } catch { cancel(); } }, 100);
+    watch.unref();
+    let readyResolve!: () => void, readyReject!: (reason: unknown) => void;
+    const ready = new Promise<void>((resolve, reject) => { readyResolve = resolve; readyReject = reject; });
+    const done = (async () => {
+      let session: string | undefined;
+      try {
+        if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session retired");
+        const opened = await this.call<{ session: string }>(ctx, provider.id, "hostRunner.open",
+          { alias, sshTarget: host.ssh, controlPath },
+          { deadlineMs: 10_000, signal: controller.signal, expectedProcess: process });
+        session = opened.session;
+        if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "configured session retired");
+        const argv = sshArgv(ctx, host, SCRIPTS.SESSION_PIPE, [...args]);
+        if (!argv.includes(`ControlPath=${controlPath}`) || !active())
+          throw new CoreError("capability_denied", "configured session SSH path changed");
+        const result = await this.call<{ code: number; bytes: number }>(ctx, provider.id, "hostRunner.stream",
+          { session, script: "SESSION_PIPE", args: [...args], timeoutMs, maxBytes, streamId },
+          { deadlineMs: 0, signal: controller.signal, expectedProcess: process,
+            onStreamProgress: async bytes => {
+              if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "session viewer retired");
+              await onBytes(bytes);
+              if (controller.signal.aborted || !active()) throw new CoreError("capability_denied", "session viewer retired during output");
+            },
+            onStreamReady: readyResolve,
+            resources: { reads: [], commands: [{ argv, timeoutMs, mode: "session-duplex" }], stores: [] },
+            [HOST_SESSION_STREAM_ISSUER]: true });
+        if (!active()) throw new CoreError("capability_denied", "configured session changed after stream");
+        return result;
+      } catch (error) { readyReject(error); throw error; }
+      finally {
+        clearInterval(watch); signal.removeEventListener("abort", cancel);
+        if (session) await this.call(ctx, provider.id, "hostRunner.close", { session },
+          { deadlineMs: 5000, expectedProcess: process }).catch(() => {});
+      }
+    })();
+    void done.catch(() => {});
+    await ready;
+    return { sendInput: bytes => {
+      if (controller.signal.aborted || !active()) return Promise.reject(new CoreError("capability_denied", "session viewer retired"));
+      return process.sendStreamInput(streamId, bytes);
+    }, done };
   }
 
   /** Discover the socket for one persisted full remote run through the bundled provider. */
@@ -1755,6 +1839,12 @@ export class PluginRegistry {
       (!options[HOST_PROVIDER_MUTATION_ISSUER] || method !== "hostRunner.run" ||
         (params as { script?: string } | null)?.script !== "START"))
       throw new CoreError("capability_denied", "remote start input requires host-owned issuance");
+    if (options.resources?.commands.some(command => command.mode === "session-duplex") &&
+      (method !== "hostRunner.stream" || !options[HOST_SESSION_STREAM_ISSUER]))
+      throw new CoreError("capability_denied", "remote session duplex requires host-owned issuance");
+    if (method === "hostRunner.stream" && (params as { script?: string } | null)?.script === "SESSION_PIPE" &&
+      !options[HOST_SESSION_STREAM_ISSUER])
+      throw new CoreError("capability_denied", "remote session stream requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "SET_IDENTITY") && !options[HOST_CALL_IDENTITY_ISSUER])
       throw new CoreError("capability_denied", "host identity resource requires host-owned issuance");
     if (options.resources?.hosts?.some(resource => resource.script === "QUESTION") && !options[HOST_CALL_QUESTION_ISSUER])
@@ -1773,13 +1863,19 @@ export class PluginRegistry {
     const def = EXTENSION_METHODS[method];
     if (!def) throw new CoreError("unknown_op", `unknown plugin method ${method}`);
     const requested = options.deadlineMs ?? def.deadlineMs;
+    const ownerBoundStream = method === "hostRunner.stream" && options[HOST_SESSION_STREAM_ISSUER] === true &&
+      requested === 0 && !!options.signal && !!options.expectedProcess && !!options.onStreamProgress &&
+      !!options.resources?.commands.some(command => command.mode === "session-duplex") &&
+      typeof (params as { streamId?: unknown } | null)?.streamId === "string";
+    if (options.onStreamReady && !ownerBoundStream)
+      throw new CoreError("capability_denied", "stream readiness requires host-owned issuance");
     if (!Number.isFinite(requested) || requested < 0) throw new CoreError("invalid_input", "plugin deadline must be non-negative");
     const boundedObservation=["diagnostic.ping","policy.before"].includes(method)&&e.manifest!.capabilities.some(c=>c.name==="tasks.read"||c.name==="events.subscribe");
     const hostRunner = method.startsWith("hostRunner.");
     const executorAvailable = method === "executor.available";
-    if((hostRunner || executorAvailable) && requested === 0) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
-    const duration = method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
-    if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
+    if((hostRunner || executorAvailable) && requested === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "staged plugin calls require a finite deadline");
+    const duration = ownerBoundStream ? 0 : method === "usage.read" || boundedObservation || hostRunner || executorAvailable ? requested === 0 ? def.deadlineMs : Math.min(requested, def.deadlineMs) : requested;
+    if ((options.resources || credentialBindings !== undefined || (classifier && method === "classifier.ask")) && duration === 0 && !ownerBoundStream) throw new CoreError("invalid_input", "scoped capabilities require a finite deadline");
     const deadlineAt = duration === 0 ? Infinity : startedAt + duration;
     const parsed = method === "usage.read" || hostRunner || executorAvailable || (classifier && method === "classifier.ask") ? def.params.safeParse(params) : null;
     if (parsed && !parsed.success) throw new CoreError("invalid_input", hostRunner ? "invalid host runner params" : executorAvailable ? "invalid executor availability params" : method === "usage.read" ? "invalid usage reader params" : "invalid classifier params");
@@ -1822,7 +1918,7 @@ export class PluginRegistry {
         const needsAuthority = observationAdmission || method === "usage.read" || options.plannerResources !== undefined || resources !== undefined || credentialBindings !== undefined || manifest.capabilities.some(capability => capability.name === "hosts");
         const grants = e.bundled ? manifest.capabilities.map(capability => capability.name) : pluginsConfig(ctx).installed[id]?.capabilities ?? [];
         const authority = needsAuthority ? createCallAuthority(ctx, resources ?? { reads: [], commands: [], stores: [] },
-          { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome }) : undefined;
+          { deadlineMs: deadlineAt, signal, grants, accountHome: options.accountHome, ownerBoundStream }) : undefined;
         if (authority) {
           e.authorities.set(authority.token, authority);
           if (observationAdmission) this.observationAdmissions.add(authority);
@@ -1852,8 +1948,17 @@ export class PluginRegistry {
             });
             authority.assertActive();
           }
-          const result = await proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
-            { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress });
+          const request = proc.request<T>(method, input, deadlineAt === Infinity ? 0 : Math.max(1, deadlineAt - Date.now()),
+            { ...(options.plannerResources && (method==="planner.install"||method==="planner.uninstall"||method==="planner.plan") ? {prepareInput:(fits:(value:unknown)=>boolean)=>options.plannerResources!.prepareInput(input,fits)} : {}), signal: authority?.signal ?? signal, authority, metadata: authority ? { capabilityCall: authority.token } : undefined, onProgress: options.onProgress,
+              stream: ownerBoundStream ? { streamId: (input as { streamId: string }).streamId, consume: options.onStreamProgress! } : undefined });
+          if (ownerBoundStream) {
+            if (!proc.hasPendingStream((input as { streamId: string }).streamId)) {
+              void request.catch(() => {});
+              throw new CoreError("plugin_unavailable", "session stream did not register with its provider");
+            }
+            options.onStreamReady?.();
+          }
+          const result = await request;
           if (method === "hostRunner.fetch") {
             const admission = options[HOST_FETCH_ISSUER]!;
             const staged = stagedFetchResult.safeParse(result);
@@ -1876,7 +1981,7 @@ export class PluginRegistry {
           if (method === "usage.read" || hostRunner || executorAvailable) {
             const output = def.result.safeParse(result);
             if (!output.success) throw new CoreError("plugin_refused", hostRunner ? "host runner returned an invalid result" : executorAvailable ? "executor returned an invalid availability result" : "usage reader returned an invalid reading");
-            if(hostRunner && (method === "hostRunner.stream" || method === "hostRunner.fetch") &&
+            if(hostRunner && (method === "hostRunner.fetch" || method === "hostRunner.stream" && !ownerBoundStream) &&
               (output.data as {bytes:number}).bytes > (input as {maxBytes:number}).maxBytes)
               throw new CoreError("plugin_refused", "host runner exceeded the requested byte limit");
             if((method === "hostRunner.run" || method === "hostRunner.upload") &&
