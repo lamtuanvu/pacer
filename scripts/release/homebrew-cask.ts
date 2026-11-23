@@ -42,19 +42,21 @@ export function generateCask(opts: {
   const armSha = sha256File(arm);
   const intelSha = sha256File(intel);
   const armUrl =
-    `https://github.com/lamtuanvu/pacer/releases/download/v${version}/desktop-pacer-${version}-darwin-aarch64.dmg`;
+    `https://github.com/lamtuanvu/pacer/releases/download/v#{version}/desktop-pacer-#{version}-darwin-aarch64.dmg`;
   const intelUrl =
-    `https://github.com/lamtuanvu/pacer/releases/download/v${version}/desktop-pacer-${version}-darwin-x86_64.dmg`;
+    `https://github.com/lamtuanvu/pacer/releases/download/v#{version}/desktop-pacer-#{version}-darwin-x86_64.dmg`;
   const cask = `cask "pacer" do
   version "${version}"
 
   on_arm do
-    url "${armUrl}"
     sha256 "${armSha}"
+
+    url "${armUrl}"
   end
   on_intel do
-    url "${intelUrl}"
     sha256 "${intelSha}"
+
+    url "${intelUrl}"
   end
 
   name "pacer"
@@ -62,10 +64,16 @@ export function generateCask(opts: {
   homepage "https://github.com/lamtuanvu/pacer"
 
   auto_updates true
-  depends_on macos: ">= :big_sur"
-  conflicts_with formula: "pacer"
+  depends_on :macos
 
   app "pacer.app"
+
+  # Casks cannot declare a formula conflict, so refuse here: one owner of \`pacer\` (ADR 0021).
+  preflight_steps do
+    if_path_exists "opt/pacer", base: :homebrew_prefix do
+      run "/bin/sh", args: ["-c", "echo 'The pacer CLI formula is installed. Run: brew uninstall pacer' >&2; exit 1"]
+    end
+  end
 
   uninstall quit: "${bundleId}"
 

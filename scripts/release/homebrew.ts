@@ -25,13 +25,16 @@ export function generateHomebrew(manifestPath: string, out: string): void {
   homepage "https://github.com/lamtuanvu/pacer"
   version "${manifest.version}"
   license "Apache-2.0"
-  conflicts_with cask: "pacer"
 
 ${platform("darwin")}
 
 ${platform("linux")}
 
   def install
+    # Formulae cannot declare a cask conflict; the desktop app owns \`pacer\` when installed (ADR 0021).
+    if (HOMEBREW_PREFIX/"Caskroom/pacer").exist?
+      odie "The pacer desktop app is installed with Homebrew and manages its own pacer command."
+    end
 ${paired ? `    libexec.install Dir["pacer-*"].first => "pacer"
     resource("pacer-core").stage do
       libexec.install Dir["pacer-core-*"].first => "pacer-core"

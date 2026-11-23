@@ -37,10 +37,10 @@ test("generates a two-architecture cask with valid Ruby syntax", () => {
   expect(text).toContain('cask "pacer" do');
   expect(text).toContain(`version "${version}"`);
   expect(text).toContain(
-    `https://github.com/lamtuanvu/pacer/releases/download/v${version}/desktop-pacer-${version}-darwin-aarch64.dmg`,
+    `https://github.com/lamtuanvu/pacer/releases/download/v#{version}/desktop-pacer-#{version}-darwin-aarch64.dmg`,
   );
   expect(text).toContain(
-    `https://github.com/lamtuanvu/pacer/releases/download/v${version}/desktop-pacer-${version}-darwin-x86_64.dmg`,
+    `https://github.com/lamtuanvu/pacer/releases/download/v#{version}/desktop-pacer-#{version}-darwin-x86_64.dmg`,
   );
   const armBlock = /on_arm do\n([\s\S]*?)\n  end/.exec(text)?.[1] ?? "";
   const intelBlock = /on_intel do\n([\s\S]*?)\n  end/.exec(text)?.[1] ?? "";
@@ -48,8 +48,9 @@ test("generates a two-architecture cask with valid Ruby syntax", () => {
   expect(intelBlock).toContain(`sha256 "${sha256(intel)}"`);
   expect(text).toContain("auto_updates true");
   expect(text).toContain('app "pacer.app"');
-  expect(text).toContain('depends_on macos: ">= :big_sur"');
-  expect(text).toContain('conflicts_with formula: "pacer"');
+  expect(text).toContain("depends_on :macos");
+  expect(text).toContain('if_path_exists "opt/pacer", base: :homebrew_prefix do'); expect(text).toContain('run "/bin/sh", args: ["-c", "echo \'The pacer CLI formula is installed. Run: brew uninstall pacer\' >&2; exit 1"]');
+  expect(text).not.toContain("conflicts_with");
   expect(text).toContain('uninstall quit: "dev.pacer.desktop"');
   expect(text).toContain("zap trash:");
   expect(text).toContain("caveats");

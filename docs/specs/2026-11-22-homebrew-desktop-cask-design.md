@@ -45,7 +45,7 @@ This is another way to get the same signed app that the DMG ships, not a separat
 
 ## Approaches considered
 
-1. **Cask conflicts with the CLI formula (chosen).** The cask declares `conflicts_with formula: "pacer"` (the tap-qualified form if Homebrew requires it), and the formula declares the matching cask conflict. A user who has the formula is told to `brew uninstall pacer` before installing the cask. The app then sets up its service and command through its normal Welcome/Consent flow, keeping settings and tasks in `~/.pacer`. One owner, no PATH shadowing, and no new takeover code.
+1. **Cask and CLI formula refuse each other (chosen).** Homebrew 7 casks accept only `conflicts_with cask:`, and a formula's `conflicts_with cask:` is accepted but ignored, so neither side can declare the conflict. Instead the cask's `preflight_steps` refuse when `$(brew --prefix)/opt/pacer` exists, and the formula's `install` stops with `odie` when `$(brew --prefix)/Caskroom/pacer` exists. A user who has the formula is told to `brew uninstall pacer` before installing the cask. The app then sets up its service and command through its normal Welcome/Consent flow, keeping settings and tasks in `~/.pacer`. One owner, no PATH shadowing, and no new takeover code.
 2. **The app takes over the formula's command.** The app would detect a Homebrew formula install and replace or shadow `$(brew --prefix)/bin/pacer`. Rejected: it writes into Homebrew's own prefix, and the next `brew upgrade pacer` or `brew cleanup` silently undoes it, which is the "two owners fight" situation ADR 0021 exists to prevent.
 3. **The cask also links a `binary`.** A `binary "#{appdir}/pacer.app/Contents/Resources/pacer"` stanza would put `pacer` in `$(brew --prefix)/bin`. Rejected: the app already links its own command after consent, so this would create a second, brew-owned copy of the command that the app's owner record does not know about.
 
@@ -57,10 +57,11 @@ This is another way to get the same signed app that the DMG ships, not a separat
 
 - `version` and per-architecture `url` and `sha256` (`on_arm` → `aarch64` DMG, `on_intel` → `x86_64` DMG). No existing metadata records the DMG hashes (`desktop-release-<v>.json` has none, and the feed hashes only the `.app.tar.gz` update archives), so the cask job computes them from the exact DMG files it publishes: on a tag push, the assets downloaded from the GitHub release after `desktop-publish`; on a dry run, the `desktop-signed-*` build artifacts. (My call: this keeps the change out of the signed feed schema.)
 - `name "pacer"`, `desc` matching the formula, `homepage`.
-- `depends_on macos: ">= :big_sur"`, matching `minimumSystemVersion` 11.0 in `tauri.conf.json`.
+- `depends_on :macos`. `brew style` rewrites `">= :big_sur"` to this, because every macOS Homebrew 7 supports is newer than the app's `minimumSystemVersion` 11.0.
 - `auto_updates true`, so plain `brew upgrade` leaves the app alone and the in-app updater stays in charge.
 - `app "pacer.app"`.
-- `conflicts_with formula: "pacer"`.
+- `preflight_steps` with `if_path_exists "opt/pacer", base: :homebrew_prefix` running `/bin/sh -c "echo '…brew uninstall pacer' >&2; exit 1"`. Homebrew 7 allows only declarative steps here, so this is how a cask stops its own install.
+- URLs interpolate `#{version}`; `brew audit` rejects a literal version in the URL.
 - `uninstall quit: "dev.pacer.desktop"` only. The cask's uninstall stanza does **not** unload `com.pacer.serve`, delete the command link or remove agent hooks, because Homebrew also runs uninstall steps during `brew upgrade --greedy` and `brew reinstall`, and those must not tear down a working installation (anti-goal). Full removal stays `pacer uninstall --all`, which the cask's `caveats` names.
 - `zap` removes only the app's own macOS caches, preferences and saved state for `dev.pacer.desktop`. It never removes `~/.pacer` (tasks, settings and accounts). The exact paths are for the builder to list from what the app actually writes.
 - `caveats`: the first-launch approval while builds are self-signed, that the app updates itself, and that `pacer uninstall --all` is the full removal.
@@ -71,7 +72,7 @@ This is another way to get the same signed app that the DMG ships, not a separat
 
 ### Formula change
 
-`Formula/pacer.rb` gains `conflicts_with cask: "pacer"` so the conflict is reported from either side.
+`Formula/pacer.rb`'s `install` stops with `odie` when the desktop cask is installed (`$(brew --prefix)/Caskroom/pacer` exists), so the conflict is enforced from either side.
 
 ### Name
 
@@ -114,7 +115,6 @@ The cask is bumped at the same point the feed advances, so Homebrew never offers
 
 - Whether the cask generator lives in `homebrew.ts` or its own file.
 - The exact `zap` paths, from what the app writes under `~/Library`.
-- Whether Homebrew needs the tap-qualified form in `conflicts_with` for a same-tap formula.
 - The precise source of the DMG SHA-256 values in the desktop metadata.
 
 ## Later
