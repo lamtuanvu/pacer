@@ -10,7 +10,7 @@ import {HOST_RUNNER_SCRIPTS} from "../src/plugins/host-runner-protocol";
 import {SCRIPTS} from "../src/remote/scripts";
 
 const methods=["hostRunner.check","hostRunner.open","hostRunner.run","hostRunner.upload","hostRunner.stream","hostRunner.fetch","hostRunner.close"];
-const request={session:"s".repeat(32),script:"PROBE",args:[],timeoutMs:1000};
+const request={session:"s".repeat(32),script:"ECHO_STDIN",args:[],timeoutMs:1000};
 test("fixed host-runner scripts and seven bounded method contracts",()=>{
   expect(Object.keys(SCRIPTS).sort()).toEqual([...HOST_RUNNER_SCRIPTS].sort());
   expect(hostRunnerContribution.safeParse({kinds:["ssh"]}).success).toBe(true);

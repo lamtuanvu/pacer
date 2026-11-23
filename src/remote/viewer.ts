@@ -5,8 +5,8 @@ import type { HostCfg } from "../config/hosts";
 import type { Ctx } from "../types";
 import { socketPath } from "../session/host";
 import { FrameType, WireDecoder, wire } from "../session/framing";
-import { payloadStream, sshArgv } from "./ssh";
-import { SCRIPTS } from "./scripts";
+import { pluginRegistry } from "../plugins";
+import { issueConfiguredHostReadFrom } from "../plugins/host-read-from-issuer";
 import type { RemoteRecording } from "./recording";
 
 /** Local protocol endpoint for a remote mirror; accepts hello only, never input/control. */
@@ -14,18 +14,16 @@ export class RemoteViewer {
   private server?: Server;
   private viewer?: Socket;
   private path?: string;
-  private proc?: Bun.Subprocess<"ignore", "pipe", "ignore">;
+  private controller?: AbortController;
   private streaming?: Promise<void>;
   private joined = false;
   private resync = false;
   private closed = false;
-  private onExit = () => { this.killStream(); };
-  // The stream runs in its own process group: a shell that does not exec (dash) must not leave the tail holding the pipe.
-  private killStream() { const pid=this.proc?.pid; if(!pid) return; try { process.kill(-pid,"SIGKILL"); } catch { this.proc?.kill("SIGKILL"); } }
+  private onExit = () => { this.controller?.abort(); };
   constructor(private ctx: Ctx, private host: HostCfg, private remoteDir: string,
     private mirror: RemoteRecording, private serial: <T>(fn:()=>Promise<T>)=>Promise<T>) {}
 
-  get active() { return !!this.proc; }
+  get active() { return !!this.controller; }
   async listen() {
     if (this.server?.listening) return;
     const path = socketPath(this.mirror.dir);
@@ -73,7 +71,7 @@ export class RemoteViewer {
       if (this.viewer === socket) {
         this.viewer=undefined;this.joined=false;this.resync=false;
         void this.stopStream().then(()=>this.serial(async()=>{
-            // A new viewer may arrive while the previous tail is draining.
+            // A new viewer may arrive while the previous bounded read retires.
             if (this.viewer && this.joined) this.start();
           })).catch(()=>{});
       }
@@ -87,28 +85,44 @@ export class RemoteViewer {
   }
   resume() { this.start(); }
   private start() {
-    if(this.proc || this.closed || !this.viewer) return;
-    const proc=Bun.spawn(sshArgv(this.ctx,this.host,SCRIPTS.FOLLOW,[this.remoteDir,String(this.mirror.offset)]),{
-      env:this.ctx.env,stdin:"ignore",stdout:"pipe",stderr:"ignore",detached:true,
-    });
-    this.proc=proc;
+    if(this.controller || this.closed || !this.viewer) return;
+    const controller = new AbortController();
+    this.controller = controller;
     process.once("exit",this.onExit);
     this.streaming=(async()=>{
       try {
-        for await(const bytes of payloadStream(proc.stdout)) {
-          await this.serial(async()=>this.send(await this.mirror.output(bytes)));
+        while (!controller.signal.aborted) {
+          const offset = await this.serial(async()=>this.mirror.offset);
+          if (controller.signal.aborted) break;
+          const grant = issueConfiguredHostReadFrom(this.ctx, this.host.alias, this.remoteDir,
+            this.mirror.dir, "session.raw", offset, 262_144);
+          const result = await pluginRegistry(this.ctx).readFromConfiguredHost(this.ctx, grant, controller.signal);
+          if (controller.signal.aborted) break;
+          if (result.timedOut || result.code !== 0) throw new Error(result.stderr || `remote read exited ${result.code}`);
+          const bytes = Buffer.from(result.stdout, "hex");
+          if (!bytes.length) {
+            await new Promise<void>(resolve=>{
+              const timer = setTimeout(()=>{controller.signal.removeEventListener("abort", cancel);resolve();}, 200);
+              const cancel = () => {clearTimeout(timer);resolve();};
+              controller.signal.addEventListener("abort", cancel, {once:true});
+              if (controller.signal.aborted) cancel();
+            });
+            continue;
+          }
+          await this.serial(async()=>{
+            if (controller.signal.aborted || this.mirror.offset !== offset) return;
+            this.send(await this.mirror.output(bytes));
+          });
         }
       } catch { /* polling resumes at the last successfully consumed byte */ }
       finally {
-        if(proc.exitCode===null) { try { process.kill(-proc.pid,"SIGKILL"); } catch { proc.kill("SIGKILL"); } }
-        await proc.exited;
         process.off("exit",this.onExit);
-        if(this.proc===proc) this.proc=undefined;
+        if(this.controller===controller) this.controller=undefined;
       }
     })();
   }
   async stopStream() {
-    this.killStream();
+    this.controller?.abort();
     await this.streaming;
   }
   async close(code: number) {

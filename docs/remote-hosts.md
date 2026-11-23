@@ -117,6 +117,11 @@ through the bundled SSH plugin in bounded pages. If files rotate during a read
 or the provider becomes unavailable, that poll waits for a consistent snapshot;
 it does not retry over direct SSH. A partially published local recording is
 restored on the next observation after an interruption.
+An attached read-only PTY viewer reads at most 256 KiB at a time through the
+same bundled SSH provider. After an empty read it waits about 200 ms before
+checking again, in addition to SSH round-trip time. Detaching cancels the
+pending read; reconnecting resumes from the committed recording cursor. A
+disabled or failing provider does not trigger a direct SSH tail.
 The agent is instructed to commit on its task branch and leave a clean worktree.
 After a nonzero agent exit, pacer checks for committed work through the bundled
 SSH host runner before attempting a result transfer. A refused or timed-out

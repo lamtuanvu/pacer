@@ -11,6 +11,23 @@ import { RemoteRunIO } from "../src/remote/run-io";
 import { remoteLaunch } from "../src/exec/launch";
 import { runAttempt, runDir } from "../src/exec/direct";
 import { fakeCtx, fakeSshEnv, realRun, tmpDir } from "./helpers";
+import { pluginRegistry, shutdownPlugins } from "../src/plugins";
+import { cleanupFixtureResources, registerFixtureCleanup } from "./fixture-cleanup";
+
+test("remote E2E fixture cleanup reaps its bundled SSH provider", async () => {
+  const { ctx } = await setup();
+  const report = (await pluginRegistry(ctx).doctor(ctx, "pacer-ssh"))[0];
+  expect(report?.ok).toBe(true);
+  const pid = report?.pid;
+  if (typeof pid !== "number") throw Error("bundled SSH fixture did not start");
+  expect(() => process.kill(pid, 0)).not.toThrow();
+  try {
+    await cleanupFixtureResources();
+    expect(() => process.kill(pid, 0)).toThrow();
+  } finally {
+    await shutdownPlugins(ctx);
+  }
+});
 
 async function setup(wait = false) {
   const root = tmpDir(), hostHome = join(root, "host"), repo = join(root, "local"), origin = join(root, "origin.git");
@@ -41,6 +58,7 @@ async function setup(wait = false) {
   const ctx = fakeCtx({ env, run: (argv, ms, o) => realRun(argv, ms, { ...o, env: { ...env, ...o?.env } }),
     which: name => name === "ssh" ? ssh :
       name === "git" ? "/usr/bin/git" : Bun.which(name) });
+  registerFixtureCleanup(() => shutdownPlugins(ctx));
   mkdirSync(ctx.pacerHome, { recursive: true });
   writeFileSync(join(ctx.pacerHome, "strategy.yaml"), JSON.stringify({ accounts: { claude: { kind: "claude" }, codex: { kind: "codex" } }, planner: "claude-code", hosts: { box: { ssh: "box-ssh", repos: { "example.invalid/o/r": "~/src/r" } } }, routing: [{ default: ["codex@box"] }] }));
   const deps: RunnerDeps = {
@@ -80,9 +98,9 @@ test("a remote attempt resumes after the runner dies", async () => {
   const dir = runDir(f.ctx, id, 1), host = loadStrategy(f.ctx).hosts.box;
   const launch = remoteLaunch(loadStrategy(f.ctx).providers["codex@box"], worktree, remoteDir);
   const io = new RemoteRunIO(f.ctx, host, remoteDir, dir);
-  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   const run = { dir, attempt: 1, executor: "codex@box", startedAt: Date.now()/1000, mode: "new" as const, workdir: worktree, logFile: join(dir, "legacy.log"), host: "box", remoteDir, remoteWorktree: worktree, remoteBranch: `pacer/${id}`, baseSha };
   updateTask(f.ctx, id, t => { t.state = "running"; t.runnerPid = 2147483647; t.attemptStartedAt = run.startedAt; t.run = run; t.baseBranch = "main"; t.placement = { requested: "new", mode: "new", why: "agent" }; });
+  expect(await io.start(launch.argv, worktree, { PACER_ROLE: "executor" }, "resume prompt")).toHaveProperty("pid");
   // A remote pid must never be checked against the local process table.
   writeFileSync(join(dir, "pid"), "2147483647");
   let resumed: ReturnType<typeof runTask> | undefined;
