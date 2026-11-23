@@ -155,6 +155,7 @@ pub fn liveness(value: &Value) -> Option<Value> {
             ("backoff_max_s", false, &|v| int(v, 10.0, MAX_SAFE)),
             ("max_nudges", false, &|v| int(v, 0.0, MAX_SAFE)),
             ("nudge_in_modes", false, &|v| list_of(v, MODES, 0)),
+            ("caller_wake_in_modes", false, &|v| list_of(v, MODES, 0)),
         ],
     )
 }
@@ -335,6 +336,14 @@ mod tests {
             serde_json::to_string(&projects).unwrap(),
             r#"{"github.com/a/b":{"rules":[{"effect":"deny","relation":"any","limits":{"per_minute":3,"confirm":true}}],"max_turns":5,"liveness":{"interval_s":60,"max_nudges":0},"rev":2}}"#
         );
+    }
+
+    #[test]
+    fn caller_wake_in_modes_is_accepted_on_project_liveness() {
+        let value = liveness(&json!({"caller_wake_in_modes":["strict"],"nudge_in_modes":["normal"]})).unwrap();
+        assert_eq!(value["caller_wake_in_modes"], json!(["strict"]));
+        assert_eq!(value["nudge_in_modes"], json!(["normal"]));
+        assert!(liveness(&json!({"caller_wake_in_modes":["nope"]})).is_none());
     }
 
     #[test]

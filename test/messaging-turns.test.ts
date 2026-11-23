@@ -59,6 +59,22 @@ test("claiming renders a prompt; run end reports to the parent once", async () =
   expect(readTask(ctx, id)!.pendingTurn).toBeUndefined();
 });
 
+test("interactive resume-turn prompt never says both headless and completion requires pacer report", async () => {
+  const { ctx, id } = finished();
+  await sendMessage(ctx, { to: `task:${id}`, body: "please continue" }, { spawnRunner: () => 1 });
+  const claim = claimTurnMessages(ctx, readTask(ctx, id)!)!;
+  const task = readTask(ctx, id)!;
+  const headless = renderTurnPrompt(ctx, task, claim.messages);
+  const interactive = renderTurnPrompt(ctx, task, claim.messages, { live: true });
+  const footer = `Interactive pacer session: completion requires running pacer report --task ${id} --outcome done --summary "<result>"`;
+  expect(headless).toContain("runs headless");
+  expect(headless).not.toContain("completion requires running pacer report");
+  expect(interactive).not.toContain("runs headless");
+  const composed = `${interactive}\n\n${footer}`;
+  expect(composed).toContain("completion requires running pacer report");
+  expect(composed).not.toContain("runs headless");
+});
+
 test("a turn that hit a limit puts its messages back", async () => {
   const { ctx, id } = finished();
   await sendMessage(ctx, { to: `task:${id}`, body: "x" }, { spawnRunner: () => 1 });

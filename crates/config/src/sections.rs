@@ -216,7 +216,7 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
     ) {
         return None;
     }
-    let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal"],"escalate_after_s":900,"caller_wake_after_s":300,"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
+    let defaults = json!({"defaults":true,"rules":[],"message":{"max_bytes":65536},"tree":{"max_turns":50},"liveness":{"interval_s":60,"backoff_max_s":900,"max_nudges":3,"nudge_in_modes":["relaxed","normal","strict","emergency"],"escalate_after_s":900,"caller_wake_after_s":300,"caller_wake_in_modes":["relaxed","normal"],"retry_delivery":true},"hooks":{"stop":"block","stop_release_after":2},"grants":{"user_started_tasks":"on"},"keep_worktree_days":7});
     let result = merge(&defaults, raw);
     if !result["defaults"].is_boolean()
         || !js_semantics::safe_integer(&result["keep_worktree_days"])
@@ -241,6 +241,7 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
             "nudge_in_modes",
             "escalate_after_s",
             "caller_wake_after_s",
+            "caller_wake_in_modes",
             "retry_delivery",
         ],
     ) || [
@@ -256,14 +257,17 @@ pub(crate) fn messaging(raw: &Value) -> Option<Value> {
     {
         return None;
     }
-    if live["nudge_in_modes"].as_array().is_none_or(|a| {
-        a.iter().any(|v| {
-            !matches!(
-                v.as_str(),
-                Some("relaxed" | "normal" | "strict" | "emergency")
-            )
+    let mode_list_ok = |key: &str| {
+        live[key].as_array().is_some_and(|a| {
+            a.iter().all(|v| {
+                matches!(
+                    v.as_str(),
+                    Some("relaxed" | "normal" | "strict" | "emergency")
+                )
+            })
         })
-    }) {
+    };
+    if !mode_list_ok("nudge_in_modes") || !mode_list_ok("caller_wake_in_modes") {
         return None;
     }
     if !check_keys(&result["hooks"], &["stop", "stop_release_after"])
@@ -523,6 +527,36 @@ fn alias_ok(s: &str) -> bool {
         && !s.starts_with('-')
         && s.bytes()
             .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == b'-')
+}
+
+#[cfg(test)]
+mod messaging_liveness_tests {
+    use super::*;
+
+    #[test]
+    fn liveness_defaults_split_nudge_and_caller_wake_modes() {
+        let cfg = messaging(&json!({})).expect("defaults");
+        assert_eq!(
+            cfg["liveness"]["nudge_in_modes"],
+            json!(["relaxed", "normal", "strict", "emergency"])
+        );
+        assert_eq!(
+            cfg["liveness"]["caller_wake_in_modes"],
+            json!(["relaxed", "normal"])
+        );
+    }
+
+    #[test]
+    fn caller_wake_in_modes_parses_and_rejects_unknown() {
+        let ok = messaging(&json!({"liveness":{"caller_wake_in_modes":["strict","emergency"]}}))
+            .expect("valid modes");
+        assert_eq!(
+            ok["liveness"]["caller_wake_in_modes"],
+            json!(["strict", "emergency"])
+        );
+        assert!(messaging(&json!({"liveness":{"caller_wake_in_modes":["turbo"]}})).is_none());
+        assert!(messaging(&json!({"liveness":{"nudge_in_modes":["turbo"]}})).is_none());
+    }
 }
 
 #[cfg(test)]

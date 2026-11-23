@@ -27,7 +27,9 @@ const repoKey = async (ctx: Parameters<OpDef["handler"]>[0], value: string) => {
   throw new CoreError("invalid_input", "repo must be an absolute path or a repository key");
 };
 const liveness = z.object({ interval_s: z.number().int().min(10).optional(), backoff_max_s: z.number().int().min(10).optional(),
-  max_nudges: z.number().int().nonnegative().optional(), nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional() }).strict();
+  max_nudges: z.number().int().nonnegative().optional(),
+  nudge_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional(),
+  caller_wake_in_modes: z.array(z.enum(["relaxed", "normal", "strict", "emergency"])).optional() }).strict();
 
 /** Executors may read only threads in their own tree; planners and the human read any. */
 function assertCanRead(ctx: Parameters<OpDef["handler"]>[0], deps: Parameters<OpDef["handler"]>[2], task: string): void {

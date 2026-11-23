@@ -17330,7 +17330,7 @@
     "input": {
       "coreBuild": {
         "schemaVersion": 1,
-        "releaseVersion": "0.17.7",
+        "releaseVersion": "0.17.9",
         "buildId": "development-uncompiled",
         "role": "core",
         "targetOs": "darwin",
@@ -17338,7 +17338,7 @@
       },
       "protocol": "3.0.0",
       "previous": "2.8.0",
-      "pacer": "0.17.7",
+      "pacer": "0.17.9",
       "ops": [
         "account.add",
         "account.adopt",
@@ -17646,7 +17646,7 @@
     },
     "output": {
       "protocol": "2.8.0",
-      "pacer": "0.17.7",
+      "pacer": "0.17.9",
       "ops": [
         "account.add",
         "account.adopt",
@@ -22921,6 +22921,18 @@
                   "maximum": 9007199254740991
                 },
                 "nudge_in_modes": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "relaxed",
+                      "normal",
+                      "strict",
+                      "emergency"
+                    ]
+                  }
+                },
+                "caller_wake_in_modes": {
                   "type": "array",
                   "items": {
                     "type": "string",
