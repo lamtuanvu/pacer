@@ -14,6 +14,8 @@ fn main() {
     println!("cargo:rerun-if-changed=../../app/tokens-gen.ts");
     println!("cargo:rerun-if-changed=../../app/xterm-csp.ts");
     println!("cargo:rerun-if-changed=../ui");
+    println!("cargo:rerun-if-changed=../../plugins/orca-panel");
+    stage_orca_panel(&root);
     let status = std::process::Command::new("bun").args(["app/build.ts", "--desktop-only", "--no-embed"]).current_dir(root.join("../..")).status().expect("Bun is required to build the desktop UI");
     assert!(status.success(), "Desktop UI build failed");
     // Capture diagnostics must not raise the shell's existing macOS deployment floor.
@@ -123,6 +125,38 @@ fn main() {
         ]),
     ))
     .expect("build desktop shell");
+}
+
+/// Stage runtime Orca panel files (no `*.test.ts`) for `Contents/Resources/orca-panel`.
+fn stage_orca_panel(root: &std::path::Path) {
+    use std::fs;
+    use std::path::Path;
+    let src = root.join("../../plugins/orca-panel");
+    let dest = root.join("orca-panel");
+    if dest.exists() {
+        fs::remove_dir_all(&dest).expect("clear staged orca-panel");
+    }
+    fs::create_dir_all(dest.join("src")).expect("orca-panel src");
+    for name in ["orca-plugin.json", "README.md"] {
+        fs::copy(src.join(name), dest.join(name)).unwrap_or_else(|e| panic!("copy {name}: {e}"));
+    }
+    let src_dir = src.join("src");
+    for entry in fs::read_dir(&src_dir).expect("read plugins/orca-panel/src") {
+        let entry = entry.expect("orca-panel src entry");
+        let name = entry.file_name();
+        let name = name.to_string_lossy();
+        if name.ends_with(".test.ts") {
+            continue;
+        }
+        if name.ends_with(".ts") || name == "panel.html" {
+            fs::copy(entry.path(), dest.join("src").join(name.as_ref()))
+                .unwrap_or_else(|e| panic!("copy src/{name}: {e}"));
+        }
+    }
+    assert!(
+        Path::new(&dest.join("orca-plugin.json")).is_file(),
+        "staged orca-panel missing orca-plugin.json"
+    );
 }
 
 fn build_permission_helper() {
