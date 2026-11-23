@@ -141,6 +141,9 @@ layer = "plugin"
 layer = "plugin"
 heavy = ["reqwest"]
 
+[crates.pacer-bundled-assistant-executor]
+layer = "plugin"
+
 [crates.pacer-bundled-exec-orca]
 layer = "plugin"
 

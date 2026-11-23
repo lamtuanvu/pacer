@@ -185,10 +185,20 @@ fn endpoint_ok(strategy: &Value, account: &str, runner: Option<&str>, executor: 
     let Some(entry) = strategy["accounts"].get(account) else {
         return false;
     };
-    // The executor backend runs the account through its agent CLI, which holds the connection and
-    // picks the model, so any endpoint account qualifies (`endpointFor` in TypeScript).
+    // The executor backend runs the account through its agent CLI (opencode, Claude
+    // Code or Codex), which holds the connection and picks the model. Any endpoint
+    // account qualifies (`endpointFor` in TypeScript); a Claude Code or Codex
+    // account qualifies only when it has a config home (the strategy's `home`
+    // field) that the ask-mode backend can drive.
     if executor {
-        return entry.get("kind").and_then(Value::as_str) == Some("endpoint");
+        return match entry.get("kind").and_then(Value::as_str) {
+            Some("endpoint") => true,
+            Some(kind) if kind == "claude" || kind == "codex" => entry
+                .get("home")
+                .and_then(Value::as_str)
+                .is_some_and(|dir| !dir.is_empty()),
+            _ => false,
+        };
     }
     if entry.get("kind").and_then(Value::as_str) != Some("endpoint")
         || !entry.get("connection").is_some_and(truth)
@@ -411,11 +421,13 @@ pub fn assistant_settings_set(ctx: &Ctx, params: Value) -> OpFuture<'_> {
             // The backend being saved decides the check; absent keeps the stored one.
             let executor = p.backend.as_deref().unwrap_or(stored.backend.as_str()) == "executor";
             if !endpoint_ok(&strategy, account, p.runner.as_deref(), executor) {
-                return Err(CoreError::new(
-                    Code::InvalidInput,
-                    "Choose an endpoint account with a model.",
-                )
-                .hint("Add one in Settings › Accounts."));
+                let want = if executor {
+                    "an opencode, Claude Code or Codex account"
+                } else {
+                    "an endpoint account with a model"
+                };
+                return Err(CoreError::new(Code::InvalidInput, format!("Choose {want}."))
+                    .hint("Add one in Settings › Accounts."));
             }
         }
         let write = with_db(ctx, |db| {
