@@ -20,6 +20,7 @@ url = "2"
 tokio.workspace = true
 jiff = "0.2.38"
 pacer-server = { path = "../server" }
+pacer-bundled = { path = "../bundled" }
 
 [build-dependencies]
 serde_json.workspace = true
