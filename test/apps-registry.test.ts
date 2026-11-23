@@ -64,7 +64,11 @@ test("grantWords maps known kinds and keeps unknown descriptions", () => {
   expect(grantWords("storage:own").what).toContain("storage");
   const unknown = grantWords("future:kind", "Orca said this");
   expect(unknown.what).toBe("Orca said this");
-  expect(unknown.why).toBe("Orca said this");
+  // Shown once, with no reason pacer can't vouch for.
+  expect(unknown.why).toBe("");
+  // workspace:write's plain words name every power Orca lists for it.
+  const write = grantWords("workspace:write").what;
+  for (const power of ["rename", "hide or show projects", "focus their terminals", "open their files", "run Orca commands"]) expect(write).toContain(power);
 });
 
 test("grantsFromOrcaApproval flattens execution then capabilities", () => {

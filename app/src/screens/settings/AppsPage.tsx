@@ -95,7 +95,7 @@ function AppsCard({
                   <GrantIcon path={g.icon} />
                   <span className="pc-apps-grants__text">
                     <span>{g.what}</span>
-                    <span className="pc-settings-board__caption">{g.why}</span>
+                    {g.why && <span className="pc-settings-board__caption">{g.why}</span>}
                   </span>
                 </li>
               ))}

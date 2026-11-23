@@ -30,7 +30,8 @@ const KNOWN: Record<string, { what: string; why: string; icon: string }> = {
     icon: "M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v8a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z",
   },
   "workspace:write": {
-    what: "Open and rename your workspaces, focus their terminals and run Orca commands",
+    // Every power Orca lists for workspace:write, so the plain words never understate the grant.
+    what: "Open and rename your workspaces, hide or show projects, focus their terminals, open their files and run Orca commands",
     why: "pacer only opens a task’s worktree when you press Open worktree or Open in Orca.",
     icon: "M7 17L17 7M9 7h8v8",
   },
@@ -50,8 +51,9 @@ export function grantWords(kind: string, description?: string): AppGrant {
       icon: known.icon,
     };
   }
+  // An unknown kind has no reason pacer can vouch for: show Orca's words once, with no "why" line.
   const text = description?.trim() || kind;
-  return { kind, what: text, why: text, ...(description ? { description } : {}), icon: FALLBACK_ICON };
+  return { kind, what: text, why: "", ...(description ? { description } : {}), icon: FALLBACK_ICON };
 }
 
 /** Flatten Orca's approval `grants` object into the ordered board list (execution first, then capabilities). */
