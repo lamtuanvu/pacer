@@ -226,6 +226,32 @@ test("the release builds and publishes; validation runs post-merge on main", () 
   expect(source).toContain('return failures ? 1 : 0');
 });
 
+test("homebrew-cask publishes the desktop cask after the feed advances", () => {
+  const cask = jobs["homebrew-cask"] as WorkflowJob & { "runs-on"?: string };
+  expect(cask).toBeDefined();
+  expect(cask.needs).toEqual(["verify", "desktop-build", "desktop-publish"]);
+  expect(cask["runs-on"]).toBe("ubuntu-24.04");
+  expect(cask.permissions).toEqual({ contents: "read" });
+  const gate = String((cask as { if?: string }).if ?? "");
+  expect(gate.startsWith("always()")).toBe(true);
+  expect(gate).toContain("needs.desktop-publish.result == 'success'");
+  expect(gate).toContain("needs.desktop-build.result == 'success'");
+  expect(gate).toContain("!contains(needs.verify.outputs.version, '-')");
+  expect(cask.env?.HOMEBREW_TAP_TOKEN).toBe("${{ secrets.HOMEBREW_TAP_TOKEN }}");
+  const pushCheck = cask.steps.find(s => s.name === "Check tap token can push")?.run ?? "";
+  expect(pushCheck).toContain("repos/lamtuanvu/homebrew-tap");
+  const publish = cask.steps.find(s => (s.name ?? "").includes("Homebrew cask") || (s.run ?? "").includes("release:homebrew-cask"))?.run ?? "";
+  expect(publish).toContain('git commit -s -m "pacer $VERSION"');
+  expect(publish).toContain("git add Casks/pacer.rb");
+  expect(publish).toContain("git diff --cached --quiet");
+  // Dry-run path never pushes; only the non-dry branch may call git_auth push.
+  const dryBranch = publish.split(/if test "\$DRY_RUN" = true; then/)[1]?.split(/\nfi\b/)[0] ?? "";
+  expect(dryBranch).toContain("ruby -c");
+  expect(dryBranch).not.toContain("git_auth push");
+  const formulaNeeds = [...(Array.isArray(jobs.homebrew.needs) ? jobs.homebrew.needs : [jobs.homebrew.needs])];
+  expect(formulaNeeds.some(n => String(n).startsWith("desktop-"))).toBe(false);
+});
+
 test("the M1 gate runs post-merge on main in CI instead of the release", () => {
   const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
     on: Record<string, unknown>;
@@ -497,7 +523,8 @@ test("a failed required job of a nightly tag opens or comments on the nightly-fa
   const report = jobs["nightly-failure"];
   expect(report).toBeDefined();
   // Every job a tag push runs; desktop-fixture runs only on dispatch dry runs.
-  const required = Object.keys(jobs).filter(name => name !== "nightly-failure" && name !== "desktop-fixture");
+  // homebrew-cask is stable-only (never on nightlies), so it stays off this reporter.
+  const required = Object.keys(jobs).filter(name => name !== "nightly-failure" && name !== "desktop-fixture" && name !== "homebrew-cask");
   expect([...report.needs!].sort()).toEqual(required.sort());
   // verify may fail before it classifies the channel, so the tag name also identifies a nightly.
   expect(report.if).toBe("always() && github.event_name == 'push' && (needs.verify.outputs.channel == 'nightly' || contains(github.ref_name, '-nightly.')) && contains(needs.*.result, 'failure')");
