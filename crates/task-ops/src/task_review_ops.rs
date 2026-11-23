@@ -14,10 +14,6 @@ use super::lifecycle_ops::{
     invalid, object, optional_expect_rev, project_api_task, require_string, type_name,
 };
 
-/// Executor sessions may review only a child they dispatched through a valid work grant (F4); the
-/// native front door only ever handles plain non-work reviews, which an executor may never make.
-const TASK_REVIEW_REFUSAL: &str = "PACER_ROLE=executor: executors cannot review their own task; only a child they dispatched this run (use pacer dispatch review).";
-
 /// TypeScript `isExecutorSession`: PACER_ROLE=executor, a cwd inside a pacer task worktree, or an
 /// Orca workspace lane. `cwd` is the serving process's working directory.
 fn is_executor_session(ctx: &Ctx, cwd: &std::path::Path) -> bool {
@@ -133,9 +129,9 @@ pub fn task_review<'a>(
     effects: OpFuture<'a>,
 ) -> OpFuture<'a> {
     Box::pin(async move {
-        if is_executor_session(ctx, &std::env::current_dir().unwrap_or_default()) {
-            return Err(CoreError::new(Code::NotAllowed, TASK_REVIEW_REFUSAL));
-        }
+        let cwd = std::env::current_dir().unwrap_or_default();
+        let executor = is_executor_session(ctx, &cwd);
+        pacer_work::authorize_work_operation(ctx, "task.review", &params, executor)?;
         let p = object(&params)?;
         let id = require_task_id(p, "id")?;
         let (_verdict, accepted) = parse_verdict(p)?;
@@ -214,7 +210,7 @@ mod tests {
         .await;
         let error = result.unwrap_err();
         assert_eq!(error.code, Code::NotAllowed);
-        assert_eq!(error.message, TASK_REVIEW_REFUSAL);
+        assert_eq!(error.message, pacer_work::TASK_REVIEW_REFUSAL);
     }
 
     #[tokio::test]

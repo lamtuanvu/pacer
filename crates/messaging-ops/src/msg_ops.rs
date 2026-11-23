@@ -51,16 +51,15 @@ pub fn is_msg_caller_op(name: &str) -> bool {
     is_msg_read_op(name) || crate::msg_writes::uses_bridge(name)
 }
 
-/// TypeScript keeps work-grant and enforcement identities, Orca worktree detection
-/// (strategy providers) and the human's read receipts on `msg.read` (task/attention
-/// publication). The message writes publish for the human through the Core bridge.
-/// `msg.policy` also stays forwarded when `project-messaging.json` is unusable, because
-/// its `projectError` carries Node and Zod details only the TypeScript reader produces.
+/// TypeScript keeps Orca worktree detection (strategy providers) and the human's read
+/// receipts on `msg.read` (task/attention publication). Work-grant callers resolve
+/// natively through `authorize_work_grant`. The message writes publish for the human
+/// through the Core bridge. `msg.policy` also stays forwarded when
+/// `project-messaging.json` is unusable, because its `projectError` carries Node and
+/// Zod details only the TypeScript reader produces.
 pub fn msg_stays_forwarded(name: &str, ctx: &Ctx) -> bool {
     if name == "msg.policy" {
-        return env(ctx, "PACER_WORK_GRANT").is_some()
-            || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some()
-            || pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
+        return pacer_config::project_messaging::read_projects(&ctx.pacer_home).is_err();
     }
     if !is_msg_caller_op(name) && name != "tree.status" {
         return false;
@@ -111,9 +110,21 @@ pub(crate) fn env<'a>(ctx: &'a Ctx, name: &str) -> Option<&'a str> {
         .filter(|v| !v.is_empty())
 }
 
-/// `callerParticipant` without a work grant (those requests stay forwarded).
+/// `callerParticipant`: assistant grants are refused first; a live work grant resolves to
+/// its bound task; enforcement still forwards (the door refuses those ops before here).
 fn caller(ctx: &Ctx, cwd: Option<&str>) -> Result<Caller, CoreError> {
-    if env(ctx, "PACER_WORK_GRANT").is_some() || env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
+    if let Some(token) = env(ctx, "PACER_ASSISTANT_GRANT") {
+        pacer_work::authorize_assistant_grant(ctx, token)?;
+        return Err(forbidden(
+            "An assistant grant runs assistant.tool only.",
+            "identity",
+        ));
+    }
+    if let Some(token) = env(ctx, "PACER_WORK_GRANT") {
+        let node = pacer_work::authorize_work_grant(ctx, token)?;
+        return Ok(Caller::Id(format!("task:{}", node.task_id)));
+    }
+    if env(ctx, "PACER_ENFORCEMENT_TOKEN").is_some() {
         return Ok(Caller::Forward);
     }
     let role_executor = ctx.env.get("PACER_ROLE").map(String::as_str) == Some("executor");
