@@ -15,6 +15,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Changed
 
 - **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).
+- **Rust plugin crates: `pacer-plugin` and `pacer-plugin-assistant-protocol` 0.4.0.** `AssistantReplyParamsEndpoint.base_url` is now optional and the endpoint gains an `api` field, so plugins that read `base_url` must handle `None`. The other generated protocol crates stay at 0.3.0. 0.17.8 did not publish crates, because the changed protocol crate kept its 0.3.0 version.
 
 ### Fixed
 
