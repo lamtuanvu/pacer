@@ -3228,6 +3228,223 @@ mod tests {
         assert_eq!(crate::owner::read_owner(&pacer).unwrap().owner, "desktop");
     }
 
+    /// After `brew uninstall pacer`, the cli owner executable is gone: consent
+    /// still claims desktop ownership (`setup_consent_records`). Detect does not
+    /// offer ADR 0011 takeover for a missing program; production uses Managed
+    /// install (`decide_existing_managed_program` in `control.rs`). This test
+    /// covers the owner claim plus a fixture rewrite of an on-disk registration
+    /// (test doubles, never launchctl). The takeover store is macOS-only.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn consent_takes_over_when_cli_owner_executable_is_gone() {
+        use pacer_desktop::ota::bootstrap_identity::LegacyExecutable;
+        use pacer_desktop::ota::takeover::detect::nothing_to_preserve;
+        use pacer_desktop::ota::takeover::engine::{execute, TakeoverPlatform};
+        use pacer_desktop::ota::takeover::journal::{TakeoverManifest, TakeoverState, TakeoverStore};
+        use pacer_desktop::ota::{AwakeStamp, OtaError, ProcessIdentity};
+        use sha2::Digest;
+        use std::sync::Mutex;
+
+        let dir = TempDir::new();
+        let pacer = dir.0.join(".pacer");
+        std::fs::create_dir_all(&pacer).unwrap();
+        let missing = dir.0.join("Cellar/pacer/1.0.0/bin/pacer");
+        std::fs::write(
+            pacer.join("owner.json"),
+            format!(
+                r#"{{"schema":1,"owner":"cli","executable":"{}","at":1}}"#,
+                missing.display()
+            ),
+        )
+        .unwrap();
+        assert!(
+            !missing.exists(),
+            "the recorded CLI owner executable must be gone"
+        );
+
+        let bundled = dir.0.join("pacer.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"bundled").unwrap();
+
+        let registrations = dir.0.join("registrations");
+        std::fs::create_dir_all(&registrations).unwrap();
+        let plist = registrations.join("com.pacer.serve.plist");
+        let mut registration = Vec::new();
+        plist::Value::Dictionary(plist::Dictionary::from_iter([
+            (
+                "Label".to_string(),
+                plist::Value::String("com.pacer.serve".into()),
+            ),
+            (
+                "ProgramArguments".to_string(),
+                plist::Value::Array(vec![
+                    plist::Value::String(missing.to_string_lossy().into_owned()),
+                    plist::Value::String("serve".into()),
+                ]),
+            ),
+            (
+                "EnvironmentVariables".to_string(),
+                plist::Value::Dictionary(plist::Dictionary::from_iter([
+                    (
+                        "HOME".to_string(),
+                        plist::Value::String(dir.0.to_string_lossy().into_owned()),
+                    ),
+                    (
+                        "PACER_HOME".to_string(),
+                        plist::Value::String(pacer.to_string_lossy().into_owned()),
+                    ),
+                    (
+                        "PACER_PORT".to_string(),
+                        plist::Value::String("4317".into()),
+                    ),
+                ])),
+            ),
+        ]))
+        .to_writer_xml(&mut registration)
+        .unwrap();
+        std::fs::write(&plist, &registration).unwrap();
+
+        assert!(nothing_to_preserve(&missing));
+        assert!(!nothing_to_preserve(&bundled));
+
+        let config = dir.0.join("config");
+        setup_consent_records(&pacer, &bundled, &config, None, true).unwrap();
+        let owner = crate::owner::read_owner(&pacer).unwrap();
+        assert_eq!(owner.owner, "desktop");
+        assert_eq!(owner.executable, bundled.to_string_lossy());
+
+        struct RegFake {
+            plist: PathBuf,
+            program: Mutex<PathBuf>,
+        }
+        impl TakeoverPlatform for RegFake {
+            fn awake_now(&self) -> Result<AwakeStamp, OtaError> {
+                Ok(AwakeStamp {
+                    boot_id: "boot".into(),
+                    millis: 1,
+                })
+            }
+            fn redetect(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn arm_recovery(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn stop_original(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                // Missing binary: nothing to stop or preserve.
+                Ok(())
+            }
+            fn switch_registration(&self, m: &TakeoverManifest) -> Result<(), OtaError> {
+                *self.program.lock().unwrap() = m.bundled_cli.clone();
+                let mut next = Vec::new();
+                plist::Value::Dictionary(plist::Dictionary::from_iter([
+                    (
+                        "Label".to_string(),
+                        plist::Value::String("com.pacer.serve".into()),
+                    ),
+                    (
+                        "ProgramArguments".to_string(),
+                        plist::Value::Array(vec![
+                            plist::Value::String(m.bundled_cli.to_string_lossy().into_owned()),
+                            plist::Value::String("serve".into()),
+                        ]),
+                    ),
+                ]))
+                .to_writer_xml(&mut next)
+                .map_err(|_| OtaError::Io)?;
+                std::fs::write(&self.plist, next).map_err(|_| OtaError::Io)?;
+                Ok(())
+            }
+            fn launch_managed(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn verify_managed(
+                &self,
+                _: &TakeoverManifest,
+                _: AwakeStamp,
+            ) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn restore_registration(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn launch_original(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn verify_original(
+                &self,
+                _: &TakeoverManifest,
+                _: AwakeStamp,
+            ) -> Result<(), OtaError> {
+                Ok(())
+            }
+            fn retire_recovery(&self, _: &TakeoverManifest) -> Result<(), OtaError> {
+                Ok(())
+            }
+        }
+
+        let process = ProcessIdentity {
+            pid: 7,
+            boot_id: "boot".into(),
+            birth: "birth".into(),
+        };
+        let manifest = TakeoverManifest {
+            schema: 1,
+            transaction_kind: "takeover".into(),
+            transaction_id: "tx-gone-cli".into(),
+            candidate: pacer_desktop::ota::takeover::TakeoverCandidate {
+                label: "com.pacer.serve".into(),
+                registration_sha256: format!("{:x}", sha2::Sha256::digest(&registration)),
+                process: process.clone(),
+                program: missing.clone(),
+                canonical_program: missing.clone(),
+                identity: LegacyExecutable {
+                    device: "1".into(),
+                    inode: "1".into(),
+                    size: 1,
+                    modified_ns: "1".into(),
+                    changed_ns: "1".into(),
+                    sha256: "a".repeat(64),
+                    cdhash: "b".repeat(40),
+                },
+                home: pacer.clone(),
+                port: 4317,
+            },
+            desktop: process,
+            bundled_cli: bundled.clone(),
+            original_registration_b64: base64::Engine::encode(
+                &base64::engine::general_purpose::STANDARD,
+                &registration,
+            ),
+            relink_terminal: false,
+            authorized_at: AwakeStamp {
+                boot_id: "boot".into(),
+                millis: 1,
+            },
+        };
+        let fake = RegFake {
+            plist: plist.clone(),
+            program: Mutex::new(missing.clone()),
+        };
+        let store = TakeoverStore::create(&pacer, &manifest).unwrap();
+        assert_eq!(execute(&store, &fake), Ok(TakeoverState::Committed));
+        assert_eq!(*fake.program.lock().unwrap(), bundled);
+
+        let written = std::fs::read(&plist).unwrap();
+        let value = plist::Value::from_reader_xml(written.as_slice()).unwrap();
+        let args = value
+            .as_dictionary()
+            .unwrap()
+            .get("ProgramArguments")
+            .unwrap()
+            .as_array()
+            .unwrap();
+        assert_eq!(
+            args[0].as_string().unwrap(),
+            bundled.to_string_lossy().as_ref()
+        );
+    }
+
     #[test]
     fn setup_records_consent_only_after_link_and_opt_in_profile_succeed() {
         use std::os::unix::fs::PermissionsExt;

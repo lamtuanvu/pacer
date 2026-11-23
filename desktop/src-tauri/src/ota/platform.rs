@@ -345,6 +345,55 @@ impl OwnedJob {
     ) -> Result<(), OtaError> {
         self.change_inner(trust, change, None).await
     }
+    /// Unload a still-listed job after the on-disk registration was rewritten to
+    /// this verified definition (bundled CLI). Does not verify the absent old
+    /// program or require the stale launchd snapshot to match the new argv —
+    /// only the rewritten plist + `ProgramCheck::Role` for this job.
+    pub(crate) async fn bootout_rewritten_listed_job(
+        &self,
+        trust: &ReleaseTrust,
+    ) -> Result<(), OtaError> {
+        self.check_with(trust, &ProgramCheck::Role(self.role))?;
+        if copy_user_job(&self.definition.label)?.is_none() {
+            return Ok(());
+        }
+        let registration = super::platform_fs::read_owned_file(&self.plist_path, 131072)?;
+        self.fixture_ledger(trust, &registration, "loaded", None)?;
+        self.check_with(trust, &ProgramCheck::Role(self.role))?;
+        let domain = format!("gui/{}", unsafe { libc::geteuid() });
+        let target = format!("{domain}/{}", self.definition.label);
+        let mut command = tokio::process::Command::new("/bin/launchctl");
+        command
+            .arg("bootout")
+            .arg(&target)
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .kill_on_drop(true);
+        let status = tokio::time::timeout(std::time::Duration::from_secs(10), command.status())
+            .await
+            .map_err(|_| OtaError::Timeout)?
+            .map_err(|_| OtaError::Io)?;
+        if !status.success() {
+            if copy_user_job(&self.definition.label)?.is_none() {
+                self.fixture_ledger(trust, &registration, "retired", None)?;
+                return Ok(());
+            }
+            return Err(OtaError::Io);
+        }
+        let remaining = settle_absent(
+            || copy_user_job(&self.definition.label),
+            || native::awake_now().map_err(|_| OtaError::Identity),
+            PINNED_BOOTOUT_SETTLE_MS,
+            std::time::Duration::from_millis(50),
+        )
+        .await?;
+        if remaining.is_some() {
+            return Err(OtaError::Identity);
+        }
+        self.fixture_ledger(trust, &registration, "retired", None)?;
+        Ok(())
+    }
     pub(crate) async fn stop_exact(
         &self,
         trust: &ReleaseTrust,

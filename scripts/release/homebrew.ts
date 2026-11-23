@@ -31,6 +31,10 @@ ${platform("darwin")}
 ${platform("linux")}
 
   def install
+    # Formulae cannot declare a cask conflict; the desktop app owns \`pacer\` when installed (ADR 0021).
+    if (HOMEBREW_PREFIX/"Caskroom/pacer").exist?
+      odie "The pacer desktop app is installed with Homebrew and manages its own pacer command. Run: brew uninstall --cask pacer"
+    end
 ${paired ? `    libexec.install Dir["pacer-*"].first => "pacer"
     resource("pacer-core").stage do
       libexec.install Dir["pacer-core-*"].first => "pacer-core"

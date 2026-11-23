@@ -7,12 +7,27 @@ from the tray to exit; the Dock icon or Open pacer restores the window.
 
 ## Download and set up
 
-[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+On macOS, install with Homebrew:
+
+```sh
+brew install --cask lamtuanvu/tap/pacer
+```
+
+Or [download the DMG](https://github.com/lamtuanvu/pacer/releases/latest).
 Choose `desktop-pacer-<version>-darwin-aarch64.dmg` for Apple silicon or
 `desktop-pacer-<version>-darwin-x86_64.dmg` for Intel. Open it and drag pacer
-into Applications. The app is signed with pacer's own certificate until pacer has
-an Apple Developer ID, so approve the first launch once in System Settings ›
-Privacy & Security › **Open Anyway**. Later versions install from Settings › Updates.
+into Applications. To adopt an existing DMG install into Homebrew without
+replacing the app, run `brew install --cask --adopt lamtuanvu/tap/pacer`. The app
+is signed with pacer's own certificate until pacer has an Apple Developer ID, so
+approve the first launch once in System Settings › Privacy & Security ›
+**Open Anyway** (again after a brew reinstall or `brew upgrade --greedy`). The
+app updates itself from Settings › Updates; the cask's `auto_updates` means plain
+`brew upgrade` leaves it alone unless you pass `--greedy`.
+
+The cask conflicts with the CLI formula: uninstall one before installing the other.
+To switch from the formula: `brew uninstall pacer`, then
+`brew install --cask lamtuanvu/tap/pacer`, then accept Welcome/Consent.
+Settings and tasks in `~/.pacer` are kept.
 
 **Welcome** opens one consent screen for the background service and the terminal
 link at `~/.local/bin/pacer`. If the directory is missing from PATH, an optional
@@ -27,7 +42,8 @@ same consent flow. For terminal and servers, use the
 [standalone installer](../docs/install.md#terminal-and-servers).
 
 Run `pacer uninstall --all` to remove everything setup added, including the
-terminal link and the marked PATH block. Move the app to the Trash afterward.
+service, the terminal link, agent hooks and the marked PATH block (Homebrew's
+cask uninstall only quits the app). Move the app to the Trash afterward.
 
 ## Build
 

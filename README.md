@@ -31,7 +31,13 @@ A planner can spend its subscription too quickly while other coding agents have 
 
 ## Install
 
-[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+On macOS, install the desktop app with Homebrew:
+
+```sh
+brew install --cask lamtuanvu/tap/pacer
+```
+
+Or [download the DMG](https://github.com/lamtuanvu/pacer/releases/latest).
 Choose the matching `desktop-pacer-<version>-darwin-<arch>.dmg`: `aarch64` for
 Apple silicon or `x86_64` for Intel. Open it and drag pacer into Applications.
 On first launch, approve it once as described in
@@ -86,14 +92,14 @@ Run `pacer update`, or choose **Install** in **Settings → Updates**. The servi
 
 Desktop releases are signed with the project's own code-signing certificate until pacer has an Apple Developer ID, so macOS blocks the first launch:
 
-1. Download `desktop-pacer-<version>-darwin-<arch>.dmg` from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases), open it and drag `pacer.app` to Applications. The `.app.tar.gz` beside it contains the same app; it is the in-app update package.
-2. Open the app once. When macOS says it cannot verify the developer, open **System Settings › Privacy & Security** and choose **Open Anyway**.
+1. Install with `brew install --cask lamtuanvu/tap/pacer`, or download `desktop-pacer-<version>-darwin-<arch>.dmg` from [GitHub Releases](https://github.com/lamtuanvu/pacer/releases), open it and drag `pacer.app` to Applications. The `.app.tar.gz` beside it contains the same app; it is the in-app update package. Adopt an existing DMG install with `brew install --cask --adopt lamtuanvu/tap/pacer`.
+2. Open the app once. When macOS says it cannot verify the developer, open **System Settings › Privacy & Security** and choose **Open Anyway** (again after a brew reinstall or `brew upgrade --greedy`).
 
 Alternatively, from a terminal: `xattr -dr com.apple.quarantine /Applications/pacer.app`.
 
-This is needed once. In-app updates are verified against the same pinned certificate and a separate update signature, and install without further prompts.
+In-app updates are verified against the same pinned certificate and a separate update signature, and install without further prompts. The cask sets `auto_updates`, so plain `brew upgrade` leaves the app alone unless you pass `--greedy`. The cask conflicts with the CLI formula (`brew install lamtuanvu/tap/pacer`): uninstall one before installing the other. To switch from the formula, run `brew uninstall pacer`, then `brew install --cask lamtuanvu/tap/pacer`, then accept Welcome/Consent; settings and tasks in `~/.pacer` are kept. `brew uninstall --cask pacer` only quits and removes the app; full removal is `pacer uninstall --all`.
 
-The future npm package is `@lamtuanvu/pacer`; it is not published yet. The planned Homebrew tap is `lamtuanvu/homebrew-tap`; it has not been created. The command stays `pacer`.
+Install the CLI with `npm install -g @lamtuanvu/pacer` or `brew install lamtuanvu/tap/pacer`. The command stays `pacer`.
 
 ## Quickstart
 
