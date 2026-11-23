@@ -28,6 +28,8 @@ export function signingConfig(env: NodeJS.ProcessEnv = process.env): SigningConf
   return { teamId, identity, keychain, notaryKey, notaryKeyId, notaryIssuer, signerKey, publicKey };
 }
 type Run = (argv: string[], timeout?: number) => Promise<string>;
+/** First run of a re-signed binary; covers Rosetta translation of the cross-built x86_64 app. */
+export const SIGNED_SMOKE_TIMEOUT_MS = 180_000;
 /** Operates only on a fresh complete staging copy. No credential discovery or unsigned fallback. */
 export async function signStagedDesktop(o: { root: string; stage: string; out: string; version: string; arch: DesktopArch; config: SigningConfig }, run: Run = command): Promise<string> {
   // Stable and nightly builds sign identically; only the version and asset names carry the channel.
@@ -109,12 +111,13 @@ export async function signStagedDesktop(o: { root: string; stage: string; out: s
   await run(["/usr/bin/codesign", "--verify", "--deep", "--strict", app]);
   if (pairDescriptors && readFileSync(pairPath, "utf8") !== encodePairManifest(measurePair(pairDescriptors[0], pairDescriptors[1], readFileSync(front), readFileSync(core)))) throw Error("Signed pair manifest binding mismatch");
   if (self) for (const [path, identifier] of components) await run(["/usr/bin/codesign", "--verify", "--strict", `-R=${signerRequirement(identifier, { appleTeamId: self.bridgeTeamId, signingCertSha1: self.certSha1 })}`, path]);
-  // Smoke only native runner executables, after their final signatures.
-  for (const binary of [join(resources, "pacer"), ...(paired ? [core] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"]);
-  // Exercise the signed native transport under the final hardened signature on each native CI runner.
-  const transport = JSON.parse(await run([join(resources, "pacer"), "--pacer-native-transport-test"]));
+  // Smoke every executable after its final signature. The x86_64 app is cross-built on Apple Silicon,
+  // and Rosetta retranslates each re-signed binary on first run, which can exceed the 30 s default.
+  for (const binary of [join(resources, "pacer"), ...(paired ? [core] : []), join(resources, "pacer-update-helper"), join(app, "Contents/MacOS/pacer")]) await run([binary, "--version"], SIGNED_SMOKE_TIMEOUT_MS);
+  // Exercise the signed native transport under the final hardened signature on each CI runner.
+  const transport = JSON.parse(await run([join(resources, "pacer"), "--pacer-native-transport-test"], SIGNED_SMOKE_TIMEOUT_MS));
   if (transport.schema !== 1 || transport.role !== "cli" || transport.version !== o.version || transport.arch !== o.arch || transport.nativeTransportAbi !== 1 || transport.transport !== "unix-audit-token" || transport.verified !== true) throw Error("Signed native transport validation failed");
-  const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"]));
+  const helper = JSON.parse(await run([join(resources, "pacer-update-helper"), "--pacer-helper-runtime-test"], SIGNED_SMOKE_TIMEOUT_MS));
   if (helper.schema !== 1 || helper.role !== "update-helper" || helper.version !== o.version || helper.arch !== o.arch || helper.runtime !== "tauri-updater" || helper.verified !== true) throw Error("Signed native helper runtime validation failed");
   const notarize = async (path: string, upload: string) => {
     const receipt = JSON.parse(await run(["/usr/bin/xcrun", "notarytool", "submit", upload, "--key", apple!.notaryKey, "--key-id", apple!.notaryKeyId, "--issuer", apple!.notaryIssuer, "--wait", "--output-format", "json"], 1_800_000));
