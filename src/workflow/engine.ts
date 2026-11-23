@@ -98,7 +98,7 @@ export async function settleRunGitAfterTerminal(
         appendActivity(ctx, {
           kind: "task_settled",
           level: "warn",
-          text: `run ${run.id} terminal settle failed: ${text}`,
+          text: `run ${run.id} terminal settle failed: ${text}. The integration worktree and merged task branches are still on disk; run \`pacer run cleanup ${run.id}\` to remove them.`,
           repo: run.repo,
         });
       } catch { /* activity must not block settle reporting */ }
