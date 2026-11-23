@@ -4,6 +4,25 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.10] - 2026-11-23
+
+### Added
+
+- Homebrew cask for the desktop app (#1221) (release).
+- Pacer in Orca's sidebar, added from Settings › Apps (#1223) (orca-panel).
+
+### Changed
+
+- Expect each plugin crate's own published version (#1238) (crates).
+- Release 0.17.9 (#1226).
+- Size the external-event tail bound to the route's poll interval (#1069) (serve).
+- Run Orca panel tests in Bun shards; expect the Apps settings entry (#1227) (ci).
+
+### Fixed
+
+- Allow Rosetta time for signed x86\_64 desktop smoke runs (#1229) (release).
+- Publish pacer-plugin and its assistant protocol as 0.4.0 (#1225) (crates).
+
 ## [0.17.9] - 2026-11-23
 
 ### Added
