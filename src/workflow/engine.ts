@@ -23,6 +23,7 @@ import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskState } from "../tasks/types";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
+import { appendActivity } from "../activity/log";
 import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
@@ -72,6 +73,58 @@ function startHumanWaiting(
  *  stay out: Phase 1 has no orchestrator to hand them to (plan, settlement rules). */
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 const RUN_TERMINAL: readonly RunRow["status"][] = ["done", "failed", "stopped"];
+
+/**
+ * Bounded-retry terminal git settle. Lock-guarded, never deletes remotes.
+ * On final failure, logs and appends activity (never swallows). Used by the
+ * fire-and-forget scheduler so stop/fail/done do not await the merge lock.
+ */
+export async function settleRunGitAfterTerminal(
+  ctx: Ctx, run: RunRow, o: { timeoutMs?: number } = {},
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await settleRunGitOnTerminal(ctx, run, o);
+      return;
+    } catch (error) {
+      if (attempt < 2) {
+        await Bun.sleep(250 * (attempt + 1));
+        continue;
+      }
+      const raw = error instanceof Error ? error.message : String(error);
+      const text = raw.replace(/\/(?:Users|Volumes|home|tmp)\/[^\s:]+/g, "<path>").slice(0, 400);
+      console.error(`pacer: run ${run.id} terminal settle failed: ${text}`);
+      try {
+        appendActivity(ctx, {
+          kind: "task_settled",
+          level: "warn",
+          text: `run ${run.id} terminal settle failed: ${text}`,
+          repo: run.repo,
+        });
+      } catch { /* activity must not block settle reporting */ }
+    }
+  }
+}
+
+/** In-flight background settles (test helper + idempotent re-entry). */
+const pendingTerminalSettles = new Map<string, Promise<void>>();
+
+/** Fire-and-forget wrapper so patchRun returns while settle waits on the merge lock. */
+function scheduleSettleRunGit(ctx: Ctx, run: RunRow): void {
+  const prior = pendingTerminalSettles.get(run.id);
+  const next = (prior ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => settleRunGitAfterTerminal(ctx, run))
+    .finally(() => {
+      if (pendingTerminalSettles.get(run.id) === next) pendingTerminalSettles.delete(run.id);
+    });
+  pendingTerminalSettles.set(run.id, next);
+}
+
+/** Wait for a scheduled terminal settle (tests that assert post-stop git cleanup). */
+export function awaitTerminalSettle(runId: string): Promise<void> {
+  return pendingTerminalSettles.get(runId) ?? Promise.resolve();
+}
 
 export interface EngineDeps {
   delegate: typeof delegateTask;
@@ -179,16 +232,10 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
       }]).catch(() => {});
     }
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
-    // M6: bounded retry so a transient merge-lock timeout does not leave the integration worktree forever.
-    for (let attempt = 0; attempt < 3; attempt++) {
-      try {
-        await settleRunGitOnTerminal(ctx, updated);
-        break;
-      } catch {
-        if (attempt === 2) break;
-        await Bun.sleep(250 * (attempt + 1));
-      }
-    }
+    // Terminal status is already committed. Git settle takes the merge lock (up to
+    // ~150 s) and must not block stop/fail/done; run it in the background with
+    // bounded retries and report a final failure instead of swallowing it.
+    scheduleSettleRunGit(ctx, updated);
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
     await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);

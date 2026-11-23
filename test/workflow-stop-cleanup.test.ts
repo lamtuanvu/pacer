@@ -12,7 +12,7 @@ import {
   ensureRunBranch, integrationWorktree, integrationWorktreePath, runBranchName,
 } from "../src/workflow/branch";
 import { cleanupRun } from "../src/workflow/cleanup";
-import { stopRun } from "../src/workflow/engine";
+import { awaitTerminalSettle, stopRun } from "../src/workflow/engine";
 
 async function repoWithBareOrigin() {
   const repo = gitRepo();
@@ -60,6 +60,7 @@ test("stop with merged commits leaves the run branch sha unchanged and reports a
   const before = (await ctx.run(["git", "-C", repo, "rev-parse", run.branch!], 10_000)).stdout.trim();
   const live = getRun(ctx, run.id)!;
   const stopped = await stopRun(ctx, live.id, live.rev);
+  await awaitTerminalSettle(live.id);
   expect(stopped.status).toBe("stopped");
   expect(stopped.branch).toBe(run.branch);
   expect(stopped.ahead).toBeGreaterThanOrEqual(1);
@@ -91,6 +92,7 @@ test("terminal cleanup deletes only merged task branches", async () => {
 
   const live = getRun(ctx, run.id)!;
   await stopRun(ctx, live.id, live.rev);
+  await awaitTerminalSettle(live.id);
 
   const mergedGone = await ctx.run(["git", "-C", repo, "rev-parse", "--verify", merged], 10_000);
   expect(mergedGone.code).not.toBe(0);
@@ -111,6 +113,7 @@ test("cleanupRun deletes the local run branch and not the bare remote's", async 
 
   const live = getRun(ctx, run.id)!;
   await stopRun(ctx, live.id, live.rev);
+  await awaitTerminalSettle(live.id);
   const afterStop = getRun(ctx, run.id)!;
   const cleaned = await cleanupRun(ctx, afterStop.id, { deleteBranch: true, expectRev: afterStop.rev });
   expect(cleaned.deleted_branch).toBe(run.branch!);
@@ -126,6 +129,7 @@ test("cleanupRun without delete_branch keeps the run branch", async () => {
   await acceptOneCommit(ctx, repo, run.id, "keep.txt");
   const live = getRun(ctx, run.id)!;
   await stopRun(ctx, live.id, live.rev);
+  await awaitTerminalSettle(live.id);
   const after = getRun(ctx, run.id)!;
   const result = await cleanupRun(ctx, after.id, { deleteBranch: false, expectRev: after.rev });
   expect(result.deleted_branch).toBeNull();

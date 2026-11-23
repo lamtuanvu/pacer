@@ -10,10 +10,14 @@ import { ensureRunBranch, integrationWorktree, syncBase } from "../src/workflow/
 import { hasUnresolvedConflictTask, publishRun } from "../src/workflow/publish";
 import { cleanupRun } from "../src/workflow/cleanup";
 
-test("F7: terminal settle retry is bounded to 3 attempts", () => {
+test("F7: terminal settle is fire-and-forget with bounded retries", () => {
   const src = readFileSync(join(import.meta.dir, "../src/workflow/engine.ts"), "utf8");
+  expect(src).toMatch(/scheduleSettleRunGit/);
   expect(src).toMatch(/for \(let attempt = 0; attempt < 3; attempt\+\+\)/);
   expect(src).toMatch(/settleRunGitOnTerminal/);
+  // patchRun must schedule settle, not await it (blocks stop behind the merge lock).
+  expect(src).toMatch(/scheduleSettleRunGit\(ctx, updated\)/);
+  expect(src).not.toMatch(/await settleRunGitAfterTerminal\(ctx, updated\)/);
 });
 
 test("F7: withLock finally deletes only its own token after a stale takeover", async () => {

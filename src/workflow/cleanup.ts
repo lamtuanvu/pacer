@@ -77,12 +77,14 @@ export async function deleteMergedTaskBranches(ctx: Ctx, run: RunRow): Promise<s
 }
 
 /** Terminal settle: drop the integration worktree and merged task branches; keep the run branch. */
-export async function settleRunGitOnTerminal(ctx: Ctx, run: RunRow): Promise<void> {
+export async function settleRunGitOnTerminal(
+  ctx: Ctx, run: RunRow, o: { timeoutMs?: number } = {},
+): Promise<void> {
   if (!run.branch) return;
   await withMergeLock(ctx, run.id, async () => {
     await removeIntegrationWorktree(ctx, run);
     await deleteMergedTaskBranches(ctx, run);
-  });
+  }, { timeoutMs: o.timeoutMs });
 }
 
 export type CleanupInput = { deleteBranch: boolean; expectRev: number };
