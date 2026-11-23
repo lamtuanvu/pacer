@@ -209,6 +209,22 @@ test("R2-F4: no-commits-ahead uses task baseSha, not a moved run tip", async () 
   expect(after).toBe(before);
 });
 
+test("accept-merge: drifted baseSha equal to task tip still merges run..task commits", async () => {
+  // REAL-PATH: ask/answer resume used to rewrite baseSha to HEAD, making
+  // baseSha..task empty while the task branch still had real commits vs the run.
+  const { ctx, repo, run } = await seededRun();
+  const { task, worktree } = await makeConflictingTask(ctx, repo, run.id, "edit.txt", "from-task\n");
+  const tip = (await ctx.run(["git", "-C", worktree, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  updateTask(ctx, task.id, t => { t.baseSha = tip; });
+  const before = (await ctx.run(["git", "-C", repo, "rev-parse", run.branch!], 10_000)).stdout.trim();
+  const merge = await mergeTaskOnAccept(ctx, task.id);
+  expect(merge).toEqual({ merged: true });
+  const after = (await ctx.run(["git", "-C", repo, "rev-parse", run.branch!], 10_000)).stdout.trim();
+  expect(after).not.toBe(before);
+  const show = await ctx.run(["git", "-C", repo, "show", `${run.branch!}:edit.txt`], 10_000);
+  expect(show.stdout).toBe("from-task\n");
+});
+
 test("R2-F8: dirty current checkout still allows accept when no pacer/<id> branch", async () => {
   const { ctx, repo, run } = await seededRun();
   await Bun.write(join(repo, "dirty.txt"), "uncommitted\n");

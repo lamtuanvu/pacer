@@ -171,6 +171,49 @@ test("later attempts cannot overwrite an uncertain placement and may inspect aft
   } finally { await next.revoke(); }
 });
 
+test("bindOwnedWorktreeIntent preserves original baseSha across reused-worktree rebind", async () => {
+  // REAL-PATH: ask/answer resume reuses the worktree with intent.baseSha=HEAD; rebinding
+  // must not overwrite the merge base recorded on first placement.
+  const repo = gitRepo(), ctx = fakeCtx({ run: realRun, home: tmpDir() });
+  const task = createTask(ctx, { brief: { goal: "fixture", repo }, kind: null,
+    requestedExecutor: "codex", timeoutS: 60 });
+  updateTask(ctx, task.id, current => { current.state = "running"; current.executor = "codex";
+    current.executorProvider = "pacer-exec-direct"; });
+  const grant = await issueOwnedWorktreeGrant(ctx, task.id, "pacer-exec-direct", 1, "HEAD");
+  const originalBase = grant.baseSha;
+  const manifest = manifestSchema.parse({ id: "pacer-exec-direct", version: "0.1.0", publisher: "pacer", host: ">=1.9.0",
+    contributes: { diagnostic: {} }, capabilities: [{ name: "worktree", scopes: ["task-owned"] }] });
+  const authority = createCallAuthority(ctx, { reads: [], commands: [], stores: [], worktree: grant },
+    { deadlineMs: Date.now() + 120_000, grants: ["worktree"] });
+  try { await answerCapability(ctx, { id: manifest.id, manifest }, "capability.worktree.createOrReuse",
+    { taskId: task.id, attempt: 1, baseSha: grant.baseSha }, authority); }
+  finally { await authority.revoke(); }
+  updateTask(ctx, task.id, current => {
+    current.worktree = grant.workdir;
+    current.run = { dir: join(ctx.pacerHome, "runs", task.id, "1"), attempt: 1, executor: "codex",
+      startedAt: ctx.now, mode: "new", workdir: grant.workdir, logFile: "fixture" };
+  });
+  mkdirSync(join(ctx.pacerHome, "runs", task.id, "1"), { recursive: true, mode: 0o700 });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
+
+  expect((await realRun(["git", "-C", grant.path, "-c", "user.email=t@t", "-c", "user.name=t",
+    "commit", "-q", "--allow-empty", "-m", "pre-ask edit"], 10_000)).code).toBe(0);
+  const tip = (await realRun(["git", "-C", grant.path, "rev-parse", "HEAD"], 10_000)).stdout.trim();
+  expect(tip).not.toBe(originalBase);
+
+  updateTask(ctx, task.id, current => {
+    current.worktreeIntent = {
+      attempt: 1, providerId: "pacer-exec-direct",
+      repoMain: grant.repoMain, path: grant.path, workdir: grant.workdir,
+      branch: grant.branch, baseSha: tip,
+    };
+  });
+  await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
+  expect(readTask(ctx, task.id)?.baseSha).toBe(originalBase);
+  expect(readTask(ctx, task.id)?.worktreeIntent).toBeUndefined();
+});
+
 test("legacy owner-owned 0755 parents and symlinked PACER_HOME migrate without changing placement", async () => {
   const repo = gitRepo(), home = tmpDir(), actual = join(home, "actual"), link = join(home, "linked");
   mkdirSync(actual, { mode: 0o700 }); symlinkSync(actual, link);

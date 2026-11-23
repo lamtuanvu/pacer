@@ -323,14 +323,28 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     }
 
     // Ahead of the task's own base (not the run tip) so a moved base alone is not "ahead" (R2-F4).
-    const baseRange = task.baseSha
+    // If baseSha drifted to the task tip (ask/answer resume used to rewrite it to HEAD),
+    // fall back to run..task so real commits are still merged.
+    let baseRange = task.baseSha
       ? `${task.baseSha}..${taskBranch}`
       : `${live.branch}..${taskBranch}`;
     const ahead = await ctx.run(
       ["git", "-C", top, "rev-list", "--count", baseRange],
       10_000,
     );
-    if (ahead.code === 0 && Number(ahead.stdout.trim()) === 0) {
+    let aheadN = ahead.code === 0 ? Number(ahead.stdout.trim()) : NaN;
+    if (aheadN === 0 && task.baseSha) {
+      const vsRun = await ctx.run(
+        ["git", "-C", top, "rev-list", "--count", `${live.branch}..${taskBranch}`],
+        10_000,
+      );
+      const vsRunN = vsRun.code === 0 ? Number(vsRun.stdout.trim()) : 0;
+      if (vsRunN > 0) {
+        aheadN = vsRunN;
+        baseRange = `${live.branch}..${taskBranch}`;
+      }
+    }
+    if (aheadN === 0) {
       // M7: dirty check only when exists AND ahead — zero-ahead with untracked notes is plain accept.
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };

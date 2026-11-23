@@ -220,8 +220,13 @@ export async function bindOwnedWorktreeIntent(ctx: Ctx, taskId: string, provider
       run.dir !== join(ctx.pacerHome, "runs", taskId, String(attempt)) ||
       !lstatSync(run.dir).isDirectory()) return deny("worktree placement is not bound to a durable run");
     updateTask(ctx, taskId, value => {
-      value.baseBranch = intent.baseSha;
-      value.baseSha = intent.baseSha;
+      // Preserve the original worktree base across ask/answer resumes. Reused
+      // worktrees select HEAD for the placement intent; rewriting baseSha to that
+      // tip would hide commits made before the ask and skip accept-merge (Phase 5).
+      if (!value.baseSha) {
+        value.baseBranch = intent.baseSha;
+        value.baseSha = intent.baseSha;
+      }
       delete value.worktreeIntent;
     });
   });
