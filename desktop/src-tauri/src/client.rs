@@ -3228,10 +3228,12 @@ mod tests {
         assert_eq!(crate::owner::read_owner(&pacer).unwrap().owner, "desktop");
     }
 
-    /// After `brew uninstall pacer`, the cli owner executable and the registered
-    /// service binary are gone. Welcome/Consent must still claim desktop ownership
-    /// and the takeover (test doubles, never launchctl) must rewrite the
-    /// registration to the bundled CLI — nothing to preserve, no backup error.
+    /// After `brew uninstall pacer`, the cli owner executable is gone: consent
+    /// still claims desktop ownership (`setup_consent_records`). Detect does not
+    /// offer ADR 0011 takeover for a missing program; production uses Managed
+    /// install (`decide_existing_managed_program` / `replace_gone_mutation_order`
+    /// in `control.rs`). This test covers the owner claim plus a fixture rewrite
+    /// of an on-disk registration (test doubles, never launchctl).
     #[test]
     fn consent_takes_over_when_cli_owner_executable_is_gone() {
         use pacer_desktop::ota::bootstrap_identity::LegacyExecutable;

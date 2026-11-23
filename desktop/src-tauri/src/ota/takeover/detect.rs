@@ -137,6 +137,11 @@ pub fn detect_takeover_for_consent(
 /// A recorded CLI executable or registered service program that is already gone
 /// (for example after `brew uninstall pacer`) is nothing to preserve: consent may
 /// replace the registration without a backup step and without an error.
+///
+/// Consent-scoped (F1 accepted): `Ok(false)` also covers temporarily absent paths
+/// (unmounted volume, dangling symlink). `try_exists` `Err` stays fail-closed
+/// (not nothing-to-preserve). Bound by Welcome/Consent plus registration
+/// label/HOME/PACER_HOME/PACER_PORT match before any rewrite.
 pub fn nothing_to_preserve(program: &Path) -> bool {
     matches!(program.try_exists(), Ok(false))
 }

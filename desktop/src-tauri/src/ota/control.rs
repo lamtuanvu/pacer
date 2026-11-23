@@ -805,6 +805,72 @@ mod tests {
             JobChange::Kickstart
         );
     }
+
+    #[test]
+    fn replace_gone_decision_and_definition() {
+        use std::collections::BTreeMap;
+        let dir = tempfile::tempdir().unwrap();
+        let bundled = dir.path().join("pacer.app/Contents/Resources/pacer");
+        std::fs::create_dir_all(bundled.parent().unwrap()).unwrap();
+        std::fs::write(&bundled, b"bundled").unwrap();
+        let missing = dir.path().join("Cellar/pacer/bin/pacer");
+        let foreign = dir.path().join("foreign-pacer");
+        std::fs::write(&foreign, b"other").unwrap();
+
+        assert_eq!(
+            decide_existing_managed_program(&bundled, &bundled, true),
+            ExistingManagedDecision::KeepBundled
+        );
+        assert_eq!(
+            decide_existing_managed_program(&missing, &bundled, false),
+            ExistingManagedDecision::ReplaceGone {
+                unload_listed: false
+            }
+        );
+        assert_eq!(
+            decide_existing_managed_program(&missing, &bundled, true),
+            ExistingManagedDecision::ReplaceGone {
+                unload_listed: true
+            }
+        );
+        assert_eq!(
+            decide_existing_managed_program(&foreign, &bundled, true),
+            ExistingManagedDecision::Refuse
+        );
+
+
+        let mut environment = BTreeMap::new();
+        environment.insert("HOME".into(), "/tmp/user".into());
+        environment.insert("PACER_HOME".into(), "/tmp/state".into());
+        environment.insert("PACER_PORT".into(), "7433".into());
+        environment.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
+        let definition =
+            managed_replace_gone_definition("com.pacer.serve", &bundled, environment.clone());
+        assert_eq!(
+            definition.arguments,
+            vec![bundled.to_string_lossy().into_owned(), "serve".into()]
+        );
+        assert_eq!(definition.environment, environment);
+        assert!(definition.keep_alive && definition.run_at_load);
+    }
+
+    #[test]
+    fn try_exists_err_refuses_replace_gone() {
+        use std::os::unix::fs::PermissionsExt;
+        let dir = tempfile::tempdir().unwrap();
+        let blocked = dir.path().join("blocked");
+        std::fs::create_dir(&blocked).unwrap();
+        let target = blocked.join("pacer");
+        std::fs::write(&target, b"x").unwrap();
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o000)).unwrap();
+        let bundled = dir.path().join("bundled");
+        std::fs::write(&bundled, b"bundled").unwrap();
+        assert_eq!(
+            decide_existing_managed_program(&target, &bundled, true),
+            ExistingManagedDecision::Refuse
+        );
+        std::fs::set_permissions(&blocked, std::fs::Permissions::from_mode(0o700)).unwrap();
+    }
     #[cfg(target_os = "macos")]
     #[test]
     fn native_process_inventory_contains_exact_own_incarnation() {
@@ -2225,6 +2291,48 @@ fn managed_action(
     }
 }
 
+/// Pure decision for an existing managed-install registration's program path.
+/// Callers must already have matched label/HOME/PACER_HOME/PACER_PORT via
+/// [`parse_registration`]. Fail-closed when the foreign program exists or when
+/// `try_exists` errors (`nothing_to_preserve` is false).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum ExistingManagedDecision {
+    KeepBundled,
+    /// Missing program: rewrite after admission checks; unload only if still listed.
+    ReplaceGone { unload_listed: bool },
+    Refuse,
+}
+
+fn decide_existing_managed_program(
+    program: &Path,
+    bundled: &Path,
+    listed: bool,
+) -> ExistingManagedDecision {
+    if program == bundled {
+        ExistingManagedDecision::KeepBundled
+    } else if super::takeover::nothing_to_preserve(program) {
+        ExistingManagedDecision::ReplaceGone {
+            unload_listed: listed,
+        }
+    } else {
+        ExistingManagedDecision::Refuse
+    }
+}
+
+fn managed_replace_gone_definition(
+    label: &str,
+    bundled: &Path,
+    environment: std::collections::BTreeMap<String, String>,
+) -> super::platform::JobDefinition {
+    super::platform::JobDefinition {
+        label: label.to_owned(),
+        arguments: vec![bundled.to_string_lossy().into_owned(), "serve".into()],
+        environment,
+        keep_alive: true,
+        run_at_load: true,
+    }
+}
+
 /// Bounded kernel inventory. No process environments or untrusted executable probes.
 // Native audit-token process discovery is unavailable on other platforms.
 #[cfg(not(target_os = "macos"))]
@@ -2397,45 +2505,26 @@ pub async fn managed_service_action(
     environment.insert("PATH".into(), "/usr/bin:/bin:/usr/sbin:/sbin".into());
     // A formula uninstall can leave a valid registration whose program no longer
     // exists. That is nothing to preserve: write the managed definition instead of
-    // refusing (ADR 0011 takeover cannot pin a missing binary).
-    let mut replace_gone: Option<Vec<u8>> = None;
+    // refusing (ADR 0011 takeover cannot pin a missing binary). Admission checks
+    // run before any rewrite/unload; a still-listed job is unloaded only after the
+    // plist names the verified bundled CLI (see `bootout_rewritten_listed_job`).
+    let mut replace_gone: Option<(Vec<u8>, bool)> = None;
     let definition = if let Some(bytes) = existing.as_ref() {
         let argv = parse_registration(bytes, &user_home, &home, port, &label)?;
         let program = Path::new(&argv[0]);
-        if program == bundled {
-            JobDefinition::from_plist(bytes)?
-        } else if super::takeover::nothing_to_preserve(program) {
-            // Unload a still-listed dangling job first. Bootstrap alone leaves a
-            // loaded listing that never re-reads the rewritten plist.
-            if loaded.is_some() {
-                let old = OwnedJob {
-                    definition: JobDefinition::from_plist(bytes)?,
-                    plist_path: path.clone(),
-                    role: CodeRole::Cli,
-                };
-                old.change(trust, super::platform::JobChange::Bootout).await?;
+        match decide_existing_managed_program(program, &bundled, loaded.is_some()) {
+            ExistingManagedDecision::KeepBundled => JobDefinition::from_plist(bytes)?,
+            ExistingManagedDecision::ReplaceGone { unload_listed } => {
+                replace_gone = Some((bytes.clone(), unload_listed));
+                managed_replace_gone_definition(&label, &bundled, environment.clone())
             }
-            replace_gone = Some(bytes.clone());
-            JobDefinition {
-                label: label.clone(),
-                arguments: vec![bundled.to_string_lossy().into_owned(), "serve".into()],
-                environment: environment.clone(),
-                keep_alive: true,
-                run_at_load: true,
-            }
-        } else {
-            return Err(OtaError::Identity);
+            ExistingManagedDecision::Refuse => return Err(OtaError::Identity),
         }
     } else {
-        JobDefinition {
-            label: label.clone(),
-            arguments: vec![bundled.to_string_lossy().into_owned(), "serve".into()],
-            environment,
-            keep_alive: true,
-            run_at_load: true,
-        }
+        managed_replace_gone_definition(&label, &bundled, environment)
     };
-    // After unloading a gone formula job, nothing is listed to match.
+    // Replace-gone treats the listing as unmatched so managed_action selects
+    // Bootstrap after rewrite (+ unload when still listed).
     let observed = if replace_gone.is_some() {
         None
     } else {
@@ -2477,10 +2566,13 @@ pub async fn managed_service_action(
         plist_path: path.clone(),
         role: CodeRole::Cli,
     };
-    if let Some(expected) = replace_gone {
+    if let Some((expected, unload_listed)) = replace_gone {
         let bytes = job.definition.to_plist()?;
         job.stage_fixture_registration(trust, &bytes)?;
         super::platform_fs::replace_registration(&path, &expected, &bytes)?;
+        if unload_listed {
+            job.bootout_rewritten_listed_job(trust).await?;
+        }
     } else if existing.is_none() {
         let bytes = job.definition.to_plist()?;
         job.stage_fixture_registration(trust, &bytes)?;

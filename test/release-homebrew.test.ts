@@ -20,7 +20,9 @@ test("generates a four-platform formula from release metadata with valid Ruby sy
   const { release, manifest, out } = fixture(); expect(generate(release, out).status).toBe(0);
   const text = readFileSync(out, "utf8");
   expect(text).toContain("class Pacer < Formula"); expect(text).toContain('version "2.3.4"'); expect(text).toContain('license "Apache-2.0"');
-  expect(text).toContain('if (HOMEBREW_PREFIX/"Caskroom/pacer").exist?'); expect(text).not.toContain("conflicts_with");
+  expect(text).toContain('if (HOMEBREW_PREFIX/"Caskroom/pacer").exist?');
+  expect(text).toContain('odie "The pacer desktop app is installed with Homebrew and manages its own pacer command. Run: brew uninstall --cask pacer"');
+  expect(text).not.toContain("conflicts_with");
   for (const asset of manifest.assets) { expect(text).toContain(`https://github.com/lamtuanvu/pacer/releases/download/v2.3.4/${asset.file}`); expect(text).toContain(`sha256 "${asset.sha256}"`); }
   for (const block of ["on_macos", "on_linux", "on_arm", "on_intel", "def install", "test do"]) expect(text).toContain(block);
   expect(text).toContain('bin.install Dir["pacer-*"].first => "pacer"'); expect(text).toContain('assert_match version.to_s, shell_output("#{bin}/pacer --version")');
