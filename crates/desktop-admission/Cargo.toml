@@ -1,0 +1,24 @@
+[package]
+name = "pacer-desktop-admission"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+rusqlite = { version = "0.41", features = ["bundled"] }
+nix = { version = "0.31", features = ["user"] }
+thiserror.workspace = true
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+pacer-store = { path = "../store" }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+libproc = "0.14"
+
+[dev-dependencies]
+tempfile = "3"
+
+[lints]
+workspace = true
