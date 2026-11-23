@@ -4,6 +4,8 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+## [0.17.9] - 2026-11-23
+
 ### Added
 
 - **Anthropic and Gemini for `assistant-pacer`.** Endpoint `connection.api` accepts `anthropic` and `gemini` beside `openai-compatible`. The native assistant plugin selects the matching Rig client, passes the remaining output-token budget on each model call, and reports those accounts unavailable (never legacy-routed) when the native binary is absent. Keyless (`key: none`) stays openai-compatible only.
