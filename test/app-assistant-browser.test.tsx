@@ -601,9 +601,9 @@ browserTest("sheet_setup_confirms_executor_and_escape_closes_dialog_only", async
     await page.getByRole("button", { name: "Open assistant" }).waitFor();
     await page.keyboard.press("Meta+j");
     await focused(page, "[data-assistant-setup]");
-    // Both wordings appear on ready executor rows; title carries the full Settings sentence.
-    await page.getByText("via OpenCode · checked · with pacer's live tools").waitFor();
-    await page.getByText("via Claude Code · checked · from pacer's summary").waitFor();
+    // CLI named once on the strong line; notes carry check status only (UI-15).
+    await page.getByText("checked · with pacer's live tools").waitFor();
+    await page.getByText("checked · from pacer's summary").waitFor();
     expect(await page.getByText("Local model · via OpenCode").count()).toBe(1);
     expect(await page.getByText("Claude digest · via Claude Code").count()).toBe(1);
     expect(await page.locator("span[title=\"Answers through the agent CLI with pacer's live tools.\"]").count()).toBe(1);

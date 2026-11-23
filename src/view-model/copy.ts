@@ -66,13 +66,15 @@ export function executorAssistantDescription(available: boolean, liveTools: bool
     : `${ASSISTANT_SUMMARY_ONLY_PHRASE} Slower; no extra key.`;
 }
 
-/** Sheet setup note + title for a checked executor row; title carries the full Settings sentence. */
-export function executorSetupToolsCopy(liveTools: boolean | undefined, cli: AssistantCli = "opencode"): { note: string; title: string } {
-  const via = `via ${assistantCliName(cli)}`;
+/**
+ * Sheet setup note + title for a checked executor row.
+ * The row's strong line already carries `via {CLI}` (UI-15: state the CLI once); the note is the check status only.
+ */
+export function executorSetupToolsCopy(liveTools: boolean | undefined, _cli: AssistantCli = "opencode"): { note: string; title: string } {
   if (liveTools) {
-    return { note: `${via} · checked · with pacer's live tools`, title: ASSISTANT_LIVE_TOOLS_PHRASE };
+    return { note: "checked · with pacer's live tools", title: ASSISTANT_LIVE_TOOLS_PHRASE };
   }
-  return { note: `${via} · checked · from pacer's summary`, title: ASSISTANT_SUMMARY_ONLY_PHRASE };
+  return { note: "checked · from pacer's summary", title: ASSISTANT_SUMMARY_ONLY_PHRASE };
 }
 /** True when a status/admission reason is an ask-mode check string (plain copy + technical details). */
 export function isAskModeCheckReason(raw: string | null | undefined): boolean {

@@ -86,11 +86,11 @@ test("assistant live-tools phrases are shared for Settings and the sheet", () =>
   expect(executorAssistantDescription(true, true)).toBe(`${ASSISTANT_LIVE_TOOLS_PHRASE} Slower; no extra key.`);
   expect(executorAssistantDescription(true, false)).toBe(`${ASSISTANT_SUMMARY_ONLY_PHRASE} Slower; no extra key.`);
   expect(executorSetupToolsCopy(true, "opencode")).toEqual({
-    note: "via OpenCode · checked · with pacer's live tools",
+    note: "checked · with pacer's live tools",
     title: ASSISTANT_LIVE_TOOLS_PHRASE,
   });
   expect(executorSetupToolsCopy(false, "claude-code")).toEqual({
-    note: "via Claude Code · checked · from pacer's summary",
+    note: "checked · from pacer's summary",
     title: ASSISTANT_SUMMARY_ONLY_PHRASE,
   });
   expect(assistantBackendChoiceLabel("claude-code", "executor", "claude-code")).toBe("claude-code · via Claude Code");

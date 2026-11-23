@@ -277,11 +277,12 @@ function AssistantSetup({ api, refresh }: { api: { call: <T>(op: string, params:
       const cli = account.cli ?? "opencode";
       const plain = askModeCheckCopy(account.reason);
       const tools = executorSetupToolsCopy(account.liveTools, cli);
-      const note = executor ? (ready ? tools.note : `via ${assistantCliName(cli)} · ${plain}`) : account.note;
+      // Strong line owns `via {CLI}` once (shared product name); the note is status only (UI-15).
+      const note = executor ? (ready ? tools.note : plain) : account.note;
       const noteTitle = executor && ready ? tools.title : note;
       return <div className="pc-assistant-setup__account" key={rowKey(account)}>
         <AgentMark agent={executor ? (agentKey(cli) ?? "opencode") : agentKey(markAgent(account.runners?.[0]?.id ?? account.account)) ?? "opencode"} size={16} labelled={false} />
-        <div className="pc-assistant-setup__name"><strong>{account.name}{executor ? ` · via ${assistantCliName(cli)}` : ""}</strong><span title={noteTitle}>{note}</span></div>
+        <div className="pc-assistant-setup__name"><strong>{executor ? `${account.name} · via ${assistantCliName(cli)}` : account.name}</strong><span title={noteTitle}>{note}</span></div>
         {ready
           ? <Button size="sm" variant={account === primary ? "primary" : "secondary"} busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void choose(account)}>Use {account.name}</Button>
           : <Button size="sm" busy={busy === rowKey(account)} disabled={!!busy} onClick={() => void check(account)}>Check {account.name}</Button>}
