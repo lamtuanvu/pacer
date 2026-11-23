@@ -9,11 +9,13 @@ rust-version.workspace = true
 [dependencies]
 pacer-foundation = { path = "../foundation", features = ["async"] }
 pacer-js-json = { path = "../js-json" }
+pacer-update = { path = "../update" }
 pacer-desktop-update = { path = "../desktop-update" }
 serde_json.workspace = true
 sha2 = "0.10"
 hex = "0.4"
 rand = "0.9"
+uuid = { version = "1", features = ["v4"] }
 tokio.workspace = true
 
 [target.'cfg(unix)'.dependencies]

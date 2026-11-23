@@ -1584,6 +1584,7 @@ dependencies = [
  "pacer-desktop-update",
  "pacer-foundation",
  "pacer-js-json",
+ "pacer-update",
  "rand 0.9.5",
  "security-framework",
  "serde_json",
@@ -1591,6 +1592,7 @@ dependencies = [
  "socket2",
  "tempfile",
  "tokio",
+ "uuid",
 ]
 
 [[package]]
