@@ -29,6 +29,8 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         .unwrap();
     let port = socket.local_addr().unwrap().port();
     let session = sessions::create(&ctx.at_now()).unwrap();
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core: core.clone(),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
@@ -40,6 +42,11 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
         forward_events: false,
+        core_build,
+        snapshot_cache,
+        forward_hello: false,
+        forward_snapshot: false,
+        forward_session_exchange: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
@@ -87,6 +94,25 @@ async fn public_listener_routes_static_and_forwards_fallbacks() {
             );
         }
     }
+    // Native meta routes answer without a core (no 502): `/v3/hello` and
+    // `/v3/snapshot` in JSON, `/v3/session/exchange` with 204 and a cookie.
+    let hello = request(port, "GET", "/v3/hello", bearer).await;
+    assert!(hello.starts_with("HTTP/1.1 200"), "{hello}");
+    assert!(hello.to_ascii_lowercase().contains("x-pacer: 1"), "{hello}");
+    let snapshot = request(port, "GET", "/v3/snapshot", bearer).await;
+    assert!(snapshot.starts_with("HTTP/1.1 200"), "{snapshot}");
+    let exchange = request(
+        port,
+        "POST",
+        "/v3/session/exchange",
+        "Authorization: Bearer token\r\nContent-Type: application/json\r\n",
+    )
+    .await;
+    assert!(exchange.starts_with("HTTP/1.1 204"), "{exchange}");
+    assert!(
+        exchange.to_ascii_lowercase().contains("set-cookie:"),
+        "{exchange}"
+    );
     let first = request(port, "GET", "/app/app.js", bearer).await;
     let etag = first
         .lines()
@@ -141,6 +167,8 @@ async fn host_effects_bridge_to_core_over_http() {
         "planner: claude-code\naccounts:\n  claude: {kind: claude}\nrunners:\n  claude-code: {}\nhosts:\n  dev:\n    ssh: dev.example.invalid\n    repos:\n      github.com/acme/app: ~/app\n",
     )
     .unwrap();
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core: core.clone(),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
@@ -152,6 +180,11 @@ async fn host_effects_bridge_to_core_over_http() {
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
         forward_events: false,
+        core_build,
+        snapshot_cache,
+        forward_hello: false,
+        forward_snapshot: false,
+        forward_session_exchange: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(
@@ -239,6 +272,8 @@ async fn public_listener_forwards_to_available_core() {
         .await
         .unwrap();
     let port = socket.local_addr().unwrap().port();
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&[], &HashMap::new()));
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core: core.clone(),
         heartbeat: Arc::new(heartbeat::Heartbeat::new()),
@@ -250,6 +285,11 @@ async fn public_listener_forwards_to_available_core() {
         plugins: crate::native::plugins::Service::default(),
         forward_log_follow: false,
         forward_events: false,
+        core_build,
+        snapshot_cache,
+        forward_hello: false,
+        forward_snapshot: false,
+        forward_session_exchange: false,
     });
     let server = tokio::spawn(async move {
         axum::serve(

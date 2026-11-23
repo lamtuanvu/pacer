@@ -395,7 +395,7 @@ async function serve(dir: string, forward: boolean, cwd = dir) {
   for (let n = 0; n < 1000 && !up; n++) {
     try {
       token = readFileSync(join(dir, ".pacer/token"), "utf8").trim();
-      up = (await fetch(base + "/v3/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
+      up = (await fetch(base + "/v2/hello", { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok;
     } catch {}
     if (!up) await Bun.sleep(20);
   }

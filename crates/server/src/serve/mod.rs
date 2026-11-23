@@ -19,6 +19,10 @@ mod log_sse;
 #[cfg(test)]
 #[path = "tests/log_sse.rs"]
 mod log_sse_tests;
+pub mod meta_routes;
+#[cfg(test)]
+#[path = "tests/meta_routes.rs"]
+mod meta_routes_tests;
 #[cfg(target_os = "macos")]
 mod native_bootstrap;
 #[cfg(target_os = "macos")]
@@ -35,6 +39,7 @@ pub mod native_listener;
 #[cfg(target_os = "macos")]
 pub mod native_trust;
 pub mod proxy;
+mod read_cache;
 pub mod sessions;
 pub mod ws;
 
@@ -84,6 +89,11 @@ struct Listener {
     plugins: crate::native::plugins::Service,
     forward_log_follow: bool,
     forward_events: bool,
+    core_build: Arc<meta_routes::CoreBuild>,
+    snapshot_cache: Arc<read_cache::ReadCache>,
+    forward_hello: bool,
+    forward_snapshot: bool,
+    forward_session_exchange: bool,
 }
 async fn forward_plugin_read(
     state: &Listener,
@@ -775,6 +785,11 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
             // Mutations must not replay after a native prepare/effect path.
             return forward_plugin_read(&state, parts, bytes, auth).await;
         }
+        if matches!(op.name, "mode.hold" | "mode.release") && result.is_ok() {
+            // The mode just changed; the snapshot's status is stale until it is
+            // rebuilt (src/serve/http.ts).
+            let _ = state.snapshot_cache.refresh_after_pending().await;
+        }
         return match result {
             Ok(result) if plugin => {
                 plugin_json(StatusCode::OK, serde_json::json!({"result":result}))
@@ -850,6 +865,10 @@ async fn handle(State(state): State<Arc<Listener>>, req: Request<Body>) -> Respo
         )
         .await;
     }
+    if let Some(response) = meta_routes::route(&state, &ctx, req.uri().path(), &req.method()).await
+    {
+        return response;
+    }
     if let Some(response) = app_assets::route(&req) {
         return response;
     }
@@ -917,6 +936,15 @@ pub async fn run_serve(
     let forward_events = forward
         .split(',')
         .any(|name| js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.events");
+    let forward_hello = forward
+        .split(',')
+        .any(|name| js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.hello");
+    let forward_snapshot = forward
+        .split(',')
+        .any(|name| js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.snapshot");
+    let forward_session_exchange = forward.split(',').any(|name| {
+        js_trim::js_trim(name) == "*" || js_trim::js_trim(name) == "http.session_exchange"
+    });
     let token = auth::ensure_token(&ctx)?;
     let listener = tokio::net::TcpListener::bind((std::net::Ipv4Addr::LOCALHOST, port)).await?;
     let port = listener.local_addr()?.port();
@@ -946,6 +974,7 @@ pub async fn run_serve(
         println!("{}", serde_json::json!({"port":port}));
     }
     crate::core_process::record_serve(&env);
+    let core_build = Arc::new(meta_routes::CoreBuild::from_core(&core, &env));
     #[cfg(target_os = "macos")]
     let core = Arc::new(match &native {
         Some(native) => core_child::CoreChild::spawn_native(core, env, owner_key, native.clone()),
@@ -977,6 +1006,7 @@ pub async fn run_serve(
             disabled: std::env::var("PACER_DISCOVERY").as_deref() == Ok("off"),
         },
     );
+    let snapshot_cache = meta_routes::snapshot_cache(core.clone(), ctx.clone());
     let state = Arc::new(Listener {
         core,
         heartbeat: beats,
@@ -988,6 +1018,11 @@ pub async fn run_serve(
         plugins,
         forward_log_follow,
         forward_events,
+        core_build,
+        snapshot_cache,
+        forward_hello,
+        forward_snapshot,
+        forward_session_exchange,
     });
     let app = Router::new()
         .fallback(any(handle))
@@ -1014,6 +1049,7 @@ pub async fn run_serve(
     // Stop long-lived SSE/WebSocket connections as well as accepting new ones.
     server.abort();
     let _ = server.await;
+    state.snapshot_cache.stop();
     probe.abort();
     // Withdraw the advert with goodbye packets before the core stops.
     radio.stop().await;
