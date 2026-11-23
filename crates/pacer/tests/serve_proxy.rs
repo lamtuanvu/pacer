@@ -132,7 +132,9 @@ fn forwards_http_sse_limits_and_recovers_core() {
     let server = Server { child, port, home };
     let deadline = Instant::now() + Duration::from_secs(20);
     loop {
-        if String::from_utf8_lossy(&request(&server, "/v3/hello", &[]).stdout).ends_with("200") {
+        // `/v3/hello` now answers natively before the core is up, so gate the
+        // boot on `/v2/hello` forwarding to the core instead.
+        if String::from_utf8_lossy(&request(&server, "/v2/hello", &[]).stdout).ends_with("200") {
             break;
         }
         assert!(Instant::now() < deadline, "core never became ready");
@@ -157,7 +159,11 @@ fn forwards_http_sse_limits_and_recovers_core() {
     }
     for path in ["/v2/hello", "/v3/hello"] {
         let response = request(&server, path, &[]);
-        assert!(String::from_utf8_lossy(&response.stdout).ends_with("200"));
+        assert!(
+            String::from_utf8_lossy(&response.stdout).ends_with("200"),
+            "{path}: {}",
+            String::from_utf8_lossy(&response.stdout)
+        );
     }
     let expected = Command::new(&bun).current_dir(&repo).args(["--eval", "import {helloBody} from './src/api/protocol'; console.log(JSON.stringify(helloBody()))"]).output().unwrap();
     assert!(expected.status.success());
@@ -244,13 +250,16 @@ finally{ws.close();peer?.destroy();unix.close();}
             .success()
     );
     std::thread::sleep(Duration::from_millis(100));
+    // `/v3/hello` answers natively even while the core restarts, so observe
+    // the 502-before-recovery and recovery via `/v2/hello`, which still
+    // proxies to the core.
     assert_eq!(
-        String::from_utf8_lossy(&request(&server, "/v3/hello", &[]).stdout),
+        String::from_utf8_lossy(&request(&server, "/v2/hello", &[]).stdout),
         "pacer core is restarting\n\n502"
     );
     let deadline = Instant::now() + Duration::from_secs(10);
     loop {
-        if String::from_utf8_lossy(&request(&server, "/v3/hello", &[]).stdout).ends_with("200") {
+        if String::from_utf8_lossy(&request(&server, "/v2/hello", &[]).stdout).ends_with("200") {
             break;
         }
         assert!(Instant::now() < deadline);

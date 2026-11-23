@@ -143,7 +143,7 @@ async function http(dir: string, forward: boolean) {
     for (let n = 0; n < 500 && !token; n++) {
       try {
         const candidate = readFileSync(join(dir, ".pacer", "token"), "utf8").trim();
-        if ((await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${candidate}` }, signal: AbortSignal.timeout(500) })).ok) token = candidate;
+        if ((await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${candidate}` }, signal: AbortSignal.timeout(500) })).ok) token = candidate;
       } catch {}
       if (!token) await Bun.sleep(20);
     }

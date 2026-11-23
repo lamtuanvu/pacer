@@ -1,10 +1,11 @@
 import { childEnv, fakeServiceManager } from "./child-env";
 import { expect, test } from "bun:test";
-import { cpSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { cpSync, mkdirSync, mkdtempSync, readFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { callOp } from "../src/api/ops";
 import { fakeCtx } from "./helpers";
+import { closedPort, pinnedEnv as pinnedPort, spawnPinned } from "./pinned-port";
 import { createTask, updateTask } from "../src/tasks/store";
 import type { TaskState } from "../src/tasks/types";
 
@@ -12,6 +13,64 @@ const front = process.env.PACER_TEST_NATIVE_FRONT_DOOR;
 const core = JSON.stringify([process.execPath, join(import.meta.dir, "../src/cli.ts")]);
 // Agent detection must not depend on what the host has installed; keep the preload's keychain stub first.
 const agentFreePath = `${join(process.env.HOME!, "bin")}:/usr/bin:/bin`;
+
+/** Boot a Rust serve door and GET `/v3/snapshot`, optionally forced through the core. */
+async function httpSnapshot(home: string, forward: boolean) {
+  const port = closedPort();
+  const env = pinnedPort({
+    ...childEnv(home),
+    PATH: `${fakeServiceManager(home)}:${agentFreePath}`,
+    PACER_CORE_ARGV: core,
+    PACER_NO_UPDATE_CHECK: "1",
+    PACER_NO_SELF_REPAIR: "1",
+    PACER_DISCOVERY: "off",
+    PACER_DEBUG_NATIVE: "1",
+    ...(forward ? { PACER_FORWARD_OPS: "http.snapshot" } : {}),
+  }, port);
+  const child = spawnPinned([front!, "serve", "--port", String(port)], {
+    env,
+    stdin: "ignore",
+    stdout: "ignore",
+    stderr: "pipe",
+  });
+  const stderr = new Response(child.stderr).text();
+  const base = `http://127.0.0.1:${port}`;
+  let token = "";
+  try {
+    for (let n = 0; n < 1000; n++) {
+      try {
+        token = readFileSync(join(home, ".pacer", "token"), "utf8").trim();
+        // Parity compares against the Core-backed body, so wait until Core can
+        // answer even for the native door (otherwise the read cache can freeze a
+        // cold "starting" projection before the first status lands).
+        const probe = await fetch(`${base}/v2/hello`, {
+          headers: { Authorization: `Bearer ${token}` },
+          signal: AbortSignal.timeout(500),
+        });
+        if (probe.ok) break;
+      } catch {}
+      await Bun.sleep(20);
+    }
+    expect(token).not.toBe("");
+    const response = await fetch(`${base}/v3/snapshot`, {
+      headers: { Authorization: `Bearer ${token}` },
+      signal: AbortSignal.timeout(10_000),
+    });
+    expect(response.status).toBe(200);
+    expect(response.headers.get("x-pacer")).toBe("1");
+    return await response.json() as { protocol?: string; seq?: number; snapshot?: Record<string, unknown> };
+  } finally {
+    if (child.exitCode === null) {
+      child.kill("SIGTERM");
+      await Promise.race([child.exited, Bun.sleep(5000)]);
+      if (child.exitCode === null) {
+        child.kill("SIGKILL");
+        await child.exited;
+      }
+    }
+    await stderr;
+  }
+}
 
 async function exchange(home: string, forward: boolean) {
   const request = JSON.stringify({ jsonrpc: "2.0", id: 2, method: "snapshot.get", params: {} });
@@ -105,6 +164,36 @@ test.skipIf(!front)("snapshot.get matches forced forwarding over stdio", async (
       normalize({ ...reply?.result, snapshot: stripVolatile(reply?.result?.snapshot ?? {}) });
     expect(norm(native)).toEqual(norm(forwarded));
     expect(norm(native)).toEqual(normalize({ ...reference, snapshot: stripVolatile(reference.snapshot as Record<string, unknown>) }));
+  } finally {
+    rmSync(nativeHome, { recursive: true, force: true });
+    rmSync(forwardHome, { recursive: true, force: true });
+  }
+}, 120_000);
+
+test.skipIf(!front)("GET /v3/snapshot matches forced http.snapshot forwarding on the Rust door", async () => {
+  const ctx = fakeCtx({ which: () => null });
+  mkdirSync(join(ctx.pacerHome, "state"), { recursive: true, mode: 0o700 });
+  mkdirSync(join(ctx.pacerHome, "link"), { recursive: true, mode: 0o700 });
+  const nativeHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-http-native-"));
+  const forwardHome = mkdtempSync(join(tmpdir(), "pacer-snapshot-http-forward-"));
+  cpSync(ctx.home, nativeHome, { recursive: true });
+  cpSync(ctx.home, forwardHome, { recursive: true });
+  try {
+    const native = await httpSnapshot(nativeHome, false);
+    const forwarded = await httpSnapshot(forwardHome, true);
+    // Wire contract both doors own: protocol-3 envelope + service projection.
+    // Full snapshot-tree equality for the `snapshot.get` op (stdio) is covered
+    // above; the HTTP liveSnapshot tree can still differ on planner/setup while
+    // Core status is warming, so this route assertion stays on the envelope.
+    expect(native.protocol).toBe("3.0.0");
+    expect(forwarded.protocol).toBe("3.0.0");
+    expect(typeof native.seq).toBe("number");
+    expect(typeof forwarded.seq).toBe("number");
+    expect(native.snapshot?.service).toBeDefined();
+    expect(forwarded.snapshot?.service).toBeDefined();
+    expect(Object.keys(stripVolatile(native.snapshot ?? {})).sort()).toEqual(
+      Object.keys(stripVolatile(forwarded.snapshot ?? {})).sort(),
+    );
   } finally {
     rmSync(nativeHome, { recursive: true, force: true });
     rmSync(forwardHome, { recursive: true, force: true });

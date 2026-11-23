@@ -337,7 +337,7 @@ async function up(h: Home, port: number, child: { exitCode: number | null }) {
   for (let i = 0; i < 500 && child.exitCode === null; i++) {
     try {
       const token = readFileSync(join(h.state, "token"), "utf8").trim();
-      if ((await fetch(`http://127.0.0.1:${port}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) return true;
+      if ((await fetch(`http://127.0.0.1:${port}/v2/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) })).ok) return true;
     } catch { /* not yet */ }
     await Bun.sleep(20);
   }

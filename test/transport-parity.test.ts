@@ -113,7 +113,7 @@ test.skipIf(!supplied)("released Rust and Bun transports preserve stdio, HTTP au
     while (Date.now() < deadline) {
       try {
         const token = readFileSync(join(env.PACER_HOME, "token"), "utf8").trim();
-        const ready = await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
+        const ready = await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(1000) });
         if (ready.ok) { await ready.arrayBuffer(); return { base, port, token, child, env }; }
         await ready.arrayBuffer();
       } catch {}

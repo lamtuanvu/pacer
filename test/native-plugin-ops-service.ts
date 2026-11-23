@@ -42,7 +42,7 @@ export async function service(forward = "", homeKind = "absolute", options: { na
     for (let i = 0; i < 500; i++) {
       try {
         token = readFileSync(join(state, "token"), "utf8").trim();
-        const response = await fetch(`${base}/v3/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
+        const response = await fetch(`${base}/v2/hello`, { headers: { Authorization: `Bearer ${token}` }, signal: AbortSignal.timeout(500) });
         if (response.ok) break;
       } catch { /* Wait for this owned child only. */ }
       if (child.exitCode !== null) throw Error(await logs);
