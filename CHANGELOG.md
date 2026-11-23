@@ -4,6 +4,10 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 
 ## [Unreleased]
 
+### Added
+
+- **Native `pacer-classify` plugin and the Rust SDK's `Host::http`.** `pacer-classify` now runs as a native Rust bundled plugin (the same `classifier.adapters` and `classifier.ask` behavior as the TypeScript plugin), served through the native plugin owner; `capability.net.http` and the pipelined `httpBodyChunks` transfer are exposed on the plugin SDK as `pacer-plugin` 0.5.0 (`Host::http`). `pacer-plugin-assistant-protocol` is at 0.4.0; the other generated protocol crates stay at 0.3.0.
+
 ## [0.17.9] - 2026-11-23
 
 ### Added
