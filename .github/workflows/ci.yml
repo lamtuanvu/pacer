@@ -624,7 +624,7 @@ jobs:
           desktop/scripts/stage-cli.sh "$stub/pacer" "$stub/pacer-core" "$stub/pacer-assistant-pacer"
           cargo test --locked --bin pacer --manifest-path desktop/src-tauri/Cargo.toml
       - name: Test Rust plugin SDK harness feature
-        run: cargo test -p pacer-plugin --features testing --locked
+        run: cargo test -p pacer-plugin --all-features --locked
       - name: Plugin conformance through the Rust front door
         run: |
           cargo build -p pacer -p pacer-fixtures --locked

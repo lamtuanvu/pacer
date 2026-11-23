@@ -128,6 +128,9 @@ layer = "plugin"
 [crates.pacer-bundled-notify]
 layer = "plugin"
 
+[crates.pacer-bundled-usage]
+layer = "plugin"
+
 [crates.pacer-bundled-remote-caller]
 layer = "plugin"
 

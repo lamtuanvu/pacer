@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.5.0"
+version = "0.6.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -13,6 +13,7 @@ rust-version.workspace = true
 
 [features]
 testing = []
+usage = []
 
 [dependencies]
 pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.3.0" }
@@ -42,6 +43,10 @@ required-features = ["testing"]
 [[test]]
 name = "wire_parity"
 required-features = ["testing"]
+
+[[test]]
+name = "usage"
+required-features = ["usage", "testing"]
 
 [[test]]
 name = "js"

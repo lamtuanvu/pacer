@@ -3,7 +3,8 @@
 //! Requires `--features testing` (for `Host::set_frame_limit_for_test`).
 
 use pacer_plugin::{
-    Manifest, Plugin, js::base64,
+    Manifest, Plugin,
+    js::base64,
     testing::{Harness, HelloSpec},
 };
 use serde_json::{Value, json};
@@ -76,7 +77,9 @@ fn base_capabilities(h: &mut Harness) {
         let length = p.get("length").and_then(Value::as_u64).unwrap_or(0) as usize;
         Ok(json!({ "base64": base64::encode(&vec![0u8; length][..]) }))
     });
-    h.on_capability("capability.net.http.body.release", |_| Ok(json!({ "ok": true })));
+    h.on_capability("capability.net.http.body.release", |_| {
+        Ok(json!({ "ok": true }))
+    });
     h.on_capability("capability.net.http", |_| {
         Ok(json!({ "status": 200, "headers": {}, "body": "ok" }))
     });
@@ -146,11 +149,7 @@ async fn wait_observed(h: &Harness, pred: impl Fn(&(String, Value)) -> bool) {
 
 /// Wait (polling, because the plugin runs on its own task) until `pred` holds
 /// over the recorded capability calls, then cancel the owning call.
-async fn wait_then_cancel(
-    h: &Harness,
-    id: &str,
-    mut pred: impl FnMut(&(String, Value)) -> bool,
-) {
+async fn wait_then_cancel(h: &Harness, id: &str, mut pred: impl FnMut(&(String, Value)) -> bool) {
     for _ in 0..500 {
         if h.capability_calls().iter().any(&mut pred) {
             h.cancel(id);
@@ -196,7 +195,9 @@ async fn multibyte_4mib_body_stages_complete_bytes() {
         .capability_calls()
         .iter()
         .filter(|(m, _)| m.ends_with(".stageChunk"))
-        .map(|(_, p)| base64::decode_lenient(p.get("base64").and_then(Value::as_str).unwrap_or("")).len())
+        .map(|(_, p)| {
+            base64::decode_lenient(p.get("base64").and_then(Value::as_str).unwrap_or("")).len()
+        })
         .sum();
     assert_eq!(staged, body.as_bytes().len());
     h.close().await;
@@ -215,7 +216,9 @@ async fn nul_expansion_uses_chunks() {
         .unwrap();
     assert_eq!(r["ok"], true);
     assert!(
-        h.capability_calls().iter().any(|(m, _)| m.ends_with(".begin")),
+        h.capability_calls()
+            .iter()
+            .any(|(m, _)| m.ends_with(".begin")),
         "NUL JSON expansion must stage via body.begin"
     );
     h.close().await;
@@ -233,7 +236,10 @@ async fn oversized_metadata_rejected_before_any_call() {
         .await
         .unwrap();
     assert_eq!(r["ok"], false);
-    assert_eq!(r["message"], "HTTP oversized request requires httpBodyChunks");
+    assert_eq!(
+        r["message"],
+        "HTTP oversized request requires httpBodyChunks"
+    );
     assert!(h.capability_calls().is_empty());
     h.close().await;
 }
@@ -250,7 +256,10 @@ async fn feature_absence_refuses_before_begin() {
         .await
         .unwrap();
     assert_eq!(r["ok"], false);
-    assert_eq!(r["message"], "HTTP oversized request requires httpBodyChunks");
+    assert_eq!(
+        r["message"],
+        "HTTP oversized request requires httpBodyChunks"
+    );
     assert!(h.capability_calls().is_empty());
     h.close().await;
 }
@@ -322,13 +331,19 @@ async fn response_4mib_roundtrips_multibyte_split() {
         let released = released.clone();
         h.on_capability("capability.net.http.body.release", move |p| {
             released.lock().unwrap().push(
-                p.get("handle").and_then(Value::as_str).unwrap_or_default().to_string(),
+                p.get("handle")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             Ok(json!({ "ok": true }))
         });
     }
     let r = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(r["ok"], true);
@@ -358,17 +373,28 @@ async fn invalid_utf8_expansion_refuses_and_releases() {
         let released = released.clone();
         h.on_capability("capability.net.http.body.release", move |p| {
             released.lock().unwrap().push(
-                p.get("handle").and_then(Value::as_str).unwrap_or_default().to_string(),
+                p.get("handle")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             Ok(json!({ "ok": true }))
         });
     }
     let r = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(r["ok"], false);
-    assert!(r["message"].as_str().unwrap_or_default().contains("decoded"));
+    assert!(
+        r["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("decoded")
+    );
     assert_eq!(*released.lock().unwrap(), vec!["down"]);
     h.close().await;
 }
@@ -382,7 +408,10 @@ async fn abort_after_begin_releases_and_never_sends_http() {
         let released = released.clone();
         h.on_capability("capability.net.http.body.release", move |p| {
             released.lock().unwrap().push(
-                p.get("handle").and_then(Value::as_str).unwrap_or_default().to_string(),
+                p.get("handle")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             Ok(json!({ "ok": true }))
         });
@@ -424,11 +453,19 @@ async fn cleanup_failure_cannot_return_success() {
         Err(("internal".to_string(), "cleanup failure".to_string()))
     });
     let r = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(r["ok"], false);
-    assert!(r["message"].as_str().unwrap_or_default().contains("cleanup failure"));
+    assert!(
+        r["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("cleanup failure")
+    );
     h.close().await;
 }
 
@@ -446,13 +483,19 @@ async fn noncanonical_response_base64_rejects_and_releases() {
         let released = released.clone();
         h.on_capability("capability.net.http.body.release", move |p| {
             released.lock().unwrap().push(
-                p.get("handle").and_then(Value::as_str).unwrap_or_default().to_string(),
+                p.get("handle")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             Ok(json!({ "ok": true }))
         });
     }
     let r = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(r["ok"], false);
@@ -477,13 +520,19 @@ async fn owning_deadline_abort_releases_response_handle() {
         let released = released.clone();
         h.on_capability("capability.net.http.body.release", move |p| {
             released.lock().unwrap().push(
-                p.get("handle").and_then(Value::as_str).unwrap_or_default().to_string(),
+                p.get("handle")
+                    .and_then(Value::as_str)
+                    .unwrap_or_default()
+                    .to_string(),
             );
             Ok(json!({ "ok": true }))
         });
     }
     let id = h
-        .start_call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":1}}))
+        .start_call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":1}}),
+        )
         .unwrap();
     wait_then_cancel(&h, &id, |c| c.0.ends_with(".readChunk")).await;
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -519,20 +568,33 @@ async fn queue_advances_after_first_failure() {
         Err(("internal".into(), "first failed".into()))
     });
     let first = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(first["ok"], false);
-    assert!(first["message"].as_str().unwrap_or_default().contains("first failed"));
+    assert!(
+        first["message"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("first failed")
+    );
     let second = h
-        .call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .await
         .unwrap();
     assert_eq!(second["ok"], true);
     assert_eq!(second["body"], "second");
     let order: Vec<String> = method_calls(&h)
         .into_iter()
-        .filter(|m| m == "capability.net.http" || m.ends_with(".readChunk") || m.ends_with(".release"))
+        .filter(|m| {
+            m == "capability.net.http" || m.ends_with(".readChunk") || m.ends_with(".release")
+        })
         .collect();
     assert_eq!(
         order,
@@ -556,13 +618,19 @@ async fn queued_abort_rejects_with_no_effects() {
         std::future::pending().await
     });
     let first = h
-        .start_call("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .start_call(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .unwrap();
     // Wait until the first call is inside `capability.net.http` (holding the
     // queue), then queue the second and abort it before it can acquire.
     wait_observed(&h, |(m, _)| m == "capability.net.http").await;
     let second = h
-        .start_call_unowned("test.http", json!({"request":{"url":"x","method":"GET","timeoutMs":10}}))
+        .start_call_unowned(
+            "test.http",
+            json!({"request":{"url":"x","method":"GET","timeoutMs":10}}),
+        )
         .unwrap();
     h.cancel(&second);
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -578,7 +646,10 @@ async fn queued_abort_rejects_with_no_effects() {
                 .filter(|m| m.contains("ended"))
         })
         .collect();
-    assert!(!codes.is_empty(), "queued call must abort with owning plugin call ended");
+    assert!(
+        !codes.is_empty(),
+        "queued call must abort with owning plugin call ended"
+    );
     assert_eq!(
         h.capability_calls()
             .iter()

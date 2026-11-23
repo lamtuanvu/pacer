@@ -3,7 +3,7 @@
 //!
 //! Not feature-gated because it is core TypeScript SDK API.
 
-use crate::{FEATURE_HTTP_BODY_CHUNKS, Host, PluginError, js, host};
+use crate::{FEATURE_HTTP_BODY_CHUNKS, Host, PluginError, host, js};
 use serde_json::{Map, Value, json};
 use std::collections::HashSet;
 use std::sync::atomic::Ordering;
@@ -84,10 +84,7 @@ impl Host {
     fn negotiated(&self) -> bool {
         match self.state.read() {
             Ok(s) => s.negotiated.contains(FEATURE_HTTP_BODY_CHUNKS),
-            Err(e) => e
-                .into_inner()
-                .negotiated
-                .contains(FEATURE_HTTP_BODY_CHUNKS),
+            Err(e) => e.into_inner().negotiated.contains(FEATURE_HTTP_BODY_CHUNKS),
         }
     }
 
@@ -132,10 +129,10 @@ async fn execute_once(host: &Host, request: Value) -> Result<HttpResponse, Plugi
         .get("body")
         .and_then(Value::as_str)
         .map(|s| s.as_bytes().to_vec());
-    if let Some(b) = &bytes {
-        if b.len() > BODY {
-            return Err(internal("HTTP body exceeds 4MiB UTF8"));
-        }
+    if let Some(b) = &bytes
+        && b.len() > BODY
+    {
+        return Err(internal("HTTP body exceeds 4MiB UTF8"));
     }
     let mut upload: Option<String> = None;
     let mut download: Option<String> = None;
@@ -221,10 +218,7 @@ async fn send(
                 )
                 .await?;
             let expected = offset + part.len();
-            let got = ack
-                .get("bytes")
-                .and_then(Value::as_u64)
-                .map(|v| v as usize);
+            let got = ack.get("bytes").and_then(Value::as_u64).map(|v| v as usize);
             if got != Some(expected) {
                 return Err(internal("invalid HTTP upload acknowledgement"));
             }
@@ -284,7 +278,7 @@ async fn send(
         }
         None => return Err(internal("invalid HTTP response body descriptor")),
     };
-    if body.as_bytes().len() > BODY {
+    if body.len() > BODY {
         return Err(internal("decoded HTTP response exceeds 4MiB UTF8"));
     }
     Ok(HttpResponse {
