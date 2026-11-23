@@ -11,19 +11,20 @@ function setup() {
   return { ctx, userData };
 }
 
-test("plugin subcommands other than uninstall explain the plugin was removed", async () => {
+test("plugin install/update/status route to the orca CLI; `set` is gone", async () => {
   const { ctx } = setup();
-  for (const args of [["install"], ["status"], ["set", "port", "4317"]]) {
-    const r = await main(["plugin", ...args], ctx);
-    expect(r.code).toBe(2);
-    expect(r.err).toContain("no longer ships an Orca plugin");
-    expect(r.err).toContain("pacer plugin uninstall");
-  }
-  expect(existsSync(join(ctx.pacerHome, "orca-plugin"))).toBe(false);
-  // Bare `pacer plugin` now belongs to the plugin system; its usage still points at the Orca cleanup.
+  // Bare `pacer plugin` belongs to the plugin system; its usage still lists the Orca verbs.
   const bare = await main(["plugin"], ctx);
   expect(bare.code).toBe(2);
-  expect(bare.err).toContain("pacer plugin uninstall");
+  expect(bare.err).toContain("uninstall");
+  // Plugin settings are edited in Orca's own Settings UI, not bridged through pacer.
+  const set = await main(["plugin", "set", "port", "4317"], ctx);
+  expect(set.code).toBe(2);
+  // install shells out to the orca CLI; a failing call surfaces the error and never self-installs.
+  const r = await main(["plugin", "install"], ctx);
+  expect(r.code).toBe(1);
+  expect(r.err).toContain("orca plugin install failed");
+  expect(existsSync(join(ctx.pacerHome, "orca-plugin"))).toBe(false);
 });
 
 test("plugin uninstall removes an earlier install, its panel and both storage keys", async () => {

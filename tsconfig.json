@@ -21,6 +21,7 @@
     "conformance"
   ],
   "exclude": [
-    "test/**/*.tsx"
+    "test/**/*.tsx",
+    "plugins/orca-panel/**"
   ]
 }

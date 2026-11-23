@@ -299,13 +299,33 @@ option. If the binary is inside `PACER_HOME`, removal requires `--binary`.
 `--json` returns `{plan, results}`; prompts and errors use stderr.
 Existing `pacer uninstall <planner>` remains available for a single integration.
 
-pacer no longer ships an Orca plugin. `pacer plugin uninstall` removes one that an
-earlier version installed: its files, its install record and pacer's keys in Orca's
-plugin storage.
+## Orca panel plugin
+
+`pacer plugin install|update|status|uninstall` manage pacer's own Orca panel
+(the files under `plugins/orca-panel`, also shipped inside the macOS desktop app
+at `Contents/Resources/orca-panel`). Prefer Settings › Apps in the desktop app;
+these commands are the terminal path.
+
+```sh
+pacer plugin install
+pacer plugin install --approve <fingerprint>
+pacer plugin update
+pacer plugin status
+pacer plugin uninstall
+```
+
+`install` and `update` call the `orca` CLI with argv arrays (no shell). When Orca
+needs approval they exit 3, print what Orca will grant in plain words, and print
+the exact `pacer plugin install --approve <fingerprint>` retry. pacer never
+approves on its own. `uninstall` also cleans leftovers from the pre-0.5.0
+marketplace plugin; it does not remove other Orca plugins.
+
+npm and Homebrew packages do not yet bundle the panel files; from those installs
+use a source checkout or the desktop app.
 
 ## Plugins (unreleased)
 
-Plugin management is separate from the retired Orca plugin:
+pacer's own plugin host (usage readers, executors, …) is separate from the Orca panel:
 
 ```sh
 pacer plugin list --json

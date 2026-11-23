@@ -989,6 +989,127 @@ Params JSON Schema:
 }
 ```
 
+### `apps.add`
+
+Add pacer to a host app. Without approve, returns approval_required with fingerprint and grants; with approve, finishes only for that exact fingerprint. Concurrent adds are arbitrated by Orca's approval fingerprint; pacer keeps no state of its own for them.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "approve": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `apps.list`
+
+Host apps pacer can add itself to (today: Orca), with detect/status for each card.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `apps.open`
+
+Show pacer's panel in a host app (Orca: plugin open --panel pacer).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `apps.remove`
+
+Remove pacer's own integration from a host app. Never touches other plugins. Concurrent removes are arbitrated by Orca; pacer keeps no state of its own for them.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `apps.update`
+
+Update pacer's integration in a host app. May return approval_required like apps.add. Concurrent updates are arbitrated by Orca's approval fingerprint; pacer keeps no state of its own for them.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "approve": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `assistant.ask`
 
 Ask the assistant one question. The answer streams from /v3/assistant/turns/<turnId>/stream; nothing runs until the user confirms a proposed action.

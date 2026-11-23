@@ -21,6 +21,7 @@ export const SETTINGS_PAGES: readonly SettingsPage[] = [
   { id: 'planner', label: 'Budget & pacing', icon: 'settings-budget', group: 'dispatch', description: 'The planner, how work spreads and the reserve kept for planning.' },
   { id: 'machine', label: 'Machines', icon: 'settings-machines', group: 'dispatch', description: 'Parallel tasks and the terminal used on this machine.' },
   { id: 'plugins', label: 'Plugins', icon: 'settings-plugins', group: 'extend', description: 'Add capabilities and choose where they appear.' },
+  { id: 'apps', label: 'Apps', icon: 'settings-apps', group: 'extend', description: 'Show pacer inside the apps you work in.' },
   { id: 'app', label: 'App preferences', icon: 'settings-app', group: 'app', description: 'Updates, notifications and appearance.' },
   { id: 'diagnostics', label: 'Diagnostics', icon: 'settings-diagnostics', group: 'app', description: 'Check setup and repair supported integrations.' },
 ];

@@ -182,7 +182,8 @@ test("doctor reads diagnostics without repairing and retired panel install refus
   expect(result.checks.find(check => check.name === "Strategy")?.level).toBe("fail");
   expect(existsSync(join(ctx.pacerHome, "install-manifest.json"))).toBe(false);
   expect(() => pluginInstall()).toThrow("pacer no longer ships an Orca plugin");
-  expect((await pluginCli(["install"], ctx)).code).toBe(2);
+  expect(await pluginCli(["install"], ctx)).toMatchObject({ code: 1 });
+  expect((await pluginCli(["install"], ctx)).err).toContain("orca plugin install failed");
   expect((await pluginCli(["uninstall"], ctx)).code).toBe(1);
 });
 
