@@ -1,6 +1,6 @@
 [package]
 name = "pacer-plugin"
-version = "0.4.0"
+version = "0.6.0"
 publish = true
 description = "The Rust plugin SDK for pacer, implementing the @pacer/plugin wire contract."
 readme = "README.md"
@@ -13,6 +13,7 @@ rust-version.workspace = true
 
 [features]
 testing = []
+usage = []
 
 [dependencies]
 pacer-plugin-agent-session-protocol = { path = "../plugin-agent-session-protocol", version = "0.3.0" }
@@ -26,6 +27,7 @@ serde.workspace = true
 serde_json.workspace = true
 tokio.workspace = true
 tokio-util = { workspace = true, features = ["rt"] }
+ryu-js = "1"
 
 [lints]
 workspace = true
@@ -33,3 +35,18 @@ workspace = true
 [[test]]
 name = "harness"
 required-features = ["testing"]
+
+[[test]]
+name = "http"
+required-features = ["testing"]
+
+[[test]]
+name = "wire_parity"
+required-features = ["testing"]
+
+[[test]]
+name = "usage"
+required-features = ["usage", "testing"]
+
+[[test]]
+name = "js"
