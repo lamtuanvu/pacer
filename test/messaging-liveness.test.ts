@@ -208,6 +208,15 @@ test("a human-controlled or testing run is never silent_prompt", () => {
   expect(analyzeLiveness(snap({ tasks: [node(working("driving", { progress: { ...base, phase: "driving" } as TaskRecord["progress"] }), { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
 });
 
+test("a takeover run at needs-input is never silent_prompt", () => {
+  const t = working("needs-input", {
+    attemptStartedAt: NOW - 700,
+    progress: { phase: "needs-input", lastOutputAt: NOW - 700, lastChangeAt: NOW - 3600, gitObserved: true } as TaskRecord["progress"],
+    run: { dir: "/tmp/x", attempt: 1, executor: "codex", startedAt: NOW - 700, mode: "new", workdir: "/tmp/w", logFile: "/dev/null", takeover: true } as TaskRecord["run"],
+  });
+  expect(analyzeLiveness(snap({ tasks: [node(t, { silentSince: NOW - 700 })] }), NOW)).toEqual([]);
+});
+
 test("a task in pacer's acceptance testing phase is never no_progress", () => {
   expect(analyzeLiveness(snap({ tasks: [node(working("testing"), { lastProgressAt: NOW - 7200 })] }), NOW)).toEqual([]);
   // A run stuck starting is still flagged.
