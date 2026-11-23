@@ -19,7 +19,38 @@ test("levels filter attention and keys include since with at most two actions", 
  expect(toNotify([setup,failed],"all",{})).toHaveLength(2);
  expect(toNotify([failed,failed],"important",{})).toHaveLength(1);
  expect(toNotify([failed],"important",{"failed:t-1:100":101})).toEqual([]);
+ // Without a now clock, cooldown does not apply; a new since is still a new key.
  expect(toNotify([item({since:102})],"important",{"failed:t-1:100":101})).toHaveLength(1);
+});
+
+test("flapping item is not re-notified within cooldown even when since changes", () => {
+  const now = 10_000;
+  expect(toNotify([item({ since: 200 })], "important", { "failed:t-1:100": now - 60 }, now)).toEqual([]);
+  expect(toNotify([item({ since: 200 })], "important", { "failed:t-1:100": now - 30 * 60 - 1 }, now)).toHaveLength(1);
+});
+
+test("multi-item task yields one notification and acks the siblings", () => {
+  const stuck = item({ id: "stuck:t-1", kind: "stuck", severity: "blocked", taskId: "t-1", since: 50, notify: "important" });
+  const failed = item({ id: "failed:t-1", kind: "failed", severity: "problem", taskId: "t-1", since: 100, notify: "important" });
+  const message = item({ id: "message:t-1", kind: "message", severity: "decide", taskId: "t-1", since: 150, notify: "important" });
+  const candidates = toNotify([message, failed, stuck], "important", {}, 1000);
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0]!.key).toBe("stuck:t-1:50");
+  expect(candidates[0]!.ackKeys?.sort()).toEqual(["failed:t-1:100", "message:t-1:150"]);
+});
+
+test("caller-gone grouping fires once per caller after threshold and not before", () => {
+  const caller = "external:claude-code:sess";
+  const base = (id: string, since: number, notify: "important" | "all"): AttentionItem =>
+    item({ id: `stalled:${id}`, kind: "stalled", severity: "blocked", taskId: id, since, notify, waitingOn: caller, title: id, detail: "waiting" });
+  const early = [base("a", 100, "all"), base("b", 110, "all")];
+  expect(toNotify(early, "important", {}, 100 + 30 * 60 - 1)).toEqual([]);
+  const late = [base("a", 100, "important"), base("b", 110, "important"), base("c", 120, "important")];
+  const candidates = toNotify(late, "important", {}, 100 + 30 * 60);
+  expect(candidates).toHaveLength(1);
+  expect(candidates[0]!.key).toBe(`caller_gone:${caller}:100`);
+  expect(candidates[0]!.data).toMatchObject({ title: "claude-code has not responded", body: "3 delegated tasks waiting" });
+  expect(candidates[0]!.ackKeys).toHaveLength(3);
 });
 
 test("a durable targeted event stays delivered after the notifier lease lapses", async () => {

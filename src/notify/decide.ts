@@ -1,6 +1,6 @@
 import { join } from "node:path";
 import type { Action, AttentionItem } from "../attention/types";
-import { needsReview } from "../api/read-model/tasks";
+import { CALLER_GONE_AFTER_S, NOTIFY_COOLDOWN_S, sortItems } from "../attention/rules";
 import { deliveryPresenters } from "../clients/registry";
 import { withLock } from "../core/lock";
 import { getLevel, type NotificationLevel } from "../core/notify";
@@ -14,8 +14,12 @@ import { notifierResources } from "../plugins/notifier-resources";
 import { notificationResult } from "../plugins/notifier-protocol";
 import { CoreError } from "../core/errors";
 
+export { CALLER_GONE_AFTER_S, NOTIFY_COOLDOWN_S };
+
 export interface NotifyData { key: string; title: string; body: string; actions: Action[]; url: string; recipients?: string[]; client_id?: string }
 export type DeliveryLedger = Record<string, number>;
+export type NotifyCandidate = { key: string; data: NotifyData; /** Extra ledger keys to mark when this candidate is sent (siblings / group members). */ ackKeys?: string[] };
+
 function notificationView(item: AttentionItem): string {
   const section = item.actions.find(a => a.op === "ui.open" && a.params.view === "settings")?.params.section;
   if (typeof section === "string") return `settings/${encodeURIComponent(section)}`;
@@ -26,16 +30,117 @@ function notificationView(item: AttentionItem): string {
   if (item.host) return `settings/hosts/${encodeURIComponent(item.host)}`;
   return "";
 }
-export function toNotify(items: AttentionItem[], level: NotificationLevel, ledger: DeliveryLedger): { key: string; data: NotifyData }[] {
-  if (level === "off") return [];
-  const seen = new Set(Object.keys(ledger));
-  return items.flatMap(item => {
-    const key = `${item.id}:${item.since}`;
-    if (seen.has(key) || level === "important" && item.notify !== "important") return [];
-    seen.add(key);
-    return [{ key, data: { key, title: item.title, body: item.detail, actions: item.actions.slice(0, 2), url: `/app/#/${notificationView(item)}` } }];
-  });
+
+/** Latest delivery time for an attention item id across any `${id}:${since}` ledger keys. */
+function lastNotifiedAt(ledger: DeliveryLedger, id: string): number | null {
+  const prefix = `${id}:`;
+  let latest: number | null = null;
+  for (const [key, at] of Object.entries(ledger)) {
+    if (!key.startsWith(prefix)) continue;
+    if (latest === null || at > latest) latest = at;
+  }
+  return latest;
 }
+
+/** True when `now` is set and this attention id was delivered within the cooldown window. */
+function inCooldown(ledger: DeliveryLedger, id: string, now: number): boolean {
+  if (now <= 0) return false;
+  const last = lastNotifiedAt(ledger, id);
+  return last !== null && now - last < NOTIFY_COOLDOWN_S;
+}
+
+/** The planner kind in a caller participant (`external:claude-code:<session>` → `claude-code`). */
+const callerLabel = (p?: string) => /^external:([a-z-]+)/.exec(p ?? "")?.[1] ?? "the caller";
+
+function itemKey(item: AttentionItem): string {
+  return `${item.id}:${item.since}`;
+}
+
+function candidateFromItem(item: AttentionItem): NotifyCandidate {
+  const key = itemKey(item);
+  return { key, data: { key, title: item.title, body: item.detail, actions: item.actions.slice(0, 2), url: `/app/#/${notificationView(item)}` } };
+}
+
+/** Group important stalled items by waitingOn into one banner per caller. */
+function callerGoneCandidates(items: AttentionItem[], ledger: DeliveryLedger, now: number): NotifyCandidate[] {
+  const byCaller = new Map<string, AttentionItem[]>();
+  for (const item of items) {
+    if (item.kind !== "stalled" || item.notify !== "important" || !item.waitingOn) continue;
+    const list = byCaller.get(item.waitingOn) ?? [];
+    list.push(item);
+    byCaller.set(item.waitingOn, list);
+  }
+  const grouped: NotifyCandidate[] = [];
+  for (const [caller, members] of byCaller) {
+    const since = Math.min(...members.map(m => m.since));
+    const key = `caller_gone:${caller}:${since}`;
+    if (Object.hasOwn(ledger, key) || inCooldown(ledger, `caller_gone:${caller}`, now)) continue;
+    const head = members[0]!;
+    const n = members.length;
+    grouped.push({
+      key,
+      data: {
+        key,
+        title: `${callerLabel(caller)} has not responded`,
+        body: `${n} delegated task${n === 1 ? "" : "s"} waiting`,
+        actions: head.actions.slice(0, 2),
+        url: `/app/#/${notificationView(head)}`,
+      },
+      ackKeys: members.map(itemKey),
+    });
+  }
+  return grouped;
+}
+
+/** One candidate per taskId (most severe first); ackKeys cover same-task siblings. */
+function onePerTask(items: AttentionItem[]): NotifyCandidate[] {
+  const keysByTask = new Map<string, string[]>();
+  for (const item of items) {
+    if (!item.taskId) continue;
+    const keys = keysByTask.get(item.taskId) ?? [];
+    keys.push(itemKey(item));
+    keysByTask.set(item.taskId, keys);
+  }
+  const seenTask = new Set<string>();
+  const out: NotifyCandidate[] = [];
+  for (const item of items) {
+    if (!item.taskId) {
+      out.push(candidateFromItem(item));
+      continue;
+    }
+    if (seenTask.has(item.taskId)) continue;
+    seenTask.add(item.taskId);
+    const c = candidateFromItem(item);
+    const keys = keysByTask.get(item.taskId)!;
+    // First key is this winner; remaining same-task keys are ledger-acked with the send.
+    if (keys.length > 1) c.ackKeys = keys.slice(1);
+    out.push(c);
+  }
+  return out;
+}
+
+/**
+ * Build notification candidates: level filter, per-id cooldown, one-per-task,
+ * and grouped caller-gone banners. `ackKeys` on a candidate are ledger-acked
+ * with the sent key so suppressed siblings do not fire next pass.
+ */
+export function toNotify(items: AttentionItem[], level: NotificationLevel, ledger: DeliveryLedger, now = 0): NotifyCandidate[] {
+  if (level === "off") return [];
+  const eligible: AttentionItem[] = [];
+  for (const item of sortItems([...items])) {
+    if (level === "important" && item.notify !== "important") continue;
+    if (Object.hasOwn(ledger, itemKey(item)) || inCooldown(ledger, item.id, now)) continue;
+    eligible.push(item);
+  }
+
+  const grouped = callerGoneCandidates(eligible, ledger, now);
+  // Caller-gone members stay out of per-task even when the group itself was skipped (ledger/cooldown).
+  const callerGoneIds = new Set(
+    eligible.filter(i => i.kind === "stalled" && i.notify === "important" && i.waitingOn).map(i => i.id),
+  );
+  return [...grouped, ...onePerTask(eligible.filter(i => !callerGoneIds.has(i.id)))];
+}
+
 export interface DispatchDeps {
   publish?: (ctx: Ctx, events: OutboxEvent[]) => Promise<PublishReport>;
   /** Enabled notifier ids; always tried in id order. */
@@ -87,7 +192,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
     const raw = readJson<DeliveryLedger>(path) ?? {};
     const ledger: DeliveryLedger = Object.fromEntries(Object.entries(raw).filter(([, at]) => typeof at === "number" && at >= ctx.now - 7 * 86400));
     const level = getLevel(ctx).level;
-    const candidates = toNotify(items, level, ledger);
+    const candidates = toNotify(items, level, ledger, ctx.now);
     if (level === "all") for (const event of deps.events ?? []) {
       if (event.type === "mode" && event.data.previous !== null) {
         const d = event.data, key = `mode:${d.mode}:${d.at}`;
@@ -99,7 +204,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
     }
     const sent: OutboxEvent[] = [];
     let failed = false;
-    for (const { key, data } of candidates) {
+    for (const { key, data, ackKeys } of candidates) {
       if (Object.hasOwn(ledger, key)) continue;
       const presenters = deliveryPresenters(ctx);
       let delivered: boolean;
@@ -114,6 +219,7 @@ export async function dispatchNotifications(ctx: Ctx, items: AttentionItem[], de
       if (!delivered) failed = true;
       if (delivered) {
         ledger[key] = ctx.now;
+        for (const ack of ackKeys ?? []) ledger[ack] = ctx.now;
         writeJsonAtomic(path, ledger);
       }
     }

@@ -866,7 +866,7 @@
                 }
               }
             ],
-            "notify": "important"
+            "notify": "all"
           }
         ],
         "service": {
@@ -2055,7 +2055,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -2878,7 +2878,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -3565,7 +3565,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -4279,7 +4279,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -4991,7 +4991,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -5699,7 +5699,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },
@@ -6500,7 +6500,7 @@
                 }
               }
             ],
-            "notify": "important",
+            "notify": "all",
             "taskId": "t-20261010-190000-0001",
             "executor": "codex"
           },

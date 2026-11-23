@@ -25,7 +25,7 @@ test("a found machine raises Pair and Later; an unanswered network raises the ad
   expect(found.actions[1]).toMatchObject({ op: "discovery.respond", params: { discoveryId: peer, action: "later" } });
   expect(found.title).toContain("studio-mac");
   expect(found.detail).toContain("Unverified");
-  expect(found.notify).toBe("important");
+  expect(found.notify).toBe("all");
   expect(found.since).toBe(900);
   const net = items.find(i => i.id === "discovery-network:" + K1)!;
   expect(net.title).toBe("Let your other machines find this one on home-wifi?");
@@ -41,8 +41,8 @@ test("with no plugin that can pair, Pair opens the neutral pairing page instead 
   const found = items.find(i => i.id === `discovery:${peer}`)!;
   expect(found.actions[0]).toEqual({ label: "Pair", op: "ui.open", params: { view: "settings", section: "pairing" }, style: "primary" });
   expect(found.actions[1]).toMatchObject({ op: "discovery.respond", params: { discoveryId: peer, action: "later" } });
-  const [n] = toNotify(items, "important", {});
-  expect(n.data.url).toBe("/app/#/settings/pairing");
+  const [n] = toNotify(items, "all", {});
+  expect(n!.data.url).toBe("/app/#/settings/pairing");
 });
 
 test("an answered network raises no question and no discovery input raises nothing", () => {
@@ -52,8 +52,8 @@ test("an answered network raises no question and no discovery input raises nothi
 
 test("desktop notifications carry only Pair and Later", () => {
   const items = deriveItems(base({ networksRev: 1, canPair: true, prompted: [{ discoveryId: peer, name: "studio", at: 900 }], network: null }));
-  const [n] = toNotify(items, "important", {});
-  expect(n.data.actions.map(a => a.label)).toEqual(["Pair", "Later"]);
+  const [n] = toNotify(items, "all", {});
+  expect(n!.data.actions.map(a => a.label)).toEqual(["Pair", "Later"]);
 });
 
 test("the rule input lists prompted, unsilenced machines and the radio's unanswered network", async () => {
