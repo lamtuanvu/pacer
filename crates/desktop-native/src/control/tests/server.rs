@@ -23,10 +23,15 @@ impl Dispatch for EchoDispatch {
     async fn subscribe(
         &self,
         _identity: &Identity,
-        since: f64,
+        _since: f64,
     ) -> Result<mpsc::Receiver<Value>, Value> {
         let (tx, rx) = mpsc::channel(8);
-        tx.send(json!({"seq": since})).await.ok();
+        // One realistic read-model event: {seq, at, type, data}.
+        tx.send(json!({
+            "seq": 7, "at": 1234, "type": "device.registry", "data": {"key": "value"},
+        }))
+        .await
+        .ok();
         Ok(rx)
     }
 }
@@ -207,10 +212,16 @@ async fn subscribed_events_are_forwarded_as_event_frames() {
     let subscribed = client.read_frame().await;
     assert_eq!(subscribed["kind"], "subscribed");
 
-    // The forwarded event arrives as a native `event` frame.
+    // The forwarded event arrives as a native `event` frame matching the
+    // desktop client's AppEventFrame contract ({schema, kind, event, data,
+    // id}) with deny_unknown_fields: no stray `sequence` top-level field.
     let event = client.read_frame().await;
+    assert_eq!(event["schema"], 1);
     assert_eq!(event["kind"], "event");
-    assert_eq!(event["event"]["seq"], 7);
+    assert_eq!(event["event"], "device.registry");
+    assert_eq!(event["data"]["key"], "value");
+    assert_eq!(event["id"], 7);
+    assert_eq!(event.get("sequence"), None);
 
     handle.abort();
 }

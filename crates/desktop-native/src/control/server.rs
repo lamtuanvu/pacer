@@ -322,7 +322,7 @@ async fn dispatch_frame<D: Dispatch, G: Guard>(
                     let _ = peer
                         .send(json!({"schema": 1, "kind": "subscribed", "sequence": sequence}))
                         .await;
-                    *events = Some(spawn_event_forwarder(peer.clone(), rx, sequence));
+                    *events = Some(spawn_event_forwarder(peer.clone(), rx));
                 }
                 Err(error) => {
                     let _ = peer
@@ -360,20 +360,26 @@ async fn dispatch_frame<D: Dispatch, G: Guard>(
 }
 
 /// Forward subscribed events to the peer as native `event` frames until the
-/// receiver closes or the peer dies.
-fn spawn_event_forwarder(
-    peer: Arc<Peer>,
-    mut rx: mpsc::Receiver<Value>,
-    sequence: u64,
-) -> JoinHandle<()> {
+/// receiver closes or the peer dies. Each read-model event ({seq, at, type,
+/// data}) is mapped onto the desktop client's `AppEventFrame` wire contract
+/// ({schema, kind, event, data, id}) — the same shape the core's
+/// `broadcastEvent` emits — so the client's deny_unknown_fields frame
+/// decoder accepts the stream.
+fn spawn_event_forwarder(peer: Arc<Peer>, mut rx: mpsc::Receiver<Value>) -> JoinHandle<()> {
     tokio::spawn(async move {
         while let Some(event) = rx.recv().await {
             if peer.is_dead() {
                 break;
             }
+            let kind = match event.get("type").and_then(Value::as_str) {
+                Some(kind) if !kind.is_empty() => kind.to_owned(),
+                _ => "event".to_owned(),
+            };
+            let id = event.get("seq").and_then(Value::as_u64).unwrap_or(0);
+            let data = event.get("data").cloned().unwrap_or(Value::Null);
             let _ = peer
                 .send(json!({
-                    "schema": 1, "kind": "event", "sequence": sequence, "event": event,
+                    "schema": 1, "kind": "event", "event": kind, "data": data, "id": id,
                 }))
                 .await;
         }
