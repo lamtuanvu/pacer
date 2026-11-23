@@ -167,29 +167,44 @@ function patchChildPersonPause(
 
 /**
  * Person pause on the run and every live descendant (same reach as pacing pauses
- * across the tree). expectRev applies only to the targeted run. Child rev conflicts
- * are retried then reported (never swallowed).
+ * across the tree). expectRev applies only to the targeted run. Children are
+ * updated inside the same immediate transaction when possible so a crash leaves
+ * a convergent partial state; child rev conflicts are retried then reported as
+ * partial application (I5). Re-calling after a partial pause finishes remaining
+ * children (idempotent).
  */
 export function pauseRunByPerson(ctx: Ctx, id: string, expectRev: number): RunRow {
-  const root = updateRun(ctx, id, expectRev, { pausedReason: "person" });
+  const db = workflowDatabase(ctx);
+  let root: RunRow;
   const failures: string[] = [];
-  for (const childId of liveDescendantIds(ctx, id)) {
-    try {
-      patchChildPersonPause(ctx, childId, { pausedReason: "person" });
-    } catch (e) {
-      failures.push(e instanceof Error ? e.message : String(e));
+  db.transaction(() => {
+    const current = getRun(ctx, id);
+    if (!current) throw new CoreError("not_found", `unknown run ${id}`);
+    // Idempotent converge: already person-paused roots skip the expect_rev write.
+    root = current.pausedReason === "person"
+      ? current
+      : updateRun(ctx, id, expectRev, { pausedReason: "person" });
+    for (const childId of liveDescendantIds(ctx, id)) {
+      try {
+        patchChildPersonPause(ctx, childId, { pausedReason: "person" });
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : String(e));
+      }
     }
-  }
+  }).immediate();
   if (failures.length > 0) {
-    throw new CoreError("conflict", `pause incomplete for ${failures.length} child run(s): ${failures.join("; ")}`);
+    throw new CoreError(
+      "conflict",
+      `pause incomplete (partial application) for ${failures.length} child run(s): ${failures.join("; ")}`,
+    );
   }
-  return root;
+  return root!;
 }
 
 /**
  * Person resume on the run and every live descendant. After clearing, re-apply
  * pacing if the mode still requires it so the tree does not ignore strict/emergency.
- * Child rev conflicts are retried then reported (never swallowed).
+ * Child rev conflicts are retried then reported as partial application (I5).
  */
 export function resumeRunByPerson(
   ctx: Ctx,
@@ -197,20 +212,33 @@ export function resumeRunByPerson(
   expectRev: number,
   mode: PacingMode,
 ): RunRow {
-  const cleared = updateRun(ctx, id, expectRev, { pausedReason: null });
-  const root = syncRunPacingPause(ctx, cleared, mode);
+  const db = workflowDatabase(ctx);
+  let root: RunRow;
   const failures: string[] = [];
-  for (const childId of liveDescendantIds(ctx, id)) {
-    try {
-      patchChildPersonPause(ctx, childId, { pausedReason: null }, mode);
-    } catch (e) {
-      failures.push(e instanceof Error ? e.message : String(e));
+  db.transaction(() => {
+    const current = getRun(ctx, id);
+    if (!current) throw new CoreError("not_found", `unknown run ${id}`);
+    // Idempotent converge: already-cleared person pause finishes children without
+    // requiring a fresh expect_rev write on the root.
+    const cleared = current.pausedReason === "person"
+      ? updateRun(ctx, id, expectRev, { pausedReason: null })
+      : current;
+    root = syncRunPacingPause(ctx, cleared, mode);
+    for (const childId of liveDescendantIds(ctx, id)) {
+      try {
+        patchChildPersonPause(ctx, childId, { pausedReason: null }, mode);
+      } catch (e) {
+        failures.push(e instanceof Error ? e.message : String(e));
+      }
     }
-  }
+  }).immediate();
   if (failures.length > 0) {
-    throw new CoreError("conflict", `resume incomplete for ${failures.length} child run(s): ${failures.join("; ")}`);
+    throw new CoreError(
+      "conflict",
+      `resume incomplete (partial application) for ${failures.length} child run(s): ${failures.join("; ")}`,
+    );
   }
-  return root;
+  return root!;
 }
 
 /** Apply mode-driven pauses/resumes across every live run. */
