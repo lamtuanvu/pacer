@@ -1741,7 +1741,7 @@ dependencies = [
 name = "pacer-machine-ops"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "hex",
  "pacer-foundation",
  "pacer-js-json",
@@ -1846,7 +1846,7 @@ dependencies = [
 name = "pacer-plugin-capabilities"
 version = "0.0.0"
 dependencies = [
- "base64 0.22.1",
+ "base64 0.23.1",
  "libc",
  "nix",
  "pacer-foundation",
@@ -2029,7 +2029,7 @@ name = "pacer-server"
 version = "0.0.0"
 dependencies = [
  "axum",
- "base64 0.22.1",
+ "base64 0.23.1",
  "chrono",
  "chrono-tz",
  "core-foundation 0.10.1",
