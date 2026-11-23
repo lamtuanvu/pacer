@@ -40,7 +40,7 @@ body{margin:0}
 </div>
 </nav>
 </x-dc>
-<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","agents","routing","budget","machines","plugins","app","diagnostics"],"default":"overview"},"$preview":{"width":240,"height":900}}'>
+<script type="text/x-dc" data-dc-script data-props='{"active":{"editor":"enum","options":["overview","agents","routing","budget","machines","plugins","apps","app","diagnostics"],"default":"overview"},"$preview":{"width":240,"height":900}}'>
 class Component extends DCLogic {
   renderVals() {
     const active = this.props.active ?? 'overview';
@@ -53,6 +53,7 @@ class Component extends DCLogic {
       plugins: 'M9 3v4M15 3v4M7 7h10v5a5 5 0 0 1-10 0zM12 17v4',
       app: 'M4 4h16v16H4zM4 9h16',
       diagnostics: 'M3 12h4l3-7 4 14 3-7h4',
+      apps: 'M4 4h7v7H4zM13 4h7v7h-7zM4 13h7v7H4zM13 13h7v7h-7z',
       release: 'M9 11l3 3 8-8M20 12v7H4V5h11'
     };
     const item = (id, label, extra = {}) => ({
@@ -75,6 +76,7 @@ class Component extends DCLogic {
         ]},
         { name: 'Extend', items: [
           item('plugins', 'Plugins', { href: 'SettingsPlugins.dc.html', badge: '1', badgeLabel: '1 plugin update', ...warn }),
+          item('apps', 'Apps', { href: 'SettingsApps.dc.html' }),
           item('release', 'Release checklist', { plugin: true, href: 'SettingsPluginPage.dc.html' })
         ]},
         { name: 'App', items: [

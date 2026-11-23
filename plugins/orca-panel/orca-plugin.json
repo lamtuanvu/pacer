@@ -1,0 +1,43 @@
+{
+  "manifestVersion": 2,
+  "id": "pacer",
+  "name": "Pacer",
+  "version": "0.1.0",
+  "description": "A sidebar panel and the worker that answers it.",
+  "engines": {
+    "orca": ">=1.4.259"
+  },
+  "execution": "trusted-worker",
+  "pluginApi": 1,
+  "main": "src/worker.ts",
+  "contributes": {
+    "panels": [
+      {
+        "id": "pacer",
+        "title": "Pacer",
+        "icon": "gauge",
+        "entry": "src/panel.html",
+        "ui": "html"
+      }
+    ],
+    "statusBarItems": [
+      {
+        "id": "pacer-pace",
+        "text": "pacer",
+        "icon": "gauge",
+        "tooltip": "Pacer budget and pace"
+      }
+    ]
+  },
+  "capabilities": [
+    {
+      "kind": "storage:own"
+    },
+    {
+      "kind": "workspace:read"
+    },
+    {
+      "kind": "workspace:write"
+    }
+  ]
+}
