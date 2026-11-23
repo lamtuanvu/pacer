@@ -408,6 +408,15 @@
       "x": 6620,
       "y": 16720,
       "title": "27 · Loading: page-shaped skeleton, no spinner text"
+    },
+    "SettingsApps.dc.html": {
+      "expand": "fill",
+      "h": 1000,
+      "title": "28 · Settings: Apps (pacer inside other apps)",
+      "w": 1440,
+      "x": 6480,
+      "y": 6240,
+      "is_interactive": true
     }
   },
   "createdOnFiles": {
@@ -572,7 +581,8 @@
     "TaskPageRunning.dc.html",
     "TaskPageFailed.dc.html",
     "Workspace.dc.html",
-    "Loading.dc.html"
+    "Loading.dc.html",
+    "SettingsApps.dc.html"
   ],
   "pages": [],
   "title": "Pacer App Redesign"
