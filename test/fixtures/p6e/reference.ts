@@ -51,7 +51,7 @@ const { isOffered, closestModels } = load(
   ["isOffered", "closestModels"],
   {},
 );
-const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems"], {
+const rules = load("src/attention/rules.ts", ["deriveItems", "sortItems", "CALLER_GONE_AFTER_S", "NOTIFY_COOLDOWN_S"], {
   ...runnerId,
   ...taskFns,
   ...discovery,
@@ -157,6 +157,7 @@ export async function reference(c: any): Promise<any> {
         ["toNotify", "dispatchNotifications", "deliverWithPlugins"],
         {
           ...memory,
+          ...rules,
           withLock: async (_c: any, _n: any, fn: any) => fn(),
           getLevel: () => ({ level: c.level }),
           deliveryPresenters: () =>

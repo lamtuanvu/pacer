@@ -1370,6 +1370,30 @@ mod managed_action_tests {
 }
 
 #[cfg(test)]
+mod notify_level_tests {
+    use super::notify_level;
+    use serde_json::json;
+
+    #[test]
+    fn human_owned_failed_task_is_important() {
+        let task = json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0},"origin":"human"});
+        assert_eq!(notify_level("failed", Some(&task), 100.0), "important");
+    }
+
+    #[test]
+    fn planner_owned_failed_task_is_all() {
+        let task = json!({"source":"planner","work":{"rootId":"t","parentId":null,"depth":0}});
+        assert_eq!(notify_level("failed", Some(&task), 100.0), "all");
+    }
+
+    #[test]
+    fn prompt_wait_stuck_is_all_even_when_human_owned() {
+        let task = json!({"source":"ui","work":{"rootId":"t","parentId":null,"depth":0}});
+        assert_eq!(notify_level("stuck", Some(&task), 100.0), "all");
+    }
+}
+
+#[cfg(test)]
 mod stalled_detail_tests {
     use super::stalled_detail;
     use serde_json::json;

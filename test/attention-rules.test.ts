@@ -54,6 +54,20 @@ test("stuck stalled executor_down and discovery are not important; account_signi
   const account = { ...model.accounts.find(a => a.name === executor.account)!, signedIn: false };
   expect(deriveItems({ ...input(), accounts: [account], executors: [{ ...executor, state: "ready" }] })[0]).toMatchObject({ kind: "account_signin", notify: "important" });
 });
+
+test("promptWait raises stuck with notify all even for a human-owned task", () => {
+  const t = {
+    ...task("running"),
+    source: "ui" as const,
+    promptWait: { text: "Overwrite? [Y/n]", at: ctx.now - 40 },
+  };
+  const items = deriveItems({ ...input(), tasks: [t] });
+  expect(items).toContainEqual(expect.objectContaining({
+    id: `prompt_wait:${t.id}`,
+    kind: "stuck",
+    notify: "all",
+  }));
+});
 test("ordinary completions never escalate for missing verdicts", () => {
  for (const acceptanceState of ["passed", "none", "pending"] as const) {
   for (const elapsed of [0, 600, 86400]) {

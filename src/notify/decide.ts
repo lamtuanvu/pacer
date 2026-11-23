@@ -31,12 +31,12 @@ function notificationView(item: AttentionItem): string {
   return "";
 }
 
-/** Latest delivery time for an attention item id across any `${id}:${since}` ledger keys. */
+/** Latest delivery time for an attention id: exact key or any `${id}:${since}` ledger entry. */
 function lastNotifiedAt(ledger: DeliveryLedger, id: string): number | null {
   const prefix = `${id}:`;
   let latest: number | null = null;
   for (const [key, at] of Object.entries(ledger)) {
-    if (!key.startsWith(prefix)) continue;
+    if (key !== id && !key.startsWith(prefix)) continue;
     if (latest === null || at > latest) latest = at;
   }
   return latest;
@@ -72,9 +72,10 @@ function callerGoneCandidates(items: AttentionItem[], ledger: DeliveryLedger, no
   }
   const grouped: NotifyCandidate[] = [];
   for (const [caller, members] of byCaller) {
-    const since = Math.min(...members.map(m => m.since));
-    const key = `caller_gone:${caller}:${since}`;
-    if (Object.hasOwn(ledger, key) || inCooldown(ledger, `caller_gone:${caller}`, now)) continue;
+    // Caller-only key: cooldown (not a permanent since-keyed id) lets a newly
+    // joining member re-banner after NOTIFY_COOLDOWN_S.
+    const key = `caller_gone:${caller}`;
+    if (now > 0 ? inCooldown(ledger, key, now) : Object.hasOwn(ledger, key)) continue;
     const head = members[0]!;
     const n = members.length;
     grouped.push({
