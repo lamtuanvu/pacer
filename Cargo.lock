@@ -1466,6 +1466,7 @@ version = "0.0.0"
 dependencies = [
  "pacer-bundled-agent-session",
  "pacer-bundled-assistant",
+ "pacer-bundled-classify",
  "pacer-bundled-exec-orca",
  "pacer-bundled-notify",
  "pacer-bundled-remote-caller",
@@ -1492,6 +1493,17 @@ dependencies = [
  "reqwest",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-classify"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "regex",
+ "serde_json",
+ "tokio",
+ "url",
 ]
 
 [[package]]

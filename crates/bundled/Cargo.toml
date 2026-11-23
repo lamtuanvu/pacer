@@ -9,6 +9,7 @@ rust-version.workspace = true
 [dependencies]
 pacer-plugin = { path = "../plugin-sdk" }
 pacer-bundled-agent-session = { path = "../../plugins-rs/pacer-agent-session" }
+pacer-bundled-classify = { path = "../../plugins-rs/pacer-classify" }
 pacer-bundled-notify = { path = "../../plugins-rs/pacer-notify" }
 pacer-bundled-remote-caller = { path = "../../plugins-rs/pacer-remote-caller" }
 pacer-bundled-assistant = { path = "../../plugins-rs/pacer-assistant" }

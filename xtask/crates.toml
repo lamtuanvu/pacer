@@ -122,6 +122,9 @@ heavy = ["reqwest"]
 [crates.pacer-bundled-agent-session]
 layer = "plugin"
 
+[crates.pacer-bundled-classify]
+layer = "plugin"
+
 [crates.pacer-bundled-notify]
 layer = "plugin"
 

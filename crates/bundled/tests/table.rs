@@ -42,8 +42,8 @@ fn manifests_have_the_handshake_fields() {
 #[test]
 fn typescript_rows_are_not_native() {
     // pacer-notify (C1), pacer-remote-caller (C2), pacer-agent-session (C3),
-    // pacer-assistant (C4) and pacer-exec-orca (C5) are the ported native
-    // rows; the rest are TypeScript until their slices land.
+    // pacer-assistant (C4), pacer-exec-orca (C5) and pacer-classify (C6) are
+    // the ported native rows; the rest are TypeScript until their slices land.
     for row in TABLE {
         let is_native_ported = matches!(
             row.id,
@@ -52,6 +52,7 @@ fn typescript_rows_are_not_native() {
                 | "pacer-agent-session"
                 | "pacer-assistant"
                 | "pacer-exec-orca"
+                | "pacer-classify"
         );
         let is_native = row.run.is_some();
         if is_native_ported {
@@ -70,6 +71,8 @@ fn typescript_rows_are_not_native() {
     assert!(serve_stdio("pacer-assistant").is_some());
     assert!(native("pacer-exec-orca").is_some());
     assert!(serve_stdio("pacer-exec-orca").is_some());
+    assert!(native("pacer-classify").is_some());
+    assert!(serve_stdio("pacer-classify").is_some());
 }
 
 #[test]
