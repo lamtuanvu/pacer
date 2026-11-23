@@ -8,6 +8,7 @@ import { CoreError } from "../core/errors";
 import { taskTitle } from "../core/short-title";
 import { computeStatus, type Status } from "../engine/status";
 import { configuredSecrets, readKey } from "../endpoints/keys";
+import { readBlocked } from "../executors/blocked";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
 import { ASSISTANT_PACER_EXECUTABLE, inspectBundledNativeExecutable } from "../plugins/native-bundled";
@@ -17,7 +18,7 @@ import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskAdapter, type AskTurn } from "./ask-mode";
 
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
@@ -223,14 +224,25 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   if (configured) { try { admission = await admit(ctx, deps); } catch (e) { admission = { ok: false, reason: e instanceof Error ? e.message : String(e) }; } }
   // liveTools needs the chosen candidate; match admit and never fail the status read when strategy is missing.
   let liveTools = false;
+  let cli: AskAdapter | undefined;
   if (configured) {
     try {
-      liveTools = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)?.liveTools ?? false;
+      const chosen = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend);
+      liveTools = chosen?.liveTools ?? false;
+      if (chosen && "cli" in chosen && typeof chosen.cli === "string") cli = chosen.cli as AskAdapter;
     } catch { /* admission already recorded the failure */ }
+    // When the chosen executor row was filtered out (disabled/blocked), still name its CLI from the account.
+    if (!cli && settings.backend === "executor" && settings.account) {
+      try {
+        const account = (deps.strategy ?? loadStrategy)(ctx).accounts[settings.account];
+        cli = account ? askAdapterFor(ctx, account) ?? undefined : undefined;
+      } catch { /* strategy missing */ }
+    }
   }
   return {
     available: configured && admission.ok, configured, account: settings.account ?? undefined, runner: settings.runner ?? undefined,
     liveTools,
+    ...(cli ? { cli } : {}),
     ...(admission.ok ? {} : { reason: admission.reason, ...(admission.hint ? { hint: admission.hint } : {}) }),
     limits: settings.limits, retention: settings.retention, rev: settings.rev, today: usageToday(ctx),
   };
@@ -605,6 +617,21 @@ export function refreshCard(ctx: Ctx, turnId: string, cardId: string, deps: Assi
   return updateCard(ctx, turnId, cardId, { state: "pending", result: undefined, params: { ...card.params, expect_rev: task.rev } });
 }
 
+/**
+ * Same gate as `pacer status` / rank for "Unavailable · Disabled" and user blocks: a runner with
+ * `enabled: false` or a live `blocked.json` mark is not offered as an executor assistant row.
+ */
+function executorAccountHidden(ctx: Ctx, strategy: Strategy, account: string): boolean {
+  const blocked = readBlocked(ctx);
+  if (blocked[account]) return true;
+  const runners = Object.values(strategy.runners).filter(r => r.account === account);
+  for (const runner of runners) {
+    if (runner.enabled === false) return true;
+    if (blocked[runner.id] || blocked[runner.name]) return true;
+  }
+  return false;
+}
+
 /** Endpoint accounts the assistant could run on, with the models each offers. Phase 1 offers only
  * the `pacer` backend; an executor row arrives with the plugin that can serve it (spec §5). */
 export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
@@ -613,6 +640,8 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   // Executor rows (spec §5): every account the executor backend's agent CLI drives, available only
   // after it passed the ask-mode check with today's CLI.
   const executor = replyProvider(ctx, "executor") ? Object.entries(strategy.accounts).flatMap(([name, account]) => {
+    // Disabled / blocked runners stay off the picker (same signals as status "Unavailable · Disabled").
+    if (executorAccountHidden(ctx, strategy, name)) return [];
     const row = {
       account: name, backend: "executor" as AssistantBackend,
       models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
@@ -620,16 +649,16 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
     };
     // A non-default Claude/Codex account without its own config dir must not fall back to the default.
     if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
+      return [{ ...row, cli: "claude-code" as const, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
     }
     if (account.kind === "codex" && !codexAskConfigDir(ctx, account)) {
-      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
+      return [{ ...row, cli: "codex" as const, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
     }
     const adapter = askAdapterFor(ctx, account);
     if (!adapter) return [];
     const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
     const liveTools = check.ok && (check.liveTools ?? askAdapterLiveTools(adapter));
-    return [{ ...row, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
+    return [{ ...row, cli: adapter, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
   return [...pacerRows(ctx, strategy), ...executor];
 }
@@ -663,6 +692,8 @@ function pacerRows(ctx: Ctx, strategy: Strategy) {
   const native = !!replyProvider(ctx, "pacer");
   return Object.entries(strategy.accounts).flatMap(([name, account]) => {
     if (account.kind !== "endpoint" || !account.connection) return [];
+    // Endpoint accounts with a pacer-held connection keep their "pacer's agent" row even when their
+    // runner is disabled: pacer's agent uses the account's API connection, not the runner.
     const needsNative = needsNativePacer(account.connection.api);
     const available = !needsNative || native;
     return [{

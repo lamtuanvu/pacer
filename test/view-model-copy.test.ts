@@ -1,6 +1,6 @@
 import { expect, test } from 'bun:test';
 import { clock } from '../src/view-model/format';
-import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp, askModeCheckCopy, isAskModeCheckReason, ASSISTANT_LIVE_TOOLS_PHRASE, ASSISTANT_SUMMARY_ONLY_PHRASE, ASSISTANT_READS_SUMMARY_ONLY, executorAssistantDescription, executorSetupToolsCopy } from '../src/view-model/copy';
+import { reasonCopy, costCopy, kindCopy, kindSourceCopy, timelineCopy, sessionTime, branchCopy, executorIdHelp, askModeCheckCopy, isAskModeCheckReason, ASSISTANT_LIVE_TOOLS_PHRASE, ASSISTANT_SUMMARY_ONLY_PHRASE, ASSISTANT_READS_SUMMARY_ONLY, executorAssistantDescription, executorSetupToolsCopy, assistantBackendChoiceLabel, assistantCliName } from '../src/view-model/copy';
 const now = Date.parse('2026-10-19T03:24:00Z') / 1000;
 test('one clock distinguishes local calendar days, yesterday and a full week', () => {
   const at = (s: string) => Date.parse(s) / 1000;
@@ -85,13 +85,19 @@ test("assistant live-tools phrases are shared for Settings and the sheet", () =>
   expect(executorAssistantDescription(false, false)).toBe("Needs the ask-mode check first.");
   expect(executorAssistantDescription(true, true)).toBe(`${ASSISTANT_LIVE_TOOLS_PHRASE} Slower; no extra key.`);
   expect(executorAssistantDescription(true, false)).toBe(`${ASSISTANT_SUMMARY_ONLY_PHRASE} Slower; no extra key.`);
-  expect(executorSetupToolsCopy(true)).toEqual({
-    note: "via agent CLI · checked · with pacer's live tools",
+  expect(executorSetupToolsCopy(true, "opencode")).toEqual({
+    note: "via OpenCode · checked · with pacer's live tools",
     title: ASSISTANT_LIVE_TOOLS_PHRASE,
   });
-  expect(executorSetupToolsCopy(false)).toEqual({
-    note: "via agent CLI · checked · from pacer's summary",
+  expect(executorSetupToolsCopy(false, "claude-code")).toEqual({
+    note: "via Claude Code · checked · from pacer's summary",
     title: ASSISTANT_SUMMARY_ONLY_PHRASE,
   });
+  expect(assistantBackendChoiceLabel("claude-code", "executor", "claude-code")).toBe("claude-code · via Claude Code");
+  expect(assistantBackendChoiceLabel("codex", "executor", "codex")).toBe("codex · via Codex");
+  expect(assistantBackendChoiceLabel("oc-glm", "executor", "opencode")).toBe("oc-glm · via OpenCode");
+  expect(assistantBackendChoiceLabel("local", "pacer")).toBe("local · pacer's agent");
+  expect(assistantBackendChoiceLabel("ep", "pacer", null, true)).toBe("ep (planner) · pacer's agent");
+  expect(assistantCliName("claude-code")).toBe("Claude Code");
   expect(ASSISTANT_READS_SUMMARY_ONLY).toBe("The agent answers from pacer's summary only.");
 });

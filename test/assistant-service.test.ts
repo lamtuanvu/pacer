@@ -60,10 +60,51 @@ describe("admission", () => {
     const statusFn = async () => ({ mode: "normal", planner: "claude-code", accounts: [] }) as unknown as Status;
     const proved = { strategy, status: statusFn, selfTest: () => ({ ok: true, liveTools: true }) };
     expect(candidates(ctx, proved).find(r => r.account === "work" && r.backend === "executor"))
-      .toMatchObject({ available: true, liveTools: true });
+      .toMatchObject({ available: true, liveTools: true, cli: "claude-code" });
     expect((await assistantStatus(ctx, proved)).liveTools).toBe(true);
+    expect((await assistantStatus(ctx, proved)).cli).toBe("claude-code");
     const digestOnly = { strategy, status: statusFn, selfTest: () => ({ ok: true, liveTools: false }) };
     expect((await assistantStatus(ctx, digestOnly)).liveTools).toBe(false);
+  });
+  test("executor rows name their CLI; disabled or blocked runners are omitted; pacer rows stay when the runner is off", async () => {
+    const ctx = fakeCtx();
+    const claudeHome = join(ctx.home, "claude-work");
+    const codexHome = join(ctx.home, "codex-work");
+    mkdirSync(claudeHome, { recursive: true, mode: 0o700 });
+    mkdirSync(codexHome, { recursive: true, mode: 0o700 });
+    const { blockExecutor } = await import("../src/executors/blocked");
+    blockExecutor(ctx, "opencode#blocked");
+    const strategy = () => ({
+      planner: { agent: "claude-code", account: "claude-code" },
+      accounts: {
+        "claude-code": { kind: "claude", source: "pacer", home: claudeHome, model: "sonnet", name: "claude-code" },
+        codex: { kind: "codex", source: "pacer", home: codexHome, model: "gpt", name: "codex" },
+        byteplus: { kind: "endpoint", source: "endpoint", connection: { api: "openai-compatible", base_url: "http://byte/v1", key: "none", models: [{ id: "b1", name: "B1" }] }, model: null, name: "byteplus" },
+        local: { kind: "endpoint", source: "endpoint", connection: { api: "openai-compatible", base_url: "http://127.0.0.1/v1", key: "none", models: [{ id: "l1", name: "L1" }] }, model: null, name: "local" },
+        "oc-glm": { kind: "endpoint", source: "opencode", provider: "opencode-go", model: "glm", name: "oc-glm" },
+        blocked: { kind: "endpoint", source: "opencode", provider: "opencode-go", model: "x", name: "blocked" },
+      },
+      runners: {
+        "claude-code": { id: "claude-code", name: "claude-code", agent: "claude-code", account: "claude-code", host: null, model: "sonnet" },
+        codex: { id: "codex", name: "codex", agent: "codex", account: "codex", host: null, model: "gpt", enabled: false },
+        "opencode#byteplus": { id: "opencode#byteplus", name: "opencode#byteplus", agent: "opencode", account: "byteplus", host: null, model: "b1", enabled: false },
+        "opencode#local": { id: "opencode#local", name: "opencode#local", agent: "opencode", account: "local", host: null, model: "l1", enabled: false },
+        "opencode#oc-glm": { id: "opencode#oc-glm", name: "opencode#oc-glm", agent: "opencode", account: "oc-glm", host: null, model: "glm" },
+        "opencode#blocked": { id: "opencode#blocked", name: "opencode#blocked", agent: "opencode", account: "blocked", host: null, model: "x" },
+      },
+      dispatch: { reservePct: 0 },
+    }) as unknown as Strategy;
+    const deps = { strategy, status: status(), selfTest: () => ({ ok: true, liveTools: true }) };
+    const rows = candidates(ctx, deps);
+    expect(rows.find(r => r.account === "claude-code" && r.backend === "executor")).toMatchObject({ cli: "claude-code" });
+    expect(rows.find(r => r.account === "oc-glm" && r.backend === "executor")).toMatchObject({ cli: "opencode" });
+    expect(rows.find(r => r.account === "codex" && r.backend === "executor")).toBeUndefined();
+    expect(rows.find(r => r.account === "blocked" && r.backend === "executor")).toBeUndefined();
+    expect(rows.find(r => r.account === "byteplus" && r.backend === "executor")).toBeUndefined();
+    expect(rows.find(r => r.account === "byteplus" && r.backend === "pacer")).toMatchObject({ available: true });
+    expect(rows.find(r => r.account === "local" && r.backend === "pacer")).toMatchObject({ available: true });
+    writeSettings(ctx, { runner: null, account: "oc-glm", backend: "executor", expect_rev: readSettings(ctx).rev });
+    expect((await assistantStatus(ctx, deps)).cli).toBe("opencode");
   });
   test("refuses an exhausted account, the reserve, the daily cap, and planner strict mode, each with a plain reason", async () => {
     const { ctx, deps } = setup();

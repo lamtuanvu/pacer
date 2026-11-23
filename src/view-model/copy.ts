@@ -1,5 +1,9 @@
+import { agentInfo } from './agents';
 import { ago, elapsed } from './time';
 import { percentage, executorLabel } from './words';
+
+/** Ask-mode CLI that answers an executor-backend assistant row (matches `AskAdapter`). */
+export type AssistantCli = "opencode" | "claude-code" | "codex";
 
 const reasons: Record<string, string> = {
   ok: 'Available capacity', available: 'Available', unmetered: 'No quota limit',
@@ -37,6 +41,23 @@ export const ASSISTANT_LIVE_TOOLS_PHRASE = "Answers through the agent CLI with p
 export const ASSISTANT_SUMMARY_ONLY_PHRASE = "Answers through the agent CLI, from pacer's summary.";
 export const ASSISTANT_READS_SUMMARY_ONLY = "The agent answers from pacer's summary only.";
 
+/** Product name for an ask-mode CLI (`claude-code` → "Claude Code"). */
+export function assistantCliName(cli: AssistantCli): string {
+  return agentInfo(cli).name;
+}
+
+/** Shared Settings / sheet label for one assistant candidate row (UI-10 / UI-12). */
+export function assistantBackendChoiceLabel(
+  account: string,
+  backend: "pacer" | "executor",
+  cli?: AssistantCli | null,
+  isPlanner = false,
+): string {
+  const name = `${account}${isPlanner ? " (planner)" : ""}`;
+  if (backend !== "executor") return `${name} · pacer's agent`;
+  return `${name} · via ${assistantCliName(cli ?? "opencode")}`;
+}
+
 /** Settings picker description for an executor candidate row. */
 export function executorAssistantDescription(available: boolean, liveTools: boolean | undefined): string {
   if (!available) return "Needs the ask-mode check first.";
@@ -46,11 +67,12 @@ export function executorAssistantDescription(available: boolean, liveTools: bool
 }
 
 /** Sheet setup note + title for a checked executor row; title carries the full Settings sentence. */
-export function executorSetupToolsCopy(liveTools: boolean | undefined): { note: string; title: string } {
+export function executorSetupToolsCopy(liveTools: boolean | undefined, cli: AssistantCli = "opencode"): { note: string; title: string } {
+  const via = `via ${assistantCliName(cli)}`;
   if (liveTools) {
-    return { note: "via agent CLI · checked · with pacer's live tools", title: ASSISTANT_LIVE_TOOLS_PHRASE };
+    return { note: `${via} · checked · with pacer's live tools`, title: ASSISTANT_LIVE_TOOLS_PHRASE };
   }
-  return { note: "via agent CLI · checked · from pacer's summary", title: ASSISTANT_SUMMARY_ONLY_PHRASE };
+  return { note: `${via} · checked · from pacer's summary`, title: ASSISTANT_SUMMARY_ONLY_PHRASE };
 }
 /** True when a status/admission reason is an ask-mode check string (plain copy + technical details). */
 export function isAskModeCheckReason(raw: string | null | undefined): boolean {
