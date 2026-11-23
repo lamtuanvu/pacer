@@ -228,6 +228,28 @@ export function mergeSignoffEnabled(repoTop: string): boolean {
   }
 }
 
+/** Allowlisted child env for engine-owned git (no PACER_*; same as syncBase). */
+function gitQuietEnv(ctx: Ctx): Record<string, string | undefined> {
+  const env: Record<string, string | undefined> = {
+    PATH: ctx.env.PATH ?? process.env.PATH,
+    HOME: ctx.env.HOME ?? process.env.HOME,
+    GIT_TERMINAL_PROMPT: "0",
+    GIT_ASKPASS: "true",
+  };
+  for (const [name, value] of Object.entries(ctx.env)) {
+    if (value === undefined || name.startsWith("PACER_")) continue;
+    if (name === "GIT_DIR" || name === "GIT_WORK_TREE" || name === "GIT_INDEX_FILE") continue;
+    if (name.startsWith("GIT_") || name.startsWith("GH_") || name.startsWith("GCM_")
+      || name.startsWith("SSH_") || name === "SSH_AUTH_SOCK"
+      || name === "ALL_PROXY" || name.endsWith("_CA_BUNDLE") || name === "NODE_EXTRA_CA_CERTS"
+      || name === "http_proxy" || name === "https_proxy" || name === "HTTP_PROXY" || name === "HTTPS_PROXY"
+      || name === "no_proxy" || name === "NO_PROXY" || name === "LANG" || name === "LC_ALL") {
+      env[name] = value;
+    }
+  }
+  return env;
+}
+
 export type AcceptMergeResult =
   | { merged: true }
   | { merged: false; merge: "conflict"; resolution_task: string };
@@ -338,7 +360,8 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
       "-m", `Accept ${taskId} into ${live.branch}`,
       taskBranch,
     ];
-    const merged = await ctx.run(argv, 60_000);
+    const quiet = gitQuietEnv(ctx);
+    const merged = await ctx.run(argv, 60_000, { env: quiet });
     if (merged.code === 0) {
       await clearResolvedConflicts(ctx, live, top, taskId);
       return { merged: true };
@@ -473,31 +496,13 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     const baseRef = live.baseRef;
     const wt = await integrationWorktreeUnlocked(ctx, live);
     const top = await resolveRepoTop(ctx, live.repo);
-    // M9: allowlisted env (no PACER_*); GIT_ASKPASS is a no-op binary, not `echo`.
-    // Inline (do not import publish.ts — it imports this module).
-    const gitQuietEnv: Record<string, string | undefined> = {
-      PATH: ctx.env.PATH ?? process.env.PATH,
-      HOME: ctx.env.HOME ?? process.env.HOME,
-      GIT_TERMINAL_PROMPT: "0",
-      GIT_ASKPASS: "true",
-    };
-    for (const [name, value] of Object.entries(ctx.env)) {
-      if (value === undefined || name.startsWith("PACER_")) continue;
-      if (name === "GIT_DIR" || name === "GIT_WORK_TREE" || name === "GIT_INDEX_FILE") continue;
-      if (name.startsWith("GIT_") || name.startsWith("GH_") || name.startsWith("GCM_")
-        || name.startsWith("SSH_") || name === "SSH_AUTH_SOCK"
-        || name === "ALL_PROXY" || name.endsWith("_CA_BUNDLE") || name === "NODE_EXTRA_CA_CERTS"
-        || name === "http_proxy" || name === "https_proxy" || name === "HTTP_PROXY" || name === "HTTPS_PROXY"
-        || name === "no_proxy" || name === "NO_PROXY" || name === "LANG" || name === "LC_ALL") {
-        gitQuietEnv[name] = value;
-      }
-    }
+    const quiet = gitQuietEnv(ctx);
     // Fetch only remote-tracking bases (origin/*); local feature/x must not hit the network (R2-F5).
     if (baseRef.startsWith("origin/")) {
       const fetched = await ctx.run(
         ["git", "-C", top, "fetch", "--quiet", "origin"],
         120_000,
-        { env: gitQuietEnv },
+        { env: quiet },
       );
       if (fetched.code !== 0) {
         throw new CoreError(
@@ -510,7 +515,7 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
     const tip = await ctx.run(
       ["git", "-C", top, "rev-parse", "--verify", `${baseRef}^{commit}`],
       10_000,
-      { env: gitQuietEnv },
+      { env: quiet },
     );
     const sha = tip.stdout.trim();
     if (tip.code !== 0 || !/^[0-9a-f]{40,64}$/.test(sha)) {
@@ -530,7 +535,7 @@ export async function syncBase(ctx: Ctx, runId: string, expectRev: number): Prom
       "-m", `Sync base ${live.baseRef} into ${live.branch}`,
       sha,
     ];
-    const merged = await ctx.run(argv, 60_000, { env: gitQuietEnv });
+    const merged = await ctx.run(argv, 60_000, { env: quiet });
     if (merged.code === 0) {
       // R3-I5: clear sync_base entries whose conflicting base SHA is now an ancestor.
       await clearResolvedConflicts(ctx, live, top, `base:${live.baseRef}`);
