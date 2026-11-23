@@ -190,6 +190,17 @@ Would count as failure even if it technically runs:
   of the 0.1.24 incident this ADR calls out) never writes to or replaces the user's own `pacer`
   CLI binary, symlink or PATH entry. The new ADR states this safeguard explicitly, not just the
   convenience.
+- **Install from the desktop app (2026-11-22, maintainer-approved design "28 · Settings: Apps"):**
+  most users install the desktop app first, so the plugin's files ship inside it
+  (`Contents/Resources/orca-panel`) and Settings › Apps adds it. Orca cannot install a plugin from
+  a subfolder of a Git repository (a tree URL's path is read as a branch name), so a Git source is
+  not an option while the plugin lives in this repository. The page is general: one card per app
+  pacer can add itself to, Orca first, backed by one set of service operations that each app
+  implements (detect, add, open, update, remove). Adding shows Orca's own approval (what Orca will
+  grant, in plain words) and passes Orca's fingerprint as `--approve` only after the person
+  confirms in the page; pacer never approves on its own. The same boundary holds: pacer runs the
+  `orca` CLI for this plugin's own install, update and removal and nothing else, and it only tells
+  the person to remove the retired marketplace plugin rather than removing it.
 
 ## What's left to the builder
 
