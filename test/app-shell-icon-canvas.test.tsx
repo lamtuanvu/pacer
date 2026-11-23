@@ -22,7 +22,7 @@ test("activity icons match the canvas with the adopted Workspace replacement",as
 
 test("settings navigation paths match the canvas, including its distinct plugin entry",async()=>{
  const board=await Bun.file("docs/design/project/SettingsNav.dc.html").text();
- const names:Record<string,IconName>={overview:"settings-home",agents:"settings-agents",routing:"settings-routing",budget:"settings-budget",machines:"settings-machines",plugins:"settings-plugins",app:"settings-app",diagnostics:"settings-diagnostics",release:"settings-release"};
+ const names:Record<string,IconName>={overview:"settings-home",agents:"settings-agents",routing:"settings-routing",budget:"settings-budget",machines:"settings-machines",plugins:"settings-plugins",apps:"settings-apps",app:"settings-app",diagnostics:"settings-diagnostics",release:"settings-release"};
  for(const match of board.matchAll(/^      (\w+): '([^']+)'/gm)) expect(icon(names[match[1]!]!)).toContain(`d="${match[2]}"`);
 });
 
