@@ -7,6 +7,7 @@ Notable changes are recorded here, following [Keep a Changelog](https://keepacha
 ### Added
 
 - **Native `pacer-classify` plugin and the Rust SDK's `Host::http`.** `pacer-classify` now runs as a native Rust bundled plugin (the same `classifier.adapters` and `classifier.ask` behavior as the TypeScript plugin), served through the native plugin owner; `capability.net.http` and the pipelined `httpBodyChunks` transfer are exposed on the plugin SDK as `pacer-plugin` 0.5.0 (`Host::http`). `pacer-plugin-assistant-protocol` is at 0.4.0; the other generated protocol crates stay at 0.3.0.
+- **Native `pacer-usage` plugin and the Rust SDK's `usage` feature.** `pacer-usage` now runs as a native Rust bundled plugin serving `usage.read` (the Claude, Codex, live-Codex, BytePlus and metered readers) through the native plugin owner, byte-identical to the TypeScript plugin; the plugin SDK exposes `pacer-plugin` 0.6.0's `usage` feature with the `usage.state` reader lifecycle (begin, readChunk, stageChunk, commit, release) over `capability.fs.read`, plus its cursor and cached-fetch leases.
 
 ## [0.17.9] - 2026-11-23
 
