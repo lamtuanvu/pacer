@@ -93,9 +93,11 @@ From a checkout whose package version, app assets and changelog are prepared for
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The workflow checks the input against `package.json` and typechecks. Its macOS and Linux build jobs run the M1 gate checks against the verified host release pair. Publishing also requires a CI run that executed and passed the full Bun suite on Linux and the macOS-specific suite on macOS for the release commit: `ci-suite` reuses one if it exists, waits for one in progress, or otherwise dispatches CI once on the release ref, which must still point at that commit. A run whose suite executed and failed is a result: publication fails without dispatching another run. Only a commit without a full-suite result (focused or docs-only CI) gets one dispatched run. The workflow also builds all four target pairs, smoke-tests each runner’s native pair, writes metadata, and prints asset SHA-256 hashes and release notes. The Rust SDK testing-feature check remains in verify. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
+The workflow checks the input against `package.json` and typechecks. It builds and publishes only (amendment 0.24.0, proposed): `build-macos` and `build-linux` each run one matrix leg per target in parallel (darwin-arm64 and cross-compiled darwin-x64 on `macos-15`, with x64 smoke under Rosetta; linux-x64 on `ubuntu-24.04` and linux-arm64 on `ubuntu-24.04-arm`), upload `binaries-<os>-<arch>`, smoke-test each target’s binaries, then write metadata and print asset SHA-256 hashes and release notes. Linux desktop starts after `build-linux` alone. It no longer runs the M1 gate against the built release pair, and publication no longer requires a CI run on the release commit; validation — the full Bun suite and the M1 gate against the built release artifacts — runs post-merge on `main` in CI (ubuntu and macOS, with the gate log kept as an artifact). Prepare release reads the pinned commit’s post-merge CI result on `main` and refuses to tag unless a completed, successful CI push run on `main` exists for that commit with every required job green — all Linux test shards, the macOS-specific job, Rust, typecheck/build and the post-merge M1 gate (`scripts/release/main-ci-evidence.ts`; read-only, it never dispatches, re-runs or waits for CI). A missing, in-progress, failed or partial run fails with the run URL and the offending jobs, so fix `main` or wait for its CI and rerun Prepare release; a docs-only or focused push run does not count, so that commit needs a full CI pass on `main` first. CI’s Rust job still runs the SDK testing-feature check. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
+
+**Rust caches.** Tag runs of `release.yml` restore warm dependency caches from `main` (GitHub only restores caches from the tag itself or from the default branch). `.github/workflows/release-cache.yml` warms those caches on `main` (path-filtered pushes, a weekly schedule so unused caches are not evicted after 7 days, and `workflow_dispatch`) under `shared-key` values that match the release jobs. Only the desktop builds, the release's critical path, are warmed; the CLI legs build cold to keep the caches within GitHub's 10GB repository limit. Release steps use `save-if: false` so tag-scoped saves do not waste the 10GB cache quota; PR runs of `ci.yml` restore Rust caches but save only on `main`.
 
 ## Nightly builds
 
@@ -109,7 +111,7 @@ Nightly builds are signed prereleases of a `main` commit. They use the same buil
 
 - checks that the tagged commit changes only the version files;
 - checks that the tagged commit's parent is on `main`;
-- takes CI evidence for the parent `main` commit, without dispatching CI;
+- re-checks no CI evidence in `release.yml`: `nightly.yml` already required CI's full suite for the parent `main` commit before tagging (amendment 0.24.0, proposed);
 - writes release notes from the commit titles since the previous nightly's parent (or the latest stable tag), instead of a CHANGELOG section;
 - publishes a GitHub prerelease that never becomes latest;
 - publishes npm packages under the `nightly` dist-tag (`npm install -g @lamtuanvu/pacer@nightly`);
@@ -143,11 +145,11 @@ The release workflow has an opt-in `desktop-release` environment. Keep the
 repository variable `PACER_DESKTOP_RELEASE_ENABLED` unset until the signed native
 validation matrix and baseline manual installation have been accepted. The
 implementation does not configure credentials or enable publishing. With the
-variable set to `true`, stable version tags build natively on `macos-15`
-(Apple Silicon) and `macos-15-intel` (Intel), sign and notarize each complete app,
-then validate the pair on macOS before publishing. Runner availability is
-specified by [GitHub's hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners);
-a successful local ARM build does not establish Intel coverage.
+variable set to `true`, stable version tags build both architectures on `macos-15`
+(Apple Silicon): arm64 natively and x86_64 by cross-compiling for
+`x86_64-apple-darwin` (smoke-tested under Rosetta), then sign and notarize each
+complete app and validate the pair on macOS before publishing. Runner availability is
+specified by [GitHub's hosted runner matrix](https://docs.github.com/en/actions/reference/runners/github-hosted-runners).
 
 Release CI requires these explicitly configured inputs:
 

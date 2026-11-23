@@ -69,9 +69,16 @@ export async function liveSnapshot(
   return { protocol: PROTOCOL_VERSION, seq: result.seq, snapshot: result };
 }
 
-function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last: number; reset: boolean; discoveryOpen: ReadonlyMap<number, number> } {
+function legacyEventsSince(ctx: Ctx, since: number): {
+  events: ApiEvent[];
+  last: number;
+  reset: boolean;
+  discoveryOpen: ReadonlyMap<number, number>;
+  workflowOpen: ReadonlyMap<number, number>;
+  workflowProblemsOpen: ReadonlyMap<number, number>;
+} {
   // Discovery counts and the oldest seq cover entries above 0 only, so an earlier cursor replays from 0.
-  const { entries: after, oldest, discoveryOpen } = replayOutbox(ctx, Math.max(0, since));
+  const { entries: after, oldest, discoveryOpen, workflowOpen, workflowProblemsOpen } = replayOutbox(ctx, Math.max(0, since));
   const reset = since > 0 && oldest !== undefined && oldest > since + 1;
   // Enrich task events in one batch, with the task's current unread messages: per-event apiTask re-reads every task file for repo
   // labels, which made a replay from cursor 0 O(events × tasks) and blocked the service.
@@ -92,7 +99,7 @@ function legacyEventsSince(ctx: Ctx, since: number): { events: ApiEvent[]; last:
       return {seq:e.seq,at:e.at??ctx.now,type:env.type==="entity"?env.data.kind:env.type,data};
     }),
   ];
-  return { events, last: after.at(-1)?.seq ?? since, reset, discoveryOpen };
+  return { events, last: after.at(-1)?.seq ?? since, reset, discoveryOpen, workflowOpen, workflowProblemsOpen };
 }
 
 
@@ -118,9 +125,31 @@ export function eventsSince(ctx:Ctx,since:number,protocol:2|3=2):{events:ApiEven
    const a=e.data as import('../link/envelope').AlertData;
    event={...e,seq,type:'notify',data:{key:`${a.key}:${a.at}`,title:a.title,body:a.body,actions:[],url:'/app/#/'}};
   } else event={...e,seq,type:e.type};
-  const open=e.type==='counts'?batch.discoveryOpen.get(e.seq)??0:0;
-  const counts=e.data as {attention?:unknown}|null;
-  const v2=open&&typeof counts?.attention==='number'?{...e,data:{...counts,attention:Math.max(0,counts.attention-open)}}:e;
+  const counts=e.data as {attention?:unknown;problems?:unknown}|null;
+  let v2=e;
+  if(e.type==='counts'&&counts&&typeof counts.attention==='number'){
+    const discovery=batch.discoveryOpen.get(e.seq)??0;
+    const workflow=batch.workflowOpen.get(e.seq)??0;
+    const workflowProblems=batch.workflowProblemsOpen.get(e.seq)??0;
+    const open=discovery+workflow;
+    if(open>0||workflowProblems>0){
+      v2={
+        ...e,
+        data:{
+          ...counts,
+          attention:Math.max(0,counts.attention-open),
+          ...(typeof counts.problems==='number'&&workflowProblems>0
+            ?{problems:Math.max(0,counts.problems-workflowProblems)}
+            :{}),
+        },
+      };
+    }
+  }
+  // promptWait is v3-only; strip it from the v2 task event form before attach.
+  if(e.type==='task'&&v2.data&&typeof v2.data==='object'&&!Array.isArray(v2.data)){
+    const {promptWait:_pw,...data}=v2.data as Record<string,unknown>;
+    v2={...v2,data};
+  }
   Object.defineProperty(event,V2_EVENT,{value:e.type==="planner"||e.type==="desktop.update"||v3OnlyEvent(e)?null:v2});
   return event;
  });

@@ -28,7 +28,7 @@ mod update_journal;
 use reqwest::Url;
 use serde_json::Value;
 use std::sync::{
-    atomic::{AtomicBool, Ordering},
+    atomic::{AtomicBool, AtomicU32, Ordering},
     Arc, Mutex,
 };
 use tauri::{
@@ -85,6 +85,24 @@ struct Shell {
     /// Set by Review service replacement on the restored outcome: the next connection shows the
     /// offer once, even for a build the user dismissed before.
     takeover_retry: AtomicBool,
+    /// Pending own-link repair once work is idle (separate from UseApp takeover).
+    pending_own_link_repair: AtomicBool,
+    /// Pending UseApp-authorized consent takeover once work is idle.
+    pending_consent_takeover: AtomicBool,
+    /// Logged once while a consent/own-link service move waits for idle work.
+    service_move_wait_logged: AtomicBool,
+    /// Logged once when work counts are unknown (op failed/timeout).
+    service_move_unknown_counts_logged: AtomicBool,
+    /// Automatic own-link repair already finished this launch (any outcome except
+    /// a Busy refusal still under the deferral cap).
+    own_link_repair_attempted: AtomicBool,
+    /// Busy deferrals while staying connected for own-link repair this launch.
+    own_link_busy_deferrals: AtomicU32,
+    /// Logged once when Busy deferrals hit the per-launch cap.
+    own_link_busy_cap_logged: AtomicBool,
+    /// Automatic consent takeover already entered the helper path this launch.
+    /// Reset only for BeforeHelper failures.
+    consent_takeover_attempted: AtomicBool,
     shell_action: Mutex<Option<logic::ShellAction>>,
     old_service_ack: Mutex<Option<String>>,
     pending_service_key: Mutex<Option<String>>,
@@ -121,6 +139,14 @@ impl Default for Shell {
             retry: AtomicBool::new(false),
             relink_dismissed: AtomicBool::new(false),
             takeover_retry: AtomicBool::new(false),
+            pending_own_link_repair: AtomicBool::new(false),
+            pending_consent_takeover: AtomicBool::new(false),
+            service_move_wait_logged: AtomicBool::new(false),
+            service_move_unknown_counts_logged: AtomicBool::new(false),
+            own_link_repair_attempted: AtomicBool::new(false),
+            own_link_busy_deferrals: AtomicU32::new(0),
+            own_link_busy_cap_logged: AtomicBool::new(false),
+            consent_takeover_attempted: AtomicBool::new(false),
             shell_action: Mutex::new(None),
             old_service_ack: Mutex::new(None),
             pending_service_key: Mutex::new(None),
@@ -232,6 +258,11 @@ fn takeover_open(window: WebviewWindow, app: AppHandle) -> Result<(), String> {
     if app.state::<Shell>().takeover.lock().unwrap().is_none() {
         return Err("No service takeover was detected".into());
     }
+    // Settings review cancels any pending automatic UseApp / own-link move.
+    let shell = app.state::<Shell>();
+    shell.pending_own_link_repair.store(false, Ordering::SeqCst);
+    shell.pending_consent_takeover.store(false, Ordering::SeqCst);
+    shell.service_move_wait_logged.store(false, Ordering::SeqCst);
     recovery(&app, "takeover");
     app.state::<Shell>().expired.notify_one();
     Ok(())

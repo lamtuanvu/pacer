@@ -21,6 +21,8 @@ export function slotUse(tasks: TaskRecord[], ctx?:Ctx, exceptSession?:string): S
   const use: SlotUse = {byExecutor: {}, byHost: {}, local: 0};
   for (const task of tasks) {
     if (!holdsSlot(task)) continue;
+    // workflow-root is a long-lived synthetic node: never a local capacity slot.
+    if (task.kind === "workflow-root") continue;
     const executor = task.run?.executor ?? task.executor;
     if (executor) use.byExecutor[executor] = (use.byExecutor[executor] ?? 0) + 1;
     const host = task.run?.host ?? (executor ? parseRunnerId(executor)?.host : null);

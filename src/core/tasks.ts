@@ -183,7 +183,16 @@ export interface ReviewOptions {
   expect_state?: TaskState;
   expectRev?: number;
 }
-type RetryDeps = { delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>; beforeCommit?:()=>void; afterCommit?:(parent:TaskRecord,retry:TaskRecord)=>void; spawnRunner?: SpawnRunner; appAuthenticated?: boolean; participant?: string };
+type RetryDeps = {
+  delegate?: (ctx: Ctx, input: DelegateInput) => TaskRecord | Promise<TaskRecord>;
+  beforeCommit?: () => void;
+  afterCommit?: (parent: TaskRecord, retry: TaskRecord) => void;
+  spawnRunner?: SpawnRunner;
+  appAuthenticated?: boolean;
+  participant?: string;
+  /** When question.answer already owns the record CAS, skip the I6 linked settle. */
+  skipLinkedQuestionRecord?: boolean;
+};
 
 /**
  * Deliver a follow-up (answer or review feedback) as a message that resumes the task's own session.
@@ -207,7 +216,7 @@ async function continueWithMessage(ctx: Ctx, task: TaskRecord, m: { kind: "answe
 
 export async function review(
   ctx: Ctx, id: string, v: ReviewOptions, deps: RetryDeps = {},
-): Promise<{ task: ApiTask; retry?: ApiTask }> {
+): Promise<{ task: ApiTask; retry?: ApiTask; accepted?: false; merge?: "conflict"; resolution_task?: string }> {
   ctx={...ctx,env:{...ctx.env}};v={...v};
   const check = () => {
     const task = readTask(ctx, id);
@@ -251,7 +260,9 @@ export async function review(
       checkRev(ctx,current,expected);
       taskReview(ctx, id, verdict === "accept", v.kind, v.note);
       const reviewed = readTask(ctx, id)!, goal = taskTitle(reviewed);
-      taskActivity(ctx, reviewed, "verdict", verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`);
+      const resumed = ctx.env.PACER_CALLER_RESUME === id;
+      const verdictText = (verdict === "accept" ? `Accepted “${goal}”` : verdict === "send_back" ? `Sent “${goal}” back to ${executorName(executor)}` : `Rejected “${goal}”`) + (resumed ? " (resumed caller session)" : "");
+      taskActivity(ctx, reviewed, "verdict", verdictText, resumed ? { source: "resumed-caller" } : undefined);
     } catch (e) {
       throw toCoreError(e);
     }
@@ -271,13 +282,31 @@ export async function review(
     }
     // Both policy decisions finish before the single guarded retry+verdict commit.
     let reviewed:TaskRecord|undefined;
-    const result=await retry(ctx,id,{executor,expectRev:initialTask.rev,...(verdict==="send_back"?{feedback:v.note}:{})},{
+    const result=await retry(ctx,id,{executor,expectRev:initialTask.rev,...(verdict==="send_back"?{feedback:v.note}:{}),...(verdict==="retry"?{freshFromRunBranch:true}:{})},{
       ...deps,
       beforeCommit:()=>{deps.beforeCommit?.();validateReview();},
       afterCommit:(parent,child)=>{reviewed=record(verdict,executor,parent.rev);deps.afterCommit?.(reviewed,child);},
     });
     if(!reviewed)throw new CoreError("conflict","Review retry did not consume its admitted commit");
     return {task:apiTask(ctx,reviewed),retry:apiTask(ctx,readTask(ctx,result.retry.id)??result.retry)};
+  }
+  // Phase 5: for a run task whose run has a branch, merge into the run branch before the verdict.
+  // Cheap read-only gate first so ordinary accepts never open workflow DDL / write txns.
+  if (verdict === "accept") {
+    validateReview();
+    const { stepTaskNeedsRunBranchMerge } = await import("../workflow/store");
+    if (stepTaskNeedsRunBranchMerge(ctx, id)) {
+      const { mergeTaskOnAccept } = await import("../workflow/branch");
+      const merge = await mergeTaskOnAccept(ctx, id);
+      if (merge && !merge.merged) {
+        return {
+          task: apiTask(ctx, readTask(ctx, id)!),
+          accepted: false,
+          merge: "conflict",
+          resolution_task: merge.resolution_task,
+        };
+      }
+    }
   }
   const task=withTaskLock(ctx,id,()=>{validateReview();return record(verdict,executor);});
   await autoCleanTask(ctx, id);
@@ -352,7 +381,7 @@ export async function diff(ctx: Ctx, id: string, o: { path?: string; summaryOnly
 
 /** Re-delegates a task's stored brief. One active retry per task: a second call gets `conflict`. */
 async function retryTask(
-  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number; answerText?: string } = {},
+  ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number; answerText?: string; freshFromRunBranch?: boolean } = {},
   deps: RetryDeps = {},
 ): Promise<{ retry: TaskRecord; of: TaskRecord }> {
   if (!isTaskId(id)) throw unknown(id);
@@ -360,6 +389,10 @@ async function retryTask(
   const before = readTask(ctx, id);
   const repoRef = before ? before.repo && !before.repo.identityUnverified ? before.repo : await resolvePolicyRepo(ctx, before.brief.repo) : undefined;
   if (before) await requireRepoDirectory(before.brief.repo);
+  // Phase 5: resolve outside the sync lock (send-back must not take this path).
+  const runBranchBase = o.freshFromRunBranch
+    ? (await import("../workflow/branch")).runBranchBaseForRetry(ctx, id)
+    : null;
   let answerBase: string | undefined, answerFromBase = false;
   let answerWorktree: string | undefined;
   if (o.answerText !== undefined && before?.state === "needs_input" && before.question && before.question.answer === undefined && !before.retriedBy) {
@@ -414,15 +447,18 @@ async function retryTask(
         const workParent = getWork(ctx, task.id)?.parentId;
         const origin = task.origin ?? (workParent ? `task:${workParent}` : undefined);
         // Restore retained branches above; a missing branch starts a fresh checkout.
-        const reuseWorktree = missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
+        // Run-branch retries never reuse the previous worktree (spec: tip of the run branch).
+        const reuseWorktree = runBranchBase || missingBranch ? undefined : restored ?? (!answering ? [task.result?.worktree, task.worktree, !task.run?.host ? task.run?.workdir : undefined].find(p => p?.startsWith("/")) : undefined);
+        const briefBase = answerBase ?? runBranchBase ?? undefined;
         const input: DelegateInput = {
           difficulty: task.difficulty, difficultySource: task.difficultySource, model: task.model,
           ...(reuseWorktree ? { reuseWorktree, baseBranch: task.baseBranch, baseSha: task.baseSha } : {}),
-          admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(answerBase ? {base:answerBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
+          admissionLease: lease, repoValidated: true, title: taskTitle(task), source: task.source, brief: { ...task.brief, ...(briefBase ? {base:briefBase} : {}), ...(answering ? {qa:[...(task.brief.qa ?? []),{q:task.question!.text,a:o.answerText!}]} : {}), ...(o.feedback?.trim() ? { feedback: [task.brief.feedback, o.feedback].filter(Boolean).join("\n\n") } : {}) }, repoRef, kind: task.kind, timeoutMin: task.timeoutS / 60, retryOf: task.id,
           ...(task.placement?.requested === "current" || task.placement?.requested === "new" ? { worktree: task.placement.requested } : {}),
-          ...(missingBranch ? {worktree: "new" as const} : {}),
+          ...(missingBranch || runBranchBase ? {worktree: "new" as const} : {}),
           ...(answering && (task.placement?.mode === "new" || task.run?.mode === "new") ? {worktree:"new" as const} : {}),
           ...(missingBranch ? {worktree_reason: "previous worktree and branch are gone; creating a new worktree"}
+            : runBranchBase ? {worktree_reason: "run-branch retry starts from the current run branch tip"}
             : task.placement?.reason !== undefined ? {worktree_reason: task.placement.reason} : {}),
           ...(task.force ? { force: true } : {}),
           ...(executor ? { executor } : {}),
@@ -430,6 +466,7 @@ async function retryTask(
           ...(task.group ? { group: task.group } : {}),
           // The retry belongs to whoever the original belongs to, not to whoever retried it.
           ...(origin ? { origin } : {}),
+          ...(task.callerReach ? { callerReach: task.callerReach } : {}),
         };
         return {task,input,answering};
       });
@@ -471,7 +508,7 @@ async function retryTask(
 }
 
 /** Re-delegate a brief; serializes with answers on the same task. */
-export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number } = {}, deps: RetryDeps = {}) {
+export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: boolean; feedback?: string; expectRev?: number; freshFromRunBranch?: boolean } = {}, deps: RetryDeps = {}) {
   return retryTask(ctx, id, o, deps);
 }
 
@@ -479,9 +516,50 @@ export function retry(ctx: Ctx, id: string, o: { executor?: string; fromPanel?: 
 export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?: number } = {}, deps: RetryDeps = {}): Promise<{task: ApiTask; retry: ApiTask}> {
   if (isExecutorSession(ctx)) throw new CoreError("not_allowed", "executors cannot delegate onward");
   if (typeof text !== "string" || text.length < 1 || text.length > 2000) throw new CoreError("invalid_input", "answer must contain 1–2000 characters");
+  // Step tasks with an open linked structured question: settle AFTER a successful
+  // delivery (R2-I4). question.answer sets skipLinkedQuestionRecord so it owns the
+  // CAS (R2-BL1). Gate on a read-only schema probe so ordinary homes never run DDL.
+  let linkedToSettle: { id: string; rev: number } | undefined;
+  if (!deps.skipLinkedQuestionRecord) {
+    try {
+      const { stepByTaskIfPresent, listQuestions, workflowSchemaPresent } = await import("../workflow/store");
+      if (workflowSchemaPresent(ctx)) {
+        const step = stepByTaskIfPresent(ctx, id);
+        if (step) {
+          const open = listQuestions(ctx, step.runId, "open").filter(q =>
+            q.askerTaskId === id && (q.blocks === "step" || q.blocks === "branch"),
+          );
+          const linked = open[open.length - 1];
+          if (linked && linked.answerer === "person") {
+            const { validateQuestionAnswer } = await import("../workflow/question-schema");
+            try {
+              validateQuestionAnswer(linked.answerType, text, linked.options);
+              linkedToSettle = { id: linked.id, rev: linked.rev };
+            } catch {
+              /* leave the open record for question.answer */
+            }
+          }
+        }
+      }
+    } catch (err) {
+      if (err instanceof CoreError) throw err;
+    }
+  }
+  const settleLinked = async () => {
+    if (!linkedToSettle) return;
+    const pending = linkedToSettle;
+    linkedToSettle = undefined;
+    const { settleAnsweredQuestion } = await import("../workflow/questions");
+    await settleAnsweredQuestion(ctx, pending.id, {
+      answer: text,
+      expectRev: pending.rev,
+      answeredBy: "person",
+    });
+  };
   const current = readTask(ctx, id);
   if (current && directInputAvailable(current)) {
     const result = apiTask(ctx, await answerLiveTask(ctx, id, text, o.expectRev));
+    await settleLinked();
     return {task: result, retry: result};
   }
   let expectRev = o.expectRev;
@@ -500,12 +578,14 @@ export async function answer(ctx: Ctx, id: string, text: string, o: { expectRev?
       () => setAnswer(text), () => setAnswer());
     if (task) {
       if (question) readMessages(ctx, question.to, [question.id]);
+      await settleLinked();
       return { task, retry: task };
     }
     if (getWork(ctx, id)) throw new CoreError("conflict", "The work could not continue its session; use dispatch.answer with a requestId and revision");
     expectRev = readTask(ctx, id)?.rev;
   }
   const r = await retryTask(ctx, id, {...o, expectRev, answerText:text}, deps);
+  await settleLinked();
   return {task:apiTask(ctx,r.of),retry:apiTask(ctx,r.retry)};
 }
 

@@ -485,6 +485,7 @@ pacer account add endpoint <name> --base-url <url> --key <keychain|file|env:VAR|
 pacer account models <name> [--refresh]
 pacer account test <name>
 pacer account edit <name> [--base-url <url>] [--key <keychain|file|env:VAR|none>] [--models <id,...>] [--context <n>] [--output <n>] [--usage <quota|metered|unmetered>] [--quota-source arkcli] [--weekly-tokens <n>]
+pacer account set <name> --allow-paid true|false
 pacer account rm <name> [--delete-home] [--delete-key]
 pacer runner list [--json]
 pacer runner add <agent#account> [--model <m>]

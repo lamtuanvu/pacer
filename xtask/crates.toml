@@ -57,6 +57,9 @@ generated = true
 [crates.pacer-assistant-protocol]
 layer = 0
 generated = true
+[crates.pacer-workflow-protocol]
+layer = 0
+generated = true
 [crates.pacer-plugin-assistant-protocol]
 layer = 0
 generated = true
@@ -112,6 +115,10 @@ binary = true
 layer = "sdk"
 [crates.pacer-fixtures]
 layer = "sdk"
+[crates.pacer-assistant-pacer]
+layer = "plugin"
+heavy = ["reqwest"]
+
 [crates.xtask]
 layer = "tool"
 heavy = ["typify", "syn"]

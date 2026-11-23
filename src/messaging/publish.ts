@@ -5,9 +5,14 @@ import type { OutboxEvent } from "../link/envelope";
 import { taskData } from "../link/pump";
 import { publish, type PublishReport } from "../link/publish";
 import { readLatest } from "../link/store";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { readTask } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
+import {
+  openBlockingPersonQuestionAskerIds,
+  suppressOrdinaryQuestionItems,
+} from "../workflow/attention";
 
 /**
  * A task's messages for the human changed: republish the task, whose event carries its unread messages, and its message
@@ -16,7 +21,7 @@ import type { Ctx } from "../types";
  */
 export function taskMessageEvents(ctx: Ctx, taskId: string): OutboxEvent[] {
   const record = readTask(ctx, taskId);
-  if (!record) return [];
+  if (!record || isEngineOwnedKind(record.kind)) return [];
   // Keep what the pump last published, which carries session fields taskData lacks.
   const task: OutboxEvent = { type: "task", data: readLatest(ctx).tasks.find(t => t.id === taskId) ?? taskData(record) };
   // The task's retry decides whether its items are superseded.
@@ -24,8 +29,13 @@ export function taskMessageEvents(ctx: Ctx, taskId: string): OutboxEvent[] {
   const rows = apiTasks(ctx, [record, ...(retry ? [retry] : [])] as TaskRecord[]).map(t => ({ ...t, title: t.fullTitle ?? t.title }));
   const id = `message:${taskId}`;
   // Read only: the pump owns the attention store and drops entries this one task does not raise.
-  const item = applyStore({ ...ctx, readOnly: true }, deriveTaskItems({ now: ctx.now, tasks: rows, executors: [], accounts: [], planner: null,
-    setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null }).filter(i => i.id === id))[0];
+  // Shared asker filter (I-1) so ordinary question items stay suppressed on this path too.
+  const raised = suppressOrdinaryQuestionItems(
+    deriveTaskItems({ now: ctx.now, tasks: rows, executors: [], accounts: [], planner: null,
+      setup: { complete: true, open: 0, items: [] }, update: null, retryTarget: () => null }),
+    openBlockingPersonQuestionAskerIds(ctx),
+  );
+  const item = applyStore({ ...ctx, readOnly: true }, raised.filter(i => i.id === id))[0];
   return [task, { type: "entity", data: item ? { kind: "attention", id, value: item } : { kind: "attention", id, removed: true } }];
 }
 

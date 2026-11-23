@@ -868,7 +868,8 @@ impl StartContext<'_> {
                 "report-hook.sh" => (0o700, 16384, true),
                 "claude-settings.json" => (0o600, 16384, true),
                 "strict-claude-settings.json" => (0o600, 16384, false),
-                "prompt.md" => (0o600, 8 * 1024 * 1024, true),
+                // Headless claude/cursor/agy spill oversize prompts; must match TS LAUNCH_FILES.
+                "prompt.md" => (0o600, 8 * 1024 * 1024, false),
                 _ => return Err(denied()),
             };
             if !names.insert(&file.name)

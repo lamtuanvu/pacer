@@ -1,6 +1,6 @@
 import { agentInfo, markAgent } from "../../../src/view-model/agents";
-import { clock } from "../../../src/view-model/time";
 import { policyCaption } from "../../../src/view-model/words";
+import { usageView, windowWords, resetWords } from "../../../src/view-model/usage";
 import { desktopUpdateIndicator } from "../../../src/view-model/updates";
 import { settingsPath } from "../router";
 import type { Action } from "../../../src/attention/types";
@@ -35,19 +35,30 @@ export function visibleFailure(failure: { message: string; item?: string } | nul
 }
 export const actionSupported = (action: Action, ops: ReadonlySet<string>) => !["dispatch.retry", "dispatch.answer"].includes(action.op) || ops.has(action.op);
 export const primaryAction = (actions: Action[]) => actions.find(a => a.style === "primary") ?? actions[0];
-/** Compact capacity values never invent an unknown usage percentage. */
+/** The row's figure for compact labels: the record's, or a legacy row's meter fields. */
+export function executorUsage(executor: ExecutorRow, now: number): { meter: number | null; figure: string; summaryUsed: string } {
+  const view = usageView(executor.usageState, now);
+  if (executor.usageState) return { meter: view.meter, figure: view.figure, summaryUsed: view.summaryUsed };
+  const figure = executor.usedPct != null ? `${Math.round(executor.usedPct)}%` : "Usage unknown";
+  return { meter: executor.usedPct != null ? Math.round(executor.usedPct) : null, figure, summaryUsed: executor.usedPct != null ? `${figure} used` : figure };
+}
+
+/** Compact capacity values never invent an unknown usage percentage; the figure comes from the row's record. */
 const OFF_STATES = new Set(["disabled", "down", "failing", "blocked"]);
-export function executorValue(executor: ExecutorRow): string {
+export function executorValue(executor: ExecutorRow, now: number): string {
   // Eligibility is authoritative; operational failures and old prose can coexist
   // with a permitted budget. Never let those legacy hints hide a real reading.
   if (!executor.enabled || executor.state === "disabled") return "off";
-  if (executor.eligibility?.state === "eligible" && executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
+  // Freshness words never matter in the strip; the figure and verdict come from the one record (ADR 0030).
+  const { meter } = executorUsage(executor, now);
+  const exhausted = executor.usageState ? executor.usageState.verdict === "EXHAUSTED" : executor.state === "exhausted";
+  if (executor.eligibility?.state === "eligible" && meter !== null) return `${meter}%`;
   if (executor.eligibility?.state === "uncertain") return "?";
   if (executor.eligibility?.state === "ineligible") return executor.eligibility.budget === "exhausted" ? "out" : "off";
-  if (!executor.enabled || OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
-  if (executor.state === "exhausted") return "out";
-  if (executor.state === "checking" || (executor.usedPct === null && executor.paceReason !== "unmetered")) return "?";
-  if (executor.usedPct !== null) return `${Math.round(executor.usedPct)}%`;
+  if (OFF_STATES.has(executor.state) || /no (active )?(coding[- ])?plan|no subscription/i.test(`${executor.sub} ${executor.reason ?? ""}`)) return "off";
+  if (executor.state === "exhausted" || exhausted) return "out";
+  if (executor.state === "checking" || (meter === null && executor.paceReason !== "unmetered")) return "?";
+  if (meter !== null) return `${meter}%`;
   if (executor.slots.max > 0 && executor.slots.used >= executor.slots.max) return `${executor.slots.used}/${executor.slots.max}`;
   return executor.slots.used > 0 ? `${executor.slots.used}/${executor.slots.max}` : "—";
 }
@@ -71,13 +82,4 @@ export function trayModel(snapshot: ClientSnapshot, activity: ActivityEntry[] = 
     ...activity.filter(e => e.kind === "verdict" && /^Accepted\b/.test(e.text)).map(e => e.at)];
   return { policy: policyCaption(snapshot.policy), update: desktopUpdateIndicator(snapshot.desktopUpdates), attention, recommendedId, active, queued, waiting: queued.length, needsCount: counts(snapshot)?.attention ?? attention.length,
     done: snapshot.today?.done ?? 0, lastReview: reviews.length ? Math.max(...reviews) : null, executors: capacity(snapshot).filter(row => row.rank !== "planner" && row.id !== snapshot.planner?.runner) };
-}
-
-/** Future resets in this week use the board's weekday + local time. */
-export function resetCaption(at: number, now: number): string {
-  if (at < now || at - now >= 7 * 86400) return clock(at, now);
-  const date = new Date(at * 1000);
-  const time = date.toLocaleTimeString("en-GB", { hourCycle: "h23", hour: "2-digit", minute: "2-digit" });
-  const day = date.toLocaleDateString("en-GB", { weekday: "short" });
-  return `${day} ${time}`;
 }

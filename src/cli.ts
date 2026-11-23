@@ -20,6 +20,7 @@ import { callOp } from "./api/ops";
 import { recheckDiagnostic } from "./core/doctor-fix";
 import { doctor as setupDoctor } from "./core/setup";
 import { readTask } from "./tasks/store";
+import { isEngineOwnedKind } from "./tasks/engine-owned";
 import { connectClient } from "./api/client";
 import { reportCommand, reportDestination, agentHook } from "./session/reports";
 import { openSession, sessionInfo } from "./session/service";
@@ -36,13 +37,15 @@ import { runningWork, runningWorkLines } from "./service/running-work";
 import { runDashboard } from "./dashboard/cli";
 import { setupCmd, SETUP_USAGE } from "./commands/setup";
 import { parseDelegateKind } from "./commands/delegate-kind";
-import { localHuman } from "./messaging/participants";
+import { callerParticipant, localHuman } from "./messaging/participants";
+import { callerReach } from "./messaging/caller-reach";
 import * as core from "./core";
 import { CoreError } from "./core/errors";
 import { readFileSync, realpathSync } from "node:fs";
 import { assertCallerCanInvoke, executorMayReview, TASK_REVIEW_REFUSAL } from "./api/caller-policy";
 import type { RouteExplanation } from "./core/dispatch-explain";
-import { isExecutorSession } from "./install/role";
+import { isExecutorSession, isOrchestratorSession } from "./install/role";
+import { authorizeWorkOperation } from "./core/work";
 import { executorCommand } from "./executors/command";
 import { use as switchStrategy } from "./strategy/service";
 import { hookInput, plannerPolicyApplies } from "./install/role";
@@ -77,8 +80,9 @@ import { readRunnerModels, saveRunnerModels, modelDeclarationWarnings, type Mode
 import { availableModels } from "./models/available";
 import { tierSchema } from "./dispatch/types";
 
-/** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`. */
-export const cliDeps: { spawnRunner: SpawnRunner } = { spawnRunner };
+/** Test seam: how the CLI starts a task runner. Tests swap it so they never spawn `pacer _run`.
+ *  `runTask` lets a test exercise the real `_run` allow-list hop without launching a planner. */
+export const cliDeps: { spawnRunner: SpawnRunner; runTask?: typeof runTask } = { spawnRunner };
 
 const USAGE = `usage: pacer <command>
   dashboard                                      live interactive terminal dashboard
@@ -122,7 +126,7 @@ const USAGE = `usage: pacer <command>
   api --stdio                                    JSON-RPC (v2 default, v3 negotiation)
   serve [--port <n>] [--internal]                local HTTP status endpoint (default ${DEFAULT_PORT})
   use <strategy>                                 switch to ~/.pacer/strategies/<strategy>.yaml ("default" = strategy.yaml)
-  account list [--json] | add <kind> <name> [options] | rm <name> [--delete-home]
+  account list [--json] | add <kind> <name> [options] | set <name> --allow-paid true|false | rm <name> [--delete-home]
   runner list [--json] | add <agent#account> [--model <m>] | rm <agent#account>
   config get [key] [--json] | set <key> <value> | migrate
   ${SETUP_USAGE}                connect detected agent CLIs
@@ -339,11 +343,15 @@ async function delegateCmd(args: string[], ctx: Ctx): Promise<Result> {
     if(typeof raw.kind==="string")raw.kind=parseDelegateKind(raw.kind);
     const input=parseDelegateBrief(raw,process.cwd());
     const repoRef=await resolveRepoInput(ctx,input.brief.repo);
-    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin:localHuman(ctx)},cliDeps.spawnRunner);
+    // This process is the caller's own, so its env can record how to reach it again.
+    const origin=localHuman(ctx), reach=origin?null:callerReach(ctx,callerParticipant(ctx).id);
+    const t=await core.tasks.delegate(ctx,{...input,brief:{...input.brief,repo:repoRef.path},source:"cli",repoRef,force:opts.force===true,origin,...(reach?{callerReach:reach}:{})},cliDeps.spawnRunner);
     const warning = t.difficultySource === "unspecified" ? JSON.stringify({code:"difficulty_missing",field:"difficulty",values:["simple","standard","complex"]}) : "";
-    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(t, null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
+    // The caller reach is a delivery hint for the broker, not part of the task the caller sees.
+    const shown = ({ callerReach: _reach, ...rest }: typeof t) => rest;
+    if (!opts.wait) return { code: 0, out: opts.json ? JSON.stringify(shown(t), null, 1) : `${t.id} queued${t.placement?.requested === "current" && t.placement.mode === "new" ? `\nplacement: current overridden to new (${t.placement.why})` : ""}`, err: warning };
     const done = (await taskWait(ctx, t.id, t.timeoutS * 3 + 60)) ?? t;
-    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(done, null, 1) : renderTask(done), err: warning };
+    return { code: done.state === "done" ? 0 : 1, out: opts.json ? JSON.stringify(shown(done), null, 1) : renderTask(done), err: warning };
   } catch (e) {
     return { code: 2, out: "", err: explain(e) };
   }
@@ -384,7 +392,8 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       return { code: 0, out: opts.json ? JSON.stringify(summarizeTask(t), null, 1) : [renderTask(t),(await controlProgress(ctx,t))].filter(Boolean).join("\n"), err: "" };
     } catch (e) { return { code: 2, out: "", err: explain(e) }; }
   }
-  const list = core.tasks.list(ctx, { all: opts.all === true, ...(opts.all === true ? { limit: Infinity } : {}) });
+  const list = core.tasks.list(ctx, { all: opts.all === true, ...(opts.all === true ? { limit: Infinity } : {}) })
+    .filter(t => !isEngineOwnedKind(t.kind));
   if (opts.json) return { code: 0, out: JSON.stringify(list.map(summarizeTask), null, 1), err: "" };
   if (!list.length) return { code: 0, out: "no tasks yet", err: "" };
   return {
@@ -469,6 +478,24 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     return {code:2,out:"",err:"pacer: work grants only allow scoped dispatch commands"};
   if (ctx.env.PACER_ASSISTANT_GRANT && cmd !== "mcp")
     return {code:2,out:"",err:"pacer: an assistant grant only allows the MCP server"};
+  // Orchestrator turns: review/stop/step result|skip|retry|artifact / run decide|choose|submit-graph|sync|publish,
+  // plus structured question answer/escalate/ask (Phase 4). Never delegate or run.answer.
+  // run.cleanup stays person-only (refused here and in the op).
+  if (ctx.env.PACER_ROLE === "orchestrator" || ctx.env.PACER_RUN_GRANT) {
+    const sub = rest[0];
+    const allowed =
+      cmd === "review" || cmd === "stop"
+      || (cmd === "step" && (sub === "result" || sub === "skip" || sub === "retry" || sub === "artifact"))
+      || (cmd === "run" && (sub === "decide" || sub === "choose" || sub === "submit-graph" || sub === "sync" || sub === "publish"))
+      || cmd === "answer" || cmd === "question" || cmd === "ask"
+      || cmd === "api" || cmd === "mcp";
+    if (!allowed) {
+      return {
+        code: 2, out: "",
+        err: "pacer: orchestrator role only allows review, stop, step result|skip|retry|artifact, run decide|choose|submit-graph|sync|publish, answer, question, ask --type ...",
+      };
+    }
+  }
   if (cmd === "--pacer-fixture-startup-cleanup" && compiledNativeFixture()) {
     if (rest.length) return {code:2,out:"",err:"Fixture cleanup accepts no arguments"};
     try {
@@ -512,14 +539,30 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "answer": {
       try {
         const pos: string[] = [];
-        let json = false, options = true;
-        for (const a of rest) {
+        let json = false, options = true, note: string | undefined, expectRev: number | undefined;
+        for (let i = 0; i < rest.length; i++) {
+          const a = rest[i]!;
           if (options && a === "--") { options = false; continue; }
           if (options && a === "--json") json = true;
-          else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
+          else if (options && (a === "--note" || a.startsWith("--note="))) {
+            note = a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[++i];
+          } else if (options && (a === "--expect-rev" || a.startsWith("--expect-rev="))) {
+            const raw = a.includes("=") ? a.slice(a.indexOf("=") + 1) : rest[++i];
+            expectRev = Number(raw);
+          } else if (options && a.startsWith("--")) throw new Error(`unknown option: ${a}`);
           else pos.push(a);
         }
-        if (pos.length !== 2) throw new Error('usage: pacer answer <task> "<text>" [--json] [--]');
+        if (pos.length !== 2) throw new Error('usage: pacer answer <task|question> "<text>" [--note] [--expect-rev] [--json] [--]');
+        if (pos[0]!.startsWith("q_")) {
+          const current = await callOp(ctx, "question.get", { id: pos[0] }) as { rev: number };
+          const result = await callOp(ctx, "question.answer", {
+            id: pos[0],
+            answer: pos[1],
+            ...(note !== undefined ? { note } : {}),
+            expect_rev: expectRev ?? current.rev,
+          }, { spawnRunner: cliDeps.spawnRunner });
+          return { code: 0, out: JSON.stringify(result, null, json ? 2 : undefined), err: "" };
+        }
         const result = await callOp(ctx,"task.answer",{id:pos[0],text:pos[1]},{spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
         return {code:0,out:JSON.stringify(result,null,json?2:undefined),err:""};
       } catch(e) {return {code:2,out:"",err:explain(e)};}
@@ -533,7 +576,59 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
       } catch (e) { return { code: 2, out: "", err: explain(e) }; }
     }
     case "ask": {
-      // Executors ask the planner; everyone else asks the assistant.
+      // Structured flags → question.ask; executors without flags use task.ask; else assistant.
+      const structured = rest.some(a => a === "--type" || a.startsWith("--type=")
+        || a === "--option" || a.startsWith("--option=")
+        || a === "--recommend" || a.startsWith("--recommend=")
+        || a === "--blocks" || a.startsWith("--blocks=")
+        || a === "--artifact" || a.startsWith("--artifact=")
+        || a === "--step" || a.startsWith("--step=")
+        || a === "--attempt" || a.startsWith("--attempt="));
+      if (structured) {
+        try {
+          const options: { value: string }[] = [];
+          let type: string | undefined, recommend: string | undefined, blocks = "step", text: string | undefined;
+          let artifact: string | undefined, stepId: string | undefined, attempt: number | undefined;
+          for (let i = 0; i < rest.length; i++) {
+            const a = rest[i]!;
+            if (a === "--type" || a.startsWith("--type=")) type = a.includes("=") ? a.slice(7) : rest[++i];
+            else if (a === "--option" || a.startsWith("--option=")) {
+              const v = a.includes("=") ? a.slice(9) : rest[++i];
+              if (v) options.push({ value: v });
+            } else if (a === "--recommend" || a.startsWith("--recommend=")) {
+              recommend = a.includes("=") ? a.slice(12) : rest[++i];
+            } else if (a === "--blocks" || a.startsWith("--blocks=")) {
+              blocks = (a.includes("=") ? a.slice(9) : rest[++i]) ?? "step";
+            } else if (a === "--artifact" || a.startsWith("--artifact=")) {
+              artifact = a.includes("=") ? a.slice(11) : rest[++i];
+            } else if (a === "--step" || a.startsWith("--step=")) {
+              stepId = a.includes("=") ? a.slice(7) : rest[++i];
+            } else if (a === "--attempt" || a.startsWith("--attempt=")) {
+              const raw = a.includes("=") ? a.slice(10) : rest[++i];
+              attempt = Number(raw);
+              if (!Number.isInteger(attempt) || attempt < 1) {
+                throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+              }
+            } else if (a.startsWith("--")) throw new Error(`unknown option ${a}`);
+            else if (text === undefined) text = a;
+            else throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+          }
+          if (!type || !text?.trim()) {
+            throw new Error('usage: pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] [--step] [--attempt] "<text>"');
+          }
+          const result = await callOp(ctx, "question.ask", {
+            text,
+            answerType: type,
+            blocks,
+            ...(options.length ? { options } : {}),
+            ...(recommend ? { recommended: recommend } : {}),
+            ...(artifact ? { artifact } : {}),
+            ...(stepId ? { stepId } : {}),
+            ...(attempt !== undefined ? { attempt } : {}),
+          });
+          return { code: 0, out: JSON.stringify(result), err: "" };
+        } catch (e) { return { code: 2, out: "", err: e instanceof Error ? e.message : String(e) }; }
+      }
       if (!isExecutorSession(ctx)) return askCommand(rest, ctx);
       try {
         const id = core.tasks.requireAskingExecutor(ctx);
@@ -580,10 +675,29 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
         if(cmd==="review") {
           if([opts.accept,opts.reject,opts["send-back"],opts["retry-on"]].filter(Boolean).length!==1)throw new Error("give exactly one of --accept, --reject, --send-back or --retry-on <executor>");
           if(opts["retry-on"]===true)throw new Error("--retry-on requires an executor");
-          if((opts["send-back"]||opts["retry-on"])&&isExecutorSession(ctx))throw new DelegateError(EXECUTOR_DELEGATE_ERROR);
+          // Orchestrator turns never delegate (round-2 B2).
+          if((opts["send-back"]||opts["retry-on"])&&(isExecutorSession(ctx)||isOrchestratorSession(ctx)||!!ctx.env.PACER_RUN_GRANT))
+            throw new DelegateError(isOrchestratorSession(ctx)||ctx.env.PACER_RUN_GRANT
+              ? "pacer: orchestrator cannot delegate via --send-back or --retry-on"
+              : EXECUTOR_DELEGATE_ERROR);
           if(isExecutorSession(ctx)&&!executorMayReview(ctx,{id:pos[0]}))throw new DelegateError(TASK_REVIEW_REFUSAL);
           const verdict=opts.accept?"accept":opts.reject?"reject":opts["send-back"]?"send_back":"retry";
+          // Run-grant sessions must pass authorizeWorkOperation (same as task.review over HTTP).
+          if(isOrchestratorSession(ctx)||ctx.env.PACER_RUN_GRANT){
+            const task=readTask(ctx,pos[0]);
+            if(!task)throw new Error(`unknown task ${pos[0]}`);
+            authorizeWorkOperation(ctx,"task.review",{id:pos[0],verdict,expect_rev:task.rev});
+            const result=await callOp(ctx,"task.review",{id:pos[0],verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note),expect_rev:task.rev},{spawnRunner:cliDeps.spawnRunner,participant:"orchestrator"}) as {merge?:string;resolution_task?:string};
+            if(result.merge==="conflict"){
+              return {code:1,out:opts.json?JSON.stringify(result):`${pos[0]} merge conflict  ${result.resolution_task ?? ""}`.trimEnd(),err:""};
+            }
+            return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:""};
+          }
           const result=await core.tasks.review(ctx,pos[0],{verdict,executor:str(opts["retry-on"]),kind:str(opts.kind),note:str(opts.note)}, {delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner),spawnRunner:cliDeps.spawnRunner,participant:localHuman(ctx)});
+          if(result.merge==="conflict"){
+            // Spec: non-zero exit, print resolution task id; skip diagnostic recheck.
+            return {code:1,out:opts.json?JSON.stringify(result):`${pos[0]} merge conflict  ${result.resolution_task ?? ""}`.trimEnd(),err:""};
+          }
           const recheck=verdict==="accept"?await recheckDiagnostic(ctx,pos[0],setupDoctor).then(()=>"",e=>`pacer: diagnostics recheck failed: ${e instanceof Error?e.message:String(e)}`):"";
           return {code:0,out:opts.json?JSON.stringify(result):`${pos[0]} reviewed`,err:recheck};
         }
@@ -601,6 +715,17 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
           }
           const r=await core.tasks.retry(ctx,pos[0],{executor:str(opts.executor)},{delegate:(c,input)=>core.tasks.delegate(c,input,cliDeps.spawnRunner)});
           return {code:0,out:opts.json?JSON.stringify(summarizeTask(r.retry),null,1):`${r.retry.id} queued (retry of ${r.of.id})`,err:""};
+        }
+        if(cmd==="stop"&&(isOrchestratorSession(ctx)||ctx.env.PACER_RUN_GRANT)){
+          const task=readTask(ctx,pos[0]);
+          if(!task)throw new Error(`unknown task ${pos[0]}`);
+          authorizeWorkOperation(ctx,"task.stop",{id:pos[0],expect_rev:task.rev});
+          const stopped=await callOp(ctx,"task.stop",{id:pos[0],expect_rev:task.rev},{spawnRunner:cliDeps.spawnRunner,participant:"orchestrator"}) as ReturnType<typeof summarizeTask> & { id?: string; state?: string };
+          await settleLiveReleases();
+          // task.stop may return a bare state; never print "undefined stopped" (M4).
+          const id = stopped?.id ?? pos[0];
+          const state = stopped?.state ?? "stopped";
+          return {code:0,out:opts.json?JSON.stringify(stopped,null,1):`${id} ${state}`,err:""};
         }
         const t=cmd==="wait" ? await core.tasks.wait(ctx,pos[0],Number(str(opts.timeout)??600)) : core.tasks.stop(ctx,pos[0]);
         if(cmd==="stop")await settleLiveReleases();
@@ -802,7 +927,7 @@ async function tasksCmd(args: string[], ctx: Ctx): Promise<Result> {
     case "_run":
       if (!rest[0]) return { code: 2, out: "", err: USAGE };
       try {
-        const t = await runTask(fresh(ctx), rest[0]);
+        const t = await (cliDeps.runTask ?? runTask)(fresh(ctx), rest[0]);
         return { code: t.state === "done" ? 0 : 1, out: "", err: "" };
       } catch (e) {
         return { code: 2, out: "", err: explain(e) };

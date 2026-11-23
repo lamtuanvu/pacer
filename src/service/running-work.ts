@@ -28,6 +28,8 @@ const older = (version: string | null, current: string) => {
 export async function runningWork(ctx: Ctx, current = currentVersion()): Promise<RunningWork> {
   const tasks: RunningTask[] = [], sessions: RunningSession[] = [];
   for (const t of listTasksWhere(ctx, { states: ["running", "needs_input"] })) {
+    // workflow-root is synthetic; orchestrate stays visible (real capacity/work).
+    if (t.kind === "workflow-root") continue;
     if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
     const runnerPacer = t.runnerPacer ?? t.handover?.pacer ?? null;
     tasks.push({ taskId: t.id, runnerPacer, older: older(runnerPacer, current) });
@@ -103,6 +105,7 @@ function signalExecutorGroup(pid: number, identity: NonNullable<ReturnType<typeo
 export async function stopRunningWork(ctx: Ctx): Promise<StopReport> {
   const report: StopReport = { stopped: [], skipped: [] };
   for (const t of listTasksWhere(ctx, { states: ["queued", "running", "needs_input"] })) {
+    if (t.kind === "workflow-root") continue;
     if (t.state === "needs_input" && !liveWorkerOwned(t, ctx.now, id => readTask(ctx, id))) continue;
     const verified = !!t.childPid && !!t.childIdentity && sameProcess(processIdentity(t.childPid), t.childIdentity);
     const supervised = !!t.runnerPid && pidAlive(t.runnerPid);

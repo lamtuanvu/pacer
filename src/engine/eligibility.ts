@@ -1,4 +1,4 @@
-import type { EligibilityDecision, EligibilityInput } from "../evidence/types";
+import type { EligibilityDecision, EligibilityInput, Evidence } from "../evidence/types";
 import { appliesTo, currentEvidence, evidenceDeadline } from "./evidence";
 import { EXHAUSTED_PCT } from "./verdict";
 
@@ -23,7 +23,6 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   const liveAvailability = availability.filter(f => currentEvidence(f, now));
   const liveBudget = budget.filter(f => currentEvidence(f, now, evidenceDeadline(f)) && !f.value.stale);
   const liveSpending = spending.filter(f => currentEvidence(f, now));
-  const all = [...availability, ...budget, ...spending];
   // Only current peers can disagree about launching now; expired conflicts are history.
   const conflict = [...liveAvailability, ...liveBudget, ...liveSpending]
     .filter(f => input.evidence.conflicts.includes(f.id));
@@ -32,11 +31,17 @@ export function evaluateEligibility(input: EligibilityInput): EligibilityDecisio
   const noBudgetRequired = input.budgetRequired === false || usage === "reactive" || usage === "unmetered";
   const unknownBudget = !noBudgetRequired && (!budget.length || liveBudget.length !== budget.length || liveBudget.some(f => f.value.usedPct === null));
   const deadlines = [...availability.map(f => f.validUntil), ...budget.map(evidenceDeadline)].filter((v): v is number => v !== null && v > now);
-  const times = all.filter(f => f.source !== "configuration").map(f => f.observedAt).filter((v): v is number => v !== null && v <= now);
+  // The shown observation age belongs to the binding budget fact (the exhausted one when the
+  // budget is exhausted, else the newest budget observation), or to the newest availability
+  // fact when no budget fact applies; unrelated facts never pin it.
+  const observedAtOf = (facts: Evidence<unknown>[]): number[] =>
+    facts.filter(f => f.source !== "configuration").map(f => f.observedAt).filter((v): v is number => v !== null && v <= now);
+  const budgetAges = observedAtOf(exhausted.length ? exhausted : budget);
+  const ages = budgetAges.length ? budgetAges : observedAtOf(availability);
   const decision: EligibilityDecision = {
     state: "eligible", reasons: [], evaluatedAt: now,
     validUntil: deadlines.length ? Math.min(...deadlines) : null,
-    evidenceAgeS: times.length ? Math.max(0, now - Math.min(...times)) : null,
+    evidenceAgeS: ages.length ? Math.max(0, now - Math.max(...ages)) : null,
     availability: unavailable.length ? "unavailable" : liveAvailability.some(f => f.value === "ready") ? "ready" : "unknown",
     budget: exhausted.length ? "exhausted" : unknownBudget ? "unknown" : noBudgetRequired ? "not_required" : "permitted",
     spendingRisk: liveSpending.some(f => f.value.paidConsumption === "observed") ? "observed"

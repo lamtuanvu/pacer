@@ -7,6 +7,7 @@ import type { InsightsSummary } from "../src/view-model/dispatch";
 import { createActionRunner } from "../app/src/data/actions";
 import { DispatchView, FirstRun, isFirstRun, holdInsights, insightsReads, NeedsYouList, type InsightsState, type RoutingPreview } from "../app/src/screens/dispatch/Dispatch";
 import { RepoFilter, repoChoices } from "../app/src/screens/RepoFilter";
+import { usageStateFor } from "./usage-fixtures";
 
 const snap = fixture as unknown as ClientSnapshot;
 const runner = createActionRunner({ call: async <T,>() => ({} as T), waitFor: async () => true, refetch: () => {}, navigate: () => {} });
@@ -188,7 +189,7 @@ test("planner budget and next task share one split section; the planner half is 
   expect(strip(html)).toContain("Claude Code Planner");
   expect(html).toContain("Claude Code is 14 points under pace. Small edits can stay on the planner; bulk work still goes out.");
   expect(html).toContain(">Under pace · spend it<");
-  expect(html).toContain('aria-label="Claude Code weekly usage"');
+  expect(html).toContain('aria-label="Claude Code week usage"');
   expect(strip(html)).toContain("63% of week used · pace 77% · resets");
   expect(strip(html)).not.toContain("5h window");
   expect(strip(plannerHalf(renderToString(<DispatchView snapshot={snap} query={{ repo: null, scope: null }} now={snap.at} runner={runner} shortWindowPct={4} />)))).toContain("· 5h window 4%");
@@ -490,31 +491,28 @@ test.skipIf(!process.env.PACER_TEST_BROWSER)("DispatchHome gates explain, aligns
 }, 30000);
 
 
-test("planner half shows a missing planner reading's historical figure as stale once", () => {
-  const planner = { ...snap.planner!, runner: "codex#team", agent: "codex", usedPct: null, stale: true, advice: "No usage reading for the planner yet." };
-  const historical = { ...snap, planner, accounts: [{ ...snap.accounts![0]!, executors: [planner.runner], usedPct: 28, window: "5h", stale: true, capturedAt: null }],
-    executors: [{ ...snap.executors![0]!, id: planner.runner, usedPct: 28, stale: true }] };
+test("planner half shows a historical figure as stale once, with its age in the caption", () => {
+  const planner = { ...snap.planner!, runner: "codex#team", agent: "codex", usedPct: 28, pacePct: null, verdict: "unknown" as const, stale: true, window: "5h", advice: "No usage reading for the planner yet.",
+    usageState: usageStateFor({ usedPct: 28, window: "5h", stale: true, capturedAt: null }, snap.at) };
+  const historical = { ...snap, planner, accounts: [], executors: [] } as unknown as ClientSnapshot;
   const html = plannerHalf(renderToString(<DispatchView snapshot={historical} query={{ repo: null, scope: null }} now={snap.at} runner={runner} shortWindowPct={99} />));
   expect(html).toContain("Usage reading is out of date.");
   expect(html).toContain("pc-meter--stale");
   expect(html).toContain('aria-valuenow="28"');
-  expect(strip(html)).toContain("Historical usage · 28% used · 5h window · reading time unknown");
+  expect(strip(html)).toContain("28% of 5 h used · Reading of unknown age · refresh");
   // A historical reading has no current pace, so no pace pill sits above the meter.
   expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
-  expect(html).not.toContain("No usage reading");
   expect(html).not.toContain("5h window 99%");
   expect(html).not.toContain("as of");
 });
 
-test("a fresh borrowed planner figure shows its meter without a pace pill or a stale mark", () => {
-  const snapFresh = { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" as const, stale: false },
-    accounts: [{ name: "team", agent: "claude-code", source: "pacer", usedPct: 40, pacePct: null, window: "5h", resetsAt: null, verdict: "UNKNOWN", signedIn: true, executors: [snap.planner!.runner], stale: false, capturedAt: null, spendUsdWeek: null, capUsdWeek: null }] } as unknown as ClientSnapshot;
+test("a planner record without a figure keeps the advice, states the verdict once and shows no meter", () => {
+  const snapFresh = { ...snap, planner: { ...snap.planner!, usedPct: null, pacePct: null, verdict: "unknown" as const, stale: false, advice: "No usage reading for the planner yet.", usageState: usageStateFor({ usedPct: null }, snap.at) },
+    accounts: [], executors: [] } as unknown as ClientSnapshot;
   const html = plannerHalf(view(null, snapFresh));
-  expect(strip(html)).toContain("Planner pace is not measured yet.");
-  expect(strip(html)).toContain("40% used · 5h window");
-  expect(html).not.toMatch(/Usage unknown|Under pace|On pace|Ahead of pace/);
-  expect(html).not.toContain("pc-meter--stale");
-  expect(html).toContain('aria-valuetext="40% used"');
+  expect(strip(html)).toContain("No usage reading for the planner yet.");
+  expect(html).not.toContain("pc-meter");
+  expect(strip(html).match(/Usage unknown/gi)).toHaveLength(1);
 });
 
 test("a live planner reading without a pace keeps its verdict pill", () => {

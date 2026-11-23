@@ -19,7 +19,7 @@ import { checkSetup } from "../src/setup/check";
 import { handleV2 } from "../src/api/http";
 import { computeStatus } from "../src/engine/status";
 import { shutdownPlugins } from "../src/plugins";
-import { executorRefusal, refusal } from "../scripts/live/guard";
+import { executorRefusal, guardedChildEnv, refusal } from "../scripts/live/guard";
 import { desktopExecutable } from "../scripts/live/surfaces";
 import { main } from "../scripts/live/cli";
 import { exerciseNativePluginStdio, exerciseNativeStdio, PLUGIN_STDIO_STEPS, verifyForwardedHello, verifyNativeStdio, verifyOwnerSocket, verifyPluginStdio } from "../scripts/live/native-stdio";
@@ -125,6 +125,27 @@ describe("live guard (D3)", () => {
   for (const args of [["status", "--json"], ["service", "status"], ["account", "list"], ["host", "check"], ["plugin", "status"], ["plugin", "list"], ["plugin", "doctor"], ["open", "--print", "tasks"], ["delegate", "--wait"], ["wait", "task"], ["_run", "task"], ["dashboard"]]) {
     test(`allows ${args.join(" ")}`, () => expect(refusal(args)).toBeUndefined());
   }
+  test("mcp --assistant passes Claude's assistant grant env through the sandbox env", () => {
+    const session = fixture();
+    const grant = `pag_${"ab".repeat(32)}`;
+    const inherited = {
+      PATH: "/bin",
+      PACER_ASSISTANT_GRANT: grant,
+      PACER_ASSISTANT_URL: "http://127.0.0.1:49672",
+      PACER_ASSISTANT_TURN: "turn-1",
+      PACER_HOME: "/tmp/ask-run",
+      PACER_ROLE: "executor",
+    };
+    const statusEnv = guardedChildEnv(session, ["status", "--json"], inherited);
+    expect(statusEnv.PACER_ASSISTANT_GRANT).toBeUndefined();
+    expect(statusEnv.PACER_HOME).toBe(join(session.root, "home"));
+    const mcpEnv = guardedChildEnv(session, ["mcp", "--assistant"], inherited);
+    expect(mcpEnv.PACER_ASSISTANT_GRANT).toBe(grant);
+    expect(mcpEnv.PACER_ASSISTANT_URL).toBe("http://127.0.0.1:49672");
+    expect(mcpEnv.PACER_ASSISTANT_TURN).toBe("turn-1");
+    expect(mcpEnv.PACER_HOME).toBe("/tmp/ask-run");
+    expect(mcpEnv.PACER_ROLE).toBeUndefined();
+  });
   test("executable guard exits 3 without reading a session or dispatching pacer", () => {
     const child = Bun.spawnSync([process.execPath, "scripts/live/guard.ts", "missing-session", "install"], { cwd: join(import.meta.dir, "..") });
     expect(child.exitCode).toBe(3);

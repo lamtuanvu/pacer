@@ -1,10 +1,10 @@
 /** The frame: top bar, planner strip, body panes, overlays, message line and key bar. */
 import type { ClientSnapshot } from "../../view-model/snapshot";
 import { counts, plannerMeter } from "../../view-model/selectors";
-import { meterText } from "../../view-model/format";
 import { agentInfo } from "../../view-model/agents";
 import { compactPolicyWords, policyWords, modeWords, paceStatus, type StatusTone } from "../../view-model/words";
 import { clock } from "../../view-model/time";
+import { captionReset, usageView } from "../../view-model/usage";
 import { box, clip, fit, glyph, heading, lineWidth, meter, pad, paint, rule, span, statusSpans, toneRole, wrap, type Line, type PaintRow } from "../frame";
 import { SCREEN_LABELS, selectedItem, type Item, type Overlay, type ScreenId, type UiState } from "../state";
 import type { Style, TerminalTheme } from "../theme";
@@ -90,14 +90,36 @@ function ends(left: Line, right: Line, width: number, theme: TerminalTheme): Lin
   const r = fit(right, Math.max(0, width - 10), theme), l = fit(left, Math.max(0, width - lineWidth(r) - 2), theme);
   return [...l, span(" ".repeat(Math.max(1, width - lineWidth(l) - lineWidth(r)))), ...r];
 }
+/** Legacy planner caption when the row has no usageState yet (ADR 0030 dual-path until every fixture carries a record). */
+function legacyMeterText(used: number | null, pace: number | null): string {
+  if (used === null) return "usage unknown";
+  const u = Math.round(used), p = pace === null ? null : Math.round(pace);
+  return p === null ? `${u}% used` : `${u}% used · pace ${p}%`;
+}
+
 function plannerStrip(input: FrameInput, width: number): Line {
   const { s, theme } = input, p = plannerMeter(s);
   if (!p) return [span("Planner · waiting for service data", { fg: "muted" })];
   // As the app's top bar: the planner meter and verdict on every screen. Home adds the advice (UI-15).
-  const status = paceStatus(p.verdict), wide = width >= 100;
+  // When usageState is present, every label comes from usageView (ADR 0030 decision 7).
+  const view = usageView(p.usageState, input.now, input.timeZone);
+  const status = p.usageState
+    ? { ...paceStatus(p.usageState.verdict), label: view.verdictLabel, tone: view.tone }
+    : paceStatus(p.verdict);
+  const usedPct = p.usageState ? view.meter : p.usedPct;
+  const pacePct = p.usageState && view.meter === null ? null : p.pacePct;
+  const caption = p.usageState
+    ? [view.meter !== null ? view.summaryUsed : view.figure, pacePct !== null ? `pace ${Math.round(pacePct)}%` : null].filter(Boolean).join(" · ")
+    : legacyMeterText(p.usedPct, p.pacePct);
+  const wide = width >= 100;
   const name = wide ? `${agentInfo(p.agent).name} planner` : agentInfo(p.agent).name;
-  const line: Line = [span(name, { bold: true }), span("  "), ...meter(theme, p.usedPct, p.pacePct, wide ? 20 : 12, status.tone), span("  "), span(meterText(p.usedPct, p.pacePct, "full"), { bold: true }), span("  "), ...statusSpans(theme, status)];
-  const extra = [p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : "", p.resetsAt !== null ? `resets ${clock(p.resetsAt, input.now, input.timeZone)}` : "", p.stale ? "stale reading" : ""].filter(Boolean);
+  const line: Line = [span(name, { bold: true }), span("  "), ...meter(theme, usedPct, pacePct, wide ? 20 : 12, status.tone), span("  "), span(caption, { bold: true }), span("  "), ...statusSpans(theme, status)];
+  const extra = [
+    p.activeHoursLeft !== null ? `${Math.round(p.activeHoursLeft)} active-h` : "",
+    ...(p.usageState
+      ? [captionReset(view.reset) ?? "", p.usageState.freshness === "historical" ? "Historical usage" : ""].filter(Boolean)
+      : [p.resetsAt !== null ? `resets ${clock(p.resetsAt, input.now, input.timeZone)}` : "", p.stale ? "stale reading" : ""]),
+  ].filter(Boolean);
   if (extra.length) line.push(span(`  ${extra.join(` ${glyph(theme, "·")} `)}`, { fg: "secondary" }));
   return line;
 }

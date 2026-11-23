@@ -137,7 +137,7 @@ For 0.2, agent-session/native identity types live in the independent publishable
 
 Observation/decision extension types likewise move to independent publishable `pacer-plugin-dispatch-protocol` 0.2; the SDK type facade preserves their names. No protocol area has a layer-0 peer dependency.
 
-Assistant turn and assistant tool types (`assistant.reply`, `capability.assistant.tool`, protocol 1.11.0) live in independent publishable `pacer-plugin-assistant-protocol` 0.2, with the same `pacer_plugin::types` facade names.
+Assistant turn and assistant tool types (`assistant.reply`, `capability.assistant.tool`, protocol 1.11.0) live in independent publishable `pacer-plugin-assistant-protocol` 0.3, with the same `pacer_plugin::types` facade names. 0.3 adds the optional `endpoint.baseUrl` field on `assistant.reply` params.
 
 Host-runner and host capability types live in independent publishable `pacer-plugin-hosts-protocol` 0.2, with the same `pacer_plugin::types` facade names. See [ADR 0009](../../docs/decisions/0009-plugin-hosts-protocol-area.md).
 

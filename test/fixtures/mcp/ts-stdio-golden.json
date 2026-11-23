@@ -573,6 +573,116 @@
         }
       },
       {
+        "name": "pacer_question",
+        "description": "Ask, answer, escalate, get, list or convert structured run questions (person and executor surfaces).",
+        "inputSchema": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "type": "string",
+              "enum": [
+                "ask",
+                "answer",
+                "escalate",
+                "get",
+                "list",
+                "convert"
+              ]
+            },
+            "text": {
+              "type": "string"
+            },
+            "answerType": {
+              "type": "string",
+              "enum": [
+                "single",
+                "multi",
+                "text",
+                "yes_no",
+                "approve_revise"
+              ]
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "properties": {
+                  "value": {
+                    "type": "string"
+                  },
+                  "note": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "value"
+                ]
+              }
+            },
+            "recommended": {
+              "type": "string"
+            },
+            "blocks": {
+              "type": "string",
+              "enum": [
+                "step",
+                "branch",
+                "nothing"
+              ]
+            },
+            "artifact": {
+              "type": "string"
+            },
+            "id": {
+              "type": "string"
+            },
+            "answer": {
+              "type": "string"
+            },
+            "note": {
+              "type": "string"
+            },
+            "suggested": {
+              "type": "string"
+            },
+            "reason": {
+              "type": "string"
+            },
+            "expect_rev": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "stepId": {
+              "type": "string"
+            },
+            "attempt": {
+              "type": "integer",
+              "exclusiveMinimum": 0,
+              "maximum": 9007199254740991
+            },
+            "runId": {
+              "type": "string"
+            },
+            "run": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string",
+              "enum": [
+                "open",
+                "answered",
+                "withdrawn"
+              ]
+            }
+          },
+          "required": [
+            "action"
+          ],
+          "$schema": "http://json-schema.org/draft-07/schema#"
+        }
+      },
+      {
         "name": "report_limit",
         "description": "Tell pacer an executor hit its plan limit (seen outside pacer). It is skipped until `until` (unix seconds) or its cooldown.",
         "inputSchema": {
@@ -1161,7 +1271,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\n \"policy\": {\n  \"mode\": \"open\",\n  \"plugins\": 0\n },\n \"paused\": null,\n \"modeHold\": null,\n \"generatedAt\": 0,\n \"strategy\": \"default\",\n \"planner\": \"claude-code\",\n \"mode\": \"normal\",\n \"disabled\": false,\n \"calendarPace\": true,\n \"accounts\": [\n  {\n   \"name\": \"claude-code\",\n   \"kind\": \"claude\",\n   \"verdict\": \"UNKNOWN\",\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"claude-code\"\n   ],\n   \"source\": null,\n   \"capturedAt\": null,\n   \"spendUsd\": null\n  },\n  {\n   \"name\": \"codex\",\n   \"kind\": \"codex\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9c018661284bd1de1bebfeb2\",\n       \"scope\": {\n        \"account\": \"codex\",\n        \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"codex\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": 0,\n   \"spendUsd\": null\n  },\n  {\n   \"name\": \"cursor\",\n   \"kind\": \"cursor\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9336440a49386940a6dcdac8\",\n       \"scope\": {\n        \"account\": \"cursor\",\n        \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"cursor\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": 0,\n   \"spendUsd\": null\n  }\n ],\n \"providers\": [\n  {\n   \"id\": \"claude-code\",\n   \"account\": \"claude-code\",\n   \"usage\": \"quota\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"UNKNOWN\",\n   \"installed\": true,\n   \"stale\": false,\n   \"error\": \"no Claude rate-limit data yet (the Claude Code status line writes it)\",\n   \"evidenceScope\": {\n    \"account\": \"claude-code\",\n    \"identity\": \"c34adf013bbdf5da436184548713017046fa1cca0b91a50dab28c73d291b1b8f\"\n   },\n   \"evidenceRevision\": 0,\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"codex\",\n   \"account\": \"codex\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run codex login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"codex\",\n    \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  },\n  {\n   \"id\": \"cursor\",\n   \"account\": \"cursor\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run cursor-agent login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"cursor\",\n    \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   }\n  }\n ],\n \"executors\": {\n  \"ranked\": [],\n  \"excluded\": [\n   {\n    \"id\": \"claude-code\",\n    \"account\": \"claude-code\",\n    \"reason\": \"planner\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"availability_unknown\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"budget_missing\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"planner\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"unknown\",\n     \"budget\": \"unknown\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"codex\",\n    \"account\": \"codex\",\n    \"reason\": \"signed out — run codex login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"cursor\",\n    \"account\": \"cursor\",\n    \"reason\": \"signed out — run cursor-agent login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   }\n  ],\n  \"uncertain\": []\n }\n}"
+              "text": "{\n \"policy\": {\n  \"mode\": \"open\",\n  \"plugins\": 0\n },\n \"paused\": null,\n \"modeHold\": null,\n \"generatedAt\": 0,\n \"strategy\": \"default\",\n \"planner\": \"claude-code\",\n \"mode\": \"normal\",\n \"disabled\": false,\n \"calendarPace\": true,\n \"accounts\": [\n  {\n   \"name\": \"claude-code\",\n   \"kind\": \"claude\",\n   \"verdict\": \"UNKNOWN\",\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": true,\n   \"runners\": [\n    \"claude-code\"\n   ],\n   \"source\": null,\n   \"capturedAt\": null,\n   \"spendUsd\": null,\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"claude-code\"\n    },\n    \"source\": \"unknown\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"historical\",\n    \"verdict\": \"UNKNOWN\",\n    \"eligibility\": {\n     \"state\": \"uncertain\",\n     \"reasons\": [\n      {\n       \"code\": \"availability_unknown\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"budget_missing\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"unknown\",\n     \"budget\": \"unknown\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": {\n     \"message\": \"no Claude rate-limit data yet (the Claude Code status line writes it)\",\n     \"at\": 0\n    }\n   }\n  },\n  {\n   \"name\": \"codex\",\n   \"kind\": \"codex\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9c018661284bd1de1bebfeb2\",\n       \"scope\": {\n        \"account\": \"codex\",\n        \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"codex\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": null,\n   \"spendUsd\": null,\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"codex\"\n    },\n    \"source\": \"reactive\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"unknown\",\n    \"verdict\": \"OK\",\n    \"eligibility\": {\n     \"state\": \"eligible\",\n     \"reasons\": [],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": null\n   }\n  },\n  {\n   \"name\": \"cursor\",\n   \"kind\": \"cursor\",\n   \"verdict\": \"OK\",\n   \"eligibility\": {\n    \"state\": \"eligible\",\n    \"reasons\": [],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"evidence\": {\n    \"facts\": {\n     \"availability\": [\n      {\n       \"id\": \"9336440a49386940a6dcdac8\",\n       \"scope\": {\n        \"account\": \"cursor\",\n        \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n       },\n       \"source\": \"configuration\",\n       \"observedAt\": 0,\n       \"validUntil\": null,\n       \"reason\": \"measurement_contract\",\n       \"value\": \"ready\"\n      }\n     ],\n     \"budget\": [],\n     \"spending\": []\n    },\n    \"conflicts\": []\n   },\n   \"usedPct\": null,\n   \"pacePct\": null,\n   \"resetsAt\": null,\n   \"window\": null,\n   \"stale\": false,\n   \"runners\": [\n    \"cursor\"\n   ],\n   \"source\": \"reactive\",\n   \"capturedAt\": null,\n   \"spendUsd\": null,\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"cursor\"\n    },\n    \"source\": \"reactive\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"unknown\",\n    \"verdict\": \"OK\",\n    \"eligibility\": {\n     \"state\": \"eligible\",\n     \"reasons\": [],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": null\n   }\n  }\n ],\n \"providers\": [\n  {\n   \"id\": \"claude-code\",\n   \"account\": \"claude-code\",\n   \"usage\": \"quota\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"UNKNOWN\",\n   \"installed\": true,\n   \"stale\": true,\n   \"error\": \"no Claude rate-limit data yet (the Claude Code status line writes it)\",\n   \"evidenceScope\": {\n    \"account\": \"claude-code\",\n    \"identity\": \"c34adf013bbdf5da436184548713017046fa1cca0b91a50dab28c73d291b1b8f\"\n   },\n   \"evidenceRevision\": 0,\n   \"eligibility\": {\n    \"state\": \"uncertain\",\n    \"reasons\": [\n     {\n      \"code\": \"availability_unknown\",\n      \"evidenceIds\": []\n     },\n     {\n      \"code\": \"budget_missing\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"unknown\",\n    \"budget\": \"unknown\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"claude-code\",\n     \"runner\": \"claude-code\"\n    },\n    \"source\": \"unknown\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"historical\",\n    \"verdict\": \"UNKNOWN\",\n    \"eligibility\": {\n     \"state\": \"uncertain\",\n     \"reasons\": [\n      {\n       \"code\": \"availability_unknown\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"budget_missing\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"unknown\",\n     \"budget\": \"unknown\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": {\n     \"message\": \"no Claude rate-limit data yet (the Claude Code status line writes it)\",\n     \"at\": 0\n    }\n   }\n  },\n  {\n   \"id\": \"codex\",\n   \"account\": \"codex\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run codex login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"codex\",\n    \"identity\": \"00c9d9b0978fd9f06e1d7ee5d7f6f2ddb872ca106a6915010c9da8f98fed8b69\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"codex\",\n     \"runner\": \"codex\"\n    },\n    \"source\": \"reactive\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"unknown\",\n    \"verdict\": \"OK\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": null\n   }\n  },\n  {\n   \"id\": \"cursor\",\n   \"account\": \"cursor\",\n   \"usage\": \"reactive\",\n   \"windows\": [],\n   \"binding\": null,\n   \"verdict\": \"OK\",\n   \"signedOutReason\": \"signed out — run cursor-agent login\",\n   \"installed\": true,\n   \"stale\": false,\n   \"evidenceScope\": {\n    \"account\": \"cursor\",\n    \"identity\": \"cdda68ab527bec93ef75d2e8bf97e19658fe387813a0185800ce918c5afa5251\"\n   },\n   \"evidenceRevision\": 1,\n   \"eligibility\": {\n    \"state\": \"ineligible\",\n    \"reasons\": [\n     {\n      \"code\": \"signed_out\",\n      \"evidenceIds\": []\n     }\n    ],\n    \"evaluatedAt\": 0,\n    \"validUntil\": null,\n    \"evidenceAgeS\": null,\n    \"availability\": \"ready\",\n    \"budget\": \"not_required\",\n    \"spendingRisk\": \"unknown\"\n   },\n   \"usageState\": {\n    \"scope\": {\n     \"account\": \"cursor\",\n     \"runner\": \"cursor\"\n    },\n    \"source\": \"reactive\",\n    \"figure\": null,\n    \"windows\": [],\n    \"limit\": null,\n    \"blockedRunners\": [],\n    \"observedAt\": null,\n    \"freshness\": \"unknown\",\n    \"verdict\": \"OK\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    },\n    \"spend\": null,\n    \"error\": null\n   }\n  }\n ],\n \"executors\": {\n  \"ranked\": [],\n  \"excluded\": [\n   {\n    \"id\": \"claude-code\",\n    \"account\": \"claude-code\",\n    \"reason\": \"planner\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"availability_unknown\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"budget_missing\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"planner\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"unknown\",\n     \"budget\": \"unknown\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"codex\",\n    \"account\": \"codex\",\n    \"reason\": \"signed out — run codex login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   },\n   {\n    \"id\": \"cursor\",\n    \"account\": \"cursor\",\n    \"reason\": \"signed out — run cursor-agent login\",\n    \"eligibility\": {\n     \"state\": \"ineligible\",\n     \"reasons\": [\n      {\n       \"code\": \"signed_out\",\n       \"evidenceIds\": []\n      },\n      {\n       \"code\": \"unavailable\",\n       \"evidenceIds\": []\n      }\n     ],\n     \"evaluatedAt\": 0,\n     \"validUntil\": null,\n     \"evidenceAgeS\": null,\n     \"availability\": \"ready\",\n     \"budget\": \"not_required\",\n     \"spendingRisk\": \"unknown\"\n    }\n   }\n  ],\n  \"uncertain\": []\n }\n}"
             }
           ],
           "structuredContent": {
@@ -1213,13 +1323,50 @@
                 "pacePct": null,
                 "resetsAt": null,
                 "window": null,
-                "stale": false,
+                "stale": true,
                 "runners": [
                   "claude-code"
                 ],
                 "source": null,
                 "capturedAt": null,
-                "spendUsd": null
+                "spendUsd": null,
+                "usageState": {
+                  "scope": {
+                    "account": "claude-code"
+                  },
+                  "source": "unknown",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "historical",
+                  "verdict": "UNKNOWN",
+                  "eligibility": {
+                    "state": "uncertain",
+                    "reasons": [
+                      {
+                        "code": "availability_unknown",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "budget_missing",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "unknown",
+                    "budget": "unknown",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": {
+                    "message": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+                    "at": 0
+                  }
+                }
               },
               {
                 "name": "codex",
@@ -1265,8 +1412,33 @@
                   "codex"
                 ],
                 "source": "reactive",
-                "capturedAt": 0,
-                "spendUsd": null
+                "capturedAt": null,
+                "spendUsd": null,
+                "usageState": {
+                  "scope": {
+                    "account": "codex"
+                  },
+                  "source": "reactive",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "unknown",
+                  "verdict": "OK",
+                  "eligibility": {
+                    "state": "eligible",
+                    "reasons": [],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": null
+                }
               },
               {
                 "name": "cursor",
@@ -1312,8 +1484,33 @@
                   "cursor"
                 ],
                 "source": "reactive",
-                "capturedAt": 0,
-                "spendUsd": null
+                "capturedAt": null,
+                "spendUsd": null,
+                "usageState": {
+                  "scope": {
+                    "account": "cursor"
+                  },
+                  "source": "reactive",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "unknown",
+                  "verdict": "OK",
+                  "eligibility": {
+                    "state": "eligible",
+                    "reasons": [],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": null
+                }
               }
             ],
             "providers": [
@@ -1325,7 +1522,7 @@
                 "binding": null,
                 "verdict": "UNKNOWN",
                 "installed": true,
-                "stale": false,
+                "stale": true,
                 "error": "no Claude rate-limit data yet (the Claude Code status line writes it)",
                 "evidenceScope": {
                   "account": "claude-code",
@@ -1350,6 +1547,44 @@
                   "availability": "unknown",
                   "budget": "unknown",
                   "spendingRisk": "unknown"
+                },
+                "usageState": {
+                  "scope": {
+                    "account": "claude-code",
+                    "runner": "claude-code"
+                  },
+                  "source": "unknown",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "historical",
+                  "verdict": "UNKNOWN",
+                  "eligibility": {
+                    "state": "uncertain",
+                    "reasons": [
+                      {
+                        "code": "availability_unknown",
+                        "evidenceIds": []
+                      },
+                      {
+                        "code": "budget_missing",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "unknown",
+                    "budget": "unknown",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": {
+                    "message": "no Claude rate-limit data yet (the Claude Code status line writes it)",
+                    "at": 0
+                  }
                 }
               },
               {
@@ -1381,6 +1616,37 @@
                   "availability": "ready",
                   "budget": "not_required",
                   "spendingRisk": "unknown"
+                },
+                "usageState": {
+                  "scope": {
+                    "account": "codex",
+                    "runner": "codex"
+                  },
+                  "source": "reactive",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "unknown",
+                  "verdict": "OK",
+                  "eligibility": {
+                    "state": "ineligible",
+                    "reasons": [
+                      {
+                        "code": "signed_out",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": null
                 }
               },
               {
@@ -1412,6 +1678,37 @@
                   "availability": "ready",
                   "budget": "not_required",
                   "spendingRisk": "unknown"
+                },
+                "usageState": {
+                  "scope": {
+                    "account": "cursor",
+                    "runner": "cursor"
+                  },
+                  "source": "reactive",
+                  "figure": null,
+                  "windows": [],
+                  "limit": null,
+                  "blockedRunners": [],
+                  "observedAt": null,
+                  "freshness": "unknown",
+                  "verdict": "OK",
+                  "eligibility": {
+                    "state": "ineligible",
+                    "reasons": [
+                      {
+                        "code": "signed_out",
+                        "evidenceIds": []
+                      }
+                    ],
+                    "evaluatedAt": 0,
+                    "validUntil": null,
+                    "evidenceAgeS": null,
+                    "availability": "ready",
+                    "budget": "not_required",
+                    "spendingRisk": "unknown"
+                  },
+                  "spend": null,
+                  "error": null
                 }
               }
             ],
@@ -1762,7 +2059,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\n \"config\": {\n  \"defaults\": true,\n  \"rules\": [],\n  \"message\": {\n   \"max_bytes\": 65536\n  },\n  \"tree\": {\n   \"max_turns\": 50\n  },\n  \"liveness\": {\n   \"interval_s\": 60,\n   \"backoff_max_s\": 900,\n   \"max_nudges\": 3,\n   \"nudge_in_modes\": [\n    \"relaxed\",\n    \"normal\"\n   ],\n   \"escalate_after_s\": 900,\n   \"retry_delivery\": true\n  },\n  \"hooks\": {\n   \"stop\": \"block\",\n   \"stop_release_after\": 2\n  },\n  \"grants\": {\n   \"user_started_tasks\": \"on\"\n  },\n  \"keep_worktree_days\": 7\n },\n \"rules\": [\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"to_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"top\",\n   \"relation\": [\n    \"child\",\n    \"top_peer\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"parent\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"sibling\",\n    \"child\"\n   ],\n   \"grant\": \"required\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"external\",\n   \"relation\": [\n    \"child\"\n   ],\n   \"layer\": \"default\"\n  }\n ]\n}"
+              "text": "{\n \"config\": {\n  \"defaults\": true,\n  \"rules\": [],\n  \"message\": {\n   \"max_bytes\": 65536\n  },\n  \"tree\": {\n   \"max_turns\": 50\n  },\n  \"liveness\": {\n   \"interval_s\": 60,\n   \"backoff_max_s\": 900,\n   \"max_nudges\": 3,\n   \"nudge_in_modes\": [\n    \"relaxed\",\n    \"normal\"\n   ],\n   \"escalate_after_s\": 900,\n   \"caller_wake_after_s\": 300,\n   \"retry_delivery\": true\n  },\n  \"hooks\": {\n   \"stop\": \"block\",\n   \"stop_release_after\": 2\n  },\n  \"grants\": {\n   \"user_started_tasks\": \"on\"\n  },\n  \"keep_worktree_days\": 7\n },\n \"rules\": [\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"to_kind\": \"human\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"top\",\n   \"relation\": [\n    \"child\",\n    \"top_peer\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"parent\"\n   ],\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_position\": \"child\",\n   \"relation\": [\n    \"sibling\",\n    \"child\"\n   ],\n   \"grant\": \"required\",\n   \"layer\": \"default\"\n  },\n  {\n   \"effect\": \"allow\",\n   \"from_kind\": \"external\",\n   \"relation\": [\n    \"child\"\n   ],\n   \"layer\": \"default\"\n  }\n ]\n}"
             }
           ],
           "structuredContent": {
@@ -1784,6 +2081,7 @@
                   "normal"
                 ],
                 "escalate_after_s": 900,
+                "caller_wake_after_s": 300,
                 "retry_delivery": true
               },
               "hooks": {
@@ -1952,6 +2250,22 @@
             {
               "type": "text",
               "text": "Unknown managed work"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "args": {
+          "action": "get",
+          "id": "q_abcdefghij"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "unknown question q_abcdefghij"
             }
           ]
         }
@@ -2895,6 +3209,311 @@
         }
       },
       {
+        "name": "pacer_question",
+        "field": "action",
+        "args": {
+          "action": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid option: expected one of \"ask\"|\"answer\"|\"escalate\"|\"get\"|\"list\"|\"convert\" at action"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "text",
+        "args": {
+          "action": "ask",
+          "text": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at text"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "answerType",
+        "args": {
+          "action": "ask",
+          "answerType": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid option: expected one of \"single\"|\"multi\"|\"text\"|\"yes_no\"|\"approve_revise\" at answerType"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "options",
+        "args": {
+          "action": "ask",
+          "options": false
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected array, received boolean at options"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "recommended",
+        "args": {
+          "action": "ask",
+          "recommended": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at recommended"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "blocks",
+        "args": {
+          "action": "ask",
+          "blocks": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid option: expected one of \"step\"|\"branch\"|\"nothing\" at blocks"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "artifact",
+        "args": {
+          "action": "ask",
+          "artifact": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at artifact"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "id",
+        "args": {
+          "action": "ask",
+          "id": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at id"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "answer",
+        "args": {
+          "action": "ask",
+          "answer": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at answer"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "note",
+        "args": {
+          "action": "ask",
+          "note": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at note"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "suggested",
+        "args": {
+          "action": "ask",
+          "suggested": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at suggested"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "reason",
+        "args": {
+          "action": "ask",
+          "reason": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at reason"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "args": {
+          "action": "ask",
+          "expect_rev": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received string at expect_rev"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "stepId",
+        "args": {
+          "action": "ask",
+          "stepId": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at stepId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "args": {
+          "action": "ask",
+          "attempt": "not a number"
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received string at attempt"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "runId",
+        "args": {
+          "action": "ask",
+          "runId": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at runId"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "run",
+        "args": {
+          "action": "ask",
+          "run": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected string, received number at run"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "status",
+        "args": {
+          "action": "ask",
+          "status": 42
+        },
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid option: expected one of \"open\"|\"answered\"|\"withdrawn\" at status"
+            }
+          ]
+        }
+      },
+      {
         "name": "report_limit",
         "field": "provider",
         "args": {
@@ -3780,6 +4399,20 @@
             {
               "type": "text",
               "text": "MCP error -32602: Input validation error: Invalid arguments for tool msg_send: Invalid input: expected string, received undefined at body"
+            }
+          ]
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "action",
+        "args": {},
+        "result": {
+          "isError": true,
+          "content": [
+            {
+              "type": "text",
+              "text": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid option: expected one of \"ask\"|\"answer\"|\"escalate\"|\"get\"|\"list\"|\"convert\" at action"
             }
           ]
         }
@@ -5013,6 +5646,146 @@
         "response": {
           "isError": true,
           "message": "MCP error -32602: Input validation error: Invalid arguments for tool work_retry: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected int, received number at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too small: expected number to be >0 at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too big: expected int to be <=9007199254740991 at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "expect_rev",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received Infinity at expect_rev"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1.0",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1e2",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1.5",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected int, received number at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "0",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too small: expected number to be >0 at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "9007199254740991",
+        "acceptedBySchema": true,
+        "response": {
+          "isError": true,
+          "message": "unknown question q_abcdefghij"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "9007199254740992",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Too big: expected int to be <=9007199254740991 at attempt"
+        }
+      },
+      {
+        "name": "pacer_question",
+        "field": "attempt",
+        "input": "1e400",
+        "acceptedBySchema": false,
+        "response": {
+          "isError": true,
+          "message": "MCP error -32602: Input validation error: Invalid arguments for tool pacer_question: Invalid input: expected number, received Infinity at attempt"
         }
       },
       {
@@ -7565,7 +8338,7 @@
           "content": [
             {
               "type": "text",
-              "text": "{\n \"events\": [\n  {\n   \"seq\": 1,\n   \"task_id\": \"task-fixture\",\n   \"at\": 1900000000,\n   \"kind\": \"work.created\",\n   \"data\": {\n    \"parentId\": null,\n    \"depth\": 0\n   }\n  },\n  {\n   \"seq\": 2,\n   \"task_id\": \"task-fixture\",\n   \"at\": 1900000000,\n   \"kind\": \"task.changed\",\n   \"data\": {\n    \"state\": \"running\",\n    \"rev\": 2\n   }\n  }\n ],\n \"next\": 2,\n \"hasMore\": false\n}"
+              "text": "{\n \"events\": [\n  {\n   \"seq\": 1,\n   \"task_id\": \"task-fixture\",\n   \"at\": 0,\n   \"kind\": \"work.created\",\n   \"data\": {\n    \"parentId\": null,\n    \"depth\": 0\n   }\n  },\n  {\n   \"seq\": 2,\n   \"task_id\": \"task-fixture\",\n   \"at\": 0,\n   \"kind\": \"task.changed\",\n   \"data\": {\n    \"state\": \"running\",\n    \"rev\": 2\n   }\n  }\n ],\n \"next\": 2,\n \"hasMore\": false\n}"
             }
           ],
           "structuredContent": {
@@ -7573,7 +8346,7 @@
               {
                 "seq": 1,
                 "task_id": "task-fixture",
-                "at": 1900000000,
+                "at": 0,
                 "kind": "work.created",
                 "data": {
                   "parentId": null,
@@ -7583,7 +8356,7 @@
               {
                 "seq": 2,
                 "task_id": "task-fixture",
-                "at": 1900000000,
+                "at": 0,
                 "kind": "task.changed",
                 "data": {
                   "state": "running",

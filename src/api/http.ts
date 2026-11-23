@@ -1,3 +1,4 @@
+import { clientIdentity } from "./client-identity";
 import { toV2Snapshot, V2_PROTOCOL, callV2Op, v2Hello } from "./v2-compat";
 import { sessionCookie } from "../serve/app-routes";
 import * as core from "../core";
@@ -79,18 +80,14 @@ export async function handleV2(req: Request, deps: { getCtx: () => Ctx; opDeps?:
       let params: unknown;
       try { params = JSON.parse(text); }
       catch { return errorResponse({ code: "invalid_input", message: "body is not JSON" }); }
-      const label=req.headers.get("X-Pacer-Client")??"";
-      const client=/^[a-z][a-z0-9:-]{0,31}\/[0-9A-Za-z.+-]{1,32}$/.test(label)?label:undefined;
-      // A window or process id the client picks once, so two instances of one client contend for a lane's driving lease.
-      const instance=req.headers.get("X-Pacer-Client-Instance")??"";
-      const clientInstance=/^[A-Za-z0-9._:-]{1,64}$/.test(instance)?{label:client??(label==="app"?"app":"http"),id:instance}:undefined;
+      const {client,clientInstance}=clientIdentity(req.headers.get("X-Pacer-Client")??"",req.headers.get("X-Pacer-Client-Instance")??"");
       const base = deps.getCtx(), parent = base.operation;
       const operation = {
         signal: parent ? AbortSignal.any([parent.signal, req.signal]) : req.signal,
         ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}),
       };
       const requestCtx: Ctx = { ...base, operation };
-      const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
+      const result = pathname === "/v2/ops/routing.status" && !deps.getCtx().env.PACER_WORK_GRANT && !deps.getCtx().env.PACER_RUN_GRANT && deps.status && (params === null || (typeof params === "object" && !Array.isArray(params)))
         ? await deps.status()
         : await (version===3?callOp:callV2Op)(requestCtx, pathname.slice("/v2/ops/".length), params, {...deps.opDeps,client,clientInstance});
       return Response.json({ result });

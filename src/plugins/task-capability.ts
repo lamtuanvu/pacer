@@ -22,8 +22,23 @@ export async function answerTaskCapability(ctx:Ctx,method:string,params:unknown,
   owner.assertGranted('tasks.read');
   const principal={...owner.readContext(),readOnly:true};
   authorizeWorkOperation(principal,method==='capability.tasks.read'?'task.get':'task.list',parsed.data);
-  const result=method==='capability.tasks.read'?{task:await taskDetail(principal,input.id!)}:
-    {tasks:apiTasks(principal,listTasksWhere(principal,{states:input.states,limit:input.limit??100}))};
+  const {isEngineOwnedKind}=await import('../tasks/engine-owned');
+  let result: unknown;
+  if (method === 'capability.tasks.read') {
+    const detail = await taskDetail(principal, input.id!);
+    // Hide engine-owned kinds from plugin task reads (D2.12).
+    result = {
+      task: detail && isEngineOwnedKind((detail as { kind?: string | null }).kind) ? null : detail,
+    };
+  } else {
+    result = {
+      tasks: apiTasks(
+        principal,
+        listTasksWhere(principal, { states: input.states, limit: input.limit ?? 100 })
+          .filter(t => !isEngineOwnedKind(t.kind)),
+      ),
+    };
+  }
   owner.assertGranted('tasks.read');
   authorizeWorkOperation(owner.readContext(),method==='capability.tasks.read'?'task.get':'task.list',parsed.data);
   if(transport&&!transport.resultFits(result))throw new CoreError('too_large','task result exceeds transport envelope');

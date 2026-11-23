@@ -76,6 +76,30 @@ test("staging retains only the declared native permission helper and validates i
   }
 });
 
+test("desktop staging verifies the assistant sibling against SHA256SUMS before copying", async () => {
+  const f = fixture();
+  const assistantFile = "pacer-assistant-pacer-darwin-arm64";
+  const bytes = readFileSync(join(f.dir, "pacer-darwin-arm64"));
+  writeFileSync(join(f.dir, assistantFile), bytes, { mode: 0o755 });
+  const hash = createHash("sha256").update(bytes).digest("hex");
+  writeFileSync(join(f.dir, "SHA256SUMS"), readFileSync(join(f.dir, "SHA256SUMS"), "utf8") + `${hash}  ${assistantFile}\n`);
+  mkdirSync(join(f.root, "crates/assistant-pacer"), { recursive: true });
+  writeFileSync(join(f.root, "crates/assistant-pacer/Cargo.toml"), "[package]\nname = \"pacer-assistant-pacer\"\n");
+  const stage = await stageDesktopPackage(f.root, f.dir, "aarch64", { run: f.run });
+  expect(readFileSync(join(stage, "pacer.app/Contents/Resources/pacer-assistant-pacer"))).toEqual(bytes);
+
+  const missing = fixture();
+  writeFileSync(join(missing.dir, assistantFile), bytes, { mode: 0o755 });
+  mkdirSync(join(missing.root, "crates/assistant-pacer"), { recursive: true });
+  writeFileSync(join(missing.root, "crates/assistant-pacer/Cargo.toml"), "[package]\nname = \"pacer-assistant-pacer\"\n");
+  await expect(stageDesktopPackage(missing.root, missing.dir, "aarch64", { run: missing.run })).rejects.toThrow(/SHA256SUMS is missing pacer-assistant-pacer/);
+
+  const tampered = fixture();
+  writeFileSync(join(tampered.dir, assistantFile), bytes, { mode: 0o755 });
+  writeFileSync(join(tampered.dir, "SHA256SUMS"), readFileSync(join(tampered.dir, "SHA256SUMS"), "utf8") + `${"0".repeat(64)}  ${assistantFile}\n`);
+  await expect(stageDesktopPackage(tampered.root, tampered.dir, "aarch64", { run: tampered.run })).rejects.toThrow(/checksum mismatch for pacer-assistant-pacer/);
+});
+
 test("paired desktop staging verifies and installs the private core before running components", async () => {
   for (const corrupt of [false, true]) {
     const f = fixture();

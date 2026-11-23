@@ -9,6 +9,7 @@ import { accountEvidenceScope } from "../evidence/scope";
 import type { EvidenceScope } from "../evidence/types";
 import { readEvidence } from "../core/evidence";
 import { appliesTo, currentEvidence, evidenceFact } from "../engine/evidence";
+import { AUTH_LIFETIME_S } from "./freshness";
 
 /**
  * Local sign-in state of an account on this machine.
@@ -55,7 +56,7 @@ export function accountSignIn(ctx: Ctx, account: AccountCfg, scope: EvidenceScop
   const snapshot = readEvidence(ctx, scope), observation = authObservation(ctx, scope);
   const facts = [...snapshot.evidence.facts.availability];
   if (observation) facts.push(evidenceFact(observation.scope, "execution", observation.at,
-    observation.at + 7200, "authentication_failed", "unavailable"));
+    observation.at + AUTH_LIFETIME_S, "authentication_failed", "unavailable"));
   const failures = facts.filter(f => f.reason === "authentication_failed" && f.value === "unavailable"
     && appliesTo(f, scope) && currentEvidence(f, ctx.now)
     && f.observedAt! > (snapshot.retiredAt ?? -1)

@@ -43,6 +43,7 @@ import { MAX_LINE_BYTES } from "./lines";
 import { PLANNER_INSTALL_FEATURE } from "./planner-protocol";
 import { EXTENSION_METHODS, HELLO_METHOD, NOTIFICATIONS, uiOf, parseViewDocument, parseStatusItemDocument, type ViewDocument, PLUGIN_ID, PLUGIN_PROTOCOL_MAJOR, PLUGIN_PROTOCOL_VERSION, type PluginManifest, type PluginState, helloResult, RESULT_CHUNK_METHOD, resultChunkParams, chunkedResult } from "./protocol";
 import type { BundledPlugin } from "./types";
+import { inspectBundledNativeExecutable, nativeSiblingRefusal } from "./native-bundled";
 import { currentVersion } from "../update/version";
 import { controlDir, sshArgv } from "../remote/ssh";
 import { SCRIPTS } from "../remote/scripts";
@@ -1703,9 +1704,22 @@ export class PluginRegistry {
       if (!ENABLED.has(e.state) && e.state !== "failing") this.setState(ctx, e, "idle");
     };
     for (const b of this.deps.bundled) {
+      const fresh = !this.entries.has(b.manifest.id);
       const e = this.entry(b.manifest.id, b.manifest, true, null);
       if (this.canonicalClassifier(e)) this.updateGeneration(ctx, e, this.classifierGeneration(this.classifierConfig(ctx)));
-      apply(e, hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`, null);
+      let refusal: string | null = hostRangeAccepts(b.manifest.host, PLUGIN_PROTOCOL_VERSION) ? null : `needs host ${b.manifest.host}; this pacer serves ${PLUGIN_PROTOCOL_VERSION}`;
+      // Native bundled plugins are unavailable until a version-matched sibling of pacer-core is present (ADR 0028/0031).
+      if (!refusal && b.executable) {
+        const siblingRefusal = nativeSiblingRefusal(b.executable, inspectBundledNativeExecutable(b.executable, ctx.env));
+        if (siblingRefusal) {
+          refusal = siblingRefusal;
+          // A missing/outdated sibling at first registration is the plugin's starting state, not a change:
+          // starting it refused publishes no plugin event, so startup snapshots keep their sequence.
+          // A sibling that disappears or goes stale later still changes state and publishes.
+          if (fresh) { e.state = "refused"; e.error = refusal; }
+        }
+      }
+      apply(e, refusal, null);
     }
     const root = join(ctx.pacerHome, "plugins");
     const folders = existsSync(root) ? readdirSync(root).filter(f => statSync(join(root, f)).isDirectory()) : [];

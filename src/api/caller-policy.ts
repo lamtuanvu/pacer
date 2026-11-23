@@ -1,6 +1,7 @@
-import { isExecutorSession } from '../install/role';
+import { isExecutorSession, isOrchestratorSession } from '../install/role';
 import { requireWorkScope } from '../dispatch/work';
 import { TASK_REVIEW_REFUSAL, TASK_REVIEW_VARIANTS_REFUSAL } from '../core/work';
+import { RUN_GRANT_OPS } from '../workflow/run-grant';
 import { ApiError } from './client-types';
 import type { Ctx } from '../types';
 
@@ -14,6 +15,13 @@ export const UPGRADE_OPERATIONS: readonly string[] = ['update.apply', 'service.i
 export const UPGRADE_REFUSAL = 'PACER_ROLE=executor: upgrades are not allowed from a delegated task.';
 export function isUpgradeOperation(name: string): boolean {
   return UPGRADE_OPERATIONS.includes(name) || (name.startsWith('desktop.reconcile.') && name !== 'desktop.reconcile.status') || (name.startsWith('desktop.update.') && name !== 'desktop.update.status');
+}
+
+/** Workflow and run operations. Runs are frame-scoped work the person and the planner drive; an executor's
+ *  workflow operations are step.result and step.artifact, which task identity gates in the ops themselves. */
+export const WORKFLOW_OPS_REFUSAL = 'PACER_ROLE=executor: workflow and run operations are for the person and the planner; report your result with step.result.';
+export function isWorkflowManagementOp(name: string): boolean {
+  return name.startsWith('workflow.') || name.startsWith('run.');
 }
 
 export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): boolean {
@@ -31,10 +39,19 @@ export function executorMayReview(ctx: Ctx, params: Record<string, unknown>): bo
 
 /** Preserve caller role when a planner-owned daemon performs the operation. */
 export function assertCallerCanInvoke(ctx: Ctx, name: string, params: Record<string, unknown>): void {
+  // Orchestrator / run-grant sessions: only RUN_GRANT_OPS (API-5b). Checked before the
+  // executor gate so a mis-set role cannot widen the surface.
+  if (ctx.env.PACER_RUN_GRANT || isOrchestratorSession(ctx)) {
+    if (!(RUN_GRANT_OPS as readonly string[]).includes(name)) {
+      throw new ApiError('not_allowed', 'PACER_ROLE=orchestrator: only run-grant operations are allowed on this turn.');
+    }
+    return;
+  }
   if (!isExecutorSession(ctx)) return;
   if (isUpgradeOperation(name)) throw new ApiError('not_allowed', UPGRADE_REFUSAL);
   if (name.startsWith('session.agent.')) throw new ApiError('not_allowed', 'Executor sessions cannot manage interactive agents.');
   if (name.startsWith('assistant.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executors cannot use the assistant or read its history.');
+  if (isWorkflowManagementOp(name)) throw new ApiError('not_allowed', WORKFLOW_OPS_REFUSAL);
   if (name.startsWith('plugin.ui.') || name.startsWith('plugin.settings.')) throw new ApiError('not_allowed', 'PACER_ROLE=executor: plugin UI and settings are for the app and the operator, not executor sessions.');
   if (name === 'plugin.enable' && params.grant === true) throw new ApiError('not_allowed', 'PACER_ROLE=executor: executor sessions cannot grant plugin access.');
   if (name === 'dispatch.explain') throw new ApiError('not_allowed', 'PACER_ROLE=executor: route explanations are for planners and people; executors do not choose where work goes.');

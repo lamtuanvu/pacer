@@ -110,6 +110,26 @@ export function executorRefusal(args: string[], outer: NodeJS.ProcessEnv): strin
   return what ? `executor sessions cannot delegate onward (${what}); run real delegation from a planner session` : undefined;
 }
 
+/**
+ * Env for the guarded child. Normally the sandbox env alone. For `mcp --assistant`, Claude (or the host)
+ * sets PACER_ASSISTANT_* and a turn PACER_HOME on this process via `--mcp-config` env expansion; those
+ * must reach the MCP server or it registers no tools (ask-mode self-test / CONTROL init fail closed).
+ */
+export function guardedChildEnv(
+  session: Session,
+  args: string[],
+  inherited: NodeJS.ProcessEnv = process.env,
+): NodeJS.ProcessEnv {
+  const env = sandboxEnv(session);
+  if (args[0] !== "mcp" || args[1] !== "--assistant") return env;
+  const pass = ["PACER_ASSISTANT_GRANT", "PACER_ASSISTANT_URL", "PACER_ASSISTANT_TURN", "PACER_HOME", "PACER_ASSISTANT_HOME"] as const;
+  for (const key of pass) {
+    const value = inherited[key];
+    if (typeof value === "string" && value.length > 0) env[key] = value;
+  }
+  return env;
+}
+
 if (import.meta.main) {
   try {
     const [sessionFile, ...args] = process.argv.slice(2);
@@ -123,7 +143,7 @@ if (import.meta.main) {
       process.exit(await runSessionStreamFaultProxy(session, args));
     }
     const child = Bun.spawn([...pacerArgv(session), ...args], {
-      cwd: join(session.root, "repo"), env: sandboxEnv(session), stdin: "inherit", stdout: "inherit", stderr: "inherit",
+      cwd: join(session.root, "repo"), env: guardedChildEnv(session, args), stdin: "inherit", stdout: "inherit", stderr: "inherit",
     });
     // Forward shutdown to the guarded process, including nested task runners.
     for (const signal of ["SIGTERM", "SIGINT"] as const) process.on(signal, () => child.kill(signal));

@@ -30,7 +30,10 @@ export function NeedsYouPage({ query }: { query: RouteQuery }) {
   const now = Date.now() / 1000;
   const items = needsYou(snapshot, { repo: query.repo || null }).filter(item => item.taskId && ["question", "failed", "review"].includes(item.kind));
   const shown = items.filter(item => tab === "all" || item.kind === tab);
-  const unavailable = capacity(snapshot).filter(row => row.rank !== "planner" && (["down", "blocked", "exhausted", "disabled", "failing"].includes(row.state) || row.stale || (row.eligibility ? row.eligibility.state !== "eligible" || row.eligibility.budget === "unknown" : row.usedPct === null && row.paceReason !== "unmetered")));
+  // An executor needs attention when it is down, blocked, its reading went historical (the record's freshness), or nothing says it can take work.
+  const unavailable = capacity(snapshot).filter(row => row.rank !== "planner" && (["down", "blocked", "exhausted", "disabled", "failing"].includes(row.state)
+    || (row.usageState ? row.usageState.freshness === "historical" : !!row.stale)
+    || (row.eligibility ? row.eligibility.state !== "eligible" || row.eligibility.budget === "unknown" : (row.usageState ? row.usageState.figure === null : row.usedPct === null) && row.paceReason !== "unmetered")));
   const answer = new URLSearchParams(typeof location === "undefined" ? "" : location.hash.split("?")[1]).get("answer");
   const oldest = items.length ? Math.min(...items.map(item => item.raisedAt)) : null;
   return <><PageHead>

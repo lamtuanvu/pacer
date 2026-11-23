@@ -4,6 +4,7 @@ import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
 import { TopBar } from "../app/src/shell/TopBar";
 import { pageOwnsTitle, resolveRoute, type Route } from "../app/src/router";
+import { usageStateFor } from "./usage-fixtures";
 
 const snap = fixture as unknown as ClientSnapshot;
 const planner = snap.planner!;
@@ -18,9 +19,12 @@ test("planner identity remains in the top bar while usage lives in the status ba
 });
 
 test("narrow top bar keeps planner usage because it has no desktop status bar", () => {
-  const html = renderToString(<TopBar {...base} narrow />);
+  const html = renderToString(<TopBar {...base} narrow planner={{ ...planner, usageState: usageStateFor(planner, snap.at) }} />);
   expect(html).toContain('aria-valuetext="63% used, pace 77%, behind pace"');
   expect(html).toContain(">63%·77<");
+  // The meter's freshness anchor is the record's observation time, not the snapshot's (ADR 0030).
+  const historical = renderToString(<TopBar {...base} narrow planner={{ ...planner, stale: true, usageState: usageStateFor({ ...planner, stale: true }, snap.at) }} />);
+  expect(historical).toContain("pc-meter--stale");
 });
 
 test("mode chip always shows, in words, warn only when not normal, with the hold time", () => {

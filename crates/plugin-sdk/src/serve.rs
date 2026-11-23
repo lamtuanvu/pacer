@@ -55,6 +55,11 @@ impl Progress {
             json!({"id": self.id, "data": data}),
         ));
     }
+
+    /// Send a plugin → host notification (for example `assistant.delta`).
+    pub fn notify(&self, method: &str, params: Value) {
+        let _ = self.out.send(wire::notification(method, params));
+    }
 }
 
 pub struct Plugin {
@@ -148,7 +153,12 @@ impl Plugin {
                         token.cancel();
                     }
                 }
-                Some(wire::Incoming::Request { id, method, params }) => {
+                Some(wire::Incoming::Request {
+                    id,
+                    method,
+                    params,
+                    meta,
+                }) => {
                     if method == "plugin.hello" {
                         started = Some(Instant::now());
                         let _ = out.send(wire::result(&id, json!({
@@ -181,7 +191,7 @@ impl Plugin {
                     let key = id.to_string();
                     inflight.lock().await.insert(key.clone(), cancel.clone());
                     let ctx = Ctx {
-                        host: host.clone(),
+                        host: host.for_call(wire::capability_call_token(meta.as_ref())),
                         cancel,
                         progress: Progress {
                             id: id.clone(),

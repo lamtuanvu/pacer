@@ -3,6 +3,7 @@ import { useEffect, useMemo, useRef, useState } from "preact/hooks";
 import type { RepoRef } from "../../../../src/api/read-model/types";
 import { agentInfo } from "../../../../src/view-model/agents";
 import { paceStatus } from "../../../../src/view-model/words";
+import { usageView } from "../../../../src/view-model/usage";
 import { AgentMark } from "../../ds/AgentMark";
 import { AttachmentPicker } from "../../ds/AttachmentTray";
 import { Button, TextAction } from "../../ds/Button";
@@ -293,11 +294,19 @@ function RouteBody({ p, compact }: { p: ViewProps; compact?: boolean }) {
 function PlannerRow({ p }: { p: ViewProps }) {
   const planner = p.planner;
   if (!planner || p.preview.empty) return null;
-  const view = p.card?.planner ?? { cost: "Not measured yet", used: planner.usedPct, pace: planner.pacePct, note: planner.usedPct === null ? "" : `Week ${Math.round(planner.usedPct)}%${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}` };
+  // The planner's one usage record, quoted through usageView (ADR 0030); a legacy row keeps its meter fields,
+  // and a record without a figure is a state, never the row's old percent.
+  const usage = usageView(planner.usageState, Date.now() / 1000);
+  const used = planner.usageState ? usage.meter : usage.meter ?? planner.usedPct;
+  const plannerRecord = planner.usageState;
+  const view = p.card?.planner ?? { cost: "Not measured yet", used, pace: planner.pacePct, note: used === null ? ""
+    : planner.usageState && usage.figure.endsWith("%") ? `${usage.summaryUsed}${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}`
+    : planner.usageState ? usage.figure
+    : `${Math.round(used)}% of ${usage.window || "week"} used${planner.pacePct === null ? "" : ` · pace ${Math.round(planner.pacePct)}%`}` };
   const name = agentInfo(planner.agent).name;
   return <div className="pc-route-card__planner">
     <span className="pc-route-card__planner-head"><AgentMark agent={planner.agent} size={18} labelled={false} /><span className="pc-route-card__planner-title">Planner cost</span><span className="pc-route-card__planner-cost">{view.cost}</span></span>
-    <UsageMeter used={view.used} pace={view.pace} tone={paceStatus(planner.verdict).tone} verdict={planner.verdict} size="row" text="none" label={`${name} weekly usage`} />
+    <UsageMeter used={view.used} pace={view.pace} tone={paceStatus(planner.usageState?.verdict ?? planner.verdict).tone} verdict={planner.usageState?.verdict ?? planner.verdict} size="row" text="none" label={`${name} weekly usage`} />
     {view.note && <span className="pc-caption">{view.note}</span>}
   </div>;
 }

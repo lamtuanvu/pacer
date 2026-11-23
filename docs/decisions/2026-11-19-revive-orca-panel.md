@@ -1,6 +1,6 @@
 # Revive the Orca panel — 2026-11-19
 
-Status: proposed with governance amendment 0.24.0; adopted when the maintainer merges its PR.
+Status: proposed with governance amendment 0.27.0; adopted when the maintainer merges its PR.
 Source: the maintainer's request to reduce context-switching between Orca and pacer, following the
 [Orca panel design](../specs/2026-11-19-orca-panel-plugin-design.md).
 This record answers the "Revisit when" clause of [ADR retire-orca-plugin](2026-10-20-retire-orca-plugin.md):
@@ -46,7 +46,7 @@ model) stand.
 
 ## Consequences
 
-- P7 and ARCH-6 stay retired in the constitution until amendment 0.24.0 is adopted; the amendment is what makes
+- P7 and ARCH-6 stay retired in the constitution until amendment 0.27.0 is adopted; the amendment is what makes
   the plugin legal under the repository's own rules, so it lands before or alongside the first panel code. The
   status cells change only when the maintainer merges the amendment PR.
 - The Orca panel becomes a pacer client again, the same tier as the web app, while the Orca execution backend

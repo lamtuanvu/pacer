@@ -42,7 +42,7 @@ export async function retryForeground(action: () => Promise<void>, pause: () => 
   }
 }
 
-async function desktopControls(pid: number) {
+export async function desktopControls(pid: number) {
   const identity = processIdentitySync(pid);
   if (!identity) throw Error("Desktop native identity unavailable");
   async function window() {
@@ -125,14 +125,14 @@ type Controls = Awaited<ReturnType<typeof desktopControls>>;
 // Internal states and reason codes must never reach the page text.
 const INTERNAL = /\b(prepared|stopping|switched|verifying|committed|recovery-failed)\b|[a-z-]+:(identity|unavailable|invalid|io|timeout|busy)\b|redetect|interrupted:/;
 
-function hasText(texts: string[], text: string) { return texts.some(value => value.includes(text)); }
+function hasText(texts: string[], text: string) { return hasAccessibilityText(texts, text); }
 export function settingsReady(texts: string[], takeover: boolean): boolean {
   return takeover
     ? hasText(texts, "The pacer service was replaced by another build. Automatic updates are paused.") && hasText(texts, "Review service replacement")
     : texts.some(value => value.toLowerCase() === "updates") && !hasText(texts, "Use the app's service");
 }
 
-async function waitFor<T>(read: () => Promise<T | null>, timeout: number, message: string): Promise<T> {
+export async function waitFor<T>(read: () => Promise<T | null>, timeout: number, message: string): Promise<T> {
   const end = Date.now() + timeout;
   let lastError: unknown;
   while (Date.now() < end) {
@@ -143,7 +143,9 @@ async function waitFor<T>(read: () => Promise<T | null>, timeout: number, messag
   throw Error(`${message}${lastError ? `: ${String(lastError)}` : ""}`);
 }
 
-function takeoverJournal(home: string): { tx: string; journal: any; manifest: any } | null {
+export function hasAccessibilityText(texts: string[], text: string) { return texts.some(value => value.includes(text)); }
+
+export function takeoverJournal(home: string): { tx: string; journal: any; manifest: any } | null {
   const root = join(home, "desktop-updates/native/takeover");
   if (!existsSync(root)) return null;
   const txs = readdirSync(root).filter(name => /^[A-Za-z0-9_-]{1,128}$/.test(name));

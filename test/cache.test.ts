@@ -1,6 +1,6 @@
 import { expect, test } from "bun:test";
 import { cachedFetch } from "../src/usage/cache";
-import { limitWindow, markExhausted, readMarks } from "../src/usage/reactive";
+import { limitObservation, markExhausted, readMarks } from "../src/usage/reactive";
 import { fakeCtx } from "./helpers";
 
 test("cachedFetch serves fresh hits without calling the fetcher", async () => {
@@ -23,11 +23,10 @@ test("cachedFetch falls back to a stale value within maxStale, then gives up wit
   expect(gone).toEqual({ value: null, capturedAt: null, stale: false, error: "arkcli down" });
 });
 
-test("exhausted marks produce a limit window until they expire", () => {
+test("exhausted marks record an active observation until they expire", () => {
   const ctx = fakeCtx({ now: 1000 });
-  expect(limitWindow(ctx, "cursor")).toBeNull();
   markExhausted(ctx, "cursor", 4600);
   expect(readMarks(ctx)).toEqual({ cursor: 4600 });
-  expect(limitWindow(ctx, "cursor")).toEqual({ name: "limit", usedPct: 100, resetsAt: 4600, lengthS: 3600, paced: false });
-  expect(limitWindow({ ...ctx, now: 5000 }, "cursor")).toBeNull();
+  expect(limitObservation(ctx, "cursor")).toMatchObject({ until: 4600, observedAt: 1000, manual: false });
+  expect(limitObservation({ ...ctx, now: 5000 }, "cursor")).toBeNull();
 });

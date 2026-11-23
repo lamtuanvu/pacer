@@ -9,6 +9,12 @@ pub mod pause;
 pub mod status;
 pub mod usage_broker;
 pub mod usage_refresh;
+pub mod words;
+
+/// Usage freshness thresholds from `src/usage/freshness.ts` (ADR 0030 decision 5): the
+/// window caps, lifetimes, cooldown default and exhausted/near-limit percentages the
+/// engine reads from generated constants instead of hard-coded copies.
+pub use pacer_limits_protocol::freshness::*;
 
 use chrono::{Datelike, TimeZone, Timelike};
 use chrono_tz::Tz;
@@ -84,12 +90,16 @@ pub fn evaluate_window(input: &Value, zone: Tz) -> Value {
         return output;
     }
     let used = number(&usage["usedPct"]);
-    if used >= 97.0 {
+    if used >= EXHAUSTED_PCT {
         output["verdict"] = json!("EXHAUSTED");
         return output;
     }
     if !truth(&usage["paced"]) || usage["resetsAt"].is_null() {
-        output["verdict"] = json!(if used >= 90.0 { "NEAR_LIMIT" } else { "OK" });
+        output["verdict"] = json!(if used >= NEAR_LIMIT_PCT {
+            "NEAR_LIMIT"
+        } else {
+            "OK"
+        });
         return output;
     }
     let reset = number(&usage["resetsAt"]);
@@ -118,6 +128,7 @@ fn verdict_rank(verdict: &str) -> i32 {
         "EXHAUSTED" => 0,
         "NEAR_LIMIT" => 1,
         "AHEAD" => 2,
+        "UNMETERED" => 3,
         "ON_PACE" => 4,
         "BEHIND" => 5,
         "EXPIRING" => 6,
@@ -138,11 +149,15 @@ pub fn binding_window(windows: &[Value]) -> Value {
         .filter(|w| matches!(string(&w["verdict"]), "EXHAUSTED" | "NEAR_LIMIT" | "AHEAD"))
         .collect();
     if !hard.is_empty() {
-        return hard
-            .into_iter()
-            .min_by_key(|w| verdict_rank(string(&w["verdict"])))
-            .cloned()
-            .unwrap_or(Value::Null);
+        // `Array.prototype.reduce` keeps the first of equal-rank peers.
+        let best = hard.iter().copied().reduce(|a, b| {
+            if verdict_rank(string(&b["verdict"])) < verdict_rank(string(&a["verdict"])) {
+                b
+            } else {
+                a
+            }
+        });
+        return best.cloned().unwrap_or(Value::Null);
     }
     let paced: Vec<&Value> = known
         .iter()
@@ -150,11 +165,14 @@ pub fn binding_window(windows: &[Value]) -> Value {
         .filter(|w| w.get("pace").is_some())
         .collect();
     if !paced.is_empty() {
-        return paced
-            .into_iter()
-            .max_by_key(|w| verdict_rank(string(&w["verdict"])))
-            .cloned()
-            .unwrap_or(Value::Null);
+        let best = paced.iter().copied().reduce(|a, b| {
+            if verdict_rank(string(&b["verdict"])) > verdict_rank(string(&a["verdict"])) {
+                b
+            } else {
+                a
+            }
+        });
+        return best.cloned().unwrap_or(Value::Null);
     }
     known[0].clone()
 }
@@ -173,16 +191,21 @@ fn current(fact: &Value, now: f64, deadline: Option<f64>) -> bool {
         .is_some_and(|time| time.is_finite() && time >= 0.0 && time <= now)
         && deadline.is_none_or(|time| time > now)
 }
-fn deadline(fact: &Value) -> Option<f64> {
+/// `evidenceDeadline` (`src/engine/evidence.ts`): when a fact stops constraining.
+pub fn deadline(fact: &Value) -> Option<f64> {
     let observed = optional_number(&fact["observedAt"])?;
-    if string(&fact["source"]) == "configuration" {
+    // Configuration and execution cooldown marks bind until their stated end, not
+    // the short-window freshness cap used for measured quota observations.
+    if string(&fact["source"]) == "configuration"
+        || (string(&fact["source"]) == "execution" && string(&fact["value"]["name"]) == "limit")
+    {
         return optional_number(&fact["validUntil"])
             .or_else(|| optional_number(&fact["value"]["resetsAt"]));
     }
-    let age = if number(&fact["value"]["lengthS"]) <= 21600.0 {
-        7200.0
+    let age = if number(&fact["value"]["lengthS"]) <= WINDOW_CAP_SHORT_MAX_LENGTH_S as f64 {
+        WINDOW_CAP_SHORT_S as f64
     } else {
-        86400.0
+        WINDOW_CAP_LONG_S as f64
     };
     Some(
         [
@@ -226,12 +249,6 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
         .copied()
         .filter(|f| current(f, now, optional_number(&f["validUntil"])))
         .collect();
-    let all: Vec<&Value> = availability
-        .iter()
-        .chain(&budget)
-        .chain(&spending)
-        .copied()
-        .collect();
     let unavailable: Vec<&Value> = live_availability
         .iter()
         .copied()
@@ -240,7 +257,7 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
     let exhausted: Vec<&Value> = live_budget
         .iter()
         .copied()
-        .filter(|f| optional_number(&f["value"]["usedPct"]).is_some_and(|v| v >= 97.0))
+        .filter(|f| optional_number(&f["value"]["usedPct"]).is_some_and(|v| v >= EXHAUSTED_PCT))
         .collect();
     let no_budget = input["budgetRequired"] == false
         || matches!(string(&input["usage"]), "reactive" | "unmetered");
@@ -254,12 +271,29 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
         .chain(budget.iter().filter_map(|f| deadline(f)))
         .filter(|v| *v > now)
         .reduce(f64::min);
-    let evidence_age = all
+    // The shown observation age belongs to the binding budget fact (the exhausted one when the
+    // budget is exhausted, else the newest budget observation), or to the newest availability
+    // fact when no budget fact applies; unrelated facts never pin it (`src/engine/eligibility.ts`).
+    let observed_ages = |facts: &[&Value]| -> Vec<f64> {
+        facts
+            .iter()
+            .filter(|f| string(&f["source"]) != "configuration")
+            .filter_map(|f| optional_number(&f["observedAt"]))
+            .filter(|v| *v <= now)
+            .collect()
+    };
+    let mut ages = observed_ages(if exhausted.is_empty() {
+        &budget
+    } else {
+        &exhausted
+    });
+    if ages.is_empty() {
+        ages = observed_ages(&availability);
+    }
+    let evidence_age = ages
         .iter()
-        .filter(|f| string(&f["source"]) != "configuration")
-        .filter_map(|f| optional_number(&f["observedAt"]))
-        .filter(|v| *v <= now)
-        .reduce(f64::min)
+        .copied()
+        .reduce(f64::max)
         .map(|v| (now - v).max(0.0));
     let availability_state = if !unavailable.is_empty() {
         "unavailable"
@@ -304,13 +338,16 @@ pub fn evaluate_eligibility(input: &Value) -> Value {
     let state = if !reasons.is_empty() {
         "ineligible"
     } else {
-        let conflicts: Vec<Value> = all
+        // Only current peers can disagree about launching now; expired conflicts are history.
+        let conflict: Vec<&Value> = live_availability
             .iter()
+            .copied()
+            .chain(live_budget.iter().copied())
+            .chain(live_spending.iter().copied())
             .filter(|f| array(&input["evidence"]["conflicts"]).contains(&f["id"]))
-            .map(|f| field(f, "id"))
             .collect();
-        if !conflicts.is_empty() {
-            reasons.push(json!({"code": "evidence_conflicting", "evidenceIds": conflicts}));
+        if conflict.len() > 1 {
+            reasons.push(json!({"code": "evidence_conflicting", "evidenceIds": conflict.iter().map(|f| field(f, "id")).collect::<Vec<_>>()}));
         }
         if availability_state == "unknown" {
             reasons.push(json!({"code": "availability_unknown", "evidenceIds": availability.iter().map(|f| field(f, "id")).collect::<Vec<_>>()}));
@@ -380,30 +417,7 @@ fn restriction(mut decision: Value, code: Option<&str>) -> Value {
 fn eligibility_detail(decision: &Value) -> String {
     array(&decision["reasons"])
         .iter()
-        .map(|reason| match string(&reason["code"]) {
-            "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-            "budget_missing" => "No budget observation is available",
-            "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-            "evidence_conflicting" => "Current observations disagree",
-            "evidence_missing" => "Execution evidence is missing",
-            "availability_unknown" => "Executor availability is not confirmed",
-            "subscription_missing" => "No active subscription",
-            "subscription_failed" => "Subscription is unavailable",
-            "subscription_response_invalid" => "Subscription status could not be read",
-            "authentication_failed" => "Sign-in is required",
-            "refresh_failed" => "Could not refresh execution evidence",
-            "disabled" => "Disabled",
-            "not_installed" => "Not installed",
-            "signed_out" => "Sign-in is required",
-            "blocked" => "Blocked by you",
-            "broken" => "Executor is not working",
-            "unavailable" => "Executor is unavailable",
-            "planner" => "Reserved for planning",
-            "not_configured" => "Not configured",
-            "quota_failure" => "The executor reported a quota limit",
-            "machine_load" | "machine_memory_pressure" => "Execution evidence needs attention",
-            _ => "Execution evidence needs attention",
-        })
+        .map(|reason| words::eligibility_reason(string(&reason["code"])))
         .collect::<Vec<_>>()
         .join("; ")
 }
@@ -414,6 +428,7 @@ pub fn planner_mode(verdict: &str) -> &'static str {
         "EXHAUSTED" => "emergency",
         "AHEAD" | "NEAR_LIMIT" => "strict",
         "BEHIND" | "EXPIRING" => "relaxed",
+        "UNMETERED" => "normal",
         _ => "normal",
     }
 }
@@ -917,6 +932,7 @@ mod tests {
         assert_eq!(planner_mode("ON_PACE"), "normal");
         assert_eq!(planner_mode("UNKNOWN"), "normal");
         assert_eq!(planner_mode("OK"), "normal");
+        assert_eq!(planner_mode("UNMETERED"), "normal");
     }
 
     fn two_runner_strategy() -> Value {

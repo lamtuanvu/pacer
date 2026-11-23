@@ -44,8 +44,14 @@ pub fn v3_only(e: &Value) -> bool {
     match text(&e["type"]) {
         "discovery.found" => true,
         "config" => d["area"] == "discovery",
-        "attention" => discovery_id(&d["id"]),
-        "notify" => discovery_id(&d["key"]),
+        "attention" => {
+            discovery_id(&d["id"])
+                || crate::v2_compat::is_workflow_attention_id(&d["id"])
+                || d.get("kind").and_then(Value::as_str) == Some("orchestrator_failed")
+        }
+        "notify" => {
+            discovery_id(&d["key"]) || crate::v2_compat::is_workflow_attention_id(&d["key"])
+        }
         "control" => true,
         _ => false,
     }
@@ -57,6 +63,10 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
         "assistant",
         "machine",
         "message",
+        // Workflow runs, decisions and structured questions are v3-only.
+        "run",
+        "decision",
+        "question",
         "discovery.found",
         "control",
     ]
@@ -71,6 +81,12 @@ pub fn to_v2_event(e: &Value) -> Option<Value> {
     } else {
         num(&e["seq"])
     });
+    // promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface.
+    if e["type"] == "task"
+        && let Some(map) = out["data"].as_object_mut()
+    {
+        map.remove("promptWait");
+    }
     Some(out)
 }
 pub fn events_since(
@@ -93,6 +109,8 @@ pub fn events_since(
     };
     let replay = read_outbox_replay(ctx, raw_since)?;
     let at = replay.discovery_at_counts;
+    let workflow_at = replay.workflow_at_counts;
+    let workflow_problems_at = replay.workflow_problems_at_counts;
     let oldest = replay.oldest;
     let reset = raw_since > 0.0 && oldest.is_some_and(|n| n > raw_since + 1.0);
     let after = replay.entries;
@@ -162,7 +180,13 @@ pub fn events_since(
     let mut converted = Vec::new();
     for e in raw {
         if protocol == 2 {
-            if e["type"] == "planner" || e["type"] == "desktop.update" || v3_only(&e) {
+            if e["type"] == "planner"
+                || e["type"] == "desktop.update"
+                || e["type"] == "run"
+                || e["type"] == "decision"
+                || e["type"] == "question"
+                || v3_only(&e)
+            {
                 continue;
             }
             {
@@ -170,11 +194,26 @@ pub fn events_since(
                 // including families excluded by standalone toV2Event.
                 let mut v = e.clone();
                 if e["type"] == "counts" {
-                    let n = at.get(&(num(&e["seq"]) as i64)).copied().unwrap_or(0);
-                    if n > 0 && e["data"]["attention"].is_number() {
+                    let seq = num(&e["seq"]) as i64;
+                    let discovery = at.get(&seq).copied().unwrap_or(0);
+                    let workflow = workflow_at.get(&seq).copied().unwrap_or(0);
+                    let workflow_problems = workflow_problems_at.get(&seq).copied().unwrap_or(0);
+                    let open = discovery + workflow;
+                    if open > 0 && e["data"]["attention"].is_number() {
                         v["data"]["attention"] =
-                            number((num(&e["data"]["attention"]) - n as f64).max(0.0));
+                            number((num(&e["data"]["attention"]) - open as f64).max(0.0));
                     }
+                    if workflow_problems > 0 && e["data"]["problems"].is_number() {
+                        v["data"]["problems"] = number(
+                            (num(&e["data"]["problems"]) - workflow_problems as f64).max(0.0),
+                        );
+                    }
+                }
+                // promptWait is v3-only; strip it from task event payloads.
+                if e["type"] == "task"
+                    && let Some(map) = v["data"].as_object_mut()
+                {
+                    map.remove("promptWait");
                 }
                 converted.push(v);
             }
@@ -232,7 +271,10 @@ p}
     ),"reset":old||reset}
     );
     if protocol == 2 {
+        // Match JSON.stringify of the TS Maps on the internal batch (always {}).
         result["discoveryOpen"] = json!({});
+        result["workflowOpen"] = json!({});
+        result["workflowProblemsOpen"] = json!({});
     }
     Ok(result)
 }

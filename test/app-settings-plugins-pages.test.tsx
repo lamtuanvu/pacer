@@ -3,6 +3,7 @@ import { chromium, type Browser, type Page } from 'playwright-core';
 import { renderToString } from 'preact-render-to-string';
 import { PluginsPage } from '../app/src/screens/settings/PluginsPage';
 import { PluginSettingsPage, settingsDefaults, dirtyFields, fieldErrors } from '../app/src/screens/settings/PluginSettingsPage';
+import { attentionState, isNativeSiblingMissing, pluginCardTone, pluginStatus } from '../app/src/screens/settings/plugin-presentation';
 import { TaskContext } from '../app/src/screens/task-shared';
 import { initialState } from '../app/src/data/store';
 import { hrefFor, resolveRoute, routes, parentFor, titleFor } from '../app/src/router';
@@ -10,6 +11,7 @@ import { pluginFixture, surfaceFixtures, settingsFixture } from './fixtures/ui/p
 import { createApi } from '../app/src/data/api';
 const query={repo:null,scope:null}, plugins={plugins:[pluginFixture]}, surfaces={surfaces:surfaceFixtures};
 const draw=(child:any)=>renderToString(<TaskContext.Provider value={{api:{call:async()=>({})} as any,state:initialState()}}>{child}</TaskContext.Provider>);
+const missingNative={...pluginFixture,id:'assistant-pacer',bundled:true,enabled:false,state:'refused' as const,error:'native executable pacer-assistant-pacer is not installed next to pacer-core',publisher:'pacer',version:'1.0.0'};
 test('plugin settings routes round trip with encoded ids and query, selecting their parent',()=>{
   for(const id of ['fx-ui','a b','<b>name</b>']) {
     const href=hrefFor(routes.pluginSettings(id,{repo:'repo & one',scope:'all'}));
@@ -29,6 +31,28 @@ test('Plugins cards show backed additions, permissions, states and only usable l
   expect(html).toContain('aria-labelledby="plugins-installed-label"');
   for(const text of ['Install from file','Browse','Updates','Update to']) expect(html).not.toContain(text);
   expect(draw(<PluginsPage initialData={{plugins:[]}} initialSurfaces={{surfaces:[]}}/>)).toContain('No plugins installed.');
+});
+test('missing optional native sibling is neutral and excluded from plugin attention',()=>{
+  expect(isNativeSiblingMissing(missingNative)).toBe(true);
+  expect(attentionState(missingNative)).toBe(false);
+  expect(pluginCardTone(missingNative)).toBeNull();
+  expect(pluginStatus(missingNative)).toEqual({tone:'neutral',label:'Not installed'});
+  const outdatedNative={...missingNative,error:'native executable pacer-assistant-pacer is outdated (reports 0.0.1, pacer is 0.17.6)'};
+  expect(isNativeSiblingMissing(outdatedNative)).toBe(true);
+  expect(pluginStatus(outdatedNative)).toEqual({tone:'neutral',label:'Outdated'});
+  expect(attentionState(outdatedNative)).toBe(false);
+  expect(attentionState({...pluginFixture,state:'refused',error:'manifest id mismatch'})).toBe(true);
+  const refused={...pluginFixture,id:'broken',state:'refused' as const,error:'manifest id mismatch'};
+  const html=draw(<PluginsPage initialData={{plugins:[missingNative,refused]}} initialSurfaces={surfaces}/>);
+  expect(html).toContain('Not installed');
+  expect(html).toContain('Optional native reply backend');
+  expect(html).toContain('pc-plugin-card--bad');
+  const assistantCard = html.match(/<article[^>]*aria-label="Pacer assistant"[^>]*>|<article[^>]*class="[^"]*"[^>]*aria-label="Pacer assistant"[^>]*>/)?.[0]
+    ?? html.match(/<article class="pc-plugin-card"[^>]*aria-label="Pacer assistant">/)?.[0];
+  expect(assistantCard).toBeTruthy();
+  expect(assistantCard!).toContain('pc-plugin-card');
+  expect(assistantCard!).not.toContain('pc-plugin-card--bad');
+  expect(html).not.toMatch(/Pacer assistant[\s\S]{0,800}?Fix the plugin's reported error/);
 });
 test('schema fields use board rows, defaults, constraints and text-only plugin strings',()=>{
   const data=structuredClone(settingsFixture);data.schema.fields.name!.title='<img src=x>';data.schema.fields.name!.description='<b>text</b>';
@@ -64,6 +88,13 @@ browserTest('Extend nav has plugin provenance, attention, current page and refre
     await page.evaluate(()=>{(window as any).failList=true;(window as any).emit();});await link.waitFor({state:'detached'});expect(await page.getByRole('link',{name:'Plugins',exact:true}).count()).toBe(1);
     await page.evaluate(()=>{(window as any).failList=false;(window as any).emit();});await link.waitFor();
     await page.evaluate(()=>{(window as any).failSurfaces=true;(window as any).emit();});await page.waitForTimeout(150);expect(await link.count()).toBe(1);
+  } finally {await page.close();}
+});
+browserTest('Extend nav ignores a missing optional native sibling for the Plugins attention badge',async()=>{
+  const page=await mount({mode:'nav',plugins:[pluginFixture,missingNative,{...pluginFixture,id:'broken',state:'failing'}]});
+  try {
+    await page.getByText('1 plugin needs attention',{exact:true}).waitFor();
+    expect(await page.getByText('2 plugins need attention').count()).toBe(0);
   } finally {await page.close();}
 });
 browserTest('card overflow menu supports keyboard, checks, remove confirmation and bundled restrictions',async()=>{

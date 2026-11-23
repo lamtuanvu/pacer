@@ -97,7 +97,11 @@ test("runner.block and runner.unblock rewrite blocked.json like TypeScript", asy
 test("runner.list composes blocks, breaks and broker eligibility like TypeScript", async () => {
   const bridge = async (ctx: Ctx) => { const st = await computeStatus(ctx, loadStrategy(ctx)); return {brokerParts: {accounts: st.accounts, providers: st.providers}}; };
   const broken = write("broken.json", '{"codex":{"until":1800000000,"reason":"bad cli"}}');
-  for (const [params, setup] of [[{}, strategy()], [{a: 1}, all(strategy(), broken)], [null, all(strategy(), write("blocked.json", '{"codex":{"until":null,"reason":"Paused"}}'))], ["x", strategy()]] as const)
+  // A reported limit: exhausted until its reset with allow_paid off; with allow_paid on it is not a quota row.
+  const limited = (paid: boolean) => all(strategy(`planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\n  cursor: {kind: cursor, allow_paid: ${paid}}\nrunners:\n  claude-code: {}\n  codex: {}\n  cursor: {}\n`),
+    write("exhausted.json", `{"cursor":${NOW + 3 * 86400}}`), write("state/exhausted-evidence.json", `{"cursor":{"observedAt":${NOW - 68 * 3600},"until":${NOW + 3 * 86400},"manual":true}}`));
+  for (const [params, setup] of [[{}, strategy()], [{a: 1}, all(strategy(), broken)], [null, all(strategy(), write("blocked.json", '{"codex":{"until":null,"reason":"Paused"}}'))], ["x", strategy()],
+    [{}, limited(false)], [{}, limited(true)]] as const)
     await compare("runner.list", params, {setup, bridge});
 }, 120_000);
 

@@ -1,6 +1,8 @@
 import { BUNDLED } from "../../plugins/bundled";
 import { pacerArgv } from "../install/self";
 import type { Ctx } from "../types";
+import { CoreError } from "../core/errors";
+import { inspectBundledNativeExecutable, nativeSiblingRefusal } from "./native-bundled";
 import { PluginRegistry,type RegistryDeps } from "./registry";
 import { fileURLToPath } from "node:url";
 
@@ -8,6 +10,14 @@ const registries = new Map<string, PluginRegistry>();
 
 /** Preserve front/wrapper routing while binding development children to this source core. */
 export function bundledPluginSpawn(c: Ctx, id: string, runtime: {executable:string;bunVersion?:string} = {executable:process.execPath,bunVersion:process.versions.bun}) {
+  const bundled = BUNDLED.find(plugin => plugin.manifest.id === id);
+  if (bundled?.executable) {
+    const sibling = inspectBundledNativeExecutable(bundled.executable, c.env, runtime.executable);
+    if (sibling.status !== "ready") {
+      throw new CoreError("plugin_unavailable", nativeSiblingRefusal(bundled.executable, sibling) ?? `native executable ${bundled.executable} is not installed next to pacer-core`);
+    }
+    return { argv: [sibling.path], cwd: c.home, env: {} };
+  }
   const source = Boolean(runtime.bunVersion) && /(^|\/)bun(?:\.exe)?$/.test(runtime.executable);
   const cli = fileURLToPath(new URL("../cli.ts", import.meta.url));
   const argv = !c.env.PACER_BIN && source ? [runtime.executable, cli] : pacerArgv(c.env);

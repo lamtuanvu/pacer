@@ -1,22 +1,24 @@
 import { useEffect, useState } from "preact/hooks";
 import type { AssistantSettings as Settings } from "../../../../src/assistant/types";
+import { askModeCheckCopy, ASSISTANT_READS_SUMMARY_ONLY, executorAssistantDescription } from "../../../../src/view-model/copy";
 import { Alert } from "../../ds/Alert";
 import { Button } from "../../ds/Button";
 import { ChoicePicker } from "../../ds/ChoicePicker";
-import { Field, TextInput } from "../../ds/Controls";
+import { Disclosure, Field, TextInput } from "../../ds/Controls";
 import { useDialogs } from "../../ds/useDialogs";
 import { Skeleton } from "../../ds/Patterns";
+import { confirmExecutorTrust } from "../../shell/assistant/executor-trust";
 import { ErrorMessage, useTaskContext } from "../task-shared";
 import { Section, useResource } from "./shared";
 
 type Backend = "pacer" | "executor";
-interface Candidate { account: string; backend: Backend; available: boolean; reason?: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }
+interface Candidate { account: string; backend: Backend; available: boolean; liveTools?: boolean; reason?: string; models: { id: string; name: string }[]; runners: { id: string; model: string | null }[]; isPlanner: boolean }
 interface Candidates { accounts: Candidate[]; reads: string[] }
 /** One picker value per account and backend: an account can answer through both. */
 const choiceOf = (account: string | null, backend: Backend) => account ? `${backend}:${account}` : "";
 const parseChoice = (value: string): { account: string | null; backend: Backend } =>
   value.startsWith("executor:") ? { account: value.slice(9), backend: "executor" } : value.startsWith("pacer:") ? { account: value.slice(6), backend: "pacer" } : { account: null, backend: "pacer" };
-interface Status { available: boolean; reason?: string; hint?: string; today: { turns: number; input: number; output: number } }
+interface Status { available: boolean; liveTools?: boolean; reason?: string; hint?: string; today: { turns: number; input: number; output: number } }
 
 /** Settings › Assistant: which account answers, what it can read, limits, history. Off until an account is chosen. */
 export function AssistantSettingsSection() {
@@ -37,18 +39,19 @@ export function AssistantSettingsSection() {
   };
   const save = async () => {
     // Choosing an agent CLI to answer is a trust decision (spec §7): say what it can and cannot do, once per switch.
-    if (backend === "executor" && settings.data!.backend !== "executor" &&
-      !(await dialogs.confirm("The agent CLI runs on this machine as you, restricted to answering from pacer's summary: every tool is denied and the restriction was checked. If the CLI ever ignored its restrictions, it could read files you can read. Use it to answer?", "Use the agent CLI", "Use the agent CLI"))) return;
+    if (backend === "executor" && settings.data!.backend !== "executor" && !(await confirmExecutorTrust(dialogs.confirm, chosen?.liveTools === true))) return;
     await act(() => api.call("assistant.settings.set", { account, backend, runner: runner || null, expect_rev: settings.data!.rev, limits: { turnsPerDay: Number(turns) }, retention: { days: Number(days) } }), "Saved.");
   };
   const check = () => act(() => api.call("assistant.selftest", { account }), "Check finished.").then(() => candidates.reload());
+  // Pacer's agent always has live tools; an executor row only when its self-test proved a pacer tool call.
+  const liveTools = backend === "pacer" || chosen?.liveTools === true;
   return <Section id="assistant" title="Assistant">
     <div className="pc-card pc-stack pc-stack--normal">
       <Field label="Account that answers" help="The assistant uses this account only. It never moves to another one, and its use is counted as assistant use, apart from your tasks.">
         <ChoicePicker value={choiceOf(account, backend)} placeholder="Off — choose an account" options={[{ value: "", agent: "opencode", label: "Off" }, ...candidates.data.accounts.map(a => ({
           value: choiceOf(a.account, a.backend), agent: a.runners[0]?.id ?? a.account,
-          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via opencode" : "pacer's agent"}`,
-          description: a.backend === "executor" ? (a.available ? "Answers through the agent CLI, from pacer's summary. Slower; no extra key." : "Needs the ask-mode check first.") : "Answers directly with this account's key. Fastest.",
+          label: `${a.account}${a.isPlanner ? " (planner)" : ""} · ${a.backend === "executor" ? "via agent CLI" : "pacer's agent"}`,
+          description: a.backend === "executor" ? executorAssistantDescription(a.available, a.liveTools) : "Answers directly with this account's key. Fastest.",
         }))]} onValueChange={value => { const next = parseChoice(value); setAccount(next.account); setBackend(next.backend); setRunner(""); }} />
       </Field>
       {chosen?.isPlanner && <Alert tone="warning" title="This is your planner’s account">The assistant follows the planner’s pacing: it answers in relaxed and normal mode and pauses in strict and emergency mode.</Alert>}
@@ -56,7 +59,8 @@ export function AssistantSettingsSection() {
       <Field label="Questions per day" help="Turns beyond this wait until midnight."><TextInput type="number" min="1" max="1000" value={turns} onInput={event => setTurns(event.currentTarget.value)} /></Field>
       <Field label="Keep history for (days)" help="Older conversations are deleted. At most 200 conversations are kept."><TextInput type="number" min="1" max="365" value={days} onInput={event => setDays(event.currentTarget.value)} /></Field>
       {chosen?.backend === "executor" && !chosen.available && <Alert tone="warning" title="This account has not passed the ask-mode check">
-        <p>{chosen.reason ?? "Run the check before this account can answer."} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
+        <p>{askModeCheckCopy(chosen.reason)} The check asks the agent to run a command, read a file and fetch a page, and passes only when each attempt is refused.</p>
+        {chosen.reason && <Disclosure summary="Technical details"><code className="pc-code-wrap">{chosen.reason}</code></Disclosure>}
         <div><Button busy={busy} onClick={() => void check()}>Run ask-mode check</Button></div>
       </Alert>}
       <div><Button variant="primary" busy={busy} disabled={chosen?.backend === "executor" && !chosen.available} onClick={() => void save()}>Save</Button></div>
@@ -65,7 +69,12 @@ export function AssistantSettingsSection() {
     </div>
     <div className="pc-card pc-stack pc-stack--compact">
       <p><strong>What the assistant can read</strong></p>
-      <ul>{candidates.data.reads.map(line => <li key={line}>{line}</li>)}</ul>
+      {liveTools
+        ? <>
+          <ul>{candidates.data.reads.map(line => <li key={line}>{line}</li>)}</ul>
+          {backend === "executor" && <p>The agent CLI reaches these only through pacer's tools.</p>}
+        </>
+        : <p>{ASSISTANT_READS_SUMMARY_ONLY}</p>}
       <p>It cannot see task goals, output, diffs, files, keys or terminal screens. Secrets and your home folder path are removed before anything is sent. What it reads, and your questions, go to the account’s model{account ? ` (${account})` : ""}.</p>
       <p>It can only suggest actions. Nothing runs until you press the button on its card.</p>
     </div>

@@ -11,6 +11,7 @@ import { listDispatchModels, refreshObservations } from "../dispatch/refresh";
 import { insightsInputSchema, insightsSummary } from "../insights/summary";
 import { dispatchAnalytics, resetLearning, recordWorkReview } from "../dispatch/learning";
 import { getWork } from "../dispatch/work";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { dispatchConfigSchema, modelDeclarationSchema, previewInputSchema, tierTargetsSchema } from "../dispatch/types";
 import { explainDispatch } from "../core/dispatch-explain";
 import { explainInputSchema } from "../dispatch/explain-input";
@@ -50,6 +51,7 @@ import { checkAccountUsage, type AccountUsageCheckDeps } from "../core/account-u
 import { checkRunner, type RunnerCheckDeps } from "../core/runner-check";
 import { sessionOps } from "./ops-session";
 import { msgOps } from "./ops-msg";
+import { workflowOps } from "./ops-workflow";
 import { terminalOps } from "./ops-terminal";
 import { assistantOps } from "./ops-assistant";
 import { discoveryOps } from "./ops-discovery";
@@ -275,7 +277,7 @@ export const OPS: Record<string, OpDef> = {
         description: OPS[p.name].description, params: z.toJSONSchema(OPS[p.name].params) };
     },
   }),
- ...sessionOps, ...msgOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
+ ...sessionOps, ...msgOps, ...workflowOps, ...terminalOps, ...desktopOps, ...assistantOps, ...discoveryOps,
   ...desktopUpdateOps, ...desktopReconciliationOps,
   "project.strategy.list": op({
     description: "List repository executor overrides, including policies for absent checkouts.", params: z.object({}),
@@ -329,7 +331,7 @@ export const OPS: Record<string, OpDef> = {
   }),
   "client.heartbeat": op({ description: "Renew a client lease, which lapses after 45 seconds without a heartbeat. A boolean `notifier` replaces the client's notifier flag, so a client that can no longer present notifications stops receiving them.", params: z.object({client_id: id, notifier: z.boolean().optional(), notification_permission: z.enum(clients.NOTIFICATION_PERMISSIONS).optional(), notification_alerts: z.enum(clients.NOTIFICATION_ALERTS).optional()}), handler: (ctx, p) => clients.heartbeat(ctx, p.client_id, p) }),
   "client.list": op({ description: "Registered clients with live leases.", params: z.object({}), handler: ctx => clients.list(ctx) }),
-  "account.list": op({ description: "Accounts, usage and sign-in commands without account emails.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
+  "account.list": op({ description: "Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.", params: z.object({}), handler: ctx => accounts.list(ctx) }),
   "account.signin": op({ description: "Open the account login in an available terminal, or return its command.", params: z.union([z.object({name: id, target: z.enum(["auto", "orca", "terminal", "tmux"]).optional(),request_id:z.uuid().optional()}),interactive.omit({interactive:true}).extend({interactive:z.enum(["account-add","account-add-orca","init"])})]), handler: (ctx, p, deps) => "interactive" in p ? interactiveTerminal(ctx,p,deps) : accounts.signin(ctx, p.name, {...p,target:deps.appAuthenticated?"builtin":p.target,requestId:p.request_id}, deps.terminal) }),
   "account.add": op({
     description: "Create a Claude or Codex account home, configure and test a model endpoint, or add an executor for a provider OpenCode is signed in to (source: opencode).",
@@ -459,9 +461,25 @@ export const OPS: Record<string, OpDef> = {
     states:z.array(z.enum(["queued","running","done","partial","failed","limit","stopped","needs_input"])).optional(), executor:id.optional(), since:z.number().nonnegative().optional(),
     q:z.string().min(1).max(200).optional(),
   }), handler: (ctx,p) => {
-    const limit=p.limit??20, {q,...rest}=p, rows=core.tasks.list(ctx,{...rest,query:q,limit:limit+1});
-    const page={tasks:apiTaskPage(ctx,rows.slice(0,limit)),next:rows.length>limit?rows[limit-1].id:null};
-    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:rows.slice(0,limit).map(summarizeTask)});
+    const limit=p.limit??20, {q,...rest}=p;
+    // Loop past engine-owned kinds until the page is full (D2.12); a fixed +20
+    // over-fetch is not enough when many workflow-root/orchestrate rows sit first.
+    const visible: ReturnType<typeof core.tasks.list> = [];
+    let cursor = p.before;
+    while (visible.length <= limit) {
+      const batch = core.tasks.list(ctx, { ...rest, query: q, limit: Math.max(21, limit + 1 - visible.length + 20), before: cursor });
+      if (!batch.length) break;
+      const last = batch[batch.length - 1]!.id;
+      if (cursor === last) break;
+      for (const t of batch) {
+        if (!isEngineOwnedKind(t.kind)) visible.push(t);
+        if (visible.length > limit) break;
+      }
+      cursor = last;
+      if (visible.length > limit) break;
+    }
+    const page={tasks:apiTaskPage(ctx,visible.slice(0,limit)),next:visible.length>limit?visible[limit-1]!.id:null};
+    if([p.before,p.repo,p.states,p.executor,p.since,p.q].every(v=>v===undefined))Object.defineProperty(page,LEGACY_TASK_LIST,{value:visible.slice(0,limit).map(summarizeTask)});
     return page;
   } }),
   "task.delegate": op({
@@ -473,7 +491,9 @@ export const OPS: Record<string, OpDef> = {
       const input=parseDelegateBrief({...p,repo:repoRef.path},repoRef.path);
       await requireRepoDirectory(input.brief.repo);
       const source=input.source ?? (/^(app|desktop|orca|tui|tray)/i.test(deps.client??"") ? "ui" : "planner");
-      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: callerParticipant(ctx, deps).id}, deps.spawnRunner ?? spawnRunner);
+      const participant=callerParticipant(ctx, deps).id;
+      // This handler runs in the service over HTTP, so ctx.env is not the caller's: record no reach.
+      const task = await (deps.delegate ?? core.tasks.delegate)(ctx, {...input, repoRef, repoValidated:true, client: deps.client, source, origin: participant}, deps.spawnRunner ?? spawnRunner);
       // The v1 notifier still uses this marker for short tasks started in a UI.
       const result = source === "ui" && readTask(ctx, task.id)
         ? updateTask(ctx, task.id, task => { task.fromPanel = true; }) : task;
@@ -559,9 +579,26 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         result = await taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       } else {
-        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
+        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {
+          const reviewed = await core.tasks.review(ctx, p.id, p, {
+            delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
+            spawnRunner: deps.spawnRunner,
+            appAuthenticated: deps.appAuthenticated,
+            participant: deps.participant,
+          });
+          // R3-I4: conflict returns with no verdict — do not record a work review.
+          const conflicted = reviewed && typeof reviewed === "object"
+            && (reviewed as { accepted?: boolean; merge?: string }).accepted === false
+            && (reviewed as { merge?: string }).merge === "conflict";
+          if (getWork(ctx, p.id) && p.verdict !== "send_back" && !conflicted) recordWorkReview(ctx, p.id, "human");
+          return reviewed;
+        });
       }
-      if (p.verdict === "accept") recheckAfterAccept(ctx, p.id, deps);
+      // R3-I4: skip diagnostic recheck when accept hit a merge conflict (no verdict recorded).
+      const conflictResult = result && typeof result === "object"
+        && (result as { accepted?: boolean; merge?: string }).accepted === false
+        && (result as { merge?: string }).merge === "conflict";
+      if (p.verdict === "accept" && !conflictResult) recheckAfterAccept(ctx, p.id, deps);
       return result;
     },
   }),

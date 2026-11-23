@@ -411,21 +411,14 @@ impl ReadModel {
                 )
             }
         };
-        let mode = if !hold.is_null() {
-            text(&hold["mode"])
-        } else {
-            let p = array(&status["providers"])
-                .iter()
-                .find(|p| p["id"] == status["planner"])
-                .unwrap_or(&Value::Null);
-            match text(&p["verdict"]) {
-                "EXHAUSTED" => "emergency",
-                "AHEAD" | "NEAR_LIMIT" => "strict",
-                "BEHIND" | "EXPIRING" => "relaxed",
-                _ => "normal",
-            }
-        }
-        .to_owned();
+        let planner_provider = array(&status["providers"])
+            .iter()
+            .find(|p| p["id"] == status["planner"])
+            .unwrap_or(&Value::Null);
+        let mode = pacer_engine::status::status_mode(
+            &hold,
+            planner_provider.get("verdict").and_then(Value::as_str),
+        );
         status["modeHold"] = hold;
         status["mode"] = json!(mode);
         if available
@@ -476,14 +469,25 @@ impl ReadModel {
                 repos.push(t["repo"].clone());
             }
         }
-        let used = tasks
-            .iter()
-            .filter(|t| {
-                t["state"] == "running"
-                    && t["host"].is_null()
-                    && strategy["runners"][text(&t["executor"])]["host"].is_null()
-            })
-            .count()
+        // Visible local runners, plus hidden local orchestrate (occupies capacity;
+        // workflow-root does not). Matches src/api/read-model/index.ts.
+        let local_running_api = |t: &Value| {
+            t["state"] == "running"
+                && t["host"].is_null()
+                && strategy["runners"][text(&t["executor"])]["host"].is_null()
+        };
+        let local_running_record = |t: &Value| {
+            t["state"] == "running"
+                && t.get("run")
+                    .and_then(|r| r.get("host"))
+                    .is_none_or(Value::is_null)
+                && strategy["runners"][text(&t["executor"])]["host"].is_null()
+        };
+        let used = tasks.iter().filter(|t| local_running_api(t)).count()
+            + records
+                .iter()
+                .filter(|t| text(&t["kind"]) == "orchestrate" && local_running_record(t))
+                .count()
             + active.total;
         let cap = strategy["execution"]["local_max_tasks"].clone();
         let mut machine = object();

@@ -40,6 +40,8 @@ pub enum OtaError {
     Timeout,
     Interrupted,
     RecoveryFailed,
+    /// Service closed the native control socket during the hello/registered handshake.
+    HandshakeClosed,
 }
 impl std::fmt::Display for OtaError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -52,6 +54,9 @@ impl std::fmt::Display for OtaError {
             Self::Timeout => "Native update verification timed out",
             Self::Interrupted => "Native update was interrupted",
             Self::RecoveryFailed => "Native update recovery requires repair",
+            Self::HandshakeClosed => {
+                "Native update handshake was closed by the service"
+            }
         })
     }
 }

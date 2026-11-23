@@ -139,7 +139,7 @@ pub async fn limits_check(ctx: &Ctx, params: Value, parts: Value) -> Result<Valu
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
     }
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
+    let strategy = parts_strategy(ctx, &parts)?;
     Ok(usage_broker::limits_check(ctx, &strategy, &parts))
 }
 
@@ -148,8 +148,28 @@ pub async fn routing_status(ctx: &Ctx, params: Value, parts: Value) -> Result<Va
     if !map.is_empty() {
         return Err(invalid("params: Unrecognized key(s) in object"));
     }
-    let strategy = load_strategy(&ctx.pacer_home).map_err(|e| invalid(e.to_string()))?;
+    let strategy = parts_strategy(ctx, &parts)?;
     Ok(usage_broker::routing_status(ctx, &strategy, &parts))
+}
+
+/// The strategy the TypeScript parts were computed against: the bridge carries
+/// the snapshot `{path, name, text}` (as the account-list bridge does), and
+/// parsing that text keeps rows and runners in one strategy even if the file
+/// changes between the TS read and this op. A core without the snapshot field
+/// keeps the host's own read.
+fn parts_strategy(ctx: &Ctx, parts: &Value) -> Result<Value, CoreError> {
+    let snapshot = &parts["strategy"];
+    match (
+        snapshot["path"].as_str(),
+        snapshot["name"].as_str(),
+        snapshot["text"].as_str(),
+    ) {
+        (Some(path), Some(name), Some(text)) => {
+            pacer_config::strategy::parse_strategy(text, std::path::Path::new(path), name)
+                .map_err(|error| invalid(error.to_string()))
+        }
+        _ => load_strategy(&ctx.pacer_home).map_err(|error| invalid(error.to_string())),
+    }
 }
 
 /// `{kind: z.enum(KINDS).optional(), goal, repo: z.string().min(1).optional()}`: unknown keys
@@ -203,31 +223,34 @@ fn internal(error: impl ToString) -> CoreError {
 }
 
 /// `routing.route` without a `goal`: project policy for `repo`, and `balanceByLoad` over the
-/// slot-holding tasks when `pacing.balance` is least-loaded. Every refusal precedes the
-/// status read, as in TypeScript.
+/// slot-holding tasks when `pacing.balance` is least-loaded. Policy refusals precede the
+/// status read, as in TypeScript, and rows and runners stay in one strategy: the snapshot
+/// the parts were computed against wins over a reload (see `parts_strategy`).
 pub async fn routing_route(
     ctx: &Ctx,
     params: Value,
     parts: OpFuture<'_>,
 ) -> Result<Value, CoreError> {
     let (kind, repo) = parse_route_params(&params)?;
-    let strategy = match load_strategy(&ctx.pacer_home) {
-        Ok(strategy) => strategy,
-        Err(error) => {
-            parts.await?;
-            return Err(internal(error));
-        }
-    };
-    let selection = match repo {
+    // Policy refusals still precede the status read, as in TypeScript.
+    let policy = match &repo {
         None => None,
         Some(value) => {
             let projects = read_project_strategies(&ctx.pacer_home).map_err(policy_error)?;
-            let repo = policy_repo(ctx, &value, &projects)?;
-            let key = repo["key"].as_str().unwrap_or_default();
-            project_selection(&strategy, key, &projects)
+            let repo = policy_repo(ctx, value, &projects)?;
+            Some((
+                repo["key"].as_str().unwrap_or_default().to_owned(),
+                projects,
+            ))
         }
     };
     let parts = parts.await?;
+    // Rows and runners stay in one strategy: the snapshot the parts were
+    // computed against wins over a reload (see `parts_strategy`).
+    let strategy = parts_strategy(ctx, &parts)?;
+    let selection = policy
+        .as_ref()
+        .and_then(|(key, projects)| project_selection(&strategy, key, projects));
     let mut route = usage_broker::routing_route(&strategy, &parts, &kind, selection.as_ref());
     if strategy["pacing"]["balance"] == "least-loaded" {
         let mut store = TaskStore::open(&ctx.pacer_home).map_err(internal)?;
@@ -494,6 +517,30 @@ mod tests {
         std::fs::write(pacer_home.join("strategy.yaml"), strategy).unwrap();
         let ctx = Ctx::with(dir.path().into(), pacer_home, HashMap::new(), 1.0);
         (dir, ctx)
+    }
+
+    /// The parts' strategy snapshot wins over a reload: the passed text decides
+    /// even when the file on disk changed after the TypeScript read, and a core
+    /// without the snapshot field falls back to the host's own read.
+    #[test]
+    fn parts_strategy_uses_the_snapshot_text_and_falls_back_to_disk() {
+        let (_dir, ctx) = route_ctx("planner: claude-code\nproviders:\n  claude-code: {}\n");
+        let snapshot = json!({
+            "strategy": {
+                "path": "/pacer/strategy.yaml",
+                "name": "default",
+                "text": "planner: codex\nproviders:\n  codex: {}\n",
+            }
+        });
+        assert_eq!(
+            parts_strategy(&ctx, &snapshot).unwrap()["runners"]["codex"]["agent"],
+            "codex"
+        );
+        // Missing snapshot: the host's own read.
+        assert_eq!(
+            parts_strategy(&ctx, &json!({})).unwrap()["runners"]["claude-code"]["agent"],
+            "claude-code"
+        );
     }
 
     const LOCAL: &str = "planner: claude-code\naccounts:\n  claude: {kind: claude}\n  codex: {kind: codex}\nrunners:\n  claude-code: {}\n  codex: {}\n";

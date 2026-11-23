@@ -2,6 +2,8 @@ import { expect, test } from "bun:test";
 import { renderToString } from "preact-render-to-string";
 import fixture from "./fixtures/ui/snapshot.json";
 import type { ClientSnapshot } from "../src/view-model/snapshot";
+import type { UsageState, Verdict } from "../src/types";
+import { usageStateFor, withUsageState } from "./usage-fixtures";
 import type { Route } from "../app/src/router";
 import { createKeyRegistry } from "../app/src/keys/registry";
 import { StatusBar, UsageDetails, dismissUsageOnEscape } from "../app/src/shell/StatusBar";
@@ -16,7 +18,7 @@ registry.register({ keys: "k", label: "select", scope: "dispatch", run: () => {}
 registry.register({ keys: "s", label: "Stop session", scope: "sessions", run: () => {} });
 
 test("the whole usage summary opens details and keeps only vendor marks and percentages", () => {
-  const html = renderToString(<StatusBar route={route("review")} snapshot={snapshot} registry={registry} />);
+  const html = renderToString(<StatusBar route={route("review")} snapshot={withUsageState(snapshot)} registry={registry} />);
   expect(html).toContain("pc-statusbar");
   const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>(.*?)<\/button>/)?.[1] ?? "";
   expect(usage).toContain("63%");
@@ -34,7 +36,7 @@ test("the whole usage summary opens details and keeps only vendor marks and perc
 });
 
 test("on Dispatch the planner keeps only its mark, because the Planner budget states the figure", () => {
-  const html = renderToString(<StatusBar route={route("dispatch")} snapshot={snapshot} registry={registry} />);
+  const html = renderToString(<StatusBar route={route("dispatch")} snapshot={withUsageState(snapshot)} registry={registry} />);
   const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>(.*?)<\/button>/)?.[1] ?? "";
   expect(usage).not.toContain("63%");
   expect(usage).toContain("3%");
@@ -43,46 +45,67 @@ test("on Dispatch the planner keeps only its mark, because the Planner budget st
 });
 
 test("stale planner usage visibly marks freshness and names it for assistive technology", () => {
-  const historical = { ...snapshot, planner: { ...snapshot.planner!, stale: true } };
+  const historical = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, stale: true } });
   const html = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
   expect(html).toContain("historical usage");
-  expect(html).toContain('role="img" aria-label="Stale reading" class="pc-statusbar__stale">!</span>');
-  expect(html).not.toContain("Historical usage");
+  expect(html).toContain('role="img" aria-label="Historical usage" class="pc-statusbar__stale">!</span>');
+  // The chip shows the "!" mark, not the words; the words are its accessible name.
+  expect(html).not.toContain(">Historical usage<");
   expect(html).not.toContain("behind pace");
 });
 
 test("a planner that is ahead of pace is flagged in words, not only colour", () => {
-  const ahead = { ...snapshot, planner: { ...snapshot.planner!, verdict: "ahead" as const } };
+  const ahead = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, verdict: "ahead" as const } });
   const html = renderToString(<StatusBar route={route("review")} snapshot={ahead} registry={registry} />);
   expect(html).toContain('aria-label="Ahead of pace" class="pc-statusbar__stale">!</span>');
   expect(html).toContain("ahead of pace");
 });
 
 test("usage details list every quota window and distinguish stale and unknown readings", () => {
+  const now = snapshot.at;
+  const personal = usageStateFor({ usedPct: 47, window: "weekly", resetsAt: now + 86400, stale: false, source: "status-line" }, now);
+  const windows: UsageState["windows"] = [
+    { name: "5h", usedPct: 9, resetsAt: now + 3600, lengthS: 18000, paced: false, stale: false, verdict: "ON_PACE" },
+    ...(personal.windows),
+  ];
   const html = renderToString(<UsageDetails accounts={[
-    { name: "personal", kind: "claude", usageReading: { windows: [
-      { name: "5h", usedPct: 9, resetsAt: snapshot.at + 3600 },
-      { name: "weekly", usedPct: 47, resetsAt: snapshot.at + 86400 },
-    ], capturedAt: snapshot.at - 120, stale: false, source: "status-line" } },
-    { name: "work", kind: "codex", usageReading: { windows: [{ name: "weekly", usedPct: null, resetsAt: null }], capturedAt: snapshot.at - 86400, stale: true, source: "session-log", error: "Refresh failed" } },
-  ]} now={snapshot.at} />);
+    { name: "personal", kind: "claude", usageState: { ...personal, windows } },
+    { name: "work", kind: "codex", usageState: { ...usageStateFor({ usedPct: null, window: "weekly", stale: true, source: "session-log", capturedAt: now - 26 * 3600 }, now), windows: [{ name: "weekly", usedPct: null, resetsAt: null, lengthS: 604800, paced: false, stale: true, verdict: "UNKNOWN" }], error: { message: "Refresh failed", at: now } } },
+  ]} now={now} />);
   expect(html).toContain("personal");
-  expect(html).toContain("5h");
+  expect(html).toContain("5 h");
   expect(html).toContain("9%");
-  expect(html).toContain("weekly");
+  expect(html).toContain("week");
   expect(html).toContain("47%");
   expect(html).toContain("resets");
-  expect(html).toContain("Historical usage");
+  expect(html).toContain("Reading 26h old · refresh");
   expect(html).toContain("Reading failed");
   expect(html).not.toContain("session-log");
   expect(html).toContain("Session logs");
   expect(html).toContain("Usage unknown");
 });
 
-test("usage details do not call a measured window unavailable just because capture time is missing", () => {
-  const html = renderToString(<UsageDetails accounts={[{ name: "team", kind: "codex", usageReading: { windows: [{ name: "weekly", usedPct: 28, resetsAt: null }], capturedAt: null, stale: false } }]} now={snapshot.at} />);
-  expect(html).toContain("Reading time unknown");
+test("usage details do not call a measured window unavailable just because observation time is missing", () => {
+  const html = renderToString(<UsageDetails accounts={[{ name: "team", kind: "codex", usageState: usageStateFor({ usedPct: 28, window: "weekly", resetsAt: null, capturedAt: null }, snapshot.at) }]} now={snapshot.at} />);
+  expect(html).toContain("28%");
   expect(html).not.toContain("Usage unavailable");
+});
+
+test("a limit window keeps Out of quota in the words column and leaves the number column empty", () => {
+  const now = snapshot.at;
+  const limited = usageStateFor({ usedPct: 100, window: "limit", resetsAt: now + 3600, verdict: "out" }, now);
+  const state: UsageState = {
+    ...limited,
+    limit: { until: now + 3600, observedAt: now, manual: false },
+    verdict: "EXHAUSTED",
+    windows: [{ name: "limit", usedPct: 100, resetsAt: now + 3600, lengthS: 21600, paced: false, stale: false, verdict: "EXHAUSTED" }],
+  };
+  const html = renderToString(<UsageDetails accounts={[{ name: "personal", kind: "claude", usageState: state }]} now={now} />);
+  // The limit row's number column stays empty; "Out of quota" appears once in that row's words.
+  const row = html.match(/<div class="pc-usage-window">[\s\S]*?<\/div>/)?.[0] ?? "";
+  expect(row).toMatch(/<span class="pc-num"><\/span>/);
+  expect(row.match(/Out of quota/g)?.length).toBe(1);
+  expect(row).not.toMatch(/<span class="pc-num">Out of quota<\/span>/);
 });
 
 test("Escape closes usage details before a route shortcut receives it", () => {
@@ -102,8 +125,8 @@ test("shortcut registry notifies the status bar when screens mount and unmount",
 
 
 test("Dispatch keeps the planner mark without a figure when its main reading is missing", () => {
-  const historical = { ...snapshot, planner: { ...snapshot.planner!, runner: "codex#team", agent: "codex", usedPct: null, stale: true },
-    executors: [{ ...snapshot.executors![0]!, id: "codex#team", account: "team", usedPct: 28, stale: true }] };
+  const historical = withUsageState({ ...snapshot, planner: { ...snapshot.planner!, runner: "codex#team", agent: "codex", usedPct: null, stale: true },
+    executors: [{ ...snapshot.executors![0]!, id: "codex#team", account: "team", usedPct: 28, stale: true }] });
   const html = renderToString(<StatusBar route={route("dispatch")} snapshot={historical} registry={registry} />);
   const usage = html.match(/<button[^>]*aria-label="Usage details[^"]*"[^>]*>.*?<\/button>/)?.[0] ?? "";
   expect(usage).toContain("pc-agent-mark");
@@ -111,7 +134,7 @@ test("Dispatch keeps the planner mark without a figure when its main reading is 
   expect(usage).not.toContain("28%");
   expect(usage).not.toContain("pc-meter");
   const elsewhere = renderToString(<StatusBar route={route("review")} snapshot={historical} registry={registry} />);
-  expect(elsewhere).toContain("Codex · team 28% historical usage");
+  expect(elsewhere).toContain("Codex · team 28%, historical usage");
   expect(elsewhere).toContain("pc-meter--mini");
 });
 
@@ -135,4 +158,17 @@ test('hidden control action uses its visible text as its accessible name in a po
     expect(html).toContain('role="status" aria-live="polite"');
     expect(html).not.toContain('aria-label="Hand back control');
   }finally{sessionRuntimes.dispose();}
+});
+
+test("near-limit and out-of-quota chips are spoken in the usage button's name, not shown by colour alone", () => {
+  const withVerdict = (verdict: Verdict) => {
+    const s = withUsageState(snapshot);
+    return { ...s, planner: { ...s.planner!, usageState: { ...s.planner!.usageState!, verdict } } };
+  };
+  const nearHtml = renderToString(<StatusBar route={route("review")} snapshot={withVerdict("NEAR_LIMIT")} registry={registry} />);
+  expect(nearHtml).toMatch(/aria-label="Usage details: [^"]*63%, near limit/);
+  expect(nearHtml).toContain('role="img" aria-label="Near limit" class="pc-statusbar__stale">!</span>');
+  const outHtml = renderToString(<StatusBar route={route("review")} snapshot={withVerdict("EXHAUSTED")} registry={registry} />);
+  expect(outHtml).toMatch(/aria-label="Usage details: [^"]*63%, out of quota/);
+  expect(outHtml).toContain('role="img" aria-label="Out of quota" class="pc-statusbar__stale">!</span>');
 });

@@ -57,7 +57,7 @@ assistant.reply({
 - **Streaming.** While a turn runs, the plugin may send `assistant.delta` notifications (`text`, or `activity` such as "Reading tasks…"). They are ephemeral, as in the always-on spec. Today `NOTIFICATIONS` (`src/plugins/ui-schema.ts`) admits only `ui.invalidate`, and the registry's dispatch also returns early for a plugin without UI surfaces, which both assistant plugins are. Phase 1 adds `assistant.delta` for the `assistant` point and gives it its own dispatch branch, ahead of the UI-surface check, that forwards it to the sheet's stream. A backend that cannot stream returns only the final message.
 - **Cancellation** aborts the call. The plugin stops its model call or CLI turn and returns nothing.
 
-`assistant.respond` stays until phase 4.
+`assistant.respond` stays until phase 4 (deprecated in step 1; removed in step 2).
 
 ### 2. The host runs every tool
 
@@ -94,11 +94,14 @@ A bundled TypeScript plugin. It runs the chosen executor account's agent CLI wit
 
 **Fail-closed self-test.** Ask mode is offered for an adapter only after a canary passes. The canary is a turn in ask mode that tells the model to run a shell command, read a planted file outside the run directory, and fetch a URL.
 - **Evidence needed to pass:** the CLI's own event record (for opencode, the session's message parts) shows that the model attempted each action and that each attempt was denied, and no tool other than pacer's ran.
+- **Claude Code evidence:** every turn (self-test and live) is driven by the host over the CLI's stream-json CONTROL protocol (`claude-control` spawn mode). After `initialize`, the host queries `mcp_status` and requires a connected `pacer` server with the expected tools; otherwise it continues digest-only for that turn and says so in the prompt. The stream-json `system`/`init` event must still show `mcp_servers` exactly `[{name:"pacer",status:"connected"}]`, `tools` exactly the host's `mcp__pacer__*` set (no built-ins), empty `slash_commands` / `skills`, and `plugins` only the allowlisted builtins (`agents-md@builtin`, `telemetry@builtin` at path `builtin`). The issued `permissionMode`, realpathed `cwd` and bare `claude_code_version` must match; success is recorded as `{tool:"claude:init",status:"pacer"}`. Every tool call is decided in host code via `can_use_tool` (allow only the exact issued `mcp__pacer__*` names; deny everything else with a reason). The self-test also requires a completed harmless `mcp__pacer__*` call (e.g. snapshot) while shell/read/webfetch are absent, refused, or `can_use_tool`-denied. Built-in `agents` names on init are ignored (unreachable without the Agent tool). A missing init, a wrong surface, a failed pacer MCP connect (unless digest-only), any hook lifecycle event (via `--include-hook-events`), or any non-pacer tool completion fails the turn. Cancel/deadline sends an `interrupt` control request, then SIGTERM/SIGKILL.
 - **Inconclusive is a failure:** if the model attempts nothing, the canary repeats once with a direct instruction, and fails if it still attempts nothing.
 - **Also watched:** no file is created or changed outside the run directory, and the planted file's contents never appear in the answer.
 - **When it runs:** when the adapter or the CLI version changes, on both a first turn and a resumed turn.
 
-**opencode first.** One `opencode serve` process per chosen account, started on demand on loopback and stopped after 10 idle minutes. A dedicated `pacer-ask` agent has a short prompt, every built-in tool denied, and only pacer's MCP server. Each conversation is one opencode session. Session permission rules are applied again on every turn. Claude Code and Codex follow once their warm modes and restrictions are verified against their current documentation.
+**opencode first (ACP).** Each ask-mode turn runs host-pinned `opencode acp` (Agent Client Protocol over stdio, with `OPENCODE_CLIENT=acp` and `OPENCODE_ENABLE_QUESTION_TOOL=false`). The host builds the session: a `pacer-ask` agent with built-ins hidden by agent-permission deny, `tool.use` denied except `pacer_*`, and pacer's MCP server passed only in ACP `session/new` / `session/load` `mcpServers` (`pacer mcp --assistant`, grant only as env pairs—never argv or a config file). The host answers `session/request_permission` fail-closed: allow only when the tool identity is a pacer MCP tool **and** `kind` is missing or MCP-safe (`other` / empty)—never `execute`, `edit`, `delete`, `move`, `fetch`, or unknown kinds. Before the first prompt, a health check requires the agent's own MCP reporting to list pacer tools; if not, that turn is digest-only: the host opens a **replacement session without `mcpServers`** (so the grant is not attached), treats tools as off (permissions deny `pacer_*` as well), and the prompt says so. A secondary `tools/list` probe against the same MCP entry uses only the issued turn env (PATH/HOME/TMPDIR/LANG plus the ask MCP keys)—never a spread of the service `process.env`. Text deltas stream as `assistant.delta`; continuity uses `session/load` with the stored session id. **Visible-but-denied canaries:** `shell`, `read`, and `webfetch` stay on the agent tool list so the fail-closed self-test can record attempts; they remain blocked by `tool.use` policy and by host permission deny (unlike Orca's hide-first read-only profile). Code Mode `execute` and other non-canary builtins stay hidden. Claude Code ask mode is one `claude -p` CONTROL turn per message (`claude-control` spawn mode): `--input-format stream-json --output-format stream-json --verbose --permission-prompt-tool stdio` with `--permission-prompts host` (host decides `can_use_tool`), plus the flag belt `--tools ''`, `--allowedTools mcp__pacer__*`, `--strict-mcp-config` with one `pacer` server (`pacer mcp --assistant`; grant only via process env `${VAR}` expansion), `--settings '{"disableAllHooks":true}'`, `--setting-sources ''`, `--permission-mode dontAsk`, empty `CLAUDE.md`, deterministic `--session-id` / `--resume=<uuid>`.
+
+**Codex (app-server).** Each ask-mode turn runs host-pinned `codex -s read-only -a never app-server` (the same argv as live usage). The host drives JSON-RPC: `initialize`, `config/read` (disable every listed MCP server; refuse if any managed/non-overridable layer sets MCP or the ask-mode tool/feature keys), `thread/start` or `thread/resume` with `excludeTurns`, thread config that turns off shell/plugins/web search and related features, and pacer's MCP via dotted `mcp_servers.pacer.*` keys (grant env-only). Approvals are answered fail-closed (allow only pacer MCP tool-call elicitations; decline commands, file changes and other elicitations). Before `turn/start`, assert thread `approvalPolicy`/`sandbox` match ask mode. `mcpServerStatus/list` must show pacer connected with tools; if not, the turn is digest-only (no MCP attached for the prompt; host declines pacer elicitations). Agent message deltas stream as `assistant.delta`; cancel uses `turn/interrupt` then terminate. Continuity stores the Codex thread id. Unified exec cannot be feature-disabled on current Codex; ask mode relies on approval decline plus the read-only sandbox.
 
 ### 4. `assistant-pacer`: pacer's own agent
 
@@ -165,7 +168,33 @@ Accounting is otherwise unchanged: usage is recorded as assistant usage, and exe
 1. **Interface:** `assistant.reply`, `assistant.delta` and its dispatch, `capability.assistant.tool`, the `assistant.tool` op with the assistant grant, `pacer mcp --assistant`, and `backend` and `available` in settings and candidates. Routing rule: the host calls `assistant.reply` on the plugin that serves the chosen backend and provides it, and otherwise `assistant.respond`. The existing `plugins/assistant` keeps serving `assistant.respond` for `backend: pacer`. No `backend: executor` row is offered until phase 2, and a stored `executor` setting without a serving plugin is reported as unavailable through admission, as a missing account is today.
 2. **`assistant-executor` with opencode:** ask mode, the warm server, the self-test, sessions and the Settings rows. Opencode accounts can then answer.
 3. **`assistant-pacer` on Rig:** the Rust plugin, streaming, and the added `connection.api` values. The host sends `backend: pacer` turns to it. `plugins/assistant` stays installed but unused.
-4. **Retire** `assistant.respond`, `plugins/assistant` and the host-side model loop, under the plugin protocol's compatibility rule.
+4. **Retire** `assistant.respond`, `plugins/assistant` and the host-side model loop, under the plugin protocol's compatibility rule. Done in two steps (like the `/v2` API removal), because the CLI updater that installs `pacer-assistant-pacer` ([PR #1179](https://github.com/lamtuanvu/pacer/pull/1179), [ADR 0031](../decisions/0031-native-plugin-release-manifest.md)) is merged but not yet released; until a release ships it, the legacy path keeps openai-compatible accounts working.
+
+### Phase 4 step 1 — deprecation (this change)
+
+- Mark `assistant.respond` deprecated in the plugin protocol (`MethodDef.deprecated`, description, generated `docs/plugin-protocol.md`).
+- Log a one-time (per home) Activity warning when a `backend: pacer` turn falls back to the legacy plugin because `pacer-assistant-pacer` is missing or outdated.
+- Document the deprecation in `docs/assistant.md`, CHANGELOG, and ADR 0028. Do **not** remove code yet.
+
+### Phase 4 step 2 — removal (follow-up)
+
+**Release condition:** ship only after a pacer release that installs `pacer-assistant-pacer` via the updater has been out for one full pacer minor release (plugin protocol compatibility window, P14), so installs have had a chance to pick up the binary.
+
+**Delete:**
+
+- Plugin method `assistant.respond` (schemas, `EXTENSION_METHODS` entry, generated docs/crates).
+- Bundled TypeScript plugin `plugins/assistant` and its registration in `plugins/bundled.ts` (id `pacer-assistant`).
+- Host-side model loop in `src/assistant/service.ts` (the `respond` / `assistant.respond` branch of `runTurn`, `ASSISTANT_PLUGIN`, and the `noticeLegacyRespondFallback` path).
+- Related helpers that exist only for that loop (for example respond-only types and the openai-compatible chat client in `plugins/assistant`).
+
+**Tests to change or remove:**
+
+- `test/assistant-plugin.test.ts` (legacy plugin behaviour).
+- `test/assistant-reply.test.ts` cases that assert the `assistant.respond` fallback when the native sibling is absent; replace with admission/unavailable expectations for openai-compatible when the binary is missing, matching Anthropic/Gemini today.
+- Any registry or native-owner tests that call `assistant.respond` on `pacer-assistant`.
+- Regenerate plugin protocol docs/crates (`bun run plugin:protocol`, `cargo xtask gen`) and drop stale freshness expectations.
+
+**Keep:** `assistant.reply`, `assistant-pacer`, `assistant-executor`, the host tool capability, and the fallback notice until the removal PR deletes it with the loop.
 
 Phases 2 and 3 are independent once phase 1 lands.
 
@@ -179,7 +208,7 @@ Phases 2 and 3 are independent once phase 1 lands.
 
 Approved by the maintainer on 2026-11-18 with the proposed answers.
 
-1. **Shipping a native plugin.** `assistant-pacer` is the first bundled plugin built as a native binary. How it is packaged and signed with the desktop app and the CLI release needs a decision. Proposed: build it with `pacer-core` and sign it on the same path.
+1. **Shipping a native plugin.** `assistant-pacer` is the first bundled plugin built as a native binary. How it is packaged and signed with the desktop app and the CLI release needs a decision. Proposed: build it with `pacer-core` and sign it on the same path. **Addendum (2026-11-21):** the CLI manifest lists it under optional per-asset `nativePlugins` (not `companions`), so older updaters ignore the field; new updaters and self-repair install and version-guard it next to `pacer-core` ([ADR 0031](../decisions/0031-native-plugin-release-manifest.md)).
 2. **Rig's version.** Rig is pre-1.0 and has breaking releases. Proposed: pin an exact version and upgrade deliberately, with the fake-endpoint tests as the gate.
 3. **Is the self-test enough?** Should choosing an executor backend require a one-time acknowledgement that names the residual risk in §7? Proposed: yes.
 4. **`assistant-pacer` as an executor.** Should pacer's agent later become an executor backend for light, read-only task kinds, such as classification and summaries, and for endpoint or local models without a CLI? Proposed: defer, and decide with evidence from phase 3.

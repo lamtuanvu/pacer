@@ -1,6 +1,8 @@
 import { existsSync, readdirSync, rmSync } from "node:fs";
 import { join } from "node:path";
 import { type z } from "zod";
+import { appendActivity } from "../activity/log";
+import { ENDPOINT_DEFAULT_BASE_URL, type EndpointApi } from "../config/accounts";
 import { loadStrategy, type Strategy } from "../config/strategy";
 import { CoreError } from "../core/errors";
 import { taskTitle } from "../core/short-title";
@@ -8,13 +10,15 @@ import { computeStatus, type Status } from "../engine/status";
 import { configuredSecrets, readKey } from "../endpoints/keys";
 import { publish } from "../link/publish";
 import { pluginRegistry } from "../plugins";
+import { ASSISTANT_PACER_EXECUTABLE, inspectBundledNativeExecutable } from "../plugins/native-bundled";
 import { assistantReplyResult, assistantRespondResult, ASSISTANT_MAX_DEADLINE_MS, type AssistantBackend } from "../plugins/protocol";
 import { readTask } from "../tasks/store";
 import type { Ctx } from "../types";
 import { agentInfo } from "../view-model/agents";
 import { buildCard, type CardDeps, proposalSchema } from "./actions";
 import { setAssistantDeltaSink } from "./delta";
-import { ASK_CONFIG_REF, askSystem, askTurn, type AskTurn } from "./ask-mode";
+import { ASK_CONFIG_REF, ASK_GRANT_REF, askAdapterFor, askAdapterLiveTools, askSystem, askTurnFor, claudeAskConfigDir, codexAskConfigDir, claudeNeedsGrant, type AskTurn } from "./ask-mode";
+
 import { runSelfTest, selfTestStatus, type SelfTestRecord } from "./selftest";
 import { buildDigest } from "./digest";
 import { createRedactor, type Redactor } from "./redact";
@@ -23,6 +27,30 @@ import { type ReadOp, READ_TOOLS, runReadTool, toolDefinitions } from "./tools";
 import { openAssistantTurnFor, type AssistantToolState, type AssistantToolTurn } from "./turn-tools";
 import { issueAssistantGrant, revokeAssistantGrants } from "../dispatch/work";
 import { type ActionCard, type AssistantMessage, type AssistantScope, type AssistantSettings, type AssistantUsage, type Citation, type ProposedCall, type TurnView, type Coverage, scopeSchema } from "./types";
+
+/** Homes that already logged the legacy `assistant.respond` fallback notice this process. */
+const legacyRespondNotices = new Set<string>();
+
+/**
+ * One-time (per home) activity notice when a `backend: pacer` turn falls back to the deprecated
+ * `assistant.respond` path because the native `pacer-assistant-pacer` binary is missing or outdated.
+ */
+export function noticeLegacyRespondFallback(ctx: Ctx): void {
+  if (legacyRespondNotices.has(ctx.pacerHome)) return;
+  const sibling = inspectBundledNativeExecutable(ASSISTANT_PACER_EXECUTABLE, ctx.env);
+  if (sibling.status === "ready") return;
+  legacyRespondNotices.add(ctx.pacerHome);
+  const why = sibling.status === "missing"
+    ? `the native binary ${ASSISTANT_PACER_EXECUTABLE} is missing`
+    : `the native binary ${ASSISTANT_PACER_EXECUTABLE} is outdated (reports ${sibling.reported ?? "unknown"}, pacer is ${sibling.expected})`;
+  appendActivity(ctx, {
+    kind: "plugin_state",
+    level: "warn",
+    text: `assistant.respond is deprecated: falling back to the legacy pacer-assistant plugin because ${why}. A newer pacer release will install it.`,
+  });
+}
+
+
 
 export const ASSISTANT_PLUGIN = "pacer-assistant";
 
@@ -37,7 +65,7 @@ export interface AssistantDeps {
   keys?: (ctx: Ctx, strategy: Strategy) => Promise<string[]>;
   strategy?: (ctx: Ctx) => Strategy;
   /** Whether ask mode may run on an account; defaults to the recorded self-test (src/assistant/selftest.ts). */
-  selfTest?: (ctx: Ctx, account: string) => { ok: boolean; reason?: string };
+  selfTest?: (ctx: Ctx, account: string) => { ok: boolean; reason?: string; liveTools?: boolean };
 }
 
 const cachedStatus = (ctx: Ctx, strategy: Strategy) => computeStatus({ ...ctx, readOnly: true }, strategy, { cacheOnly: true });
@@ -76,18 +104,31 @@ function defaultKeys(ctx: Ctx, strategy: Strategy): Promise<string[]> {
   return configuredSecrets(ctx, strategy.accounts);
 }
 
-function endpointFor(strategy: Strategy, settings: AssistantSettings) {
+/** Prefer the settings runner; otherwise the first runner for this account that declares a model. */
+function runnerModel(strategy: Strategy, account: string, runnerId: string | null | undefined): string | null {
+  if (runnerId) {
+    const named = strategy.runners[runnerId];
+    if (named?.model) return named.model;
+  }
+  for (const runner of Object.values(strategy.runners)) {
+    if (runner.account === account && runner.model) return runner.model;
+  }
+  return null;
+}
+
+function endpointFor(ctx: Ctx, strategy: Strategy, settings: AssistantSettings) {
   const account = settings.account ? strategy.accounts[settings.account] : undefined;
-  // The executor backend runs the account through its agent CLI (opencode), which holds the
-  // connection itself; any endpoint account it drives qualifies, and opencode picks the default model.
+  // The executor backend runs the account through its agent CLI (opencode, Claude Code or Codex),
+  // which holds the connection itself; those accounts qualify.
   if (settings.backend === "executor") {
-    if (!account || account.kind !== "endpoint") return null;
-    const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
-    return { name: settings.account!, account, model: runner?.model ?? account.model ?? account.connection?.models[0]?.id ?? null, baseUrl: "" };
+    if (!account || !askAdapterFor(ctx, account)) return null;
+    const model = runnerModel(strategy, settings.account!, settings.runner)
+      ?? account.model ?? account.connection?.models[0]?.id ?? null;
+    return { name: settings.account!, account, model, baseUrl: "" };
   }
   if (!account || account.kind !== "endpoint" || !account.connection) return null;
-  const runner = settings.runner ? strategy.runners[settings.runner] : undefined;
-  const model = runner?.model ?? account.model ?? account.connection.models[0]?.id ?? null;
+  const model = runnerModel(strategy, settings.account!, settings.runner)
+    ?? account.model ?? account.connection.models[0]?.id ?? null;
   return model ? { name: settings.account!, account, model, baseUrl: account.connection.base_url } : null;
 }
 
@@ -151,13 +192,17 @@ export async function admit(ctx: Ctx, deps: AssistantDeps = {}): Promise<Admissi
   if (settings.backend === "executor" && !replyProvider(ctx, "executor"))
     return { ok: false, reason: "No plugin answers the assistant's executor backend.", hint: "Choose pacer's agent in Settings › Assistant." };
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
-  const endpoint = endpointFor(strategy, settings);
+  const endpoint = endpointFor(ctx, strategy, settings);
   if (!endpoint) return { ok: false, reason: "The account chosen for the assistant is no longer available.", hint: "Choose another account in Settings › Assistant." };
-  // Ask mode runs only on an account that passed the fail-closed check with today's opencode (spec §3).
+  // Anthropic/Gemini need the native assistant-pacer binary; never fall back to the legacy TS plugin.
+  if (settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api) && !replyProvider(ctx, "pacer"))
+    return { ok: false, reason: nativePacerUnavailableReason(endpoint.account.connection!.api!), hint: "Install pacer's assistant binary, or choose an openai-compatible account." };
+  // Ask mode runs only on an account that passed the fail-closed check with today's CLI (spec §3).
   if (settings.backend === "executor") {
     // The native plugin owner's bridge cannot carry the ask-mode config binding yet.
     if (ctx.env.PACER_HOST_SOCKET) return { ok: false, reason: "The executor backend is not available with the native plugin host yet.", hint: "Choose pacer's agent in Settings › Assistant." };
-    const check = (deps.selfTest ?? selfTestStatus)(ctx, endpoint.name);
+    const adapter = askAdapterFor(ctx, endpoint.account)!;
+    const check = deps.selfTest ? deps.selfTest(ctx, endpoint.name) : selfTestStatus(ctx, endpoint.name, adapter);
     if (!check.ok) return { ok: false, reason: check.reason, hint: "Run the ask-mode check in Settings › Assistant." };
   }
   if (turnsToday(ctx) >= settings.limits.turnsPerDay) return { ok: false, reason: `The assistant reached its limit of ${settings.limits.turnsPerDay} turns today.`, hint: "The limit resets at midnight, or raise it in Settings." };
@@ -176,16 +221,27 @@ export async function assistantStatus(ctx: Ctx, deps: AssistantDeps = {}) {
   const configured = !!settings.account;
   let admission: Admission = { ok: false, reason: "The assistant is not set up.", hint: "Choose an account in Settings › Assistant." };
   if (configured) { try { admission = await admit(ctx, deps); } catch (e) { admission = { ok: false, reason: e instanceof Error ? e.message : String(e) }; } }
+  // liveTools needs the chosen candidate; match admit and never fail the status read when strategy is missing.
+  let liveTools = false;
+  if (configured) {
+    try {
+      liveTools = candidates(ctx, deps).find(r => r.account === settings.account && r.backend === settings.backend)?.liveTools ?? false;
+    } catch { /* admission already recorded the failure */ }
+  }
   return {
     available: configured && admission.ok, configured, account: settings.account ?? undefined, runner: settings.runner ?? undefined,
+    liveTools,
     ...(admission.ok ? {} : { reason: admission.reason, ...(admission.hint ? { hint: admission.hint } : {}) }),
     limits: settings.limits, retention: settings.retention, rev: settings.rev, today: usageToday(ctx),
   };
 }
 
-/** Answers `capability.secrets.resolve` for the assistant plugin: only the chosen endpoint account's key. */
+/** Answers `capability.secrets.resolve` for the pacer assistant backend: only the chosen endpoint account's key. */
 export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): Promise<string | null> {
-  if (pluginId !== ASSISTANT_PLUGIN) throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
+  // The legacy respond plugin and the native reply plugin (when enabled) may resolve the key.
+  const pacerReply = replyProvider(ctx, "pacer");
+  if (pluginId !== ASSISTANT_PLUGIN && pluginId !== pacerReply)
+    throw new CoreError("capability_denied", `plugin ${pluginId} may not resolve assistant secrets`);
   const settings = readSettings(ctx);
   if (!settings.account || ![`endpoint:${settings.account}`, `endpoint/${settings.account}`].includes(ref)) throw new CoreError("capability_denied", "That secret is not the assistant's account key.");
   const account = loadStrategy(ctx).accounts[settings.account];
@@ -196,8 +252,13 @@ export async function assistantSecret(ctx: Ctx, pluginId: string, ref: string): 
 export function saveSettings(ctx: Ctx, input: Parameters<typeof writeSettings>[1], deps: AssistantDeps = {}): AssistantSettings {
   if (input.account) {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
-    const probe: AssistantSettings = { ...readSettings(ctx), account: input.account, runner: input.runner };
-    if (!endpointFor(strategy, probe)) throw new CoreError("invalid_input", "Choose an endpoint account with a model.", "Add one in Settings › Accounts.");
+    // Check against the backend being saved (absent keeps the stored one), not only the stored one.
+    const stored = readSettings(ctx);
+    const probe: AssistantSettings = { ...stored, account: input.account, runner: input.runner, backend: input.backend ?? stored.backend };
+    if (!endpointFor(ctx, strategy, probe)) {
+      const want = probe.backend === "executor" ? "an opencode, Claude Code or Codex account" : "an endpoint account with a model";
+      throw new CoreError("invalid_input", `Choose ${want}.`, "Add one in Settings › Accounts.");
+    }
   }
   return writeSettings(ctx, input);
 }
@@ -324,7 +385,7 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   let closeTurn: (() => void) | null = null, grant: string | null = null, ask: AskTurn | null = null;
   try {
     const strategy = (deps.strategy ?? loadStrategy)(ctx);
-    const endpoint = endpointFor(strategy, settings);
+    const endpoint = endpointFor(ctx, strategy, settings);
     if (!endpoint) throw new CoreError("not_allowed", "The account chosen for the assistant is no longer available.");
     const redactor = createRedactor(await (deps.keys ?? defaultKeys)(ctx, strategy), ctx.home);
     entry.redactor = redactor;
@@ -333,6 +394,10 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
     const history = conversationWindow(ctx, turn.conversationId, turn.turnId);
     const system = SYSTEM(ctx.now, scope);
     const replyTo = replyProvider(ctx, settings.backend);
+    // Anthropic/Gemini must never reach the legacy openai-compatible respond path.
+    if (!replyTo && settings.backend === "pacer" && needsNativePacer(endpoint.account.connection?.api)) {
+      throw new CoreError("not_allowed", nativePacerUnavailableReason(endpoint.account.connection!.api!), "Install pacer's assistant binary, or choose an openai-compatible account.");
+    }
     // One tool state for the turn: a plugin backend is charged one call per round, the host's own
     // loop rounds × calls. The same object is reachable through the reply call's authority and by
     // turnId, so `capability.assistant.tool` and the `assistant.tool` op share one budget.
@@ -359,25 +424,63 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       // Resume the backend's own session only on the account and backend it belongs to (spec §6).
       const stored = readBackendSession(ctx, turn.conversationId);
       const session = stored && stored.account === endpoint.name && stored.backend === settings.backend ? stored.handle : undefined;
-      // Executor turns: the host builds the restricted `opencode run` commands and their config, which
-      // carries the grant; the plugin gets the command shapes and a reference, never the config.
-      if (settings.backend === "executor" && grant)
-        ask = askTurn(ctx, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}), system: askSystem(system, digest),
+      // Executor turns: the host builds the restricted CLI commands (opencode ACP plan + config;
+      // grant only as a secret env binding). The plugin gets command shapes and references, never secrets.
+      if (settings.backend === "executor" && grant) {
+        const claudeTools = askAdapterFor(ctx, endpoint.account) === "claude-code";
+        ask = askTurnFor(ctx, endpoint.account, { turnId: turn.turnId, conversationId: turn.conversationId, grant, model: endpoint.model, ...(session ? { session } : {}),
+          system: askSystem(system, digest, { tools: claudeTools }),
           question, history: transcript, timeoutMs: Math.max(1000, deadlineMs - 5000) });
+      }
       const params = {
         conversationId: turn.conversationId, turnId: turn.turnId, account: endpoint.name,
         backend: settings.backend, ...(endpoint.model ? { model: endpoint.model } : {}), system, digest, tools, history: transcript, message: question,
         ...(session ? { session } : {}),
-        ...(ask ? { executor: { configRef: ASK_CONFIG_REF, command: ask.command, ...(ask.fallback ? { fallback: ask.fallback } : {}) } } : {}),
+        // Pacer backends need the account connection; executor turns get spawn pins instead.
+        // key=none (local openai-compatible servers) is an explicit keyless flag so the native
+        // plugin omits Authorization. Anthropic/Gemini never send keyless.
+        ...(settings.backend === "pacer" ? {
+          endpoint: pacerEndpointParams(endpoint.account.connection!.api, endpoint.baseUrl, endpoint.account.connection!.key),
+        } : {}),
+        ...(ask ? { executor: {
+          configRef: ASK_CONFIG_REF,
+          ...(ask.adapter === "claude-code" ? { grantRef: ASK_GRANT_REF } : {}),
+          command: ask.command,
+          ...(ask.fallback ? { fallback: ask.fallback } : {}),
+          ...(ask.digestFallback ? { digestFallback: ask.digestFallback } : {}),
+        } } : {}),
         limits: { maxInputTokens: settings.limits.maxInputTokens, maxOutputTokens: settings.limits.maxOutputTokens, maxToolRounds: settings.limits.maxToolRounds, deadlineMs },
       };
-      const askConfigText = ask?.config;
-      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : [])].map(c => ({ argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin, secretEnv: { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } })) : [];
+      const askConfigText = ask?.config ?? "";
+      const askGrant = ask?.grant ?? "";
+      const spawnMode = ask?.adapter === "opencode" ? "acp" as const
+        : ask?.adapter === "codex" ? "codex-ask" as const
+        : ask?.adapter === "claude-code" ? "claude-control" as const
+        : undefined;
+      const pins = ask ? [ask.command, ...(ask.fallback ? [ask.fallback] : []), ...(ask.digestFallback ? [ask.digestFallback] : [])].map(c => {
+        const secretEnv: Record<string, string> = {
+          ...(askConfigText ? { OPENCODE_CONFIG_CONTENT: ASK_CONFIG_REF } : {}),
+          ...(askGrant || claudeNeedsGrant(c) ? { PACER_ASSISTANT_GRANT: ASK_GRANT_REF } : {}),
+        };
+        return {
+          argv: c.argv, timeoutMs: c.timeoutMs, cwd: c.cwd, env: c.env, stdin: c.stdin,
+          ...(spawnMode ? { mode: spawnMode } : {}),
+          ...(Object.keys(secretEnv).length ? { secretEnv } : {}),
+        };
+      }) : [];
+      const grantBinding = askGrant || (grant && ask?.adapter === "claude-code" ? grant : "");
+      const bindings = [
+        ...(askConfigText ? [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText }] : []),
+        ...(grantBinding ? [{ ref: ASK_GRANT_REF, resolve: async () => grantBinding }] : []),
+      ];
       emit(turn.turnId, { status: "Thinking…" });
       const raw = await Promise.race([
         pluginRegistry(ctx).call(ctx, replyTo, "assistant.reply", params, {
           deadlineMs, signal: entry.abort.signal, assistantTurn,
-          ...(ask ? { resources: { reads: [], commands: pins, stores: [] }, credentialBindings: [{ ref: ASK_CONFIG_REF, resolve: async () => askConfigText! }] } : {}),
+          ...(ask ? {
+            resources: { reads: [], commands: pins, stores: [] },
+            ...(bindings.length ? { credentialBindings: bindings } : {}),
+          } : {}),
         }),
         entry.stopped,
       ]);
@@ -395,6 +498,8 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
       if (entry.cancelled) state = "cancelled";
       else answer = redactor.text(result.message);
     } else {
+      // Deprecated host loop: only when no plugin provides assistant.reply for this backend.
+      if (settings.backend === "pacer") noticeLegacyRespondFallback(ctx);
       const messages: AssistantMessage[] = [...history.flatMap(h => [{ role: "user" as const, content: h.question }, { role: "assistant" as const, content: h.answer }]), { role: "user", content: question }];
       // The input cap is the host's, enforced on the context it builds, before every call.
       const inputTokens = () => approxTokens(system) + approxTokens(JSON.stringify(toolDefinitions())) + messages.reduce((n, m) => n + approxTokens(m.content) + (m.toolCalls ? approxTokens(JSON.stringify(m.toolCalls)) : 0), 0);
@@ -445,7 +550,9 @@ async function runTurn(ctx: Ctx, turn: { conversationId: string; turnId: string 
   } catch (e) {
     state = entry.cancelled ? "cancelled" : "error";
     const core = e instanceof CoreError ? e : null;
-    error = core ? core.message : "The assistant could not answer.";
+    const raw = core ? core.message : "The assistant could not answer.";
+    // SEC-2: never store or show unredacted provider/plugin error text (keys, endpoints).
+    error = entry.redactor ? entry.redactor.text(raw) : raw;
   }
   // The turn ends here: its tools close and its `pag_` grant is revoked before the final state lands.
   closeTurn?.();
@@ -506,26 +613,69 @@ export function candidates(ctx: Ctx, deps: AssistantDeps = {}) {
   // Executor rows (spec §5): every account the executor backend's agent CLI drives, available only
   // after it passed the ask-mode check with today's CLI.
   const executor = replyProvider(ctx, "executor") ? Object.entries(strategy.accounts).flatMap(([name, account]) => {
-    if (account.kind !== "endpoint") return [];
-    const check = (deps.selfTest ?? selfTestStatus)(ctx, name);
-    return [{
-      account: name, backend: "executor" as AssistantBackend, available: check.ok, ...(check.ok ? {} : { reason: check.reason }),
+    const row = {
+      account: name, backend: "executor" as AssistantBackend,
       models: account.connection?.models.map(m => ({ id: m.id, name: m.name ?? m.id })) ?? (account.model ? [{ id: account.model, name: account.model }] : []),
       runners: runnersOf(name), isPlanner: strategy.planner.account === name,
-    }];
+    };
+    // A non-default Claude/Codex account without its own config dir must not fall back to the default.
+    if (account.kind === "claude" && !claudeAskConfigDir(ctx, account)) {
+      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Claude config directory.` }];
+    }
+    if (account.kind === "codex" && !codexAskConfigDir(ctx, account)) {
+      return [{ ...row, available: false, liveTools: false, reason: `${name} has no Codex home.` }];
+    }
+    const adapter = askAdapterFor(ctx, account);
+    if (!adapter) return [];
+    const check = deps.selfTest ? deps.selfTest(ctx, name) : selfTestStatus(ctx, name, adapter);
+    const liveTools = check.ok && (check.liveTools ?? askAdapterLiveTools(adapter));
+    return [{ ...row, available: check.ok, liveTools, ...(check.ok ? {} : { reason: check.reason }) }];
   }) : [];
-  return [...pacerRows(strategy), ...executor];
+  return [...pacerRows(ctx, strategy), ...executor];
 }
 
-function pacerRows(strategy: Strategy) {
-  return Object.entries(strategy.accounts).flatMap(([name, account]) => account.kind === "endpoint" && account.connection ? [{
-    account: name,
-    backend: "pacer" as AssistantBackend,
-    available: true,
-    models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
-    runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
-    isPlanner: strategy.planner.account === name,
-  }] : []);
+/** Anthropic and Gemini need assistant-pacer; the legacy TS plugin only speaks openai-compatible. */
+function needsNativePacer(api: EndpointApi | undefined): boolean {
+  return api === "anthropic" || api === "gemini";
+}
+
+function nativePacerUnavailableReason(api: EndpointApi): string {
+  return `pacer's agent needs its native binary for ${api} accounts.`;
+}
+
+/** Build the additive `endpoint` object for `assistant.reply` (api + optional baseUrl + keyless). */
+function pacerEndpointParams(api: EndpointApi, baseUrl: string, key: string): {
+  api: EndpointApi;
+  baseUrl?: string;
+  keyless?: true;
+} {
+  const defaultBase = ENDPOINT_DEFAULT_BASE_URL[api];
+  // Omit baseUrl when it matches the provider default so the plugin can use Rig's built-in URL.
+  const omitBase = !!defaultBase && baseUrl.replace(/\/$/, "") === defaultBase.replace(/\/$/, "");
+  return {
+    api,
+    ...(omitBase ? {} : { baseUrl }),
+    ...(api === "openai-compatible" && key === "none" ? { keyless: true as const } : {}),
+  };
+}
+
+function pacerRows(ctx: Ctx, strategy: Strategy) {
+  const native = !!replyProvider(ctx, "pacer");
+  return Object.entries(strategy.accounts).flatMap(([name, account]) => {
+    if (account.kind !== "endpoint" || !account.connection) return [];
+    const needsNative = needsNativePacer(account.connection.api);
+    const available = !needsNative || native;
+    return [{
+      account: name,
+      backend: "pacer" as AssistantBackend,
+      available,
+      liveTools: available,
+      ...(available ? {} : { reason: nativePacerUnavailableReason(account.connection.api) }),
+      models: account.connection.models.map(m => ({ id: m.id, name: m.name ?? m.id })),
+      runners: Object.values(strategy.runners).filter(r => r.account === name).map(r => ({ id: r.id, model: r.model })),
+      isPlanner: strategy.planner.account === name,
+    }];
+  });
 }
 
 /** What the read tools can see, in plain words, for the settings page. */
@@ -541,7 +691,7 @@ export async function selfTest(ctx: Ctx, account: string, deps: AssistantDeps = 
   const strategy = (deps.strategy ?? loadStrategy)(ctx);
   const plugin = replyProvider(ctx, "executor");
   if (!plugin) throw new CoreError("not_allowed", "No plugin answers the assistant's executor backend.");
-  const target = endpointFor(strategy, { ...readSettings(ctx), account, backend: "executor", runner: null });
+  const target = endpointFor(ctx, strategy, { ...readSettings(ctx), account, backend: "executor", runner: null });
   if (!target) throw new CoreError("not_found", `${account} is not an account the executor backend can run.`);
-  return runSelfTest(ctx, account, { model: target.model, plugin });
+  return runSelfTest(ctx, account, { model: target.model, plugin, accountCfg: target.account });
 }

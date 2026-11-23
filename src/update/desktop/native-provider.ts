@@ -109,6 +109,36 @@ const denied = () =>
     "Authenticated native control is unavailable",
     "Use the supported signed desktop and service baseline.",
   );
+/** Named hello failure; never includes nonces, tokens or challenge material. */
+class HelloRejection extends Error {
+  constructor(
+    readonly step: string,
+    detail?: string,
+  ) {
+    super(detail ? `${step}: ${detail}` : step);
+    this.name = "HelloRejection";
+  }
+}
+const helloDenied = (step: string, detail?: string) => new HelloRejection(step, detail);
+const HELLO_REJECTION_LOG_INTERVAL_MS = 5 * 60_000;
+const helloRejectionLogAt = new Map<string, number>();
+/** Rate-limited serve.log line for a failed native hello (once per reason per 5 minutes). */
+export function logHelloRejection(reason: string, now = Date.now()): void {
+  const last = helloRejectionLogAt.get(reason);
+  if (last !== undefined && now - last < HELLO_REJECTION_LOG_INTERVAL_MS) return;
+  helloRejectionLogAt.set(reason, now);
+  console.error(`pacer: native hello rejected: ${reason}`);
+}
+export function resetHelloRejectionLogForTests(): void {
+  helloRejectionLogAt.clear();
+}
+function helloRejectionReason(error: unknown): string {
+  if (error instanceof HelloRejection) return error.message;
+  if (error instanceof z.ZodError) return "helloSchema";
+  if (error instanceof CoreError) return error.message;
+  if (error instanceof Error && error.message) return error.message;
+  return "denied";
+}
 const id = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,127}$/);
 const hash = z.string().regex(/^[a-f0-9]{64}$/);
 const bindingSchema = z
@@ -273,8 +303,12 @@ type Authority = Pick<DarwinAuthority, "verifyPeer" | "verifyStatic">;
 export interface NativeBridgeOptions {
   port: number;
   authority: Authority;
-  /** Internal system adapter. Never accepted from an API or environment. */
-  verifyService: () => Promise<void>;
+  /**
+   * Internal system adapter. Never accepted from an API or environment.
+   * Identity checks always run. Process coverage runs only when `coverage` is set
+   * (install/apply/takeover/adoption effects), never for hello or read-only reverify.
+   */
+  verifyService: (options?: { coverage?: boolean }) => Promise<void>;
   shutdown?: () => void;
   /** Verified private bootstrap only; never constructed from public or ambient claims. */
   paired?: PairedNativeBootstrap;
@@ -387,26 +421,69 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       }
       chain = chain
         .then(async () => {
-          if (dead) throw denied();
+          if (dead) throw helloDenied("closed");
           if (!connection) {
-            const hello = helloSchema.parse(frame);
-            if (hello.challenge !== challenge) throw denied();
-            const identity = this.options.authority.verifyPeer(
-              peer.auditToken,
-              hello.role,
-            );
-            await this.options.verifyService();
+            let hello: z.infer<typeof helloSchema>;
+            try {
+              hello = helloSchema.parse(frame);
+            } catch (error) {
+              if (error instanceof z.ZodError) throw helloDenied("helloSchema");
+              throw error;
+            }
+            if (hello.challenge !== challenge)
+              throw helloDenied("challenge mismatch");
+            let identity: NativePeer;
+            try {
+              identity = this.options.authority.verifyPeer(
+                peer.auditToken,
+                hello.role,
+              );
+            } catch (error) {
+              throw helloDenied(
+                "verifyPeer",
+                error instanceof Error ? error.message : undefined,
+              );
+            }
+            try {
+              await this.options.verifyService();
+            } catch (error) {
+              throw helloDenied(
+                "verifyService",
+                error instanceof Error ? error.message : undefined,
+              );
+            }
             let installation: Installation | null = null;
             let adoptionSession: string | undefined,
               recoveryInstallationId: string | null = null;
-            if (hello.ticket && hello.adoption) throw denied();
+            if (hello.ticket && hello.adoption)
+              throw helloDenied("ticket and adoption");
             if (hello.role === "desktop") {
               if (!identity.executable.endsWith(".app/Contents/MacOS/pacer"))
-                throw denied();
+                throw helloDenied("verifyPeer", "desktop executable path");
               const app = dirname(dirname(dirname(identity.executable)));
-              this.verifyBundle(app);
-              installation = await inspectInstallation(this.getCtx(), app);
-              if (hello.version !== installation.version) throw denied();
+              try {
+                this.verifyBundle(app);
+              } catch (error) {
+                throw helloDenied(
+                  "verifyBundle",
+                  error instanceof Error ? error.message : undefined,
+                );
+              }
+              try {
+                installation = await inspectInstallation(this.getCtx(), app);
+              } catch (error) {
+                // Task requires the inspectInstallation refusal message in the local log.
+                throw helloDenied(
+                  "inspectInstallation",
+                  error instanceof CoreError
+                    ? error.message
+                    : error instanceof Error
+                      ? error.message
+                      : undefined,
+                );
+              }
+              if (hello.version !== installation.version)
+                throw helloDenied("version mismatch");
               if (!hello.ticket && !hello.adoption) {
                 const pending = listAdoptions(this.getCtx()).filter(
                   (r) =>
@@ -414,7 +491,8 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     r.authority.target.appPath === installation!.appPath &&
                     r.authority.bootId !== identity.process.bootId,
                 );
-                if (pending.length > 1) throw denied();
+                if (pending.length > 1)
+                  throw helloDenied("pending adoption count > 1");
                 if (pending[0]) {
                   const tx = readNativeAdoption(
                     this.getCtx(),
@@ -425,7 +503,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     !tx.authorization ||
                     !hasReservation(this.getCtx(), tx.command.transactionId)
                   )
-                    throw denied();
+                    throw helloDenied("adoption/ticket verification");
                   const original = tx.manifest.source.target;
                   for (const key of [
                     "appPath",
@@ -437,38 +515,57 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                     "serviceLabel",
                     "version",
                   ] as const)
-                    if (original[key] !== installation[key]) throw denied();
+                    if (original[key] !== installation[key])
+                      throw helloDenied("adoption/ticket verification");
                   recoveryInstallationId = original.id;
                 }
               }
               if (hello.adoption) {
-                const verified = verifyAdoptionLaunch(
-                  this.getCtx(),
-                  hello.adoption,
-                  identity.process,
-                  this.service!,
-                  this.serviceExecutable,
-                  currentVersion(),
-                );
-                if (installation.id !== verified.selected.installationId)
-                  throw denied();
-                adoptionSession = verified.selected.launchId;
+                try {
+                  const verified = verifyAdoptionLaunch(
+                    this.getCtx(),
+                    hello.adoption,
+                    identity.process,
+                    this.service!,
+                    this.serviceExecutable,
+                    currentVersion(),
+                  );
+                  if (installation.id !== verified.selected.installationId)
+                    throw helloDenied("adoption/ticket verification");
+                  adoptionSession = verified.selected.launchId;
+                } catch (error) {
+                  if (error instanceof HelloRejection) throw error;
+                  throw helloDenied("adoption/ticket verification");
+                }
               }
               if (hello.ticket) {
-                verifyNativeLaunch(
-                  this.getCtx(),
-                  hello.ticket,
-                  identity.process,
-                );
-                if (!sameProcess(hello.ticket.service, this.service))
-                  throw denied();
+                try {
+                  verifyNativeLaunch(
+                    this.getCtx(),
+                    hello.ticket,
+                    identity.process,
+                  );
+                  if (!sameProcess(hello.ticket.service, this.service))
+                    throw helloDenied("adoption/ticket verification");
+                } catch (error) {
+                  if (error instanceof HelloRejection) throw error;
+                  throw helloDenied("adoption/ticket verification");
+                }
               }
-            } else if (hello.ticket || hello.adoption) throw denied();
-            this.options.authority.verifyPeer(
-              peer.auditToken,
-              hello.role,
-              identity.process,
-            );
+            } else if (hello.ticket || hello.adoption)
+              throw helloDenied("adoption/ticket verification");
+            try {
+              this.options.authority.verifyPeer(
+                peer.auditToken,
+                hello.role,
+                identity.process,
+              );
+            } catch (error) {
+              throw helloDenied(
+                "verifyPeer",
+                error instanceof Error ? error.message : undefined,
+              );
+            }
             connection = {
               peer,
               identity,
@@ -491,7 +588,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
                 hello.ticket?.transactionId ??
                 null,
             };
-            if (dead) throw denied();
+            if (dead) throw helloDenied("closed");
             this.connections.add(connection);
             clearTimeout(timeout);
             await peer.send({
@@ -505,7 +602,10 @@ export class NativeControlBridge implements NativeAuthorityProvider {
             });
           } else await this.handle(connection, frame);
         })
-        .catch(() => peer.close())
+        .catch((error) => {
+          if (!connection) logHelloRejection(helloRejectionReason(error));
+          peer.close();
+        })
         .finally(() => {
           pending--;
         });
@@ -636,6 +736,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     prepared: PreparedFrame,
   ): Promise<boolean> {
     await this.reverify(session);
+    await this.options.verifyService({ coverage: true });
     if (
       !prepared.transactionId ||
       prepared.reservationId !== prepared.transactionId ||
@@ -712,6 +813,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     prepared: PreparedFrame,
   ): Promise<boolean> {
     await this.reverify(session);
+    await this.options.verifyService({ coverage: true });
     if (
       !prepared.transactionId ||
       prepared.reservationId !== prepared.transactionId
@@ -770,7 +872,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
     if (!tx.authorization) {
       this.verifyBundle(tx.command.target.appPath);
       await verifyInstallation(this.getCtx(), tx.command.target);
-      await this.options.verifyService();
+      await this.options.verifyService({ coverage: true });
       if (
         outcome !== "restored" ||
         tx.command.target.id !== session.installation.id
@@ -1012,7 +1114,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       const reservationId = `fixture-cleanup-${policy.nonce}`;
       const reservation = await reserveIdle(this.getCtx(), reservationId);
       if (!reservation.reserved) throw denied();
-      await this.options.verifyService();
+      await this.options.verifyService({ coverage: true });
       const desktops = [...this.connections].filter(
         (peer) =>
           !peer.dead &&
@@ -1173,6 +1275,7 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       frame.kind === "adoption-suppress" ||
       frame.kind === "adoption-shutdown"
     ) {
+      await this.options.verifyService({ coverage: true });
       if (!frame.binding.transactionId) throw denied();
       const tx = readNativeAdoption(
         this.getCtx(),
@@ -1475,6 +1578,13 @@ export class NativeControlBridge implements NativeAuthorityProvider {
       (item) =>
         !item.dead && item.installation?.id === frame.binding.installationId,
     );
+    if (
+      frame.kind === "suppress-lifecycle" ||
+      frame.kind === "shutdown-desktop" ||
+      frame.kind === "shutdown-service"
+    ) {
+      await this.options.verifyService({ coverage: true });
+    }
     if (frame.kind === "suppress-lifecycle")
       for (const desktop of desktops) {
         await this.effect(desktop, "maintenance", frame.binding);
@@ -1687,7 +1797,7 @@ export function configuredNativeBridge(
   const executable = paired?.owner.executable ?? realpathSync(process.execPath);
   if (!paired) assertLegacyNativeServiceLayout(executable);
   const metadata = paired ? nativeServiceMetadata(paired.owner.appPath) : null;
-  const verifyService = async () => {
+  const verifyService = async (options?: { coverage?: boolean }) => {
     const ctx = getCtx(),
       registration = parseDesktopServiceRegistration(
         readFileSync(servicePath(ctx, "darwin"), "utf8"),
@@ -1721,7 +1831,9 @@ export function configuredNativeBridge(
         allowed.push(process.process);
       }
     }
-    assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+    if (options?.coverage) {
+      assertNativeProcessCoverage(processes, service, enrolledWorkProcesses(ctx), executable, allowed);
+    }
     const status = await ctx.run(
       ["/bin/launchctl", "print", `gui/${process.getuid!()}/${registration.label}`], 5000,
     );
@@ -1736,7 +1848,126 @@ export function configuredNativeBridge(
   return new NativeControlBridge(getCtx, { port, authority, verifyService, shutdown, paired });
 }
 
-/** Conservative known-CLI coverage; arbitrary renamed legacy executables are not identifiable. */
+/** Roles used when deciding whether a known pacer process blocks an install. */
+export type NativeCoverageRole = "service" | "lease" | "verified" | "cli" | "foreign";
+
+const PACER_NAME = /(^|[-_.])pacer($|[-_.])/;
+let lastCoverageLogAt = 0;
+
+function looksLikePacerProcess(process: NativeProcess, registeredExecutable: string): boolean {
+  const name = process.executable ? basename(process.executable) : process.name;
+  return (
+    process.executable === registeredExecutable ||
+    PACER_NAME.test(name) ||
+    process.name === "pacer"
+  );
+}
+
+/**
+ * Members of the process trees rooted at the given identities.
+ * A root counts only when its exact incarnation is present in the table.
+ * Dead or unmatched roots never become parentPid anchors (PID reuse must not
+ * cover a foreign child under a recycled enrolled/service pid).
+ */
+export function nativeProcessTreePids(
+  roots: readonly ProcessIdentity[],
+  processes: readonly NativeProcess[],
+): Set<number> {
+  const covered = new Set<number>();
+  for (const root of roots) {
+    const match = processes.find((process) => sameProcess(process.process, root));
+    if (match) covered.add(match.process.pid);
+  }
+  let grew = true;
+  while (grew) {
+    grew = false;
+    for (const process of processes) {
+      if (covered.has(process.process.pid)) continue;
+      if (covered.has(process.parentPid)) {
+        covered.add(process.process.pid);
+        grew = true;
+      }
+    }
+  }
+  return covered;
+}
+
+/**
+ * Classify every same-UID pacer-named process for install coverage.
+ * Service and lease trees are covered. Same-path CLI clients (msg inbox, status,
+ * hooks) do not refuse install forever: reserveIdle drains enrolled leases, and
+ * short-lived CLI work is not an install blocker. A foreign path still blocks.
+ * Running macOS processes keep their old inode after a bundle replace; they are
+ * not restarted by the replace itself.
+ */
+export function classifyNativeProcessCoverage(
+  processes: readonly NativeProcess[],
+  service: ProcessIdentity,
+  enrolled: readonly ProcessIdentity[],
+  registeredExecutable: string,
+  verifiedNative: readonly ProcessIdentity[] = [],
+): { process: NativeProcess; role: NativeCoverageRole }[] {
+  const serviceTree = nativeProcessTreePids([service], processes);
+  const leaseTree = nativeProcessTreePids(enrolled, processes);
+  const decisions: { process: NativeProcess; role: NativeCoverageRole }[] = [];
+  for (const process of processes) {
+    if (!looksLikePacerProcess(process, registeredExecutable)) continue;
+    if (sameProcess(process.process, service) || serviceTree.has(process.process.pid)) {
+      decisions.push({ process, role: "service" });
+      continue;
+    }
+    if (
+      enrolled.some((identity) => sameProcess(identity, process.process)) ||
+      leaseTree.has(process.process.pid)
+    ) {
+      decisions.push({ process, role: "lease" });
+      continue;
+    }
+    if (verifiedNative.some((identity) => sameProcess(identity, process.process))) {
+      decisions.push({ process, role: "verified" });
+      continue;
+    }
+    // Same registered front door, or a sibling under the paired Resources dir
+    // (pacer-core / short-lived CLI clients). Delegated `_run` / `_session` work
+    // is enrolled as leases and drained by reserveIdle; these CLI clients are
+    // not that work and must not refuse install forever. A different install
+    // path stays foreign.
+    if (
+      process.executable === registeredExecutable ||
+      (process.executable !== null &&
+        dirname(process.executable) === dirname(registeredExecutable))
+    ) {
+      decisions.push({ process, role: "cli" });
+      continue;
+    }
+    decisions.push({ process, role: "foreign" });
+  }
+  return decisions;
+}
+
+function logCoverageDecision(decisions: readonly { role: NativeCoverageRole }[]): void {
+  const now = Date.now();
+  if (now - lastCoverageLogAt < 30_000) return;
+  lastCoverageLogAt = now;
+  const counts: Record<NativeCoverageRole, number> = {
+    service: 0,
+    lease: 0,
+    verified: 0,
+    cli: 0,
+    foreign: 0,
+  };
+  for (const decision of decisions) counts[decision.role]++;
+  const summary = (Object.keys(counts) as NativeCoverageRole[])
+    .filter((role) => counts[role] > 0)
+    .map((role) => `${role}=${counts[role]}`)
+    .join(" ");
+  console.info(`pacer: desktop update coverage ${summary || "none"}`);
+}
+
+/**
+ * Install-time coverage only. Connecting and read-only native ops never call this.
+ * Foreign-path pacer binaries still refuse; service/lease trees and same-path CLI clients do not.
+ */
 export function assertNativeProcessCoverage(
   processes: readonly NativeProcess[],
   service: ProcessIdentity,
@@ -1744,26 +1975,20 @@ export function assertNativeProcessCoverage(
   registeredExecutable: string,
   verifiedNative: readonly ProcessIdentity[] = [],
 ): void {
-  for (const process of processes) {
-    if (
-      sameProcess(process.process, service) ||
-      enrolled.some((identity) => sameProcess(identity, process.process)) ||
-      verifiedNative.some((identity) => sameProcess(identity, process.process))
-    )
-      continue;
-    const name = process.executable
-      ? basename(process.executable)
-      : process.name;
-    if (
-      process.executable === registeredExecutable ||
-      /(^|[-_.])pacer($|[-_.])/.test(name) ||
-      process.name === "pacer"
-    )
-      throw new CoreError(
-        "not_allowed",
-        "Another pacer CLI process prevents desktop update",
-        "Close or upgrade the other CLI process, then reconnect the desktop.",
-      );
+  const decisions = classifyNativeProcessCoverage(
+    processes,
+    service,
+    enrolled,
+    registeredExecutable,
+    verifiedNative,
+  );
+  logCoverageDecision(decisions);
+  if (decisions.some((decision) => decision.role === "foreign")) {
+    throw new CoreError(
+      "not_allowed",
+      "Another pacer CLI process prevents desktop update",
+      "Close or upgrade the other CLI process, then retry the update.",
+    );
   }
 }
 

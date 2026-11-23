@@ -209,6 +209,17 @@ impl FixturePolicy {
         if self.validate_live().is_err() {
             return false;
         }
+        // Own-link stuck shape: the terminal path is a symlink to this lease's
+        // bundled CLI. canonicalize() resolves away from the path itself, so the
+        // ordinary equality check below cannot admit it.
+        if path == self.takeover_cli() {
+            if let Ok(meta) = std::fs::symlink_metadata(path) {
+                if meta.file_type().is_symlink() {
+                    let bundled = self.current_app.join("Contents/Resources/pacer");
+                    return path.canonicalize().ok().as_ref() == Some(&bundled);
+                }
+            }
+        }
         let Ok(canonical) = path.canonicalize() else {
             return false;
         };

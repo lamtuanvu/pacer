@@ -1,4 +1,5 @@
 //! `TIERS`, `meetsRequirements` and `buildCandidates` (`src/dispatch/candidates.ts`).
+use pacer_engine::EXHAUSTED_PCT;
 use pacer_js_json::stringify;
 use serde_json::{Value, json};
 
@@ -129,7 +130,7 @@ pub fn build_candidates(
                 None => pools.push((pool, js_max([0.0, used]))),
             }
         }
-        if pools.iter().any(|(_, used)| *used >= 100.0) {
+        if pools.iter().any(|(_, used)| *used >= EXHAUSTED_PCT) {
             reject("Quota exhausted");
             continue;
         }

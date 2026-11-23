@@ -1,5 +1,6 @@
 import { preparePumpPublish, recoverPumpPublish, finishPumpPublish, pendingPumpNotifications, finishPumpNotifications } from "./pump-recovery";
 import { visibleTaskState } from "../tasks/types";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { agentSessionsRevision } from '../session/agents-state';
 import { taskAccountModel } from "../tasks/account-model";
 import { readProjectStrategies, type ProjectStrategyFile } from "../config/project-strategies";
@@ -15,6 +16,7 @@ import type { Strategy } from "../config/strategy";
 import type { SetupChecklist } from "../setup/checklist";
 import type { EntityData } from "./envelope";
 import { drainQueue } from "../tasks/drain";
+import type { SpawnRunner } from "../tasks/api";
 import { sessionTaskData } from "../session/link";
 import { withTimeout } from "../core/path-probe";
 import { resolveTask } from "../tasks/resolution";
@@ -42,7 +44,11 @@ import { type AlertData, type OutboxEvent, LIMITS, type TaskData, clip } from ".
 import { type PublishReport, publish } from "./publish";
 import { pidAlive, readLatest } from "./store";
 export interface PumpDeps { status(ctx:Ctx):Promise<Status>; tasks(ctx:Ctx, ids?: Set<string>):TaskRecord[]; publish(ctx:Ctx,envs:OutboxEvent[],beforeAppend?:Parameters<typeof publish>[2]):Promise<PublishReport>; strategy?(ctx:Ctx):Strategy; setup?(ctx:Ctx):Promise<SetupChecklist>; probeHosts?: typeof probeHosts; backfillRepos?(ctx:Ctx,paths:string[]):Promise<void> }
-export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>(ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity)),publish};
+export const defaultPumpDeps:PumpDeps={status:ctx=>computeStatus(ctx,loadStrategy(ctx)),tasks:(ctx,ids)=>{
+  const rows=ids?readTasksByIds(ctx,ids):listTasks(ctx,Infinity);
+  // Engine-owned tasks stay out of link events (A-M4); orchestrate still counts in machine.used elsewhere.
+  return rows.filter(t=>!isEngineOwnedKind(t.kind));
+},publish};
 export function acceptanceState(t: TaskRecord): import("./envelope").AcceptanceState {
   return t.result?.acceptance ? t.result.acceptance.passed ? "passed" : "failed"
     : !t.brief.acceptance ? "none" : t.progress?.phase === "testing" ? "running" : "pending";
@@ -70,10 +76,13 @@ export function taskData(t:TaskRecord):TaskData & {title:string} {
   };
 }
 export function entityDiff(prev:Record<string,string>,rows:{kind:EntityData["kind"];id:string;value:unknown}[]):{envelopes:OutboxEvent[];next:Record<string,string>} {
- const next:Record<string,string>={},envelopes:OutboxEvent[]=[];
- for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)envelopes.push({type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
- for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");envelopes.push({type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
- return {envelopes,next};
+ // Removals before upserts so counts (last among rows) stays last in the batch.
+ // Index builders snapshot open attention when they read the counts line; a removal
+ // after counts would leave the just-closed item open and double-subtract it for v2.
+ const next:Record<string,string>={},upserts:OutboxEvent[]=[],removals:OutboxEvent[]=[];
+ for(const row of rows){const key=`${row.kind}:${row.id}`,value=JSON.stringify(row.value);next[key]=value;if(prev[key]!==value)upserts.push({type:"entity",data:{kind:row.kind,id:row.id,value:row.value}});}
+ for(const key of Object.keys(prev))if(!Object.hasOwn(next,key)){const split=key.indexOf(":");removals.push({type:"entity",data:{kind:key.slice(0,split) as EntityData["kind"],id:key.slice(split+1),removed:true}});}
+ return {envelopes:[...removals,...upserts],next};
 }
 const alert=(a:AlertData):OutboxEvent=>({type:"alert",data:a});
 /** Cooperative-yield batch size for the per-task loop below; see its comment. */
@@ -151,6 +160,15 @@ export interface PumpOpts {
   ledger?: PumpLedgerApi;
   /** Cheap change/active-set poll between periodic passes. */
   poll?: boolean;
+  /** Service selfCommand launcher. Required when pump runs inside a Bun Worker
+   *  whose argv[1] is the worker module: drainQueue defaults to selfCommand()
+   *  and would otherwise spawn `background-worker.ts _run` (no _run handler). */
+  spawnRunner?: SpawnRunner;
+}
+
+/** Background-worker pump wiring: always forward the service spawnRunner (never omit). */
+export function pumpOnceOpts(spawnRunner: SpawnRunner): { poll: true; spawnRunner: SpawnRunner } {
+  return { poll: true, spawnRunner };
 }
 
 /** Expensive periodic work (quota alerts, strategy fingerprints, host probes, entity
@@ -237,7 +255,7 @@ export async function pumpOnce(ctx:Ctx,deps:PumpDeps=defaultPumpDeps,opts:PumpOp
   }
   if (!taskOnly) {
     rotateActivity(ctx);
-    await drainQueue(ctx).catch(() => {});
+    await drainQueue(ctx, opts.spawnRunner).catch(() => {});
   }
   const latest=readLatest(ctx),out:OutboxEvent[]=[]; let st:Status;
   try{st=taskOnly?statusPasses.get(ctx.pacerHome)!:await deps.status(ctx);}catch(e){const body=clip(e instanceof Error?e.message:String(e),LIMITS.body),prev=latest.alerts.find(a=>a.key==="status-error");

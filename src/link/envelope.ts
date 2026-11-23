@@ -5,7 +5,7 @@ import type { NotificationData } from "./notification";
 export const PLUGIN_KEY = "lamtuanvu.pacer";
 export const LIMITS = { providers: 32, tasks: 20, alerts: 10, goal: 200, title: 120, body: 1000, id: 128, heartbeatS: 30 } as const;
 export type Level = "info" | "warn" | "error";
-export interface ProviderLine { eligibility?: import("../evidence/types").EligibilityDecision; id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
+export interface ProviderLine { eligibility?: import("../evidence/types").EligibilityDecision; id: string; agent?: string; account?: string; unavailableReason?: string; verdict: string; usedPct: number | null; pacePct: number | null; resetsAt: number | null; window: string | null; stale: boolean; /** The row's one usage record; TUI presentation quotes usageView over it when present. */ usageState?: import("../types").UsageState; brokenReason?: string; blockedReason?: string; blockedUntil?: number | null }
 export interface BudgetData { generatedAt: number; strategy: string; planner: string; mode: string; providers: ProviderLine[]; ranked: { id: string; verdict: string }[] }
 /** `controller` is deprecated and null for session protocol 1.2 hosts; `active` is the client that most recently typed or focused. */
 export interface SessionData { host:"builtin"|"orca"|"none"; live:boolean; controller:string|null; active?:string|null; viewers:number }
@@ -18,7 +18,7 @@ export interface AssistantEventData { turnId: string; conversationId: string; st
 /** A machine on the LAN that a prompt was taken for. name and version are sanitized but unverified (SEC-16). */
 export interface DiscoveryFoundData { discoveryId: string; name: string; version: string }
 export interface ConfigData { area: string; at: number }
-export interface EntityData { kind: "desktop.update" | "planner" | "plugin" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "machine" | "message" | "liveness" | "control"; id: string; value?: unknown; removed?: true }
+export interface EntityData { kind: "desktop.update" | "planner" | "plugin" | "executor" | "account" | "host" | "repo" | "counts" | "attention" | "activity" | "job" | "notify" | "machine" | "message" | "liveness" | "run" | "decision" | "question" | "control"; id: string; value?: unknown; removed?: true }
 export type OutboxEvent = { type: "pause"; data: PauseState | {removed:true} } | { type: "entity"; data: EntityData } | { type: "config"; data: ConfigData } | { type: "budget"; data: BudgetData } | { type: "task"; data: TaskData } | { type: "mode"; data: ModeData } | { type: "alert"; data: AlertData } | { type: "assistant"; data: AssistantEventData } | { type: "discovery.found"; data: DiscoveryFoundData };
 export interface ConsoleData { version?: string; worktreeId?: string; handle: string | null; paneKey: string | null; pid: number; startedAt: number; heartbeatAt: number; busyUntil?: number }
 export interface StrategyData { name:string; active:boolean; summary:string; description:string }
@@ -112,7 +112,7 @@ export function parseOutboxEvent(raw: unknown): OutboxEvent | null {
   switch (raw.type) {
     case "entity": {
       const d=raw.data;
-      if(!isObj(d) || !["desktop.update","plugin","planner","executor","account","host","repo","counts","attention","activity","job","notify","machine","message","liveness","control"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
+      if(!isObj(d) || !["desktop.update","plugin","planner","executor","account","host","repo","counts","attention","activity","job","notify","machine","message","liveness","run","decision","question","control"].includes(String(d.kind)) || typeof d.id!=="string" || !d.id.length || d.id.length>(d.kind==="notify"?512:128))return null;
       return {type:"entity",data:{kind:d.kind as EntityData["kind"],id:d.id,...(d.removed===true?{removed:true}:{value:d.value})}};
     }
     case "pause": {

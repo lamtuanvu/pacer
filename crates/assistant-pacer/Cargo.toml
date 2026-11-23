@@ -1,0 +1,33 @@
+[package]
+name = "pacer-assistant-pacer"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[[bin]]
+name = "pacer-assistant-pacer"
+path = "src/main.rs"
+
+[build-dependencies]
+serde_json.workspace = true
+
+[dependencies]
+pacer-plugin = { path = "../plugin-sdk" }
+# Spec decision 2: pin an exact Rig version; upgrade deliberately.
+rig-core = { version = "=0.22.0", default-features = false, features = ["reqwest-rustls"] }
+# Used by CompatChatModel (keyless Authorization + default `created` for Rig).
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"] }
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+tokio-util = { workspace = true, features = ["rt"] }
+thiserror = "2"
+
+[dev-dependencies]
+pacer-plugin = { path = "../plugin-sdk", features = ["testing"] }
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "net", "io-util", "sync", "time"] }
+
+[lints]
+workspace = true

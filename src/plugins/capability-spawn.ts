@@ -7,6 +7,10 @@ import type { CallAuthority } from "./authority";
 import { resolveBoundCredential } from "./credential-bindings";
 import { secretReference } from "./http-protocol";
 import { writeOwnerBytes } from "./capability-write";
+import { parseAcpPlan, runAcpTurn } from "../assistant/acp-turn";
+import { isClaudeControlArgv, parseClaudeControlPlan, runClaudeControlTurn } from "../assistant/claude-control-turn";
+import { parseCodexPlan, runCodexTurn } from "../assistant/codex-turn";
+import { forwardAssistantDelta } from "../assistant/delta";
 
 const MAX_OUTPUT = 1048576, MAX_CHUNK = 262144;
 export const CODEX_LIVE_ARGV = ["codex", "-s", "read-only", "-a", "never", "app-server"];
@@ -15,11 +19,12 @@ const CODEX_LIVE_REQUEST = [
   { jsonrpc: "2.0", method: "initialized", params: {} },
   { jsonrpc: "2.0", id: 2, method: "account/rateLimits/read", params: {} },
 ].map(value => JSON.stringify(value)).join("\n") + "\n";
+type SpawnMode = "codex-live" | "codex-ask" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex" | "acp" | "claude-control";
 interface Pin {
   argv: readonly string[];
   timeoutMs: number;
   stdin?: string;
-  mode?: "codex-live" | "prepare-bundle" | "prepare-recover" | "binary-upload" | "start-input" | "session-duplex";
+  mode?: SpawnMode;
   input?: Uint8Array;
   selected: string | null;
   canonical?: string;
@@ -36,7 +41,7 @@ interface Pin {
   capture?: { stdout: string; stderr: string };
   suppressOutput?: boolean;
 }
-interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; prepareRecoverUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; output: Map<string, Buffer>; cleanupFailure?: Error }
+interface State { pins: Pin[]; busy: boolean; liveUsed: boolean; prepareUsed: boolean; prepareRecoverUsed: boolean; uploadUsed: boolean; startUsed: boolean; sessionUsed: boolean; acpUsed: boolean; codexAskUsed: boolean; usedClaudeControl: Set<Pin>; output: Map<string, Buffer>; cleanupFailure?: Error }
 const states = new WeakMap<CallAuthority, State>();
 const deny = (message: string): never => { throw new CoreError("capability_denied", message); };
 const invalid = (message: string): never => { throw new CoreError("invalid_input", message); };
@@ -46,7 +51,7 @@ export function minimalEnvironment(env: Readonly<Record<string, string | undefin
   const base=["HOME", "PATH", "TMPDIR", "LANG", "LC_ALL", "LC_CTYPE", "XDG_CONFIG_HOME", "XDG_DATA_HOME"];
   const extra=executable==="notify-send"?["DBUS_SESSION_BUS_ADDRESS","DISPLAY","WAYLAND_DISPLAY","XDG_RUNTIME_DIR"]
     :executable==="arkcli"?[...NETWORK_ENV,...ARK_ENV]
-    :executable==="opencode"?[...NETWORK_ENV]:[];
+    :executable==="opencode"||executable==="claude"||executable==="codex"?[...NETWORK_ENV]:[];
   return Object.fromEntries([...base,...extra]
     .flatMap(key => typeof env[key] === "string" ? [[key, env[key]]] : []));
 }
@@ -62,8 +67,23 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
       stdin: command.stdin, capture: command.capture, suppressOutput: command.suppressOutput };
     if (pin.suppressOutput && pin.capture) invalid("sensitive provider output cannot be captured");
     if (command.stdin !== undefined && (typeof command.stdin !== "string" ||
-      Buffer.byteLength(command.stdin, "utf8") > 262144 || command.mode !== undefined))
+      Buffer.byteLength(command.stdin, "utf8") > 262144 ||
+      (command.mode !== undefined && command.mode !== "acp" && command.mode !== "codex-ask" && command.mode !== "claude-control")))
       invalid("invalid issued provider stdin");
+    if (command.mode === "acp") {
+      if (JSON.stringify(command.argv) !== JSON.stringify(["opencode", "acp"]) ||
+        command.stdin === undefined || command.cwd === undefined || command.env === undefined)
+        deny("ACP ask-mode command was not issued by the host");
+    }
+    if (command.mode === "codex-ask") {
+      if (JSON.stringify(command.argv) !== JSON.stringify(CODEX_LIVE_ARGV) ||
+        command.stdin === undefined || command.cwd === undefined || command.env === undefined)
+        deny("Codex ask-mode command was not issued by the host");
+    }
+    if (command.mode === "claude-control") {
+      if (!isClaudeControlArgv(command.argv) || command.stdin === undefined || command.cwd === undefined || command.env === undefined)
+        deny("Claude control ask-mode command was not issued by the host");
+    }
     if (command.mode === "prepare-bundle") {
       if (!(command.input instanceof Uint8Array) || command.input.length > 50 * 1024 * 1024 ||
         command.inputSha256 !== createHash("sha256").update(command.input).digest("hex") ||
@@ -129,7 +149,7 @@ export function prepareSpawnAuthority(authority: CallAuthority): void {
     }
     return pin;
   });
-  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, prepareRecoverUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, output: new Map() };
+  const state: State = { pins, busy: false, liveUsed: false, prepareUsed: false, prepareRecoverUsed: false, uploadUsed: false, startUsed: false, sessionUsed: false, acpUsed: false, codexAskUsed: false, usedClaudeControl: new Set(), output: new Map() };
   states.set(authority, state);
   authority.onRevoke(() => { state.output.clear(); });
 }
@@ -207,6 +227,18 @@ export async function answerSpawn(authority: CallAuthority, declaredScopes: read
     if (state.uploadUsed) deny("remote binary upload command already used by this call");
     state.uploadUsed = true;
   }
+  if (pin.mode === "acp") {
+    if (state.acpUsed) deny("ACP ask-mode command already used by this call");
+    state.acpUsed = true;
+  }
+  if (pin.mode === "codex-ask") {
+    if (state.codexAskUsed) deny("Codex ask-mode command already used by this call");
+    state.codexAskUsed = true;
+  }
+  if (pin.mode === "claude-control") {
+    if (state.usedClaudeControl.has(pin)) deny("Claude control ask-mode command already used by this call");
+    state.usedClaudeControl.add(pin);
+  }
   if (Object.keys(pin.context?.secretEnv ?? {}).length) authority.assertGranted("secrets.resolve");
   if ((timeoutMs as number) > pin.timeoutMs) deny("provider timeout exceeds owning call");
   if (state.busy) deny("owning call already has a provider child");
@@ -267,7 +299,217 @@ function validatePin(pin: Pin): void {
   }
 }
 
+async function runClaudeControl(
+  authority: CallAuthority,
+  state: State,
+  pin: Pin,
+  argv: string[],
+  timeoutMs: number,
+  env: Record<string, string>,
+  secrets: string[],
+): Promise<unknown> {
+  const plan = parseClaudeControlPlan(pin.stdin ?? "");
+  if (!plan) throw new CoreError("invalid_input", "Claude control ask-mode plan was not issued by the host");
+  let child: ChildProcess;
+  let failure: Error | undefined, cleanupFailure: Error | undefined, terminationFailure: Error | undefined, timedOut = false, exited = false, closed = false;
+  let killTimer: ReturnType<typeof setTimeout> | undefined, pipeTimer: ReturnType<typeof setTimeout> | undefined;
+  let settle!: () => void;
+  const settled = new Promise<void>(resolve => { settle = resolve; });
+  // Local controller so pin timeout / revoke abort the turn driver (CONTROL interrupt) before signals.
+  const turnAbort = new AbortController();
+  const abortTurn = () => { try { if (!turnAbort.signal.aborted) turnAbort.abort(); } catch { /* ignore */ } };
+  if (authority.signal.aborted) abortTurn();
+  else authority.signal.addEventListener("abort", abortTurn, { once: true });
+  const signalChild = (signal: NodeJS.Signals) => {
+    if (exited || !child?.pid) return;
+    try { process.kill(process.platform === "win32" ? child.pid : -child.pid, signal); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        terminationFailure ??= new CoreError("plugin_unavailable", "provider termination failed; cleanup unverified");
+      }
+    }
+  };
+  /** @param interrupt when true, abort the turn first so it sends CONTROL `interrupt` then SIGTERM/SIGKILL. */
+  const stop = (opts: { interrupt?: boolean } = {}) => {
+    if (opts.interrupt) abortTurn();
+    signalChild("SIGTERM");
+    killTimer ??= setTimeout(() => signalChild("SIGKILL"), 100);
+  };
+  const detach = authority.onRevoke(async () => { stop({ interrupt: true }); await settled; if (cleanupFailure) throw cleanupFailure; });
+  try {
+    authority.assertActive();
+    validatePin(pin);
+    const start = () => spawn(pin.canonical!, argv.slice(1), {
+      stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32",
+      env, ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
+    });
+    child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();
+  } catch (error) {
+    settle(); detach();
+    if (error instanceof CoreError) throw error;
+    throw new CoreError("plugin_unavailable", "provider could not be started");
+  }
+  child.stderr?.resume();
+  // Pin timeout: interrupt via CONTROL (turn abort → interruptThenKill) before process-group signals.
+  const timer = setTimeout(() => { timedOut = true; stop({ interrupt: true }); }, Math.max(1, Math.min(timeoutMs, authority.deadlineMs - Date.now())));
+  child.on("error", () => { failure ??= new CoreError("plugin_unavailable", "provider could not be started"); });
+  child.on("exit", () => {
+    exited = true;
+    if (killTimer) clearTimeout(killTimer);
+    pipeTimer = setTimeout(() => {
+      if (!closed) {
+        cleanupFailure ??= new CoreError("plugin_unavailable", "provider descendant retained output pipes; cleanup unverified");
+        failure ??= cleanupFailure;
+        child.stdout?.destroy(); child.stderr?.destroy();
+      }
+    }, 100);
+  });
+  const closedP = new Promise<number>(resolve => child.on("close", code => { closed = true; resolve(code ?? 1); }));
+  let result;
+  try {
+    // Pin stdin is the CONTROL plan (host metadata), not bytes for the child.
+    const turnId = plan.turnId;
+    result = await runClaudeControlTurn(child as import("node:child_process").ChildProcessWithoutNullStreams, plan, {
+      signal: turnAbort.signal,
+      onDelta: (text) => { if (turnId) forwardAssistantDelta(turnId, "text", text); },
+    });
+    stop();
+  } catch (error) {
+    failure ??= error instanceof Error ? error : new CoreError("plugin_unavailable", String(error));
+    stop({ interrupt: true });
+  }
+  const code = await closedP;
+  clearTimeout(timer); if (killTimer) clearTimeout(killTimer); if (pipeTimer) clearTimeout(pipeTimer);
+  if (terminationFailure && !exited) { cleanupFailure ??= terminationFailure; failure ??= terminationFailure; }
+  settle();
+  if (!cleanupFailure) detach();
+  else state.cleanupFailure = cleanupFailure;
+  if (failure) throw failure;
+  authority.assertActive();
+  const stdout = Buffer.from(JSON.stringify({
+    claudeControl: true,
+    text: result?.text ?? "",
+    ...(result?.session ? { session: result.session } : {}),
+    usage: result?.usage ?? { input: 0, output: 0, coverage: "unknown" },
+    tools: result?.tools ?? [],
+    toolsHealthy: result?.toolsHealthy ?? false,
+    ...(result?.error ? { error: result.error } : {}),
+    ...(timedOut ? { timedOut: true } : {}),
+  }), "utf8");
+  if (secrets.some(secret => stdout.includes(Buffer.from(secret)))) {
+    throw new CoreError("capability_denied", "provider output exposed an injected credential", undefined, { reason: "credential_reflection" });
+  }
+  const inline = { code: timedOut ? 124 : code, stdout: stdout.toString("utf8"), stderr: "", timedOut };
+  authority.assertActive();
+  return inline;
+}
+
+async function runJsonRpcAsk(
+  authority: CallAuthority, state: State, pin: Pin, argv: string[], timeoutMs: number, env: Record<string, string>, secrets: string[],
+  kind: "acp" | "codex-ask",
+): Promise<unknown> {
+  const plan = kind === "acp" ? parseAcpPlan(pin.stdin ?? "") : parseCodexPlan(pin.stdin ?? "");
+  if (!plan) throw new CoreError("invalid_input", `${kind === "acp" ? "ACP" : "Codex"} ask-mode plan was not issued by the host`);
+  let child: ChildProcess;
+  let failure: Error | undefined, cleanupFailure: Error | undefined, terminationFailure: Error | undefined, timedOut = false, exited = false, closed = false;
+  let killTimer: ReturnType<typeof setTimeout> | undefined, pipeTimer: ReturnType<typeof setTimeout> | undefined;
+  let settle!: () => void;
+  const settled = new Promise<void>(resolve => { settle = resolve; });
+  const signalChild = (signal: NodeJS.Signals) => {
+    if (exited || !child?.pid) return;
+    try { process.kill(process.platform === "win32" ? child.pid : -child.pid, signal); }
+    catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ESRCH") {
+        terminationFailure ??= new CoreError("plugin_unavailable", "provider termination failed; cleanup unverified");
+      }
+    }
+  };
+  const stop = () => { signalChild("SIGTERM"); killTimer ??= setTimeout(() => signalChild("SIGKILL"), 100); };
+  const detach = authority.onRevoke(async () => { stop(); await settled; if (cleanupFailure) throw cleanupFailure; });
+  try {
+    authority.assertActive();
+    validatePin(pin);
+    const start = () => spawn(pin.canonical!, argv.slice(1), {
+      stdio: ["pipe", "pipe", "pipe"], detached: process.platform !== "win32",
+      env, ...(pin.context?.cwd ? { cwd: pin.context.canonicalCwd } : {}),
+    });
+    child = authority.spawnAdmission ? authority.spawnAdmission(start) : start();
+  } catch (error) {
+    settle(); detach();
+    if (error instanceof CoreError) throw error;
+    throw new CoreError("plugin_unavailable", "provider could not be started");
+  }
+  child.stderr?.resume();
+  const timer = setTimeout(() => { timedOut = true; stop(); }, Math.max(1, Math.min(timeoutMs, authority.deadlineMs - Date.now())));
+  child.on("error", () => { failure ??= new CoreError("plugin_unavailable", "provider could not be started"); });
+  child.on("exit", () => {
+    exited = true;
+    if (killTimer) clearTimeout(killTimer);
+    pipeTimer = setTimeout(() => {
+      if (!closed) {
+        cleanupFailure ??= new CoreError("plugin_unavailable", "provider descendant retained output pipes; cleanup unverified");
+        failure ??= cleanupFailure;
+        child.stdout?.destroy(); child.stderr?.destroy();
+      }
+    }, 100);
+  });
+  const closedP = new Promise<number>(resolve => child.on("close", code => { closed = true; resolve(code ?? 1); }));
+  let result: { text?: string; session?: string; usage?: unknown; tools?: unknown; toolsHealthy?: boolean; error?: string } | undefined;
+  try {
+    // Pin stdin is the host plan (metadata), not bytes for the child: the child's stdin is JSON-RPC.
+    const turnId = plan.turnId;
+    const childStreams = child as import("node:child_process").ChildProcessWithoutNullStreams;
+    const hooks = {
+      signal: authority.signal,
+      onDelta: (text: string) => { if (turnId) forwardAssistantDelta(turnId, "text", text); },
+    };
+    result = kind === "acp"
+      ? await runAcpTurn(childStreams, plan as import("../assistant/acp-turn").AcpPlan, env, hooks)
+      : await runCodexTurn(childStreams, plan as import("../assistant/codex-turn").CodexPlan, env, hooks);
+    stop();
+  } catch (error) {
+    failure ??= error instanceof Error ? error : new CoreError("plugin_unavailable", String(error));
+    stop();
+  }
+  const code = await closedP;
+  clearTimeout(timer); if (killTimer) clearTimeout(killTimer); if (pipeTimer) clearTimeout(pipeTimer);
+  if (terminationFailure && !exited) { cleanupFailure ??= terminationFailure; failure ??= terminationFailure; }
+  settle();
+  if (!cleanupFailure) detach();
+  else state.cleanupFailure = cleanupFailure;
+  if (failure) throw failure;
+  authority.assertActive();
+  const stdout = Buffer.from(JSON.stringify({
+    ...(kind === "acp" ? { acp: true } : { codex: true }),
+    text: result?.text ?? "",
+    ...(result?.session ? { session: result.session } : {}),
+    usage: result?.usage ?? { input: 0, output: 0, coverage: "unknown" },
+    tools: result?.tools ?? [],
+    toolsHealthy: result?.toolsHealthy ?? false,
+    ...(result?.error ? { error: result.error } : {}),
+    ...(timedOut ? { timedOut: true } : {}),
+  }), "utf8");
+  if (secrets.some(secret => stdout.includes(Buffer.from(secret)))) {
+    throw new CoreError("capability_denied", "provider output exposed an injected credential", undefined, { reason: "credential_reflection" });
+  }
+  const inline = { code: timedOut ? 124 : code, stdout: stdout.toString("utf8"), stderr: "", timedOut };
+  authority.assertActive();
+  return inline;
+}
+
 async function run(authority: CallAuthority, state: State, pin: Pin, argv: string[], timeoutMs: number, env?: Record<string, string>, secrets: string[] = []): Promise<unknown> {
+  if (pin.mode === "acp") {
+    if (!env) return deny("ACP ask-mode environment was not issued");
+    return runJsonRpcAsk(authority, state, pin, argv, timeoutMs, env, secrets, "acp");
+  }
+  if (pin.mode === "codex-ask") {
+    if (!env) return deny("Codex ask-mode environment was not issued");
+    return runJsonRpcAsk(authority, state, pin, argv, timeoutMs, env, secrets, "codex-ask");
+  }
+  if (pin.mode === "claude-control") {
+    if (!env) return deny("Claude control ask-mode environment was not issued");
+    return runClaudeControl(authority, state, pin, argv, timeoutMs, env, secrets);
+  }
   // Legacy commands retain their env/cwd semantics. Contextual commands receive
   // only host-issued exact env/cwd, with bound secrets resolved after admission.
   let child: ChildProcess;

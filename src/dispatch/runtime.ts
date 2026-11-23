@@ -13,16 +13,23 @@ export async function resolveTaskDispatch(ctx:Ctx,task:TaskRecord,strategy:Strat
  return previewDispatch(ctx,{repo:task.brief.repo,goal:task.brief.goal,kind:work.options.kind??task.kind??undefined,requirements:work.options.requirements,preferences:work.options.preferences,model:work.options.model},
   {strategy,status:async()=>status,taskId:task.id,includePlanner:work.options.allowDelegation,excludeCandidates:tried,excludeRunners:excludedRunners,difficulty:work.options.difficulty});
 }
+/** Synthetic engine roots stay `running` for the life of a workflow; they must not
+ *  consume a concurrency slot (same exclusion as slots.ts / read-model). */
+function isWorkflowRootKind(ctx:Ctx,taskId:string):boolean {
+ return readTask(ctx,taskId)?.kind==="workflow-root";
+}
 export function reserveDispatch(ctx:Ctx,id:string,candidate:Candidate,preview:DispatchPreview):boolean {
  const db=dispatchDatabase(ctx);return db.transaction(()=>{
   const work=getWork(ctx,id);if(!work||!["queued","running"].includes(readTask(ctx,id)?.state??"")||pendingDependencies(ctx,id).length)return false;
   if(work.options.expiresAt!==undefined&&work.options.expiresAt<=ctx.now)return false;
   const root=getWork(ctx,work.rootId)!;
-  const running=db.query<{task_id:string},[string]>("SELECT n.task_id FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE n.root_id=? AND t.state='running'").all(work.rootId).filter(r=>r.task_id!==id);
+  const running=db.query<{task_id:string},[string]>("SELECT n.task_id FROM work_nodes n JOIN tasks t ON t.id=n.task_id WHERE n.root_id=? AND t.state='running'").all(work.rootId)
+   .filter(r=>r.task_id!==id&&!isWorkflowRootKind(ctx,r.task_id));
   if(running.length>=root.options.maxConcurrent)return false;
   let ancestor=work.parentId?getWork(ctx,work.parentId):null;
   while(ancestor){
-   const descendants=db.query<{task_id:string},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT t.id AS task_id FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").all(ancestor.taskId).filter(r=>r.task_id!==id);
+   const descendants=db.query<{task_id:string},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT t.id AS task_id FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").all(ancestor.taskId)
+    .filter(r=>r.task_id!==id&&!isWorkflowRootKind(ctx,r.task_id));
    if(descendants.length>=ancestor.options.maxConcurrent)return false;
    ancestor=ancestor.parentId?getWork(ctx,ancestor.parentId):null;
   }

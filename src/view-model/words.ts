@@ -13,11 +13,21 @@ const tones: Record<string, StatusTone> = {
 /** Maps a tone or verdict string the service wrote to a status tone; the UI never derives one from numbers. */
 export const toneFor = (value: string): StatusTone => Object.hasOwn(tones, value) ? tones[value]! : "neutral";
 
-const verdicts: Record<string, string> = {
-  ON_PACE: "Available", OK: "Available", UNMETERED: "Available", AHEAD: "Ahead of pace", BEHIND: "Behind pace", EXPIRING: "Expiring soon", EXPIRING_SOON: "Expiring soon", NEAR_LIMIT: "Near limit", EXHAUSTED: "Out of quota",
-  behind: "Behind pace", on_pace: "On pace", ahead: "Ahead of pace", out: "Out of quota", unknown: "Usage unknown",
+/** The ONE verdict table (ADR 0030): every label, tone and glyph a verdict can take, upper and legacy lower case.
+ * OK and UNMETERED each have exactly one label — "Available" and "Unmetered"; no other table may restate them. */
+export interface VerdictLabel { label: string; tone: StatusTone; glyph: string }
+export const verdictLabels: Record<string, VerdictLabel> = {
+  EXHAUSTED: { label: "Out of quota", tone: "bad", glyph: "!" }, out: { label: "Out of quota", tone: "bad", glyph: "!" },
+  NEAR_LIMIT: { label: "Near limit", tone: "warn", glyph: "!" },
+  AHEAD: { label: "Ahead of pace", tone: "warn", glyph: "↑" }, ahead: { label: "Ahead of pace", tone: "warn", glyph: "↑" },
+  BEHIND: { label: "Behind pace", tone: "good", glyph: "↓" }, behind: { label: "Behind pace", tone: "good", glyph: "↓" },
+  EXPIRING: { label: "Expiring soon", tone: "warn", glyph: "!" }, EXPIRING_SOON: { label: "Expiring soon", tone: "warn", glyph: "!" },
+  OK: { label: "Available", tone: "good", glyph: "✓" },
+  ON_PACE: { label: "On pace", tone: "good", glyph: "✓" }, on_pace: { label: "On pace", tone: "good", glyph: "✓" },
+  UNMETERED: { label: "Unmetered", tone: "good", glyph: "∞" },
+  UNKNOWN: { label: "Usage unknown", tone: "neutral", glyph: "?" }, unknown: { label: "Usage unknown", tone: "neutral", glyph: "?" },
 };
-export const verdictWords = (v: string): string => Object.hasOwn(verdicts, v) ? verdicts[v]! : "Unknown";
+export const verdictWords = (v: string): string => Object.hasOwn(verdictLabels, v) ? verdictLabels[v]!.label : "Unknown";
 
 const phases: Record<string, string> = { driving: "You're driving", starting: "Starting", working: "Editing", testing: "Testing", idle: "Idle", "lost-contact": "Lost contact", queued: "Queued" };
 export const phaseWords = (phase: string): string => Object.hasOwn(phases, phase) ? phases[phase]! : phase;
@@ -130,19 +140,14 @@ export function accountStatus(account: AccountStateInput): Status {
 }
 /** Sign-in help applies only to a native account known to be signed out. */
 export const accountNeedsSignIn = (account: AccountStateInput): boolean => account.kind !== "endpoint" && account.signedIn === false;
-const paceStates: Record<string, Status> = {
-  behind: status("Behind pace", "good", "↓"), on_pace: status("On pace", "good", "✓"),
-  ahead: status("Ahead of pace", "warn", "↑"), out: taskStates.limit!,
-  UNMETERED: status("Unmetered", "good", "∞"), EXPIRING: status("Expiring soon", "warn", "!"),
-  EXPIRING_SOON: status("Expiring soon", "warn", "!"), unknown: status("Usage unknown", "neutral", "?"),
-};
 const paceAliases: Record<string, string> = {
-  BEHIND: "behind", ON_PACE: "on_pace", OK: "on_pace", AHEAD: "ahead", NEAR_LIMIT: "ahead", EXHAUSTED: "out",
+  BEHIND: "behind", ON_PACE: "on_pace", AHEAD: "ahead", EXHAUSTED: "out",
 };
-/** Verdict aliases describe the same pace fact in older provider and newer planner payloads. */
+/** One verdict table backs every pace label; aliases only retire older payload spellings. */
 export function paceStatus(verdict: string): Status {
   const canonical = Object.hasOwn(paceAliases, verdict) ? paceAliases[verdict]! : verdict;
-  return Object.hasOwn(paceStates, canonical) ? paceStates[canonical]! : paceStates.unknown!;
+  const entry = Object.hasOwn(verdictLabels, canonical) ? verdictLabels[canonical]! : verdictLabels.unknown!;
+  return status(entry.label, entry.tone, entry.glyph);
 }
 export function attentionStatus(item: { kind: string; taskId?: string }, tasks: (TaskStatusInput & { id: string })[] = []): Status {
   const task = tasks.find(t => t.id === item.taskId);

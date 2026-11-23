@@ -467,6 +467,63 @@ test("companion downloads are verified before either install and successful pair
 
 });
 
+test("nativePlugins install beside pacer-core; hash mismatch leaves the install unchanged", async () => {
+  const { sha256Hex } = await import("../src/update/manifest");
+  for (const corrupt of [true, false] as const) {
+    const root = tmpDir(); release(root, "0.2.0");
+    const exec = installed();
+    writeFileSync(join(dirname(exec), "pacer-core"), script("0.1.0"));
+    chmodSync(join(dirname(exec), "pacer-core"), 0o755);
+    writeFileSync(join(dirname(exec), "pacer-assistant-pacer"), script("0.1.0"));
+    chmodSync(join(dirname(exec), "pacer-assistant-pacer"), 0o755);
+    const bytes = new TextEncoder().encode(script("0.2.0"));
+    const companion = { name: "pacer-core", file: "pacer-core-darwin-arm64", sha256: sha256Hex(bytes), size: bytes.length };
+    const plugin = { name: "pacer-assistant-pacer", file: "pacer-assistant-pacer-darwin-arm64", sha256: sha256Hex(bytes), size: bytes.length };
+    const manifestPath = join(root, "0.2.0", "manifest.json");
+    const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+    manifest.assets[0].companions = [companion];
+    manifest.assets[0].nativePlugins = [plugin];
+    writeFileSync(manifestPath, JSON.stringify(manifest));
+    writeFileSync(join(root, "0.2.0", companion.file), bytes);
+    writeFileSync(join(root, "0.2.0", plugin.file), corrupt ? "x".repeat(bytes.length) : bytes);
+    const sumsPath = join(root, "0.2.0", "SHA256SUMS");
+    writeFileSync(sumsPath, readFileSync(sumsPath, "utf8") + `${companion.sha256}  ${companion.file}\n${plugin.sha256}  ${plugin.file}\n`);
+    const result = await runUpdate({ check: false }, deps(root, exec, { refreshIntegrations: async () => [], restartService: async () => true }));
+    expect(result.code).toBe(corrupt ? 1 : 0);
+    expect(readFileSync(exec, "utf8")).toBe(script(corrupt ? "0.1.0" : "0.2.0"));
+    expect(readFileSync(join(dirname(exec), "pacer-core"), "utf8")).toBe(script(corrupt ? "0.1.0" : "0.2.0"));
+    expect(readFileSync(join(dirname(exec), "pacer-assistant-pacer"), "utf8")).toBe(script(corrupt ? "0.1.0" : "0.2.0"));
+    if (!corrupt) {
+      expect(existsSync(`${exec}.bak`)).toBe(true);
+      expect(existsSync(join(dirname(exec), "pacer-assistant-pacer.bak"))).toBe(true);
+    }
+  }
+});
+
+test("nativePlugins install a previously missing assistant sibling without inventing a backup", async () => {
+  const { sha256Hex } = await import("../src/update/manifest");
+  const root = tmpDir(); release(root, "0.2.0");
+  const exec = installed();
+  writeFileSync(join(dirname(exec), "pacer-core"), script("0.1.0"));
+  chmodSync(join(dirname(exec), "pacer-core"), 0o755);
+  const bytes = new TextEncoder().encode(script("0.2.0"));
+  const companion = { name: "pacer-core", file: "pacer-core-darwin-arm64", sha256: sha256Hex(bytes), size: bytes.length };
+  const plugin = { name: "pacer-assistant-pacer", file: "pacer-assistant-pacer-darwin-arm64", sha256: sha256Hex(bytes), size: bytes.length };
+  const manifestPath = join(root, "0.2.0", "manifest.json");
+  const manifest = JSON.parse(readFileSync(manifestPath, "utf8"));
+  manifest.assets[0].companions = [companion];
+  manifest.assets[0].nativePlugins = [plugin];
+  writeFileSync(manifestPath, JSON.stringify(manifest));
+  writeFileSync(join(root, "0.2.0", companion.file), bytes);
+  writeFileSync(join(root, "0.2.0", plugin.file), bytes);
+  const sumsPath = join(root, "0.2.0", "SHA256SUMS");
+  writeFileSync(sumsPath, readFileSync(sumsPath, "utf8") + `${companion.sha256}  ${companion.file}\n${plugin.sha256}  ${plugin.file}\n`);
+  const result = await runUpdate({ check: false }, deps(root, exec, { refreshIntegrations: async () => [], restartService: async () => true }));
+  expect(result.code).toBe(0);
+  expect(readFileSync(join(dirname(exec), "pacer-assistant-pacer"), "utf8")).toBe(script("0.2.0"));
+  expect(existsSync(join(dirname(exec), "pacer-assistant-pacer.bak"))).toBe(false);
+});
+
 test("update prints what kept running after the restart", async () => {
   const root = tmpDir(); release(root, "0.13.1"); const exec = installed();
   const r = await runUpdate({ check: false }, deps(root, exec, { restartService: async (_path, target) => ({ restarted: true, summary: `Updated to v${target}. 1 task and 1 session kept running; 0 stayed on the previous runner.` }) }));

@@ -22,6 +22,8 @@ User confirmation replaces the admission proof for this one case, so a running t
 
 Services with no consent record are unaffected: ADR 0001 and the legacy bootstrap design still apply to them. Copying builds into `~/.local/bin` no longer moves the service once the registration names the bundle path.
 
+[ADR 0021](0021-single-installation-owner.md) lets **Use the app's service** on first run stand in for this confirmation for that launch only. The takeover then waits until no tasks or terminals are running instead of listing them.
+
 ## Alternatives considered
 
 - Reclaim only when the old service is already stopped: safe, but leaves a running takeover permanently unrepaired unless the user knows to stop it.

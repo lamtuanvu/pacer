@@ -1,5 +1,5 @@
 #![allow(clippy::unwrap_used)]
-use pacer_plugin_capabilities::{NativeRun, RunLaunch};
+use pacer_plugin_capabilities::{NativeRun, RunLaunch, RunLaunchFile};
 use pacer_store::TaskStore;
 use serde_json::{Value, json};
 use std::{
@@ -503,4 +503,108 @@ async fn persisted_inspection_does_not_require_the_old_executable_to_still_exist
             .unwrap()["state"],
         "uncertain"
     );
+}
+
+#[tokio::test]
+async fn headless_pipe_session_publishes_prompt_md() {
+    let f = Fixture::new();
+    let mut launch = f.launch();
+    launch.session = None;
+    launch.files = vec![RunLaunchFile {
+        name: "prompt.md".into(),
+        content: "Read the brief".into(),
+        mode: 0o600,
+    }];
+    let mut run = NativeRun::issue(
+        &f.home,
+        ID,
+        "fx-executor",
+        "tool",
+        1,
+        launch,
+        Instant::now() + Duration::from_secs(15),
+    )
+    .unwrap();
+    let p = json!({"taskId":ID,"attempt":1.0});
+    let claim = run.answer("capability.process.claimRun", &p).await.unwrap();
+    let started = run
+        .answer(
+            "capability.process.startRun",
+            &json!({"task":claim["task"],"attempt":1,"runDir":1}),
+        )
+        .await
+        .unwrap();
+    assert!(started["pid"].as_u64().unwrap() > 1);
+    let dir = f.home.join("runs").join(ID).join("1");
+    let prompt = dir.join("prompt.md");
+    assert_eq!(fs::read_to_string(&prompt).unwrap(), "Read the brief");
+    assert_eq!(
+        fs::metadata(&prompt).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    // The started process still writes into the run directory: let it exit before the fixture
+    // removes the home, or the teardown races it ("Directory not empty").
+    let mut state = Value::Null;
+    for _ in 0..200 {
+        state = run.answer("capability.process.pollRun", &p).await.unwrap();
+        if state["state"] == "exited" {
+            break;
+        }
+        tokio::time::sleep(Duration::from_millis(20)).await;
+    }
+    assert_eq!(state["state"], "exited");
+}
+
+/// Char-boundary-safe window after `start` (fixed byte slices can panic mid-UTF-8).
+fn char_window(s: &str, start: usize, max_chars: usize) -> &str {
+    let start = s.floor_char_boundary(start);
+    let end = s[start..]
+        .char_indices()
+        .nth(max_chars)
+        .map(|(i, _)| start + i)
+        .unwrap_or(s.len());
+    &s[start..end]
+}
+
+#[test]
+fn prompt_md_interactive_flag_matches_typescript_launch_files() {
+    // Kept as the interactive-flag source parity guard; headless_pipe_session_publishes_prompt_md
+    // covers the runtime publish path but not TS↔Rust flag agreement.
+    let root = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .parent()
+        .unwrap()
+        .parent()
+        .unwrap();
+    let ts = fs::read_to_string(root.join("src/plugins/capability-detached-run.ts")).unwrap();
+    let rust =
+        fs::read_to_string(root.join("crates/plugin-capabilities/src/native_run.rs")).unwrap();
+    let ts_flag = ts
+        .find("\"prompt.md\":")
+        .and_then(|i| {
+            let slice = char_window(&ts, i, 80);
+            if slice.contains("interactive: false") {
+                Some("false")
+            } else if slice.contains("interactive: true") {
+                Some("true")
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| panic!("TS LAUNCH_FILES.prompt.md interactive flag"));
+    let rust_flag = rust
+        .find("\"prompt.md\" =>")
+        .and_then(|i| {
+            let slice = char_window(&rust, i, 60);
+            if slice.contains("false)") {
+                Some("false")
+            } else if slice.contains("true)") {
+                Some("true")
+            } else {
+                None
+            }
+        })
+        .unwrap_or_else(|| panic!("Rust prompt.md interactive flag"));
+    assert_eq!(ts_flag, "false");
+    assert_eq!(rust_flag, "false");
+    assert_eq!(ts_flag, rust_flag);
 }

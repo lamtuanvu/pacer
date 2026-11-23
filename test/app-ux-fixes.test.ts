@@ -6,13 +6,12 @@ import { callV2Op } from "../src/api/v2-compat";
 import { callOp } from "../src/api/ops";
 import { createTask } from "../src/tasks/store";
 import { emptySnapshot, LIMITS, clip } from "../src/link/envelope";
+import { toneFor } from "../src/view-model/words";
 import { initialState, reduceStore } from "../app/src/data/store";
 import { mergeTask, tasksModel } from "../app/src/model/tasks";
 import { executorLabel } from "../src/view-model/words";
 import { executorStatus, routingStatus } from "../app/src/model/executors";
-import { homeModel } from "../app/src/model/home";
 import { endpointResult, modelsFound } from "../app/src/model/wizard";
-import { accountsModel } from "../app/src/model/accounts";
 
 // 1–3: all server fixtures are isolated from the user's account and agent homes.
 test("setup.init leaves editable current accounts and runners", async () => {
@@ -50,8 +49,7 @@ test("executor labels identify agents, endpoint accounts and named budgets", () 
 });
 test("routing verdicts are words and unknown is neutral", () => {
  for(const [verdict,label] of [["OK","Eligibility unknown"],["UNKNOWN","Usage unknown"],["AHEAD","Ahead of pace"],["EXHAUSTED","Out of quota"]]) expect(routingStatus({verdict,reason:"ok, used 0%"}).label).toBe(label);
- const snapshot={...emptySnapshot(),budget:{generatedAt:1,planner:"codex",strategy:"default",mode:"normal",ranked:[],providers:[{id:"codex",verdict:"UNKNOWN",usedPct:null,pacePct:null,resetsAt:null,window:null,stale:false}]}};
- expect(homeModel(snapshot,[]).planner?.tone).toBe("neutral");
+ expect(toneFor("UNKNOWN")).toBe("neutral");
 });
 test("native executor states use installation, routing and runner overrides", () => {
  const runner={id:"codex",state:"ok" as const,until:null,reason:null};
@@ -76,13 +74,4 @@ test("wizard and delegate controls have wrapping labels", () => {
  expect(prefix.lastIndexOf("<label")).toBeGreaterThan(prefix.lastIndexOf("</label>"));
  }
  }
-});
-test("accounts capitalize guidance and simplify default-folder sign-in commands", () => {
- const rows=accountsModel([{name:"personal",kind:"claude",signedIn:false,folder:"/fixture/.claude",signin_command:"CLAUDE_CONFIG_DIR='/fixture/.claude' claude\n# Then run /login to sign in."},{name:"work",kind:"codex",signedIn:false,folder:"/fixture/.codex-work",signin_command:"CODEX_HOME='/fixture/.codex-work' codex login"}], [{account:"personal",capturedAt:1,stale:true,hint:"run codex login"}]);
- expect(rows[0]?.signin).toBe("claude\n# Then run /login to sign in.");
- expect(rows[1]?.signin).toContain("CODEX_HOME");
- expect(accountsModel([{name:"default",kind:"codex",signedIn:false,folder:"/fixture/.codex",signin_command:"CODEX_HOME=fixture codex login"}],[])[0]?.signin).toBe("codex login");
- expect(rows[0]?.freshness).toStartWith("Stale since");
- expect(rows[0]?.hint).toBe("Run codex login");
-
 });

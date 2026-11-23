@@ -128,7 +128,7 @@
           "enabled": true,
           "state": "ready",
           "tone": "good",
-          "sub": "Unknown · this Mac",
+          "sub": "Usage unknown · this Mac",
           "usedPct": null,
           "pacePct": null,
           "paceReason": "no limit reported",
@@ -486,7 +486,7 @@
           "enabled": true,
           "state": "ready",
           "tone": "good",
-          "sub": "Unknown · this Mac",
+          "sub": "Usage unknown · this Mac",
           "usedPct": null,
           "pacePct": null,
           "paceReason": "no limit reported",
@@ -822,7 +822,7 @@
           "enabled": true,
           "state": "ready",
           "tone": "good",
-          "sub": "Unknown · this Mac",
+          "sub": "Usage unknown · this Mac",
           "usedPct": null,
           "pacePct": null,
           "paceReason": "no limit reported",
@@ -1236,7 +1236,9 @@
       ],
       "last": 18,
       "reset": false,
-      "discoveryOpen": {}
+      "discoveryOpen": {},
+      "workflowOpen": {},
+      "workflowProblemsOpen": {}
     },
     {
       "events": [
@@ -1480,7 +1482,9 @@
       ],
       "last": 18,
       "reset": false,
-      "discoveryOpen": {}
+      "discoveryOpen": {},
+      "workflowOpen": {},
+      "workflowProblemsOpen": {}
     },
     {
       "events": [],
@@ -2639,7 +2643,7 @@
           "enabled": true,
           "state": "ready",
           "tone": "good",
-          "sub": "Unknown · this Mac",
+          "sub": "Usage unknown · this Mac",
           "usedPct": null,
           "pacePct": null,
           "paceReason": "no limit reported",
@@ -3126,7 +3130,7 @@
           "enabled": true,
           "state": "ready",
           "tone": "good",
-          "sub": "Unknown · this Mac",
+          "sub": "Usage unknown · this Mac",
           "usedPct": null,
           "pacePct": null,
           "paceReason": "no limit reported",

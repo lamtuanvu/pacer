@@ -136,6 +136,23 @@ test("entityDiff publishes changed rows and tombstones only",async()=>{
  expect(entityDiff(first.next,rows).envelopes).toHaveLength(0);
  expect(entityDiff(first.next,rows.slice(0,1)).envelopes).toEqual([{type:"entity",data:{kind:"executor",id:"b",removed:true}}]);
 });
+
+test("entityDiff emits removals before upserts so counts stays last",async()=>{
+ const {entityDiff}=await import("../src/link/pump");
+ const first=entityDiff({},[
+  {kind:"attention" as const,id:"budget_spent:r1",value:{id:"budget_spent:r1",severity:"decide"}},
+  {kind:"attention" as const,id:"failed:t-1",value:{id:"failed:t-1",severity:"problem"}},
+  {kind:"counts" as const,id:"counts",value:{attention:2,problems:1}},
+ ]);
+ const second=entityDiff(first.next,[
+  {kind:"attention" as const,id:"failed:t-1",value:{id:"failed:t-1",severity:"problem"}},
+  {kind:"counts" as const,id:"counts",value:{attention:1,problems:1}},
+ ]);
+ expect(second.envelopes.map(e=>e.type==="entity"?{kind:e.data.kind,id:e.data.id,removed:!!("removed" in e.data && e.data.removed)}:e.type)).toEqual([
+  {kind:"attention",id:"budget_spent:r1",removed:true},
+  {kind:"counts",id:"counts",removed:false},
+ ]);
+});
 test("pump persists entity changes only after outbox success, never sends them to channel",async()=>{
  const {capacityFixture}=await import("./read-model-helpers");
  const {publish}=await import("../src/link/publish");
@@ -257,4 +274,12 @@ test("legacy failure alerts respect project retry policy and fail closed", async
     expect(alert.data.notification?.nextExecutor).toBe(scenario === "restricted" ? "cursor" : undefined);
     expect(alert.data.body).not.toContain("retry on Codex");
   }
+});
+
+test("the legacy budget keeps OK for unmetered providers (protocol 2 is frozen)",async()=>{
+ const {toBudget}=await import("../src/link/budget");
+ const status={generatedAt:1,strategy:"s",planner:"p",mode:"normal",providers:[{id:"um",verdict:"UNMETERED",stale:false,binding:null},{id:"rx",verdict:"EXHAUSTED",stale:false,binding:null}],executors:{ranked:[{id:"um",verdict:"UNMETERED"}]}} as any;
+ const budget=toBudget(status);
+ expect(budget.providers.map(p=>p.verdict)).toEqual(["OK","EXHAUSTED"]);
+ expect(budget.ranked.map(r=>r.verdict)).toEqual(["OK"]);
 });

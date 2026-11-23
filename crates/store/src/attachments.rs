@@ -45,6 +45,28 @@ pub fn ensure_schema(store: &mut TaskStore) -> Result<()> {
     Ok(())
 }
 
+/// `createDraft`: records a new private draft and returns its random UUID.
+pub fn create_draft(store: &mut TaskStore, now: f64) -> Result<String> {
+    ensure_schema(store)?;
+    let mut b: [u8; 16] = rand::random();
+    b[6] = (b[6] & 0x0f) | 0x40;
+    b[8] = (b[8] & 0x3f) | 0x80;
+    let hex: String = b.iter().map(|byte| format!("{byte:02x}")).collect();
+    let id = format!(
+        "{}-{}-{}-{}-{}",
+        &hex[..8],
+        &hex[8..12],
+        &hex[12..16],
+        &hex[16..20],
+        &hex[20..]
+    );
+    store.connection()?.execute(
+        "INSERT INTO attachment_drafts(id,created) VALUES (?,?)",
+        rusqlite::params![id, now],
+    )?;
+    Ok(id)
+}
+
 /// `listAttachments`: `{id, name, mime, size}` of the draft's ready attachments, or `None`
 /// when the draft does not exist or expired unclaimed (`requireDraft`).
 pub fn draft_attachments(

@@ -12,6 +12,8 @@ indexmap = "2"
 ryu-js = "1"
 saphyr-parser = "0.3"
 pacer-foundation = { path = "../foundation" }
+pacer-js-json = { path = "../js-json" }
+pacer-limits-protocol = { path = "../limits-protocol" }
 serde_json = { workspace = true, features = ["float_roundtrip"] }
 sha2 = "0.10"
 thiserror.workspace = true

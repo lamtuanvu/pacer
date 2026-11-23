@@ -22,6 +22,41 @@ export function reasonCopy(raw: string | null | undefined): string {
   if (busy) return `${executorLabel(busy[1])} is busy`;
   return 'Routing details available';
 }
+/** Ask-mode check / admission reasons for the executor backend; raw strings stay in technical details. */
+export function askModeCheckCopy(raw: string | null | undefined): string {
+  if (!raw) return 'Not checked yet.';
+  if (/has not passed the ask-mode check yet/i.test(raw)) return 'Not checked yet.';
+  if (/not installed|did not report its version/i.test(raw)) return "The agent CLI isn't installed, or didn't report its version.";
+  if (/\S+ changed since .+ passed the ask-mode check/i.test(raw)) return 'The CLI version changed.';
+  if (/failed the ask-mode check|a tool other than|planted file|file outside|attempted none|did not attempt/i.test(raw)) return 'The ask-mode check failed.';
+  return 'The ask-mode check is incomplete.';
+}
+
+/** Shared plain phrases for live-tools vs digest-only assistant backends (Settings + sheet). */
+export const ASSISTANT_LIVE_TOOLS_PHRASE = "Answers through the agent CLI with pacer's live tools.";
+export const ASSISTANT_SUMMARY_ONLY_PHRASE = "Answers through the agent CLI, from pacer's summary.";
+export const ASSISTANT_READS_SUMMARY_ONLY = "The agent answers from pacer's summary only.";
+
+/** Settings picker description for an executor candidate row. */
+export function executorAssistantDescription(available: boolean, liveTools: boolean | undefined): string {
+  if (!available) return "Needs the ask-mode check first.";
+  return liveTools
+    ? `${ASSISTANT_LIVE_TOOLS_PHRASE} Slower; no extra key.`
+    : `${ASSISTANT_SUMMARY_ONLY_PHRASE} Slower; no extra key.`;
+}
+
+/** Sheet setup note + title for a checked executor row; title carries the full Settings sentence. */
+export function executorSetupToolsCopy(liveTools: boolean | undefined): { note: string; title: string } {
+  if (liveTools) {
+    return { note: "via agent CLI · checked · with pacer's live tools", title: ASSISTANT_LIVE_TOOLS_PHRASE };
+  }
+  return { note: "via agent CLI · checked · from pacer's summary", title: ASSISTANT_SUMMARY_ONLY_PHRASE };
+}
+/** True when a status/admission reason is an ask-mode check string (plain copy + technical details). */
+export function isAskModeCheckReason(raw: string | null | undefined): boolean {
+  if (!raw) return false;
+  return /ask-mode check|\S+ changed since|not installed|did not report its version|a tool other than|planted file|file outside|attempted none|did not attempt|no session to resume/i.test(raw);
+}
 export function costCopy(cost: {account: string; deltaPct: number | null; window: string | null; reason?: string} | null): string {
   if (!cost) return 'Cost not recorded';
   const account = executorLabel(cost.account);

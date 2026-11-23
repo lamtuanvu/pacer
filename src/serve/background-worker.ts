@@ -1,13 +1,16 @@
 import { makeCtx } from "../ctx";
 import type { Ctx } from "../types";
-import { pumpOnce, defaultPumpDeps } from "../link/pump";
+import { pumpOnce, pumpOnceOpts, defaultPumpDeps } from "../link/pump";
 import { brokerTick } from "../messaging/broker";
+import { callerWake } from "./caller-wake";
 import { autoCleanSweep } from "../core/tasks";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { refreshAllUsage } from "../usage/refresh";
 import { refreshObservations } from "../dispatch/refresh";
 import { setOutboxCrossPost } from "../link/store";
 import { holdOwnerKey } from "../plugins/host-bridge";
+import { advanceRuns } from "../workflow/tick";
+import { recoverOrphanTurns } from "../workflow/orchestrator";
 
 /**
  * The periodic work loop, owned by pacer serve (spec §5). All background loops
@@ -45,8 +48,8 @@ interface WorkerInit {
   ownerKey?: string;
 }
 
-type LoopName = "pump" | "broker" | "sweep" | "certification" | "usage" | "observations";
-const MANAGED_LOOPS: LoopName[] = ["pump", "broker", "sweep", "certification", "usage", "observations"];
+type LoopName = "pump" | "broker" | "sweep" | "certification" | "usage" | "observations" | "workflow";
+const MANAGED_LOOPS: LoopName[] = ["pump", "broker", "sweep", "certification", "usage", "observations", "workflow"];
 
 let stopped = false;
 let init: { env: Record<string, string>; pacerHome: string } | null = null;
@@ -115,17 +118,24 @@ const statusMode = async () => {
 
 function runLoops(): void {
   if (!init) return;
+  if (!spawnRunner) throw new Error("missing service spawnRunner");
+  const spawn = spawnRunner;
   report({ type: "loops", names: MANAGED_LOOPS });
   // Poll changes/active tasks at 500ms; pumpOnce keeps status/entity/quota work at 15s.
   // A shorter pumpMs remains useful for tests; 0 disables both paths.
-  if (pumpMs > 0) loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, { poll: true }));
-  loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawnRunner ?? undefined, mode: statusMode }));
+  if (pumpMs > 0) {
+    // Forward the service selfCommand unconditionally: drain must not use this Worker's argv.
+    loop("pump", Math.min(pumpMs, 500), 250, c => pumpOnce(c, defaultPumpDeps, pumpOnceOpts(spawn)));
+  }
+  loop("broker", 15_000, 1000, c => brokerTick(c, { spawnRunner: spawn, mode: statusMode, callerWake }));
   loop("sweep", 60 * 60_000, 500, c => autoCleanSweep(c));
   loop("certification", 10 * 60_000, 2000, c => certificationTick(c));
   loop("usage", usageMs, 3000, c => refreshAllUsage({ ...c, now: Date.now() / 1000 }, true));
   // Observations follow the pump cadence, as before the worker (spec §5 draft): no
   // periodic pump means no observations loop either.
   if (pumpMs > 0) loop("observations", 60_000, 1000, c => refreshObservations(c));
+  // Workflow runs advance from task changes on their own short cadence.
+  loop("workflow", 1000, 500, c => advanceRuns(c, spawn));
 }
 
 type WorkerMessage = WorkerInit | { type: "stop" };
@@ -151,7 +161,15 @@ self.onmessage = async (event: MessageEvent<WorkerMessage>) => {
   }
   report({ type: "heartbeat" });
   armHeartbeat();
-  runLoops();
+  // Start-up: revoke orphan prg_ grants and settle live turns with no process.
+  void recoverOrphanTurns(fresh()).catch(() => { /* recovery is best-effort */ });
+  try {
+    runLoops();
+  } catch (error) {
+    // runLoops throws sync (e.g. missing spawnRunner) outside the init try/catch;
+    // route it into a failed report instead of an unhandled rejection on onmessage.
+    report({ type: "failed", reason: String(error) });
+  }
 };
 
 process.on("exit", () => { stopped = true; });

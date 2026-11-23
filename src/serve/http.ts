@@ -3,10 +3,15 @@ import { pluginNativeRoute } from "./plugin-native";
 import { startTaskHistory } from "../tasks/history";
 import { refreshConnectedIntegrations } from "../core/integrations";
 import { authorizeWorkGrant, authorizeAssistantGrant } from "../dispatch/work";
+import { RUN_GRANT_OPS, verifyRunGrant } from "../workflow/run-grant";
+import { recoverOrphanTurns } from "../workflow/orchestrator";
+import { dispatchDatabase } from "../dispatch/store";
+import { workflowDatabase } from "../workflow/store";
 import { authorizeEnforcementToken } from "../dispatch/enforcement-token";
 import { refreshObservations } from "../dispatch/refresh";
 import { desktopCaptureRoute } from "./desktop-capture";
 import { attachmentRoute } from "./attachment-routes";
+import { artifactRoute } from "./artifact-routes";
 import { resetCaptureBroker } from "../desktop/capture-broker";
 import { configuredNativeServices } from "../update/desktop/native-provider";
 import type { PairedNativeBootstrap } from "../update/desktop/native-paired-bootstrap";
@@ -41,10 +46,12 @@ import { refreshAllUsage } from "../usage/refresh";
 import { defaultPumpDeps, pumpOnce } from "../link/pump";
 import { tick as certificationTick } from "../dispatch/certification-schedule";
 import { brokerTick } from "../messaging/broker";
+import { callerWake } from "./caller-wake";
 
 import { DEFAULT_PORT } from "./constants";
 import { writeJsonAtomic, sweepAtomicWriteTmps } from "../fsutil";
 import { sweepUsageState } from "../plugins/usage-state";
+import { pruneOrphanUsageStores } from "../usage/store";
 import { backgroundWorkerEntryURL, supervisionWorkerEntryURL } from "./worker-location";
 export { DEFAULT_PORT } from "./constants";
 /** How long a request waits for the first status before the snapshot answers as starting. */
@@ -75,8 +82,20 @@ export function startServer(
   resetCaptureBroker(initialCtx.pacerHome);
   void sweepUsageState(initialCtx.pacerHome);
   sweepAtomicWriteTmps(initialCtx.pacerHome);
+  // Drop usage-store files whose evidence identity no strategy under the home still has.
+  try {
+    pruneOrphanUsageStores(initialCtx);
+  } catch { /* A missing strategy on a brand-new home is fine; the first edit seeds accounts. */ }
   const token = ensureToken(initialCtx);
   reconcileAdmissionSync(initialCtx);
+  // Ensure dispatch + workflow schemas before core-ready / listeners: recoverOrphanTurns
+  // is fire-and-forget and yields first, so a concurrent snapshot of tasks.db otherwise
+  // races partial/missing schemas (native/forwarded host-check parity).
+  dispatchDatabase(initialCtx);
+  workflowDatabase(initialCtx);
+  // Start-up: revoke orphan prg_ grants and settle live turns with no process (API-5b).
+  // recoverOrphanTurns yields before any writer so this never blocks listener bind.
+  void recoverOrphanTurns(initialCtx).catch(() => { /* recovery is best-effort */ });
   recoverJobs(initialCtx, undefined, async () => recoverFixtureHandover(initialCtx.pacerHome, compiledNativeFixture(),
     async () => (await triggerHandover({ ...getCtx(), now: Date.now() / 1000 })).summary));
   // Serving diagnostics must not wait on account configuration writes. New local
@@ -168,6 +187,7 @@ export function startServer(
       let workGrant: string | undefined;
       let enforcementToken: string | undefined;
       let assistantGrant: string | undefined;
+      let runGrant: string | undefined;
       if (opts.internal) {
         if (!safeEqual(req.headers.get("authorization") ?? "", `Bearer ${opts.internal.token}`)) {
           return new Response("unauthorized\n", { status: 401 });
@@ -183,6 +203,9 @@ export function startServer(
           if (scoped.startsWith("pag_")) {
             if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
             assistantGrant = scoped;
+          } else if (scoped.startsWith("prg_")) {
+            // The run grant is not an executor: ops only, fail closed on verify (API-5b).
+            runGrant = scoped;
           } else if(scoped.startsWith("pet_"))enforcementToken=scoped;else workGrant=scoped;
         }
         // The front door's heartbeat: an answer proves this event loop is responsive.
@@ -220,6 +243,17 @@ export function startServer(
             }
             const { statusBrokerPartsFor } = await import("../api/status-broker-bridge");
             return Response.json({ result: await statusBrokerPartsFor(getCtx(), params) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/terminal-parts" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { terminalPartsFor } = await import("../api/terminal-parts-bridge");
+            return Response.json({ result: await terminalPartsFor(getCtx(), await req.json().catch(() => null)) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
@@ -474,6 +508,38 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/session-lifecycle" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { sessionLifecycleBridge } = await import("../api/session-lifecycle-bridge");
+            const base = getCtx(), parent = base.operation;
+            // The front door drops this request when its caller disconnects, as a forwarded request would be.
+            const operation = { signal: parent ? AbortSignal.any([parent.signal, req.signal]) : req.signal, ...(parent?.deadline !== undefined ? { deadline: parent.deadline } : {}) };
+            // `opts.opDeps` (which carries `spawnRunner`) is the full opDeps subset these handlers read: the
+            // session lifecycle operations only consume `spawnRunner` (plus the caller identity the bridge
+            // re-derives from the request's own headers). The forwarded `/v3/ops/` route adds per-request
+            // flags (`usageRefreshDone`, `snapshotProbe`, `terminalPresetsOnly`, `appAuthenticated`,
+            // `participant`) that no session lifecycle handler reads, so passing `opts.opDeps` is safe.
+            return Response.json({ result: await sessionLifecycleBridge({ ...base, operation }, request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/assistant-turn" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const { assistantTurnBridge, readAssistantTurnBody } = await import("../api/assistant-turn-bridge");
+            return Response.json({ result: await assistantTurnBridge(getCtx(), await readAssistantTurnBody(req)) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/snapshot-probe-parts" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -512,6 +578,46 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/handover-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { handoverEffectsBridge } = await import("../api/handover-bridge");
+            return Response.json({ result: await handoverEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/onboarding-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { onboardingEffectsBridge } = await import("../api/onboarding-bridge");
+            return Response.json({ result: await onboardingEffectsBridge(getCtx(), request, opts.opDeps) });
+            return Response.json({ result: await onboardingEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/agent-effects" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { agentEffectsBridge } = await import("../api/agent-bridge");
+            return Response.json({ result: await agentEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         if (pathname === "/_internal/host-effects" && req.method === "POST") {
           if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
           try {
@@ -519,6 +625,19 @@ export function startServer(
             const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
             const { hostEffectsBridge } = await import("../api/host-effects-bridge");
             return Response.json({ result: await hostEffectsBridge(getCtx(), request, opts.opDeps) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/client-control" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const request = body && typeof body === "object" && !Array.isArray(body) ? (body as { request?: unknown }).request : undefined;
+            const { clientControlBridge } = await import("../api/client-control-bridge");
+            return Response.json({ result: await clientControlBridge(getCtx(), request) });
           } catch (error) {
             const { toApiError, httpStatus } = await import("../api/errors");
             const body = toApiError(error);
@@ -554,6 +673,30 @@ export function startServer(
             return Response.json({ error: body }, { status: httpStatus(body.code) });
           }
         }
+        if (pathname === "/_internal/desktop-capture" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { captureBridge } = await import("../api/desktop-capture-bridge");
+            return Response.json({ result: await captureBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
+        if (pathname === "/_internal/desktop-update" && req.method === "POST") {
+          if (authKind !== "bearer") return new Response("forbidden\n", { status: 403 });
+          try {
+            const body = await req.json().catch(() => null);
+            const { updateBridge } = await import("../api/desktop-update-bridge");
+            return Response.json({ result: await updateBridge(getCtx(), body) });
+          } catch (error) {
+            const { toApiError, httpStatus } = await import("../api/errors");
+            const body = toApiError(error);
+            return Response.json({ error: body }, { status: httpStatus(body.code) });
+          }
+        }
         // The front door's LAN radio: it pulls its advert config and pushes raw observations (SEC-11, SEC-16).
         if (pathname === "/_internal/discovery/config" && req.method === "POST") {
           const { buildRadioConfig } = await import("../discovery/radio");
@@ -577,15 +720,17 @@ export function startServer(
         if (pathname === "/app/auth") return appRoute(req, getCtx());
         bearer = safeEqual(req.headers.get("authorization") ?? "", `Bearer ${token}`);
         const candidate = (req.headers.get("authorization") ?? "").replace(/^Bearer /, "");
-        if (!bearer && /^(?:pwg|pet|pag)_[0-9a-f]{64}$/.test(candidate)) {
+        if (!bearer && /^(?:pwg|pet|pag|prg)_[0-9a-f]{64}$/.test(candidate)) {
           if (req.method !== "POST" || !pathname.startsWith("/v3/ops/")) return new Response("forbidden\n", { status: 403 });
           // The assistant grant is accepted for `assistant.tool` alone; any other route or op is refused here.
           if (candidate.startsWith("pag_")) {
             if (pathname !== ASSISTANT_TOOL_ROUTE) return new Response("forbidden\n", { status: 403 });
             assistantGrant = candidate;
+          } else if (candidate.startsWith("prg_")) {
+            runGrant = candidate;
           } else if(candidate.startsWith("pet_"))enforcementToken=candidate;else workGrant=candidate;
         }
-        if (!bearer && !workGrant && !enforcementToken && !assistantGrant) {
+        if (!bearer && !workGrant && !enforcementToken && !assistantGrant && !runGrant) {
           const value = (req.headers.get("cookie") ?? "").split(";").map(c => c.trim()).find(c => c.startsWith("pacer_session="))?.slice("pacer_session=".length);
           if (!(app || /^\/v[23]\//.test(pathname)) || !value || !checkSession(getCtx(), value)) {
             return app ? appPage("Session ended. Run `pacer open`.", 401) : new Response("unauthorized\n", { status: 401 });
@@ -602,7 +747,9 @@ export function startServer(
       const requestCtx = workGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_WORK_GRANT:workGrant,PACER_ROLE:"executor"}})
         : enforcementToken ? () => ({...getCtx(),env:{...getCtx().env,PACER_ENFORCEMENT_TOKEN:enforcementToken,PACER_ROLE:"executor"}})
         // The assistant-turn identity: not the operator, not an executor session, and no PACER_ROLE.
-        : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}}) : getCtx;
+        : assistantGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_ASSISTANT_GRANT:assistantGrant,PACER_ROLE:undefined}})
+        // The run-grant identity (API-5b): orchestrator turn, not the operator, not an executor.
+        : runGrant ? () => ({...getCtx(),env:{...getCtx().env,PACER_RUN_GRANT:runGrant,PACER_ROLE:"orchestrator"}}) : getCtx;
       if (workGrant) {
         try { authorizeWorkGrant(requestCtx(), workGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
@@ -610,6 +757,13 @@ export function startServer(
       if (assistantGrant) {
         try { authorizeAssistantGrant(requestCtx(), assistantGrant); }
         catch { return new Response("forbidden\n", { status: 403 }); }
+      }
+      if (runGrant) {
+        if (!verifyRunGrant(requestCtx(), runGrant)) return new Response("forbidden\n", { status: 403 });
+        const opName = pathname.startsWith("/v3/ops/") ? pathname.slice("/v3/ops/".length) : "";
+        if (!opName || !(RUN_GRANT_OPS as readonly string[]).includes(opName)) {
+          return new Response("forbidden\n", { status: 403 });
+        }
       }
       if(enforcementToken){
         if(pathname!=="/v3/ops/dispatch.enforcement.denied")return new Response("forbidden\n",{status:403});
@@ -619,6 +773,8 @@ export function startServer(
       if (app) return appRoute(req, getCtx());
       const attachmentResponse = await attachmentRoute(req, getCtx());
       if (attachmentResponse) return attachmentResponse;
+      const artifactResponse = await artifactRoute(req, getCtx());
+      if (artifactResponse) return artifactResponse;
       const captureResponse = await desktopCaptureRoute(req, getCtx());
       if (captureResponse) return captureResponse;
       if (sessionRoute) return upgradeSession(req, server, getCtx(), sessionRoute[1]!);
@@ -636,7 +792,7 @@ export function startServer(
         // terminals and settings keep bearer behavior.
         const session = req.headers.get("x-pacer-session") ?? "";
         const humanSession = bearer && !workGrant && !enforcementToken && /^[0-9a-f]{64}$/.test(session) && checkSession(getCtx(), session);
-        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant&&!assistantGrant, ...(humanSession ? {participant: "human"} : {})}, tailMs, status, snapshot: () => readCache.get() });
+        const response=await handleV2(req, { getCtx: requestCtx, opDeps: {...opts.opDeps, usageRefreshDone: refreshStatusAfterPending, snapshotProbe:false, terminalPresetsOnly: !bearer,appAuthenticated:!bearer&&!workGrant&&!assistantGrant&&!runGrant, ...(humanSession ? {participant: "human"} : runGrant ? {participant: "orchestrator"} : {})}, tailMs, status, snapshot: () => readCache.get() });
         if (response.ok && req.method === "POST" && /^\/v[23]\/ops\/mode\.(hold|release)$/.test(pathname)) {
           await readCache.refreshAfterPending();
         }
@@ -905,7 +1061,7 @@ export function startServer(
     brokering = true;
     void brokerTick(getCtx(), { spawnRunner: opts.opDeps?.spawnRunner, mode: async () => {
       try { return (await status()).mode; } catch { return undefined; }
-    } }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
+    }, callerWake }).catch(error => { if (!stopped) console.error(`pacer: messaging broker failed: ${String(error)}`); })
       .finally(() => { brokering = false; });
   };
   if (!bg) brokerTimer = setInterval(broker, 15_000);

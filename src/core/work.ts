@@ -31,6 +31,7 @@ import { authorizeAssistantGrant, getWork, registerWork, requireWorkScope, autho
 import { appendWorkEvent, dispatchDatabase, boundedJson } from "../dispatch/store";
 import { recordWorkReview } from "../dispatch/learning";
 import { pidAlive } from "../link/store";
+import { authorizeRunGrantOperation } from "../workflow/run-grant";
 
 // The assistant grant (`pag_`): the internal issue/revoke API the assistant service calls (spec §3).
 export { issueAssistantGrant, authorizeAssistantGrant, revokeAssistantGrants, ASSISTANT_GRANT_KIND, type AssistantGrant } from "../dispatch/work";
@@ -78,11 +79,13 @@ export async function delegateChild(ctx:Ctx,input:WorkInput,spawn:SpawnRunner=sp
   if(!currentParent||currentParent.rev!==parent.rev||JSON.stringify(currentCaller)!==JSON.stringify(caller))throw new CoreError("conflict","Parent work changed during child admission");
   const root=getWork(currentCtx,currentCaller.rootId),options=candidate.dispatch!;
   if(!root?.options.allowDelegation||!currentCaller.options.allowDelegation)throw new CoreError("not_allowed","Parent cannot delegate");
+  // workflow-root stays running for the life of a run; exclude it like reserveDispatch.
   const running=listTasksWhere(currentCtx,{states:["running"]});
-  if(running.filter(task=>getWork(currentCtx,task.id)?.rootId===currentCaller.rootId).length>=root.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: root concurrency is occupied; this executor cannot suspend");
+  if(running.filter(task=>task.kind!=="workflow-root"&&getWork(currentCtx,task.id)?.rootId===currentCaller.rootId).length>=root.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: root concurrency is occupied; this executor cannot suspend");
   let ancestor=currentCaller;
   for(;;){
-   const count=db.query<{n:number},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT count(*) AS n FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").get(ancestor.taskId)!.n;
+   const count=db.query<{task_id:string},[string]>("WITH RECURSIVE subtree(id) AS (SELECT task_id FROM work_nodes WHERE task_id=? UNION ALL SELECT child.task_id FROM work_nodes child JOIN subtree ON child.parent_id=subtree.id) SELECT t.id AS task_id FROM subtree JOIN tasks t ON t.id=subtree.id WHERE t.state='running'").all(ancestor.taskId)
+    .filter(r=>readTask(currentCtx,r.task_id)?.kind!=="workflow-root").length;
    if(count>=ancestor.options.maxConcurrent)throw new CoreError("not_allowed","Child cannot make progress: ancestor concurrency is occupied; this executor cannot suspend");
    if(!ancestor.parentId)break;const next=getWork(currentCtx,ancestor.parentId);if(!next)throw new CoreError("conflict","Ancestor work changed");ancestor=next;
   }
@@ -127,6 +130,8 @@ export async function reviewWork(ctx:Ctx,id:string,accepted:boolean,note?:string
   if(accepted&&pendingChildren(ctx,id).length)throw new CoreError("conflict","Required children must be reviewed first");
   const current=fresh();
   const result=await reviewTask({...current,env:{...current.env,PACER_ROLE:undefined}},id,{verdict:accepted?"accept":"reject",note,expectRev});
+  // R3-I4: a merge conflict returns accepted:false with no verdict — do not emit work.reviewed or sync waits.
+  if(result.accepted===false&&result.merge)return result;
   recordWorkReview(ctx,id,ctx.env.PACER_WORK_GRANT?"requesting-agent":"human");
   appendWorkEvent(ctx,id,"work.reviewed",{accepted,provenance:ctx.env.PACER_WORK_GRANT?"requesting-agent":"human",note:note?.slice(0,2000)??null});
   syncDependentWaits(ctx,id);
@@ -322,6 +327,16 @@ export function authorizeWorkOperation(ctx:Ctx,name:string,params:unknown):void{
   if(typeof turnId!=="string"||!turnId)throw new CoreError("invalid_input","turnId is required");
   if(turnId!==grant.turnId)throw new CoreError("not_allowed","This assistant grant belongs to another turn.");
   return;
+ }
+ // The workflow run grant (`prg_`) answers next: only RUN_GRANT_OPS on its own run (API-5b).
+ // An unknown, expired or revoked bearer is refused here and never treated as the operator or an executor.
+ if(ctx.env.PACER_RUN_GRANT){
+  authorizeRunGrantOperation(ctx,name,params);
+  return;
+ }
+ // Orchestrator role without a live prg_ must not fall through to the operator path (M1).
+ if(ctx.env.PACER_ROLE==="orchestrator"){
+  throw new CoreError("not_allowed","PACER_ROLE=orchestrator requires a live PACER_RUN_GRANT");
  }
  if(ctx.env.PACER_ENFORCEMENT_TOKEN){
   if(name!=="dispatch.enforcement.denied")throw new CoreError("not_allowed","Enforcement identity only reports a native child denial");

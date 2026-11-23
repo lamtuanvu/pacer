@@ -153,11 +153,13 @@ Executor questions appear as `needs_input` (label: Needs your answer). A live di
 
 ## Events
 
-The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify`, `message`, `machine` and `discovery.found`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`, `discovery`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
+The advertised v3 event types are `task`, `mode`, `config`, `pause`, `reset`, `planner`, `executor`, `account`, `host`, `repo`, `counts`, `attention`, `activity`, `job`, `notify`, `message`, `machine`, `run` and `discovery.found`. A `config` event `{ area, at }` follows every successful configuration change (`area` is one of `config`, `accounts`, `runners`, `routing`, `strategy`, `hosts`, `setup`, `update`, `plugins`, `machine`, `discovery`); clients refetch that area. Events have `{ seq, at, type, data }`; `seq` is the resume cursor, `at` is the publication time (legacy entries fall back to read time), and `data` carries the event payload.
 
 The `discovery.found` event carries `{ discoveryId, name, version }` once for each machine on the LAN that a prompt was taken for (at most three an hour). `name` and `version` are sanitized but unverified; show them as such and never build URLs or commands from them. A `discovery` attention item (Pair, Later) and, while the current network is unanswered, a `discovery-network` item (Allow, Not on this network) accompany it in the snapshot. `discovery.*` operations, this event, the `discovery` config area and these attention items are not sent to v2 clients.
 
 The `message` entity event (`id` is the message id) carries the stored message `{ id, taskId, rootId, from, to, kind, body, replyTo, requestId, status, createdAt, deliveredAt, readAt, turnId }` when it is sent, claimed by a turn, read, confirmed or closed. A message to or from the human also republishes its task, whose `messages` summary raises the message attention item. Policy plugins can observe it. Messaging is v3-only: message events, like the `msg.*` operations, are not sent to v2 clients.
+
+The `run` entity event (`id` is the run id, `run_<10 base32 characters>`) carries the workflow run row `{ id, workflow, version, repo, brief, title, status, reason?, rev, createdAt, updatedAt, loops }` after the engine creates the run and after every status or step change it makes (step settlements, fan-out joins, failures, done, answers and stops). `status` is `running`, `waiting`, `done`, `failed` or `stopped`; `reason` explains a failure and is absent otherwise; `rev` is the run's optimistic-concurrency revision (run.answer and run.stop require the current one as `expect_rev`); `createdAt` and `updatedAt` are Unix seconds; `loops` maps `from->to` edge keys to their back-edge counts. Step instances are read with `run.get { id }`, not carried in the event. Workflow runs are v3-only: run events, like the `run.*` and `step.result` operations, are not sent to v2 clients.
 
 The `machine` entity event (`id: "self"`) is published when the machine key is rotated (the machine peers design calls it `machine.rotated`). Its value is `{ event: "rotated", oldId, newId, signature }`. `signature` is the base64 ed25519 signature of the old key, whose public key is `oldId`, over `"pacer-machine-sig/v1" 0x00 "pacer" 0x00 "rotate" 0x00 oldId 0x00 newId`, with both ids as ASCII base32. The event is published at most once, after the rotation is committed, including a rotation that pacer completes after an interruption; a stop right after the commit loses it. The statement is always in `machine.get`, as `rotatedFrom` and `rotationSignature`, so a client that missed the event can still read it. Plugins do not receive this event yet. Machine events are not sent to v2 clients.
 
@@ -549,7 +551,7 @@ Params JSON Schema:
 
 ### `account.list`
 
-Accounts, usage and sign-in commands without account emails.
+Accounts, usage and sign-in commands without account emails. Rows carry the account's usage record (usageState, on the snapshot rows too) and diagnostics.readings with the raw provider readings; usageReading is deprecated and removed in protocol 4.0, and reports no windows for reactive and unmetered accounts.
 
 Params JSON Schema:
 
@@ -6455,6 +6457,253 @@ Params JSON Schema:
 }
 ```
 
+### `question.answer`
+
+Answer a structured run question as the current answerer (person or orchestrator grant).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2000
+    },
+    "note": {
+      "type": "string",
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "answer",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.ask`
+
+Ask a structured run question from an executor step or the orchestrator grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "text": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 1000
+    },
+    "answerType": {
+      "type": "string",
+      "enum": [
+        "single",
+        "multi",
+        "text",
+        "yes_no",
+        "approve_revise"
+      ]
+    },
+    "options": {
+      "maxItems": 12,
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "value": {
+            "type": "string",
+            "minLength": 1
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "value"
+        ],
+        "additionalProperties": false
+      }
+    },
+    "recommended": {
+      "type": "string",
+      "minLength": 1
+    },
+    "blocks": {
+      "type": "string",
+      "enum": [
+        "step",
+        "branch",
+        "nothing"
+      ]
+    },
+    "artifact": {
+      "type": "string",
+      "minLength": 1
+    },
+    "stepId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "attempt": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "branch": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "runId": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "text",
+    "answerType",
+    "blocks"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.convert_prompt`
+
+Convert a step task's prompt-wait mark into a structured question. Never types into the terminal.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.escalate`
+
+Escalate an open orchestrator-answerer question to the person with a suggested answer.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    },
+    "suggested": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "suggested",
+    "reason",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.get`
+
+Read one structured run question by id.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^q_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `question.list`
+
+List structured run questions, optionally for one run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "run": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "open",
+        "answered",
+        "withdrawn"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
 ### `repo.add`
 
 Register a git repository.
@@ -6628,6 +6877,547 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `run.answer`
+
+Answer a waiting human step or approve/revise a generated graph. Requires the run's current rev.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "answer": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "answer",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.choose`
+
+Choose a child workflow for a choose_workflow step under a live run grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "workflow",
+    "reason"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.cleanup`
+
+Person-only: remove leftover integration worktree and optionally delete the local run branch. Never touches remotes.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "delete_branch": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "delete_branch",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.decide`
+
+Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "choice": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    },
+    "reason": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4000
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "choice",
+    "reason"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.get`
+
+One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    }
+  },
+  "required": [
+    "id"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.list`
+
+Runs, oldest first, optionally filtered by status.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "running",
+        "waiting",
+        "done",
+        "failed",
+        "stopped"
+      ]
+    }
+  },
+  "additionalProperties": false
+}
+```
+
+### `run.publish`
+
+Push the run branch and open a PR when the publishing gate allows it. Person or a live run grant for this run; executors refused.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "draft": {
+      "type": "boolean"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 61440
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "draft",
+    "title",
+    "body",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.retry_orchestrator`
+
+Clear a blocked orchestrator after repeated failures so the next tick can start a turn. Person only. Does not clear a budget block — use run.set_budget.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_auto`
+
+Turn auto mode on or off for a run, or mark auto steps must for this run. Person only; there is no way to loosen a must.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "auto": {
+      "type": "boolean"
+    },
+    "strict_steps": {
+      "type": "array",
+      "items": {
+        "type": "string",
+        "minLength": 1,
+        "maxLength": 128
+      }
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_budget`
+
+Raise or change the run's orchestrator and message turn budgets. Person only.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "orchestrator_turns": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "message_turns": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.set_planner`
+
+Queue a planner switch for the next orchestrator turn. Person only. Validated against PLANNERS.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "planner": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 64
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "planner",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.start`
+
+Start a run of an installed workflow for one brief and repository; the entry step becomes an ordinary task.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "workflow": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "repo": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "brief": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 8000
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 120
+    },
+    "publish": {
+      "type": "string",
+      "const": "draft"
+    }
+  },
+  "required": [
+    "workflow",
+    "repo",
+    "brief"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.stop`
+
+Stop a run and its running step tasks. Requires the run's current rev.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.submit_graph`
+
+Submit a generated sub-workflow for a waiting generate step under a live run grant.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    },
+    "source": {
+      "anyOf": [
+        {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 262144
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {}
+        }
+      ]
+    }
+  },
+  "required": [
+    "id",
+    "step",
+    "source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.sync_base`
+
+Merge the base branch tip into the run branch under the merge lock. Person or a live run grant for this run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```
@@ -7854,6 +8644,155 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `step.artifact`
+
+Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "path",
+    "label"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `step.result`
+
+Record the calling executor's structured result for its workflow step task, validated at once; once per step, before the task settles.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "result": {
+      "type": "object",
+      "propertyNames": {
+        "type": "string"
+      },
+      "additionalProperties": {
+        "$ref": "#/$defs/__schema0"
+      }
+    }
+  },
+  "required": [
+    "result"
+  ],
+  "additionalProperties": false,
+  "$defs": {
+    "__schema0": {
+      "anyOf": [
+        {
+          "type": "string"
+        },
+        {
+          "type": "number"
+        },
+        {
+          "type": "boolean"
+        },
+        {
+          "type": "null"
+        },
+        {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/__schema0"
+          }
+        },
+        {
+          "type": "object",
+          "propertyNames": {
+            "type": "string"
+          },
+          "additionalProperties": {
+            "$ref": "#/$defs/__schema0"
+          }
+        }
+      ]
+    }
+  }
+}
+```
+
+### `step.retry`
+
+Retry a failed step under a live run grant: start a new attempt of the same step.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id",
+    "step"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `step.skip`
+
+Skip a failed step under a live run grant: mark it done as skipped and advance the run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "step": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 128
+    }
+  },
+  "required": [
+    "id",
+    "step"
+  ],
   "additionalProperties": false
 }
 ```
@@ -9331,6 +10270,69 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `workflow.add`
+
+Install a workflow version from its file text. The same id@version with identical text is a no-op; different text is a conflict.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
+  },
+  "required": [
+    "source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `workflow.list`
+
+Installed workflow definitions, oldest first.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `workflow.validate`
+
+Validate a workflow file's text without storing it. Returns every error at once with its path.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "source": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 262144
+    }
+  },
+  "required": [
+    "source"
+  ],
   "additionalProperties": false
 }
 ```

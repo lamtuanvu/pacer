@@ -18,6 +18,7 @@ import { lineFields, renderLine } from "../../src/render/line";
 import type { ClientSnapshot } from "../../src/view-model/snapshot";
 import type { Status } from "../../src/engine/status";
 import fixture from "../../test/fixtures/ui/snapshot.json";
+import { usageStateFor } from "../../test/usage-fixtures";
 
 const repoRoot = join(import.meta.dir, "..", "..");
 const outDir = join(repoRoot, "crates", "cli", "tests", "golden");
@@ -63,6 +64,21 @@ const invalidCounts = snapshot();
 counts(invalidCounts).running = -1;
 counts(invalidCounts).attention = NaN;
 
+/** A stale planner reading shows the TUI's "stale reading" marker. */
+const stalePlanner = snapshot();
+planner(stalePlanner).stale = true;
+
+/** Exhaustion with a known reset wins over staleness. */
+const staleOut = snapshot();
+planner(staleOut).stale = true;
+planner(staleOut).verdict = "out";
+
+/** A stale reading without a known reset still shows the marker, not a figure. */
+const staleOutNoResets = snapshot();
+planner(staleOutNoResets).stale = true;
+planner(staleOutNoResets).verdict = "out";
+planner(staleOutNoResets).resetsAt = null;
+
 /** `Status`-shaped input: the `generatedAt`-present branch of lineFields.
  *  Mirrors the snapshot scenario for the installed agent status-bar capture path. */
 // Recorded as a loose, older Status shape on purpose: the renderer must tolerate it.
@@ -85,6 +101,48 @@ const statusInput = {
   executors: { ranked: [], excluded: [] },
 } as unknown as Status;
 
+/** The Status shape carries the same stale rule on its provider row. */
+const statusStale = {
+  ...statusInput,
+  providers: [{ ...statusInput.providers[0], stale: true }],
+} as unknown as Status;
+
+const at = base.at;
+
+/** usageState: active limit — out · back still wins over the figure words. */
+const usageLimit = snapshot();
+planner(usageLimit).verdict = "out";
+planner(usageLimit).usageState = {
+  ...usageStateFor({ usedPct: 100, window: "limit", resetsAt: planner(usageLimit).resetsAt, verdict: "out" }, at),
+  limit: { until: planner(usageLimit).resetsAt!, observedAt: at, manual: false },
+  verdict: "EXHAUSTED",
+};
+
+/** usageState: unmetered — never Unmetered·pace. */
+const usageUnmetered = snapshot();
+planner(usageUnmetered).usedPct = 77;
+planner(usageUnmetered).pacePct = 77;
+planner(usageUnmetered).usageState = {
+  ...usageStateFor({ usedPct: null, window: null, verdict: "UNMETERED", source: "unmetered" }, at),
+  verdict: "UNMETERED", source: "unmetered", figure: null, windows: [], freshness: "unknown", observedAt: null,
+};
+
+/** usageState: no figure. */
+const usageNoFigure = snapshot();
+planner(usageNoFigure).usedPct = 40;
+planner(usageNoFigure).usageState = usageStateFor({ usedPct: null, window: null, verdict: "OK", source: "reactive" }, at);
+
+/** usageState figure differs from the legacy usedPct row field. */
+const usageFigureDiffers = snapshot();
+planner(usageFigureDiffers).usedPct = 10;
+planner(usageFigureDiffers).pacePct = 20;
+planner(usageFigureDiffers).usageState = usageStateFor({ usedPct: 68, window: "weekly", resetsAt: planner(usageFigureDiffers).resetsAt, verdict: "behind" }, at);
+
+/** usageState historical — stale reading marker, not a live figure. */
+const usageHistorical = snapshot();
+planner(usageHistorical).stale = false;
+planner(usageHistorical).usageState = usageStateFor({ usedPct: 55, window: "weekly", stale: true, resetsAt: planner(usageHistorical).resetsAt, verdict: "behind" }, at);
+
 interface Input { label: string; value: ClientSnapshot | Status | null }
 const inputs: Input[] = [
   { label: "fixture", value: base },
@@ -95,8 +153,17 @@ const inputs: Input[] = [
   { label: "verdict-out-no-resetsAt", value: outNoResets },
   { label: "codex-agent", value: codex },
   { label: "invalid-counts", value: invalidCounts },
+  { label: "stale-planner", value: stalePlanner },
+  { label: "stale-out-with-resetsAt", value: staleOut },
+  { label: "stale-out-no-resetsAt", value: staleOutNoResets },
   { label: "null-input", value: null },
   { label: "status-shaped", value: statusInput },
+  { label: "status-shaped-stale", value: statusStale },
+  { label: "usageState-limit", value: usageLimit },
+  { label: "usageState-unmetered", value: usageUnmetered },
+  { label: "usageState-no-figure", value: usageNoFigure },
+  { label: "usageState-figure-differs", value: usageFigureDiffers },
+  { label: "usageState-historical", value: usageHistorical },
 ];
 // Keep every original case and add backend policy facts to both input shapes.
 for (const policy of [

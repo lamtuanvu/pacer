@@ -1,3 +1,4 @@
+import { owesDecision } from "../../messaging/liveness";
 import { getWork } from "../../dispatch/work";
 import { activeAgentSessions } from "../../session/agents-state";
 import { fullTaskTitle } from "../../core/short-title";
@@ -6,6 +7,7 @@ import { taskData } from "../../link/pump";
 import type { TaskData } from "../../link/envelope";
 import type { TaskRecord } from "../../tasks/types";
 import { awaitsAnswer } from "../../tasks/types";
+import { isEngineOwnedKind } from "../../tasks/engine-owned";
 import type { Ctx } from "../../types";
 import { unreadCounts } from "../../messaging/store";
 import { getLiveness, listLiveness, type LivenessRow } from "../../messaging/liveness-store";
@@ -23,13 +25,15 @@ export function apiTask(ctx: Ctx,t: TaskRecord, repoLabels?: Map<string,string>,
  // parentOfTask(ctx,t), not parentOf(ctx,`task:${t.id}`): t is already a fresh read of this
  // exact record, so this skips a second store lookup of it (see parentOfTask's comment).
  const own=lookupLiveness(`task:${t.id}`), parent=parentOfTask(ctx,t), parentRow=parent?lookupLiveness(parent):null;
- const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt?parentRow:null;
+ // A caller's owed decision marks only the settled tasks it owes; failed, limit and question tasks raise their own item.
+ const parentApplies=parentRow?.reason!=="caller_decision"||(["done","partial"].includes(t.state)&&owesDecision(t));
+ const live=own?.reason?own:parentRow?.reason&&parentRow.escalatedAt&&parentApplies?parentRow:null;
  const repo=t.repo??registeredRepo(ctx,t.brief.repo)??{...repoFor(ctx,t.brief.repo),identityUnverified:true as const},labels=repoLabels??labelsFor([...listRepos({...ctx,readOnly:true}),repo]);
  const active=activeCount??activeAgentSessions(ctx).filter(s=>s.task_id===t.id).length;
  // The read model places the diagnostics fields after host (Rust parity), so leave them out of the event shape here.
  const {diagnosticCheck:_check,diagnosticRecheck:_recheck,...event}=taskData(t);
  const accountModel=taskAccountModel(t);
- return {...event,...(work?{work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}}:{}),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,account:accountModel.account,model:accountModel.model,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
+ return {...event,...(work?{work:{rootId:work.rootId,parentId:work.parentId,depth:work.depth,allowDelegation:work.options.allowDelegation}}:{}),...(active?{activeAgentSessions:active}:{}),...(t.archived?{archived:true,archivePath:t.archivePath}:{}),fullTitle:fullTaskTitle(t),...(t.question?{question:t.question}:{}),...(t.promptWait?{promptWait:t.promptWait}:{}),rev:t.rev,queue:t.queue??null,...(t.source?{source:t.source}:{}),repo:{...repo,label:labels.get(repo.key)!},kind:t.kind??null,host:t.run?.host??null,account:accountModel.account,model:accountModel.model,...(t.diagnosticCheck?{diagnosticCheck:t.diagnosticCheck}:{}),...(t.diagnosticRecheck?{diagnosticRecheck:t.diagnosticRecheck}:{}),...(live?{liveness:{stalled:!!live.stalledAt,reason:live.reason,...(live.node!==`task:${t.id}`?{waitingOn:live.node}:{}),since:live.since}}:{}),...(unread?{messages:{unreadForHuman:unread.unread,...(unread.question?{question:{id:unread.question.id,text:unread.question.body.slice(0,1000),at:unread.question.createdAt}}:{})}}:{})};
 }
 /** Batch labels once: apiTask alone reads task-backed repository labels. */
 export function apiTasks(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
@@ -64,7 +68,8 @@ export function apiTaskPage(ctx: Ctx, records: TaskRecord[]): ApiTask[] {
  });
 }
 export function snapshotTasks(ctx: Ctx,records: TaskRecord[]): ApiTask[] {
- const rows=apiTasks(ctx,records.filter(t=>!t.archived));
+ // Engine-owned tasks (orchestrate, workflow-root) stay out of ordinary task lists (D2.12).
+ const rows=apiTasks(ctx,records.filter(t=>!t.archived && !isEngineOwnedKind(t.kind)));
  // `needs_input` (stored, and running with an open question via `visibleTaskState`)
  // is an active state: tasks requiring the user never age out of the snapshot window.
  // A needs_input that was answered, retried or dismissed is not retained by its state.

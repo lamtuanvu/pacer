@@ -147,7 +147,7 @@ async function runOwnedDirect(ctx: Ctx, cfg: ProviderCfg, task: TaskRecord,
   const brief = buildPrompt(placement === "new" ? { ...task.brief,
     repo: task.worktree ? `${workdir} (the task worktree; keep its current branch; do not edit ${task.brief.repo} itself)` :
       `${workdir} (a new git worktree of ${task.brief.repo} on branch pacer/${task.id}; do not edit ${task.brief.repo} itself)` }
-    : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT);
+    : task.brief, task.id, !!ctx.env.PACER_WORK_GRANT, { kind: task.kind });
   const plan = await planOwnedLaunch(ctx, { cfg, task, execution, placement, workdir, dir, brief, repoRoots, trustRoot });
   cfg = plan.cfg;
   if (plan.refused !== undefined) {

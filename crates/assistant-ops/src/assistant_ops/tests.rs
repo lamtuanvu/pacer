@@ -114,14 +114,19 @@ fn strategy_endpoints_and_candidates_follow_endpoint_for() {
     let dir = tempfile::tempdir().unwrap();
     std::fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();
     let strategy = strategy(&ctx(&dir, &[])).unwrap();
-    assert!(endpoint_ok(&strategy, "ep", None));
-    assert!(endpoint_ok(&strategy, "ep", Some("opencode#ep")));
-    assert!(!endpoint_ok(&strategy, "bare", None));
-    assert!(!endpoint_ok(&strategy, "claude", None));
-    assert!(!endpoint_ok(&strategy, "missing", None));
+    assert!(endpoint_ok(&strategy, "ep", None, false));
+    assert!(endpoint_ok(&strategy, "ep", Some("opencode#ep"), false));
+    assert!(!endpoint_ok(&strategy, "bare", None, false));
+    assert!(!endpoint_ok(&strategy, "claude", None, false));
+    assert!(!endpoint_ok(&strategy, "missing", None, false));
+    // The executor backend's agent CLI holds the connection: any endpoint account qualifies.
+    assert!(endpoint_ok(&strategy, "ep", None, true));
+    assert!(endpoint_ok(&strategy, "bare", None, true));
+    assert!(!endpoint_ok(&strategy, "claude", None, true));
+    assert!(!endpoint_ok(&strategy, "missing", None, true));
     assert_eq!(
         Value::Array(candidates(&strategy)).to_string(),
-        r#"[{"account":"ep","backend":"pacer","available":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
+        r#"[{"account":"ep","backend":"pacer","available":true,"liveTools":true,"models":[{"id":"m1","name":"Model One"},{"id":"m2","name":"m2"}],"runners":[{"id":"opencode#ep","model":"pacer-ep/m2"}],"isPlanner":false}]"#
     );
     assert!(
         array_index("0") && array_index("42") && !array_index("01") && !array_index("4294967295")
@@ -177,7 +182,7 @@ async fn callers_settings_and_status_route_like_typescript() {
     let status = assistant_status(&plain, json!({})).await.unwrap();
     assert_eq!(
         status.to_string(),
-        r#"{"available":false,"configured":false,"reason":"The assistant is not set up.","hint":"Choose an account in Settings › Assistant.","limits":{"maxInputTokens":32000,"maxOutputTokens":8000,"maxToolRounds":6,"turnsPerDay":50,"deadlineMs":120000},"retention":{"days":30,"conversations":200},"rev":1,"today":{"turns":0,"input":0,"output":0}}"#
+        r#"{"available":false,"configured":false,"liveTools":false,"reason":"The assistant is not set up.","hint":"Choose an account in Settings › Assistant.","limits":{"maxInputTokens":32000,"maxOutputTokens":8000,"maxToolRounds":6,"turnsPerDay":50,"deadlineMs":120000},"retention":{"days":30,"conversations":200},"rev":1,"today":{"turns":0,"input":0,"output":0}}"#
     );
     // A configured, admissible assistant needs the cached usage status.
     std::fs::write(dir.path().join("strategy.yaml"), STRATEGY).unwrap();

@@ -17,6 +17,10 @@ export function blockExecutor(ctx:Ctx,id:string,duration?:string,reason="Paused 
  }
  writeJsonAtomic(path(ctx),{...readBlocked(ctx),[id]:{until,reason:reason.trim()||"Paused by user"}});
 }
-export function unblockExecutor(ctx:Ctx,id:string):void {
- const blocks=readBlocked(ctx);delete blocks[id];writeJsonAtomic(path(ctx),blocks);
+export function unblockExecutor(ctx:Ctx,id:string):boolean {
+ const blocks=readBlocked(ctx);
+ const had=id in blocks;
+ delete blocks[id];
+ writeJsonAtomic(path(ctx),blocks);
+ return had;
 }

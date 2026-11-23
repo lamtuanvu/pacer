@@ -1,5 +1,5 @@
 use super::js::{number, numeric, truthy};
-use super::{V2_PROTOCOL, V3_CURSOR_BASE, is_discovery_item_id, setup};
+use super::{V2_PROTOCOL, V3_CURSOR_BASE, is_discovery_item_id, is_workflow_attention_item, setup};
 use serde_json::{Value, json};
 use std::cmp::Ordering;
 
@@ -73,7 +73,10 @@ pub fn snapshot(s: &Value, legacy: Option<&Value>) -> Value {
     let mapped = setup(&s["setup"], false);
     let mut attention = Vec::new();
     for a in rows(&s["attention"]) {
-        if a["id"] == "setup:connect" || is_discovery_item_id(&a["id"]) {
+        if a["id"] == "setup:connect"
+            || is_discovery_item_id(&a["id"])
+            || is_workflow_attention_item(a)
+        {
             continue;
         }
         let id = if a["id"] == "setup:planner" {
@@ -146,6 +149,15 @@ pub fn snapshot(s: &Value, legacy: Option<&Value>) -> Value {
             })
     });
     let mut out = super::object_without(s, &["desktopUpdates"]);
+    // promptWait is v3-only (M-g); snapshot tasks keep additive fields (fullTitle/derived/work).
+    if let Some(tasks) = s.get("tasks").and_then(Value::as_array) {
+        out["tasks"] = Value::Array(
+            tasks
+                .iter()
+                .map(|t| super::object_without(t, &["promptWait"]))
+                .collect(),
+        );
+    }
     out["counts"]["attention"] = json!(attention.len());
     out["counts"]["problems"] = json!(
         attention
@@ -177,7 +189,7 @@ pub fn snapshot(s: &Value, legacy: Option<&Value>) -> Value {
     out["budget"] = legacy
         .map(|v| v["budget"].clone())
         .unwrap_or_else(|| budget(s));
-    out["alerts"] = legacy.map(|v| v["alerts"].clone()).unwrap_or_else(|| Value::Array(rows(&s["attention"]).filter(|a| !is_discovery_item_id(&a["id"])).map(|a| json!({"key":a["id"],"level":match a["severity"].as_str() {Some("blocked")=>"error",Some("problem")=>"warn",_=>"info"},"title":a["title"],"body":a["detail"],"at":a["raisedAt"]})).collect()));
+    out["alerts"] = legacy.map(|v| v["alerts"].clone()).unwrap_or_else(|| Value::Array(rows(&s["attention"]).filter(|a| !is_discovery_item_id(&a["id"]) && !is_workflow_attention_item(a)).map(|a| json!({"key":a["id"],"level":match a["severity"].as_str() {Some("blocked")=>"error",Some("problem")=>"warn",_=>"info"},"title":a["title"],"body":a["detail"],"at":a["raisedAt"]})).collect()));
     for (key, default) in [("console", Value::Null), ("consoles", json!([]))] {
         out[key] = field_or(legacy.and_then(|v| v.get(key)), default);
     }

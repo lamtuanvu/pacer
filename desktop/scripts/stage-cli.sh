@@ -1,8 +1,8 @@
 #!/bin/sh
 set -eu
 
-if [ "$#" -gt 2 ]; then
-  echo "usage: stage-cli.sh [pacer [pacer-core]]" >&2
+if [ "$#" -gt 3 ]; then
+  echo "usage: stage-cli.sh [pacer [pacer-core [pacer-assistant-pacer]]]" >&2
   exit 2
 fi
 
@@ -18,10 +18,17 @@ fi
 # Release files carry a platform suffix; local builds use the plain sibling.
 source_name=$(basename -- "$source_binary")
 case "$source_name" in
-  pacer-*) default_core="$(dirname -- "$source_binary")/pacer-core-${source_name#pacer-}" ;;
-  *) default_core="$(dirname -- "$source_binary")/pacer-core" ;;
+  pacer-*)
+    default_core="$(dirname -- "$source_binary")/pacer-core-${source_name#pacer-}"
+    default_assistant="$(dirname -- "$source_binary")/pacer-assistant-pacer-${source_name#pacer-}"
+    ;;
+  *)
+    default_core="$(dirname -- "$source_binary")/pacer-core"
+    default_assistant="$(dirname -- "$source_binary")/pacer-assistant-pacer"
+    ;;
 esac
 source_core=${2:-$default_core}
+source_assistant=${3:-$default_assistant}
 for payload in "$source_binary" "$source_core"; do
   if [ ! -f "$payload" ]; then
     printf 'stage-cli: source is missing or not a regular file: %s\n' "$payload" >&2
@@ -50,4 +57,10 @@ chmod 0755 "$destination"
 core_destination="$repo_root/desktop/src-tauri/binaries/pacer-core-$target_triple"
 cp -- "$source_core" "$core_destination"
 chmod 0755 "$core_destination"
+# Optional: native assistant plugin next to pacer-core when the release/local build produced it.
+if [ -f "$source_assistant" ] && [ -x "$source_assistant" ]; then
+  assistant_destination="$repo_root/desktop/src-tauri/binaries/pacer-assistant-pacer-$target_triple"
+  cp -- "$source_assistant" "$assistant_destination"
+  chmod 0755 "$assistant_destination"
+fi
 printf '%s\n' "$destination"

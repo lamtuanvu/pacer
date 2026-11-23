@@ -248,7 +248,7 @@ pub fn limits_report(ctx: &Ctx, params: Value) -> OpFuture<'_> {
                 let cooldown = cfg
                     .get("cooldownS")
                     .and_then(Value::as_f64)
-                    .unwrap_or(21600.0);
+                    .unwrap_or(pacer_engine::COOLDOWN_DEFAULT_S as f64);
                 ctx.now + cooldown
             }
         };

@@ -586,7 +586,7 @@
       }
     },
     "problems": [
-      "accounts.edge.connection.api must be openai-compatible"
+      "accounts.edge.connection.api must be openai-compatible, anthropic or gemini"
     ]
   },
   {

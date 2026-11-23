@@ -10510,6 +10510,1469 @@ impl<'de> ::serde::Deserialize<'de> for ProjectStrategySetParamsRepo {
             })
     }
 }
+///`QuestionAnswerParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "answer",
+///    "expect_rev",
+///    "id"
+///  ],
+///  "properties": {
+///    "answer": {
+///      "type": "string",
+///      "maxLength": 2000,
+///      "minLength": 1
+///    },
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^q_[a-z2-7]{10}$"
+///    },
+///    "note": {
+///      "type": "string",
+///      "maxLength": 4000
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionAnswerParams {
+    pub answer: QuestionAnswerParamsAnswer,
+    pub expect_rev: ::std::num::NonZeroU64,
+    pub id: QuestionAnswerParamsId,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<QuestionAnswerParamsNote>,
+}
+///`QuestionAnswerParamsAnswer`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 2000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAnswerParamsAnswer(::std::string::String);
+impl ::std::ops::Deref for QuestionAnswerParamsAnswer {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAnswerParamsAnswer> for ::std::string::String {
+    fn from(value: QuestionAnswerParamsAnswer) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAnswerParamsAnswer {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 2000usize {
+            return Err("longer than 2000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAnswerParamsAnswer {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAnswerParamsAnswer {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAnswerParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^q_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAnswerParamsId(::std::string::String);
+impl ::std::ops::Deref for QuestionAnswerParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAnswerParamsId> for ::std::string::String {
+    fn from(value: QuestionAnswerParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAnswerParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^q_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^q_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAnswerParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAnswerParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAnswerParamsNote`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAnswerParamsNote(::std::string::String);
+impl ::std::ops::Deref for QuestionAnswerParamsNote {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAnswerParamsNote> for ::std::string::String {
+    fn from(value: QuestionAnswerParamsNote) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAnswerParamsNote {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAnswerParamsNote {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAnswerParamsNote {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "answerType",
+///    "blocks",
+///    "text"
+///  ],
+///  "properties": {
+///    "answerType": {
+///      "type": "string",
+///      "enum": [
+///        "single",
+///        "multi",
+///        "text",
+///        "yes_no",
+///        "approve_revise"
+///      ]
+///    },
+///    "artifact": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "attempt": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "blocks": {
+///      "type": "string",
+///      "enum": [
+///        "step",
+///        "branch",
+///        "nothing"
+///      ]
+///    },
+///    "branch": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "options": {
+///      "type": "array",
+///      "items": {
+///        "type": "object",
+///        "required": [
+///          "value"
+///        ],
+///        "properties": {
+///          "note": {
+///            "type": "string",
+///            "maxLength": 500
+///          },
+///          "value": {
+///            "type": "string",
+///            "minLength": 1
+///          }
+///        },
+///        "additionalProperties": false
+///      },
+///      "maxItems": 12
+///    },
+///    "recommended": {
+///      "type": "string",
+///      "minLength": 1
+///    },
+///    "runId": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    },
+///    "stepId": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    },
+///    "text": {
+///      "type": "string",
+///      "maxLength": 1000,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionAskParams {
+    #[serde(rename = "answerType")]
+    pub answer_type: QuestionAskParamsAnswerType,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub artifact: ::std::option::Option<QuestionAskParamsArtifact>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub attempt: ::std::option::Option<::std::num::NonZeroU64>,
+    pub blocks: QuestionAskParamsBlocks,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub branch: ::std::option::Option<QuestionAskParamsBranch>,
+    #[serde(default, skip_serializing_if = "::std::vec::Vec::is_empty")]
+    pub options: ::std::vec::Vec<QuestionAskParamsOptionsItem>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub recommended: ::std::option::Option<QuestionAskParamsRecommended>,
+    #[serde(
+        rename = "runId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub run_id: ::std::option::Option<QuestionAskParamsRunId>,
+    #[serde(
+        rename = "stepId",
+        default,
+        skip_serializing_if = "::std::option::Option::is_none"
+    )]
+    pub step_id: ::std::option::Option<QuestionAskParamsStepId>,
+    pub text: QuestionAskParamsText,
+}
+///`QuestionAskParamsAnswerType`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "single",
+///    "multi",
+///    "text",
+///    "yes_no",
+///    "approve_revise"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum QuestionAskParamsAnswerType {
+    #[serde(rename = "single")]
+    Single,
+    #[serde(rename = "multi")]
+    Multi,
+    #[serde(rename = "text")]
+    Text,
+    #[serde(rename = "yes_no")]
+    YesNo,
+    #[serde(rename = "approve_revise")]
+    ApproveRevise,
+}
+impl ::std::convert::From<&Self> for QuestionAskParamsAnswerType {
+    fn from(value: &QuestionAskParamsAnswerType) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for QuestionAskParamsAnswerType {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Single => f.write_str("single"),
+            Self::Multi => f.write_str("multi"),
+            Self::Text => f.write_str("text"),
+            Self::YesNo => f.write_str("yes_no"),
+            Self::ApproveRevise => f.write_str("approve_revise"),
+        }
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsAnswerType {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "single" => Ok(Self::Single),
+            "multi" => Ok(Self::Multi),
+            "text" => Ok(Self::Text),
+            "yes_no" => Ok(Self::YesNo),
+            "approve_revise" => Ok(Self::ApproveRevise),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsAnswerType {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`QuestionAskParamsArtifact`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsArtifact(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsArtifact {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsArtifact> for ::std::string::String {
+    fn from(value: QuestionAskParamsArtifact) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsArtifact {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsArtifact {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsArtifact {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsBlocks`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "step",
+///    "branch",
+///    "nothing"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum QuestionAskParamsBlocks {
+    #[serde(rename = "step")]
+    Step,
+    #[serde(rename = "branch")]
+    Branch,
+    #[serde(rename = "nothing")]
+    Nothing,
+}
+impl ::std::convert::From<&Self> for QuestionAskParamsBlocks {
+    fn from(value: &QuestionAskParamsBlocks) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for QuestionAskParamsBlocks {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Step => f.write_str("step"),
+            Self::Branch => f.write_str("branch"),
+            Self::Nothing => f.write_str("nothing"),
+        }
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsBlocks {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "step" => Ok(Self::Step),
+            "branch" => Ok(Self::Branch),
+            "nothing" => Ok(Self::Nothing),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsBlocks {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+///`QuestionAskParamsBranch`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsBranch(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsBranch {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsBranch> for ::std::string::String {
+    fn from(value: QuestionAskParamsBranch) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsBranch {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsBranch {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsBranch {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsOptionsItem`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "value"
+///  ],
+///  "properties": {
+///    "note": {
+///      "type": "string",
+///      "maxLength": 500
+///    },
+///    "value": {
+///      "type": "string",
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionAskParamsOptionsItem {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub note: ::std::option::Option<QuestionAskParamsOptionsItemNote>,
+    pub value: QuestionAskParamsOptionsItemValue,
+}
+///`QuestionAskParamsOptionsItemNote`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 500
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsOptionsItemNote(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsOptionsItemNote {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsOptionsItemNote> for ::std::string::String {
+    fn from(value: QuestionAskParamsOptionsItemNote) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsOptionsItemNote {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 500usize {
+            return Err("longer than 500 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsOptionsItemNote {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsOptionsItemNote {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsOptionsItemValue`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsOptionsItemValue(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsOptionsItemValue {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsOptionsItemValue> for ::std::string::String {
+    fn from(value: QuestionAskParamsOptionsItemValue) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsOptionsItemValue {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsOptionsItemValue {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsOptionsItemValue {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsRecommended`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsRecommended(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsRecommended {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsRecommended> for ::std::string::String {
+    fn from(value: QuestionAskParamsRecommended) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsRecommended {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsRecommended {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsRecommended {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsRunId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsRunId(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsRunId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsRunId> for ::std::string::String {
+    fn from(value: QuestionAskParamsRunId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsRunId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsRunId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsRunId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsStepId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsStepId(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsStepId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsStepId> for ::std::string::String {
+    fn from(value: QuestionAskParamsStepId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsStepId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsStepId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsStepId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionAskParamsText`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 1000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionAskParamsText(::std::string::String);
+impl ::std::ops::Deref for QuestionAskParamsText {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionAskParamsText> for ::std::string::String {
+    fn from(value: QuestionAskParamsText) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionAskParamsText {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 1000usize {
+            return Err("longer than 1000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionAskParamsText {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionAskParamsText {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionConvertPromptParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "maxLength": 128,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionConvertPromptParams {
+    pub id: QuestionConvertPromptParamsId,
+}
+///`QuestionConvertPromptParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 128,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionConvertPromptParamsId(::std::string::String);
+impl ::std::ops::Deref for QuestionConvertPromptParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionConvertPromptParamsId> for ::std::string::String {
+    fn from(value: QuestionConvertPromptParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionConvertPromptParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 128usize {
+            return Err("longer than 128 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionConvertPromptParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionConvertPromptParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionEscalateParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "expect_rev",
+///    "id",
+///    "reason",
+///    "suggested"
+///  ],
+///  "properties": {
+///    "expect_rev": {
+///      "type": "integer",
+///      "maximum": 9007199254740991.0,
+///      "exclusiveMinimum": 0.0
+///    },
+///    "id": {
+///      "type": "string",
+///      "pattern": "^q_[a-z2-7]{10}$"
+///    },
+///    "reason": {
+///      "type": "string",
+///      "maxLength": 4000,
+///      "minLength": 1
+///    },
+///    "suggested": {
+///      "type": "string",
+///      "maxLength": 4000,
+///      "minLength": 1
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionEscalateParams {
+    pub expect_rev: ::std::num::NonZeroU64,
+    pub id: QuestionEscalateParamsId,
+    pub reason: QuestionEscalateParamsReason,
+    pub suggested: QuestionEscalateParamsSuggested,
+}
+///`QuestionEscalateParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^q_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionEscalateParamsId(::std::string::String);
+impl ::std::ops::Deref for QuestionEscalateParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionEscalateParamsId> for ::std::string::String {
+    fn from(value: QuestionEscalateParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionEscalateParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^q_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^q_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionEscalateParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionEscalateParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionEscalateParamsReason`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionEscalateParamsReason(::std::string::String);
+impl ::std::ops::Deref for QuestionEscalateParamsReason {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionEscalateParamsReason> for ::std::string::String {
+    fn from(value: QuestionEscalateParamsReason) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionEscalateParamsReason {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionEscalateParamsReason {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionEscalateParamsReason {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionEscalateParamsSuggested`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "maxLength": 4000,
+///  "minLength": 1
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionEscalateParamsSuggested(::std::string::String);
+impl ::std::ops::Deref for QuestionEscalateParamsSuggested {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionEscalateParamsSuggested> for ::std::string::String {
+    fn from(value: QuestionEscalateParamsSuggested) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionEscalateParamsSuggested {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        if value.chars().count() > 4000usize {
+            return Err("longer than 4000 characters".into());
+        }
+        if value.chars().count() < 1usize {
+            return Err("shorter than 1 characters".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionEscalateParamsSuggested {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionEscalateParamsSuggested {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionGetParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "required": [
+///    "id"
+///  ],
+///  "properties": {
+///    "id": {
+///      "type": "string",
+///      "pattern": "^q_[a-z2-7]{10}$"
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionGetParams {
+    pub id: QuestionGetParamsId,
+}
+///`QuestionGetParamsId`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^q_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionGetParamsId(::std::string::String);
+impl ::std::ops::Deref for QuestionGetParamsId {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionGetParamsId> for ::std::string::String {
+    fn from(value: QuestionGetParamsId) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionGetParamsId {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^q_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^q_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionGetParamsId {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionGetParamsId {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionListParams`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "object",
+///  "properties": {
+///    "run": {
+///      "type": "string",
+///      "pattern": "^run_[a-z2-7]{10}$"
+///    },
+///    "status": {
+///      "type": "string",
+///      "enum": [
+///        "open",
+///        "answered",
+///        "withdrawn"
+///      ]
+///    }
+///  },
+///  "additionalProperties": false
+///}
+/// ```
+/// </details>
+#[derive(::serde::Deserialize, ::serde::Serialize, Clone, Debug)]
+#[serde(deny_unknown_fields)]
+pub struct QuestionListParams {
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub run: ::std::option::Option<QuestionListParamsRun>,
+    #[serde(default, skip_serializing_if = "::std::option::Option::is_none")]
+    pub status: ::std::option::Option<QuestionListParamsStatus>,
+}
+impl ::std::default::Default for QuestionListParams {
+    fn default() -> Self {
+        Self {
+            run: Default::default(),
+            status: Default::default(),
+        }
+    }
+}
+///`QuestionListParamsRun`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "pattern": "^run_[a-z2-7]{10}$"
+///}
+/// ```
+/// </details>
+#[derive(::serde::Serialize, Clone, Debug, Eq, Hash, Ord, PartialEq, PartialOrd)]
+#[serde(transparent)]
+pub struct QuestionListParamsRun(::std::string::String);
+impl ::std::ops::Deref for QuestionListParamsRun {
+    type Target = ::std::string::String;
+    fn deref(&self) -> &::std::string::String {
+        &self.0
+    }
+}
+impl ::std::convert::From<QuestionListParamsRun> for ::std::string::String {
+    fn from(value: QuestionListParamsRun) -> Self {
+        value.0
+    }
+}
+impl ::std::str::FromStr for QuestionListParamsRun {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        static PATTERN: ::std::sync::LazyLock<::regress::Regex> =
+            ::std::sync::LazyLock::new(|| ::regress::Regex::new("^run_[a-z2-7]{10}$").unwrap());
+        if PATTERN.find(value).is_none() {
+            return Err("doesn't match pattern \"^run_[a-z2-7]{10}$\"".into());
+        }
+        Ok(Self(value.to_string()))
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionListParamsRun {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
+impl<'de> ::serde::Deserialize<'de> for QuestionListParamsRun {
+    fn deserialize<D>(deserializer: D) -> ::std::result::Result<Self, D::Error>
+    where
+        D: ::serde::Deserializer<'de>,
+    {
+        ::std::string::String::deserialize(deserializer)?
+            .parse()
+            .map_err(|e: self::error::ConversionError| {
+                <D::Error as ::serde::de::Error>::custom(e.to_string())
+            })
+    }
+}
+///`QuestionListParamsStatus`
+///
+/// <details><summary>JSON schema</summary>
+///
+/// ```json
+///{
+///  "type": "string",
+///  "enum": [
+///    "open",
+///    "answered",
+///    "withdrawn"
+///  ]
+///}
+/// ```
+/// </details>
+#[derive(
+    ::serde::Deserialize,
+    ::serde::Serialize,
+    Clone,
+    Copy,
+    Debug,
+    Eq,
+    Hash,
+    Ord,
+    PartialEq,
+    PartialOrd,
+)]
+pub enum QuestionListParamsStatus {
+    #[serde(rename = "open")]
+    Open,
+    #[serde(rename = "answered")]
+    Answered,
+    #[serde(rename = "withdrawn")]
+    Withdrawn,
+}
+impl ::std::convert::From<&Self> for QuestionListParamsStatus {
+    fn from(value: &QuestionListParamsStatus) -> Self {
+        value.clone()
+    }
+}
+impl ::std::fmt::Display for QuestionListParamsStatus {
+    fn fmt(&self, f: &mut ::std::fmt::Formatter<'_>) -> ::std::fmt::Result {
+        match *self {
+            Self::Open => f.write_str("open"),
+            Self::Answered => f.write_str("answered"),
+            Self::Withdrawn => f.write_str("withdrawn"),
+        }
+    }
+}
+impl ::std::str::FromStr for QuestionListParamsStatus {
+    type Err = self::error::ConversionError;
+    fn from_str(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        match value {
+            "open" => Ok(Self::Open),
+            "answered" => Ok(Self::Answered),
+            "withdrawn" => Ok(Self::Withdrawn),
+            _ => Err("invalid value".into()),
+        }
+    }
+}
+impl ::std::convert::TryFrom<&str> for QuestionListParamsStatus {
+    type Error = self::error::ConversionError;
+    fn try_from(value: &str) -> ::std::result::Result<Self, self::error::ConversionError> {
+        value.parse()
+    }
+}
 ///`RepoAddParams`
 ///
 /// <details><summary>JSON schema</summary>

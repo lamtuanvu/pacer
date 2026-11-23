@@ -8,7 +8,7 @@ import {buildAccounts} from "../src/api/read-model/capacity";
 import {rankExecutors} from "../src/engine/rank";
 import {writeEndpointState} from "../src/endpoints/state";
 import { fakeCtx, cleanupUsageFixtures } from "./usage-plugin-fixtures";
-import {accountUsageFreshness} from "../src/view-model/capacity";
+import {usageView} from "../src/view-model/usage";
 import {accountEvidenceScope, recordExecutionEvidence} from "../src/core/evidence";
 
 import type { RunFn } from "../src/types";
@@ -94,8 +94,9 @@ test("failed refresh of uncapped spend retains its historical label and observat
   const row = buildAccounts(st, s, ctx).find(a => a.name === "openrouter")!;
   expect(row.spendUsdWeek).toBe(46);
   expect(row.stale).toBe(true);
-  expect(accountUsageFreshness(row)).toBe("Reading 2m old");
-  expect(accountUsageFreshness({...row, eligibility: undefined, capturedAt: null})).toContain("Stale reading · check account usage");
+  // The one record carries the observation age (ADR 0030); the view quotes it.
+  expect(usageView(row.usageState, ctx.now).freshness).toBe("Reading 2m old · refresh");
+  expect(usageView({...row.usageState!, observedAt: null}, ctx.now).freshness).toBe("Reading of unknown age · refresh");
   expect(st.providers[1]!.eligibility?.state).toBe("uncertain");
 });
 

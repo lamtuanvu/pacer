@@ -331,27 +331,8 @@ fn eligibility_detail(decision: &Value) -> String {
         .as_array()
         .into_iter()
         .flatten()
-        .map(|reason| match reason["code"].as_str().unwrap_or("") {
-            "budget_exhausted" => "Budget exhausted; paid execution is not allowed",
-            "budget_missing" => "No budget observation is available",
-            "budget_expired_or_unknown" => "Budget evidence has expired or is incomplete",
-            "evidence_conflicting" => "Current observations disagree",
-            "evidence_missing" => "Execution evidence is missing",
-            "availability_unknown" => "Executor availability is not confirmed",
-            "subscription_missing" => "No active subscription",
-            "subscription_failed" => "Subscription is unavailable",
-            "subscription_response_invalid" => "Subscription status could not be read",
-            "authentication_failed" | "signed_out" => "Sign-in is required",
-            "refresh_failed" => "Could not refresh execution evidence",
-            "disabled" => "Disabled",
-            "not_installed" => "Not installed",
-            "blocked" => "Blocked by you",
-            "broken" => "Executor is not working",
-            "unavailable" => "Executor is unavailable",
-            "planner" => "Reserved for planning",
-            "not_configured" => "Not configured",
-            "quota_failure" => "The executor reported a quota limit",
-            _ => "Execution evidence needs attention",
+        .map(|reason| {
+            pacer_engine::words::eligibility_reason(reason["code"].as_str().unwrap_or(""))
         })
         .collect::<Vec<_>>()
         .join("; ")
@@ -402,10 +383,8 @@ pub async fn runner_list(
     let rows = executor_ids(&strategy)
         .into_iter()
         .map(|id| {
-            let eligibility = providers
-                .iter()
-                .find(|p| p["id"] == id.as_str())
-                .and_then(|p| p.get("eligibility"));
+            let provider = providers.iter().find(|p| p["id"] == id.as_str());
+            let eligibility = provider.and_then(|p| p.get("eligibility"));
             if let Some(block) = blocked.get(&id) {
                 return row(
                     &id,
@@ -426,16 +405,33 @@ pub async fn runner_list(
             }
             match eligibility {
                 Some(e) if e["state"] == "ineligible" => {
-                    let state = if e["budget"] == "exhausted" {
-                        "exhausted"
-                    } else {
-                        "broken"
-                    };
+                    let quota = e["reasons"]
+                        .as_array()
+                        .is_some_and(|r| r.iter().any(|r| r["code"] == "budget_exhausted"));
+                    // The limit lasts until its last exhausted window resets, not the earliest fact deadline.
+                    let reset = provider
+                        .and_then(|p| p["windows"].as_array())
+                        .into_iter()
+                        .flatten()
+                        .filter(|w| {
+                            w["stale"] != true
+                                && w["usedPct"]
+                                    .as_f64()
+                                    .is_some_and(|u| u >= pacer_engine::EXHAUSTED_PCT)
+                        })
+                        .map(|w| &w["resetsAt"])
+                        .filter(|v| v.is_number())
+                        .max_by(|a, b| {
+                            a.as_f64()
+                                .unwrap_or(0.0)
+                                .total_cmp(&b.as_f64().unwrap_or(0.0))
+                        });
+                    let until = if quota { reset } else { None }.or(e.get("validUntil"));
                     row(
                         &id,
                         Some(e),
-                        state,
-                        e.get("validUntil"),
+                        if quota { "exhausted" } else { "broken" },
+                        until,
                         json!(eligibility_detail(e)),
                     )
                 }

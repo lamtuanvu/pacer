@@ -26,6 +26,8 @@ pub struct Host {
     pending: Arc<Mutex<Pending>>,
     next: Arc<AtomicU64>,
     closed: Arc<AtomicBool>,
+    /// Token from the owning host call's `_meta.capabilityCall`, echoed on capability requests.
+    capability_call: Option<String>,
 }
 
 fn unavailable() -> PluginError {
@@ -39,19 +41,39 @@ impl Host {
             pending: Arc::new(Mutex::new(HashMap::new())),
             next: Arc::new(AtomicU64::new(1)),
             closed: Arc::new(AtomicBool::new(false)),
+            capability_call: None,
+        }
+    }
+
+    /// Host scoped to one inbound plugin call, echoing that call's capability token.
+    pub(crate) fn for_call(&self, capability_call: Option<String>) -> Self {
+        Self {
+            out: self.out.clone(),
+            pending: self.pending.clone(),
+            next: self.next.clone(),
+            closed: self.closed.clone(),
+            capability_call,
         }
     }
 
     pub async fn call(&self, method: &str, params: Value) -> Result<Value, PluginError> {
         let (tx, rx) = oneshot::channel();
         let id = format!("p{}", self.next.fetch_add(1, Ordering::Relaxed));
+        let meta = self
+            .capability_call
+            .as_ref()
+            .map(|token| json!({ "capabilityCall": token }));
         {
             let mut pending = self.pending.lock().await;
             if self.closed.load(Ordering::Acquire) {
                 return Err(unavailable());
             }
             pending.insert(id.clone(), tx);
-            if self.out.send(wire::request(&id, method, params)).is_err() {
+            if self
+                .out
+                .send(wire::request_with_meta(&id, method, params, meta.as_ref()))
+                .is_err()
+            {
                 pending.remove(&id);
                 return Err(unavailable());
             }

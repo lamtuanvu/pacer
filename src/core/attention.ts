@@ -2,6 +2,7 @@ import type { Ctx } from "../types";
 import { loadStrategy } from "../config/strategy";
 import { computeStatus } from "../engine/status";
 import { listActiveAndRecentTasks } from "../tasks/store";
+import { isEngineOwnedKind } from "../tasks/engine-owned";
 import { taskRecordStatus } from "../tasks/api";
 import { snapshotTasks } from "../api/read-model/tasks";
 import { buildExecutors, buildAccounts, buildPlanner } from "../api/read-model/capacity";
@@ -11,18 +12,34 @@ import { deriveTaskItems as deriveItems } from "./task-attention";
 import { dismissItem, snoozeItem } from "../attention/store";
 import { dismiss as dismissTasks } from "./tasks";
 import { discoveryRuleInput } from "../discovery/prompts";
+import {
+  deriveWorkflowAttention,
+  openBlockingPersonQuestionAskerIds,
+  suppressOrdinaryQuestionItems,
+} from "../workflow/attention";
+
+/** Ordinary attention never surfaces engine-owned tasks (D2.12). */
+function attentionTasks(ctx: Ctx) {
+  return listActiveAndRecentTasks(ctx).filter(t => !isEngineOwnedKind(t.kind));
+}
+
+function mergeAttention(ctx: Ctx, ordinary: ReturnType<typeof deriveItems>) {
+  const filtered = suppressOrdinaryQuestionItems(ordinary, openBlockingPersonQuestionAskerIds(ctx));
+  return [...filtered, ...deriveWorkflowAttention(ctx)];
+}
 
 async function raisedItems(ctx: Ctx) {
   let strategy;
   try { strategy=loadStrategy(ctx); } catch {
     const context=await readModelContext(ctx);
-    return deriveItems({now:ctx.now,tasks:snapshotTasks(ctx,listActiveAndRecentTasks(ctx).map(t=>taskRecordStatus(ctx,t))),executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null,discovery:discoveryRuleInput(ctx,ctx.now)});
+    const tasks = snapshotTasks(ctx, attentionTasks(ctx).map(t => taskRecordStatus(ctx, t)));
+    return mergeAttention(ctx, deriveItems({now:ctx.now,tasks,executors:[],accounts:[],planner:null,setup:buildSetup(context.setup),update:null,retryTarget:()=>null,discovery:discoveryRuleInput(ctx,ctx.now)}));
   }
   const [status,context]=await Promise.all([computeStatus({...ctx,readOnly:true},strategy),readModelContext(ctx)]);
-  const tasks=snapshotTasks(ctx,listActiveAndRecentTasks(ctx).map(t=>taskRecordStatus(ctx,t)));
+  const tasks=snapshotTasks(ctx,attentionTasks(ctx).map(t=>taskRecordStatus(ctx,t)));
   const executors=buildExecutors(status,strategy,tasks,ctx.now);
   const accounts=buildAccounts(status,strategy,ctx);
-  return deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors),discovery:discoveryRuleInput(ctx,ctx.now)});
+  return mergeAttention(ctx, deriveItems({now:ctx.now,tasks,executors,accounts,planner:buildPlanner(status),setup:buildSetup(context.setup),update:null,retryTarget:t=>retryTargetFor(t,strategy,executors),discovery:discoveryRuleInput(ctx,ctx.now)}));
 }
 export async function dismiss(ctx: Ctx, id: string) {
   let pending: ReturnType<typeof dismissTasks> | undefined;

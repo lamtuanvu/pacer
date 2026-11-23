@@ -82,7 +82,13 @@ class PairedSecretsFrameTests(unittest.TestCase):
         root.settimeout(15)
         self.assertEqual(root.recv(1), b'A')
         if mode != 'queued':
-            root.sendall(FRAME + b'S')
+            try:
+                root.sendall(FRAME + b'S')
+            except (BrokenPipeError, ConnectionResetError):
+                # An early-reading Core fails and exits right after its ack, so it may close
+                # its end before this write; its result below is what the test checks.
+                if mode != 'early':
+                    raise
         out, _ = child.communicate(timeout=30)
         self.assertEqual(child.returncode, 0)
         return json.loads(out.decode().strip().splitlines()[-1])

@@ -36,11 +36,11 @@ function run(script: string, cwd: string, env: Record<string, string>) {
 test("desktop release builds every OS and architecture from the matching CLI artifact", () => {
   const desktop = jobs.desktop;
   expect(desktop).toBeDefined();
-  expect(desktop.needs).toEqual(["verify", "build"]);
+  expect(desktop.needs).toEqual(["verify", "build-linux"]);
   expect(desktop.strategy?.matrix.include).toEqual([
     // macOS ships only the signed, auto-updating app from desktop-build.
-    { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
-    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-ubuntu-latest", bundles: "appimage,deb" },
+    { runner: "ubuntu-24.04", target: "x86_64-unknown-linux-gnu", platform: "linux-x64", cli_artifact: "binaries-linux-x64", bundles: "appimage,deb" },
+    { runner: "ubuntu-24.04-arm", target: "aarch64-unknown-linux-gnu", platform: "linux-arm64", cli_artifact: "binaries-linux-arm64", bundles: "appimage,deb" },
   ]);
   const download = desktop.steps.find(s => s.uses?.startsWith("actions/download-artifact@"));
   expect(download?.with).toMatchObject({ name: "${{ matrix.cli_artifact }}", path: "dist/release" });
@@ -167,44 +167,57 @@ test("Homebrew configuration reports missing credentials and permits credential-
   expect(readFileSync(output, "utf8")).toBe("enabled=true\n");
 });
 
-test("release publication is gated by both artifact M1 builds", () => {
-  const build = jobs.build;
-  expect(build.needs).toBe("verify");
-  expect((build as any).if).toBeUndefined();
-  expect((build as any).strategy["fail-fast"]).toBe(false);
-  expect((build as any)["continue-on-error"]).toBeUndefined();
-  expect(build.strategy?.matrix.include).toEqual([
-    { runner: "macos-latest", image: "macos-latest", targets: "darwin-arm64,darwin-x64" },
-    { runner: "ubuntu-latest", image: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
+test("the release builds and publishes; validation runs post-merge on main", () => {
+  expect(jobs.build).toBeUndefined();
+  const macos = jobs["build-macos"];
+  const linux = jobs["build-linux"];
+  for (const build of [macos, linux]) {
+    expect(build.needs).toBe("verify");
+    expect((build as any).if).toBeUndefined();
+    expect((build as any).strategy["fail-fast"]).toBe(false);
+    expect((build as any)["continue-on-error"]).toBeUndefined();
+    expect(build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")).toBeUndefined();
+    expect(build.steps.find(s => s.name === "Smoke test native binary")).toBeDefined();
+    // CLI legs are off the critical path; only desktop caches are warmed (10GB cache budget).
+    expect(build.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"))).toBeUndefined();
+    const upload = build.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
+    expect(upload?.with).toMatchObject({ name: "binaries-${{ matrix.os }}-${{ matrix.arch }}", path: "dist/release/*/pacer-*" });
+    const smoke = build.steps.find(s => s.name === "Smoke test native binary")?.run ?? "";
+    expect(smoke).toContain('os="${{ matrix.os }}"');
+    expect(smoke).toContain('arch="${{ matrix.arch }}"');
+    expect(smoke).not.toContain("uname");
+  }
+  expect(macos.strategy?.matrix.include).toEqual([
+    { os: "darwin", arch: "arm64", target: "darwin-arm64", image: "macos-15", rust_target: "aarch64-apple-darwin" },
+    { os: "darwin", arch: "x64", target: "darwin-x64", image: "macos-15", rust_target: "x86_64-apple-darwin", smoke_prefix: "arch -x86_64" },
   ]);
-  const gate = build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
-  expect(gate.if).toBeUndefined();
-  expect((gate as any)["continue-on-error"]).toBeUndefined();
-  expect(gate.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
-  const suite = jobs["ci-suite"]!;
-  expect(suite.needs).toBe("verify");
-  expect((suite as any).if).toBeUndefined();
-  expect((suite as any).permissions).toEqual({ contents: "read", actions: "write" });
-  const evidence = suite.steps.find(s => s.name === "Require CI's Linux and macOS test gates for this commit")!;
-  expect(evidence.if).toBeUndefined();
-  expect((evidence as any)["continue-on-error"]).toBeUndefined();
-  expect(evidence.run).toBe("bun scripts/release/ci-evidence.ts");
-  expect(evidence.env).toMatchObject({
-    // A nightly's CI evidence belongs to the main commit under the stamp, and is never dispatched.
-    CI_SHA: "${{ needs.verify.outputs.channel == 'nightly' && needs.verify.outputs.parent || github.event.pull_request.head.sha || github.sha }}",
-    CI_REF: "${{ github.head_ref || github.ref_name }}",
-    CI_NO_DISPATCH: "${{ needs.verify.outputs.channel == 'nightly' && '1' || '' }}",
-  });
-  expect(jobs.publish.needs).toEqual(["verify", "build", "ci-suite", "desktop"]);
+  expect(linux.strategy?.matrix.include).toEqual([
+    { os: "linux", arch: "x64", target: "linux-x64", image: "ubuntu-24.04", rust_target: "x86_64-unknown-linux-musl" },
+    { os: "linux", arch: "arm64", target: "linux-arm64", image: "ubuntu-24.04-arm", rust_target: "aarch64-unknown-linux-musl" },
+  ]);
+  expect(macos.steps.find(s => s.name === "Install Linux cross-build tools")).toBeUndefined();
+  expect(linux.steps.find(s => s.name === "Install Linux cross-build tools")?.run).toContain("cargo-zigbuild");
+  expect(macos.steps.find(s => s.name === "Smoke test native binary")?.run).toContain("${{ matrix.smoke_prefix }}");
+  // Amendment 0.24.0 (proposed): the release only builds and publishes; no M1 gate, no CI-suite gate.
+  expect(jobs["ci-suite"]).toBeUndefined();
+  expect(workflow).not.toContain("gate:m1");
+  expect(workflow).not.toContain("ci-evidence");
+  expect(jobs.publish.needs).toEqual(["verify", "build-macos", "build-linux", "desktop"]);
   for (const name of ["npm", "homebrew", "crates", "desktop-publish"]) {
     expect(jobs[name].needs).toContain("publish");
     if (name === "npm" || name === "homebrew") expect((jobs[name] as any).if).toContain("needs.publish.result == 'success'");
     else expect((jobs[name] as any).if ?? "").not.toContain("always()");
   }
+  for (const job of ["publish", "npm", "homebrew"]) {
+    const download = jobs[job].steps.find(s => s.with?.pattern === "binaries-*");
+    expect(download?.with).toMatchObject({ "merge-multiple": true, path: "dist/release" });
+  }
   const verify = jobs.verify.steps.map(s => s.run ?? "").join("\n");
   expect(verify).toContain("bun run typecheck");
-  expect(verify).toContain("cargo test -p pacer-plugin --features testing --locked");
+  // CI's Rust job already runs `cargo test -p pacer-plugin --features testing`; verify no longer repeats it.
+  expect(verify).not.toContain("cargo test");
   expect(verify).not.toContain("bun run test");
+  expect(jobs.verify.steps.some(s => s.uses?.startsWith("dtolnay/rust-toolchain@"))).toBe(false);
   const source = readFileSync("scripts/gate/m1.ts", "utf8");
   expect(source).toContain('validateM1Artifacts(dir)');
   expect(source).toContain('[process.execPath, "run", "test", ...files]');
@@ -213,12 +226,51 @@ test("release publication is gated by both artifact M1 builds", () => {
   expect(source).toContain('return failures ? 1 : 0');
 });
 
-test("M1 gate failure stops the release build despite log capture", () => {
+test("the M1 gate runs post-merge on main in CI instead of the release", () => {
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
+    on: Record<string, unknown>;
+    jobs: Record<string, WorkflowJob & { "timeout-minutes"?: number; name?: string }>;
+  };
+  // ci.yml's push trigger is already main-only; the gate never runs on PRs, tags or dispatches.
+  expect(ci.on.push).toEqual({ branches: ["main"] });
+  const gate = ci.jobs["m1-gate"]!;
+  expect(gate.name).toBe("M1 gate against built release artifacts (post-merge)");
+  expect(gate.if).toBe("${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}");
+  expect(gate["timeout-minutes"]).toBeLessThanOrEqual(45);
+  expect(gate.strategy?.matrix.include).toEqual([
+    { runner: "macos-latest", targets: "darwin-arm64,darwin-x64" },
+    { runner: "ubuntu-24.04", targets: "linux-x64,linux-arm64" },
+  ]);
+  // Shared release-build recipe steps (matrix and cache stay paired; release.yml uses per-target jobs).
+  const names = gate.steps.map(s => s.name ?? s.uses ?? s.run);
+  for (const step of ["Install dependencies", "Install Rust release targets", "Install Linux cross-build tools", "Build runner targets", "Build the Rust fixture plugin", "M1 gate checks against built host release artifacts"]) {
+    expect(names).toContain(step);
+  }
+  const cache = gate.steps.find(s => s.uses?.startsWith("Swatinem/rust-cache@"));
+  expect(cache?.with).toMatchObject({
+    "shared-key": "release-pair-${{ matrix.runner }}",
+    "save-if": "${{ github.ref == 'refs/heads/main' }}",
+  });
+  // Every install/download step is bounded at 10 minutes.
+  const installs = gate.steps.filter(s => s.run && /bun install|rustup target add|pip" install|cargo build --locked -p pacer-fixtures/.test(s.run));
+  expect(installs).toHaveLength(4);
+  for (const install of installs) {
+    expect((install as any)["timeout-minutes"]).toBeLessThanOrEqual(10);
+  }
+  const run = gate.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
+  expect(run.run).toContain('bun run gate:m1 --release-dir "dist/release/$VERSION" --bun-suite skip');
+  const upload = gate.steps.find(s => s.uses?.startsWith("actions/upload-artifact@"));
+  expect(upload?.if).toBe("always()");
+  expect(upload?.with).toMatchObject({ name: "m1-gate-post-merge-${{ matrix.runner }}", path: "${{ runner.temp }}/pacer-m1-gate.log" });
+});
+
+test("a failed M1 gate fails the post-merge job despite log capture", () => {
   const root = tmpDir(), bin = join(root, "bin");
   mkdirSync(bin);
   writeFileSync(join(bin, "bun"), "#!/bin/sh\nexit 7\n", { mode: 0o755 });
-  const gate = jobs.build.steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
-  const result = run(gate.run!, root, { PATH: `${bin}:${process.env.PATH}`, VERSION: "1.2.3", RUNNER_TEMP: root });
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as { jobs: Record<string, WorkflowJob> };
+  const gateStep = ci.jobs["m1-gate"].steps.find(s => s.name === "M1 gate checks against built host release artifacts")!;
+  const result = run(gateStep.run!, root, { PATH: `${bin}:${process.env.PATH}`, RUNNER_TEMP: root });
   expect(result.exitCode).not.toBe(0);
 });
 
@@ -257,7 +309,7 @@ function stamp(root: string, version: string, extra = false): string {
 
 const outputs = (file: string) => Object.fromEntries(readFileSync(file, "utf8").trim().split("\n").filter(Boolean).map(line => line.split("=", 2) as [string, string]));
 
-test("verify classifies the channel and checks that a nightly stamp only changes version files", () => {
+test("verify classifies the channel and checks that a nightly stamp only changes version files", { timeout: 20_000 }, () => {
   const verify = jobs.verify;
   expect(verify.outputs).toMatchObject({ channel: "${{ steps.channel.outputs.channel }}", parent: "${{ steps.channel.outputs.parent }}" });
   // check-diff reads the stamp commit's parent.
@@ -372,6 +424,73 @@ test("a published nightly closes every open nightly-failure issue", () => {
   const calls = readFileSync(log, "utf8").trim().split("\n");
   expect(calls[0]).toContain("issue list --repo fixture/repo --label nightly-failure --state open");
   expect(calls.slice(1)).toEqual([7, 9].map(n => `issue close ${n} --repo fixture/repo --comment Nightly 0.16.0-nightly.202611171700 published: https://github.example/fixture/repo/actions/runs/42`));
+});
+
+test("release Rust caches restore shared keys warmed on main; PR CI does not save Rust caches", () => {
+  const warmerRaw = readFileSync(resolve(".github/workflows/release-cache.yml"), "utf8");
+  expect(warmerRaw).not.toMatch(/secrets\./);
+  const warmer = Bun.YAML.parse(warmerRaw) as {
+    on: { push?: { branches?: string[]; paths?: string[] }; schedule?: unknown[]; workflow_dispatch?: unknown };
+    permissions: Record<string, string>;
+    jobs: Record<string, WorkflowJob & { "runs-on"?: string }>;
+  };
+  expect(warmer.permissions).toEqual({ contents: "read" });
+  expect(warmer.on.push?.branches).toEqual(["main"]);
+  expect(warmer.on.schedule).toBeDefined();
+  expect(warmer.on.workflow_dispatch).toBeDefined();
+  expect(Object.keys(warmer.on).sort()).toEqual(["push", "schedule", "workflow_dispatch"]);
+
+  const warmerCaches = (jobName: string) =>
+    (warmer.jobs[jobName].steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@")).map(s => s.with) ?? []);
+  const releaseCaches = (jobName: string) =>
+    (jobs[jobName].steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@")).map(s => s.with) ?? []);
+
+  for (const job of ["build-macos", "build-linux"] as const) {
+    expect(releaseCaches(job)).toEqual([]);
+    expect(warmer.jobs[job]).toBeUndefined();
+  }
+  expect(Object.keys(warmer.jobs).sort()).toEqual(["desktop", "desktop-build"]);
+
+  const desktopRelease = releaseCaches("desktop");
+  expect(desktopRelease).toHaveLength(1);
+  expect(desktopRelease[0]).toMatchObject({
+    "shared-key": "release-desktop-${{ matrix.target }}",
+    "save-if": false,
+  });
+  expect(String(desktopRelease[0]?.workspaces ?? "")).toContain("desktop/src-tauri -> target");
+  expect(warmerCaches("desktop")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
+  // tauri-build refuses to compile until the Linux externalBin sidecars exist.
+  const linuxWarm = warmer.jobs.desktop.steps.find(s => s.name === "Warm desktop Linux Rust compilation")?.run ?? "";
+  for (const name of ["pacer", "pacer-core", "pacer-assistant-pacer"]) expect(linuxWarm).toContain(name);
+  expect(linuxWarm).toContain('"binaries/$name-$TARGET"');
+
+  const desktopBuildRelease = releaseCaches("desktop-build");
+  expect(desktopBuildRelease).toHaveLength(1);
+  expect(desktopBuildRelease[0]).toMatchObject({
+    "shared-key": "release-desktop-${{ matrix.target }}",
+    "save-if": false,
+  });
+  expect(String(desktopBuildRelease[0]?.workspaces ?? "")).toContain(". -> target");
+  expect(String(desktopBuildRelease[0]?.workspaces ?? "")).toContain("desktop/src-tauri -> target");
+  expect(warmerCaches("desktop-build")[0]).toMatchObject({ "shared-key": "release-desktop-${{ matrix.target }}" });
+
+  // Each release shared-key matches a warmer job that uses the same runner image and target.
+  for (const [job, warmerJob] of [["desktop", "desktop"], ["desktop-build", "desktop-build"]] as const) {
+    const key = releaseCaches(job)[0]?.["shared-key"];
+    expect(warmerCaches(warmerJob).some(c => c?.["shared-key"] === key)).toBe(true);
+    expect(jobs[job].strategy?.matrix.include?.map(e => e.image ?? e.runner)).toEqual(
+      warmer.jobs[warmerJob].strategy?.matrix.include?.map(e => e.image ?? e.runner),
+    );
+  }
+
+  const ci = Bun.YAML.parse(readFileSync(resolve(".github/workflows/ci.yml"), "utf8")) as {
+    jobs: Record<string, WorkflowJob>;
+  };
+  for (const job of Object.values(ci.jobs)) {
+    for (const step of job.steps.filter(s => s.uses?.startsWith("Swatinem/rust-cache@"))) {
+      expect(step.with?.["save-if"]).toBe("${{ github.ref == 'refs/heads/main' }}");
+    }
+  }
 });
 
 test("a failed required job of a nightly tag opens or comments on the nightly-failure issue", () => {

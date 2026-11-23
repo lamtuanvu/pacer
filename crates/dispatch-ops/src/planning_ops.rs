@@ -159,7 +159,7 @@ fn schedule_path(ctx: &Ctx) -> PathBuf {
 /// `readScheduleState` as consent and attempts, or `None` when the file must stay
 /// with TypeScript: unreadable, text `serde_json` rejects, or a `consent` that the
 /// object spread would coerce.
-fn read_schedule(ctx: &Ctx) -> Option<(Object, Value)> {
+pub(crate) fn read_schedule(ctx: &Ctx) -> Option<(Object, Value)> {
     let bytes = match std::fs::read(schedule_path(ctx)) {
         Ok(bytes) => bytes,
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
