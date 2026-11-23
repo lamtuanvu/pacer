@@ -196,6 +196,15 @@ export function completeWakeups(ctx: Ctx, turnId: string): void {
 
 /** Whether the underlying decision for a wake key is still open after a done turn. */
 export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, ref: string): boolean {
+  // Phase 4 executor/orchestrator questions use the question id as the wake ref.
+  if (cause === "question" && ref.startsWith("q_")) {
+    const row = workflowDatabase(ctx).query<{ status: string; answerer: string; run_id: string }, [string]>(
+      "SELECT status, answerer, run_id FROM workflow_questions WHERE id = ?",
+    ).get(ref);
+    if (!row) return false;
+    if (rootRunId(ctx, row.run_id) !== rootRunId(ctx, runId) && row.run_id !== runId) return false;
+    return row.status === "open" && row.answerer === "orchestrator";
+  }
   const parsed = parseWakeRef(ref);
   if (!parsed) return false;
   const { stepId, attempt, branch, runId: owningRunId } = parsed;
@@ -246,7 +255,20 @@ export function wakeCauseStillOpen(ctx: Ctx, runId: string, cause: WakeCause, re
       return false;
     }
     if (cause === "question") {
-      return step.status === "waiting";
+      if (step.status !== "waiting") return false;
+      // Human-step / generate auto wakes use stepWakeRef. After escalate the open
+      // question's answerer is the person — do not keep the orchestrator cause open.
+      const openHuman = workflowDatabase(ctx).query<
+        { answerer: string },
+        [string, string, number]
+      >(
+        `SELECT answerer FROM workflow_questions
+         WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+           AND asker_kind = 'human_step'
+         ORDER BY created_at DESC, id DESC LIMIT 1`,
+      ).get(id, stepId, attempt);
+      if (openHuman) return openHuman.answerer === "orchestrator";
+      return true;
     }
     if (cause === "replan") {
       if (step.status !== "waiting") return false;
@@ -570,6 +592,15 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
       if (!stepDef) continue;
       if (step.status === "waiting" && stepDef.type === "human") {
         if (!canAutoDecide(rootRun, step.stepId, stepDef)) continue;
+        // Prefer the open question row's answerer: escalate flips it to person while
+        // the step stays waiting; do not recreate the orchestrator wake.
+        const openHuman = db.query<{ answerer: string }, [string, string, number]>(
+          `SELECT answerer FROM workflow_questions
+           WHERE run_id = ? AND step_id = ? AND attempt = ? AND status = 'open'
+             AND asker_kind = 'human_step'
+           ORDER BY created_at DESC, id DESC LIMIT 1`,
+        ).get(run.id, step.stepId, step.attempt);
+        if (openHuman && openHuman.answerer !== "orchestrator") continue;
         const ref = stepWakeRef(run.id, step.stepId, step.attempt, step.branch);
         if (hasOpenWakeup(ctx, root, "question", ref)) continue;
         push(root, "question", ref, step.startedAt);
@@ -616,6 +647,24 @@ export function needsOrchestrator(ctx: Ctx): NeedsOrchestrator[] {
         push(root, "orchestrator_step", ref, step.startedAt);
       }
     }
+  }
+
+  // Phase 4: open executor/orchestrator questions waiting on the orchestrator
+  // (ref = question id). Human-step questions keep the stepWakeRef recovery path.
+  const openQs = db.query<{ id: string; run_id: string; created_at: number }, []>(`
+    SELECT q.id, q.run_id, q.created_at
+    FROM workflow_questions q
+    JOIN workflow_runs r ON r.id = q.run_id
+    WHERE q.status = 'open' AND q.answerer = 'orchestrator'
+      AND q.asker_kind IN ('executor', 'orchestrator')
+      AND r.status IN ('running', 'waiting')
+    ORDER BY q.created_at, q.id
+  `).all();
+  for (const q of openQs) {
+    const root = rootRunId(ctx, q.run_id);
+    if (liveTurn(ctx, root)) continue;
+    if (hasOpenWakeup(ctx, root, "question", q.id)) continue;
+    push(root, "question", q.id, q.created_at);
   }
   return out;
 }

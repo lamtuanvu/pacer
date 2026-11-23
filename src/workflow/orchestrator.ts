@@ -14,7 +14,7 @@ import { loadStrategy } from "../config/strategy";
 import { withoutPlannerSession } from "../exec/process";
 import { dataPreamble, renderPrompt, STEP_RESULT_INSTRUCTION } from "./template";
 import {
-  getDefinition, getRun, listDecisions, liveRuns, rootRunId, stepsOfRun, updateRun, workflowDatabase,
+  getDefinition, getQuestion, getRun, listDecisions, liveRuns, rootRunId, stepsOfRun, updateRun, workflowDatabase,
   type RunRow, type StepRow,
 } from "./store";
 import {
@@ -674,15 +674,55 @@ export function buildTurnPrompt(
 
   const wakeBlocks = wakeups.map(w => {
     const parsed = parseWakeRef(w.ref);
-    return fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify({
+    const payload: Record<string, unknown> = {
       cause: w.cause,
       ref: w.ref,
       runId: parsed?.runId ?? w.runId,
       createdAt: w.createdAt,
       byPerson: w.byPerson,
-    }, null, 2));
+    };
+    // Answered (or open) question wakes carry the record as DATA so the turn can act.
+    if (w.cause === "question" && w.ref.startsWith("q_")) {
+      const q = getQuestion(ctx, w.ref);
+      if (q) {
+        payload.question = {
+          id: q.id,
+          text: q.text,
+          answerType: q.answerType,
+          ...(q.options ? { options: q.options } : {}),
+          ...(q.recommended ? { recommended: q.recommended } : {}),
+          blocks: q.blocks,
+          answerer: q.answerer,
+          status: q.status,
+          rev: q.rev,
+          ...(q.answer !== undefined ? { answer: q.answer } : {}),
+          ...(q.suggested ? { suggested: q.suggested } : {}),
+        };
+      }
+    }
+    return fenceBlock(nonce, `wake-up ${w.cause} ${w.ref}`, JSON.stringify(payload, null, 2));
   });
   const openBlocks = openOrchestratorBlocks(ctx, nonce, run, wakeups, steps);
+  const questionBlocks = wakeups
+    .filter(w => w.cause === "question" && w.ref.startsWith("q_"))
+    .map(w => {
+      const q = getQuestion(ctx, w.ref);
+      if (!q) return null;
+      return fenceBlock(nonce, `question ${q.id}`, JSON.stringify({
+        id: q.id,
+        text: q.text,
+        answerType: q.answerType,
+        ...(q.options ? { options: q.options } : {}),
+        ...(q.recommended ? { recommended: q.recommended } : {}),
+        ...(q.suggested ? { suggested: q.suggested } : {}),
+        ...(q.answer !== undefined ? { answer: q.answer } : {}),
+        blocks: q.blocks,
+        answerer: q.answerer,
+        status: q.status,
+        rev: q.rev,
+      }, null, 2));
+    })
+    .filter((b): b is string => b !== null);
   const summary = fenceBlock(nonce, "run state", [
     `run: ${run.id}`,
     `workflow: ${run.workflow}@${run.version}`,
@@ -706,12 +746,15 @@ export function buildTurnPrompt(
     "  pacer step skip <owningRunId> <step>",
     "  pacer step retry <owningRunId> <step>",
     "  pacer step result --json '<object>'",
+    "  pacer answer q_<id> \"<answer>\" [--note <text>] [--expect-rev <n>]",
+    "  pacer question escalate <id> --suggested <text> --reason <text> [--expect-rev <n>]",
+    "  pacer ask --type <kind> [--option ...] [--recommend] [--blocks] [--artifact] --step <id> [--attempt <n>] \"<text>\"",
     "  pacer review <taskId> --accept|--reject  /  pacer stop <taskId>",
   ].join("\n");
   // Wake-ups and run-state first so the UTF-8 cap never drops decision triggers
   // or error=/task=/run= lines; open/brief are lower priority and may be omitted
   // whole (H3). openBlocks are instructions (N3); wake/brief/summary stay fenced.
-  return assemblePrompt(nonce, lead, [...wakeBlocks, summary, ...openBlocks, brief]);
+  return assemblePrompt(nonce, lead, [...wakeBlocks, ...questionBlocks, summary, ...openBlocks, brief]);
 }
 
 function resolvePlanner(ctx: Ctx, run: RunRow): string {

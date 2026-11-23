@@ -59,7 +59,8 @@ pub fn params(name: &str, value: &Value) -> Result<Value, &'static str> {
 }
 
 fn legacy_task(value: &Value) -> Value {
-    object_without(value, &["fullTitle"])
+    // promptWait is a v3-only field (M-g); 2.x task JSON stays frozen without it.
+    object_without(value, &["fullTitle", "promptWait"])
 }
 
 pub fn op_result(name: &str, value: &Value) -> Value {
@@ -126,18 +127,23 @@ pub fn is_discovery_item_id(value: &Value) -> bool {
 /// Workflow attention ids (and the orchestrator_failed kind) stay on protocol 3.
 pub fn is_workflow_attention_id(value: &Value) -> bool {
     value.as_str().is_some_and(|s| {
-        s.starts_with("budget_warn:")
+        // Run structured questions use question:q_<id>; ordinary task asks use question:<taskId>.
+        s.starts_with("question:q_")
+            || s.starts_with("budget_warn:")
             || s.starts_with("budget_spent:")
             || s.starts_with("budget_msg_warn:")
             || s.starts_with("budget_msg_spent:")
             || s.starts_with("orchestrator_failed:")
             || s.starts_with("unresolved_wake:")
+            || s.starts_with("prompt_wait:")
     })
 }
 
 pub fn is_workflow_attention_item(item: &Value) -> bool {
     is_workflow_attention_id(&item["id"])
         || item.get("kind").and_then(Value::as_str) == Some("orchestrator_failed")
+        || item.get("run").is_some()
+        || item.get("unblocks").is_some()
 }
 
 pub fn v3_only_event(event: &Value) -> bool {
@@ -173,6 +179,7 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
             | "message"
             | "run"
             | "decision"
+            | "question"
             | "discovery.found"
             | "control"
     ) || kind == "config"
@@ -194,6 +201,10 @@ pub fn event(value: &Value, legacy: Option<&Value>) -> Value {
         } else {
             json!(converted)
         };
+    }
+    // promptWait is v3-only; strip it from task event payloads on the frozen 2.x surface.
+    if kind == "task" {
+        result["data"] = object_without(&result["data"], &["promptWait"]);
     }
     result
 }
@@ -340,6 +351,7 @@ mod workflow_attention_tests {
             "budget_msg_spent:r1",
             "orchestrator_failed:r1",
             "unresolved_wake:r1",
+            "question:q_abcdefghij",
         ] {
             assert!(is_workflow_attention_id(&json!(id)));
             assert!(v3_only_event(&json!({"type":"attention","data":{"id":id}})));

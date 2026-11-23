@@ -27,12 +27,13 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
-  updateRun, updateStep, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
+  updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
 import { budgetForDefinition, serializeBudget, serializeSpent } from "./budget";
 import { canAutoApproveGenerate, canAutoDecide } from "./auto";
+import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion } from "./questions";
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
@@ -48,6 +49,20 @@ function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: numbe
     ref: stepWakeRef(run.id, stepId, attempt),
     createdAt: ctx.now,
   });
+}
+
+/** Insert the human step's structured question (and auto wake-up when applicable). */
+function startHumanWaiting(
+  ctx: Ctx,
+  run: RunRow,
+  stepId: string,
+  attempt: number,
+  stepDef: HumanStep,
+  branch?: string,
+): ReturnType<typeof raiseHumanStepQuestion> {
+  const q = raiseHumanStepQuestion(ctx, run, stepId, attempt, stepDef, branch);
+  wakeAutoHumanStep(ctx, run, stepId, attempt, stepDef);
+  return q;
 }
 
 /** Task states whose settlement a step instance follows. `partial` and `needs_input`
@@ -137,7 +152,16 @@ function liveRun(ctx: Ctx, runId: string): RunRow {
  *  stopped run). */
 async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOptions): Promise<RunRow> {
   const run = liveRun(ctx, runId);
-  const updated = updateRun(ctx, runId, run.rev, patch);
+  // Terminal status + question withdrawal share one transaction (M-j): a crash
+  // between updateRun and withdraw must not leave open questions on a terminal run.
+  let withdrawn: ReturnType<typeof withdrawOpenQuestionsForRun> = [];
+  const updated = workflowDatabase(ctx).transaction(() => {
+    const next = updateRun(ctx, runId, run.rev, patch);
+    if (patch.status && RUN_TERMINAL.includes(patch.status)) {
+      withdrawn = withdrawOpenQuestionsForRun(ctx, runId);
+    }
+    return next;
+  })();
   await publishRunChange(ctx, updated);
   // Only a root run terminal stops the shared orchestrator turn (round-2 I1).
   // A choose_workflow child ending must leave the root's live turn alone.
@@ -145,6 +169,12 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
     stopLiveTurnsForRun(ctx, runId, `run ${patch.status}`);
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status)) {
+    for (const q of withdrawn) {
+      void publish(ctx, [{
+        type: "entity",
+        data: { kind: "question", id: q.id, value: questionEntityValue(q) },
+      }]).catch(() => {});
+    }
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
@@ -250,7 +280,7 @@ export async function startStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId:
     const db = workflowDatabase(ctx);
     const row = db.transaction(() => {
       const inserted = insertStep(ctx, { runId: run.id, stepId, attempt, status: "waiting" });
-      wakeAutoHumanStep(ctx, run, stepId, attempt, stepDef);
+      startHumanWaiting(ctx, run, stepId, attempt, stepDef);
       return inserted;
     })();
     if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
@@ -754,7 +784,7 @@ async function seedFinishedAndResume(
       try {
         if (target.type === "human") {
           const humanRow = outcome.rows[0];
-          if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
+          if (humanRow) startHumanWaiting(ctx, fresh, humanRow.stepId, humanRow.attempt, target, humanRow.branch);
           if (!isTerminal(getRun(ctx, run.id))) await patchRun(ctx, run.id, { status: "waiting" });
           continue;
         }
@@ -1192,7 +1222,7 @@ async function advanceFrom(ctx: Ctx, runId: string, def: WorkflowDef, settled: S
     try {
       if (target.type === "human") {
         const humanRow = outcome.rows[0];
-        if (humanRow) wakeAutoHumanStep(ctx, fresh, humanRow.stepId, humanRow.attempt, target);
+        if (humanRow) startHumanWaiting(ctx, fresh, humanRow.stepId, humanRow.attempt, target, humanRow.branch);
         if (!isTerminal(getRun(ctx, runId))) await patchRun(ctx, runId, { status: "waiting" });
         continue;
       }
@@ -1406,12 +1436,25 @@ export async function answerHumanStep(
   if (def?.steps[stepId]?.type !== "human") throw new CoreError("conflict", `conflict: step ${stepId} is not a human step`);
   // Defence: a run-grant caller may only answer auto-effective steps (run.decide path).
   // must / strict / auto-off steps stay person-only via run.answer.
+  // Escalated (or sync-flipped) human_step questions stay person-owned even when canAutoDecide (I-2).
   if (ctx.env.PACER_RUN_GRANT) {
     const stepDef = def.steps[stepId];
     // Auto flag lives on the root (choose_workflow children inherit it) — I2.
     const root = getRun(ctx, rootRunId(ctx, runId)) ?? run;
     if (!stepDef || stepDef.type !== "human" || !canAutoDecide(root, stepId, stepDef)) {
       throw new CoreError("not_allowed", "Orchestrator cannot answer this step (must, strict, or auto off)");
+    }
+    // Escalated human_step questions stay person-owned even when canAutoDecide (I-2).
+    // chain includes "orchestrator" after escalate; plain person + !canAutoDecide is must/strict/auto-off.
+    const openQs = listQuestions(ctx, runId, "open").filter(q =>
+      q.askerKind === "human_step"
+      && q.stepId === stepId
+      && q.attempt === row.attempt
+      && (q.branch ?? undefined) === (row.branch ?? undefined)
+      && q.answerer === "person",
+    );
+    if (openQs.some(q => q.chain.includes("orchestrator"))) {
+      throw new CoreError("not_allowed", "Only the person can answer this question");
     }
   }
   // One yield before the claim: a concurrent answer (or a stopping run) can then
@@ -1422,6 +1465,21 @@ export async function answerHumanStep(
   // step loses the race and is a conflict — it starts nothing.
   const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
+  // Resolve the structured question this human step raised (Phase 4); ignore if
+  // already answered (question.answer may have raced with run.answer).
+  try {
+    resolveHumanStepQuestion(
+      ctx,
+      runId,
+      stepId,
+      row.attempt,
+      answer,
+      ctx.env.PACER_RUN_GRANT ? "orchestrator" : "person",
+      row.branch,
+    );
+  } catch (err) {
+    if (!(err instanceof CoreError) || err.code !== "conflict") throw err;
+  }
   // The answer is recorded: a conflicting run patch (the run went terminal, or a
   // concurrent writer moved its rev) must not fail the answer — it took effect and
   // advances below, or via the tick's re-advance when this advance is lost

@@ -2218,6 +2218,7 @@ Reset means discard incremental assumptions and re-read the snapshot. Host deliv
         "machine",
         "run",
         "decision",
+        "question",
         "assistant",
         "discovery.found",
         "control"
@@ -11537,6 +11538,7 @@ Params:
           "machine",
           "run",
           "decision",
+          "question",
           "assistant",
           "discovery.found",
           "control"

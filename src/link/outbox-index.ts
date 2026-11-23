@@ -9,15 +9,21 @@ export const isDiscoveryItemId = (id: unknown) => typeof id === "string" && (id.
 /** Workflow attention ids and the orchestrator_failed kind are v3-only (run.* ops). */
 const WORKFLOW_ATTENTION_PREFIXES = [
   "budget_warn:", "budget_spent:", "budget_msg_warn:", "budget_msg_spent:",
-  "orchestrator_failed:", "unresolved_wake:",
+  "orchestrator_failed:", "unresolved_wake:", "prompt_wait:",
 ] as const;
 
 export function isWorkflowAttentionId(id: unknown): boolean {
-  return typeof id === "string" && WORKFLOW_ATTENTION_PREFIXES.some(prefix => id.startsWith(prefix));
+  if (typeof id !== "string") return false;
+  // Run structured questions use question:q_<id>; ordinary task asks use question:<taskId>.
+  if (id.startsWith("question:q_")) return true;
+  return WORKFLOW_ATTENTION_PREFIXES.some(prefix => id.startsWith(prefix));
 }
 
-export function isWorkflowAttentionItem(item: { id?: unknown; kind?: unknown }): boolean {
-  return isWorkflowAttentionId(item.id) || item.kind === "orchestrator_failed";
+export function isWorkflowAttentionItem(item: { id?: unknown; kind?: unknown; run?: unknown; unblocks?: unknown }): boolean {
+  return isWorkflowAttentionId(item.id)
+    || item.kind === "orchestrator_failed"
+    || item.run != null
+    || item.unblocks != null;
 }
 
 export interface OutboxReplay {
