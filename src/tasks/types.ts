@@ -288,6 +288,8 @@ export interface TaskRecord {
   run?: RunRef;
   takeover?: {state: "starting" | "driving" | "ended"; at: number; sessionId: string; by?: string};
   progress?: Progress;
+  /** Step-task terminal may be waiting on a prompt-like line (Phase 4 detector). */
+  promptWait?: { text: string; at: number };
   resumeSpawnedAt?: number;
   review?: {accepted:boolean; kind:string|null; note:string|null; at:number};
   resolved?: string;

@@ -4527,6 +4527,193 @@
       ],
       "additionalProperties": false
     },
+    "QuestionAnswerParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^q_[a-z2-7]{10}$"
+        },
+        "answer": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 2000
+        },
+        "note": {
+          "type": "string",
+          "maxLength": 4000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "answer",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionAskParams": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 1000
+        },
+        "answerType": {
+          "type": "string",
+          "enum": [
+            "single",
+            "multi",
+            "text",
+            "yes_no",
+            "approve_revise"
+          ]
+        },
+        "options": {
+          "maxItems": 12,
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "string",
+                "minLength": 1
+              },
+              "note": {
+                "type": "string",
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "value"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "recommended": {
+          "type": "string",
+          "minLength": 1
+        },
+        "blocks": {
+          "type": "string",
+          "enum": [
+            "step",
+            "branch",
+            "nothing"
+          ]
+        },
+        "artifact": {
+          "type": "string",
+          "minLength": 1
+        },
+        "stepId": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "attempt": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        },
+        "branch": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        },
+        "runId": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        }
+      },
+      "required": [
+        "text",
+        "answerType",
+        "blocks"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionConvertPromptParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 128
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionEscalateParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^q_[a-z2-7]{10}$"
+        },
+        "suggested": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "reason": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4000
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "suggested",
+        "reason",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionGetParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^q_[a-z2-7]{10}$"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "additionalProperties": false
+    },
+    "QuestionListParams": {
+      "type": "object",
+      "properties": {
+        "run": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        },
+        "status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "answered",
+            "withdrawn"
+          ]
+        }
+      },
+      "additionalProperties": false
+    },
     "RepoAddParams": {
       "type": "object",
       "properties": {
