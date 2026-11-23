@@ -1,13 +1,13 @@
 {
   "schema": 1,
-  "version": "0.17.9",
-  "notes": "### Added\n\n- **Anthropic and Gemini for `assistant-pacer`.** Endpoint `connection.api` accepts `anthropic` and `gemini` beside `openai-compatible`. The native assistant plugin selects the matching Rig client, passes the remaining output-token budget on each model call, and reports those accounts unavailable (never legacy-routed) when the native binary is absent. Keyless (`key: none`) stays openai-compatible only.\n\n### Changed\n\n- **`assistant.respond` is deprecated.** Prefer `assistant.reply` on the native `assistant-pacer` (or `assistant-executor`) plugin. The host still falls back to the legacy TypeScript `pacer-assistant` / `assistant.respond` loop for openai-compatible accounts when `pacer-assistant-pacer` is missing or outdated, and logs one Activity warning naming that cause. Removal is planned for one pacer release after the native-plugin updater ships ([ADR 0028](docs/decisions/0028-assistant-backends.md), [assistant backends design](docs/specs/2026-11-17-assistant-backends-design.md) phase 4 step 2).\n\n### Fixed\n\n- **Automatic desktop updates no longer stay broken after the native control socket file is deleted.** The service notices the missing path, logs `pacer: native control socket missing; rebinding`, and restarts with backoff instead of listening forever on an orphaned fd. Failed native hellos now log a rate-limited reason to `serve.log`, and the desktop distinguishes a handshake close from storage I/O.\n- **Desktop updates stay connected while pacer is busy.** Connecting and read-only native update status no longer require every pacer process to be covered. Install still waits for running work to drain, treats the service's own process tree and enrolled lease trees as covered, ignores short-lived same-path CLI clients, prunes local leases that cannot survive the current boot (including unfinished `runDir` evidence from a previous boot or a missing `runDir`), and still refuses a foreign-path pacer binary. Settings shows that the update will install when running tasks finish instead of \"Automatic desktop updates are unavailable\".",
-  "pub_date": "2026-11-23T08:39:19.000Z",
+  "version": "0.17.10",
+  "notes": "### Added\n\n- Homebrew cask for the desktop app (#1221) (release).\n- Pacer in Orca's sidebar, added from Settings › Apps (#1223) (orca-panel).\n\n### Changed\n\n- Expect each plugin crate's own published version (#1238) (crates).\n- Release 0.17.9 (#1226).\n- Size the external-event tail bound to the route's poll interval (#1069) (serve).\n- Run Orca panel tests in Bun shards; expect the Apps settings entry (#1227) (ci).\n\n### Fixed\n\n- Allow Rosetta time for signed x86\\_64 desktop smoke runs (#1229) (release).\n- Publish pacer-plugin and its assistant protocol as 0.4.0 (#1225) (crates).",
+  "pub_date": "2026-11-23T15:08:51.000Z",
   "platforms": {
     "darwin-aarch64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.9/desktop-pacer-0.17.9-darwin-aarch64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1RFNlJKcmQzL1J5MWUrZHVsOU9jM09ORWtUVXhqL1lqdjM4d1FmQ3F0WUdaZ0hPdStTY1dqalR0NWpiV2NoTC93TG41Z2I2MkNOcWJXSU10NXF0TEFVPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NDI1NjA5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjktZGFyd2luLWFhcmNoNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTcuOQpVV1ZOdVJuQk9jSmJRcXhhdTFqQllITTRvMG1TMjJCS3ZEblJmL1p4aHBJZDBzTXRmT1YvRGFqREs5aXdlU3NFd2daMytmOExQakhCMlBna2FvcjZCZz09Cg==",
-      "sha256": "e94f6896a5ac1a9f5f873371eecbf11453baea55284390b34de170fbdc5b8514",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.10/desktop-pacer-0.17.10-darwin-aarch64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z2RGTlVDVDNlMmZxa1R4amQvbitOWnZlR3B6YkcvM29FekhOVUNmT1NXZVVCSWF5SjQ3S1Nodzg0ejk0b01Xc0svWmhnN21aUGtpUWZLQmhTNjZFZlFZPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NDQ4MjM2CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjEwLWRhcndpbi1hYXJjaDY0LmFwcC50YXIuZ3oJdmVyc2lvbjowLjE3LjEwCnZvNG1hV1YwLys2ekZURjgzTlA4SEI1Nm01NkJjSjVVUkVrOFlFc1JPMTJWV0hINWMwSXRrNzBiVC9JUzNUbTMycFh1b0Vya0JaUWRwaWpOWm10Y0NnPT0K",
+      "sha256": "1476dddea313ccb5de9a4f7b6161227558e2d9f0751bb01778d851ba7301f001",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
@@ -16,9 +16,9 @@
       "rollbackCompatible": true
     },
     "darwin-x86_64": {
-      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.9/desktop-pacer-0.17.9-darwin-x86_64.app.tar.gz",
-      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1hIU3FTT2hxUkVNZko2Z1hqaFYvM01ua3M4YlBqTXdhNnFhL2FDN2tMK09xR0RmTHdodW5DM244d1hETDlIeTZ2RTRmUVZkNWhNc3RpK2hJUmh4QlFJPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NDMwODM5CWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjktZGFyd2luLXg4Nl82NC5hcHAudGFyLmd6CXZlcnNpb246MC4xNy45ClRqcnRpeCtrSjN6MnR1aDFkSGs0T3N1Q2NnZWRBNSt6TEw5UTgwc0xhQit0WnNUNnZDbzZ5L3d4TkFiK0dyQzFNQjZ2ckJqWEZsRm9oUmRaWG9nQUJBPT0K",
-      "sha256": "0164ac5e79c823b0073e987f390d8b5732e1cac7a7c8d5740f032e1c449d0ee1",
+      "url": "https://github.com/lamtuanvu/pacer/releases/download/v0.17.10/desktop-pacer-0.17.10-darwin-x86_64.app.tar.gz",
+      "signature": "dW50cnVzdGVkIGNvbW1lbnQ6IHNpZ25hdHVyZSBmcm9tIHRhdXJpIHNlY3JldCBrZXkKUlVRWkZsUWI2SWt6Z1kxVUlQQU01N09CMGpBOHhTWWxLTUJtYmtEVXBXUDE5clo2b3FObDlwMDJORGthS05KempxSDQvaU5Kd2dwNVEvK1Q5R3BET0lleVZmeGxadzJ0NVFRPQp0cnVzdGVkIGNvbW1lbnQ6IHRpbWVzdGFtcDoxNzk1NDQ4NDcwCWZpbGU6ZGVza3RvcC1wYWNlci0wLjE3LjEwLWRhcndpbi14ODZfNjQuYXBwLnRhci5negl2ZXJzaW9uOjAuMTcuMTAKMC83NTVRaVAxa3N3UENrM2RsQ2VlOC9YOXlBcS9WV09reUxNQUR4SUZoTTltekpnY3c3MmRzMlpKQnYrQzFwbnprTjhqWXdwUFhTQnZJdlpQSU9zQXc9PQo=",
+      "sha256": "330d917347a86cdd2768acde6d18156c86e493315992d7495cca5f5ac70bfa52",
       "bundleId": "dev.pacer.desktop",
       "protocolMajors": [
         3
