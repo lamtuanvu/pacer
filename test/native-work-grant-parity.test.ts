@@ -57,12 +57,17 @@ async function exchange(
       const match = /^native (\S+) \d+$/.exec(line);
       return match != null && ops.has(match[1]!);
     });
-    const expected = forward
-      ? []
-      : requests
-          .map((request, index) => ({ request, index }))
-          .filter(({ index }) => native === null || native.includes(index))
-          .map(({ request, index }) => `native ${JSON.parse(request).method} ${index + 2}`);
+    // Grant callers are refused natively for ops outside WORK_GRANT_OPS even when
+    // PACER_FORWARD_OPS empties the registry; pass those indexes in `native`.
+    const expected = (
+      forward
+        ? (native ?? []).map((index) => ({ request: requests[index]!, index }))
+        : requests
+            .map((request, index) => ({ request, index }))
+            .filter(({ index }) => native === null || native.includes(index))
+    ).map(
+      ({ request, index }) => `native ${JSON.parse(request).method} ${index + 2}`,
+    );
     expect(markers).toEqual(expected);
     const result = replies.slice(1).sort((a, b) => a.id - b.id);
     rawLines.set(
@@ -127,8 +132,10 @@ test.skipIf(!front)(
       request(7, "task.get", { id: child }),
     ];
     const env = { PACER_WORK_GRANT: token, PACER_ROLE: "executor", PACER_TASK_ID: child };
+    // Indexes 3–4 are outside WORK_GRANT_OPS; the front door refuses them natively
+    // even under PACER_FORWARD_OPS (defense-in-depth before Core).
     const native = await exchange(home, requests, false, env);
-    const forwarded = await exchange(home, requests, true, env);
+    const forwarded = await exchange(home, requests, true, env, [3, 4]);
     expect(wire(native)).toEqual(wire(forwarded));
     expect(native[3].error.data.code).toBe("not_allowed");
   },
