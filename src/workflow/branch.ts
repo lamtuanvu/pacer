@@ -263,12 +263,21 @@ export async function mergeTaskOnAccept(ctx: Ctx, taskId: string): Promise<Accep
     }
   }
   if (!run?.branch) return null;
+  // Terminal runs: accept the verdict without merging (settle already dropped the
+  // integration worktree; recreating it or enqueueing wake-ups would leak state).
+  const RUN_TERMINAL = ["done", "failed", "stopped"] as const;
+  if (RUN_TERMINAL.includes(run.status as typeof RUN_TERMINAL[number])) {
+    return { merged: true };
+  }
   const task = readTask(ctx, taskId);
   if (!task) return null;
 
   const taskBranch = `pacer/${taskId}`;
   return withMergeLock(ctx, run.id, async () => {
     const live = getRun(ctx, run.id) ?? run;
+    if (RUN_TERMINAL.includes(live.status as typeof RUN_TERMINAL[number])) {
+      return { merged: true };
+    }
     const top = await resolveRepoTop(ctx, live.repo);
     // F1: --quiet makes a missing ref exit 1 (locale-independent). Only exit 1
     // means absent; every other non-zero (incl. 128 / timeout) stays unavailable.
