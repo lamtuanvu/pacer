@@ -1465,6 +1465,7 @@ name = "pacer-bundled"
 version = "0.0.0"
 dependencies = [
  "pacer-bundled-notify",
+ "pacer-bundled-remote-caller",
  "pacer-plugin",
  "serde_json",
  "tokio",
@@ -1472,6 +1473,15 @@ dependencies = [
 
 [[package]]
 name = "pacer-bundled-notify"
+version = "0.0.0"
+dependencies = [
+ "pacer-plugin",
+ "serde_json",
+ "tokio",
+]
+
+[[package]]
+name = "pacer-bundled-remote-caller"
 version = "0.0.0"
 dependencies = [
  "pacer-plugin",
