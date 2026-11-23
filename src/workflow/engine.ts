@@ -28,8 +28,13 @@ import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, clearEntryLease, ENTRY_LEASE_S, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, liveRunsNeedingEntry, recordDecision, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
-  updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
+  attachStepTask, bumpEntryStartAttempts, claimEntryLease, claimStepAnswer, claimStepSettlement,
+  clearEntryLease, clearEntrySeed, ENTRY_LEASE_S, ENTRY_START_TRANSIENT_MAX, fireEdge, getDefinition,
+  getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions,
+  liveRunsNeedingEntry, newEntryOwner, recordDecision, resetEntryStartAttempts, rootRunId,
+  runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
+  updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow,
+  type StepKey, type StepRow,
 } from "./store";
 import { isTransientError } from "./transient";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
@@ -146,6 +151,17 @@ export const defaultEngineDeps: EngineDeps = {
 export interface StartOptions {
   deps?: EngineDeps;
   spawn?: SpawnRunner;
+  /** When set, startEntryIfNeeded renews this owner instead of claiming a new one. */
+  entryOwner?: string;
+}
+
+/** UNIQUE/PRIMARY KEY collision on an ENTRY step key — another starter already won. */
+function isEntryStepAlreadyStarted(err: unknown, runId: string, entryStepId: string): boolean {
+  const msg = err instanceof Error ? err.message : String(err);
+  if (!/UNIQUE|unique|constraint/i.test(msg)) return false;
+  // Bun/SQLite messages name the conflicting index/columns; accept run/step/attempt/branch.
+  return msg.includes("workflow_steps") || msg.includes(runId) || msg.includes(entryStepId)
+    || /PRIMARY|primary/i.test(msg);
 }
 
 interface EngineOptions {
@@ -647,7 +663,18 @@ async function startAgentStep(ctx: Ctx, run: RunRow, def: WorkflowDef, stepId: s
   if (existing) {
     row = updateStep(ctx, key, { status: "running" }); // an orphan row keeps its started_at
   } else {
-    row = insertStep(ctx, { ...key, status: "running" });
+    try {
+      row = insertStep(ctx, { ...key, status: "running" });
+    } catch (err) {
+      // Concurrent entry starter won the PRIMARY KEY — reuse their row (B1 safety net).
+      if (!/UNIQUE|unique|constraint/i.test(err instanceof Error ? err.message : String(err))) throw err;
+      const won = stepsOfRun(ctx, run.id).find(s =>
+        s.stepId === key.stepId && s.attempt === key.attempt
+        && (s.branch ?? undefined) === (key.branch ?? undefined));
+      if (!won) throw err;
+      if (won.taskId) return won;
+      row = won;
+    }
   }
   return delegateAgentRow(ctx, getRun(ctx, run.id)!, row, stepDef, e);
 }
@@ -833,10 +860,31 @@ async function seedFinishedAndResume(
   const seededRows: StepRow[] = [];
   for (const id of finished) {
     const result = Object.prototype.hasOwnProperty.call(seed.results, id) ? seed.results[id] : {};
-    const row = insertStep(ctx, { runId: run.id, stepId: id, attempt: 1, status: "done" });
-    seededRows.push(updateStep(ctx, keyOf(row), {
-      status: "done", result, endedAt: ctx.now, advancedAt: ctx.now,
-    }));
+    const existing = stepsOfRun(ctx, run.id).find(s =>
+      s.stepId === id && s.attempt === 1 && (s.branch ?? undefined) === undefined);
+    let row: StepRow;
+    if (existing) {
+      row = existing.status === "done" && existing.advancedAt != null
+        ? existing
+        : updateStep(ctx, keyOf(existing), {
+          status: "done", result, endedAt: existing.endedAt ?? ctx.now, advancedAt: ctx.now,
+        });
+    } else {
+      try {
+        const inserted = insertStep(ctx, { runId: run.id, stepId: id, attempt: 1, status: "done" });
+        row = updateStep(ctx, keyOf(inserted), {
+          status: "done", result, endedAt: ctx.now, advancedAt: ctx.now,
+        });
+      } catch (err) {
+        // Concurrent seed apply: treat UNIQUE on the seed step key as already written.
+        if (!/UNIQUE|unique|constraint/i.test(err instanceof Error ? err.message : String(err))) throw err;
+        const again = stepsOfRun(ctx, run.id).find(s =>
+          s.stepId === id && s.attempt === 1 && (s.branch ?? undefined) === undefined);
+        if (!again) throw err;
+        row = again;
+      }
+    }
+    seededRows.push(row);
   }
   if (!finished.has(def.entry)) {
     await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, e);
@@ -939,10 +987,10 @@ async function seedFinishedAndResume(
 /** Starts a run: creates the run record and starts its entry step. A failing start
  *  fails the run (never leaves it silently stuck) and rethrows. */
 /**
- * Start def.entry for a live, unpaused run that has no step rows yet (paused at
- * start left nothing durable). Idempotent: existing steps, a pending pause, or an
- * active startRun entry lease are no-ops. Used after pacing/person resume and on
- * every tick (after the lease expires, recovers a crashed startRun).
+ * Start def.entry (or apply a durable entry_seed) for a live, unpaused run.
+ * Claims the entry lease atomically; existing steps without a pending seed, a
+ * pending pause, or a lost claim are no-ops. Used after pacing/person resume and
+ * on every tick (after the lease expires, recovers a crashed startRun).
  */
 export async function startEntryIfNeeded(
   ctx: Ctx,
@@ -952,26 +1000,46 @@ export async function startEntryIfNeeded(
   const run = getRun(ctx, runId);
   if (!run || RUN_TERMINAL.includes(run.status)) return false;
   if (isRunStepPaused(run)) return false;
-  if (run.entryLeaseUntil != null && run.entryLeaseUntil > ctx.now) return false;
-  if (stepsOfRun(ctx, runId).length > 0) return false;
+  const hasSeed = !!(run.entrySeed && run.entrySeed.finishedIds.length > 0);
+  if (!hasSeed && stepsOfRun(ctx, runId).length > 0) return false;
+  const owner = o?.entryOwner ?? newEntryOwner();
+  const until = ctx.now + ENTRY_LEASE_S;
+  if (!claimEntryLease(ctx, runId, owner, until, ctx.now)) return false;
   const def = getDefinition(ctx, run.workflow);
-  if (!def) return false;
-  // Crash between insertRun and ensureRootWorkNode: recover the root before entry.
-  if (isWorkNodeRun(run)) ensureRootWorkNode(ctx, run);
-  if (def.steps[def.entry]?.type === "end") {
-    await patchRun(ctx, runId, { status: "done" }, withDefaults(o));
-    clearEntryLease(ctx, runId);
-    return true;
+  if (!def) {
+    clearEntryLease(ctx, runId, owner);
+    return false;
   }
   try {
+    // Crash between insertRun and ensureRootWorkNode: recover the root before entry.
+    const live = getRun(ctx, runId)!;
+    if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
+    if (hasSeed) {
+      await seedFinishedAndResume(ctx, getRun(ctx, runId)!, def, run.entrySeed!, withDefaults(o));
+      clearEntrySeed(ctx, runId);
+      resetEntryStartAttempts(ctx, runId);
+      return true;
+    }
+    if (def.steps[def.entry]?.type === "end") {
+      await patchRun(ctx, runId, { status: "done" }, withDefaults(o));
+      resetEntryStartAttempts(ctx, runId);
+      return true;
+    }
     await startStep(ctx, getRun(ctx, runId)!, def, def.entry, undefined, o);
-    clearEntryLease(ctx, runId);
+    resetEntryStartAttempts(ctx, runId);
     return true;
   } catch (e) {
     if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
       return false;
     }
+    // Another starter won the ENTRY step insert — healthy run, not a failure (B1).
+    if (isEntryStepAlreadyStarted(e, runId, def.entry)) {
+      resetEntryStartAttempts(ctx, runId);
+      return true;
+    }
     throw e;
+  } finally {
+    clearEntryLease(ctx, runId, owner);
   }
 }
 
@@ -980,7 +1048,7 @@ export type StartPendingOptions = StartOptions & {
   rootRunId?: string;
 };
 
-/** After pacing clears, start entry for every live unpaused run with no steps. */
+/** After pacing clears, start entry for every live unpaused run that still needs it. */
 export async function startPendingEntries(
   ctx: Ctx,
   o?: StartPendingOptions,
@@ -990,8 +1058,25 @@ export async function startPendingEntries(
     try {
       if (await startEntryIfNeeded(ctx, run.id, o)) started++;
     } catch (e) {
-      // Lock held by another connection must not fail the run — leave it for the next tick.
-      if (isTransientError(e)) continue;
+      if (isTransientError(e)) {
+        const attempts = bumpEntryStartAttempts(ctx, run.id);
+        if (attempts < ENTRY_START_TRANSIENT_MAX) continue;
+        try {
+          await failRun(
+            ctx,
+            run.id,
+            `entry start failed after ${attempts} transient errors: ${e instanceof Error ? e.message : String(e)}`,
+            undefined,
+            o?.deps,
+          );
+        } catch { /* next tick retries failRun itself */ }
+        continue;
+      }
+      // ENTRY PK collision: another starter already started — never failRun (B1).
+      if (isEntryStepAlreadyStarted(e, run.id, getDefinition(ctx, run.workflow)?.entry ?? "")) {
+        started++;
+        continue;
+      }
       try {
         await failRun(ctx, run.id, `entry start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, o?.deps);
       } catch { /* next tick retries failRun itself */ }
@@ -1030,7 +1115,12 @@ export async function startRun(
     ? (child.priority ?? runPriorityOf(parent))
     : (input.priority ?? "normal");
   // Inherit a parent person pause so a child STARTED after the pause is also paused.
+  // insertRun also re-checks the parent inside its immediate txn (M3).
   const inheritPersonPause = !!(child && parent && isPersonPaused(parent));
+  const entryOwner = newEntryOwner();
+  const seed = child?.seedFinished && child.seedFinished.finishedIds.length > 0
+    ? child.seedFinished
+    : undefined;
   const run = insertRun(ctx, {
     workflow: def.id,
     version: def.version,
@@ -1039,6 +1129,8 @@ export async function startRun(
     title: input.title,
     priority,
     entryLeaseUntil: ctx.now + ENTRY_LEASE_S,
+    entryOwner,
+    ...(seed ? { entrySeed: seed } : {}),
     ...(inheritPersonPause ? { pausedReason: "person" as const } : {}),
     ...(budget ? {
       budget: serializeBudget(budget),
@@ -1053,8 +1145,12 @@ export async function startRun(
       ...(parentStepMode ? { stepMode: parentStepMode } : {}),
     } : {}),
   });
+  const renewLease = (): void => {
+    claimEntryLease(ctx, run.id, entryOwner, ctx.now + ENTRY_LEASE_S, ctx.now);
+  };
   if (input.publish === "draft" && !child) setPublishOptIn(ctx, run.id, "draft");
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // clients see the run even when its start then fails
+  renewLease();
   try {
     let live = getRun(ctx, run.id)!;
     // Apply mode-driven pause before the entry step so strict/emergency never
@@ -1062,12 +1158,16 @@ export async function startRun(
     // Person pause (including inherited) is left alone by syncRunPacingPause.
     try {
       const mode = await readPacingMode(ctx);
+      renewLease();
       live = syncRunPacingPause(ctx, live, mode);
     } catch { /* mode read must not fail start */ }
+    renewLease();
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
+    renewLease();
     if (def.steps[def.entry]?.type === "end") await patchRun(ctx, run.id, { status: "done" });
-    else if (child?.seedFinished && child.seedFinished.finishedIds.length > 0) {
-      await seedFinishedAndResume(ctx, getRun(ctx, run.id)!, def, child.seedFinished, { deps, spawn });
+    else if (seed) {
+      await seedFinishedAndResume(ctx, getRun(ctx, run.id)!, def, seed, { deps, spawn });
+      clearEntrySeed(ctx, run.id);
     } else if (isRunStepPaused(live)) {
       // Mode/person pause at start: keep the run, start no entry step.
     } else {
@@ -1076,14 +1176,18 @@ export async function startRun(
   } catch (e) {
     // A pause refusal is not a failed start — the run stays live without a step.
     if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
-      clearEntryLease(ctx, run.id);
+      return getRun(ctx, run.id) ?? run;
+    }
+    // Tick/resume already started entry while our lease lapsed — healthy, not failRun (B1).
+    if (isEntryStepAlreadyStarted(e, run.id, def.entry)) {
+      clearEntrySeed(ctx, run.id);
       return getRun(ctx, run.id) ?? run;
     }
     await failRun(ctx, run.id, `start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, deps);
     throw e;
   } finally {
     // startRun finished (or paused-at-start): release ownership so a later resume/tick can start.
-    clearEntryLease(ctx, run.id);
+    clearEntryLease(ctx, run.id, entryOwner);
   }
   const finished = getRun(ctx, run.id) ?? run;
   if (RUN_TERMINAL.includes(finished.status) && finished.parentRunId && finished.parentStep) {
