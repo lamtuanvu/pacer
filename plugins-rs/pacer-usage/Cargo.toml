@@ -1,0 +1,23 @@
+[package]
+name = "pacer-bundled-usage"
+version = "0.0.0"
+publish = false
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+jiff = "0.2"
+pacer-plugin = { path = "../../crates/plugin-sdk", features = ["usage"] }
+regex = "1"
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+
+[dev-dependencies]
+pacer-plugin = { path = "../../crates/plugin-sdk", features = ["testing", "usage"] }
+serde_json.workspace = true
+tokio = { workspace = true, features = ["rt-multi-thread", "macros", "sync", "time"] }
+
+[lints]
+workspace = true
