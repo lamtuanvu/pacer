@@ -4,5 +4,6 @@ pub mod journal;
 #[cfg(target_os = "macos")]
 pub mod platform;
 pub use detect::{
-    detect_takeover, detect_takeover_for_consent, read_consent, ConsentRecord, TakeoverCandidate,
+    detect_takeover, detect_takeover_for_consent, nothing_to_preserve, read_consent, ConsentRecord,
+    TakeoverCandidate,
 };

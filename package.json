@@ -41,6 +41,7 @@
     "plugin:protocol": "bun scripts/plugin-protocol-doc.ts",
     "release:npm": "bun scripts/release/npm.ts",
     "release:homebrew": "bun scripts/release/homebrew.ts",
+    "release:homebrew-cask": "bun scripts/release/homebrew-cask.ts",
     "brand:render": "bun scripts/brand/render.ts",
     "app:build": "bun app/build.ts",
     "test:e2e": "PACER_E2E=1 TZ=Asia/Ho_Chi_Minh bun test test/install-signin-delegation.test.ts"

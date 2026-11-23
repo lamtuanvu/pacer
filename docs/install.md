@@ -1,16 +1,32 @@
 # Install pacer
 
-[Download pacer for Mac](https://github.com/lamtuanvu/pacer/releases/latest).
+On macOS, install the desktop app with Homebrew:
+
+```sh
+brew install --cask lamtuanvu/tap/pacer
+```
+
+Or [download the DMG](https://github.com/lamtuanvu/pacer/releases/latest).
 Choose `desktop-pacer-<version>-darwin-aarch64.dmg` for Apple silicon or
 `desktop-pacer-<version>-darwin-x86_64.dmg` for Intel, open it, and drag
 `pacer.app` into Applications. The
 `.app.tar.gz` on the same page holds the identical app as the in-app update
 package; extracting it and moving `pacer.app` to Applications also works.
+To let Homebrew manage an existing DMG install without replacing the app, run
+`brew install --cask --adopt lamtuanvu/tap/pacer`.
 
 The app is signed with pacer's own certificate until pacer has an Apple Developer ID,
 so macOS blocks the first launch. Open the app once, then choose **Open Anyway** in
 System Settings › Privacy & Security (or run `xattr -dr com.apple.quarantine /Applications/pacer.app`).
-This is needed once: the app updates itself afterwards from Settings › Updates.
+Approve again after a brew reinstall or `brew upgrade --greedy`, which writes a
+fresh quarantined copy. In-app updates do not add quarantine and stay prompt-free;
+the app updates itself from Settings › Updates. The cask sets `auto_updates`, so
+plain `brew upgrade` leaves the app alone unless you pass `--greedy`.
+
+The Homebrew cask and the CLI formula conflict: uninstall one before installing
+the other. To switch from the formula to the app, run `brew uninstall pacer`, then
+`brew install --cask lamtuanvu/tap/pacer`, then accept Welcome/Consent. Settings and
+tasks in `~/.pacer` are kept.
 
 The app includes the matching CLI. **Welcome** leads to one consent screen
 listing the background service and the terminal link at `~/.local/bin/pacer`.
@@ -175,11 +191,13 @@ Once the channels are bootstrapped (see [distribution](distribution.md)), instal
 
 ```sh
 npm install -g @lamtuanvu/pacer
-# Or:
+# Or the CLI formula:
 brew install lamtuanvu/tap/pacer
+# Or the desktop app (conflicts with the formula; see above):
+brew install --cask lamtuanvu/tap/pacer
 ```
 
-`npm install -g @lamtuanvu/pacer@nightly` installs the newest nightly build. For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`, or `@nightly` when `update_channel` is `nightly`; for Homebrew installs, use `brew upgrade pacer`. `pacer update` detects these install methods and exits with code 2 and the matching command instead of replacing a managed binary. `pacer update --check` still reports the available release and the same update hint.
+`npm install -g @lamtuanvu/pacer@nightly` installs the newest nightly build. For npm installs, update with `npm install -g @lamtuanvu/pacer@latest`, or `@nightly` when `update_channel` is `nightly`; for Homebrew formula installs, use `brew upgrade pacer`. The cask app updates itself; plain `brew upgrade` skips it unless you pass `--greedy`. `pacer update` detects these install methods and exits with code 2 and the matching command instead of replacing a managed binary. `pacer update --check` still reports the available release and the same update hint.
 
 ## Connect a planner
 
@@ -232,8 +250,10 @@ It lists everything it will remove (agent integrations, restoring their backups;
 the login service; a leftover Orca plugin; `~/.pacer` or `PACER_HOME`), asks
 once, then removes it. For an app install it also removes the app's terminal
 link and only the marked PATH block it added, preserving other shell settings.
-Move the app to the Trash afterward. Add `--binary` to delete a standalone pacer
-binary too, and `--yes` to skip the question in scripts. To disconnect a single agent, use
+`brew uninstall --cask pacer` only quits and removes the app; use
+`pacer uninstall --all` for full removal, then move the app to the Trash if it
+remains. Add `--binary` to delete a standalone pacer binary too, and `--yes` to
+skip the question in scripts. To disconnect a single agent, use
 `pacer uninstall <agent>`.
 
 pacer no longer ships an Orca plugin. If an earlier version installed it, run
