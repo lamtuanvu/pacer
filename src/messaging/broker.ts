@@ -46,9 +46,9 @@ export interface BrokerDeps {
 function progressMark(ctx: Ctx, stall: Stall, snapshot: ReturnType<typeof buildSnapshot>): string {
   const n = snapshot.tasks.find(n => `task:${n.task.id}` === stall.node), task = n?.task;
   const last = messagesDatabase(ctx).query<{ id: string }, [string]>("SELECT id FROM messages WHERE sender=? AND kind<>'nudge' ORDER BY id DESC LIMIT 1").get(stall.node);
-  // A spinner moves lastOutputAt every tick; no_progress resets only on progress; silent_prompt uses the stable prompt-entry time.
-  const moved = stall.reason === "no_progress" ? n?.lastProgressAt
-    : stall.reason === "silent_prompt" ? n?.silentSince ?? task?.attemptStartedAt
+  // A spinner moves lastOutputAt every tick; no_progress / silent_prompt reset only on real progress.
+  // silent_prompt must not use silentSince here: report.at moves on every Stop and would reset nudges forever.
+  const moved = stall.reason === "no_progress" || stall.reason === "silent_prompt" ? n?.lastProgressAt
     : task?.progress?.lastOutputAt;
   // A caller's ladder restarts when another of its tasks settles, so each pending decision gets wakes.
   const pending = stall.reason === "caller_decision" ? stall.blocking : undefined;

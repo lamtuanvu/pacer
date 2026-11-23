@@ -387,6 +387,33 @@ test("a silent_prompt stall is nudged into the live session without stopping it"
   } finally { stop.mockRestore(); }
 });
 
+test("silent_prompt Stop without progress does not reset nudges; max_nudges then escalates", async () => {
+  // report.at (silentSince) moves on every turn-ended Stop; progressMark must use lastProgressAt so nudges accumulate.
+  const ctx = fakeCtx({ now: 1_000_000 });
+  const task = createTask(ctx, { brief: { goal: "stuck", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
+  const dir = tmpDir();
+  writeNeedsInputReport(dir, ctx.now - 700);
+  updateTask(ctx, task.id, t => {
+    t.state = "running";
+    t.attemptStartedAt = ctx.now - 700;
+    t.progress = { phase: "needs-input", lastOutputAt: ctx.now - 1, lastChangeAt: ctx.now - 3600, gitObserved: true } as typeof t.progress;
+    t.run = { dir, attempt: 1, executor: "codex", startedAt: ctx.now - 700, mode: "new", workdir: tmpDir(), logFile: "/dev/null", session: "interactive" };
+  });
+  const node = `task:${task.id}`;
+  const stop = spyOn(runs, "stopRun").mockResolvedValue({ code: 143, killed: false });
+  try {
+    for (const at of [0, 60, 180, 420, 900]) {
+      // Agent ends another turn at the prompt: fresh report.at, still past idle_after, no real progress.
+      writeNeedsInputReport(dir, ctx.now + at - 700);
+      await brokerTick({ ...ctx, now: ctx.now + at }, { mode });
+    }
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:3`)).not.toBeNull();
+    expect(byRequest(ctx, "broker", `nudge:${node}:a1:4`)).toBeNull();
+    expect(getLiveness(ctx, node)).toMatchObject({ reason: "silent_prompt", nudges: 3, stalledAt: ctx.now + 420, escalatedAt: ctx.now + 420 });
+    expect(stop.mock.calls).toEqual([]);
+  } finally { stop.mockRestore(); }
+});
+
 test("silent_prompt is not raised when a real question is open or a human controls the terminal", async () => {
   const ctx = fakeCtx({ now: 1_000_000 });
   const asked = createTask(ctx, { brief: { goal: "q", repo: tmpDir() }, kind: "feature", requestedExecutor: null, timeoutS: 600 });
