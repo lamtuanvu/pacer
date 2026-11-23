@@ -24,7 +24,7 @@ export async function runBranchAhead(ctx: Ctx, run: RunRow): Promise<number | un
   const base = run.baseSha || run.baseRef;
   if (!base) return undefined;
   const count = await ctx.run(
-    ["git", "-C", run.repo, "rev-list", "--count", `${base}..${run.branch}`],
+    ["git", "-C", run.repo, "rev-list", "--count", `${base}..refs/heads/${run.branch}`],
     15_000,
   );
   if (count.code !== 0) return undefined;
@@ -66,7 +66,7 @@ export async function deleteMergedTaskBranches(ctx: Ctx, run: RunRow): Promise<s
     // `git branch -d` checks merge into HEAD (often main), not the run branch.
     // After confirming the tip is an ancestor of the run branch, -D is the safe delete.
     const ancestor = await ctx.run(
-      ["git", "-C", run.repo, "merge-base", "--is-ancestor", branch, run.branch],
+      ["git", "-C", run.repo, "merge-base", "--is-ancestor", `refs/heads/${branch}`, `refs/heads/${run.branch}`],
       10_000,
     );
     if (ancestor.code !== 0) continue;
