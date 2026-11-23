@@ -989,7 +989,7 @@ Params JSON Schema:
 
 ### `apps.add`
 
-Add pacer to a host app. Without approve, returns approval_required with fingerprint and grants; with approve, finishes only for that exact fingerprint.
+Add pacer to a host app. Without approve, returns approval_required with fingerprint and grants; with approve, finishes only for that exact fingerprint. Concurrent adds are arbitrated by Orca's approval fingerprint; pacer keeps no state of its own for them.
 
 Params JSON Schema:
 
@@ -1057,7 +1057,7 @@ Params JSON Schema:
 
 ### `apps.remove`
 
-Remove pacer's own integration from a host app. Never touches other plugins.
+Remove pacer's own integration from a host app. Never touches other plugins. Concurrent removes are arbitrated by Orca; pacer keeps no state of its own for them.
 
 Params JSON Schema:
 
@@ -1081,7 +1081,7 @@ Params JSON Schema:
 
 ### `apps.update`
 
-Update pacer's integration in a host app. May return approval_required like apps.add.
+Update pacer's integration in a host app. May return approval_required like apps.add. Concurrent updates are arbitrated by Orca's approval fingerprint; pacer keeps no state of its own for them.
 
 Params JSON Schema:
 
