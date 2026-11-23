@@ -11,8 +11,12 @@
 //! `verifyPeer` audit-token check so no frame reaches an authority effect
 //! before the kernel peer identity is confirmed.
 
+pub mod adoption;
+pub mod authority;
+pub mod cleanup;
 pub mod frames;
 pub mod peer;
+pub mod pipes;
 pub mod server;
 pub mod session;
 
