@@ -3231,9 +3231,10 @@ mod tests {
     /// After `brew uninstall pacer`, the cli owner executable is gone: consent
     /// still claims desktop ownership (`setup_consent_records`). Detect does not
     /// offer ADR 0011 takeover for a missing program; production uses Managed
-    /// install (`decide_existing_managed_program` / `replace_gone_mutation_order`
-    /// in `control.rs`). This test covers the owner claim plus a fixture rewrite
-    /// of an on-disk registration (test doubles, never launchctl).
+    /// install (`decide_existing_managed_program` in `control.rs`). This test
+    /// covers the owner claim plus a fixture rewrite of an on-disk registration
+    /// (test doubles, never launchctl). The takeover store is macOS-only.
+    #[cfg(target_os = "macos")]
     #[test]
     fn consent_takes_over_when_cli_owner_executable_is_gone() {
         use pacer_desktop::ota::bootstrap_identity::LegacyExecutable;
