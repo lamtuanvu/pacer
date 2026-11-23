@@ -16,6 +16,7 @@ for (const [scenario, points] of Object.entries({
   adopt: [], "adopt-failure": ["adoption-startup"], attached: [],
   takeover: [], "takeover-relink": [], "takeover-dismiss": [], "takeover-failure": ["takeover-startup"], "takeover-crash": ["takeover-switch"],
   "consent-use-app": [], "consent-plain-existing": [], "consent-use-app-busy": [], "consent-use-app-dismiss": [], "consent-use-app-restart": [],
+  "consent-gone-formula": [],
   "own-link-repair": [], "own-link-repair-failure": ["own-link-bootstrap"],
 })) {
   test(`fixed ${scenario} fault points`, () => {
