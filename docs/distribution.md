@@ -9,6 +9,7 @@ Every tagged release (`vX.Y.Z`, see [CONTRIBUTING](../CONTRIBUTING.md#releasing)
 | install.sh | `curl -fsSL https://raw.githubusercontent.com/lamtuanvu/pacer/main/install.sh \| sh` | GitHub Releases |
 | npm | `npm install -g @lamtuanvu/pacer` | `bun run release:npm` |
 | Homebrew | `brew install lamtuanvu/tap/pacer` | `bun run release:homebrew` |
+| Homebrew cask | `brew install --cask lamtuanvu/tap/pacer` | `bun run release:homebrew-cask` |
 
 Artifact attestations require a public repository (or GitHub Enterprise); real releases happen after this repository is public.
 
@@ -71,15 +72,15 @@ After that, CI publishes without any npm token. Until the variable is enabled, t
 
 ## Homebrew
 
-`bun run release:homebrew --manifest dist/release/<version>/manifest.json --out Formula/pacer.rb` writes a formula with per-OS, per-CPU release URLs and SHA-256 sums.
+`bun run release:homebrew --manifest dist/release/<version>/manifest.json --out Formula/pacer.rb` writes a formula with per-OS, per-CPU release URLs and SHA-256 sums. `bun run release:homebrew-cask --version <v> --arm <dmg> --intel <dmg> --out Casks/pacer.rb` writes the desktop cask from the two per-architecture DMGs (stable releases only).
 
 Tap setup:
 
 1. Create the public repo `lamtuanvu/homebrew-tap`.
-2. Create a fine-grained token with **Contents: read and write** on `lamtuanvu/homebrew-tap` only.
+2. Create a fine-grained token with **Contents: read and write** on `lamtuanvu/homebrew-tap` only (the same token writes `Formula/` and `Casks/`).
 3. Store it as the `HOMEBREW_TAP_TOKEN` Actions secret in `lamtuanvu/pacer`.
 
-The release workflow commits `Formula/pacer.rb` to the tap’s `main` branch with a sign-off. It skips prereleases, does nothing when the formula is unchanged, and prints `skipped: HOMEBREW_TAP_TOKEN not set` while the secret is missing.
+The release workflow commits `Formula/pacer.rb` to the tap’s `main` branch with a sign-off. After the desktop feed advances on a stable release, it also updates `Casks/pacer.rb`. It skips prereleases, does nothing when a file is unchanged, and prints `skipped: HOMEBREW_TAP_TOKEN not set` while the secret is missing.
 
 ## crates.io
 
@@ -93,7 +94,7 @@ From a checkout whose package version, app assets and changelog are prepared for
 gh workflow run release.yml -f version=<x.y.z> -f dry_run=true
 ```
 
-The workflow checks the input against `package.json` and typechecks. It builds and publishes only (amendment 0.24.0, proposed): `build-macos` and `build-linux` each run one matrix leg per target in parallel (darwin-arm64 and cross-compiled darwin-x64 on `macos-15`, with x64 smoke under Rosetta; linux-x64 on `ubuntu-24.04` and linux-arm64 on `ubuntu-24.04-arm`), upload `binaries-<os>-<arch>`, smoke-test each target’s binaries, then write metadata and print asset SHA-256 hashes and release notes. Linux desktop starts after `build-linux` alone. It no longer runs the M1 gate against the built release pair, and publication no longer requires a CI run on the release commit; validation — the full Bun suite and the M1 gate against the built release artifacts — runs post-merge on `main` in CI (ubuntu and macOS, with the gate log kept as an artifact). Prepare release reads the pinned commit’s post-merge CI result on `main` and refuses to tag unless a completed, successful CI push run on `main` exists for that commit with every required job green — all Linux test shards, the macOS-specific job, Rust, typecheck/build and the post-merge M1 gate (`scripts/release/main-ci-evidence.ts`; read-only, it never dispatches, re-runs or waits for CI). A missing, in-progress, failed or partial run fails with the run URL and the offending jobs, so fix `main` or wait for its CI and rerun Prepare release; a docs-only or focused push run does not count, so that commit needs a full CI pass on `main` first. CI’s Rust job still runs the SDK testing-feature check. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula and checks it with `ruby -c` without needing the tap token.
+The workflow checks the input against `package.json` and typechecks. It builds and publishes only (amendment 0.24.0, proposed): `build-macos` and `build-linux` each run one matrix leg per target in parallel (darwin-arm64 and cross-compiled darwin-x64 on `macos-15`, with x64 smoke under Rosetta; linux-x64 on `ubuntu-24.04` and linux-arm64 on `ubuntu-24.04-arm`), upload `binaries-<os>-<arch>`, smoke-test each target’s binaries, then write metadata and print asset SHA-256 hashes and release notes. Linux desktop starts after `build-linux` alone. It no longer runs the M1 gate against the built release pair, and publication no longer requires a CI run on the release commit; validation — the full Bun suite and the M1 gate against the built release artifacts — runs post-merge on `main` in CI (ubuntu and macOS, with the gate log kept as an artifact). Prepare release reads the pinned commit’s post-merge CI result on `main` and refuses to tag unless a completed, successful CI push run on `main` exists for that commit with every required job green — all Linux test shards, the macOS-specific job, Rust, typecheck/build and the post-merge M1 gate (`scripts/release/main-ci-evidence.ts`; read-only, it never dispatches, re-runs or waits for CI). A missing, in-progress, failed or partial run fails with the run URL and the offending jobs, so fix `main` or wait for its CI and rerun Prepare release; a docs-only or focused push run does not count, so that commit needs a full CI pass on `main` first. CI’s Rust job still runs the SDK testing-feature check. npm packages are generated from workflow artifacts and checked with `npm publish --dry-run` regardless of `NPM_TRUSTED_PUBLISHING`. Homebrew generates and prints its formula (and, when desktop artifacts are present, the cask) and checks each with `ruby -c` without needing the tap token.
 
 Dry runs skip attestations, GitHub release uploads, npm publication and tap pushes. Build artifacts expire after one day. A dispatch with `dry_run=false` is refused; only version tags can publish releases.
 
