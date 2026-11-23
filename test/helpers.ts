@@ -46,7 +46,13 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
 }
 
 /** A RunFn that really runs commands (git in temp repos). */
-export const realRun: RunFn = (argv, timeoutMs, o) => execProcess({ argv, cwd: process.cwd(), env: { ...process.env, ...(o?.env ?? {}) }, timeoutMs, stdin: o?.stdin });
+export const realRun: RunFn = (argv, timeoutMs, o) => execProcess({
+  argv,
+  cwd: o?.cwd ?? process.cwd(),
+  env: { ...process.env, ...(o?.env ?? {}) },
+  timeoutMs,
+  stdin: o?.stdin,
+});
 
 /** A temp git repo with one commit on branch main. */
 export function gitRepo(): string {

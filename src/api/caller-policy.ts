@@ -18,7 +18,7 @@ export function isUpgradeOperation(name: string): boolean {
 }
 
 /** Workflow and run operations. Runs are frame-scoped work the person and the planner drive; an executor's
- *  only workflow operation is step.result, which task identity gates in the operation itself (ops-workflow). */
+ *  workflow operations are step.result and step.artifact, which task identity gates in the ops themselves. */
 export const WORKFLOW_OPS_REFUSAL = 'PACER_ROLE=executor: workflow and run operations are for the person and the planner; report your result with step.result.';
 export function isWorkflowManagementOp(name: string): boolean {
   return name.startsWith('workflow.') || name.startsWith('run.');

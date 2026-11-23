@@ -6842,6 +6842,39 @@ Params JSON Schema:
 }
 ```
 
+### `run.cleanup`
+
+Person-only: remove leftover integration worktree and optionally delete the local run branch. Never touches remotes.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "delete_branch": {
+      "type": "boolean"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "delete_branch",
+    "expect_rev"
+  ],
+  "additionalProperties": false
+}
+```
+
 ### `run.decide`
 
 Answer an auto human step or auto graph approval under a live run grant. Never answers a must step.
@@ -6885,7 +6918,7 @@ Params JSON Schema:
 
 ### `run.get`
 
-One run with its step instances and generated graph versions.
+One run with its step instances and generated graph versions. Person, or a live run grant for its own run (expect_rev for sync/publish).
 
 Params JSON Schema:
 
@@ -6928,6 +6961,50 @@ Params JSON Schema:
       ]
     }
   },
+  "additionalProperties": false
+}
+```
+
+### `run.publish`
+
+Push the run branch and open a PR when the publishing gate allows it. Person or a live run grant for this run; executors refused.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "draft": {
+      "type": "boolean"
+    },
+    "title": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    },
+    "body": {
+      "type": "string",
+      "maxLength": 61440
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "draft",
+    "title",
+    "body",
+    "expect_rev"
+  ],
   "additionalProperties": false
 }
 ```
@@ -7105,6 +7182,10 @@ Params JSON Schema:
       "type": "string",
       "minLength": 1,
       "maxLength": 120
+    },
+    "publish": {
+      "type": "string",
+      "const": "draft"
     }
   },
   "required": [
@@ -7186,6 +7267,35 @@ Params JSON Schema:
     "id",
     "step",
     "source"
+  ],
+  "additionalProperties": false
+}
+```
+
+### `run.sync_base`
+
+Merge the base branch tip into the run branch under the merge lock. Person or a live run grant for this run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "id": {
+      "type": "string",
+      "pattern": "^run_[a-z2-7]{10}$"
+    },
+    "expect_rev": {
+      "type": "integer",
+      "exclusiveMinimum": 0,
+      "maximum": 9007199254740991
+    }
+  },
+  "required": [
+    "id",
+    "expect_rev"
   ],
   "additionalProperties": false
 }
@@ -8413,6 +8523,36 @@ Params JSON Schema:
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {},
+  "additionalProperties": false
+}
+```
+
+### `step.artifact`
+
+Attach a file from the calling step task's worktree or evidence directory to the run's artifact store. Own step only; 10 MiB per file, 200 MiB per run.
+
+Params JSON Schema:
+
+```json
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "path": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 4096
+    },
+    "label": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 256
+    }
+  },
+  "required": [
+    "path",
+    "label"
+  ],
   "additionalProperties": false
 }
 ```

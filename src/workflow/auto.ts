@@ -13,6 +13,8 @@ export function effectiveDecision(run: RunRow, stepId: string, step: HumanStep):
 /** Whether run.decide may answer this human step under the run's auto flag. */
 export function canAutoDecide(run: RunRow, stepId: string, step: HumanStep): boolean {
   if (!run.auto) return false;
+  // Defence in depth: publish approval is person-only (validator also requires must).
+  if (step.approves === "publish") return false;
   return effectiveDecision(run, stepId, step) === "auto";
 }
 

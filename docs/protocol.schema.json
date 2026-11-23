@@ -4883,6 +4883,29 @@
       ],
       "additionalProperties": false
     },
+    "RunCleanupParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        },
+        "delete_branch": {
+          "type": "boolean"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "delete_branch",
+        "expect_rev"
+      ],
+      "additionalProperties": false
+    },
     "RunDecideParams": {
       "type": "object",
       "properties": {
@@ -4941,6 +4964,40 @@
           ]
         }
       },
+      "additionalProperties": false
+    },
+    "RunPublishParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        },
+        "draft": {
+          "type": "boolean"
+        },
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        },
+        "body": {
+          "type": "string",
+          "maxLength": 61440
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "draft",
+        "title",
+        "body",
+        "expect_rev"
+      ],
       "additionalProperties": false
     },
     "RunRetryOrchestratorParams": {
@@ -5068,6 +5125,10 @@
           "type": "string",
           "minLength": 1,
           "maxLength": 120
+        },
+        "publish": {
+          "type": "string",
+          "const": "draft"
         }
       },
       "required": [
@@ -5129,6 +5190,25 @@
         "id",
         "step",
         "source"
+      ],
+      "additionalProperties": false
+    },
+    "RunSyncBaseParams": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "type": "string",
+          "pattern": "^run_[a-z2-7]{10}$"
+        },
+        "expect_rev": {
+          "type": "integer",
+          "exclusiveMinimum": 0,
+          "maximum": 9007199254740991
+        }
+      },
+      "required": [
+        "id",
+        "expect_rev"
       ],
       "additionalProperties": false
     },
@@ -5996,6 +6076,26 @@
     "SnapshotGetParams": {
       "type": "object",
       "properties": {},
+      "additionalProperties": false
+    },
+    "StepArtifactParams": {
+      "type": "object",
+      "properties": {
+        "path": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 4096
+        },
+        "label": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 256
+        }
+      },
+      "required": [
+        "path",
+        "label"
+      ],
       "additionalProperties": false
     },
     "StepResultParams": {

@@ -23,11 +23,12 @@ import { createTask, readTask, updateTask } from "../tasks/store";
 import type { TaskState } from "../tasks/types";
 import { CoreError } from "../core/errors";
 import { publish } from "../link/publish";
+import { appendActivity } from "../activity/log";
 import { backEdgeIndexes } from "./validate";
 import { evalCondition, parseCondition } from "./condition";
 import { renderPrompt } from "./template";
 import {
-  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, rootRunId, runEntityValue, setGraphStatus, stepByTask, stepsOfRun, taskByRequestId,
+  attachStepTask, claimStepAnswer, claimStepSettlement, fireEdge, getDefinition, getRun, insertFanoutBranches, insertJoinStep, insertRun, insertStep, listQuestions, recordDecision, rootRunId, runEntityValue, setGraphStatus, setPublishOptIn, stepByTask, stepsOfRun, taskByRequestId,
   updateRun, updateStep, withdrawOpenQuestionsForRun, workflowDatabase, type RunPatch, type RunRow, type StepKey, type StepRow,
 } from "./store";
 import { chooseStepChildRunId, completeWakeupRef, enqueueWakeup, stepWakeRef } from "./wakeups";
@@ -37,8 +38,11 @@ import { questionEntityValue, raiseHumanStepQuestion, resolveHumanStepQuestion }
 import { stopLiveTurnsForRun } from "./orchestrator";
 import { ensureRootWorkNode, isWorkNodeRun, startStepTask } from "./worknode";
 import { installGeneratedDefinition } from "./generate";
-import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type WorkflowDef } from "./schema";
+import { ensureRunBranch, isCodeStep } from "./branch";
+import { branchReportFor, settleRunGitOnTerminal } from "./cleanup";
+import { isPlainObject, type AgentStep, type ChooseWorkflowStep, type FanoutStep, type GenerateStep, type HumanStep, type JsonSchemaLite, type StepResultSchema, type WorkflowDef } from "./schema";
 import { loadStrategy } from "../config/strategy";
+import { missingNeedsPrompt, validateEvidenceResult, type EvidenceNeed } from "./evidence";
 
 /** Wake the root orchestrator for an auto-effective waiting human step. */
 function wakeAutoHumanStep(ctx: Ctx, run: RunRow, stepId: string, attempt: number, stepDef: HumanStep): void {
@@ -69,6 +73,58 @@ function startHumanWaiting(
  *  stay out: Phase 1 has no orchestrator to hand them to (plan, settlement rules). */
 const SETTLE_STATES: readonly TaskState[] = ["done", "failed", "stopped", "limit"];
 const RUN_TERMINAL: readonly RunRow["status"][] = ["done", "failed", "stopped"];
+
+/**
+ * Bounded-retry terminal git settle. Lock-guarded, never deletes remotes.
+ * On final failure, logs and appends activity (never swallows). Used by the
+ * fire-and-forget scheduler so stop/fail/done do not await the merge lock.
+ */
+export async function settleRunGitAfterTerminal(
+  ctx: Ctx, run: RunRow, o: { timeoutMs?: number } = {},
+): Promise<void> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      await settleRunGitOnTerminal(ctx, run, o);
+      return;
+    } catch (error) {
+      if (attempt < 2) {
+        await Bun.sleep(250 * (attempt + 1));
+        continue;
+      }
+      const raw = error instanceof Error ? error.message : String(error);
+      const text = raw.replace(/\/(?:Users|Volumes|home|tmp)\/[^\s:]+/g, "<path>").slice(0, 400);
+      console.error(`pacer: run ${run.id} terminal settle failed: ${text}`);
+      try {
+        appendActivity(ctx, {
+          kind: "task_settled",
+          level: "warn",
+          text: `run ${run.id} terminal settle failed: ${text}. The integration worktree and merged task branches are still on disk; run \`pacer run cleanup ${run.id}\` to remove them.`,
+          repo: run.repo,
+        });
+      } catch { /* activity must not block settle reporting */ }
+    }
+  }
+}
+
+/** In-flight background settles (test helper + idempotent re-entry). */
+const pendingTerminalSettles = new Map<string, Promise<void>>();
+
+/** Fire-and-forget wrapper so patchRun returns while settle waits on the merge lock. */
+function scheduleSettleRunGit(ctx: Ctx, run: RunRow): void {
+  const prior = pendingTerminalSettles.get(run.id);
+  const next = (prior ?? Promise.resolve())
+    .catch(() => {})
+    .then(() => settleRunGitAfterTerminal(ctx, run))
+    .finally(() => {
+      if (pendingTerminalSettles.get(run.id) === next) pendingTerminalSettles.delete(run.id);
+    });
+  pendingTerminalSettles.set(run.id, next);
+}
+
+/** Wait for a scheduled terminal settle (tests that assert post-stop git cleanup). */
+export function awaitTerminalSettle(runId: string): Promise<void> {
+  return pendingTerminalSettles.get(runId) ?? Promise.resolve();
+}
 
 export interface EngineDeps {
   delegate: typeof delegateTask;
@@ -176,6 +232,10 @@ async function patchRun(ctx: Ctx, runId: string, patch: RunPatch, o?: EngineOpti
       }]).catch(() => {});
     }
     settleRootWorkNode(ctx, updated, patch.status === "failed" ? "failed" : patch.status === "stopped" ? "stopped" : "done");
+    // Terminal status is already committed. Git settle takes the merge lock (up to
+    // ~150 s) and must not block stop/fail/done; run it in the background with
+    // bounded retries and report a final failure instead of swallowing it.
+    scheduleSettleRunGit(ctx, updated);
   }
   if (patch.status && RUN_TERMINAL.includes(patch.status) && updated.parentRunId && updated.parentStep) {
     await settleParentChooseStep(ctx, updated, o?.deps ?? defaultEngineDeps, o?.spawn);
@@ -498,30 +558,58 @@ export async function chooseWorkflow(
  *  start path and by the trigger-transaction advancement, which inserts the row
  *  first and delegates after the transaction, so a crash before the delegation is
  *  an ordinary orphan the reconciliation recovers. */
+async function codeStepBrief(ctx: Ctx, run: RunRow, stepDef: AgentStep, prompt: string): Promise<{ goal: string; repo: string; base?: string }> {
+  const brief: { goal: string; repo: string; base?: string } = { goal: prompt, repo: run.repo };
+  if (!isCodeStep(stepDef)) return brief;
+  try {
+    const ensured = await ensureRunBranch(ctx, getRun(ctx, run.id) ?? run);
+    brief.base = ensured.branch;
+  } catch (error) {
+    // Phase 1–3 unit fixtures often use a tmp dir with a fake RunFn and no git.
+    // A real run always has a git repo; other errors still fail the step.
+    if (error instanceof CoreError && error.code === "invalid_input" && /not a git repository/i.test(error.message)) {
+      return brief;
+    }
+    throw error;
+  }
+  return brief;
+}
+
 async function delegateAgentRow(ctx: Ctx, run: RunRow, row: StepRow, stepDef: AgentStep, e: EngineOptions): Promise<StepRow> {
-  const prompt = renderPrompt(stepDef.prompt, {
+  let prompt = renderPrompt(stepDef.prompt, {
     brief: run.brief,
     steps: stepResults(ctx, run.id),
     branch: row.branch,
     run: { id: run.id, stepId: row.stepId },
   });
+  if (stepDef.needs && stepDef.needs.length > 0) {
+    const note = missingNeedsPrompt(stepDef.needs, advertisedEvidenceTools(ctx));
+    if (note) prompt = `${prompt}\n\n${note}`;
+  }
   const key = keyOf(row);
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, row.branch);
   const live = getRun(ctx, run.id) ?? run;
+  const brief = await codeStepBrief(ctx, live, stepDef, prompt);
+  // Code steps must get a dedicated worktree/branch from the run tip (I2).
+  const codePlacement = isCodeStep(stepDef)
+    ? { worktree: "new" as const, worktree_reason: "workflow code step" }
+    : {};
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.kind,
       ...(stepDef.difficulty ? { difficulty: stepDef.difficulty } : {}),
       title: stepTitle(live, row.stepId, row.branch),
       requestId,
+      ...codePlacement,
     }, e.spawn);
   // Re-read after the await: the run may have gone terminal while the delegation was
   // pending; then the task is stopped and nothing else happens.
@@ -566,20 +654,26 @@ async function delegateFanoutBranch(ctx: Ctx, run: RunRow, row: StepRow, stepDef
   const key = keyOf(row);
   const live = getRun(ctx, run.id) ?? run;
   const requestId = stepRequestId(run.id, row.stepId, row.attempt, branch);
+  const brief = await codeStepBrief(ctx, live, stepDef.each, prompt);
+  const codePlacement = isCodeStep(stepDef.each)
+    ? { worktree: "new" as const, worktree_reason: "workflow code step" }
+    : {};
   const task = isWorkNodeRun(live)
     ? await startStepTask(ctx, live, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      ...codePlacement,
     }, e.deps.delegate, e.spawn)
     : await e.deps.delegate(ctx, {
-      brief: { goal: prompt, repo: live.repo },
+      brief,
       kind: stepDef.each.kind,
       ...(stepDef.each.difficulty ? { difficulty: stepDef.each.difficulty } : {}),
       title: stepTitle(live, row.stepId, branch),
       requestId,
+      ...codePlacement,
     }, e.spawn);
   if (isTerminal(getRun(ctx, run.id))) {
     try { e.deps.stopTask(ctx, task.id); } catch { /* stopping must not throw into the engine */ }
@@ -830,7 +924,7 @@ async function seedFinishedAndResume(
  *  fails the run (never leaves it silently stuck) and rethrows. */
 export async function startRun(
   ctx: Ctx,
-  input: { workflow: string; repo: string; brief: string; title?: string },
+  input: { workflow: string; repo: string; brief: string; title?: string; publish?: "draft" },
   spawn?: SpawnRunner,
   deps: EngineDeps = defaultEngineDeps,
   child?: {
@@ -846,6 +940,9 @@ export async function startRun(
   if (!def) throw new CoreError("not_found", `unknown workflow '${input.workflow}'`);
   if (typeof input.brief !== "string" || !input.brief.trim()) throw new CoreError("invalid_input", "brief is required");
   if (typeof input.repo !== "string" || !input.repo) throw new CoreError("invalid_input", "repo is required");
+  if (input.publish !== undefined && input.publish !== "draft") {
+    throw new CoreError("invalid_input", "publish must be 'draft' when set");
+  }
   const budget = child ? undefined : budgetForDefinition(def);
   // Generated/choose children inherit the parent's pinned step mode (plain vs work_node).
   const parentStepMode = child
@@ -870,7 +967,8 @@ export async function startRun(
       ...(parentStepMode ? { stepMode: parentStepMode } : {}),
     } : {}),
   });
-  await publishRunChange(ctx, run); // clients see the run even when its start then fails
+  if (input.publish === "draft" && !child) setPublishOptIn(ctx, run.id, "draft");
+  await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // clients see the run even when its start then fails
   try {
     const live = getRun(ctx, run.id)!;
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
@@ -970,9 +1068,28 @@ async function settleParentChooseStep(
   await advanceFrom(ctx, parent.id, def, claimed, result, { deps, spawn });
 }
 
-function resultErrors(result: unknown, schema: JsonSchemaLite | undefined): string[] {
+function resultErrors(result: unknown, schema: StepResultSchema | undefined, ctx: Ctx, runId: string): string[] {
+  if (schema === "evidence") return validateEvidenceResult(ctx, runId, result);
   if (!isPlainObject(result)) return ["result must be a JSON object"];
-  return (schema?.required ?? []).filter(key => !Object.hasOwn(result, key)).map(key => `missing required key '${key}'`);
+  const lite = schema as JsonSchemaLite | undefined;
+  return (lite?.required ?? []).filter(key => !Object.hasOwn(result, key)).map(key => `missing required key '${key}'`);
+}
+
+/** Collect runner-advertised evidence tools (D9). Missing config → empty set. */
+function advertisedEvidenceTools(ctx: Ctx): ReadonlySet<EvidenceNeed> {
+  try {
+    const strategy = loadStrategy(ctx);
+    const out = new Set<EvidenceNeed>();
+    for (const runner of Object.values(strategy.runners ?? {})) {
+      if (runner.enabled === false) continue;
+      for (const tool of runner.tools ?? []) {
+        if (tool === "browser" || tool === "desktop" || tool === "tui") out.add(tool);
+      }
+    }
+    return out;
+  } catch {
+    return new Set();
+  }
 }
 
 /** Records an agent step's structured result before settlement. Validated at once
@@ -995,7 +1112,7 @@ export function recordStepResult(ctx: Ctx, taskId: string, result: unknown): Ste
   if (bytes > 64 * 1024) {
     throw new CoreError("invalid_input", `result is ${bytes} bytes; the limit is ${64 * 1024}`);
   }
-  const errors = resultErrors(result, schema);
+  const errors = resultErrors(result, schema, ctx, run.id);
   if (errors.length > 0) throw new CoreError("invalid_input", errors.join("; "));
   return updateStep(ctx, keyOf(step), { result });
 }
@@ -1457,13 +1574,53 @@ export async function answerHumanStep(
       throw new CoreError("not_allowed", "Only the person can answer this question");
     }
   }
+  // Publishing gate (D5/R2-F6): tip is read BEFORE the claim; grant callers refused
+  // before burning the step; decision is written inside claimStepAnswer's transaction.
+  const humanDef = def.steps[stepId];
+  const isPublishApproval = humanDef?.type === "human"
+    && humanDef.approves === "publish"
+    && (answer === "approve" || answer === "yes");
+  let publishDecision: {
+    runId: string; stepId: string; attempt: number; actor: string;
+    kind: string; choice: string; reason: string;
+  } | undefined;
+  if (isPublishApproval) {
+    if (ctx.env.PACER_RUN_GRANT) {
+      throw new CoreError("not_allowed", "publish approval requires a person");
+    }
+    if (!run.branch) {
+      throw new CoreError("unavailable", "cannot read branch tip for publish approval");
+    }
+    const tipResult = await ctx.run(
+      ["git", "-C", run.repo, "rev-parse", "--verify", `refs/heads/${run.branch}`],
+      10_000,
+    );
+    const tip = tipResult.stdout.trim();
+    if (tipResult.code !== 0 || !/^[0-9a-f]{40,64}$/i.test(tip)) {
+      throw new CoreError("unavailable", "cannot read branch tip for publish approval");
+    }
+    publishDecision = {
+      runId,
+      stepId,
+      attempt: row.attempt,
+      actor: "person",
+      kind: "publish_approved",
+      choice: answer,
+      reason: `approves: publish tip=${tip.toLowerCase()}`,
+    };
+  }
   // One yield before the claim: a concurrent answer (or a stopping run) can then
   // reach the same row, and it is claimStepAnswer below — not the luck of
   // synchronous execution — that makes the answer exclusive (round 4 review).
   await Promise.resolve();
   // Compare-and-set like claimStepSettlement: a second answer to the same waiting
   // step loses the race and is a conflict — it starts nothing.
-  const claimed = claimStepAnswer(ctx, keyOf(row), { answer });
+  const claimed = claimStepAnswer(
+    ctx,
+    keyOf(row),
+    { answer },
+    publishDecision ? { decision: publishDecision } : undefined,
+  );
   if (!claimed) throw new CoreError("conflict", `conflict: step ${stepId} of ${runId} is not waiting for an answer`);
   // Resolve the structured question this human step raised (Phase 4); ignore if
   // already answered (question.answer may have raced with run.answer).
@@ -1788,10 +1945,14 @@ function settleRootWorkNode(ctx: Ctx, run: RunRow, status: "done" | "stopped" | 
   } catch { /* */ }
 }
 
+/** Stop result: the run row plus optional `{ branch, ahead }` when a run branch exists. */
+export type StoppedRun = RunRow & { ahead?: number };
+
 /** Stops a run: every running or waiting step row is marked stopped, running step
  *  tasks are stopped through the task.stop op path, child runs are stopped, the
- *  root work node is settled, and the run itself is marked stopped. */
-export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<RunRow> {
+ *  root work node is settled, and the run itself is marked stopped. The run branch
+ *  and merged work stay; the integration worktree is removed on terminal settle. */
+export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: EngineDeps = defaultEngineDeps): Promise<StoppedRun> {
   const run = getRun(ctx, runId);
   if (!run) throw new CoreError("not_found", `unknown run ${runId}`);
   if (RUN_TERMINAL.includes(run.status)) throw new CoreError("conflict", `conflict: run ${runId} is ${run.status}`);
@@ -1812,5 +1973,6 @@ export async function stopRun(ctx: Ctx, runId: string, expectRev: number, deps: 
   }
   const stopped = await patchRun(ctx, runId, { status: "stopped" });
   settleRootWorkNode(ctx, stopped, "stopped");
-  return stopped;
+  const report = await branchReportFor(ctx, stopped);
+  return report.ahead === undefined ? { ...stopped, ...report } : { ...stopped, ahead: report.ahead };
 }

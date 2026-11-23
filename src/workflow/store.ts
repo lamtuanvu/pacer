@@ -15,7 +15,11 @@ import type { WorkflowDef } from "./schema";
 // tasks.db + WAL mid-startup) never observes a partial workflow schema — phase 2 added
 // many CREATE/ALTER steps after the original tables, which made that window flake
 // native/forwarded parity (workflow_decisions appearing on only one side).
-const ready = new WeakSet<Database>();
+let ready = new WeakSet<Database>();
+/** Test-only: forget schema-init so the next `workflowDatabase` re-runs DDL/migrations. */
+export function resetWorkflowSchemaReadyForTests(): void {
+  ready = new WeakSet();
+}
 export function workflowDatabase(ctx: Ctx): Database {
   const db = taskDatabase(ctx);
   if (ready.has(db)) return db;
@@ -96,6 +100,23 @@ export function workflowDatabase(ctx: Ctx): Database {
     // Phase 3: pin each run's step start path (D8). Pre-existing rows read as plain.
     if (!runColumns.includes("step_mode")) db.exec("ALTER TABLE workflow_runs ADD COLUMN step_mode TEXT NOT NULL DEFAULT 'plain'");
     if (!runColumns.includes("root_task_id")) db.exec("ALTER TABLE workflow_runs ADD COLUMN root_task_id TEXT");
+    // Phase 5: run branch (created lazily at the first code step). Pre-existing rows stay NULL.
+    if (!runColumns.includes("branch")) db.exec("ALTER TABLE workflow_runs ADD COLUMN branch TEXT");
+    if (!runColumns.includes("base_ref")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_ref TEXT");
+    if (!runColumns.includes("base_sha")) db.exec("ALTER TABLE workflow_runs ADD COLUMN base_sha TEXT");
+    // Phase 5 publishing: optional draft opt-in at start, and the PR URL after publish.
+    if (!runColumns.includes("publish_opt_in")) db.exec("ALTER TABLE workflow_runs ADD COLUMN publish_opt_in TEXT");
+    if (!runColumns.includes("pr_url")) db.exec("ALTER TABLE workflow_runs ADD COLUMN pr_url TEXT");
+    // Phase 5 fix I1/R2-F3: durable unresolved conflict marker(s) as a JSON list.
+    if (!runColumns.includes("conflict")) db.exec("ALTER TABLE workflow_runs ADD COLUMN conflict TEXT");
+    // Idempotent object→list migration for rows written before R2-F3.
+    db.exec(`
+      UPDATE workflow_runs
+      SET conflict = json_array(json(conflict))
+      WHERE conflict IS NOT NULL
+        AND json_valid(conflict)
+        AND json_type(conflict) = 'object'
+    `);
     // Decision log: every orchestrator (and refused) choice with its reason (G7).
     db.exec(`
       CREATE TABLE IF NOT EXISTS workflow_decisions(
@@ -155,6 +176,21 @@ export function workflowDatabase(ctx: Ctx): Database {
     `);
     db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_run ON workflow_questions(run_id, created_at, id)");
     db.exec("CREATE INDEX IF NOT EXISTS workflow_questions_open ON workflow_questions(run_id) WHERE status = 'open'");
+    // Phase 5: step artifact metadata (blobs live under PACER_HOME/runs/<id>/artifacts/).
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS workflow_artifacts(
+        id TEXT PRIMARY KEY,
+        run_id TEXT NOT NULL,
+        step_id TEXT NOT NULL,
+        attempt INTEGER NOT NULL,
+        label TEXT NOT NULL,
+        name TEXT NOT NULL,
+        mime TEXT NOT NULL,
+        size INTEGER NOT NULL,
+        created_at REAL NOT NULL
+      );
+    `);
+    db.exec("CREATE INDEX IF NOT EXISTS workflow_artifacts_run ON workflow_artifacts(run_id, created_at, id)");
   }).immediate();
   ready.add(db);
   return db;
@@ -196,6 +232,62 @@ export interface RunRow {
   stepMode?: "plain" | "work_node";
   /** Engine-owned dispatcher root for `work_node` runs. */
   rootTaskId?: string;
+  /** Phase 5: local run branch (`pacer/run-<id>`), base ref name and the tip sha at creation. */
+  branch?: string;
+  baseRef?: string;
+  baseSha?: string;
+  /** Phase 5: `draft` when the person opted in at start for draft-only publish. */
+  publishOptIn?: "draft";
+  /** Phase 5: URL of the opened PR after a successful publish. */
+  prUrl?: string;
+  /**
+   * Phase 5: durable unresolved merge conflict entries (publish gate).
+   * Cleared per entry only after the conflicting branch is an ancestor of the run branch.
+   */
+  conflict?: RunConflict[];
+}
+
+/** One durable run-level merge conflict entry (not derived from resolution-task state). */
+export type RunConflict = {
+  taskId: string;
+  branch: string;
+  resolutionTaskId: string;
+};
+
+function isConflictEntry(value: unknown): value is RunConflict {
+  if (!value || typeof value !== "object") return false;
+  const e = value as Record<string, unknown>;
+  return typeof e.taskId === "string" && typeof e.branch === "string"
+    && typeof e.resolutionTaskId === "string";
+}
+
+/**
+ * Parse stored conflict JSON: a list, or a legacy single object (pre R2-F3).
+ * M4 fail-closed: malformed / non-entry JSON is treated as one unresolved sentinel
+ * so the publish gate stays closed (never opens on garbage).
+ */
+export function parseRunConflicts(raw: string | null | undefined): RunConflict[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (Array.isArray(parsed) && parsed.length === 0) return undefined;
+    const list = Array.isArray(parsed) ? parsed : [parsed];
+    const entries = list.filter(isConflictEntry);
+    if (entries.length > 0) return entries;
+    // Valid JSON but no recognizable entries (e.g. `{}`, `[null]`, `"x"`): still unresolved.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
+  } catch {
+    // Unparseable: fail closed — publish must not proceed.
+    return [{
+      taskId: "__malformed__",
+      branch: "__malformed__",
+      resolutionTaskId: "__malformed__",
+    }];
+  }
 }
 
 export interface DecisionRow {
@@ -280,6 +372,12 @@ interface RunDbRow {
   pending_planner?: string | null;
   step_mode?: string | null;
   root_task_id?: string | null;
+  branch?: string | null;
+  base_ref?: string | null;
+  base_sha?: string | null;
+  publish_opt_in?: string | null;
+  pr_url?: string | null;
+  conflict?: string | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -317,6 +415,13 @@ function runFromRow(row: RunDbRow): RunRow {
   if (row.pending_planner) out.pendingPlanner = row.pending_planner;
   out.stepMode = row.step_mode === "work_node" ? "work_node" : "plain";
   if (row.root_task_id) out.rootTaskId = row.root_task_id;
+  if (row.branch) out.branch = row.branch;
+  if (row.base_ref) out.baseRef = row.base_ref;
+  if (row.base_sha) out.baseSha = row.base_sha;
+  if (row.publish_opt_in === "draft") out.publishOptIn = "draft";
+  if (row.pr_url) out.prUrl = row.pr_url;
+  const conflicts = parseRunConflicts(row.conflict);
+  if (conflicts) out.conflict = conflicts;
   return out;
 }
 
@@ -444,6 +549,108 @@ export function rootRunId(ctx: Ctx, runId: string): string {
 export function getRun(ctx: Ctx, id: string): RunRow | null {
   const row = workflowDatabase(ctx).query<RunDbRow, [string]>("SELECT * FROM workflow_runs WHERE id = ?").get(id);
   return row ? runFromRow(row) : null;
+}
+
+/** Record the run branch once without bumping `rev` (engine-owned, like setRootTaskId). */
+export function setRunBranch(ctx: Ctx, runId: string, info: { branch: string; base_ref: string; base_sha: string }): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET branch = ?, base_ref = ?, base_sha = ? WHERE id = ? AND (branch IS NULL OR branch = '')",
+  ).run(info.branch, info.base_ref, info.base_sha, runId);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.branch && current.branch !== info.branch) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a branch`);
+    }
+  }
+}
+
+/** Person opt-in at start for draft-only publish (`publish: draft`). Does not bump `rev`. */
+export function setPublishOptIn(ctx: Ctx, runId: string, optIn: "draft"): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET publish_opt_in = ? WHERE id = ? AND (publish_opt_in IS NULL OR publish_opt_in = ?)",
+  ).run(optIn, runId, optIn);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.publishOptIn && current.publishOptIn !== optIn) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a publish opt-in`);
+    }
+  }
+}
+
+/** Clear local branch columns after `run.cleanup` deletes the branch. Does not bump `rev`. */
+export function clearRunBranch(ctx: Ctx, runId: string): void {
+  workflowDatabase(ctx).query(
+    "UPDATE workflow_runs SET branch = NULL, base_ref = NULL, base_sha = NULL WHERE id = ?",
+  ).run(runId);
+}
+
+/** Store the PR URL after publish. Idempotent for the same URL; a different URL is a conflict. */
+export function setRunPrUrl(ctx: Ctx, runId: string, prUrl: string): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET pr_url = ? WHERE id = ? AND (pr_url IS NULL OR pr_url = '' OR pr_url = ?)",
+  ).run(prUrl, runId, prUrl);
+  if (result.changes === 0) {
+    const current = getRun(ctx, runId);
+    if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+    if (current.prUrl && current.prUrl !== prUrl) {
+      throw new CoreError("conflict", `conflict: run ${runId} already has a different PR URL`);
+    }
+  }
+}
+
+/**
+ * Upsert one unresolved merge conflict entry on the run (publish gate).
+ * Keyed by taskId+branch so a second conflict does not erase the first (R2-F3).
+ * Does not bump `rev`.
+ */
+export function setRunConflict(ctx: Ctx, runId: string, conflict: RunConflict): void {
+  const db = workflowDatabase(ctx);
+  const current = getRun(ctx, runId);
+  if (!current) throw new CoreError("not_found", `unknown run ${runId}`);
+  const list = [...(current.conflict ?? [])];
+  const idx = list.findIndex(e => e.taskId === conflict.taskId && e.branch === conflict.branch);
+  if (idx >= 0) list[idx] = conflict;
+  else list.push(conflict);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(JSON.stringify(list), runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Replace the full conflict list (or clear when empty). Does not bump `rev`. */
+export function replaceRunConflicts(ctx: Ctx, runId: string, conflicts: RunConflict[]): void {
+  const db = workflowDatabase(ctx);
+  const result = db.query(
+    "UPDATE workflow_runs SET conflict = ? WHERE id = ?",
+  ).run(conflicts.length > 0 ? JSON.stringify(conflicts) : null, runId);
+  if (result.changes === 0) throw new CoreError("not_found", `unknown run ${runId}`);
+}
+
+/** Clear every durable conflict marker on the run. Prefer clearRunConflictEntry. */
+export function clearRunConflict(ctx: Ctx, runId: string): void {
+  replaceRunConflicts(ctx, runId, []);
+}
+
+/** Remove conflict entries matching the predicate. */
+export function clearRunConflictEntry(
+  ctx: Ctx,
+  runId: string,
+  match: (entry: RunConflict) => boolean,
+): void {
+  const current = getRun(ctx, runId);
+  if (!current?.conflict?.length) return;
+  const next = current.conflict.filter(e => !match(e));
+  if (next.length !== current.conflict.length) replaceRunConflicts(ctx, runId, next);
+}
+
+/** Find a conflict entry that names this resolution task (or the conflicting task). */
+export function conflictEntryForTask(run: { conflict?: RunConflict[] }, taskId: string): RunConflict | undefined {
+  return run.conflict?.find(e => e.resolutionTaskId === taskId || e.taskId === taskId);
 }
 
 /** Attach the engine-owned root work node without bumping `rev` (part of start, not a client-visible patch). */
@@ -758,15 +965,43 @@ export function fireEdge(ctx: Ctx, fire: EdgeFire): EdgeFireResult {
 /** Atomically answers a waiting human step row: the compare-and-set write lands
  *  only while the row is still `waiting` (like claimStepSettlement), so of two
  *  concurrent answers exactly one wins and the loser gets a conflict. Returns null
- *  when the row is not waiting (already answered, stopped, …). */
-export function claimStepAnswer(ctx: Ctx, key: StepKey, result: unknown): StepRow | null {
+ *  when the row is not waiting (already answered, stopped, …).
+ *  Optional `decision` is inserted in the same immediate transaction (R2-F6). */
+export function claimStepAnswer(
+  ctx: Ctx,
+  key: StepKey,
+  result: unknown,
+  extras?: {
+    decision?: {
+      runId: string;
+      stepId: string;
+      attempt: number;
+      actor: string;
+      kind: string;
+      choice: string;
+      reason: string;
+    };
+  },
+): StepRow | null {
   const db = workflowDatabase(ctx);
   const where = stepWhere(key);
-  const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
-  if (!row || row.status !== "waiting") return null;
-  const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
-    .run(JSON.stringify(result), ctx.now, ...where.bindings);
-  return done.changes === 1 ? stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now }) : null;
+  // M3: immediate so a concurrent writer cannot interleave between the claim and the decision.
+  // A tip that moves between tip-read and claim makes publish refuse (fail-closed); the person re-approves.
+  return db.transaction(() => {
+    const row = db.query<StepDbRow, SQLQueryBindings[]>(`SELECT * FROM workflow_steps WHERE ${where.sql}`).get(...where.bindings);
+    if (!row || row.status !== "waiting") return null;
+    const done = db.query(`UPDATE workflow_steps SET status = 'done', result = ?, ended_at = ? WHERE ${where.sql} AND status = 'waiting'`)
+      .run(JSON.stringify(result), ctx.now, ...where.bindings);
+    if (done.changes !== 1) return null;
+    if (extras?.decision) {
+      const d = extras.decision;
+      const id = newDecisionId();
+      db.query(
+        "INSERT INTO workflow_decisions(id, run_id, step_id, attempt, actor, kind, choice, reason, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      ).run(id, d.runId, d.stepId, d.attempt, d.actor, d.kind, d.choice, d.reason, ctx.now);
+    }
+    return stepFromRow({ ...row, status: "done", result: JSON.stringify(result), ended_at: ctx.now });
+  }).immediate();
 }
 
 /** Done step rows whose outgoing edges may never have been processed (advanced_at
@@ -788,6 +1023,66 @@ export function stepsOfRun(ctx: Ctx, runId: string): StepRow[] {
 export function stepByTask(ctx: Ctx, taskId: string): StepRow | null {
   const row = workflowDatabase(ctx).query<StepDbRow, [string]>("SELECT * FROM workflow_steps WHERE task_id = ?").get(taskId);
   return row ? stepFromRow(row) : null;
+}
+
+/**
+ * Read-only: true when `taskId` is a workflow step of a run that already has a
+ * branch. Uses sqlite_master only — never runs workflow DDL — so ordinary
+ * accepts and the native review probe stay side-effect free on old DBs.
+ * Missing tables / columns mean "no". Other errors propagate (M4: fail closed
+ * for the probe only means "table/column missing", not "swallow everything").
+ */
+export function stepTaskNeedsRunBranchMerge(ctx: Ctx, taskId: string): boolean {
+  const db = taskDatabase(ctx);
+  let present: unknown;
+  let runsPresent: unknown;
+  try {
+    present = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_steps'",
+    ).get();
+    runsPresent = db.query(
+      "SELECT 1 AS ok FROM sqlite_master WHERE type = 'table' AND name = 'workflow_runs'",
+    ).get();
+  } catch {
+    return false;
+  }
+  if (!present || !runsPresent) return false;
+  try {
+    const row = db.query<{ branch: string | null }, [string]>(
+      `SELECT r.branch AS branch
+       FROM workflow_steps s
+       JOIN workflow_runs r ON r.id = s.run_id
+       WHERE s.task_id = ?
+       LIMIT 1`,
+    ).get(taskId);
+    if (typeof row?.branch === "string" && row.branch.length > 0) return true;
+    // Conflict-resolution tasks are not step-attached; they still merge into the run branch.
+    const conflictCol = db.query(
+      "SELECT 1 AS ok FROM pragma_table_info('workflow_runs') WHERE name = 'conflict'",
+    ).get();
+    if (!conflictCol) return false;
+    // Support both legacy object markers and the R2-F3 list form.
+    // F2: json_valid so one corrupt row cannot raise "malformed JSON" on every accept probe.
+    const marker = db.query<{ conflict: string | null }, [string, string]>(
+      `SELECT conflict FROM workflow_runs
+       WHERE conflict IS NOT NULL
+         AND json_valid(conflict)
+         AND (
+           json_extract(conflict, '$.resolutionTaskId') = ?
+           OR EXISTS (
+             SELECT 1 FROM json_each(conflict) AS j
+             WHERE json_extract(j.value, '$.resolutionTaskId') = ?
+           )
+         )
+       LIMIT 1`,
+    ).get(taskId, taskId);
+    return typeof marker?.conflict === "string" && marker.conflict.length > 0;
+  } catch (error) {
+    const msg = `${error instanceof Error ? error.message : error}`;
+    // Only schema-absence is "no"; other errors must propagate so callers fail closed.
+    if (/no such (table|column)/i.test(msg)) return false;
+    throw error;
+  }
 }
 
 /** True when workflow tables already exist — read-only, no DDL (R2-I4). */
@@ -895,7 +1190,7 @@ export function recordDecision(ctx: Ctx, d: {
 
 export function listDecisions(ctx: Ctx, runId: string): DecisionRow[] {
   return workflowDatabase(ctx).query<DecisionDbRow, [string]>(
-    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, id",
+    "SELECT * FROM workflow_decisions WHERE run_id = ? ORDER BY at, rowid",
   ).all(runId).map(decisionFromRow);
 }
 

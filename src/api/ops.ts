@@ -578,9 +578,26 @@ export const OPS: Record<string, OpDef> = {
         if(p.verdict!=="accept"&&p.verdict!=="reject")throw new CoreError("not_allowed","Use dispatch.review for work results");
         result = await taskMutation(ctx,p.id,p.expect_rev,()=>reviewWork(ctx,p.id,p.verdict==="accept",p.note,p.expect_rev));
       } else {
-        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {const result=await core.tasks.review(ctx, p.id, p, { delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner), spawnRunner: deps.spawnRunner, appAuthenticated: deps.appAuthenticated, participant: deps.participant });if(getWork(ctx,p.id)&&p.verdict!=="send_back")recordWorkReview(ctx,p.id,"human");return result;});
+        result = await taskMutation(ctx, p.id, p.expect_rev, async () => {
+          const reviewed = await core.tasks.review(ctx, p.id, p, {
+            delegate: (c, input) => core.tasks.delegate(c, input, deps.spawnRunner ?? spawnRunner),
+            spawnRunner: deps.spawnRunner,
+            appAuthenticated: deps.appAuthenticated,
+            participant: deps.participant,
+          });
+          // R3-I4: conflict returns with no verdict — do not record a work review.
+          const conflicted = reviewed && typeof reviewed === "object"
+            && (reviewed as { accepted?: boolean; merge?: string }).accepted === false
+            && (reviewed as { merge?: string }).merge === "conflict";
+          if (getWork(ctx, p.id) && p.verdict !== "send_back" && !conflicted) recordWorkReview(ctx, p.id, "human");
+          return reviewed;
+        });
       }
-      if (p.verdict === "accept") recheckAfterAccept(ctx, p.id, deps);
+      // R3-I4: skip diagnostic recheck when accept hit a merge conflict (no verdict recorded).
+      const conflictResult = result && typeof result === "object"
+        && (result as { accepted?: boolean; merge?: string }).accepted === false
+        && (result as { merge?: string }).merge === "conflict";
+      if (p.verdict === "accept" && !conflictResult) recheckAfterAccept(ctx, p.id, deps);
       return result;
     },
   }),

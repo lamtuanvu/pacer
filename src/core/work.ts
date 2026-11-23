@@ -130,6 +130,8 @@ export async function reviewWork(ctx:Ctx,id:string,accepted:boolean,note?:string
   if(accepted&&pendingChildren(ctx,id).length)throw new CoreError("conflict","Required children must be reviewed first");
   const current=fresh();
   const result=await reviewTask({...current,env:{...current.env,PACER_ROLE:undefined}},id,{verdict:accepted?"accept":"reject",note,expectRev});
+  // R3-I4: a merge conflict returns accepted:false with no verdict — do not emit work.reviewed or sync waits.
+  if(result.accepted===false&&result.merge)return result;
   recordWorkReview(ctx,id,ctx.env.PACER_WORK_GRANT?"requesting-agent":"human");
   appendWorkEvent(ctx,id,"work.reviewed",{accepted,provenance:ctx.env.PACER_WORK_GRANT?"requesting-agent":"human",note:note?.slice(0,2000)??null});
   syncDependentWaits(ctx,id);
