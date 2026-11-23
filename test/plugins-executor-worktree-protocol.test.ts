@@ -205,8 +205,8 @@ test("bindOwnedWorktreeIntent preserves original baseSha across reused-worktree 
   updateTask(ctx, task.id, current => {
     current.worktreeIntent = {
       attempt: 1, providerId: "pacer-exec-direct",
-      repoMain: grant.repoMain, path: grant.path, workdir: grant.workdir,
-      branch: grant.branch, baseSha: tip,
+      repoTop: grant.repoTop, repoMain: grant.repoMain, path: grant.path,
+      workdir: grant.workdir, branch: grant.branch, baseSha: tip,
     };
   });
   await bindOwnedWorktreeIntent(ctx, task.id, "pacer-exec-direct", 1);
