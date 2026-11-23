@@ -143,7 +143,7 @@ jobs:
           toolchain: 1.99.0
       - name: Cache Rust
         if: ${{ needs.changes.outputs.full == 'true' }}
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
@@ -206,7 +206,7 @@ jobs:
           toolchain: 1.99.0
       - name: Cache Rust
         if: ${{ env.RUN_CHECKS == 'true' && needs.changes.outputs.full == 'true' }}
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
       - name: Install dependencies
@@ -486,7 +486,7 @@ jobs:
             *) exit 1 ;;
           esac
       - name: Cache Rust
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           # Pair key must not collide with per-target release shared-keys (this job builds two targets).
           shared-key: release-pair-${{ matrix.runner }}
@@ -566,7 +566,7 @@ jobs:
           toolchain: 1.99.0
           components: rustfmt, clippy
       - name: Cache Rust
-        uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
+        uses: Swatinem/rust-cache@d1527c8f67ef9af357290475d4af4b0fab8f12e0 # v2.9.3
         with:
           save-if: ${{ github.ref == 'refs/heads/main' }}
           # Cache both the root workspace and the desktop crate (excluded from
