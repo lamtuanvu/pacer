@@ -12,12 +12,13 @@ import type { DesktopArch, VerifiedDesktopApp } from "./desktop-feed";
 
 export async function command(argv: string[], timeoutMs = 30_000): Promise<string> {
   const p = Bun.spawn(argv, { stdin: "ignore", stdout: "pipe", stderr: "pipe", env: { ...process.env, COPYFILE_DISABLE: "1", TAURI_SIGNING_PRIVATE_KEY: undefined, PACER_APPLE_CERTIFICATE_BASE64: undefined, PACER_APPLE_CERTIFICATE_PASSWORD: undefined, PACER_NOTARY_KEY: undefined } });
-  const timeout = setTimeout(() => p.kill(), timeoutMs);
+  let timedOut = false;
+  const timeout = setTimeout(() => { timedOut = true; p.kill(); }, timeoutMs);
   try {
     const [code, stdout, stderr] = await Promise.all([p.exited, new Response(p.stdout).text(), new Response(p.stderr).text()]);
     if (code) {
       // codesign handles public identities and paths; credential-bearing security commands stay opaque.
-      const detail = argv[0] === "/usr/bin/codesign" ? ` (exit ${code}): ${stderr.trim().slice(0, 2000)}` : "";
+      const detail = timedOut ? ` (timed out after ${timeoutMs / 1000} s)` : argv[0] === "/usr/bin/codesign" ? ` (exit ${code}): ${stderr.trim().slice(0, 2000)}` : ` (exit ${code})`;
       throw Error(`Desktop verification failed: ${argv[0]} ${argv[1]}${detail}`);
     }
     return stdout + stderr;
