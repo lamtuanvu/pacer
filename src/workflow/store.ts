@@ -3,8 +3,6 @@
 // Definitions are immutable per version; run updates go through expect_rev.
 import type { Database, SQLQueryBindings } from "bun:sqlite";
 import { randomBytes } from "node:crypto";
-import { readFileSync } from "node:fs";
-import { join } from "node:path";
 import { taskDatabase } from "../tasks/store";
 import type { TaskRecord } from "../tasks/types";
 import type { Ctx } from "../types";
@@ -145,6 +143,8 @@ export function workflowDatabase(ctx: Ctx): Database {
     if (!runColumns.includes("entry_start_attempts")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_start_attempts INTEGER NOT NULL DEFAULT 0");
     // Phase 6 batch H: wall-clock of the first transient entry-start failure (time-based bound).
     if (!runColumns.includes("entry_first_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_first_transient_at REAL");
+    // Phase 6 batch I: wall-clock of the most recent transient entry-start failure (gap restart).
+    if (!runColumns.includes("entry_last_transient_at")) db.exec("ALTER TABLE workflow_runs ADD COLUMN entry_last_transient_at REAL");
     // Backfill letters for live letterless rows inside this write transaction only (never on read).
     // Used set includes ALL existing letters (terminal rows too) so the unique index cannot throw.
     {
@@ -335,32 +335,30 @@ export interface RunRow {
   entryStartAttempts?: number;
   /** Phase 6 batch H: unix seconds of the first durable transient entry-start failure. */
   entryFirstTransientAt?: number;
+  /** Phase 6 batch I: unix seconds of the most recent durable transient entry-start failure. */
+  entryLastTransientAt?: number;
 }
 
 /** How long an entry-start owner holds exclusive ownership after claim/renew (seconds). */
 export const ENTRY_LEASE_S = 30;
 
 /**
- * Effective entry-lease length. Sandbox/live drivers may shorten via
- * `$PACER_HOME/entry-lease-s` (1–120) without rebuilding; production stays at ENTRY_LEASE_S.
+ * Effective entry-lease length. Prefer `ctx.entryLeaseS` (tests / harness boot override);
+ * production stays at ENTRY_LEASE_S. Never reads files under $PACER_HOME.
  */
 export function entryLeaseSeconds(ctx: Ctx): number {
-  try {
-    const n = Number(readFileSync(join(ctx.pacerHome, "entry-lease-s"), "utf8").trim());
-    if (Number.isFinite(n) && n >= 1 && n <= 120) return n;
-  } catch { /* default */ }
+  const n = ctx.entryLeaseS;
+  if (typeof n === "number" && Number.isFinite(n) && n >= 1 && n <= 120) return n;
   return ENTRY_LEASE_S;
 }
 
 /**
- * Optional startRun fault delay (ms) from `$PACER_HOME/start-run-delay-ms` (0–120_000).
- * Live P14 uses this so a tick can race a slow start without a product rebuild.
+ * Optional startRun fault delay (ms). Prefer `ctx.startRunDelayMs` (tests / harness);
+ * production is always 0. Never reads files under $PACER_HOME.
  */
 export function startRunDelayMs(ctx: Ctx): number {
-  try {
-    const n = Number(readFileSync(join(ctx.pacerHome, "start-run-delay-ms"), "utf8").trim());
-    if (Number.isFinite(n) && n > 0 && n <= 120_000) return Math.floor(n);
-  } catch { /* none */ }
+  const n = ctx.startRunDelayMs;
+  if (typeof n === "number" && Number.isFinite(n) && n > 0 && n <= 120_000) return Math.floor(n);
   return 0;
 }
 
@@ -372,10 +370,17 @@ export function startRunDelayMs(ctx: Ctx): number {
 export const ENTRY_START_TRANSIENT_MIN_S = 5 * 60;
 
 /**
- * Secondary attempt cap for durable transient entry-start failures (batch H).
- * The time bound is primary; this stops unbounded spinning if the clock stalls.
+ * Gap (seconds) since the last transient after which the durable window restarts
+ * (batch I: a lone BUSY blip must not fail a healthy run hours later).
  */
-export const ENTRY_START_TRANSIENT_MAX = 256;
+export const ENTRY_START_TRANSIENT_GAP_S = 60;
+
+/**
+ * Secondary attempt cap for durable transient entry-start failures.
+ * Time is always primary: sized for a 500 ms pump floor × window × 2 so a short tick
+ * cannot exhaust the cap before ENTRY_START_TRANSIENT_MIN_S elapses (batch I).
+ */
+export const ENTRY_START_TRANSIENT_MAX = Math.ceil(ENTRY_START_TRANSIENT_MIN_S / 0.5) * 2;
 
 /**
  * Live unix seconds for entry-lease deadlines and expiry checks.
@@ -544,6 +549,7 @@ interface RunDbRow {
   entry_seed?: string | null;
   entry_start_attempts?: number | null;
   entry_first_transient_at?: number | null;
+  entry_last_transient_at?: number | null;
 }
 interface StepDbRow {
   run_id: string; step_id: string; attempt: number; branch: string | null; task_id: string | null;
@@ -625,6 +631,9 @@ function runFromRow(row: RunDbRow): RunRow {
   }
   if (row.entry_first_transient_at != null) {
     out.entryFirstTransientAt = row.entry_first_transient_at;
+  }
+  if (row.entry_last_transient_at != null) {
+    out.entryLastTransientAt = row.entry_last_transient_at;
   }
   return out;
 }
@@ -870,36 +879,63 @@ export function clearEntrySeed(ctx: Ctx, runId: string): void {
 }
 
 /**
- * Record one durable transient entry-start failure: bump attempts and stamp
- * `entry_first_transient_at` on the first failure (batch H time-based bound).
+ * Record one durable transient entry-start failure: bump attempts, stamp
+ * `entry_first_transient_at` / `entry_last_transient_at`, and restart the window
+ * when the gap since the last transient exceeds ENTRY_START_TRANSIENT_GAP_S (batch I).
  */
 export function bumpEntryStartAttempts(
   ctx: Ctx,
   runId: string,
   now: number = leaseNow(ctx),
-): { attempts: number; firstAt: number } {
+): { attempts: number; firstAt: number; lastAt: number; restarted: boolean } {
   const db = workflowDatabase(ctx);
+  let restarted = false;
   db.transaction(() => {
-    db.query(
-      `UPDATE workflow_runs
-       SET entry_start_attempts = COALESCE(entry_start_attempts, 0) + 1,
-           entry_first_transient_at = COALESCE(entry_first_transient_at, ?)
-       WHERE id = ?`,
-    ).run(now, runId);
+    const prev = db.query<{
+      entry_start_attempts: number | null;
+      entry_first_transient_at: number | null;
+      entry_last_transient_at: number | null;
+    }, [string]>(
+      "SELECT entry_start_attempts, entry_first_transient_at, entry_last_transient_at FROM workflow_runs WHERE id = ?",
+    ).get(runId);
+    const lastAt = prev?.entry_last_transient_at ?? null;
+    const gapRestart = lastAt != null && (now - lastAt) > ENTRY_START_TRANSIENT_GAP_S;
+    if (gapRestart || prev?.entry_first_transient_at == null) {
+      restarted = gapRestart;
+      db.query(
+        `UPDATE workflow_runs
+         SET entry_start_attempts = 1,
+             entry_first_transient_at = ?,
+             entry_last_transient_at = ?
+         WHERE id = ?`,
+      ).run(now, now, runId);
+    } else {
+      db.query(
+        `UPDATE workflow_runs
+         SET entry_start_attempts = COALESCE(entry_start_attempts, 0) + 1,
+             entry_last_transient_at = ?
+         WHERE id = ?`,
+      ).run(now, runId);
+    }
   }).immediate();
-  const row = db.query<{ entry_start_attempts: number; entry_first_transient_at: number | null }, [string]>(
-    "SELECT entry_start_attempts, entry_first_transient_at FROM workflow_runs WHERE id = ?",
+  const row = db.query<{
+    entry_start_attempts: number;
+    entry_first_transient_at: number | null;
+    entry_last_transient_at: number | null;
+  }, [string]>(
+    "SELECT entry_start_attempts, entry_first_transient_at, entry_last_transient_at FROM workflow_runs WHERE id = ?",
   ).get(runId);
   const attempts = row?.entry_start_attempts ?? 0;
   const firstAt = row?.entry_first_transient_at ?? now;
-  return { attempts, firstAt };
+  const lastAt = row?.entry_last_transient_at ?? now;
+  return { attempts, firstAt, lastAt, restarted };
 }
 
-/** Reset transient entry-start budget after a successful start. */
+/** Reset transient entry-start budget after a successful start (or pause skip). */
 export function resetEntryStartAttempts(ctx: Ctx, runId: string): void {
   try {
     workflowDatabase(ctx).query(
-      "UPDATE workflow_runs SET entry_start_attempts = 0, entry_first_transient_at = NULL WHERE id = ?",
+      "UPDATE workflow_runs SET entry_start_attempts = 0, entry_first_transient_at = NULL, entry_last_transient_at = NULL WHERE id = ?",
     ).run(runId);
   } catch { /* */ }
 }

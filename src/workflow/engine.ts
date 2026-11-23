@@ -153,6 +153,11 @@ export interface StartOptions {
   spawn?: SpawnRunner;
   /** When set, startEntryIfNeeded renews this owner instead of claiming a new one. */
   entryOwner?: string;
+  /**
+   * Test-only: after a successful claim, before entry start work. Lets a second
+   * starter insert the entry row so the engine observes a real UNIQUE race.
+   */
+  afterEntryClaim?: (ctx: Ctx, runId: string) => void | Promise<void>;
 }
 
 /**
@@ -171,15 +176,81 @@ export function isEntryStepAlreadyStarted(err: unknown, runId: string, entryStep
   return false;
 }
 
-/** Renew entry ownership from a live clock. Transient lock → keep going; lost → stop. */
-function renewEntryLease(ctx: Ctx, runId: string, owner: string): "ok" | "lost" | "busy" {
+/**
+ * Renew entry ownership from a live clock.
+ * Transient lock → busy (keep going); lost claim → lost; any other error → unknown
+ * (never throw into a timer callback; caller treats unknown like lost).
+ */
+export function renewEntryLease(ctx: Ctx, runId: string, owner: string): "ok" | "lost" | "busy" | "unknown" {
   try {
     const now = leaseNow(ctx);
     if (!claimEntryLease(ctx, runId, owner, now + entryLeaseSeconds(ctx), now)) return "lost";
     return "ok";
   } catch (e) {
     if (isTransientError(e)) return "busy";
-    throw e;
+    console.warn(
+      `pacer: renewEntryLease non-transient for ${runId}: ${e instanceof Error ? e.message : String(e)}`,
+    );
+    return "unknown";
+  }
+}
+
+export type EntryLeaseCtl = {
+  /** Renew now; returns false when the lease is lost or unknown (stop starting). */
+  renew: () => boolean;
+  /** True once renew saw lost/unknown (including heartbeat). */
+  lost: () => boolean;
+};
+
+/**
+ * Hold an already-claimed entry lease for the duration of `fn`: heartbeat renewals,
+ * await-boundary renew helpers, lost-lease stop without failRun, and clearInterval
+ * on every exit. Shared by startRun and startEntryIfNeeded so they cannot drift.
+ */
+export async function withEntryLease<T>(
+  ctx: Ctx,
+  runId: string,
+  owner: string,
+  fn: (ctl: EntryLeaseCtl) => Promise<T>,
+): Promise<{ value?: T; leaseLost: boolean; error?: unknown }> {
+  let leaseLost = false;
+  const renew = (): boolean => {
+    const result = renewEntryLease(ctx, runId, owner);
+    if (result === "lost" || result === "unknown") {
+      leaseLost = true;
+      return false;
+    }
+    return true;
+  };
+  const ctl: EntryLeaseCtl = {
+    renew,
+    lost: () => leaseLost,
+  };
+  const leaseS = entryLeaseSeconds(ctx);
+  const heartbeatMs = Math.max(1_000, Math.floor((leaseS * 1000) / 3));
+  const schedule = ctx.setInterval ?? setInterval;
+  const cancel = ctx.clearInterval ?? clearInterval;
+  const heartbeat = schedule(() => {
+    try {
+      renew();
+    } catch (e) {
+      // Never let a timer callback crash the service process.
+      console.warn(
+        `pacer: entry-lease heartbeat error for ${runId}: ${e instanceof Error ? e.message : String(e)}`,
+      );
+      leaseLost = true;
+    }
+  }, heartbeatMs);
+  (heartbeat as { unref?: () => void }).unref?.();
+  try {
+    const value = await fn(ctl);
+    return { value, leaseLost };
+  } catch (error) {
+    return { leaseLost, error };
+  } finally {
+    cancel(heartbeat);
+    // Owner-matched: no-op when another owner already claimed.
+    clearEntryLease(ctx, runId, owner);
   }
 }
 
@@ -1018,7 +1089,11 @@ export async function startEntryIfNeeded(
 ): Promise<boolean> {
   const run = getRun(ctx, runId);
   if (!run || RUN_TERMINAL.includes(run.status)) return false;
-  if (isRunStepPaused(run)) return false;
+  if (isRunStepPaused(run)) {
+    // Pause skip: drop a stale transient window so a later resume is not failed immediately.
+    resetEntryStartAttempts(ctx, runId);
+    return false;
+  }
   const hasSeed = !!(run.entrySeed && run.entrySeed.finishedIds.length > 0);
   if (!hasSeed && stepsOfRun(ctx, runId).length > 0) return false;
   const owner = o?.entryOwner ?? newEntryOwner();
@@ -1030,12 +1105,22 @@ export async function startEntryIfNeeded(
     clearEntryLease(ctx, runId, owner);
     return false;
   }
-  try {
+  const held = await withEntryLease(ctx, runId, owner, async (ctl) => {
+    if (o?.afterEntryClaim) await o.afterEntryClaim(ctx, runId);
+    if (!ctl.renew()) return false;
+    // Same harness fault delay as startRun so a tick recovery can outlast the lease (P15).
+    const delayMs = startRunDelayMs(ctx);
+    if (delayMs > 0) {
+      await new Promise<void>(r => setTimeout(r, delayMs));
+      if (!ctl.renew()) return false;
+    }
     // Crash between insertRun and ensureRootWorkNode: recover the root before entry.
     const live = getRun(ctx, runId)!;
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
     if (hasSeed) {
+      if (!ctl.renew()) return false;
       await seedFinishedAndResume(ctx, getRun(ctx, runId)!, def, run.entrySeed!, withDefaults(o));
+      if (ctl.lost()) return false;
       clearEntrySeed(ctx, runId);
       resetEntryStartAttempts(ctx, runId);
       return true;
@@ -1045,11 +1130,16 @@ export async function startEntryIfNeeded(
       resetEntryStartAttempts(ctx, runId);
       return true;
     }
+    if (!ctl.renew()) return false;
     await startStep(ctx, getRun(ctx, runId)!, def, def.entry, undefined, o);
+    if (ctl.lost()) return false;
     resetEntryStartAttempts(ctx, runId);
     return true;
-  } catch (e) {
+  });
+  if (held.error) {
+    const e = held.error;
     if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
+      resetEntryStartAttempts(ctx, runId);
       return false;
     }
     // Another starter won the ENTRY step insert — healthy run, not a failure (B1).
@@ -1057,10 +1147,11 @@ export async function startEntryIfNeeded(
       resetEntryStartAttempts(ctx, runId);
       return true;
     }
+    // Lost lease mid-start: stop cleanly; never failRun a healthy run for it.
+    if (held.leaseLost) return false;
     throw e;
-  } finally {
-    clearEntryLease(ctx, runId, owner);
   }
+  return held.value === true;
 }
 
 export type StartPendingOptions = StartOptions & {
@@ -1189,62 +1280,53 @@ export async function startRun(
       ...(parentStepMode ? { stepMode: parentStepMode } : {}),
     } : {}),
   });
-  let leaseLost = false;
-  const renewLease = (): boolean => {
-    const result = renewEntryLease(ctx, run.id, entryOwner);
-    if (result === "lost") {
-      leaseLost = true;
-      return false;
-    }
-    return true;
-  };
-  // Heartbeat while startRun awaits (delegate / worktree / mode): keeps the lease
-  // ahead of real time even when await boundaries are sparse. Stopped in finally.
-  const heartbeatMs = Math.max(1_000, Math.floor((leaseS * 1000) / 3));
-  const heartbeat = setInterval(() => { renewLease(); }, heartbeatMs);
-  heartbeat.unref?.();
   if (input.publish === "draft" && !child) setPublishOptIn(ctx, run.id, "draft");
   await publishRunChange(ctx, getRun(ctx, run.id) ?? run); // clients see the run even when its start then fails
-  renewLease();
-  try {
+  const held = await withEntryLease(ctx, run.id, entryOwner, async (ctl) => {
+    ctl.renew();
     let live = getRun(ctx, run.id)!;
     // Apply mode-driven pause before the entry step so strict/emergency never
     // starts a background (or normal) step that should already be paused.
     // Person pause (including inherited) is left alone by syncRunPacingPause.
     try {
       const mode = await readPacingMode(ctx);
-      if (!renewLease()) return getRun(ctx, run.id) ?? run;
+      if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
       live = syncRunPacingPause(ctx, live, mode);
     } catch { /* mode read must not fail start */ }
-    if (!renewLease()) return getRun(ctx, run.id) ?? run;
+    if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
     // Live/sandbox fault: hold start past the lease so a concurrent tick races renewals.
     const delayMs = startRunDelayMs(ctx);
     if (delayMs > 0) {
       await new Promise<void>(r => setTimeout(r, delayMs));
-      if (!renewLease()) return getRun(ctx, run.id) ?? run;
+      if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
     }
     if (isWorkNodeRun(live)) ensureRootWorkNode(ctx, live);
-    if (!renewLease()) return getRun(ctx, run.id) ?? run;
+    if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
     live = getRun(ctx, run.id)!;
     // Pause before seed (same order as startEntryIfNeeded): a person/pacing-paused
     // seeded child must not fireEdge/delegate until resume; seed stays durable.
     if (isRunStepPaused(live)) {
       // Mode/person pause at start: keep the run, start no entry/seed work.
+      // Drop any stale transient window so resume is not failed immediately.
+      resetEntryStartAttempts(ctx, run.id);
     } else if (def.steps[def.entry]?.type === "end") {
       await patchRun(ctx, run.id, { status: "done" });
     } else if (seed) {
-      if (!renewLease()) return getRun(ctx, run.id) ?? run;
+      if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
       await seedFinishedAndResume(ctx, getRun(ctx, run.id)!, def, seed, { deps, spawn });
-      if (leaseLost) return getRun(ctx, run.id) ?? run;
-      renewLease();
+      if (ctl.lost()) return getRun(ctx, run.id) ?? run;
+      ctl.renew();
       clearEntrySeed(ctx, run.id);
     } else {
-      if (!renewLease()) return getRun(ctx, run.id) ?? run;
+      if (!ctl.renew()) return getRun(ctx, run.id) ?? run;
       await startStep(ctx, getRun(ctx, run.id)!, def, def.entry, undefined, { deps, spawn });
-      if (leaseLost) return getRun(ctx, run.id) ?? run;
-      renewLease();
+      if (ctl.lost()) return getRun(ctx, run.id) ?? run;
+      ctl.renew();
     }
-  } catch (e) {
+    return getRun(ctx, run.id) ?? run;
+  });
+  if (held.error) {
+    const e = held.error;
     // A pause refusal is not a failed start — the run stays live without a step.
     if (e instanceof CoreError && e.code === "not_allowed" && String(e.message).includes("is paused")) {
       return getRun(ctx, run.id) ?? run;
@@ -1254,17 +1336,13 @@ export async function startRun(
       clearEntrySeed(ctx, run.id);
       return getRun(ctx, run.id) ?? run;
     }
-    // Another owner claimed the lease while we were starting — stop; do not failRun.
-    if (leaseLost) return getRun(ctx, run.id) ?? run;
+    // Another owner claimed the lease (or renew unknown) — stop; do not failRun.
+    if (held.leaseLost) return getRun(ctx, run.id) ?? run;
     await failRun(ctx, run.id, `start failed: ${e instanceof Error ? e.message : String(e)}`, undefined, deps);
     throw e;
-  } finally {
-    clearInterval(heartbeat);
-    // startRun finished (or paused-at-start): release ownership so a later resume/tick can start.
-    // Owner-matched: no-op when the lease was already lost to another owner.
-    clearEntryLease(ctx, run.id, entryOwner);
   }
-  const finished = getRun(ctx, run.id) ?? run;
+  // Re-read after withEntryLease finally cleared our owner-matched lease.
+  const finished = getRun(ctx, run.id) ?? held.value ?? run;
   if (RUN_TERMINAL.includes(finished.status) && finished.parentRunId && finished.parentStep) {
     await settleParentChooseStep(ctx, finished, deps, spawn);
   }

@@ -45,6 +45,10 @@ export function fakeCtx(o: Partial<Ctx> = {}): Ctx {
   };
   // Deterministic leases: bind clock to mutable ctx.now unless the caller injects one.
   ctx.clock = o.clock ?? (() => ctx.now);
+  if (o.entryLeaseS !== undefined) ctx.entryLeaseS = o.entryLeaseS;
+  if (o.startRunDelayMs !== undefined) ctx.startRunDelayMs = o.startRunDelayMs;
+  if (o.setInterval) ctx.setInterval = o.setInterval;
+  if (o.clearInterval) ctx.clearInterval = o.clearInterval;
   return ctx;
 }
 
