@@ -1,7 +1,7 @@
 import { expect, test } from "bun:test";
 import { mkdirSync, mkdtempSync, readFileSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import {
   bundledOrcaPanelVersion,
   installOrcaPanel,
@@ -9,6 +9,7 @@ import {
   ORCA_PANEL_DIR_ENV,
   ORCA_PANEL_PLUGIN_ID,
   ORCA_PANEL_PLUGIN_KEY,
+  orcaPanelDirCandidates,
   resolveOrcaPanelDir,
   statusOrcaPanel,
   uninstallOrcaPanel,
@@ -164,22 +165,57 @@ test("resolveOrcaPanelDir prefers env override, then source checkout, then packa
   const source = resolveOrcaPanelDir({});
   expect(source?.endsWith(join("plugins", "orca-panel"))).toBe(true);
   expect(bundledOrcaPanelVersion(source)).toBeTruthy();
+});
 
-  // Packaged: Contents/Resources/pacer next to orca-panel/.
-  const app = mkdtempSync(join(tmpdir(), "pacer-app-"));
-  const resources = join(app, "Contents", "Resources");
-  mkdirSync(join(resources, "orca-panel", "src"), { recursive: true });
-  writeFileSync(join(resources, "orca-panel", "orca-plugin.json"), JSON.stringify({ id: "pacer", version: "0.1.0" }));
-  writeFileSync(join(resources, "pacer"), "");
-  // Hide the source checkout with an explicit missing override first — packaged path is only
-  // consulted when override is unset; simulate by pointing override at the packaged folder.
-  expect(resolveOrcaPanelDir({ [ORCA_PANEL_DIR_ENV]: join(resources, "orca-panel") }, join(resources, "pacer"))).toBe(
-    join(resources, "orca-panel"),
+test("resolveOrcaPanelDir packaged branches: beside execPath and ../Resources (injectable exists)", () => {
+  const resourcesPacer = "/App.app/Contents/Resources/pacer-core";
+  const macosPacer = "/App.app/Contents/MacOS/pacer";
+  expect(orcaPanelDirCandidates(resourcesPacer)).toEqual([
+    join(dirname(resourcesPacer), "orca-panel"),
+    join(dirname(resourcesPacer), "..", "Resources", "orca-panel"),
+  ]);
+  expect(orcaPanelDirCandidates(macosPacer)).toEqual([
+    join(dirname(macosPacer), "orca-panel"),
+    join(dirname(macosPacer), "..", "Resources", "orca-panel"),
+  ]);
+
+  const beside = join(dirname(resourcesPacer), "orca-panel");
+  const fromShell = join(dirname(macosPacer), "..", "Resources", "orca-panel");
+  const existsBeside = (p: string) => p === join(beside, "orca-plugin.json");
+  expect(resolveOrcaPanelDir({}, resourcesPacer, existsBeside)).toBe(beside);
+
+  const existsShell = (p: string) => p === join(fromShell, "orca-plugin.json");
+  expect(resolveOrcaPanelDir({}, macosPacer, existsShell)).toBe(fromShell);
+
+  expect(resolveOrcaPanelDir({}, resourcesPacer, () => false)).toBeNull();
+});
+
+test("statusOrcaPanel accepts only pacer and local.pacer — not acme.pacer or lamtuanvu.pacer", async () => {
+  const foreign = await statusOrcaPanel(
+    recordingRun(
+      ok(
+        JSON.stringify({
+          ok: true,
+          result: {
+            plugins: [{ pluginKey: "acme.pacer" }, { pluginKey: "lamtuanvu.pacer", status: "running", version: "9.9.9" }],
+          },
+        }),
+      ),
+    ),
   );
-  // From MacOS/pacer shell → ../Resources/orca-panel (override unset; force skip source via a
-  // temporary rename is heavy — call with env that blanks the source by using packaged exec only
-  // after override). Direct path check:
-  expect(resolveOrcaPanelDir({ [ORCA_PANEL_DIR_ENV]: join(resources, "orca-panel") })).toBe(join(resources, "orca-panel"));
+  expect(foreign).toEqual({ installed: false });
+
+  const own = await statusOrcaPanel(
+    recordingRun(
+      ok(
+        JSON.stringify({
+          ok: true,
+          result: { plugins: [{ pluginKey: "pacer", status: "running", version: "0.2.0" }] },
+        }),
+      ),
+    ),
+  );
+  expect(own).toEqual({ installed: true, enabled: true, version: "0.2.0", key: "pacer" });
 });
 
 test("ORCA_PANEL_PLUGIN_ID matches plugins/orca-panel/orca-plugin.json's id", () => {

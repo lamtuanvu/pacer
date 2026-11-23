@@ -26,9 +26,8 @@ function isOldPanel(key: string): boolean {
 }
 
 function isOwnPanel(key: string): boolean {
-  // `lamtuanvu.pacer` also ends with `.pacer`; never treat the retired key as the current panel.
-  if (isOldPanel(key)) return false;
-  return key === ORCA_PANEL_PLUGIN_ID || key === ORCA_PANEL_PLUGIN_KEY || key.endsWith(`.${ORCA_PANEL_PLUGIN_ID}`);
+  // Exact keys only — a third-party `acme.pacer` must never read as pacer's own panel.
+  return key === ORCA_PANEL_PLUGIN_ID || key === ORCA_PANEL_PLUGIN_KEY;
 }
 
 /** Env override for tests and fixtures; never a user-facing install path. */
@@ -44,27 +43,32 @@ function orcaPluginEnv(): Record<string, string | undefined> {
   return env;
 }
 
+/** Packaged layouts relative to `execPath`: beside the CLI, or `../Resources` from MacOS/pacer. */
+export function orcaPanelDirCandidates(execPath: string): string[] {
+  const dir = dirname(execPath);
+  return [join(dir, "orca-panel"), join(dir, "..", "Resources", "orca-panel")];
+}
+
 /**
  * Find the panel plugin folder: env override (tests), source checkout, then the packaged app
  * (`Contents/Resources/orca-panel` next to the bundled CLI, or beside `MacOS/pacer`).
  * Returns null when this install does not ship the panel files (npm/Homebrew today).
+ * `exists` is injectable so packaged branches can be unit-tested without renaming the checkout.
  */
 export function resolveOrcaPanelDir(
   env: Record<string, string | undefined> = process.env,
   execPath: string = process.execPath,
+  exists: (path: string) => boolean = existsSync,
 ): string | null {
   const override = env[ORCA_PANEL_DIR_ENV]?.trim();
   if (override) return override;
 
   const source = fileURLToPath(new URL("../../plugins/orca-panel", import.meta.url));
-  if (existsSync(join(source, "orca-plugin.json"))) return source;
+  if (exists(join(source, "orca-plugin.json"))) return source;
 
-  const besideCli = join(dirname(execPath), "orca-panel");
-  if (existsSync(join(besideCli, "orca-plugin.json"))) return besideCli;
-
-  // Desktop shell is Contents/MacOS/pacer; Resources sits next to MacOS.
-  const fromShell = join(dirname(execPath), "..", "Resources", "orca-panel");
-  if (existsSync(join(fromShell, "orca-plugin.json"))) return fromShell;
+  for (const candidate of orcaPanelDirCandidates(execPath)) {
+    if (exists(join(candidate, "orca-plugin.json"))) return candidate;
+  }
 
   return null;
 }
